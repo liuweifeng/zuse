@@ -27,6 +27,7 @@ import type {
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -201,7 +202,7 @@ export const startGrokSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
@@ -224,8 +225,9 @@ export const startGrokSession = (
 				});
 			}
 		};
+		startup.add(() => releaseGatewayQuestions("closed"));
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "grok",
 			sessionId,
 			cwd,
@@ -279,6 +281,7 @@ export const startGrokSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 		let acpSessionId: string | null = null;
 		const configuredHome = process.env.GROK_HOME?.trim();
 		const providerHome =
@@ -399,6 +402,7 @@ export const startGrokSession = (
 			lifecycle.transition(
 				lifecycle.current() === "start" ? "authentication" : "reconnecting",
 			);
+			startup.signal.throwIfAborted();
 			const generation = ++connectionGeneration;
 			const nextChild = spawn(grokPath, grokAgentArgs(getRuntimeMode()), {
 				cwd,
@@ -410,10 +414,14 @@ export const startGrokSession = (
 				},
 				stdio: ["pipe", "pipe", "pipe"],
 			});
+			startup.add(() => {
+				nextChild.kill("SIGTERM");
+			});
 			stderrTail = "";
 			nextChild.stdout.setEncoding("utf-8");
 			nextChild.stderr.setEncoding("utf-8");
 			const nextRl = readline.createInterface({ input: nextChild.stdout });
+			startup.add(() => nextRl.close());
 			child = nextChild;
 			rl = nextRl;
 			attachListeners(nextChild, nextRl, generation);
@@ -438,6 +446,11 @@ export const startGrokSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		startup.add(() => {
+			closed = true;
+			rpc.rejectAll(new Error("Provider startup cancelled"));
+			Queue.endUnsafe(events);
+		});
 		const userQuestions = makeAcpUserQuestionRegistry({
 			send: writeMessage,
 			emit: (event) => Queue.offerUnsafe(events, event),
@@ -447,6 +460,9 @@ export const startGrokSession = (
 					itemId,
 					reason,
 				}),
+		});
+		startup.add(() => {
+			userQuestions.discardAll();
 		});
 		const request = (
 			method: string,
@@ -967,19 +983,7 @@ export const startGrokSession = (
 					providerId: "grok",
 					reason: cause instanceof Error ? cause.message : String(cause),
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.sync(() => {
-					try {
-						child?.kill("SIGTERM");
-					} catch {
-						// ignore — child may not be alive
-					}
-					void mcpGatewaySession.close();
-					void stdioMcpFallback.close();
-				}),
-			),
-		);
+		});
 		acpSessionId = initialAcquisition.sessionId;
 		Queue.offerUnsafe(events, {
 			_tag: "SessionCursor",

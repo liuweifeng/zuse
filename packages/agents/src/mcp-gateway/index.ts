@@ -543,9 +543,13 @@ const ensureServer = async (): Promise<{
 /** Issues credentials owned by a provider handle; close them on disposal or transport loss. */
 export const issueMcpGatewaySession = async (
 	input: McpGatewayIssueInput,
+	signal?: AbortSignal,
 ): Promise<McpGatewaySession> => {
+	signal?.throwIfAborted();
 	const { port } = await ensureServer();
+	signal?.throwIfAborted();
 	await revokeMcpGatewaySession(input.sessionId);
+	signal?.throwIfAborted();
 	const token = randomBytes(32).toString("base64url");
 	const hash = tokenHash(token);
 	const record: RegistryRecord = {

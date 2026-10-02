@@ -22,6 +22,7 @@ import type {
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import { handleFsRequest } from "./acp/fs.ts";
@@ -142,7 +143,7 @@ export const startKiroSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		// AttachmentService resolves uploaded image blobs for ACP image content
 		// (Kiro advertises promptCapabilities.image).
 		const attachments = yield* AttachmentService;
@@ -150,7 +151,7 @@ export const startKiroSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "kiro",
 			sessionId,
 			cwd,
@@ -181,6 +182,7 @@ export const startKiroSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 
 		let acpSessionId: string | null = null;
 		let closed = false;
@@ -248,9 +250,13 @@ export const startKiroSession = (
 			);
 		}
 
+		startup.add(() => {
+			child.kill("SIGTERM");
+		});
 		child.stdout.setEncoding("utf-8");
 		child.stderr.setEncoding("utf-8");
 		const rl = readline.createInterface({ input: child.stdout });
+		startup.add(() => rl.close());
 
 		const writeMessage = (msg: Record<string, unknown>): void => {
 			if (!child.stdin.writable) return;
@@ -260,6 +266,11 @@ export const startKiroSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		startup.add(() => {
+			closed = true;
+			rpc.rejectAll(new Error("Provider startup cancelled"));
+			Queue.endUnsafe(events);
+		});
 		const userQuestions = makeAcpUserQuestionRegistry({
 			send: writeMessage,
 			emit: (event) => Queue.offerUnsafe(events, event),
@@ -269,6 +280,9 @@ export const startKiroSession = (
 					itemId,
 					reason,
 				}),
+		});
+		startup.add(() => {
+			userQuestions.discardAll();
 		});
 		const request = (
 			method: string,
@@ -599,15 +613,7 @@ export const startKiroSession = (
 				}),
 		});
 
-		const acquiredSession = yield* handshake.pipe(
-			Effect.tapError(() =>
-				Effect.sync(() => {
-					child.kill("SIGTERM");
-					void stdioMcpFallback.close();
-					void mcpGatewaySession.close();
-				}),
-			),
-		);
+		const acquiredSession = yield* handshake;
 		acpSessionId = acquiredSession.sessionId;
 		if (acquiredSession.resumed) {
 			for (const event of translator.flush()) Queue.offerUnsafe(events, event);

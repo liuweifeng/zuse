@@ -69,9 +69,11 @@ retired for recovery. Startup admission checks durable ownership under lifecycle
 serialization before replacing a handle, and owned attach/status publication checks
 ownership inside the transaction. Startup scopes retain displaced and acquired
 handles until successful publication and return; cancellation closes only those
-handles, with bounded cleanup and generation-aware invalidation. Driver acquisition
-before a handle is returned and legacy unowned lifecycle paths still need a recovery
-audit. Uncorrelated drivers currently require
+handles, with bounded cleanup and generation-aware invalidation. Driver startup now owns MCP credentials, ACP child processes, and app-server
+connections before returning a handle. Failed or interrupted acquisition releases
+those resources, including Promise allocations that finish after cancellation.
+Successful startup transfers ownership to the handle. Legacy unowned lifecycle
+paths and other provider drivers still need a recovery audit. Uncorrelated drivers currently require
 a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
