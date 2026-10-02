@@ -10,6 +10,7 @@ import {
 	type MessageContent,
 	MessageId,
 	type MessageOrigin,
+	PlanResolutionError,
 	type ProviderId,
 	ProviderThreadId,
 	providerCapabilities,
@@ -39,6 +40,7 @@ import type {
 } from "../services/conversation-services.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { planResponseMessageId, readPlanResponse } from "./plan-response.ts";
 import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
@@ -164,7 +166,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		interruptProviderFiber,
 		teardownSubscription,
 	} = options;
-	const questionResolutionWorker = new KeyedEffectSerialWorker<string>();
+	const inputResolutionWorker = new KeyedEffectSerialWorker<string>();
 	const listSessions: ConversationOperations["listSessions"] = (
 		projectId,
 		includeArchived,
@@ -563,7 +565,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		itemId,
 		answers,
 	) =>
-		questionResolutionWorker.run(
+		inputResolutionWorker.run(
 			structuralTupleKey(sessionId, itemId),
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
@@ -719,7 +721,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		sessionId,
 		itemId,
 	) =>
-		questionResolutionWorker.run(
+		inputResolutionWorker.run(
 			structuralTupleKey(sessionId, itemId),
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
@@ -875,43 +877,59 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		outcome,
 		feedback,
 	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			const settleUnavailableInteraction = Effect.gen(function* () {
-				const persisted = yield* persistMessage(sessionId, {
-					_tag: "tool_result",
-					itemId: toolCallId,
-					output: {
-						outcome,
-						reason: "provider_session_unavailable",
-						...(feedback === undefined ? {} : { feedback }),
+		inputResolutionWorker.run(
+			structuralTupleKey("plan", sessionId, toolCallId),
+			Effect.gen(function* () {
+				yield* lookupSession(sessionId);
+				const unavailable = () =>
+					new PlanResolutionError({
+						sessionId,
+						itemId: toolCallId,
+						reason:
+							"This plan decision is unavailable or conflicts with an accepted response.",
+					});
+				const existing = yield* readPlanResponse(
+					sql,
+					sessionId,
+					toolCallId,
+				).pipe(Effect.orDie);
+				if (existing._tag === "resolved") {
+					if (
+						existing.response.outcome !== outcome ||
+						existing.response.feedback !== feedback
+					)
+						return yield* unavailable();
+					return;
+				}
+				if (
+					existing._tag !== "pending" ||
+					!(yield* ownsInputRequest(sql, sessionId, existing.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* unavailable();
+				const respond = provider.respondToPlan;
+				if (respond === undefined) return yield* unavailable();
+				yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
+					Effect.mapError(unavailable),
+				);
+				const persisted = yield* persistMessage(
+					sessionId,
+					{
+						_tag: "tool_result",
+						itemId: toolCallId,
+						output: {
+							outcome,
+							...(feedback === undefined ? {} : { feedback }),
+						},
+						isError: false,
 					},
-					isError: true,
-				});
-				yield* ndjsonAppend(sessionId, persisted);
-				return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
-			});
-			const respond = provider.respondToPlan;
-			if (respond === undefined) {
-				return yield* settleUnavailableInteraction;
-			}
-			yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
-				Effect.catchTag(
-					"AgentSessionNotFoundError",
-					() => settleUnavailableInteraction,
-				),
-			);
-			const persisted = yield* persistMessage(sessionId, {
-				_tag: "tool_result",
-				itemId: toolCallId,
-				output: {
-					outcome,
-					...(feedback === undefined ? {} : { feedback }),
-				},
-				isError: false,
-			});
-			yield* ndjsonAppend(sessionId, persisted);
-		});
+					planResponseMessageId(sessionId, toolCallId),
+					existing.turnId,
+				);
+				if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
+			}),
+		);
 
 	const updateMcpServers: ConversationOperations["updateMcpServers"] = (
 		sessionId,

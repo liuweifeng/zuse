@@ -31,6 +31,7 @@ import type {
 	MessageOrigin,
 	PermissionMode,
 	PlanApprovalOutcome,
+	PlanResolutionError,
 	ProviderId,
 	QuestionResolutionError,
 	QueuedMessage,
@@ -326,7 +327,7 @@ export interface ConversationOperations {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | PlanResolutionError>;
 
 	readonly updateMcpServers: (
 		sessionId: SessionId,

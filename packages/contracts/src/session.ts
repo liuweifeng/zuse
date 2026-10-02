@@ -692,6 +692,11 @@ export class QuestionResolutionError extends Schema.TaggedErrorClass<QuestionRes
 	{ sessionId: SessionId, itemId: AgentItemId, reason: Schema.String },
 ) {}
 
+export class PlanResolutionError extends Schema.TaggedErrorClass<PlanResolutionError>()(
+	"PlanResolutionError",
+	{ sessionId: SessionId, itemId: AgentItemId, reason: Schema.String },
+) {}
+
 export class SessionStartError extends Schema.TaggedErrorClass<SessionStartError>()(
 	"SessionStartError",
 	{ providerId: ProviderId, reason: Schema.String },
@@ -1659,7 +1664,7 @@ export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 		feedback: Schema.optional(Schema.String),
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, PlanResolutionError]),
 });
 
 export const SessionMcpUpdateRpc = Rpc.make("session.mcp.update", {
