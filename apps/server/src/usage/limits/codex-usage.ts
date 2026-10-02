@@ -22,7 +22,7 @@ export const fetchCodexUsage = async (
 			const result = await client.request<unknown>(
 				"account/rateLimits/read",
 				{},
-				requestSignal,
+				{ signal: requestSignal },
 			);
 			if (
 				!result ||

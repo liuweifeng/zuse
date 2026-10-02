@@ -381,39 +381,42 @@ export class CodexAppServerClient {
 			| CodexGoalRequestMethod
 			| CodexExperimentalRequestMethod,
 		params: unknown,
-		signal?: AbortSignal,
+		options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal },
 	): Promise<T> {
+		const signal = options?.signal;
 		if (signal?.aborted) return Promise.reject(signal.reason);
-		if (this.closed) {
+		if (this.closed)
 			return Promise.reject(new Error("Codex app-server is closed"));
-		}
 		const id = this.nextId++;
 		const message =
 			params === undefined ? { id, method } : { id, method, params };
 		return new Promise<T>((resolve, reject) => {
-			const cleanup = () => signal?.removeEventListener("abort", onAbort);
-			const onAbort = () => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const cleanup = () => {
+				if (timer !== undefined) clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
-				cleanup();
-				reject(signal?.reason);
 			};
+			const fail = (error: unknown) => {
+				cleanup();
+				reject(error);
+			};
+			const onAbort = () => fail(signal?.reason);
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
 				resolve: (value) => {
 					cleanup();
 					resolve(value as T);
 				},
-				reject: (error) => {
-					cleanup();
-					reject(error);
-				},
+				reject: fail,
 			});
+			if (options?.timeoutMs !== undefined)
+				timer = setTimeout(
+					() => fail(new Error("Codex app-server request timed out")),
+					options.timeoutMs,
+				);
 			this.child.stdin.write(`${JSON.stringify(message)}\n`, (err) => {
-				if (err) {
-					this.pending.delete(id);
-					cleanup();
-					reject(err);
-				}
+				if (err) fail(err);
 			});
 		});
 	}

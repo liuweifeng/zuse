@@ -89,8 +89,12 @@ its root native thread and turn IDs only while the application attempt is active
 transactional attempt and residency guards fence persistence. A reference cannot
 change or be reused by a later attempt in the same session. Migration leaves
 historical attempts uncorrelated rather than guessing from prompt text. This is
-the evidence needed for recovery; native transcript reads, redacted backfill and
-provider-recovery jobs still need implementation. Other drivers have not yet
+the evidence needed for recovery. A shared read-only native reader now verifies
+exact thread and turn identity and distinguishes missing, partial, running and
+terminal evidence. Reads time out without closing concurrent control-client
+requests; transport errors are not interpreted as absence. Transcript import
+uses the same thread reader. Redacted backfill and provider-recovery jobs still
+need implementation. Other drivers have not yet
 reported strong native turn identity.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
