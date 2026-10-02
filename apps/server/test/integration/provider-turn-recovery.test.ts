@@ -6,11 +6,12 @@ import {
 	MessageId,
 	SessionId,
 } from "@zuse/contracts";
+import { makeJobWorker } from "@zuse/domain/agent-engine/job-worker";
 import { type Job, JobRequest } from "@zuse/domain/agent-engine/jobs";
 import { attemptIdFor } from "@zuse/domain/core/state";
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Exit, Schema } from "effect";
+import { Deferred, Effect, Exit, Fiber, PubSub, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
@@ -312,6 +313,74 @@ test("a second engine restart retains the pending recovery without enqueuing a s
 			).toHaveLength(1);
 			yield* recoverProviderTurn(job, options, () => Effect.succeed(terminal));
 			expect(yield* domain.activeAttempt("session-1")).toBeNull();
+		}),
+	);
+});
+
+test("Stop during native inspection cancels recovery and rejects its final output", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, job, options, dispatch } = yield* fixture;
+			const result = yield* Effect.exit(
+				recoverProviderTurn(job, options, () =>
+					dispatch({ _tag: "RequestTurnInterrupt", requestedAt: 5 }).pipe(
+						Effect.as(terminal),
+					),
+				),
+			);
+			expect(Exit.isFailure(result)).toBe(true);
+			const rows = yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages`;
+			expect(rows).toHaveLength(1);
+			expect(JSON.parse(rows[0]?.content_json ?? "null").text).toBe("Partial");
+			const jobs = yield* sql<{
+				kind: string;
+				status: string;
+			}>`SELECT kind, status FROM jobs ORDER BY sequence`;
+			expect(jobs).toEqual([
+				{ kind: "provider.turn.recover", status: "cancelled" },
+				{ kind: "provider.turn.interrupt", status: "pending" },
+			]);
+			const turns = yield* sql<{
+				status: string;
+				phase: string;
+			}>`SELECT status, phase FROM session_turns`;
+			expect(turns[0]?.phase).toBe("interrupt-requested");
+			expect(turns[0]?.status).not.toBe("completed");
+		}),
+	);
+});
+
+test("committed Stop interrupts an in-flight recovery worker without waiting for provider inspection", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { domain, options, dispatch, job } = yield* fixture;
+			const started = yield* Deferred.make<void>();
+			const stopped = yield* Deferred.make<void>();
+			const notifications = yield* PubSub.subscribe(domain.jobCancellations);
+			const worker = yield* makeJobWorker({
+				ledger: domain.jobs,
+				workerId: "recovery-cancel-test",
+				execute: (claimed) =>
+					claimed.request._tag === "provider.turn.recover"
+						? recoverProviderTurn(claimed, options, () =>
+								Deferred.succeed(started, undefined).pipe(
+									Effect.andThen(Effect.never),
+									Effect.ensuring(Deferred.succeed(stopped, undefined)),
+								),
+							).pipe(Effect.orDie)
+						: Effect.void,
+			});
+			const drain = yield* Effect.forkChild(worker.drainSession("session-1"));
+			yield* Deferred.await(started);
+			yield* dispatch({ _tag: "RequestTurnInterrupt", requestedAt: 6 });
+			const cancelled = yield* PubSub.take(notifications);
+			expect(cancelled).toEqual([job.id]);
+			expect((yield* domain.jobs.get(job.id))?.status).toBe("cancelled");
+			yield* worker.cancel(cancelled);
+			yield* Deferred.await(stopped);
+			yield* Fiber.join(drain);
 		}),
 	);
 });

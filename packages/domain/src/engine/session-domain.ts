@@ -553,6 +553,21 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 										reason: "Superseded by a new attempt.",
 									});
 								}
+								if (
+									appended.some(
+										(record) => record.event._tag === "TurnInterruptRequested",
+									)
+								) {
+									cancelled = [
+										...cancelled,
+										...(yield* jobs.cancelUnsettled({
+											sessionId: input.streamId,
+											kinds: ["provider.turn.recover"],
+											reason: "Recovery interrupted by the user.",
+										})),
+									];
+								}
+
 								// Jobs are the durable side effects of these events. Inserting them
 
 								// here means a committed event can never lose its side effect and a

@@ -48,6 +48,8 @@ export const CommandReceipt = Schema.Struct({
 export type CommandReceipt = typeof CommandReceipt.Type;
 
 export type AttemptOwnership = {
+	/** Read-only recovery loses write authority as soon as interruption commits. */
+	readonly requireUninterrupted?: boolean;
 	readonly turnId: string;
 	readonly attemptId: string;
 };
@@ -236,7 +238,8 @@ export class DispatchEngine<
 			const actual =
 				(state.currentTurnId === expected.turnId || ownsTail) &&
 				!state.deleted &&
-				!state.archived
+				!state.archived &&
+				(!expected.requireUninterrupted || turn?.phase === "running")
 					? (turn?.activeAttemptId ?? null)
 					: null;
 			if (actual !== expected.attemptId)

@@ -98,7 +98,10 @@ requests; transport errors are not interpreted as absence. Transcript import
 uses the same thread reader. Recovery has a distinct durable job, retaining the
 original execution attempt as its source across retries and restarts. It revokes
 prior provider ownership, cancels superseded delivery/recovery jobs, and guards
-backfill and settlement with the recovery attempt. Live ingestion and recovery
+backfill and settlement with the recovery attempt. Stop revokes recovery write
+authority transactionally, including receipt replay, and cancels the recovery
+worker after commit without waiting for provider inspection. The interrupt worker
+retains authority to settle cancellation. Live ingestion and recovery
 share message identity; final recovered checkpoints replace partial snapshots.
 Credential patterns are shared with diagnostics, while recovered transcript text
 is preserved without diagnostic truncation. Missing, incomplete, running or
