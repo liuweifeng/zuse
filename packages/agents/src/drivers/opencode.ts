@@ -11,7 +11,6 @@ import {
 	type Part as SdkPart,
 	type ToolPart as SdkToolPart,
 } from "@opencode-ai/sdk";
-
 import {
 	type AgentEvent,
 	type AgentItemId,
@@ -27,10 +26,13 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
+import {
+	type ProviderStartup,
+	withProviderStartup,
+} from "../kernel/provider-startup.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import {
 	finishCompactEvent,
@@ -229,10 +231,12 @@ const spawnOpencodeServer = (
 	configContent: string = OPENCODE_EMPTY_CONFIG,
 	timeoutMs = 10_000,
 	executionEnv?: Readonly<Record<string, string>>,
+	startup?: ProviderStartup,
 ): Promise<OpencodeServerProcess> =>
 	findFreePort().then(
 		(port) =>
 			new Promise<OpencodeServerProcess>((resolve, reject) => {
+				startup?.signal.throwIfAborted();
 				const args = ["serve", `--hostname=127.0.0.1`, `--port=${port}`];
 				let child: ChildProcessWithoutNullStreams;
 				try {
@@ -253,6 +257,7 @@ const spawnOpencodeServer = (
 					return;
 				}
 
+				startup?.add(() => stopOpencodeChild(child));
 				child.stdout.setEncoding("utf-8");
 				child.stderr.setEncoding("utf-8");
 				let stdoutBuf = "";
@@ -902,12 +907,16 @@ export const startOpencodeSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let closed = false;
+		startup.add(() => {
+			closed = true;
+			Queue.endUnsafe(events);
+		});
 		const deltaState = makeOpencodeDeltaState();
 		const emit = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -918,6 +927,7 @@ export const startOpencodeSession = (
 					emit(event);
 			},
 		});
+		startup.add(() => checkpointScheduler.cancel());
 
 		Queue.offerUnsafe(events, {
 			_tag: "Started",
@@ -957,11 +967,15 @@ export const startOpencodeSession = (
 					}),
 					10_000,
 					input.executionEnv,
+					startup,
 				);
+				startup.signal.throwIfAborted();
 				dlog(`server ready at ${proc.url}`);
 				const c = createOpencodeClient({ baseUrl: proc.url });
 				const ac = new AbortController();
+				startup.add(() => ac.abort());
 				const sse = await c.event.subscribe({ signal: ac.signal });
+				startup.signal.throwIfAborted();
 				dlog("SSE subscribed");
 				const session = await c.session.create({
 					throwOnError: true,

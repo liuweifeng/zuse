@@ -72,8 +72,11 @@ handles until successful publication and return; cancellation closes only those
 handles, with bounded cleanup and generation-aware invalidation. Driver startup now owns MCP credentials, ACP child processes, and app-server
 connections before returning a handle. Failed or interrupted acquisition releases
 those resources, including Promise allocations that finish after cancellation.
-Successful startup transfers ownership to the handle. Legacy unowned lifecycle
-paths and other provider drivers still need a recovery audit. Uncorrelated drivers currently require
+Successful startup transfers ownership to the handle. All nine structured provider
+drivers use this startup ownership guard, including SDK resume/fallback, local
+server readiness, HTTP event connections and Pi initialization. Cancellation
+cannot turn a failed resume into a new SDK agent. Legacy unowned lifecycle paths,
+CLI processes and shutdown of unresponsive children still need a recovery audit. Uncorrelated drivers currently require
 a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
