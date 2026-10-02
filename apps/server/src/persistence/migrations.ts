@@ -73,6 +73,7 @@ import { Migration0065ProviderReservations } from "./migrations/0065_provider_re
 import { Migration0066AttemptHistory } from "./migrations/0066_attempt_history.ts";
 import { Migration0067AttemptProviderTurn } from "./migrations/0067_attempt_provider_turn.ts";
 import { Migration0068IngestionLeases } from "./migrations/0068_ingestion_leases.ts";
+import { Migration0069SessionInputs } from "./migrations/0069_session_inputs.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -183,6 +184,7 @@ const MigrationDefinitions = {
 	"0066_attempt_history": Migration0066AttemptHistory,
 	"0067_attempt_provider_turn": Migration0067AttemptProviderTurn,
 	"0068_ingestion_leases": Migration0068IngestionLeases,
+	"0069_session_inputs": Migration0069SessionInputs,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

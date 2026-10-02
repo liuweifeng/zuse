@@ -108,6 +108,7 @@ const rebuildReadModels = Effect.gen(function* () {
   `;
 
 	yield* sql`PRAGMA foreign_keys = OFF`;
+	yield* sql`DELETE FROM session_inputs`;
 	yield* sql`DELETE FROM messages`;
 	yield* sql`DELETE FROM sessions`;
 	yield* sql`DELETE FROM chats`;

@@ -144,6 +144,14 @@ replacement callback. Client disconnection alone does not cancel delivery. Quest
 delivery does not hold the provider lifecycle lane, so close can revoke a hung
 callback. This cannot undo an answer already accepted by the external provider;
 driver-native side effects still require their own cancellation guarantees.
+Question and permission lifecycle events now update one indexed `session_inputs`
+read model in the event transaction. Timeline snapshots read this projection instead
+of rescanning transcript and event history. Migration 0069 backfills imported
+message rows and permission/cancellation events in bounded pages; resolved inputs
+cannot reopen during replay, and deleted sessions remove their input rows. This
+projection records durable status but does not grant live callback authority or
+replace the existing answer delivery mechanisms. Unified request ownership, plan
+responses, explicit question expiry and durable answer jobs remain outstanding.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
