@@ -1,6 +1,11 @@
 import { Schema } from "effect";
 
-import { AttemptReason, SegmentKind, SettlementOutcome } from "./commands.js";
+import {
+	AttemptProviderTurnFields,
+	AttemptReason,
+	SegmentKind,
+	SettlementOutcome,
+} from "./commands.js";
 import {
 	SessionConfigurationFields,
 	SessionCreatedEventFields,
@@ -85,6 +90,7 @@ export const SessionEvent = Schema.Union([
 		providerThreadId: Schema.optional(Schema.NullOr(Schema.String)),
 	}),
 	/** A retry or recovery replaced the active attempt of a turn. */
+	Schema.TaggedStruct("AttemptProviderTurnBound", AttemptProviderTurnFields),
 	Schema.TaggedStruct("AttemptStarted", {
 		turnId: Schema.String,
 		attemptId: Schema.String,

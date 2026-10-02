@@ -1,5 +1,6 @@
 import type {
 	PermissionMode,
+	ProviderTurnReference,
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
@@ -108,6 +109,7 @@ export type SessionState = {
 	readonly activeProviderThreadId: string | null;
 	/** Every counted turn, by turn id. */
 	readonly turns: ReadonlyMap<string, TurnState>;
+	readonly attemptProviderTurns: ReadonlyMap<string, ProviderTurnReference>;
 	/** Highest turn ordinal issued so far. */
 	readonly turnCount: number;
 	/** Derived from `turns`: the one turn that is not terminal, if any. */
@@ -152,6 +154,7 @@ export const initialSessionState: SessionState = {
 	providerThreads: new Map(),
 	activeProviderThreadId: null,
 	turns: new Map(),
+	attemptProviderTurns: new Map(),
 	turnCount: 0,
 	currentTurnId: null,
 	currentTurnPhase: null,
@@ -508,6 +511,19 @@ export const evolve = (
 				currentTurnPhase: "running",
 				version,
 			};
+		}
+		case "AttemptProviderTurnBound": {
+			const attempt = state.turns
+				.get(event.turnId)
+				?.attempts.get(event.attemptId);
+			if (
+				attempt === undefined ||
+				state.attemptProviderTurns.has(event.attemptId)
+			)
+				return { ...state, version };
+			const attemptProviderTurns = new Map(state.attemptProviderTurns);
+			attemptProviderTurns.set(event.attemptId, event.reference);
+			return { ...state, attemptProviderTurns, version };
 		}
 		case "AttemptStarted": {
 			const turn = state.turns.get(event.turnId);

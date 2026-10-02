@@ -297,6 +297,32 @@ afterEach(() => {
 });
 
 describe("Codex session cursor persistence", () => {
+	it("reports the native execution identity for the root turn", async () => {
+		await withSession({}, async (handle, appServer) => {
+			await Effect.runPromise(handle.send("identify this execution"));
+			await expect.poll(() => appServer.turnInputs.length).toBe(1);
+			const events = await Effect.runPromise(
+				Stream.runCollect(
+					handle.events.pipe(
+						Stream.filter((event) => event._tag === "NativeTurnStarted"),
+						Stream.take(1),
+						Stream.timeout("2 seconds"),
+					),
+				),
+			);
+			expect(events).toEqual([
+				{
+					_tag: "NativeTurnStarted",
+					reference: {
+						provider: "codex",
+						nativeThreadId: "fresh-thread",
+						nativeTurnId: "turn-1",
+					},
+				},
+			]);
+		});
+	});
+
 	it("sends automatic review on fresh, resumed, and subsequent turns", async () => {
 		for (const resumeCursor of [null, "existing-thread"]) {
 			await withSession(
@@ -631,12 +657,13 @@ describe("Codex session cursor persistence", () => {
 	it("publishes a fresh cursor only after the first turn starts", async () => {
 		await withSession({}, async (handle) => {
 			await Effect.runPromise(handle.send("hello"));
-			const events = await takeEvents(handle.events, 4);
+			const events = await takeEvents(handle.events, 5);
 
 			expect(events.map((event) => event._tag)).toEqual([
 				"Started",
 				"Status",
 				"SessionCursor",
+				"NativeTurnStarted",
 				"Status",
 			]);
 			expect(events[2]).toMatchObject({
@@ -649,11 +676,12 @@ describe("Codex session cursor persistence", () => {
 	it("does not republish an existing resumed cursor", async () => {
 		await withSession({ resumeCursor: "resumed-thread" }, async (handle) => {
 			await Effect.runPromise(handle.send("continue"));
-			const events = await takeEvents(handle.events, 3);
+			const events = await takeEvents(handle.events, 4);
 
 			expect(events.map((event) => event._tag)).toEqual([
 				"Started",
 				"Status",
+				"NativeTurnStarted",
 				"Status",
 			]);
 		});
@@ -701,12 +729,13 @@ describe("Codex session cursor persistence", () => {
 			{ resumeCursor: "stale-thread", missingResume: true },
 			async (handle) => {
 				await Effect.runPromise(handle.send("recover"));
-				const events = await takeEvents(handle.events, 4);
+				const events = await takeEvents(handle.events, 5);
 
 				expect(events.map((event) => event._tag)).toEqual([
 					"Started",
 					"Status",
 					"SessionCursor",
+					"NativeTurnStarted",
 					"Status",
 				]);
 				expect(events[2]).toMatchObject({

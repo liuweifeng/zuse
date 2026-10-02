@@ -655,6 +655,18 @@ export const ProviderResumeStrategy = Schema.Literals([
 ]);
 export type ProviderResumeStrategy = typeof ProviderResumeStrategy.Type;
 
+/** Strong provider-native identity for one execution; never inferred from prompt text. */
+export const ProviderTurnReference = Schema.Struct({
+	provider: ProviderId,
+	nativeThreadId: Schema.String,
+	nativeTurnId: Schema.String,
+});
+export type ProviderTurnReference = typeof ProviderTurnReference.Type;
+
+const NativeTurnStartedEvent = Schema.TaggedStruct("NativeTurnStarted", {
+	reference: ProviderTurnReference,
+});
+
 const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 	cursor: Schema.String,
 	providerEventCursor: Schema.optional(Schema.String),
@@ -775,6 +787,7 @@ export const AgentEvent = Schema.Union([
 	ContextCompactionEvent,
 	UsageLimitEvent,
 	SessionCursorEvent,
+	NativeTurnStartedEvent,
 	ProviderNotificationMetadataEvent,
 	UserQuestionEvent,
 	UserQuestionResolvedEvent,

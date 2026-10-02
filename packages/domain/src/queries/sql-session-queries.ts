@@ -1,3 +1,4 @@
+import { ProviderTurnReference } from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -192,6 +193,10 @@ export interface AttemptHistoryPage {
 }
 
 export interface SqlSessionQueriesApi {
+	readonly attemptProviderTurn: (
+		sessionId: string,
+		attemptId: string,
+	) => Effect.Effect<ProviderTurnReference | null, SqlSessionQueryError>;
 	readonly attemptHistory: (
 		input: AttemptHistoryInput,
 	) => Effect.Effect<AttemptHistoryPage, SqlSessionQueryError>;
@@ -225,6 +230,30 @@ export const makeSqlSessionQueries = (
 			return yield* new SessionQueryNotFound({ sessionId });
 		return yield* sessionRecord(row);
 	});
+
+	const attemptProviderTurn: SqlSessionQueriesApi["attemptProviderTurn"] = (
+		sessionId,
+		attemptId,
+	) =>
+		Effect.gen(function* () {
+			yield* get(sessionId);
+			const rows = yield* sql<{
+				provider_turn_json: string | null;
+			}>`SELECT provider_turn_json FROM session_attempts WHERE session_id = ${sessionId} AND id = ${attemptId} LIMIT 1`;
+			const json = rows[0]?.provider_turn_json;
+			if (json === undefined || json === null) return null;
+			return yield* Schema.decodeUnknownEffect(
+				Schema.fromJsonString(ProviderTurnReference),
+			)(json).pipe(
+				Effect.mapError(
+					() =>
+						new SessionQueryDecodeError({
+							recordKind: "attempt",
+							reason: "Invalid native execution reference",
+						}),
+				),
+			);
+		});
 
 	const attemptHistory: SqlSessionQueriesApi["attemptHistory"] = (input) =>
 		Effect.gen(function* () {
@@ -325,7 +354,15 @@ export const makeSqlSessionQueries = (
 		return { session, messages: yield* messages(sessionId) };
 	});
 
-	return { list, get, messages, messagePage, transcript, attemptHistory };
+	return {
+		list,
+		get,
+		messages,
+		messagePage,
+		transcript,
+		attemptHistory,
+		attemptProviderTurn,
+	};
 };
 
 export class SqlSessionQueries extends Context.Service<

@@ -81,6 +81,7 @@ const createSchema = Effect.gen(function* () {
 			completed_at TEXT,
 			started_sequence INTEGER NOT NULL,
 			updated_sequence INTEGER NOT NULL,
+			provider_turn_json TEXT,
 			PRIMARY KEY (session_id, id),
 			UNIQUE (session_id, turn_id, ordinal)
 		)
