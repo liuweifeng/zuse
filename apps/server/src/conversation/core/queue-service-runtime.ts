@@ -728,7 +728,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			`.pipe(Effect.orDie);
 			yield* Effect.forEach(
 				sessions,
-				(row) => runAutomaticDrain(SessionId.make(row.session_id)),
+				(row) => requestFlush(SessionId.make(row.session_id)),
 				{ discard: true },
 			);
 		});

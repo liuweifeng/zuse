@@ -52,6 +52,10 @@ import {
 } from "../core/message-operations.ts";
 import { makeProviderJobExecutor } from "../core/provider-jobs.ts";
 import { makeSessionOperations } from "../core/session-operations.ts";
+import {
+	hasRecoverableProviderSend,
+	reconcileSessionRuntime,
+} from "../core/startup-recovery.ts";
 import { makeTranscriptOperations } from "../core/transcript-operations.ts";
 import { ConversationRuntime } from "../services/conversation-runtime.ts";
 import type {
@@ -489,12 +493,15 @@ const ConversationRuntimeLive = Layer.effect(
 			runSessionReactors: (sessionId) =>
 				Effect.suspend(() => reactorRuntime.runSession(sessionId)),
 			serviceScope,
-			recoverStatus: (sessionId, status) =>
-				dispatchSessionCommand(sessionId, {
-					_tag: "SetStatus",
-					status,
-					updatedAt: Date.now(),
-				}),
+			hasPendingProviderTurn: (sessionId) =>
+				sessionDomain.activeAttempt(sessionId).pipe(
+					Effect.orDie,
+					Effect.flatMap((attempt) =>
+						attempt === null
+							? Effect.succeed(false)
+							: hasRecoverableProviderSend(sql, sessionId, attempt),
+					),
+				),
 			closeProvider,
 			hasProvider: (sessionId) => provider.hasSession(sessionId),
 			interruptProviderFiber,
@@ -505,17 +512,14 @@ const ConversationRuntimeLive = Layer.effect(
 			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
-			runStartupRecovery,
-			withStartupRecovery,
 		} = messageOperations;
 
-		const getSession: ConversationOperations["getSession"] = (sessionId) =>
-			withStartupRecovery(lookupSession(sessionId));
+		const getSession = lookupSession;
 
 		const sessionService = {
 			listSessions,
 			getSession,
-			createSession: (input) => withStartupRecovery(createSession(input)),
+			createSession,
 			renameSession,
 			setModel,
 			setProvider,
@@ -540,7 +544,7 @@ const ConversationRuntimeLive = Layer.effect(
 			listChats,
 			getChat,
 			getArchivePreview,
-			createChat: (input) => withStartupRecovery(createChat(input)),
+			createChat,
 			renameChat,
 			markChatRead,
 			streamChatChanges,
@@ -562,9 +566,8 @@ const ConversationRuntimeLive = Layer.effect(
 		} satisfies TranscriptServiceShape;
 		const messageService = {
 			listMessages,
-			sendMessage: (...args) => withStartupRecovery(sendMessage(...args)),
-			sendMessageWithInput: (input) =>
-				withStartupRecovery(sendMessageWithInput(input)),
+			sendMessage,
+			sendMessageWithInput,
 			interruptSession,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;
@@ -591,6 +594,7 @@ const ConversationRuntimeLive = Layer.effect(
 		);
 		// The production persistence layer already holds exclusive ownership.
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
+		yield* reconcileSessionRuntime(sql, sessionDomain);
 		yield* jobWorker.start.pipe(
 			Effect.provideService(Scope.Scope, serviceScope),
 		);
@@ -598,7 +602,16 @@ const ConversationRuntimeLive = Layer.effect(
 		// after every service dependency exists, and keep it scoped to this layer
 		// without delaying RPC availability.
 		yield* Effect.forkIn(
-			runStartupRecovery(reactorRuntime.catchUpAll),
+			Effect.all(
+				[reactorRuntime.catchUpAll, queueRuntime.reconcileReadyQueues],
+				{ concurrency: "unbounded" },
+			).pipe(
+				Effect.catchCause((cause) =>
+					Effect.logError(
+						`[ConversationServices] background recovery failed: ${String(cause)}`,
+					),
+				),
+			),
 			serviceScope,
 		);
 		return ConversationRuntime.of({
