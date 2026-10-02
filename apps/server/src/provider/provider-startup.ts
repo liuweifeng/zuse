@@ -7,6 +7,7 @@ export const reserveProviderStartup = <Id, Entry>(input: {
 	readonly registry: ProviderSessionRegistry<Id, Entry>;
 	readonly lifecycle: KeyedEffectSerialWorker<Id>;
 	readonly sessionId: Id;
+	readonly providerSessionId?: string;
 	readonly admit: Effect.Effect<boolean>;
 	readonly matches: (entry: Entry) => boolean;
 	readonly detachQuestions: Effect.Effect<void>;
@@ -26,7 +27,10 @@ export const reserveProviderStartup = <Id, Entry>(input: {
 						generation: input.registry.currentGeneration(input.sessionId),
 					};
 				const removed = input.registry.invalidate(input.sessionId);
-				const generation = input.registry.begin(input.sessionId);
+				const generation = input.registry.begin(
+					input.sessionId,
+					input.providerSessionId,
+				);
 				let released = false;
 				const releaseDisplaced = Effect.uninterruptible(
 					Effect.suspend(() => {

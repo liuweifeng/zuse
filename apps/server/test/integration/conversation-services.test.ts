@@ -158,6 +158,7 @@ let providerBeforePublication:
 	| null = null;
 let providerPublicationCount = 0;
 let activeProviderSessions = new Set<AgentSessionId>();
+let activeProviderResidencies = new Map<AgentSessionId, string>();
 const providerTurnIds = new Map<
 	AgentSessionId,
 	ReturnType<typeof AgentTurnId.make>
@@ -235,7 +236,15 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				Effect.void
 			).pipe(Effect.andThen(effect), Effect.as(true)),
 		),
-	start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
+	start: (
+		input,
+		resumeCursor,
+		_runtimeMode,
+		orchestrationTools,
+		_cursor,
+		admit,
+		residency,
+	) =>
 		Effect.gen(function* () {
 			providerStartInputs.push(input);
 			providerStartCursors.push(resumeCursor ?? null);
@@ -252,10 +261,20 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 					reason: providerStartFailureReason,
 				});
 			}
+			if (admit !== undefined && !(yield* admit))
+				return {
+					sessionId: input.sessionId ?? ("stub" as AgentSessionId),
+					superseded: true,
+				};
+			const providerSessionId = residency ?? crypto.randomUUID();
+			activeProviderResidencies.set(
+				input.sessionId ?? ("stub" as AgentSessionId),
+				providerSessionId,
+			);
 			activeProviderSessions.add(input.sessionId ?? ("stub" as AgentSessionId));
 			return {
 				...(providerBeforePublication === null ? {} : { generation: 1 }),
-				providerSessionId: `stub-residency:${providerStartInputs.length}`,
+				providerSessionId,
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
 		}),
@@ -282,8 +301,14 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 					: Effect.promise(() => providerInterruptBarrier as Promise<void>),
 			),
 		),
-	close: (sessionId) =>
+	close: (sessionId, _ownership, expected) =>
 		Effect.sync(() => {
+			if (
+				expected !== undefined &&
+				(activeProviderResidencies.get(sessionId) ?? null) !== expected
+			)
+				return;
+			activeProviderResidencies.delete(sessionId);
 			activeProviderSessions.delete(sessionId);
 		}),
 	events: (sessionId) =>
@@ -850,6 +875,7 @@ beforeEach(() => {
 	providerTurnIds.clear();
 	providerSendAttempts = 0;
 	activeProviderSessions = new Set();
+	activeProviderResidencies = new Map();
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
 	failProviderSend = false;
@@ -937,7 +963,15 @@ describe("ConversationServices migrations", () => {
 						Effect.flatMap(SessionDomain, (domain) =>
 							domain.jobs
 								.listBySession(chat.initialSession.id)
-								.pipe(Effect.map((jobs) => jobs.map((job) => job.status))),
+								.pipe(
+									Effect.map((jobs) =>
+										jobs
+											.filter(
+												(job) => job.request._tag === "provider.turn.send",
+											)
+											.map((job) => job.status),
+									),
+								),
 						),
 					),
 				)
@@ -959,6 +993,98 @@ describe("ConversationServices migrations", () => {
 			});
 			expect(providerSentTexts).toEqual([]);
 		});
+	});
+
+	it.each([
+		"acquisition",
+		"attach",
+		"status",
+	] as const)("revokes provider startup during %s without sending a prompt", async (stage) => {
+		const gate = deferred<void>();
+		if (stage === "acquisition") providerStartBarrier = gate.promise;
+		try {
+			await withRuntime(async (run) => {
+				const stop = (sessionId: string) =>
+					run(
+						Effect.flatMap(SessionDomain, (domain) =>
+							domain.dispatch({
+								commandId: `stop-during-${stage}`,
+								streamId: sessionId,
+								command: {
+									_tag: "RequestProviderStop",
+									requestedAt: Date.now(),
+								},
+							}),
+						),
+					);
+				if (stage !== "acquisition")
+					providerBeforePublication = (sessionId, ordinal) =>
+						ordinal === (stage === "attach" ? 1 : 2)
+							? Effect.promise(() => stop(sessionId)).pipe(Effect.asVoid)
+							: Effect.void;
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "must not be sent",
+						}),
+					),
+				);
+				if (stage === "acquisition") {
+					await expect.poll(() => providerStartInputs.length).toBe(1);
+					expect(
+						await run(
+							Effect.flatMap(SessionDomain, (domain) =>
+								domain.providerReservation(initialSession.id),
+							),
+						),
+					).not.toBeNull();
+					await stop(initialSession.id);
+					gate.resolve();
+				}
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(SessionDomain, (domain) =>
+								domain.jobs
+									.listBySession(initialSession.id)
+									.pipe(
+										Effect.map((jobs) =>
+											jobs
+												.filter(
+													(job) => job.request._tag === "provider.turn.send",
+												)
+												.map((job) => job.status),
+										),
+									),
+							),
+						),
+					)
+					.toEqual(["succeeded"]);
+				expect(
+					await run(
+						Effect.flatMap(SessionDomain, (domain) =>
+							domain.providerReservation(initialSession.id),
+						),
+					),
+				).toBeNull();
+				const attachments = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* sql`SELECT event_id FROM events WHERE stream_id = ${initialSession.id} AND type = 'ProviderAttached'`;
+					}),
+				);
+				expect(attachments).toHaveLength(stage === "status" ? 1 : 0);
+				expect(activeProviderSessions.has(initialSession.id)).toBe(false);
+				expect(providerSentTexts).toEqual([]);
+			});
+		} finally {
+			gate.resolve();
+			providerStartBarrier = null;
+			providerBeforePublication = null;
+		}
 	});
 
 	it("0016 repairs queued_messages rows from the old position column", async () => {
@@ -7264,7 +7390,7 @@ describe("ConversationServices — provider event persistence", () => {
 					attachments.map(
 						(row) => JSON.parse(row.payload_json).providerSessionId,
 					),
-				).toEqual([expect.stringMatching(/^stub-residency:/)]);
+				).toEqual([activeProviderResidencies.get(id)]);
 			});
 		} finally {
 			scriptedEvents = [];

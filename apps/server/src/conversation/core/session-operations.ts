@@ -56,6 +56,10 @@ export interface SessionOperationsOptions
 		ProviderSessionRuntimeOptions,
 		"createSession" | "listSessions"
 	> {
+	readonly setStatus: (
+		sessionId: SessionId,
+		status: Session["status"],
+	) => Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly sessionQueries: SqlSessionQueriesApi;
@@ -136,7 +140,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		sendMessage,
 		listMessages,
 		listChats,
-		attachProvider,
 		setStatus,
 		startSubscription,
 		broadcastChat,
@@ -214,8 +217,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		listSessions,
 		persistMessage,
 		provider,
-		attachProvider,
-		setStatus,
 		startSubscription,
 	});
 

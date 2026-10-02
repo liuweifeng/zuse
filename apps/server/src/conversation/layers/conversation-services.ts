@@ -1,7 +1,6 @@
 import {
 	type ChatId,
 	type FolderId,
-	type ProviderId,
 	SessionId,
 	SessionNotFoundError,
 	type WorktreeId,
@@ -120,19 +119,6 @@ const ConversationRuntimeLive = Layer.effect(
 				})
 				.pipe(Effect.asVoid, Effect.orDie);
 		const provider = yield* ProviderService;
-		const attachProvider = (
-			sessionId: SessionId,
-			providerId: ProviderId,
-			providerSessionId?: string,
-		) =>
-			Effect.gen(function* () {
-				yield* appendSessionCommand(sessionId, {
-					_tag: "AttachProvider",
-					providerSessionId,
-					providerId,
-					attachedAt: yield* currentTimestamp,
-				});
-			});
 		const closeProvider = (sessionId: SessionId) =>
 			Effect.gen(function* () {
 				yield* appendSessionCommand(sessionId, {
@@ -252,7 +238,6 @@ const ConversationRuntimeLive = Layer.effect(
 			listMessages: (sessionId) =>
 				Effect.suspend(() => listMessages(sessionId)),
 			listChats: (...args) => Effect.suspend(() => listChats(...args)),
-			attachProvider,
 			setStatus,
 			startSubscription,
 			broadcastChat,

@@ -445,15 +445,17 @@ export const ProviderServiceLive = Layer.effect(
 				orchestrationTools = null,
 				providerEventCursor = null,
 				admit,
+				providerSessionId,
 			) => {
 				let managedPlugins: McpGatewaySession | undefined;
 				let managedPermissionMode = input.permissionMode ?? "default";
 				const startupStartedAt = Date.now();
+				const residencyId = providerSessionId ?? crypto.randomUUID();
 				const sessionId = input.sessionId ?? nextSessionId();
 				const requestedModel = input.model
 					? safeModelId(input.providerId, input.model)
 					: "custom";
-				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}\u0000${input.initialAttemptId ?? ""}`;
+				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}\u0000${input.initialAttemptId ?? ""}\u0000${providerSessionId ?? ""}`;
 				const start = Effect.gen(function* () {
 					const execution = yield* Effect.tryPromise({
 						try: () => gitExecution.resolve(sessionId),
@@ -472,8 +474,11 @@ export const ProviderServiceLive = Layer.effect(
 						registry,
 						lifecycle: lifecycleWorker,
 						sessionId,
+						providerSessionId: residencyId,
 						admit: admit ?? Effect.succeed(true),
 						matches: (existing) =>
+							(providerSessionId === undefined ||
+								existing.providerSessionId === providerSessionId) &&
 							existing.providerId === input.providerId &&
 							existing.model === requestedModel &&
 							existing.gitExecutionKey === execution?.key &&
@@ -1142,7 +1147,7 @@ export const ProviderServiceLive = Layer.effect(
 					);
 					const entry: SessionEntry = {
 						gitExecutionKey: execution?.key,
-						providerSessionId: crypto.randomUUID(),
+						providerSessionId: residencyId,
 						ownership:
 							input.initialTurnId === undefined ||
 							input.initialAttemptId === undefined
@@ -1159,11 +1164,16 @@ export const ProviderServiceLive = Layer.effect(
 					};
 					const accepted = yield* lifecycleWorker.run(
 						sessionId,
-						Effect.sync(() => {
-							const published = registry.publish(sessionId, generation, entry);
-							if (published) acquiredHandle.markPublished();
-							return published;
-						}),
+						(admit ?? Effect.succeed(true)).pipe(
+							Effect.flatMap((admitted) =>
+								Effect.sync(() => {
+									const published =
+										admitted && registry.publish(sessionId, generation, entry);
+									if (published) acquiredHandle.markPublished();
+									return published;
+								}),
+							),
+						),
 					);
 					if (!accepted) {
 						return { sessionId, superseded: true };
