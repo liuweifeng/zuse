@@ -70,6 +70,7 @@ import { Migration0062SessionGraph } from "./migrations/0062_session_graph.ts";
 import { Migration0063ProviderThreadOwnership } from "./migrations/0063_provider_thread_ownership.ts";
 import { Migration0064JobAttemptOwnership } from "./migrations/0064_job_attempt_ownership.ts";
 import { Migration0065ProviderReservations } from "./migrations/0065_provider_reservations.ts";
+import { Migration0066AttemptHistory } from "./migrations/0066_attempt_history.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -177,6 +178,7 @@ const MigrationDefinitions = {
 	"0063_provider_thread_ownership": Migration0063ProviderThreadOwnership,
 	"0064_job_attempt_ownership": Migration0064JobAttemptOwnership,
 	"0065_provider_reservations": Migration0065ProviderReservations,
+	"0066_attempt_history": Migration0066AttemptHistory,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

@@ -2,7 +2,6 @@ import { Effect, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import { scopeProviderThreadId } from "../agent-engine/ids.js";
-
 import type { ProviderThreadSnapshot } from "../core/events.js";
 import { CompleteSessionCreatedEvent } from "../core/session-fields.js";
 import { attemptIdFor, providerThreadIdFor } from "../core/state.js";
@@ -12,6 +11,7 @@ import {
 	updateChatLastMessage,
 	updateChatLastUserMessage,
 } from "./chat-last-message-projection.js";
+import { projectSessionAttempt } from "./sql-attempt-projector.js";
 
 export class SessionProjectionDecodeError extends Schema.TaggedErrorClass<SessionProjectionDecodeError>()(
 	"SessionProjectionDecodeError",
@@ -150,6 +150,7 @@ export const makeSqlSessionProjector = (
 			record: StoredEvent,
 		) {
 			const event = record.event;
+			yield* projectSessionAttempt(sql, record);
 			switch (event._tag) {
 				case "SessionCreated": {
 					const created = yield* decodeCreated(event).pipe(
