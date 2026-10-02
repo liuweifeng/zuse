@@ -60,6 +60,17 @@ export const ownProviderInputs = (
 		entry.delivery?.revoke();
 		if (byNative.get(key) === publicId) byNative.delete(key);
 	};
+	const settlePlan = (publicId: AgentItemId) => {
+		const entry = byPublic.get(publicId);
+		if (entry?.kind !== "plan") return;
+		forget(publicId);
+		settledPlans.set(entry.nativeId, publicId);
+		if (settledPlans.size > 2048) {
+			const oldest = settledPlans.keys().next().value;
+			if (oldest !== undefined) settledPlans.delete(oldest);
+		}
+	};
+
 	const invoke = (
 		publicId: AgentItemId,
 		kind: "question" | "plan",
@@ -101,12 +112,7 @@ export const ownProviderInputs = (
 					if (event._tag === "ToolResult") {
 						const id = byNative.get(nativeKey("plan", event.itemId));
 						if (id !== undefined) {
-							forget(id);
-							settledPlans.set(event.itemId, id);
-							if (settledPlans.size > 2048) {
-								const oldest = settledPlans.keys().next().value;
-								if (oldest !== undefined) settledPlans.delete(oldest);
-							}
+							settlePlan(id);
 							return { ...event, itemId: id };
 						}
 						const settled = settledPlans.get(event.itemId);
@@ -137,6 +143,14 @@ export const ownProviderInputs = (
 					handle.acknowledgeQuestionAnswer?.(entry.nativeId) ?? Effect.void
 				);
 			}),
+		acknowledgePlanResponse: (itemId) =>
+			Effect.suspend(() => {
+				const entry = byPublic.get(itemId);
+				if (closed || entry?.kind !== "plan") return Effect.void;
+				settlePlan(itemId);
+				return handle.acknowledgePlanResponse?.(entry.nativeId) ?? Effect.void;
+			}),
+
 		respondToPlan:
 			respond === undefined
 				? undefined

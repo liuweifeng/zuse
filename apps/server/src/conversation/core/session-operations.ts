@@ -899,6 +899,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						existing.response.feedback !== feedback
 					)
 						return yield* unavailable();
+					yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+						Effect.void;
 					return;
 				}
 				if (
@@ -927,6 +929,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					planResponseMessageId(sessionId, toolCallId),
 					existing.turnId,
 				);
+				yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+					Effect.void;
 				if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
 			}),
 		);

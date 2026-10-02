@@ -410,3 +410,62 @@ it("close revokes a hung plan delivery before native close finishes", async () =
 		).pipe(Effect.timeout("2 seconds")),
 	);
 });
+
+it("receipt acknowledgement retires only its plan and retains late result correlation", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const original = yield* fixture();
+				const replacement = yield* fixture();
+				const publishPlan = {
+					_tag: "ToolUse" as const,
+					itemId: nativeId,
+					tool: "ExitPlanMode",
+					input: {},
+				};
+				const old = yield* original.publish(publishPlan);
+				const next = yield* replacement.publish(publishPlan);
+				if (
+					old._tag !== "ToolUse" ||
+					next._tag !== "ToolUse" ||
+					replacement.handle.respondToPlan === undefined
+				)
+					throw new Error("Expected plans");
+				yield* replacement.handle.acknowledgePlanResponse?.(old.itemId) ??
+					Effect.void;
+				yield* replacement.handle.acknowledgePlanResponse?.(nativeId) ??
+					Effect.void;
+				yield* replacement.handle.respondToPlan(next.itemId, "approved");
+				yield* replacement.handle.acknowledgePlanResponse?.(next.itemId) ??
+					Effect.void;
+				yield* replacement.handle.acknowledgePlanResponse?.(next.itemId) ??
+					Effect.void;
+				expect(
+					Exit.isFailure(
+						yield* Effect.exit(
+							replacement.handle.respondToPlan(next.itemId, "approved"),
+						),
+					),
+				).toBe(true);
+				const result = yield* replacement.publish({
+					_tag: "ToolResult",
+					itemId: nativeId,
+					output: { outcome: "approved" },
+					isError: false,
+				});
+				expect(result).toMatchObject({ itemId: next.itemId });
+				const reissued = yield* replacement.publish(publishPlan);
+				if (reissued._tag !== "ToolUse")
+					throw new Error("Expected reissued plan");
+				expect(reissued.itemId).not.toBe(next.itemId);
+				yield* replacement.handle.acknowledgePlanResponse?.(next.itemId) ??
+					Effect.void;
+				yield* replacement.handle.respondToPlan(reissued.itemId, "cancelled");
+				expect(replacement.delivered).toEqual([
+					`plan:${nativeId}:approved`,
+					`plan:${nativeId}:cancelled`,
+				]);
+			}),
+		),
+	);
+});

@@ -180,7 +180,10 @@ plans share one callback delivery primitive: matching callers join in-flight wor
 a client disconnect does not cancel it, and revoked ownership interrupts it. Native
 plan handles retain successful delivery results for receipt retries and retain
 uncertain failures without invoking the callback again. Close revokes delivery
-before waiting for native teardown. These results are process-local; they are not
+before waiting for native teardown. Committed plan receipts acknowledge only the
+exact application callback, releasing its delivery state while retaining bounded
+late-result correlation. Acknowledgements cannot retire a replacement callback.
+These results are process-local; they are not
 restart recovery evidence. Plan expiry,
 an indexed plan input projection, delivery intent/jobs, and recovery after provider
 acceptance but before receipt commit remain outstanding; these preflights are not

@@ -1631,6 +1631,16 @@ export const ProviderServiceLive = Layer.effect(
 						Effect.asVoid,
 					),
 				),
+			acknowledgePlanResponse: (sessionId, itemId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.flatMap(
+						lookup(sessionId),
+						({ handle }) =>
+							handle.acknowledgePlanResponse?.(itemId) ?? Effect.void,
+					).pipe(Effect.catch(() => Effect.void)),
+				),
+
 			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					(

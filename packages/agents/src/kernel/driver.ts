@@ -48,6 +48,10 @@ export interface ProviderSessionHandle {
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
 	) => Effect.Effect<void, Error>;
+	/** Release native plan retry authority after its application receipt commits. */
+	readonly acknowledgePlanResponse?: (
+		itemId: AgentItemId,
+	) => Effect.Effect<void>;
 	readonly acknowledgeProviderEventCursor?: (
 		cursor: string,
 	) => Effect.Effect<void>;
