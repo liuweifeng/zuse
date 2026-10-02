@@ -20,6 +20,8 @@ import {
 	type McpGatewaySession,
 } from "../mcp-gateway/index.ts";
 
+import type { ProviderStartup } from "./provider-startup.ts";
+
 export interface ProviderMcpSessionOptions {
 	readonly providerId: ProviderId;
 	readonly sessionId: AgentSessionId;
@@ -37,59 +39,67 @@ export interface ProviderMcpSessionOptions {
 
 export const issueProviderMcpSession = Effect.fn("ProviderMcpSession.issue")(
 	function* (
+		startup: ProviderStartup,
 		options: ProviderMcpSessionOptions,
 	): Effect.fn.Return<McpGatewaySession, AgentSessionStartError> {
 		const html = yield* Effect.serviceOption(HtmlTools);
 		const plugins = yield* Effect.promise(getDefaultPluginClient);
 		return yield* Effect.tryPromise({
 			try: () =>
-				issueMcpGatewaySession({
-					sessionId: options.sessionId,
-					scopes: {
-						plugins: plugins !== undefined,
-						browser: true,
-						orchestration: options.orchestrationTools !== null,
-						images: true,
-						html: Option.isSome(html),
-						deviceCommands: getDefaultDeviceCommandClient() !== undefined,
-						interaction: options.interaction !== undefined,
-					},
-					ctx: {
-						plugins: plugins
-							? {
-									client: plugins,
-									requestPermission: options.requestPermission,
-									getRuntimeMode: options.getRuntimeMode,
+				startup.acquire(
+					() =>
+						issueMcpGatewaySession(
+							{
+								sessionId: options.sessionId,
+								scopes: {
+									plugins: plugins !== undefined,
+									browser: true,
+									orchestration: options.orchestrationTools !== null,
+									images: true,
+									html: Option.isSome(html),
+									deviceCommands: getDefaultDeviceCommandClient() !== undefined,
+									interaction: options.interaction !== undefined,
+								},
+								ctx: {
+									plugins: plugins
+										? {
+												client: plugins,
+												requestPermission: options.requestPermission,
+												getRuntimeMode: options.getRuntimeMode,
+												getPermissionMode: options.getPermissionMode,
+											}
+										: undefined,
+									images: { cwd: options.cwd },
+									...(Option.isSome(html)
+										? { html: { client: html.value, cwd: options.cwd } }
+										: {}),
+									deviceCommands: getDefaultDeviceCommandClient(),
 									getPermissionMode: options.getPermissionMode,
-								}
-							: undefined,
-						images: { cwd: options.cwd },
-						...(Option.isSome(html)
-							? { html: { client: html.value, cwd: options.cwd } }
-							: {}),
-						deviceCommands: getDefaultDeviceCommandClient(),
-						getPermissionMode: options.getPermissionMode,
-						browser: {
-							send: options.browserSend,
-							requestPermission: options.requestPermission,
-							getRuntimeMode: options.getRuntimeMode,
-							getPermissionMode: options.getPermissionMode,
-						},
-						...(options.orchestrationTools === null
-							? {}
-							: {
-									orchestration: {
-										deps: options.orchestrationTools.deps,
+									browser: {
+										send: options.browserSend,
 										requestPermission: options.requestPermission,
 										getRuntimeMode: options.getRuntimeMode,
 										getPermissionMode: options.getPermissionMode,
 									},
-								}),
-						...(options.interaction === undefined
-							? {}
-							: { interaction: options.interaction }),
-					},
-				}),
+									...(options.orchestrationTools === null
+										? {}
+										: {
+												orchestration: {
+													deps: options.orchestrationTools.deps,
+													requestPermission: options.requestPermission,
+													getRuntimeMode: options.getRuntimeMode,
+													getPermissionMode: options.getPermissionMode,
+												},
+											}),
+									...(options.interaction === undefined
+										? {}
+										: { interaction: options.interaction }),
+								},
+							},
+							startup.signal,
+						),
+					(session) => session.close(),
+				),
 			catch: (cause) =>
 				new StartError({
 					providerId: options.providerId,

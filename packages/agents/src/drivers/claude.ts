@@ -35,6 +35,7 @@ import type {
 } from "../kernel/driver.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { BrowserSend } from "./browser-tools.ts";
@@ -1669,11 +1670,16 @@ export const startClaudeSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
 		const abort = new AbortController();
+		startup.add(() => {
+			inputChannel.close();
+			abort.abort();
+			Queue.endUnsafe(events);
+		});
 
 		const buildAttachmentBlocks = (
 			refs: ReadonlyArray<AttachmentRef>,
@@ -1798,9 +1804,10 @@ export const startClaudeSession = (
 				});
 			}
 		};
+		startup.add(() => releasePendingQuestions("closed"));
 		let currentPermissionMode = input.permissionMode ?? "default";
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "claude",
 			sessionId,
 			cwd,

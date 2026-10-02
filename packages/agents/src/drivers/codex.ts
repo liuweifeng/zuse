@@ -41,6 +41,7 @@ import type {
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
@@ -1390,7 +1391,7 @@ export const startCodexSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
@@ -1404,6 +1405,10 @@ export const startCodexSession = (
 		let currentTurnId: string | null = null;
 		let latestDiff = "";
 		let closed = false;
+		startup.add(() => {
+			closed = true;
+			Queue.endUnsafe(events);
+		});
 		let pending: Promise<void> = Promise.resolve();
 		// Runtime fast-tier gate for the model this session resolved to, from the
 		// live `model/list` `serviceTiers`. `null` = unknown (probe not done /
@@ -1470,6 +1475,7 @@ export const startCodexSession = (
 				});
 			}
 		};
+		startup.add(() => releasePendingQuestions("closed"));
 
 		const emitDirect = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -1486,7 +1492,7 @@ export const startCodexSession = (
 			mode: "sdk",
 		});
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "codex",
 			sessionId,
 			cwd,
@@ -1520,6 +1526,7 @@ export const startCodexSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 		const handleUnexpectedTermination = (error: Error): void => {
 			if (closed) return;
 			// Publish the concrete transport error before ending the stream. The shared
@@ -1548,55 +1555,55 @@ export const startCodexSession = (
 			: { ...process.env, ...input.executionEnv };
 		let app = yield* Effect.tryPromise({
 			try: () =>
-				CodexAppServerClient.start({
-					codexPath,
-					apiKey,
-					...(input.providerAccountHome ? { externalAuthProvider: null } : {}),
-					externalAuthConsumerId: sessionId,
-					env: {
-						...childEnv,
-						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
-						...pluginCliEnv(
-							mcpGatewaySession.endpoint,
-							mcpGatewaySession.token,
-						),
-					},
-					mcp: {
-						transport: "http",
-						url: mcpGatewaySession.codexServerConfig.url,
-						bearerTokenEnvVar:
-							mcpGatewaySession.codexServerConfig.bearer_token_env_var,
-					},
-					onNotification: (notification) => {
-						rawProtocolLog.append("server_notification", notification);
-						for (const event of translateNotification(notification))
-							emit(event);
-					},
-					onServerRequest: (request, respond) => {
-						void handleServerRequest(request)
-							.then(respond)
-							.catch((cause) => {
-								reportCodexStderr(
-									`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-								);
-								respond(defaultServerRequestResponse(request));
-							});
-					},
-					onUnexpectedTermination: handleUnexpectedTermination,
-				}),
+				startup.acquire(
+					() =>
+						CodexAppServerClient.start({
+							startupSignal: startup.signal,
+							codexPath,
+							apiKey,
+							...(input.providerAccountHome
+								? { externalAuthProvider: null }
+								: {}),
+							externalAuthConsumerId: sessionId,
+							env: {
+								...childEnv,
+								ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+								...pluginCliEnv(
+									mcpGatewaySession.endpoint,
+									mcpGatewaySession.token,
+								),
+							},
+							mcp: {
+								transport: "http",
+								url: mcpGatewaySession.codexServerConfig.url,
+								bearerTokenEnvVar:
+									mcpGatewaySession.codexServerConfig.bearer_token_env_var,
+							},
+							onNotification: (notification) => {
+								rawProtocolLog.append("server_notification", notification);
+								for (const event of translateNotification(notification))
+									emit(event);
+							},
+							onServerRequest: (request, respond) => {
+								void handleServerRequest(request)
+									.then(respond)
+									.catch((cause) => {
+										reportCodexStderr(
+											`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+										);
+										respond(defaultServerRequestResponse(request));
+									});
+							},
+							onUnexpectedTermination: handleUnexpectedTermination,
+						}),
+					(client) => client.close(),
+				),
 			catch: (cause) =>
 				new AgentSessionStartError({
 					providerId: "codex",
 					reason: cause instanceof Error ? cause.message : String(cause),
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.promise(async () => {
-					await stdioMcpFallback.close();
-					await mcpGatewaySession.close();
-				}),
-			),
-		);
+		});
 
 		const supportsNativePlanMode = yield* Effect.promise(() =>
 			probeNativePlanMode(app),
@@ -1651,39 +1658,44 @@ export const startCodexSession = (
 					if (fallback === undefined) {
 						throw new Error("MCP stdio fallback produced no server config.");
 					}
-					app = await CodexAppServerClient.start({
-						codexPath,
-						apiKey,
-						...(input.providerAccountHome
-							? { externalAuthProvider: null }
-							: {}),
-						externalAuthConsumerId: sessionId,
-						env: childEnv,
-						mcp: {
-							transport: "stdio",
-							command: fallback.command,
-							args: fallback.args,
-							env: Object.fromEntries(
-								fallback.env.map(({ name, value }) => [name, value]),
-							),
-						},
-						onNotification: (notification) => {
-							rawProtocolLog.append("server_notification", notification);
-							for (const event of translateNotification(notification))
-								emit(event);
-						},
-						onServerRequest: (request, respond) => {
-							void handleServerRequest(request)
-								.then(respond)
-								.catch((cause) => {
-									reportCodexStderr(
-										`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-									);
-									respond(defaultServerRequestResponse(request));
-								});
-						},
-						onUnexpectedTermination: handleUnexpectedTermination,
-					});
+					app = await startup.acquire(
+						() =>
+							CodexAppServerClient.start({
+								startupSignal: startup.signal,
+								codexPath,
+								apiKey,
+								...(input.providerAccountHome
+									? { externalAuthProvider: null }
+									: {}),
+								externalAuthConsumerId: sessionId,
+								env: childEnv,
+								mcp: {
+									transport: "stdio",
+									command: fallback.command,
+									args: fallback.args,
+									env: Object.fromEntries(
+										fallback.env.map(({ name, value }) => [name, value]),
+									),
+								},
+								onNotification: (notification) => {
+									rawProtocolLog.append("server_notification", notification);
+									for (const event of translateNotification(notification))
+										emit(event);
+								},
+								onServerRequest: (request, respond) => {
+									void handleServerRequest(request)
+										.then(respond)
+										.catch((cause) => {
+											reportCodexStderr(
+												`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+											);
+											respond(defaultServerRequestResponse(request));
+										});
+								},
+								onUnexpectedTermination: handleUnexpectedTermination,
+							}),
+						(client) => client.close(),
+					);
 					await expectCodexMcpServer(app);
 					console.info(
 						`[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
@@ -1697,15 +1709,7 @@ export const startCodexSession = (
 						cause instanceof Error ? cause.message : String(cause)
 					}`,
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.promise(async () => {
-					app.close();
-					await stdioMcpFallback.close();
-					await mcpGatewaySession.close();
-				}),
-			),
-		);
+		});
 
 		const commonThreadParams = {
 			model: input.model ?? null,

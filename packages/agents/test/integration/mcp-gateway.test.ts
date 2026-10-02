@@ -108,6 +108,24 @@ afterAll(async () => {
 });
 
 describe("MCP gateway", () => {
+	test("cancelled issuance cannot replace a live session", async () => {
+		const input = {
+			sessionId: "cancelled-issuance",
+			scopes: { browser: false, orchestration: false },
+			ctx: {},
+		};
+		const live = await issueMcpGatewaySession(input);
+		try {
+			const abort = new AbortController();
+			const pending = issueMcpGatewaySession(input, abort.signal);
+			abort.abort();
+			await expect(pending).rejects.toThrow();
+			expect((await listTools(live.endpoint, live.token)).status).toBe(200);
+		} finally {
+			await live.close();
+		}
+	});
+
 	test("keeps the MCP tool call unresolved until device approval and execution finish", async () => {
 		let approved = false;
 		let requests = 0;

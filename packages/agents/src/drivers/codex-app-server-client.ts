@@ -194,6 +194,7 @@ export class CodexAppServerClient {
 		readonly env?: NodeJS.ProcessEnv;
 		readonly mcp?: CodexAppMcpLaunchConfig;
 		readonly startupTimeoutMs?: number;
+		readonly startupSignal?: AbortSignal;
 		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
@@ -202,6 +203,7 @@ export class CodexAppServerClient {
 		readonly externalAuthConsumerId?: string;
 		readonly onUnexpectedTermination?: UnexpectedTerminationHandler;
 	}): Promise<CodexAppServerClient> {
+		options.startupSignal?.throwIfAborted();
 		const externalAuthProvider =
 			options.externalAuthProvider === undefined
 				? defaultExternalAuthProvider
@@ -299,8 +301,13 @@ export class CodexAppServerClient {
 			);
 		});
 
+		const abortStartup = () => bootstrap.close();
+		options.startupSignal?.addEventListener("abort", abortStartup, {
+			once: true,
+		});
 		let timer: NodeJS.Timeout | undefined;
 		try {
+			options.startupSignal?.throwIfAborted();
 			const initialize = bootstrap.request<InitializeResponse>("initialize", {
 				clientInfo: { name: "zuse", version: "0.0.0" },
 				capabilities: {
@@ -357,6 +364,7 @@ export class CodexAppServerClient {
 			throw cause;
 		} finally {
 			if (timer !== undefined) clearTimeout(timer);
+			options.startupSignal?.removeEventListener("abort", abortStartup);
 		}
 	}
 
