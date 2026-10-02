@@ -88,7 +88,7 @@ import { validateApiKey } from "../api-key-validation.ts";
 import { probeProvidersWithPaths, resolveCliPath, withOpencodeInventoryAccount } from "../availability.ts";
 import { bindProviderEventDelivery, type ProviderEventDelivery } from "../provider-event-delivery.ts";
 import { closeProviderHandle } from "../provider-handle-cleanup.ts";
-import { ownProviderQuestions } from "../provider-question-identity.ts";
+import { ownProviderInputs } from "../provider-input-identity.ts";
 import { sendProviderSession } from "../provider-send.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import {
@@ -1179,7 +1179,7 @@ export const ProviderServiceLive = Layer.effect(
 							}),
 						},
 					);
-					const providerHandle = ownProviderQuestions(acquiredHandle.handle);
+					const providerHandle = ownProviderInputs(acquiredHandle.handle);
 					const handle = yield* makeTurnScopedSessionHandle(
 						providerHandle,
 						input.initialTurnId,
@@ -1637,6 +1637,7 @@ export const ProviderServiceLive = Layer.effect(
 						entry.handle.respondToPlan?.(toolCallId, outcome, feedback) ??
 						Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					).pipe(
+						Effect.mapError(() => new AgentSessionNotFoundError({ sessionId })),
 						Effect.tap(() =>
 							analytics.capture("plan decided", { decision: outcome }),
 						),

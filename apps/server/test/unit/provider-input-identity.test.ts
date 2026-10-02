@@ -15,7 +15,7 @@ import {
 	lookupDurableQuestionResolution,
 	settleDurableQuestionResolution,
 } from "../../src/conversation/core/question-resolution-receipt.ts";
-import { ownProviderQuestions } from "../../src/provider/provider-question-identity.ts";
+import { ownProviderInputs } from "../../src/provider/provider-input-identity.ts";
 
 const nativeId = AgentItemId.make("native-question");
 const parentItemId = AgentItemId.make("parent-tool");
@@ -46,12 +46,16 @@ const fixture = (close = Effect.void) =>
 				Effect.sync(() => {
 					delivered.push(`cancel:${itemId}`);
 				}),
+			respondToPlan: (itemId, outcome) =>
+				Effect.sync(() => {
+					delivered.push(`plan:${itemId}:${outcome}`);
+				}),
 			acknowledgeQuestionAnswer: (itemId) =>
 				Effect.sync(() => {
 					delivered.push(`ack:${itemId}`);
 				}),
 		};
-		const handle = ownProviderQuestions(raw);
+		const handle = ownProviderInputs(raw);
 		yield* handle.events.pipe(
 			Stream.runForEach((event) => Queue.offer(output, event)),
 			Effect.forkScoped,
@@ -244,5 +248,82 @@ it.each([
 				expect(replacement.delivered).toEqual([`answer:${nativeId}`]);
 			}),
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});
+
+it("binds native plans to an acquisition and keeps their tool results correlated", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const old = yield* fixture();
+				const replacement = yield* fixture();
+				const plan = {
+					_tag: "ToolUse" as const,
+					itemId: nativeId,
+					tool: "ExitPlanMode",
+					input: { plan: "Implement the change" },
+				};
+				const first = yield* old.publish(plan);
+				const next = yield* replacement.publish(plan);
+				if (first._tag !== "ToolUse" || next._tag !== "ToolUse")
+					throw new Error("Expected plan tool");
+				expect(first.itemId).not.toBe(nativeId);
+				expect(next.itemId).not.toBe(first.itemId);
+				const request = yield* replacement.publish({
+					_tag: "PlanApprovalRequested",
+					sessionId: SessionId.make("session"),
+					toolCallId: nativeId,
+					plan: "Implement the change",
+				});
+				expect(request).toMatchObject({ toolCallId: next.itemId });
+				const respond = replacement.handle.respondToPlan;
+				if (respond === undefined) throw new Error("Expected plan callback");
+				const questionId = yield* replacement.ask;
+				expect(
+					Exit.isFailure(yield* Effect.exit(respond(questionId, "approved"))),
+				).toBe(true);
+				expect(
+					Exit.isFailure(
+						yield* Effect.exit(
+							replacement.handle.answerQuestion(next.itemId, answers),
+						),
+					),
+				).toBe(true);
+				for (const id of [nativeId, first.itemId])
+					expect(
+						Exit.isFailure(yield* Effect.exit(respond(id, "approved"))),
+					).toBe(true);
+				yield* respond(next.itemId, "approved");
+				expect(replacement.delivered).toEqual([`plan:${nativeId}:approved`]);
+				const result = yield* replacement.publish({
+					_tag: "ToolResult",
+					itemId: nativeId,
+					output: { outcome: "approved" },
+					isError: false,
+				});
+				expect(result).toMatchObject({ itemId: next.itemId });
+				expect(
+					yield* replacement.publish({
+						_tag: "ToolResult",
+						itemId: nativeId,
+						output: { outcome: "approved" },
+						isError: false,
+					}),
+				).toEqual(result);
+				expect(
+					Exit.isFailure(yield* Effect.exit(respond(next.itemId, "approved"))),
+				).toBe(true);
+				const reissued = yield* replacement.publish(plan);
+				if (reissued._tag !== "ToolUse")
+					throw new Error("Expected reissued plan");
+				expect(reissued.itemId).not.toBe(next.itemId);
+				yield* replacement.handle.close();
+				expect(
+					Exit.isFailure(
+						yield* Effect.exit(respond(reissued.itemId, "approved")),
+					),
+				).toBe(true);
+			}),
+		),
 	);
 });
