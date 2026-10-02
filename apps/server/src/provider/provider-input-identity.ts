@@ -1,16 +1,22 @@
 import type { ProviderSessionHandle } from "@zuse/agents/kernel/driver";
 import { AgentItemId } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
+import {
+	type InputCallbackDelivery,
+	makeInputCallbackDelivery,
+} from "./input-callback-delivery.ts";
 
 /** Native callback IDs are references, not application authority across acquisitions. */
 export const ownProviderInputs = (
 	handle: ProviderSessionHandle,
 ): ProviderSessionHandle => {
 	const byNative = new Map<string, AgentItemId>();
-	const byPublic = new Map<
-		AgentItemId,
-		{ nativeId: AgentItemId; kind: "question" | "plan" }
-	>();
+	type InputIdentity = {
+		nativeId: AgentItemId;
+		kind: "question" | "plan";
+		delivery?: InputCallbackDelivery<Error>;
+	};
+	const byPublic = new Map<AgentItemId, InputIdentity>();
 	const respond = handle.respondToPlan;
 	// Retain bounded result correlation after callback authority is released.
 	const settledPlans = new Map<AgentItemId, AgentItemId>();
@@ -23,7 +29,24 @@ export const ownProviderInputs = (
 			if (kind === "plan") settledPlans.delete(nativeId);
 			id = AgentItemId.make(`${kind}:${crypto.randomUUID()}`);
 			byNative.set(key, id);
-			byPublic.set(id, { nativeId, kind });
+			const publicId = id;
+			const entry: InputIdentity = {
+				nativeId,
+				kind,
+				delivery:
+					kind === "plan"
+						? makeInputCallbackDelivery<Error>({
+								isCurrent: () => !closed && byPublic.get(publicId) === entry,
+								unavailable: () =>
+									new Error(
+										"Plan callback is unavailable or its delivery outcome is uncertain",
+									),
+								timeout: "30 seconds",
+								retryFailures: false,
+							})
+						: undefined,
+			};
+			byPublic.set(id, entry);
 		}
 		return id;
 	};
@@ -34,6 +57,7 @@ export const ownProviderInputs = (
 		if (entry === undefined) return;
 		const key = nativeKey(entry.kind, entry.nativeId);
 		byPublic.delete(publicId);
+		entry.delivery?.revoke();
 		if (byNative.get(key) === publicId) byNative.delete(key);
 	};
 	const invoke = (
@@ -117,13 +141,26 @@ export const ownProviderInputs = (
 			respond === undefined
 				? undefined
 				: (itemId, outcome, feedback) =>
-						invoke(itemId, "plan", (nativeId) =>
-							respond(nativeId, outcome, feedback),
-						),
+						Effect.suspend(() => {
+							const entry = byPublic.get(itemId);
+							if (
+								closed ||
+								entry?.kind !== "plan" ||
+								entry.delivery === undefined
+							)
+								return Effect.fail(
+									new Error("Plan callback is no longer available"),
+								);
+							return entry.delivery.run(
+								JSON.stringify([outcome, feedback ?? null]),
+								respond(entry.nativeId, outcome, feedback),
+							);
+						}),
 
 		close: () =>
 			Effect.suspend(() => {
 				closed = true;
+				for (const entry of byPublic.values()) entry.delivery?.revoke();
 				byNative.clear();
 				byPublic.clear();
 				settledPlans.clear();
