@@ -16,12 +16,12 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
-import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
 import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
 import { translateCodexItem } from "@zuse/agents/drivers/codex";
 import type { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
+import { readCodexThread } from "@zuse/agents/drivers/codex-thread-reader";
 import {
 	ContinueExternalThreadResult,
 	defaultModelFor,
@@ -505,16 +505,11 @@ const readCodexTranscriptMessages = async (
 	app: CodexAppServerClient,
 	cursor: string,
 ): Promise<ReadonlyArray<MessageContent>> => {
-	const response = await app
-		.request<ThreadReadResponse>("thread/read", {
-			threadId: cursor,
-			includeTurns: true,
-		})
-		.catch(() => null);
-	if (response === null) return [];
+	const thread = await readCodexThread(app, cursor).catch(() => null);
+	if (thread === null) return [];
 
 	const out: MessageContent[] = [];
-	for (const turn of response.thread.turns) {
+	for (const turn of thread.turns) {
 		for (const item of turn.items) {
 			if (item.type === "userMessage") {
 				const text = item.content
@@ -531,13 +526,9 @@ const readCodexTranscriptMessages = async (
 				const childSessionId = item.receiverThreadIds[0];
 				if (childSessionId === undefined) continue;
 				const parentItemId = item.id as import("@zuse/contracts").AgentItemId;
-				const childResponse = await app
-					.request<ThreadReadResponse>("thread/read", {
-						threadId: childSessionId,
-						includeTurns: true,
-					})
-					.catch(() => null);
-				const childThread = childResponse?.thread ?? null;
+				const childThread = await readCodexThread(app, childSessionId).catch(
+					() => null,
+				);
 				const agentName =
 					childThread?.name ??
 					childThread?.agentNickname ??
