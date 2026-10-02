@@ -562,8 +562,8 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 										...cancelled,
 										...(yield* jobs.cancelUnsettled({
 											sessionId: input.streamId,
-											kinds: ["provider.turn.recover"],
-											reason: "Recovery interrupted by the user.",
+											kinds: ["provider.turn.send", "provider.turn.recover"],
+											reason: "Turn interrupted by the user.",
 										})),
 									];
 								}

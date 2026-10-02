@@ -175,3 +175,59 @@ test("uninterrupted ownership is checked before receipt replay and transactional
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 });
+
+test.each([
+	false,
+	true,
+])("Stop cancels delivery after commit (already claimed: %s)", async (claimed) => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(crypto.randomUUID()),
+				);
+				const dispatch = (command: SessionCommand) =>
+					domain.dispatch({
+						commandId: crypto.randomUUID(),
+						streamId: "session-1",
+						command,
+					});
+				yield* dispatch(createSessionCommand);
+				yield* dispatch({ _tag: "StartTurn", turnId: "turn-1", startedAt: 1 });
+				yield* dispatch({
+					_tag: "RetryTurn",
+					turnId: "turn-1",
+					reason: "retry",
+					providerInputJson: "{}",
+					requestedAt: 2,
+				});
+				if (claimed)
+					yield* domain.jobs.claimNext({ workerId: "sender", leaseMs: 30000 });
+				const stop = {
+					commandId: "stop",
+					streamId: "session-1",
+					command: { _tag: "RequestTurnInterrupt" as const, requestedAt: 3 },
+				};
+				const aborted = yield* Effect.exit(
+					domain.dispatchTransactionally(stop, () => Effect.die("rollback")),
+				);
+				expect(Exit.isFailure(aborted)).toBe(true);
+				expect((yield* domain.jobs.listBySession("session-1"))[0]?.status).toBe(
+					claimed ? "running" : "pending",
+				);
+				yield* domain.dispatch(stop);
+				const jobs = yield* domain.jobs.listBySession("session-1");
+				expect(jobs.map((job) => [job.request._tag, job.status])).toEqual([
+					["provider.turn.send", "cancelled"],
+					["provider.turn.interrupt", "pending"],
+				]);
+				expect(
+					(yield* domain.jobs.claimNext({ workerId: "next", leaseMs: 30000 }))
+						?.request._tag,
+				).toBe("provider.turn.interrupt");
+			}),
+		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});

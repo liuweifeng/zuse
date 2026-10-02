@@ -88,6 +88,7 @@ import { validateApiKey } from "../api-key-validation.ts";
 import { probeProvidersWithPaths, resolveCliPath, withOpencodeInventoryAccount } from "../availability.ts";
 import { bindProviderEventDelivery, type ProviderEventDelivery } from "../provider-event-delivery.ts";
 import { closeProviderHandle } from "../provider-handle-cleanup.ts";
+import { sendProviderSession } from "../provider-send.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import {
 	acquireStartupHandle,
@@ -1256,46 +1257,35 @@ export const ProviderServiceLive = Layer.effect(
 							yield* entry.handle.close().pipe(Effect.ignore);
 							return yield* new AgentSessionNotFoundError({ sessionId });
 						}
-						if (
-							attemptId !== undefined &&
-							(entry.ownership?.attemptId !== attemptId ||
-								entry.ownership.turnId !== turnId)
-						)
-							return yield* Effect.fail(
-								new AgentSessionNotFoundError({ sessionId }),
-							);
-						entry.turnStartedAt = Date.now();
-						entry.turnAnalytics = new TurnAnalyticsAccumulator();
-						yield* analytics.capture("message submitted", {
-							provider: entry.providerId,
-							model: entry.model,
-							attachment_count: attachments?.length ?? 0,
-							input_length_bucket: inputLengthBucket(text.length),
+						yield* sendProviderSession({
+							registry,
+							sessionId,
+							entry,
+							ownership:
+								attemptId === undefined ? undefined : { turnId, attemptId },
+							prepare: Effect.gen(function* () {
+								entry.turnStartedAt = Date.now();
+								entry.turnAnalytics = new TurnAnalyticsAccumulator();
+								yield* analytics.capture("message submitted", {
+									provider: entry.providerId,
+									model: entry.model,
+									attachment_count: attachments?.length ?? 0,
+									input_length_bucket: inputLengthBucket(text.length),
+								});
+								yield* analytics.capture("turn started", {
+									provider: entry.providerId,
+									model: entry.model,
+								});
+							}),
+							send: () =>
+								entry.handle.send(
+									turnId,
+									text,
+									attachments,
+									fileRefs,
+									skillRefs,
+								),
 						});
-						yield* analytics.capture("turn started", {
-							provider: entry.providerId,
-							model: entry.model,
-						});
-						yield* entry.handle
-							.send(turnId, text, attachments, fileRefs, skillRefs)
-							.pipe(
-								Effect.catchTag("ProviderHandleUnavailable", () => {
-									// Only retire this exact handle; a concurrently started replacement wins.
-									if (registry.lookup(sessionId) === entry)
-										registry.invalidate(sessionId);
-									return entry.handle
-										.close()
-										.pipe(
-											Effect.timeout("5 seconds"),
-											Effect.exit,
-											Effect.andThen(
-												Effect.fail(
-													new AgentSessionNotFoundError({ sessionId }),
-												),
-											),
-										);
-								}),
-							);
 					}).pipe(
 						Effect.withSpan("provider.send", {
 							attributes: {

@@ -48,7 +48,7 @@ export const CommandReceipt = Schema.Struct({
 export type CommandReceipt = typeof CommandReceipt.Type;
 
 export type AttemptOwnership = {
-	/** Read-only recovery loses write authority as soon as interruption commits. */
+	/** Delivery and recovery can require authority to end when interruption commits. */
 	readonly requireUninterrupted?: boolean;
 	readonly turnId: string;
 	readonly attemptId: string;

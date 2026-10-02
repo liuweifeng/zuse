@@ -176,6 +176,7 @@ describe("provider job executor", () => {
 	] as const)("stops stale job writes at %s", async (stage) => {
 		const writes: string[] = [];
 		const ownership = {
+			requireUninterrupted: true,
 			turnId: "turn-active",
 			attemptId: "attempt:turn:turn-active:ordinal:1",
 		};
@@ -602,6 +603,7 @@ it("routes uncertain delivery to a separate recovery attempt when native identit
 				requestedAt: expect.any(Number),
 			},
 			ownership: {
+				requireUninterrupted: true,
 				turnId: "turn-active",
 				attemptId: "attempt:turn:turn-active:ordinal:1",
 			},

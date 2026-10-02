@@ -199,6 +199,7 @@ export const makeProviderJobExecutor = (
 			const sessionId = SessionId.make(job.sessionId);
 			const turnId = AgentTurnId.make(request.turnId);
 			const expectedAttempt = {
+				requireUninterrupted: true,
 				turnId,
 				attemptId: request.attemptId ?? attemptIdFor(turnId, 1),
 			};
