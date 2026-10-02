@@ -31,6 +31,7 @@
 		"./projectors/timeline-projection": "./src/projectors/timeline-projection.ts",
 		"./projectors/sql-chat-projector": "./src/projectors/sql-chat-projector.ts",
 		"./projectors/sql-attempt-projector": "./src/projectors/sql-attempt-projector.ts",
+		"./projectors/sql-input-projector": "./src/projectors/sql-input-projector.ts",
 		"./projectors/sql-session-projector": "./src/projectors/sql-session-projector.ts",
 		"./reactors/conversation": "./src/reactors/conversation.ts",
 		"./queries/session-queries": "./src/queries/session-queries.ts",

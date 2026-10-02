@@ -3,6 +3,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
+import { projectSessionInput } from "../../../src/projectors/sql-input-projector.js";
 import {
 	MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES,
 	readSessionTimelineSnapshot,
@@ -81,6 +82,31 @@ describe("SqlSessionQueries", () => {
 						('permission-requested', 'session', 'interactions', 1,
 						 'PermissionRequested', '2026-01-01T00:00:00.000Z', ${payload})
 				`;
+				yield* projectSessionInput(sql, {
+					streamId: "interactions",
+					sequence: 1,
+					event: {
+						_tag: "MessagePersisted",
+						messageId: "question-old",
+						turnId: null,
+						role: "assistant",
+						kind: "user_question",
+						contentJson: question,
+						parentItemId: null,
+						createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
+					},
+				});
+				yield* projectSessionInput(sql, {
+					streamId: "interactions",
+					sequence: 102,
+					event: {
+						_tag: "PermissionRequested",
+						requestId: "permission-old",
+						turnId: "turn-1",
+						payloadJson: request,
+						requestedAt: 1,
+					},
+				});
 				return yield* readSessionTimelineSnapshot(
 					sql,
 					SessionId.make("interactions"),

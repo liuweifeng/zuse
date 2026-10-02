@@ -102,59 +102,19 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 	sessionId: SessionId,
 ) {
 	const questionRows = yield* sql<PendingQuestionRow>`
-			SELECT question.content_json, question.created_at
-			FROM messages AS question
-			WHERE question.session_id = ${sessionId}
-				AND question.kind = 'user_question'
-				AND json_valid(question.content_json)
-				AND NOT EXISTS (
-					SELECT 1 FROM messages AS answer
-					WHERE answer.session_id = question.session_id
-						AND answer.kind = 'user_question_answer'
-						AND json_valid(answer.content_json)
-						AND json_extract(answer.content_json, '$.itemId') =
-							json_extract(question.content_json, '$.itemId')
-				)
-				AND NOT EXISTS (
-					SELECT 1 FROM events AS resolution
-					WHERE resolution.stream_kind = 'session'
-						AND resolution.stream_id = question.session_id
-						AND resolution.type = 'QuestionResolved'
-						AND json_valid(resolution.payload_json)
-						AND json_extract(resolution.payload_json, '$.itemId') =
-							json_extract(question.content_json, '$.itemId')
-				)
-			ORDER BY question.sequence ASC
-			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
-		`;
+		SELECT request_json AS content_json, requested_at AS created_at
+		FROM session_inputs
+		WHERE session_id = ${sessionId} AND kind = 'question' AND status = 'pending'
+			AND request_json IS NOT NULL
+		ORDER BY requested_sequence LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+	`;
 	const permissionRows = yield* sql<PendingPermissionRow>`
-			SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
-				EXISTS (
-					SELECT 1 FROM events AS expired
-					WHERE expired.stream_kind = 'session'
-						AND expired.stream_id = requested.stream_id
-						AND expired.type = 'PermissionExpired'
-						AND json_valid(expired.payload_json)
-						AND json_extract(expired.payload_json, '$.requestId') =
-							json_extract(requested.payload_json, '$.requestId')
-				) AS expired
-			FROM events AS requested
-			WHERE requested.stream_kind = 'session'
-				AND requested.stream_id = ${sessionId}
-				AND requested.type = 'PermissionRequested'
-				AND json_valid(requested.payload_json)
-				AND NOT EXISTS (
-					SELECT 1 FROM events AS resolved
-					WHERE resolved.stream_kind = 'session'
-						AND resolved.stream_id = requested.stream_id
-						AND resolved.type = 'PermissionResolved'
-						AND json_valid(resolved.payload_json)
-						AND json_extract(resolved.payload_json, '$.requestId') =
-							json_extract(requested.payload_json, '$.requestId')
-				)
-			ORDER BY requested.stream_version ASC
-			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
-		`;
+		SELECT request_json, CASE WHEN status = 'expired' THEN 1 ELSE 0 END AS expired
+		FROM session_inputs
+		WHERE session_id = ${sessionId} AND kind = 'permission' AND status IN ('pending', 'expired')
+			AND request_json IS NOT NULL
+		ORDER BY requested_sequence LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+	`;
 	if (
 		questionRows.length + permissionRows.length >
 		MAX_PENDING_SESSION_INTERACTIONS

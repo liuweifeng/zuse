@@ -1,9 +1,11 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { createSessionInputProjection } from "../projectors/sql-input-projector.js";
 
 export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 	function* () {
 		const sql = yield* SqlClient.SqlClient;
+		yield* createSessionInputProjection(sql);
 		yield* sql`
 		CREATE TABLE app_state (
 			key TEXT PRIMARY KEY,

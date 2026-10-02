@@ -8,6 +8,7 @@ import {
 	SessionDomain,
 	type SessionDomainApi,
 } from "@zuse/domain/engine/session-domain";
+import { createSessionInputProjection } from "@zuse/domain/projectors/sql-input-projector";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -65,6 +66,7 @@ const makeRuntime = (
 const createSchema = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* Migration0061Jobs;
+	yield* createSessionInputProjection(sql);
 	yield* sql`CREATE TABLE queued_messages (id TEXT, session_id TEXT, input_json TEXT, queue_order INTEGER, created_at TEXT, updated_at TEXT, ready INTEGER)`;
 	yield* sql`
 		CREATE TABLE chats (
