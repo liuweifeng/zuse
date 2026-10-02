@@ -734,6 +734,7 @@ export const ProviderServiceLive = Layer.effect(
 									sessionId,
 									resumeCursor,
 									runtimeModeGetter,
+									permissionAuthority,
 								);
 							} else if (input.providerId === "gemini") {
 								// Same story as Grok: hand the driver the user's installed

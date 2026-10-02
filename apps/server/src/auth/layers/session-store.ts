@@ -12,12 +12,14 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { DatabaseSync } from "node:sqlite";
 
 import { WORKOS_PUBLIC_CLIENT_ID } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 
-import { acquireProcessLock as acquireSharedProcessLock } from "../../process/process-lock.ts";
+import {
+	acquireProcessLock as acquireSharedProcessLock,
+	type ProcessLock,
+} from "../../process/process-lock.ts";
 import { SessionStoreError } from "../errors.ts";
 import { SessionStore } from "../services/session-store.ts";
 import { parseSessionBundle, type SessionBundle } from "./workos.ts";
@@ -222,7 +224,7 @@ export const sessionLockIsStale = (raw: string): boolean => {
  *
  * Keep the JSON lock inside this guard so older installations still see ownership.
  */
-const acquireProcessLock = (): Effect.Effect<DatabaseSync, SessionStoreError> =>
+const acquireProcessLock = (): Effect.Effect<ProcessLock, SessionStoreError> =>
 	Effect.gen(function* () {
 		yield* ensureAuthDir();
 		return yield* acquireSharedProcessLock(

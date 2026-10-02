@@ -8,11 +8,25 @@ never infer state from a live process.
 
 ## Implementation status
 
-This document describes the target architecture, not a guarantee provided by
-the current runtime. The branch implements the transactional
-job ledger, provider-thread rows, turn rows, attempt history in both the event-sourced
-aggregate and paginated SQL projection, and `activeTurn` timeline projection. These cover slices 1–3, with
-reliability gaps still to close before treating those slices as complete.
+This document describes both the current foundation and longer-term targets.
+The merge baseline includes transactional provider jobs, renewable claims,
+session-owned provider threads, turns and attempt history, guarded provider
+startup and event ingestion, restart reconciliation, and durable input ownership.
+Clients consume the `activeTurn` projection. Uncertain provider deliveries are
+reported explicitly rather than automatically resent.
+
+The baseline integrates main's organization execution policy and experimental
+Zuse harness. Queued work retains its author and rechecks access before execution;
+harness permission requests retain the acquiring provider's ownership checks.
+Migrations preserve main's harness/model records and upgrade the earlier engine
+ledger transactionally. Unknown development migration histories fail before writes.
+
+This is not completion of all delivery slices below. Detached desktop execution,
+provider handoffs, full execution trees, and checkpoint rollback remain future work.
+Plan-response receipts are durable, but accepted responses interrupted before
+receipt commit do not yet have complete restart recovery. Live-provider crash
+injection and native macOS/Windows lifecycle validation remain release checks;
+automated Linux tests do not establish zero reliability issues.
 
 Production persistence now acquires a process-lifetime SQLite lock before database
 migration and runtime construction. A second engine for the same data directory

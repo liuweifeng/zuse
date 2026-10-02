@@ -85,15 +85,15 @@ import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrati
 import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
-import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
-import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062_session_graph.ts";
-import { Migration0065ProviderReservations } from "../../src/persistence/migrations/0065_provider_reservations.ts";
-import { Migration0066AttemptHistory } from "../../src/persistence/migrations/0066_attempt_history.ts";
-import { Migration0067AttemptProviderTurn } from "../../src/persistence/migrations/0067_attempt_provider_turn.ts";
-import { Migration0068IngestionLeases } from "../../src/persistence/migrations/0068_ingestion_leases.ts";
-import { Migration0069SessionInputs } from "../../src/persistence/migrations/0069_session_inputs.ts";
-import { Migration0070InputOwnership } from "../../src/persistence/migrations/0070_input_ownership.ts";
-import { Migration0071QuestionExpiry } from "../../src/persistence/migrations/0071_question_expiry.ts";
+import { Migration0063Jobs } from "../../src/persistence/migrations/0063_jobs.ts";
+import { Migration0064SessionGraph } from "../../src/persistence/migrations/0064_session_graph.ts";
+import { Migration0067ProviderReservations } from "../../src/persistence/migrations/0067_provider_reservations.ts";
+import { Migration0068AttemptHistory } from "../../src/persistence/migrations/0068_attempt_history.ts";
+import { Migration0069AttemptProviderTurn } from "../../src/persistence/migrations/0069_attempt_provider_turn.ts";
+import { Migration0070IngestionLeases } from "../../src/persistence/migrations/0070_ingestion_leases.ts";
+import { Migration0071SessionInputs } from "../../src/persistence/migrations/0071_session_inputs.ts";
+import { Migration0072InputOwnership } from "../../src/persistence/migrations/0072_input_ownership.ts";
+import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -179,15 +179,15 @@ const runAllMigrations = Effect.all(
 		Migration0054ProviderEffectOutcomes,
 		Migration0058QuestionAnswerDeliveries,
 		Migration0060ChatUserMessageTime,
-		Migration0061Jobs,
-		Migration0062SessionGraph,
-		Migration0065ProviderReservations,
-		Migration0066AttemptHistory,
-		Migration0067AttemptProviderTurn,
-		Migration0068IngestionLeases,
-		Migration0069SessionInputs,
-		Migration0070InputOwnership,
-		Migration0071QuestionExpiry,
+		Migration0063Jobs,
+		Migration0064SessionGraph,
+		Migration0067ProviderReservations,
+		Migration0068AttemptHistory,
+		Migration0069AttemptProviderTurn,
+		Migration0070IngestionLeases,
+		Migration0071SessionInputs,
+		Migration0072InputOwnership,
+		Migration0073QuestionExpiry,
 	],
 	{ discard: true },
 );

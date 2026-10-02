@@ -24,6 +24,7 @@ import { isProviderAuthenticationRequired } from "../../provider/provider-auth-f
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
+import type { WorkspaceExecutionAuthorizer } from "../services/workspace-execution-policy.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { OpenProviderSessionOptions } from "./provider-session-runtime.ts";
 import { recoverProviderTurn } from "./provider-turn-recovery.ts";
@@ -31,6 +32,7 @@ import {
 	decodeProviderModelOptions,
 	decodeProviderStartRequest,
 	decodeProviderTurnInput,
+	decodeQueuedTurnInput,
 } from "./provider-turn-request.ts";
 
 /**
@@ -67,6 +69,7 @@ const failure = (
 });
 
 export interface ProviderJobExecutorOptions {
+	readonly authorizeQueuedTurn: WorkspaceExecutionAuthorizer;
 	readonly delivery: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
 	readonly ensureForTurn: (
@@ -434,9 +437,27 @@ export const makeProviderJobExecutor = (
 	) =>
 		Effect.gen(function* () {
 			const sessionId = SessionId.make(job.sessionId);
-			const input = yield* decodeProviderTurnInput(request.inputJson).pipe(
+			const input = yield* decodeQueuedTurnInput(request.inputJson).pipe(
 				Effect.orDie,
 			);
+			if (!(yield* options.authorizeQueuedTurn(sessionId, input.actor))) {
+				yield* sessionDomain
+					.dispatch({
+						commandId: `${job.id}:access-paused`,
+						streamId: sessionId,
+						command: {
+							_tag: "EnqueueTurn",
+							queueId: request.queueId,
+							inputJson: request.inputJson,
+							position: 0,
+							createdAt: Date.now(),
+							ready: false,
+						},
+					})
+					.pipe(Effect.orDie);
+				return;
+			}
+
 			const hasRich =
 				input.attachments.length > 0 ||
 				input.fileRefs.length > 0 ||
@@ -445,6 +466,7 @@ export const makeProviderJobExecutor = (
 			const content = hasRich
 				? {
 						_tag: "user_rich" as const,
+						actor: input.actor,
 						text: input.text,
 						attachments: input.attachments,
 						fileRefs: input.fileRefs,
@@ -452,7 +474,12 @@ export const makeProviderJobExecutor = (
 						annotations: input.annotations ?? [],
 						goal: false,
 					}
-				: { _tag: "user" as const, text: input.text, goal: false };
+				: {
+						_tag: "user" as const,
+						text: input.text,
+						goal: false,
+						actor: input.actor,
+					};
 			const admitted = yield* sessionDomain
 				.dispatch({
 					commandId: `${job.id}:submit`,

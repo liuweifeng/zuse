@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Repair pre-release engine databases whose native handles were shared across sessions. */
-export const Migration0063ProviderThreadOwnership = Effect.gen(function* () {
+export const Migration0065ProviderThreadOwnership = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const references = yield* sql<{
 		readonly session_id: string;

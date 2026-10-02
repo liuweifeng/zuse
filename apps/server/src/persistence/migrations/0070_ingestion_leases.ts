@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-export const Migration0068IngestionLeases = Effect.gen(function* () {
+export const Migration0070IngestionLeases = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`CREATE TABLE IF NOT EXISTS session_ingestion_leases (
 		session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,

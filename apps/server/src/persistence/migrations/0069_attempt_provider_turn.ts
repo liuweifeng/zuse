@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Historical executions have no proven native turn identity; do not guess one. */
-export const Migration0067AttemptProviderTurn = Effect.gen(function* () {
+export const Migration0069AttemptProviderTurn = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const columns = yield* sql<{
 		name: string;

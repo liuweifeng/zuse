@@ -3,7 +3,7 @@ import { projectSessionAttempt } from "@zuse/domain/projectors/sql-attempt-proje
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-export const Migration0066AttemptHistory = Effect.gen(function* () {
+export const Migration0068AttemptHistory = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
 		CREATE TABLE IF NOT EXISTS session_attempts (

@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { Migration0069SessionInputs } from "./0069_session_inputs.ts";
+import { Migration0071SessionInputs } from "./0071_session_inputs.ts";
 
-export const Migration0070InputOwnership = Effect.gen(function* () {
+export const Migration0072InputOwnership = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const columns = yield* sql<{
 		name: string;
@@ -14,5 +14,5 @@ export const Migration0070InputOwnership = Effect.gen(function* () {
 	if (!columns.some((column) => column.name === "awaiting_dismissal"))
 		yield* sql`ALTER TABLE session_inputs ADD COLUMN awaiting_dismissal INTEGER NOT NULL DEFAULT 0`;
 	// Backfill original turn attribution and any recorded owner, never today's owner.
-	yield* Migration0069SessionInputs;
+	yield* Migration0071SessionInputs;
 });

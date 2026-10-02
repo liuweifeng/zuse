@@ -8,15 +8,15 @@ import { createSessionCommand } from "../../../../packages/domain/src/test/sessi
 import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
 import { acquireIngestionLease } from "../../src/conversation/core/ingestion-lease.ts";
 import { sweepIngestionLeases } from "../../src/conversation/core/ingestion-sweeper.ts";
-import { Migration0068IngestionLeases } from "../../src/persistence/migrations/0068_ingestion_leases.ts";
+import { Migration0070IngestionLeases } from "../../src/persistence/migrations/0070_ingestion_leases.ts";
 
 test("ingestion leases separate heartbeat from activity and fence expired or replaced owners", async () => {
 	await Effect.runPromise(
 		Effect.scoped(
 			Effect.gen(function* () {
 				yield* createDomainTestSchema();
-				yield* Migration0068IngestionLeases;
-				yield* Migration0068IngestionLeases;
+				yield* Migration0070IngestionLeases;
+				yield* Migration0070IngestionLeases;
 				const sql = yield* SqlClient.SqlClient;
 				const domain = yield* makeSessionDomain(sql, () =>
 					Effect.succeed(crypto.randomUUID()),
@@ -112,7 +112,7 @@ test.each([
 		Effect.scoped(
 			Effect.gen(function* () {
 				yield* createDomainTestSchema();
-				yield* Migration0068IngestionLeases;
+				yield* Migration0070IngestionLeases;
 				const sql = yield* SqlClient.SqlClient;
 				const domain = yield* makeSessionDomain(sql, () =>
 					Effect.succeed(crypto.randomUUID()),

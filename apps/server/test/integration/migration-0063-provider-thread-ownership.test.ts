@@ -3,7 +3,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
-import { Migration0063ProviderThreadOwnership } from "../../src/persistence/migrations/0063_provider_thread_ownership.ts";
+import { Migration0065ProviderThreadOwnership } from "../../src/persistence/migrations/0065_provider_thread_ownership.ts";
 
 const setup = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
@@ -46,7 +46,7 @@ describe("migration 0063 provider thread ownership", () => {
 					});
 					yield* sql`INSERT INTO events VALUES ('session', ${session}, 1, 'ProviderThreadUpdated', ${payload})`;
 				}
-				yield* Migration0063ProviderThreadOwnership;
+				yield* Migration0065ProviderThreadOwnership;
 				const rows =
 					yield* sql`SELECT id, session_id, native_head_id, status, last_turn_ordinal FROM session_provider_threads ORDER BY session_id`;
 				expect(rows).toEqual(
@@ -67,7 +67,7 @@ describe("migration 0063 provider thread ownership", () => {
 						provider_thread_id: scopeProviderThreadId(session, "legacy"),
 					})),
 				);
-				yield* Migration0063ProviderThreadOwnership;
+				yield* Migration0065ProviderThreadOwnership;
 				expect(
 					yield* sql`SELECT id, session_id, native_head_id, status, last_turn_ordinal FROM session_provider_threads ORDER BY session_id`,
 				).toEqual(rows);
@@ -80,7 +80,7 @@ describe("migration 0063 provider thread ownership", () => {
 				Effect.gen(function* () {
 					const sql = yield* setup;
 					yield* sql`INSERT INTO sessions VALUES ('parent', 'missing')`;
-					yield* Migration0063ProviderThreadOwnership;
+					yield* Migration0065ProviderThreadOwnership;
 				}),
 			),
 		).rejects.toThrow("Cannot recover provider thread missing");

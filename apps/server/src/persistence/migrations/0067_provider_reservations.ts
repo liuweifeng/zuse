@@ -4,7 +4,7 @@ import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Rebuild the current reservation pointer from lifecycle history, not a live process. */
-export const Migration0065ProviderReservations = Effect.gen(function* () {
+export const Migration0067ProviderReservations = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const columns = yield* sql<{
 		readonly name: string;

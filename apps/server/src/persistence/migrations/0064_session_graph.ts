@@ -13,7 +13,7 @@ import { SqlClient } from "effect/unstable/sql";
  * provider thread, and every `TurnStarted` event becomes a turn row whose
  * ordinal is its position in the session's event stream.
  */
-export const Migration0062SessionGraph = Effect.gen(function* () {
+export const Migration0064SessionGraph = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
 		CREATE TABLE session_provider_threads (
