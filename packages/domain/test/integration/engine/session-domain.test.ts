@@ -48,6 +48,75 @@ const makeDomainRuntime = (filename: string, eventPrefix: string) => {
 };
 
 describe("SessionDomain", () => {
+	test("projects reservation ownership through replacement, configuration changes and deletion", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`projection-${++sequence}`),
+				);
+				const reserve = (id: string): SessionCommand => ({
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: id,
+					reservedAt: 2,
+				});
+				const transitions: ReadonlyArray<
+					readonly [SessionCommand, string | null]
+				> = [
+					[createSessionCommand, null],
+					[reserve("first"), "first"],
+					[
+						{
+							_tag: "AttachProvider",
+							providerId: "provider-1",
+							providerSessionId: "first",
+							attachedAt: 3,
+						},
+						"first",
+					],
+					[reserve("second"), "second"],
+					[
+						{
+							_tag: "DetachProvider",
+							expectedProviderSessionId: "first",
+							detachedAt: 4,
+						},
+						"second",
+					],
+					[{ _tag: "SetWorktree", worktreeId: null, updatedAt: 5 }, "second"],
+					[{ _tag: "SetWorktree", worktreeId: "worktree", updatedAt: 6 }, null],
+					[reserve("worktree"), "worktree"],
+					[{ _tag: "SetModel", model: "model-2", updatedAt: 7 }, null],
+					[reserve("model"), "model"],
+					[{ _tag: "ArchiveSession", archivedAt: 8 }, null],
+					[{ _tag: "UnarchiveSession", unarchivedAt: 9 }, null],
+					[reserve("stopping"), "stopping"],
+					[{ _tag: "RequestProviderStop", requestedAt: 10 }, null],
+					[reserve("deleting"), "deleting"],
+					[{ _tag: "DeleteSession", deletedAt: 11 }, null],
+				];
+				for (const [index, [command, expected]] of transitions.entries()) {
+					yield* domain.dispatch({
+						commandId: `command-${index}`,
+						streamId: "session-1",
+						command,
+					});
+					expect(
+						yield* domain.providerReservation("session-1"),
+						command._tag,
+					).toBe(expected);
+				}
+				const restarted = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`reloaded-${++sequence}`),
+				);
+				expect(yield* restarted.providerReservation("session-1")).toBeNull();
+			}),
+		);
+	});
+
 	test("a durable stop revokes unpublished startup and guarded receipt replay", async () => {
 		await run(
 			Effect.gen(function* () {
@@ -102,6 +171,7 @@ describe("SessionDomain", () => {
 					},
 				]);
 				const restarted = yield* make();
+				expect(yield* restarted.providerReservation("session-1")).toBeNull();
 				for (const input of [
 					publication,
 					{

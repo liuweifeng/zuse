@@ -46,7 +46,7 @@ describe("lifecycle backfill", () => {
 				provider_id TEXT NOT NULL DEFAULT 'provider-1',
 				model TEXT NOT NULL DEFAULT 'model-1',
 				status TEXT NOT NULL DEFAULT 'idle',
-				active_provider_thread_id TEXT,
+				active_provider_thread_id TEXT, provider_reservation_id TEXT,
 				runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
 				agents_json TEXT,
 				worktree_id TEXT,

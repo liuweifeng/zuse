@@ -87,6 +87,7 @@ import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/mig
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
 import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
 import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062_session_graph.ts";
+import { Migration0065ProviderReservations } from "../../src/persistence/migrations/0065_provider_reservations.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -174,6 +175,7 @@ const runAllMigrations = Effect.all(
 		Migration0060ChatUserMessageTime,
 		Migration0061Jobs,
 		Migration0062SessionGraph,
+		Migration0065ProviderReservations,
 	],
 	{ discard: true },
 );

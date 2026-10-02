@@ -101,6 +101,9 @@ export type SessionSynchronizationRecord =
 	  };
 
 export interface SessionDomainApi {
+	readonly providerReservation: (
+		streamId: string,
+	) => Effect.Effect<string | null, SessionDomainError>;
 	readonly activeAttempt: (
 		streamId: string,
 	) => Effect.Effect<AttemptOwnership | null, SessionDomainError>;
@@ -571,6 +574,12 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		);
 
 	return SessionDomain.of({
+		providerReservation: (streamId) =>
+			sql<{
+				readonly provider_reservation_id: string | null;
+			}>`SELECT provider_reservation_id FROM sessions WHERE id = ${streamId} AND archived_at IS NULL LIMIT 1`.pipe(
+				Effect.map((rows) => rows[0]?.provider_reservation_id ?? null),
+			),
 		activeAttempt: (streamId) =>
 			sql<{ readonly turn_id: string; readonly attempt_id: string }>`
    SELECT t.id AS turn_id, t.active_attempt_id AS attempt_id FROM session_turns t

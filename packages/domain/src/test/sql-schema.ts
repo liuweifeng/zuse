@@ -39,6 +39,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			status TEXT NOT NULL,
 			archived_at TEXT,
 			active_provider_thread_id TEXT,
+			provider_reservation_id TEXT,
 			runtime_mode TEXT NOT NULL,
 			agents_json TEXT,
 			worktree_id TEXT,

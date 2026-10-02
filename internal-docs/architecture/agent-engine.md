@@ -38,7 +38,8 @@ identity cannot target newly identified handles. Stop cleanup retains the retire
 handle through cancellation. The domain now supports durable startup reservations
 and transactional reservation guards, including rejection of receipt replay after
 revocation. Stop requests target both the attached handle and a distinct pending
-reservation. Runtime adoption and an indexed reservation projection remain
+reservation. A session-row projection now supports ownership checks by primary key,
+and migration rebuilds it from lifecycle history. Runtime adoption remains
 outstanding, so unpublished startup cancellation is not yet an end-to-end guarantee.
 Job status and failure-message writes now carry transactional attempt guards,
 and interrupt cleanup closes only the matching provider handle. Handles whose
