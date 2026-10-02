@@ -1,5 +1,5 @@
-import { CHAT_LIST_ANCHOR_OFFSET } from "./chat-list-anchor.ts";
 import type { TimelineListMeasurementState } from "./timeline-scroll-anchoring.ts";
+import { TRANSCRIPT_TURN_INSET_PX } from "./timeline-scroll-anchoring.ts";
 
 export type TranscriptScrollMode =
 	| "restoring"
@@ -75,7 +75,7 @@ export class TranscriptScrollCoordinator {
 	private frame: number | null = null;
 	private allowLiveEdgeResume = true;
 	private anchorIndex: number | null = null;
-	private anchorOffset = CHAT_LIST_ANCHOR_OFFSET;
+	private anchorOffset = TRANSCRIPT_TURN_INSET_PX;
 	private anchorPositioned = false;
 	private navigationGeneration = 0;
 	private readonly scheduleFrame: (callback: () => void) => number;
@@ -115,7 +115,7 @@ export class TranscriptScrollCoordinator {
 		});
 	}
 
-	prepareNewTurn(index: number, anchorOffset = CHAT_LIST_ANCHOR_OFFSET): void {
+	prepareNewTurn(index: number, anchorOffset = TRANSCRIPT_TURN_INSET_PX): void {
 		this.anchorIndex = index;
 		this.anchorOffset = anchorOffset;
 		this.anchorPositioned = false;

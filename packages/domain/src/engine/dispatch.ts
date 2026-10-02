@@ -47,12 +47,28 @@ export const CommandReceipt = Schema.Struct({
 });
 export type CommandReceipt = typeof CommandReceipt.Type;
 
+export type AttemptOwnership = {
+	readonly turnId: string;
+	readonly attemptId: string;
+};
+
+export class AttemptOwnershipConflict extends Schema.TaggedErrorClass<AttemptOwnershipConflict>()(
+	"AttemptOwnershipConflict",
+	{
+		turnId: Schema.String,
+		expectedAttemptId: Schema.String,
+		actualAttemptId: Schema.NullOr(Schema.String),
+	},
+) {}
+
 export type DispatchInput<Command = SessionCommand> = {
 	readonly commandId: string;
 	readonly streamId: string;
 	readonly correlationId?: string;
 	readonly causationEventId?: string;
 	readonly receiptIdentity?: CommandReceiptIdentity;
+	/** Runtime-originated writes must still own this active attempt at commit. */
+	readonly expectedAttempt?: AttemptOwnership;
 	readonly command: Command;
 };
 
@@ -175,7 +191,7 @@ export class DispatchEngine<
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
-		if (existing !== null)
+		if (existing !== null && input.expectedAttempt === undefined)
 			return yield* validateCommandReceipt(input, existing);
 
 		const stored = yield* this.storage.events(input.streamId);
@@ -183,6 +199,29 @@ export class DispatchEngine<
 			initialSessionState,
 			stored.map((record) => record.event),
 		);
+		if (input.expectedAttempt !== undefined) {
+			const expected = input.expectedAttempt;
+			const turn = state.turns.get(expected.turnId);
+			// A provider may emit its final resume cursor after Completed. Accept that
+			// tail only for the newest turn's exact attempt; never reopen old ownership.
+			const ownsTail =
+				input.command._tag === "BindProviderThread" &&
+				turn?.ordinal === state.turnCount;
+			const actual =
+				(state.currentTurnId === expected.turnId || ownsTail) &&
+				!state.deleted &&
+				!state.archived
+					? (turn?.activeAttemptId ?? null)
+					: null;
+			if (actual !== expected.attemptId)
+				return yield* new AttemptOwnershipConflict({
+					turnId: expected.turnId,
+					expectedAttemptId: expected.attemptId,
+					actualAttemptId: actual,
+				});
+		}
+		if (existing !== null)
+			return yield* validateCommandReceipt(input, existing);
 		const decision = decide(state, input.command);
 		if (Result.isFailure(decision)) return yield* decision.failure;
 
@@ -289,6 +328,7 @@ export class InMemoryDispatchStorage
 
 export type DispatchFailure<StorageError = never> =
 	| DomainError
+	| AttemptOwnershipConflict
 	| ConcurrencyConflict
 	| CommandReceiptConflict
 	| CommandReceiptIdentityConflict

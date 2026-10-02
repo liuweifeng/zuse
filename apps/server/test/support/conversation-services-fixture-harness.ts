@@ -85,6 +85,8 @@ import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrati
 import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
+import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
+import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062_session_graph.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -170,6 +172,8 @@ const runAllMigrations = Effect.all(
 		Migration0054ProviderEffectOutcomes,
 		Migration0058QuestionAnswerDeliveries,
 		Migration0060ChatUserMessageTime,
+		Migration0061Jobs,
+		Migration0062SessionGraph,
 	],
 	{ discard: true },
 );
@@ -494,8 +498,7 @@ export const assertEventsAcceptedByConversationServices = async (
 			);
 			if (
 				cursorEvent !== undefined &&
-				(session.cursor !== cursorEvent.cursor ||
-					session.resumeStrategy !== cursorEvent.strategy)
+				session.providerThread?.nativeThreadRef.nativeId !== cursorEvent.cursor
 			) {
 				return yield* Effect.fail("session cursor not persisted yet" as const);
 			}

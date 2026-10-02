@@ -14,6 +14,12 @@ import {
 } from "./agent.ts";
 import { WorkspaceActor } from "./collaboration.ts";
 import {
+	AttemptReason,
+	ProviderRef,
+	ProviderThreadStatus,
+	TurnStatus,
+} from "./agent-engine.ts";
+import {
 	AttachmentRef,
 	ComposerAnnotation,
 	ComposerInput,
@@ -25,10 +31,12 @@ import {
 	AgentItemId,
 	AgentSessionId,
 	AgentTurnId,
+	AttemptId,
 	ChatId,
 	CommandId,
 	FolderId,
 	MessageId,
+	ProviderThreadId,
 	WorktreeId,
 } from "./ids.ts";
 import { NameProvenanceField } from "./naming.ts";
@@ -72,33 +80,23 @@ export const SessionStatus = Schema.Literals([
 export type SessionStatus = typeof SessionStatus.Type;
 
 /**
- * How (if at all) a session can resume after the provider session is gone.
- * Captured at start time; the renderer uses it to decide whether to expose
- * a "Resumable" affordance on stopped sessions.
- *
- *   - `claude-session-id` — Claude SDK's `session_id` is stored in `cursor`
- *     and passed back as `options.resume` on the next start.
- *   - `codex-thread-id` — Codex SDK's thread id is stored in `cursor` and
- *     passed back via `Codex.resumeThread(id)`. Codex doesn't replay prior
- *     items on resume; the renderer's persisted timeline is the source of
- *     truth for what came before.
- *   - `none` — no resume; sending again starts a fresh provider session
- *     under the same DB row (existing chat-MVP behavior).
+ * The provider-native conversation currently backing a session. A session
+ * accumulates provider threads over time; this is the active one, with the
+ * native handle kept as a reference so the app never depends on it as
+ * identity. `nativeHeadRef` is the provider's replay cursor when it has one.
  */
-export const ResumeStrategy = Schema.Literals([
-	"claude-session-id",
-	"codex-thread-id",
-	"grok-session-id",
-	"cursor-session-id",
-	"gemini-session-id",
-	"opencode-session-id",
-	"opencode2-session-id",
-	"kiro-session-id",
-	"pi-session-file",
-	"zuse-execution-id",
-	"none",
-]);
-export type ResumeStrategy = typeof ResumeStrategy.Type;
+export const SessionProviderThread = Schema.Struct({
+	id: ProviderThreadId,
+	provider: ProviderId,
+	nativeThreadRef: ProviderRef,
+	nativeHeadRef: Schema.NullOr(ProviderRef),
+	status: ProviderThreadStatus,
+	firstTurnOrdinal: Schema.NullOr(Schema.Number),
+	lastTurnOrdinal: Schema.NullOr(Schema.Number),
+	createdAt: Schema.DateFromString,
+	updatedAt: Schema.DateFromString,
+});
+export type SessionProviderThread = typeof SessionProviderThread.Type;
 
 // `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
 // new `AgentDefinition.permissionMode` can reuse the same literal set
@@ -114,9 +112,8 @@ export class Session extends Schema.Class<Session>("Session")({
 	model: Schema.String,
 	status: SessionStatus,
 	archivedAt: Schema.NullOr(Schema.DateFromString),
-	cursor: Schema.NullOr(Schema.String),
-	providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
-	resumeStrategy: ResumeStrategy,
+	/** Active provider-native conversation, or null before the first turn. */
+	providerThread: Schema.NullOr(SessionProviderThread),
 	runtimeMode: RuntimeMode,
 	/**
 	 * Optional git worktree the session runs in. When null, the session runs
@@ -515,11 +512,29 @@ export const SessionTimelineTurnPhase = Schema.Literals([
 ]);
 export type SessionTimelineTurnPhase = typeof SessionTimelineTurnPhase.Type;
 
-export const SessionTimelineTurn = Schema.Struct({
-	turnId: AgentTurnId,
-	phase: SessionTimelineTurnPhase,
+/** One provider execution of a turn. Retries and recovery add attempts. */
+export const SessionAttempt = Schema.Struct({
+	id: AttemptId,
+	ordinal: Schema.Number,
+	reason: AttemptReason,
 });
-export type SessionTimelineTurn = typeof SessionTimelineTurn.Type;
+export type SessionAttempt = typeof SessionAttempt.Type;
+
+/**
+ * A counted user turn as the timeline sees it. `phase` tracks the interrupt
+ * handshake for the UI; `status` is the durable lifecycle state.
+ */
+export const SessionTurn = Schema.Struct({
+	id: AgentTurnId,
+	ordinal: Schema.Number,
+	status: TurnStatus,
+	phase: SessionTimelineTurnPhase,
+	attempt: SessionAttempt,
+	providerThreadId: Schema.NullOr(ProviderThreadId),
+	requestedAt: Schema.DateFromString,
+	completedAt: Schema.NullOr(Schema.DateFromString),
+});
+export type SessionTurn = typeof SessionTurn.Type;
 
 /**
  * An unresolved, user-blocking interaction reconstructed from the durable
@@ -546,7 +561,14 @@ export class SessionTimelineProjection extends Schema.Class<SessionTimelineProje
 	/** Sequence immediately before the oldest materialized message, if any. */
 	olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 	status: SessionStatus,
-	currentTurn: Schema.NullOr(SessionTimelineTurn),
+	/** The turn currently in flight, or null when the session is idle. */
+	activeTurn: Schema.NullOr(SessionTurn).pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed(null)),
+	),
+	/** Number of counted turns so far; the next turn gets `turnCount + 1`. */
+	turnCount: Schema.Number.pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed(0)),
+	),
 	queue: QueueState,
 	permissionMode: PermissionMode,
 	runtimeMode: RuntimeMode,
@@ -568,10 +590,9 @@ export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("Noop", {}),
 	Schema.TaggedStruct("MessagePersisted", { message: Message }),
 	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
-	Schema.TaggedStruct("TurnStarted", {
-		turnId: AgentTurnId,
-		phase: SessionTimelineTurnPhase,
-	}),
+	Schema.TaggedStruct("TurnStarted", { turn: SessionTurn }),
+	/** Attempt or status change on the active turn. */
+	Schema.TaggedStruct("TurnUpdated", { turn: SessionTurn }),
 	Schema.TaggedStruct("TurnPhaseSet", {
 		turnId: AgentTurnId,
 		phase: SessionTimelineTurnPhase,

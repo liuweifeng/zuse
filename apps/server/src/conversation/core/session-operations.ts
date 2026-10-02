@@ -11,6 +11,7 @@ import {
 	type MessageOrigin,
 	type ProviderId,
 	providerCapabilities,
+	ProviderThreadId,
 	type ResumeStrategy,
 	Session,
 	SessionAlreadyStartedError,
@@ -21,6 +22,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import { providerThreadIdFor } from "@zuse/domain/core/state";
 import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
@@ -66,7 +68,7 @@ export interface SessionOperationsOptions
 		idOverride?: import("@zuse/contracts").MessageId,
 		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<PersistedMessage>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
 		command: SessionCommand,
@@ -195,6 +197,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const { ensureForTurn } = makeProviderSessionRuntime({
 		awaitWorkspaceReady: options.awaitWorkspaceReady,
 		state,
+		sessionDomain,
 		agentsFor,
 		cwdForWorktree,
 		runtime,
@@ -295,14 +298,19 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const initialMessageId = hasInitial
 				? (input.initialMessageId ?? MessageId.make(crypto.randomUUID()))
 				: null;
-			const resumeCursor = input.resumeCursor ?? null;
-			const resumeStrategy: ResumeStrategy =
-				resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
+			const providerThreadSeed =
+				input.providerThread === undefined
+					? undefined
+					: {
+							provider: input.providerId,
+							nativeThreadId: input.providerThread.nativeThreadId,
+							nativeHeadId: input.providerThread.nativeHeadId ?? null,
+						};
 			const forkedFromSessionId = input.forkedFromSessionId ?? null;
 			const forkedFromMessageId = input.forkedFromMessageId ?? null;
-			// Only fork the transcript when we actually have a cursor to fork.
+			// Only fork the transcript when there is a provider thread to fork.
 			const forkFromResume =
-				input.forkFromResume === true && resumeCursor !== null;
+				input.forkFromResume === true && providerThreadSeed !== undefined;
 			const postBootStatus: Session["status"] = hasInitial ? "running" : "idle";
 			const providerStart: ProviderStartRequest = {
 				initialPrompt: null,
@@ -334,8 +342,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						providerId: input.providerId,
 						model: input.model,
 						status: rowStatus,
-						cursor: resumeCursor,
-						resumeStrategy,
 						runtimeMode: initialRuntimeMode,
 						agentsJson,
 						worktreeId,
@@ -345,6 +351,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						toolSearch: initialToolSearch,
 						queuePaused: input.queuePaused ?? false,
 						providerStartJson: JSON.stringify(providerStart),
+						...(providerThreadSeed === undefined
+							? {}
+							: { providerThread: providerThreadSeed }),
 						...(hasInitial &&
 						initialTurnId !== null &&
 						initialMessageId !== null
@@ -380,7 +389,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			if (initialTurnId !== null) {
 				state.rememberActiveTurn(sessionId, initialTurnId);
 				yield* Effect.forkIn(
-					runSessionReactors.pipe(
+					runSessionReactors(sessionId).pipe(
 						Effect.catchCause((cause) =>
 							Effect.logWarning(
 								`[ConversationServices] initial turn reactor failed: ${String(cause)}`,
@@ -399,8 +408,37 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				model: input.model,
 				status: rowStatus,
 				archivedAt: null,
-				cursor: resumeCursor,
-				resumeStrategy,
+				providerThread:
+					providerThreadSeed === undefined
+						? null
+						: {
+								id: ProviderThreadId.make(
+									providerThreadIdFor(
+										sessionId,
+										providerThreadSeed.provider,
+										providerThreadSeed.nativeThreadId,
+									),
+								),
+								provider: input.providerId,
+								nativeThreadRef: {
+									provider: input.providerId,
+									nativeId: providerThreadSeed.nativeThreadId,
+									strength: "strong",
+								},
+								nativeHeadRef:
+									providerThreadSeed.nativeHeadId === null
+										? null
+										: {
+												provider: input.providerId,
+												nativeId: providerThreadSeed.nativeHeadId,
+												strength: "weak",
+											},
+								status: "not_loaded",
+								firstTurnOrdinal: null,
+								lastTurnOrdinal: null,
+								createdAt: now,
+								updatedAt: now,
+							},
 				runtimeMode: initialRuntimeMode,
 				worktreeId,
 				chatId: input.chatId,
@@ -921,7 +959,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				providerInputJson,
 				requestedAt: yield* currentTimestamp,
 			});
-			yield* runSessionReactors;
+			yield* runSessionReactors(sessionId);
 		});
 
 	const unarchiveSession: ConversationOperations["unarchiveSession"] = (

@@ -51,7 +51,7 @@ export const sessionMessageCommandReflected = (
 	);
 	if (messageIndex < 0) return false;
 	if (
-		projection.currentTurn !== null ||
+		projection.activeTurn !== null ||
 		projection.status === "booting" ||
 		projection.status === "running" ||
 		projection.status === "error" ||

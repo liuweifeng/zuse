@@ -45,10 +45,6 @@ import {
 import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
 import {
-	CHAT_LIST_ANCHOR_OFFSET,
-	resolveChatListAnchoredEndSpace,
-} from "../lib/chat-list-anchor.ts";
-import {
 	type ChatTimelineRow,
 	createCloudTimelineRows,
 	deriveChatTimelineRows,
@@ -96,6 +92,7 @@ import {
 import {
 	resolveScrollableNodeIsAtEnd,
 	resolveTimelineHasContentBelowViewport,
+	TRANSCRIPT_TURN_INSET_PX,
 } from "../lib/timeline-scroll-anchoring.ts";
 import {
 	TranscriptScrollCoordinator,
@@ -431,13 +428,16 @@ export function ChatView({
 	const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
 		string | null
 	>(null);
-	const anchoredEndSpace = useMemo(
-		() =>
-			resolveChatListAnchoredEndSpace(rows, timelineAnchorMessageId, (row) =>
-				rowAnchorMessageId(row),
-			),
-		[rows, timelineAnchorMessageId, uiMessage],
-	);
+	const anchoredEndSpace = useMemo(() => {
+		if (timelineAnchorMessageId === null) return undefined;
+		const anchorIndex = rows.findLastIndex(
+			(row) => rowAnchorMessageId(row) === timelineAnchorMessageId,
+		);
+		return anchorIndex < 0
+			? undefined
+			: { anchorIndex, anchorOffset: TRANSCRIPT_TURN_INSET_PX };
+	}, [rows, timelineAnchorMessageId, uiMessage]);
+
 	const listRef = useRef<LegendListRef | null>(null);
 	const scrollElementRef = useRef<HTMLDivElement | null>(null);
 	const latestUserMessageIdRef = useRef(latestUserMessageId);
@@ -802,7 +802,7 @@ export function ChatView({
 		setTimelineAnchorMessageId(latestUserMessageId);
 		setActiveTurnMessageId(latestUserMessageId);
 		setHasOutOfViewUpdates(false);
-		coordinator.prepareNewTurn(turn.rowIndex, CHAT_LIST_ANCHOR_OFFSET);
+		coordinator.prepareNewTurn(turn.rowIndex, TRANSCRIPT_TURN_INSET_PX);
 	}, [coordinator, inFlight, latestUserMessageId, turns]);
 
 	useLayoutEffect(() => {
@@ -1022,7 +1022,7 @@ export function ChatView({
 						onNavigate={(turn) => {
 							setTimelineAnchorMessageId(null);
 							coordinator.jumpToTurn(turn.rowIndex, {
-								viewportOffset: CHAT_LIST_ANCHOR_OFFSET,
+								viewportOffset: TRANSCRIPT_TURN_INSET_PX,
 								animated: !prefersReducedMotion,
 							});
 						}}

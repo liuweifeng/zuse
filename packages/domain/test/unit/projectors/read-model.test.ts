@@ -68,7 +68,7 @@ describe("session read-model projector", () => {
 			title: "Projected title",
 			providerId: "provider-1",
 			model: "model-1",
-			resumeStrategy: "none",
+			activeProviderThread: null,
 			runtimeMode: "approval-required",
 			permissionMode: "default",
 			toolSearch: false,

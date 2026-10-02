@@ -390,7 +390,7 @@ export const interruptSession = async (
 	providerId?: ProviderId,
 ): Promise<void> => {
 	setSessionError(ref, null);
-	const expectedTurnId = projectionFor(ref)?.currentTurn?.turnId;
+	const expectedTurnId = projectionFor(ref)?.activeTurn?.id;
 	const commandId = CommandId.make(
 		`message-interrupt:${ref.sessionId}:${expectedTurnId ?? "none"}`,
 	);

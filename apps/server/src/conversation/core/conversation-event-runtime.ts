@@ -4,15 +4,18 @@ import type {
 	AgentTurnId,
 	MessageContent,
 	PermissionMode,
-	ProviderEventEnvelope,
 	ProviderId,
-	ResumeStrategy,
 	SessionId,
 	ThreadGoal,
 } from "@zuse/contracts";
+import type {
+	AttemptOwnership,
+	AttemptOwnershipConflict,
+} from "@zuse/domain/engine/dispatch";
 import {
 	Deferred,
 	Effect,
+	Exit,
 	Fiber,
 	Ref,
 	type Scope,
@@ -20,6 +23,10 @@ import {
 	Stream,
 } from "effect";
 
+import type {
+	ProviderCursorReceipt,
+	ProviderEventDelivery,
+} from "../../provider/provider-event-delivery.ts";
 import { eventToContent } from "./conversation-message-mapping.ts";
 
 type ApiActivity =
@@ -33,13 +40,18 @@ export interface ConversationEventRuntimeOptions {
 	readonly scope: Scope.Scope;
 	readonly events: (
 		sessionId: SessionId,
-	) => Stream.Stream<ProviderEventEnvelope, unknown>;
+	) => Stream.Stream<ProviderEventDelivery, unknown>;
+	readonly ownsAttempt: (
+		sessionId: SessionId,
+		ownership: AttemptOwnership,
+	) => Effect.Effect<boolean>;
 	readonly providerId: (sessionId: SessionId) => Effect.Effect<ProviderId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+	) => Effect.Effect<boolean, AttemptOwnershipConflict>;
 	/**
 	 * Durably starts a turn the provider opened on its own. Resolves to the
 	 * proposed id, or to the application turn that is already running when the
@@ -49,20 +61,18 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 	) => Effect.Effect<AgentTurnId>;
-	readonly setResume: (
+	/** Bind the provider-native thread the driver reported for this session. */
+	readonly bindProviderThread: (
 		sessionId: SessionId,
-		cursor: string,
-		strategy: ResumeStrategy,
-		providerEventCursor?: string,
-	) => Effect.Effect<void>;
-	readonly releaseProviderEventCursor?: (
-		sessionId: SessionId,
-		cursor: string,
-	) => Effect.Effect<void>;
+		nativeThreadId: string,
+		nativeHeadId?: string,
+		expectedAttempt?: AttemptOwnership,
+	) => Effect.Effect<void, AttemptOwnershipConflict>;
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+	) => Effect.Effect<void, AttemptOwnershipConflict>;
 	readonly publishGoal: (
 		sessionId: SessionId,
 		goal: ThreadGoal | null,
@@ -85,7 +95,8 @@ export interface ConversationEventRuntimeOptions {
 		turnId: AgentTurnId,
 		content: MessageContent,
 		providerItemIdentity?: string,
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+	) => Effect.Effect<void, AttemptOwnershipConflict>;
 }
 
 export interface ConversationEventRuntime {
@@ -158,7 +169,7 @@ export const makeConversationEventRuntime = Effect.fn(
 				if (existing !== undefined) yield* Fiber.interrupt(existing.fiber);
 				const providerId = yield* options.providerId(sessionId);
 				const token = {};
-				let pendingProviderEventCursor: string | undefined;
+				let pendingReceipt: ProviderCursorReceipt | undefined;
 				// Provider-opened turns that lost the race to an application turn,
 				// mapped onto the application turn that absorbed their events.
 				const absorbedProviderTurns = new Map<AgentTurnId, AgentTurnId>();
@@ -168,6 +179,15 @@ export const makeConversationEventRuntime = Effect.fn(
 						Effect.andThen(
 							Stream.runForEach(options.events(sessionId), (envelope) =>
 								Effect.gen(function* () {
+									const ownership = envelope.ownership;
+									if (
+										ownership !== undefined &&
+										envelope.event._tag !== "SessionCursor" &&
+										!(yield* options.ownsAttempt(sessionId, ownership))
+									) {
+										yield* envelope.cursorReceipt?.release ?? Effect.void;
+										return;
+									}
 									const event = envelope.event;
 									if (event._tag === "ProviderTurnStarted") {
 										if (envelope.scope !== "turn") return;
@@ -187,7 +207,7 @@ export const makeConversationEventRuntime = Effect.fn(
 												envelope.turnId)
 											: undefined;
 									if (event._tag === "ProviderNotificationMetadata") {
-										pendingProviderEventCursor = event.eventId;
+										pendingReceipt = envelope.cursorReceipt;
 										return;
 									}
 									if (event._tag === "Status") {
@@ -209,7 +229,13 @@ export const makeConversationEventRuntime = Effect.fn(
 												: event.reason === "error"
 													? "error"
 													: "completed";
-										yield* options.settleTurn(sessionId, turnId, outcome);
+										const settled = yield* options.settleTurn(
+											sessionId,
+											turnId,
+											outcome,
+											ownership,
+										);
+										if (settled === false) return;
 										yield* options.publishApiActivity(
 											sessionId,
 											event.reason === "error" ? "error" : "completed",
@@ -217,21 +243,40 @@ export const makeConversationEventRuntime = Effect.fn(
 										return;
 									}
 									if (event._tag === "SessionCursor") {
-										yield* options.setResume(
-											sessionId,
-											event.cursor,
-											event.strategy,
-											event.providerEventCursor,
-										);
-										if (
-											event.providerEventCursor !== undefined &&
-											event.providerEventCursor === pendingProviderEventCursor
-										)
-											pendingProviderEventCursor = undefined;
+										const receipt = envelope.cursorReceipt;
+										yield* options
+											.bindProviderThread(
+												sessionId,
+												event.cursor,
+												event.providerEventCursor,
+												ownership,
+											)
+											.pipe(
+												Effect.onExit((exit) =>
+													receipt === undefined
+														? Effect.void
+														: Exit.isSuccess(exit)
+															? receipt.acknowledge
+															: receipt.release,
+												),
+												Effect.ensuring(
+													Effect.sync(() => {
+														if (
+															receipt !== undefined &&
+															pendingReceipt?.cursor === receipt.cursor
+														)
+															pendingReceipt = undefined;
+													}),
+												),
+											);
 										return;
 									}
 									if (event._tag === "PermissionModeChanged") {
-										yield* options.setPermissionMode(sessionId, event.mode);
+										yield* options.setPermissionMode(
+											sessionId,
+											event.mode,
+											ownership,
+										);
 										return;
 									}
 									if (event._tag === "GoalUpdated") {
@@ -285,28 +330,29 @@ export const makeConversationEventRuntime = Effect.fn(
 										"itemId" in event && typeof event.itemId === "string"
 											? `${event._tag}:${event.itemId}`
 											: undefined,
+										ownership,
 									);
 									if (event._tag === "Error") {
 										yield* options.publishApiActivity(sessionId, "error");
 									}
-								}),
+								}).pipe(
+									Effect.catchTag(
+										"AttemptOwnershipConflict",
+										() => Effect.void,
+									),
+								),
 							),
 						),
 						Effect.catchCause((cause) =>
 							Effect.gen(function* () {
-								if (pendingProviderEventCursor !== undefined) {
-									yield* (
-										options.releaseProviderEventCursor?.(
-											sessionId,
-											pendingProviderEventCursor,
-										) ?? Effect.void
-									).pipe(Effect.catch(() => Effect.void));
-								}
 								yield* Effect.logDebug(
 									"[ConversationEvents] event stream ended",
 								);
 								yield* Effect.logDebug(cause);
 							}),
+						),
+						Effect.ensuring(
+							Effect.suspend(() => pendingReceipt?.release ?? Effect.void),
 						),
 						Effect.ensuring(
 							Ref.update(fibers, (current) => {

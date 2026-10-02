@@ -102,7 +102,7 @@ export const makeSessionTimelineResourceDriver = <
 			let backgroundHistoryAccepted = false;
 			const cachedTurnMayBeStale =
 				state.projection !== null &&
-				(state.projection.currentTurn !== null ||
+				(state.projection.activeTurn !== null ||
 					state.projection.status === "running" ||
 					state.projection.status === "booting");
 			let catchingUp = true;

@@ -2,9 +2,10 @@ import type {
 	AgentEvent,
 	AgentItemId,
 	AgentTurnId,
+	AttemptId,
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
-import { type Cause, Effect, Fiber, Queue, Stream } from "effect";
+import { type Cause, Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type {
 	ProviderDriverEvent,
@@ -27,6 +28,121 @@ const handleWithEvents = (
 });
 
 describe("turn-scoped provider protocol", () => {
+	it("rejects an unsent attempt whose event stream already ended", async () => {
+		let sends = 0;
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				{
+					...handleWithEvents([]),
+					send: () =>
+						Effect.sync(() => {
+							sends++;
+						}),
+				},
+				turnId,
+				"attempt-dead" as AttemptId,
+			),
+		);
+		await Effect.runPromise(Stream.runCollect(scoped.events));
+		const result = await Effect.runPromise(
+			scoped.send(turnId, "must not disappear").pipe(Effect.result),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { _tag: "ProviderHandleUnavailable" },
+		});
+		expect(sends).toBe(0);
+	});
+
+	it("keeps attempt ownership on buffered events and never rebinds a finished handle", async () => {
+		let sends = 0;
+		const attemptId = "attempt-1" as AttemptId;
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				{
+					...handleWithEvents([
+						{ _tag: "AssistantMessage", itemId, text: "late response" },
+						{ _tag: "Completed", reason: "ended" },
+						{
+							_tag: "SessionCursor",
+							strategy: "claude-session-id",
+							cursor: "native-head",
+						},
+					]),
+					send: () =>
+						Effect.sync(() => {
+							sends++;
+						}),
+				},
+				turnId,
+				attemptId,
+			),
+		);
+		await Effect.runPromise(scoped.send(turnId, "first"));
+		const events = Array.from(
+			await Effect.runPromise(Stream.runCollect(scoped.events)),
+		);
+		expect(events).toHaveLength(3);
+		expect(events.map((event) => event.ownership)).toEqual(
+			Array(3).fill({ turnId, attemptId }),
+		);
+		await Effect.runPromise(scoped.send(turnId, "duplicate"));
+		expect(sends).toBe(1);
+		await expect(
+			Effect.runPromise(scoped.send("turn-other" as AgentTurnId, "new")),
+		).rejects.toThrow("requires its own handle");
+	});
+	it("does not mistake startup idle for completion of an unsent attempt", async () => {
+		const events = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const idle = yield* Deferred.make<void>();
+					const sent = yield* Deferred.make<void>();
+					const scoped = yield* makeTurnScopedSessionHandle(
+						{
+							...handleWithEvents([]),
+							events: Stream.concat(
+								Stream.succeed<ProviderDriverEvent>({
+									_tag: "Status",
+									status: "idle",
+								}),
+								Stream.fromEffect(
+									Deferred.await(sent).pipe(
+										Effect.as<ProviderDriverEvent>({
+											_tag: "Completed",
+											reason: "ended",
+										}),
+									),
+								),
+							),
+							send: () => Deferred.succeed(sent, undefined).pipe(Effect.asVoid),
+						},
+						turnId,
+						"attempt-1" as AttemptId,
+					);
+					const consumer = yield* Effect.forkScoped(
+						Stream.runCollect(
+							scoped.events.pipe(
+								Stream.tap((event) =>
+									event.event._tag === "Status"
+										? Deferred.succeed(idle, undefined)
+										: Effect.void,
+								),
+							),
+						),
+					);
+					yield* Deferred.await(idle);
+					yield* scoped.send(turnId, "first");
+					return Array.from(yield* Fiber.join(consumer));
+				}),
+			),
+		);
+		expect(events.map((event) => event.event._tag)).toEqual([
+			"Status",
+			"Completed",
+		]);
+	});
+
 	it("forwards ephemeral question callback release independently of turn state", async () => {
 		const scoped = await Effect.runPromise(
 			makeTurnScopedSessionHandle(

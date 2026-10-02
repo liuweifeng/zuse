@@ -9,6 +9,7 @@ import {
 	SessionStartError,
 	type WorktreeId,
 } from "@zuse/contracts";
+import type { AttemptOwnershipConflict } from "@zuse/domain/engine/dispatch";
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
 import { Effect, Option } from "effect";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
@@ -25,16 +26,19 @@ import { formatProviderFailure } from "./conversation-input.ts";
 import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { dispatchRuntimeCommand } from "./runtime-command.ts";
 
 export interface OpenProviderSessionOptions {
 	readonly initialPrompt?: string;
 	readonly initialTurnId?: AgentTurnId;
+	readonly initialAttemptId?: import("@zuse/contracts").AttemptId;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly enableSubagents?: boolean;
 	readonly forkFromResume?: boolean;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
 		readonly turnId: AgentTurnId;
+		readonly attemptId?: import("@zuse/contracts").AttemptId;
 		readonly text: string;
 		readonly attachments: ReadonlyArray<AttachmentRef>;
 		readonly fileRefs?: ReadonlyArray<import("@zuse/contracts").FileRef>;
@@ -45,6 +49,10 @@ export interface OpenProviderSessionOptions {
 export interface ProviderSessionRuntimeOptions {
 	readonly awaitWorkspaceReady?: Effect.Effect<void>;
 	readonly state: ConversationStateApi;
+	readonly sessionDomain: Pick<
+		import("@zuse/domain/engine/session-domain").SessionDomainApi,
+		"activeAttempt" | "dispatch"
+	>;
 	readonly agentsFor: (
 		sessionId: SessionId,
 	) => ReturnType<ConversationStateApi["agents"]>;
@@ -84,6 +92,7 @@ export interface ProviderSessionRuntimeOptions {
 	readonly attachProvider: (
 		sessionId: SessionId,
 		providerId: ProviderId,
+		providerSessionId?: string,
 	) => Effect.Effect<void>;
 	readonly setStatus: (
 		sessionId: SessionId,
@@ -100,6 +109,7 @@ export const makeProviderSessionRuntime = (
 		Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
 	const {
 		state,
+		sessionDomain: optionsState,
 		agentsFor,
 		cwdForWorktree,
 		runtime,
@@ -127,6 +137,21 @@ export const makeProviderSessionRuntime = (
 		Effect.gen(function* () {
 			// Resolve configuration again at the execution edge. Reactor handlers may
 			// have captured this row before a provider/model switch committed.
+			const ownsAttempt =
+				options.initialAttemptId === undefined
+					? Effect.succeed(true)
+					: options.initialTurnId === undefined
+						? Effect.succeed(false)
+						: optionsState.activeAttempt(session.id).pipe(
+								Effect.map(
+									(current) =>
+										current !== null &&
+										current.turnId === options.initialTurnId &&
+										current.attemptId === options.initialAttemptId,
+								),
+								Effect.orDie,
+							);
+			if (!(yield* ownsAttempt)) return false;
 			const configured = yield* lookupSession(session.id).pipe(
 				Effect.map(
 					(current) =>
@@ -207,6 +232,7 @@ export const makeProviderSessionRuntime = (
 						sessionId: session.id,
 						initialPrompt: options.initialPrompt,
 						initialTurnId: options.initialTurnId,
+						initialAttemptId: options.initialAttemptId,
 						model: session.model,
 						agents: subagents?.agents,
 						enableSubagents:
@@ -217,10 +243,25 @@ export const makeProviderSessionRuntime = (
 						toolSearch: session.toolSearch,
 						forkFromResume: options.forkFromResume,
 					},
-					session.cursor,
+					session.providerThread?.nativeThreadRef.nativeId ?? null,
 					() => state.runtimeMode(session.id),
 					orchestrationTools,
-					session.providerEventCursor ?? null,
+					session.providerThread?.nativeHeadRef?.nativeId ?? null,
+					ownsAttempt.pipe(
+						Effect.flatMap((owned) =>
+							!owned
+								? Effect.succeed(false)
+								: lookupSession(session.id).pipe(
+										Effect.map(
+											(current) =>
+												current.archivedAt === null &&
+												current.providerId === session.providerId &&
+												current.model === session.model,
+										),
+										Effect.catch(() => Effect.succeed(false)),
+									),
+						),
+					),
 				)
 				.pipe(
 					Effect.mapError((error) =>
@@ -254,19 +295,72 @@ export const makeProviderSessionRuntime = (
 				// could race with a newer startup and accidentally close its handle.
 				return false;
 			}
-			const publish = (effect: Effect.Effect<void, SessionStartError>) =>
-				started.generation === undefined
-					? effect.pipe(Effect.as(true))
-					: provider.guardCurrent(session.id, started.generation, effect);
+			const publish = (
+				effect: Effect.Effect<
+					void,
+					SessionStartError | AttemptOwnershipConflict
+				>,
+			) =>
+				ownsAttempt.pipe(
+					Effect.flatMap((current) =>
+						!current
+							? Effect.succeed(false)
+							: started.generation === undefined
+								? effect.pipe(Effect.as(true))
+								: provider.guardCurrent(session.id, started.generation, effect),
+					),
+					Effect.catchTag("AttemptOwnershipConflict", () =>
+						Effect.succeed(false),
+					),
+				);
+			const ownership =
+				options.initialTurnId === undefined ||
+				options.initialAttemptId === undefined
+					? undefined
+					: {
+							turnId: options.initialTurnId,
+							attemptId: options.initialAttemptId,
+						};
+			const attach =
+				ownership === undefined
+					? attachProvider(
+							session.id,
+							session.providerId,
+							started.providerSessionId,
+						)
+					: dispatchRuntimeCommand(optionsState, {
+							commandId: `provider-attach:${session.id}:${ownership.attemptId}:${started.generation ?? "legacy"}`,
+							streamId: session.id,
+							expectedAttempt: ownership,
+							command: {
+								_tag: "AttachProvider",
+								providerSessionId: started.providerSessionId,
+								providerId: session.providerId,
+								attachedAt: Date.now(),
+							},
+						}).pipe(Effect.asVoid);
+			const status = (value: Session["status"]) =>
+				ownership === undefined
+					? setStatus(session.id, value)
+					: dispatchRuntimeCommand(optionsState, {
+							commandId: `provider-start-status:${session.id}:${ownership.attemptId}:${started.generation ?? "legacy"}:${value}`,
+							streamId: session.id,
+							expectedAttempt: ownership,
+							command: {
+								_tag: "SetStatus",
+								status: value,
+								updatedAt: Date.now(),
+							},
+						}).pipe(Effect.asVoid);
+
 			// Keep every externally visible handoff behind the lease. Guarding only
 			// `start()` still lets a stopped generation attach or publish `running`.
-			if (!(yield* publish(attachProvider(session.id, session.providerId))))
-				return false;
+			if (!(yield* publish(attach))) return false;
 			// Publish startup status before consuming buffered provider events. A fast
 			// completion must remain authoritative after startup returns.
 			if (
 				options.postBootStatus !== undefined &&
-				!(yield* publish(setStatus(session.id, options.postBootStatus)))
+				!(yield* publish(status(options.postBootStatus)))
 			)
 				return false;
 			if (!(yield* publish(startSubscription(session.id)))) return false;
@@ -281,6 +375,7 @@ export const makeProviderSessionRuntime = (
 							options.sendAfterOpen.attachments,
 							options.sendAfterOpen.fileRefs,
 							options.sendAfterOpen.skillRefs,
+							options.sendAfterOpen.attemptId,
 						)
 						.pipe(
 							Effect.catchTag("AgentSessionNotFoundError", () =>

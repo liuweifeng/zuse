@@ -36,7 +36,7 @@ test("previews only the fork prefix with child IDs and no inherited running stat
 		["fork:child:point", "child"],
 	]);
 	expect(preview?.status).toBe("idle");
-	expect(preview?.currentTurn).toBeNull();
+	expect(preview?.activeTurn).toBeNull();
 	expect(preview?.queue.items).toEqual([]);
 	expect(preview?.interactions).toEqual([]);
 	expect(preview?.olderMessageSequence).toBeNull();

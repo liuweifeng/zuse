@@ -1,3 +1,6 @@
+/** Space above a user turn when navigation pins it to the viewport. */
+export const TRANSCRIPT_TURN_INSET_PX = 16;
+
 export interface TimelineListMeasurementState {
 	readonly data: readonly unknown[];
 	readonly scroll: number;

@@ -5,7 +5,6 @@ import type { StoredEvent } from "../../../src/engine/dispatch.js";
 import {
 	autoNameReactorDefinition,
 	chatArchiveReactorDefinition,
-	providerStartReactorDefinition,
 } from "../../../src/reactors/conversation.js";
 
 const record = (event: StoredEvent["event"]): StoredEvent => ({
@@ -19,44 +18,6 @@ const record = (event: StoredEvent["event"]): StoredEvent => ({
 });
 
 describe("conversation reactor definitions", () => {
-	test("maps a persisted provider start request", async () => {
-		const commands = await Effect.runPromise(
-			providerStartReactorDefinition.react(
-				record({
-					_tag: "SessionCreated",
-					sessionId: "session-1",
-					chatId: "chat-1",
-					projectId: "project-1",
-					createdAt: 1,
-					providerStartJson: "{}",
-				}),
-			),
-		);
-		expect(commands).toEqual([
-			{
-				streamId: "session-1",
-				command: { _tag: "StartProvider", providerStartJson: "{}" },
-			},
-		]);
-	});
-
-	test("does not start a provider while initial workspace setup is paused", async () => {
-		const commands = await Effect.runPromise(
-			providerStartReactorDefinition.react(
-				record({
-					_tag: "SessionCreated",
-					sessionId: "session-1",
-					chatId: "chat-1",
-					projectId: "project-1",
-					createdAt: 1,
-					queuePaused: true,
-					providerStartJson: "{}",
-				}),
-			),
-		);
-		expect(commands).toEqual([]);
-	});
-
 	test("maps a chat archive request", async () => {
 		const commands = await Effect.runPromise(
 			chatArchiveReactorDefinition.react({

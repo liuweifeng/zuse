@@ -41,6 +41,8 @@ import type {
 import {
 	type ChatRow,
 	parseArchivedWorktreeSnapshot,
+	SESSION_ROW_COLUMNS,
+	SESSION_ROW_FROM,
 	type SessionRow,
 	sessionFromRow,
 } from "./conversation-records.ts";
@@ -1342,14 +1344,10 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						yield* setStatus(sessionId, "idle");
 					}
 					const sessions = yield* sql<SessionRow>`
-          SELECT id, project_id, title, title_provenance, provider_id, model, status,
-                 archived_at, cursor, resume_strategy, runtime_mode,
-                 agents_json, worktree_id, chat_id, forked_from_session_id,
-                 forked_from_message_id, permission_mode, tool_search,
-                 created_at, updated_at
-          FROM sessions
-          WHERE chat_id = ${chatId} AND archived_at IS NULL
-          ORDER BY updated_at DESC
+          SELECT ${sql.literal(SESSION_ROW_COLUMNS)}
+          ${sql.literal(SESSION_ROW_FROM)}
+          WHERE s.chat_id = ${chatId} AND s.archived_at IS NULL
+          ORDER BY s.updated_at DESC
         `.pipe(Effect.orDie);
 					return {
 						chat: yield* lookupChat(chatId),

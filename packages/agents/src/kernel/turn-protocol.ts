@@ -2,9 +2,11 @@ import type {
 	AgentEvent,
 	AgentItemId,
 	AgentTurnId,
+	AttemptId,
+	ProviderAttemptOwnership,
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
-import { Deferred, Effect, Ref, Stream } from "effect";
+import { Deferred, Effect, Ref, Schema, Stream } from "effect";
 import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
@@ -15,6 +17,7 @@ export type TurnScopedProviderEventEnvelope =
 	| ProviderEventEnvelope
 	| {
 			readonly scope: "session";
+			readonly ownership?: ProviderAttemptOwnership;
 			readonly event: QuestionCallbackReleased;
 	  };
 
@@ -43,13 +46,18 @@ type NormalizedBatch = {
 	readonly released?: Deferred.Deferred<void>;
 };
 
+export class ProviderHandleUnavailable extends Schema.TaggedErrorClass<ProviderHandleUnavailable>()(
+	"ProviderHandleUnavailable",
+	{ reason: Schema.String },
+) {}
+
 export interface TurnScopedProviderSessionHandle
 	extends Omit<ProviderSessionHandle, "events" | "send" | "interrupt"> {
 	readonly events: Stream.Stream<TurnScopedProviderEventEnvelope>;
 	readonly send: (
 		turnId: AgentTurnId,
 		...args: Parameters<ProviderSessionHandle["send"]>
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, ProviderHandleUnavailable>;
 	readonly interrupt: (turnId: AgentTurnId) => Effect.Effect<void>;
 }
 
@@ -108,11 +116,22 @@ const referencesToolUse = (
 export const makeTurnScopedSessionHandle = (
 	handle: ProviderSessionHandle,
 	initialTurnId?: AgentTurnId,
+	initialAttemptId?: AttemptId,
 ): Effect.Effect<TurnScopedProviderSessionHandle> =>
 	Effect.gen(function* () {
+		if (initialAttemptId !== undefined && initialTurnId === undefined)
+			return yield* Effect.die(
+				new Error("An attempt-bound handle requires a turn id"),
+			);
+		const ownership =
+			initialTurnId !== undefined && initialAttemptId !== undefined
+				? { turnId: initialTurnId, attemptId: initialAttemptId }
+				: undefined;
+		const finished = yield* Ref.make(false);
+		const ended = yield* Ref.make(false);
 		const initialReleased = yield* Deferred.make<void>();
 		const activeTurn = yield* Ref.make<ActiveTurn | null>(
-			initialTurnId === undefined
+			initialTurnId === undefined || ownership !== undefined
 				? null
 				: {
 						turnId: initialTurnId,
@@ -146,14 +165,22 @@ export const makeTurnScopedSessionHandle = (
 		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> =>
 			(batch.released === undefined
 				? Effect.void
-				: Deferred.succeed(batch.released, undefined)
-			).pipe(Effect.as(batch.events));
+				: Deferred.succeed(batch.released, undefined).pipe(
+						Effect.andThen(Ref.set(finished, true)),
+					)
+			).pipe(
+				Effect.as(
+					batch.events.map((envelope) =>
+						ownership === undefined ? envelope : { ...envelope, ownership },
+					),
+				),
+			);
 
 		const normalize = (
 			event: ProviderDriverEvent,
 		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> => {
 			if (event._tag === "QuestionCallbackReleased") {
-				return Effect.succeed([sessionEnvelope(event)]);
+				return releaseBatch({ events: [sessionEnvelope(event)] });
 			}
 			if (event._tag === "ProviderTurnStarted") {
 				return Ref.modify(
@@ -308,7 +335,10 @@ export const makeTurnScopedSessionHandle = (
 					null,
 				] as const;
 			},
-		).pipe(Effect.flatMap(releaseBatch));
+		).pipe(
+			Effect.tap(() => Ref.set(ended, true)),
+			Effect.flatMap(releaseBatch),
+		);
 
 		const sourceEvents = handle.events.pipe(
 			Stream.catchCause((cause) =>
@@ -334,6 +364,17 @@ export const makeTurnScopedSessionHandle = (
 			events: normalizedEvents,
 			send: (turnId, ...args) =>
 				Effect.gen(function* () {
+					if (ownership !== undefined) {
+						if (turnId !== ownership.turnId)
+							return yield* Effect.die(
+								new Error("A provider attempt requires its own handle"),
+							);
+						if (yield* Ref.get(finished)) return;
+					}
+					if (yield* Ref.get(ended))
+						return yield* new ProviderHandleUnavailable({
+							reason: "Provider event stream ended before send",
+						});
 					const released = yield* Deferred.make<void>();
 					const send = yield* Ref.modify(activeTurn, (active) => {
 						if (active !== null) {

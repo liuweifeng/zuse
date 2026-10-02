@@ -1,5 +1,6 @@
 import {
 	AgentTurnId,
+	AttemptId,
 	EnvironmentId,
 	Message,
 	MessageId,
@@ -8,6 +9,7 @@ import {
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	emptySessionTimelineState,
@@ -27,7 +29,17 @@ const cursor = (epoch: string, version: number) => ({ epoch, version });
 const projection = SessionTimelineProjection.make({
 	messages: [],
 	status: "running",
-	currentTurn: { turnId, phase: "running" },
+	activeTurn: {
+		id: turnId,
+		ordinal: 1,
+		status: "running",
+		phase: "running",
+		attempt: { id: AttemptId.make("attempt-1"), ordinal: 1, reason: "initial" },
+		providerThreadId: null,
+		requestedAt: new Date(0),
+		completedAt: null,
+	},
+	turnCount: 1,
 	queue: QueueState.make({ items: [], paused: false }),
 	permissionMode: "default",
 	runtimeMode: "approval-required",
@@ -54,7 +66,8 @@ describe("session timeline reducer", () => {
 
 		expect(settled.projection).toMatchObject({
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 1,
 		});
 	});
 
@@ -395,14 +408,15 @@ describe("session timeline reducer", () => {
 			projection: SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 			}),
 		});
 		expect(resetSnapshot).toMatchObject({
 			cursor: cursor("epoch-a", 3),
 			resetEpoch: null,
 			phase: "synchronizing",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 	});
 
@@ -461,7 +475,8 @@ describe("session timeline reducer", () => {
 			projection: SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 			}),
 		});
 		const resetLive = reduceSessionTimelineFrame(resetSnapshot, {
@@ -481,12 +496,12 @@ describe("session timeline reducer", () => {
 		expect(resetLive).toMatchObject({
 			cursor: cursor("epoch-b", 3),
 			phase: "live",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 		expect(lateOldSnapshot).toMatchObject({
 			cursor: cursor("epoch-b", 3),
 			phase: "stale",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 		expect(lateOldSnapshot.error).toMatch(/changed epoch/i);
 	});
@@ -528,7 +543,8 @@ describe("session timeline cache", () => {
 			cursor: cursor("epoch-cache", 8),
 			projection: SessionTimelineProjection.make({
 				...projection,
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				messages: [message],
 			}),
 			now: 42,
@@ -552,7 +568,7 @@ describe("session timeline cache", () => {
 			sessionId: "session:local:session-1",
 			ref: { environmentId: "local", sessionId },
 			appliedVersion: 7,
-			projection,
+			projection: Schema.encodeSync(SessionTimelineProjection)(projection),
 			savedAt: 40,
 			accessedAt: 41,
 			estimatedBytes: 42,
@@ -569,7 +585,12 @@ describe("session timeline cache", () => {
 			sessionId: "session:local:session-1",
 			ref: { environmentId: "local", sessionId },
 			cursor: cursor("legacy-partial", 7),
-			projection: { ...projection, olderMessageSequence: 20 },
+			projection: Schema.encodeSync(SessionTimelineProjection)(
+				SessionTimelineProjection.make({
+					...projection,
+					olderMessageSequence: 20,
+				}),
+			),
 			savedAt: 40,
 			accessedAt: 41,
 			estimatedBytes: 42,

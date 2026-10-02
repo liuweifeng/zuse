@@ -1,5 +1,6 @@
 export * from "./acp-agents.ts";
 export * from "./agent.ts";
+export * from "./agent-engine.ts";
 export * from "./analytics.ts";
 export * from "./api.ts";
 export * from "./attachment.ts";

@@ -1,5 +1,7 @@
 import {
 	AgentTurnId,
+	AttemptId,
+	ComposerInput,
 	Message,
 	MessageContent,
 	MessageId,
@@ -9,8 +11,10 @@ import {
 	QueuedMessageInput,
 	type SessionId,
 	type SessionTimelineEvent,
+	type SessionTurn,
 } from "@zuse/contracts";
 import { Result, Schema } from "effect";
+import { scopeProviderThreadId } from "../agent-engine/ids.js";
 import type { SessionEvent as SessionDomainEvent } from "../core/events.js";
 
 export {
@@ -53,12 +57,49 @@ export const timelineEventFromDomain = (
 		}
 		case "SessionStatusSet":
 			return { _tag: "StatusSet", status: event.status };
-		case "TurnStarted":
-			return {
-				_tag: "TurnStarted",
-				turnId: AgentTurnId.make(event.turnId),
+		case "TurnStarted": {
+			const turn: SessionTurn = {
+				id: AgentTurnId.make(event.turnId),
+				ordinal: event.ordinal ?? 0,
+				status: "starting",
 				phase: "running",
+				attempt: {
+					id: AttemptId.make(
+						event.attemptId ?? `attempt:turn:${event.turnId}:ordinal:1`,
+					),
+					ordinal: 1,
+					reason: "initial",
+				},
+				providerThreadId:
+					event.providerThreadId === undefined ||
+					event.providerThreadId === null
+						? null
+						: scopeProviderThreadId(sessionId, event.providerThreadId),
+				requestedAt: new Date(event.startedAt),
+				completedAt: null,
 			};
+			return { _tag: "TurnStarted", turn };
+		}
+		case "AttemptStarted": {
+			const turn: SessionTurn = {
+				id: AgentTurnId.make(event.turnId),
+				ordinal: event.turnOrdinal,
+				status: "starting",
+				phase: "running",
+				attempt: {
+					id: AttemptId.make(event.attemptId),
+					ordinal: event.ordinal,
+					reason: event.reason,
+				},
+				providerThreadId:
+					event.providerThreadId === null
+						? null
+						: scopeProviderThreadId(sessionId, event.providerThreadId),
+				requestedAt: new Date(event.turnRequestedAt),
+				completedAt: null,
+			};
+			return { _tag: "TurnUpdated", turn };
+		}
 		case "TurnInterruptRequested":
 			return {
 				_tag: "TurnPhaseSet",

@@ -121,7 +121,7 @@ export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
 		);
 		return retained === undefined
 			? undefined
-			: mobileClientBus().snapshot(retained.key).data?.currentTurn?.turnId;
+			: mobileClientBus().snapshot(retained.key).data?.activeTurn?.id;
 	})();
 const optimisticIds = new Set<MessageId>();
 const dispatchSessionCommand = async <Result>(
@@ -182,7 +182,7 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 	// A cloud message the mailbox accepted but no runtime has claimed yet is
 	// "Waiting for agent", not a running turn (desktop shares this rule).
 	const running =
-		projection?.currentTurn != null ||
+		projection?.activeTurn != null ||
 		view.pendingCommands.some(
 			(command) =>
 				command.kind === "messages.send" &&
@@ -380,7 +380,7 @@ export const flushMessages = async (
 	if (
 		view.sync !== "live" ||
 		view.data === null ||
-		view.data.currentTurn !== null
+		view.data.activeTurn !== null
 	) {
 		return;
 	}

@@ -58,7 +58,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { startCloudWorkspaceLaunchIntent } from "../../src/api/cloud-workspace-runtime.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
-import { loadTerminalProviderTurnKeys } from "../../src/conversation/core/conversation-reactors.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
 import {
@@ -108,6 +107,8 @@ import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrati
 import { Migration0054ProviderEffectOutcomes } from "../../src/persistence/migrations/0054_provider_effect_outcomes.ts";
 import { Migration0058QuestionAnswerDeliveries } from "../../src/persistence/migrations/0058_question_answer_deliveries.ts";
 import { Migration0060ChatUserMessageTime } from "../../src/persistence/migrations/0060_chat_user_message_time.ts";
+import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
+import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062_session_graph.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -151,6 +152,10 @@ let providerStartCursors: Array<string | null> = [];
 const providerGoals = new Map<string, ThreadGoal>();
 let providerSentTexts: string[] = [];
 let providerSendAttempts = 0;
+let providerBeforePublication:
+	| ((sessionId: AgentSessionId, ordinal: number) => Effect.Effect<void>)
+	| null = null;
+let providerPublicationCount = 0;
 let activeProviderSessions = new Set<AgentSessionId>();
 const providerTurnIds = new Map<
 	AgentSessionId,
@@ -222,8 +227,13 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	availability: () => Effect.succeed([]),
 	hasSession: (sessionId) =>
 		Effect.sync(() => activeProviderSessions.has(sessionId)),
-	guardCurrent: (_sessionId, _generation, effect) =>
-		effect.pipe(Effect.as(true)),
+	guardCurrent: (sessionId, _generation, effect) =>
+		Effect.suspend(() =>
+			(
+				providerBeforePublication?.(sessionId, ++providerPublicationCount) ??
+				Effect.void
+			).pipe(Effect.andThen(effect), Effect.as(true)),
+		),
 	start: (input, resumeCursor, _runtimeMode, orchestrationTools) =>
 		Effect.gen(function* () {
 			providerStartInputs.push(input);
@@ -243,6 +253,8 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			}
 			activeProviderSessions.add(input.sessionId ?? ("stub" as AgentSessionId));
 			return {
+				...(providerBeforePublication === null ? {} : { generation: 1 }),
+				providerSessionId: `stub-residency:${providerStartInputs.length}`,
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
 		}),
@@ -694,6 +706,8 @@ const runAllMigrations = Effect.all(
 		Migration0054ProviderEffectOutcomes,
 		Migration0058QuestionAnswerDeliveries,
 		Migration0060ChatUserMessageTime,
+		Migration0061Jobs,
+		Migration0062SessionGraph,
 	],
 	{ discard: true },
 );
@@ -824,6 +838,8 @@ beforeEach(() => {
 	queueAuthorAllowed = true;
 	queueAuthorWait = Effect.void;
 	workspacePreparation = Effect.void;
+	providerBeforePublication = null;
+	providerPublicationCount = 0;
 	providerGoals.clear();
 	testCommandSequence = 0;
 	providerStartInputs = [];
@@ -876,6 +892,73 @@ beforeEach(() => {
 });
 
 describe("ConversationServices migrations", () => {
+	it.each([
+		1, 2,
+	])("rejects stale startup publication %s inside the transaction", async (publication) => {
+		await withRuntime(async (run) => {
+			providerBeforePublication = (sessionId, ordinal) =>
+				ordinal !== publication
+					? Effect.void
+					: Effect.promise(() =>
+							run(
+								Effect.gen(function* () {
+									const domain = yield* SessionDomain;
+									const current = yield* domain.activeAttempt(sessionId);
+									if (current === null)
+										throw new Error("Expected startup attempt");
+									yield* domain.dispatch({
+										commandId: `settle-during-publication-${publication}`,
+										streamId: sessionId,
+										command: {
+											_tag: "SettleTurn",
+											turnId: current.turnId,
+											outcome: "completed",
+											settledAt: Date.now(),
+										},
+									});
+								}),
+							),
+						);
+			const chat = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "startup race",
+					}),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.flatMap(SessionDomain, (domain) =>
+							domain.jobs
+								.listBySession(chat.initialSession.id)
+								.pipe(Effect.map((jobs) => jobs.map((job) => job.status))),
+						),
+					),
+				)
+				.toEqual(["succeeded"]);
+			const result = await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const sessions = yield* sql<{
+						status: string;
+					}>`SELECT status FROM sessions WHERE id = ${chat.initialSession.id}`;
+					const attached =
+						yield* sql`SELECT event_id FROM events WHERE stream_id = ${chat.initialSession.id} AND type = 'ProviderAttached'`;
+					return { status: sessions[0]?.status, attached: attached.length };
+				}),
+			);
+			expect(result).toEqual({
+				status: "idle",
+				attached: publication === 1 ? 0 : 1,
+			});
+			expect(providerSentTexts).toEqual([]);
+		});
+	});
+
 	it("0016 repairs queued_messages rows from the old position column", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "mz-queue-migration-"));
 		const dbPath = join(dir, "test.sqlite");
@@ -1200,7 +1283,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("starts providers through the durable provider-turn reactor", async () => {
+	it("starts providers through the durable provider turn job", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(
 				Effect.flatMap(store, (service) =>
@@ -1216,16 +1299,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await expect
 				.poll(() =>
 					run(
-						Effect.gen(function* () {
-							const sql = yield* SqlClient.SqlClient;
-							return yield* sql<{ readonly effect_id: string }>`
-								SELECT effect_id FROM reactor_effect_receipts
-								WHERE effect_id LIKE 'reactor:provider-turn:%'
-							`;
-						}),
+						Effect.flatMap(SessionDomain, (domain) =>
+							domain.jobs.listBySession(created.initialSession.id),
+						),
+					).then((jobs) =>
+						jobs
+							.filter((job) => job.request._tag === "provider.turn.send")
+							.map((job) => job.status),
 					),
 				)
-				.toHaveLength(1);
+				.toEqual(["succeeded"]);
 			const evidence = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -1237,15 +1320,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
             WHERE stream_id = ${created.initialSession.id}
               AND type = 'SessionCreated'
           `;
-					const cursor = yield* sql<{ readonly last_sequence: number }>`
-            SELECT last_sequence FROM projector_cursors
-							WHERE projector_name = 'reactor:provider-turn'
-          `;
-					const receipts = yield* sql<{ readonly effect_id: string }>`
-            SELECT effect_id FROM reactor_effect_receipts
-							WHERE effect_id LIKE 'reactor:provider-turn:%'
-          `;
-					return { events, cursor, receipts };
+					const domain = yield* SessionDomain;
+					const jobs = yield* domain.jobs.listBySession(
+						created.initialSession.id,
+					);
+					return { events, jobs };
 				}),
 			);
 
@@ -1254,8 +1333,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(
 				JSON.parse(evidence.events[0]?.payload_json ?? "null"),
 			).toMatchObject({ _tag: "SessionCreated" });
-			expect(evidence.cursor[0]?.last_sequence).toBeGreaterThan(0);
-			expect(evidence.receipts).toHaveLength(1);
+			const sendJob = evidence.jobs.find(
+				(job) => job.request._tag === "provider.turn.send",
+			);
+			expect(sendJob).toMatchObject({ status: "succeeded", attemptCount: 1 });
+			expect(sendJob?.causationEventId).toBeTruthy();
 		});
 	});
 
@@ -1436,16 +1518,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
               AND type IN ('ProviderStopRequested', 'ProviderDetached')
             ORDER BY sequence
           `;
-					const receipts = yield* sql<{ readonly effect_id: string }>`
-            SELECT effect_id FROM reactor_effect_receipts
-            WHERE effect_id LIKE 'reactor:provider-stop:%'
-          `;
-					return { events, receipts };
+					const domain = yield* SessionDomain;
+					const stops = (yield* domain.jobs.listBySession(
+						created.initialSession.id,
+					)).filter((job) => job.request._tag === "provider.stop");
+					return { events, stops };
 				}),
 			);
 
 			expect(evidence.events).toEqual([]);
-			expect(evidence.receipts).toEqual([]);
+			expect(evidence.stops).toEqual([]);
 		});
 	});
 
@@ -2330,7 +2412,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				)
 				.toBeDefined();
-			expect(providerSentTexts).toContain("do the spawned task");
+			await expect
+				.poll(() => providerSentTexts)
+				.toContain("do the spawned task");
 		});
 	});
 
@@ -2728,15 +2812,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 						title: "Existing Claude thread",
-						resumeCursor: "claude-session-123",
-						resumeStrategy: "claude-session-id",
+						providerThread: { nativeThreadId: "claude-session-123" },
 					}),
 				),
 			);
 
 			expect(result.chat.title).toBe("Existing Claude thread");
-			expect(result.initialSession.cursor).toBe("claude-session-123");
-			expect(result.initialSession.resumeStrategy).toBe("claude-session-id");
+			expect(
+				result.initialSession.providerThread?.nativeThreadRef.nativeId,
+			).toBe("claude-session-123");
+			expect(result.initialSession.providerThread?.provider).toBe("claude");
 			expect(providerStartCursors).toEqual([]);
 			await run(
 				Effect.flatMap(store, (s) => s.resumeSession(result.initialSession.id)),
@@ -2805,9 +2890,15 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`
-            UPDATE sessions
-            SET cursor = 'claude-main-cwd',
-                resume_strategy = 'claude-session-id'
+            INSERT INTO session_provider_threads
+              (id, session_id, provider, native_thread_id, native_head_id, status,
+               first_turn_ordinal, last_turn_ordinal, created_at, updated_at)
+            VALUES
+              ('pt-main-cwd', ${result.initialSession.id}, 'claude', 'claude-main-cwd',
+               NULL, 'idle', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+          `;
+					yield* sql`
+            UPDATE sessions SET active_provider_thread_id = 'pt-main-cwd'
             WHERE id = ${result.initialSession.id}
           `;
 				}),
@@ -2823,8 +2914,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			expect(updated.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(updated.cursor).toBeNull();
-			expect(updated.resumeStrategy).toBe("none");
+			expect(updated.providerThread).toBeNull();
 		});
 	});
 
@@ -2843,9 +2933,15 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`
-            UPDATE sessions
-            SET cursor = 'claude-main-cwd',
-                resume_strategy = 'claude-session-id'
+            INSERT INTO session_provider_threads
+              (id, session_id, provider, native_thread_id, native_head_id, status,
+               first_turn_ordinal, last_turn_ordinal, created_at, updated_at)
+            VALUES
+              ('pt-main-cwd', ${result.initialSession.id}, 'claude', 'claude-main-cwd',
+               NULL, 'idle', NULL, NULL, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
+          `;
+					yield* sql`
+            UPDATE sessions SET active_provider_thread_id = 'pt-main-cwd'
             WHERE id = ${result.initialSession.id}
           `;
 				}),
@@ -2861,8 +2957,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 
 			expect(updated.worktreeId).toBe(TEST_WORKTREE_ID);
-			expect(updated.cursor).toBeNull();
-			expect(updated.resumeStrategy).toBe("none");
+			expect(updated.providerThread).toBeNull();
 		});
 	});
 
@@ -3196,15 +3291,14 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const evidence = await run(
 				Effect.gen(function* () {
 					const service = yield* store;
-					const sql = yield* SqlClient.SqlClient;
 					const session = yield* service.getSession(initialSession.id);
 					const messages = yield* service.listMessages(initialSession.id);
 					const currentChat = yield* service.getChat(chat.id);
-					const receipts = yield* sql<{ readonly effect_id: string }>`
-						SELECT effect_id FROM reactor_effect_receipts
-						WHERE effect_id LIKE 'reactor:provider-turn:%'
-					`;
-					return { session, messages, currentChat, receipts };
+					const domain = yield* SessionDomain;
+					const sendJobs = (yield* domain.jobs.listBySession(
+						initialSession.id,
+					)).filter((job) => job.request._tag === "provider.turn.send");
+					return { session, messages, currentChat, sendJobs };
 				}),
 			);
 
@@ -3213,19 +3307,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				evidence.messages.some((message) => message.content._tag === "user"),
 			).toBe(true);
 			expect(evidence.currentChat.title).toBe("New chat");
-			expect(evidence.receipts).toHaveLength(1);
-
-			const settledTurnKeys = await run(
-				Effect.gen(function* () {
-					const sql = yield* SqlClient.SqlClient;
-					return yield* loadTerminalProviderTurnKeys(sql);
-				}),
+			// The durable send stays retryable: the job is parked as waiting with
+			// the failure recorded, for the user's next action or boot recovery.
+			expect(evidence.sendJobs).toHaveLength(1);
+			expect(evidence.sendJobs[0]).toMatchObject({
+				status: "waiting",
+				attemptCount: 1,
+			});
+			expect(evidence.sendJobs[0]?.lastError).toContain(
+				"scripted start failure",
 			);
-			expect(
-				[...settledTurnKeys].some((key) =>
-					key.startsWith(`${initialSession.id}\u0000turn_`),
-				),
-			).toBe(false);
 
 			failProviderSend = false;
 			failProviderStart = false;
@@ -3241,8 +3332,23 @@ describe("ConversationServices — chat & session lifecycle", () => {
 	});
 
 	it("does not replay a durable provider turn after its session is archived", async () => {
-		await withRuntime(async (run) => {
-			const { initialSession } = await run(
+		const directory = mkdtempSync(join(tmpdir(), "zuse-archived-turn-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`
+						INSERT INTO projects (id, path, name, created_at, updated_at)
+						VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})
+					`;
+				}),
+			);
+			const { initialSession } = await runFirst(
 				Effect.flatMap(store, (service) =>
 					service.createChat({
 						projectId: PROJECT_ID,
@@ -3253,7 +3359,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			await expect
 				.poll(() =>
-					run(
+					runFirst(
 						Effect.flatMap(store, (service) =>
 							service.getSession(initialSession.id),
 						),
@@ -3264,7 +3370,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			failProviderSend = true;
 			failProviderStart = true;
 			await expect(
-				run(
+				runFirst(
 					Effect.flatMap(store, (service) =>
 						service.sendMessage(
 							testCommandId("messages.send"),
@@ -3274,8 +3380,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			).rejects.toThrow("scripted start failure");
+			failProviderSend = false;
+			failProviderStart = false;
 
-			await run(
+			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
 					domain.dispatch({
 						commandId: "test:archive-failed-turn",
@@ -3287,19 +3395,45 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-
-			const terminalTurnKeys = await run(
-				Effect.gen(function* () {
-					const sql = yield* SqlClient.SqlClient;
-					return yield* loadTerminalProviderTurnKeys(sql);
-				}),
+			const pendingBeforeRestart = await runFirst(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.jobs.listBySession(initialSession.id),
+				),
 			);
 			expect(
-				[...terminalTurnKeys].some((key) =>
-					key.startsWith(`${initialSession.id}\u0000turn_`),
+				pendingBeforeRestart.filter(
+					(job) => job.request._tag === "provider.turn.send",
 				),
-			).toBe(true);
-		});
+			).toMatchObject([{ status: "waiting" }]);
+			await first.dispose();
+
+			const startsBeforeRestart = providerStartInputs.length;
+			const restarted = makeRuntime(dbPath, false);
+			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
+			try {
+				await expect
+					.poll(() =>
+						runRestarted(
+							Effect.flatMap(SessionDomain, (domain) =>
+								domain.jobs.listBySession(initialSession.id),
+							),
+						).then((jobs) =>
+							jobs
+								.filter((job) => job.request._tag === "provider.turn.send")
+								.map((job) => job.status),
+						),
+					)
+					.toEqual(["succeeded"]);
+				// The archived session's turn was retired as a no-op, not replayed.
+				expect(providerStartInputs).toHaveLength(startsBeforeRestart);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("sendMessage with origin persists origin without changing provider text", async () => {
@@ -4765,7 +4899,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				),
 			);
 
-			expect(providerSentTexts).toEqual(["active turn"]);
+			await expect.poll(() => providerSentTexts).toEqual(["active turn"]);
 			const queue = await run(
 				Effect.flatMap(store, (s) => s.listQueuedMessages(initialSession.id)),
 			);
@@ -5129,14 +5263,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				)
 				.toMatchObject({ status: "idle" });
 			const emptySessionStarts = await runFirst(
-				Effect.gen(function* () {
-					const sql = yield* SqlClient.SqlClient;
-					return yield* sql<{ readonly effect_id: string }>`
-						SELECT effect_id FROM reactor_effect_receipts
-						WHERE effect_id LIKE 'reactor:provider-start:%'
-					`;
-				}),
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.jobs.listBySession(initialSession.id),
+				),
 			);
+			// An empty session implies no provider work until its first turn.
 			expect(emptySessionStarts).toEqual([]);
 			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
@@ -5262,7 +5393,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						restarted.runPromise(
 							Effect.gen(function* () {
 								const sql = yield* SqlClient.SqlClient;
-								return yield* sql`SELECT status, current_turn_id, current_turn_phase FROM sessions WHERE id = ${initialSession.id}`;
+								return yield* sql`SELECT s.status, t.id AS current_turn_id, t.phase AS current_turn_phase FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running') WHERE s.id = ${initialSession.id}`;
 							}),
 						),
 					)
@@ -5353,13 +5484,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				);
 				expect(recovered.status).toBe("running");
 				expect(providerSentTexts).toEqual(["resume exactly once"]);
-				const settled = await runRestarted(
-					Effect.gen(function* () {
-						const sql = yield* SqlClient.SqlClient;
-						return yield* loadTerminalProviderTurnKeys(sql);
-					}),
+				const sendJobs = await runRestarted(
+					Effect.flatMap(SessionDomain, (domain) =>
+						domain.jobs.listBySession(initialSession.id),
+					),
+				).then((jobs) =>
+					jobs.filter((job) => job.request._tag === "provider.turn.send"),
 				);
-				expect(settled.has(`${initialSession.id}\u0000${turnId}`)).toBe(false);
+				expect(sendJobs).toMatchObject([
+					{ status: "succeeded", attemptCount: 1 },
+				]);
 			} finally {
 				await restarted.dispose();
 			}
@@ -7021,9 +7155,11 @@ describe("ConversationServices — provider event persistence", () => {
 							readonly provider_event_cursor: string | null;
 							readonly message_count: number;
 						}>`
-							SELECT s.provider_event_cursor,
+							SELECT p.native_head_id AS provider_event_cursor,
 								(SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.kind = 'assistant') AS message_count
-							FROM sessions s WHERE s.id = ${initialSession.id}
+							FROM sessions s
+							LEFT JOIN session_provider_threads p ON p.id = s.active_provider_thread_id
+							WHERE s.id = ${initialSession.id}
 						`;
 						const current = rows[0];
 						return current?.provider_event_cursor === "provider-session-7"
@@ -7114,6 +7250,19 @@ describe("ConversationServices — provider event persistence", () => {
 				expect(domainTags).toContain("MessagePersisted");
 				expect(domainTags).toContain("TurnSettled");
 				expect(domainTags).toContain("ProviderAttached");
+				const attachments = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* sql<{
+							payload_json: string;
+						}>`SELECT payload_json FROM events WHERE stream_id = ${id} AND type = 'ProviderAttached'`;
+					}),
+				);
+				expect(
+					attachments.map(
+						(row) => JSON.parse(row.payload_json).providerSessionId,
+					),
+				).toEqual([expect.stringMatching(/^stub-residency:/)]);
 			});
 		} finally {
 			scriptedEvents = [];
@@ -7370,13 +7519,15 @@ describe("ConversationServices cursor streaming", () => {
 						SELECT COUNT(*) AS count FROM command_receipts
 						WHERE command_id = ${commandId}
 					`;
-					const head = yield* sql<{ readonly current_turn_id: string | null }>`
-						SELECT current_turn_id FROM sessions WHERE id = ${id}
+					const head = yield* sql<{ readonly id: string }>`
+						SELECT id FROM session_turns
+						WHERE session_id = ${id} AND status IN ('starting', 'running')
+						ORDER BY ordinal DESC LIMIT 1
 					`;
 					return {
 						messages,
 						receiptCount: receipts[0]?.count ?? 0,
-						durableTurn: head[0]?.current_turn_id ?? null,
+						durableTurn: head[0]?.id ?? null,
 						cachedTurn: state.activeTurn(id),
 					};
 				}),
@@ -7531,7 +7682,7 @@ describe("ConversationServices — fork & transcript export", () => {
 			expect(result.session.id).not.toBe(sourceId);
 			expect(result.session.forkedFromSessionId).toBe(sourceId);
 			expect(result.session.forkedFromMessageId).toBe(userMsgId);
-			expect(result.session.cursor).toBeNull();
+			expect(result.session.providerThread).toBeNull();
 			// No fork-of-transcript request to the provider in copy mode.
 			expect(providerStartInputs.at(-1)?.forkFromResume ?? false).toBe(false);
 
@@ -7689,8 +7840,7 @@ describe("ConversationServices — fork & transcript export", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 						title: "Existing thread",
-						resumeCursor: "claude-session-xyz",
-						resumeStrategy: "claude-session-id",
+						providerThread: { nativeThreadId: "claude-session-xyz" },
 					}),
 				),
 			);
@@ -7718,8 +7868,10 @@ describe("ConversationServices — fork & transcript export", () => {
 			);
 
 			expect(result.forkMode).toBe("resume");
-			expect(result.session.cursor).toBe("claude-session-xyz");
-			expect(result.session.resumeStrategy).toBe("claude-session-id");
+			expect(result.session.providerThread?.nativeThreadRef.nativeId).toBe(
+				"claude-session-xyz",
+			);
+			expect(result.session.providerThread?.provider).toBe("claude");
 			// Forking is metadata-only until the new session receives real work.
 			expect(providerStartInputs).toHaveLength(startsBeforeFork);
 			await run(

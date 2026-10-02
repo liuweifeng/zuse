@@ -2,6 +2,7 @@ import {
 	AgentItemId,
 	AgentSessionId,
 	AgentTurnId,
+	AttemptId,
 	CommandId,
 	Message,
 	MessageId,
@@ -28,9 +29,23 @@ const projection = (
 	SessionTimelineProjection.make({
 		messages: [...messages],
 		status,
-		currentTurn: turn
-			? { turnId: AgentTurnId.make("turn-presentation"), phase: "running" }
+		activeTurn: turn
+			? {
+					id: AgentTurnId.make("turn-presentation"),
+					ordinal: 1,
+					status: "running",
+					phase: "running",
+					attempt: {
+						id: AttemptId.make("attempt-presentation"),
+						ordinal: 1,
+						reason: "initial",
+					},
+					providerThreadId: null,
+					requestedAt: new Date(0),
+					completedAt: null,
+				}
 			: null,
+		turnCount: turn ? 1 : 0,
 		queue: QueueState.make({ items: [], paused: false }),
 		permissionMode: "default",
 		runtimeMode: "approval-required",

@@ -1,6 +1,6 @@
 import {
 	PermissionMode,
-	ResumeStrategy,
+	ProviderResumeStrategy,
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
@@ -20,8 +20,12 @@ export const SessionConfigurationFields = {
 	providerId: Schema.String,
 	model: Schema.String,
 	status: SessionStatus,
-	cursor: Schema.NullOr(Schema.String),
-	resumeStrategy: ResumeStrategy,
+	/** Legacy resume token; new sessions bind a provider thread instead. */
+	cursor: Schema.optionalKey(Schema.NullOr(Schema.String)),
+	/** Legacy resume label; ignored by the session graph. */
+	resumeStrategy: Schema.optionalKey(
+		Schema.Union([ProviderResumeStrategy, Schema.Literal("none")]),
+	),
 	runtimeMode: RuntimeMode,
 	agentsJson: Schema.NullOr(Schema.String),
 	worktreeId: Schema.NullOr(Schema.String),
@@ -51,8 +55,8 @@ export const SessionCreatedEventFields = {
 	providerId: Schema.optionalKey(SessionConfigurationFields.providerId),
 	model: Schema.optionalKey(SessionConfigurationFields.model),
 	status: Schema.optionalKey(SessionConfigurationFields.status),
-	cursor: Schema.optionalKey(SessionConfigurationFields.cursor),
-	resumeStrategy: Schema.optionalKey(SessionConfigurationFields.resumeStrategy),
+	cursor: SessionConfigurationFields.cursor,
+	resumeStrategy: SessionConfigurationFields.resumeStrategy,
 	runtimeMode: Schema.optionalKey(SessionConfigurationFields.runtimeMode),
 	agentsJson: Schema.optionalKey(SessionConfigurationFields.agentsJson),
 	worktreeId: Schema.optionalKey(SessionConfigurationFields.worktreeId),
@@ -66,3 +70,14 @@ export const SessionCreatedEventFields = {
 	toolSearch: Schema.optionalKey(SessionConfigurationFields.toolSearch),
 	queuePaused: Schema.optionalKey(SessionConfigurationFields.queuePaused),
 } as const;
+
+/**
+ * A provider-native thread to bind at creation, for forks and continued
+ * external threads. The app id is derived from provider + native id.
+ */
+export const ProviderThreadSeed = Schema.Struct({
+	provider: Schema.String,
+	nativeThreadId: Schema.String,
+	nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),
+});
+export type ProviderThreadSeed = typeof ProviderThreadSeed.Type;

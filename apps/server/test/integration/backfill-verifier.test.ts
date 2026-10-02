@@ -44,12 +44,12 @@ describe("backfill verifier", () => {
 					yield* sql`
             INSERT INTO sessions
               (id, project_id, title, provider_id, model, status, archived_at,
-               cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
+               runtime_mode, agents_json, worktree_id,
                chat_id, forked_from_session_id, forked_from_message_id,
                permission_mode, tool_search, queue_paused, created_at, updated_at)
             VALUES
               ('session-1', 'project-1', 'Existing title', 'claude', 'model-1',
-               'idle', NULL, NULL, 'none', 'approval-required', NULL, NULL,
+               'idle', NULL, 'approval-required', NULL, NULL,
 							   'chat-1', NULL, NULL, 'default', 0, 1, ${createdAt}, ${sessionUpdatedAt})
 					  `;
 					yield* sql`
@@ -89,7 +89,7 @@ describe("backfill verifier", () => {
 										model: "model-1",
 										status: "idle",
 										cursor: null,
-										resumeStrategy: "none",
+										providerThread: null,
 										runtimeMode: "approval-required",
 										agentsJson: null,
 										worktreeId: null,

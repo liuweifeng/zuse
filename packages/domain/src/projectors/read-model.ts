@@ -1,4 +1,6 @@
 import { Effect } from "effect";
+import { scopeProviderThreadId } from "../agent-engine/ids.js";
+import { providerThreadIdFor } from "../core/state.js";
 import type { StoredEvent } from "../engine/dispatch.js";
 import type { ProjectorDefinition } from "../engine/projector-runner.js";
 
@@ -19,9 +21,8 @@ export type SessionReadRecord = {
 	readonly status: SessionStatus;
 	readonly providerId: string | null;
 	readonly model: string | null;
-	readonly cursor: string | null;
-	readonly providerEventCursor: string | null;
-	readonly resumeStrategy: string | null;
+	/** The active provider-native thread, when one is bound. */
+	readonly activeProviderThread: SessionProviderThreadRecord | null;
 	readonly runtimeMode: string | null;
 	readonly agentsJson: string | null;
 	readonly worktreeId: string | null;
@@ -32,6 +33,18 @@ export type SessionReadRecord = {
 	readonly archivedAt: number | null;
 	readonly deletedAt: number | null;
 	readonly lastMessageAt: number | null;
+	readonly createdAt: number;
+	readonly updatedAt: number;
+};
+
+export type SessionProviderThreadRecord = {
+	readonly id: string;
+	readonly provider: string;
+	readonly nativeThreadId: string;
+	readonly nativeHeadId: string | null;
+	readonly status: "not_loaded" | "idle" | "active" | "closed" | "error";
+	readonly firstTurnOrdinal: number | null;
+	readonly lastTurnOrdinal: number | null;
 	readonly createdAt: number;
 	readonly updatedAt: number;
 };
@@ -135,9 +148,24 @@ export class InMemorySessionReadModel
 						status: event.status ?? "idle",
 						providerId: event.providerId ?? null,
 						model: event.model ?? null,
-						cursor: event.cursor ?? null,
-						providerEventCursor: null,
-						resumeStrategy: event.resumeStrategy ?? null,
+						activeProviderThread:
+							event.cursor === undefined || event.cursor === null
+								? null
+								: {
+										id: providerThreadIdFor(
+											record.streamId,
+											event.providerId ?? "unknown",
+											event.cursor,
+										),
+										provider: event.providerId ?? "unknown",
+										nativeThreadId: event.cursor,
+										nativeHeadId: null,
+										status: "idle",
+										firstTurnOrdinal: null,
+										lastTurnOrdinal: null,
+										createdAt: event.createdAt,
+										updatedAt: event.createdAt,
+									},
 						runtimeMode: event.runtimeMode ?? null,
 						agentsJson: event.agentsJson ?? null,
 						worktreeId: event.worktreeId ?? null,
@@ -180,9 +208,7 @@ export class InMemorySessionReadModel
 						...next,
 						providerId: event.providerId,
 						model: event.model,
-						cursor: null,
-						providerEventCursor: null,
-						resumeStrategy: "none",
+						activeProviderThread: null,
 					};
 					break;
 				case "SessionRuntimeModeSet":
@@ -195,24 +221,62 @@ export class InMemorySessionReadModel
 					next = {
 						...next,
 						worktreeId: event.worktreeId,
-						cursor: null,
-						providerEventCursor: null,
-						resumeStrategy: "none",
+						activeProviderThread:
+							next.worktreeId === event.worktreeId
+								? next.activeProviderThread
+								: null,
 					};
 					break;
 				case "SessionStatusSet":
 					next = { ...next, status: event.status };
 					break;
-				case "SessionResumeSet":
+				case "SessionResumeSet": {
+					if (event.cursor === null) break;
+					const provider = next.providerId ?? "unknown";
+					const existing = next.activeProviderThread;
 					next = {
 						...next,
-						cursor: event.cursor,
-						providerEventCursor:
-							event.providerEventCursor === undefined
-								? next.providerEventCursor
-								: event.providerEventCursor,
-						resumeStrategy: event.resumeStrategy,
+						activeProviderThread: {
+							id: providerThreadIdFor(record.streamId, provider, event.cursor),
+							provider,
+							nativeThreadId: event.cursor,
+							nativeHeadId:
+								event.providerEventCursor === undefined
+									? (existing?.nativeHeadId ?? null)
+									: event.providerEventCursor,
+							status: next.status === "running" ? "active" : "idle",
+							firstTurnOrdinal: existing?.firstTurnOrdinal ?? null,
+							lastTurnOrdinal: existing?.lastTurnOrdinal ?? null,
+							createdAt: existing?.createdAt ?? event.updatedAt,
+							updatedAt: event.updatedAt,
+						},
 					};
+					break;
+				}
+				case "ProviderThreadUpdated":
+					next = {
+						...next,
+						activeProviderThread:
+							next.activeProviderThread === null ||
+							next.activeProviderThread.id ===
+								scopeProviderThreadId(record.streamId, event.providerThread.id)
+								? {
+										...event.providerThread,
+										id: scopeProviderThreadId(
+											record.streamId,
+											event.providerThread.id,
+										),
+										createdAt:
+											next.activeProviderThread?.createdAt ??
+											event.providerThread.createdAt,
+									}
+								: next.activeProviderThread,
+					};
+					break;
+				case "ActiveProviderThreadSet":
+					if (event.providerThreadId === null) {
+						next = { ...next, activeProviderThread: null };
+					}
 					break;
 				case "SessionArchived":
 					next = { ...next, archivedAt: event.archivedAt };

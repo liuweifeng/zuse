@@ -1,17 +1,23 @@
 import {
 	AgentItemId,
 	AgentTurnId,
+	AttemptId,
 	type ProviderEventEnvelope,
 	SessionId,
 } from "@zuse/contracts";
+import { AttemptOwnershipConflict } from "@zuse/domain/engine/dispatch";
 import { Deferred, Effect, Ref, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
+import {
+	bindProviderEventDelivery,
+	type ProviderEventDelivery,
+} from "../../src/provider/provider-event-delivery.ts";
 
 describe("ConversationEventRuntime", () => {
 	const options = (
 		scope: import("effect").Scope.Scope,
-		events: () => Stream.Stream<ProviderEventEnvelope>,
+		events: () => Stream.Stream<ProviderEventDelivery>,
 		settleTurn: (
 			sessionId: SessionId,
 			turnId: AgentTurnId,
@@ -20,12 +26,14 @@ describe("ConversationEventRuntime", () => {
 	) => ({
 		scope,
 		events,
+		ownsAttempt: () => Effect.succeed(true),
 		providerId: () => Effect.succeed("claude" as const),
 		setStatus: () => Effect.void,
-		settleTurn,
 		beginProviderTurn: (_sessionId: SessionId, turnId: AgentTurnId) =>
 			Effect.succeed(turnId),
-		setResume: () => Effect.void,
+		settleTurn: (...args: Parameters<typeof settleTurn>) =>
+			settleTurn(...args).pipe(Effect.as(true)),
+		bindProviderThread: () => Effect.void,
 		setPermissionMode: () => Effect.void,
 		publishGoal: () => Effect.void,
 		publishApiActivity: () => Effect.void,
@@ -33,6 +41,272 @@ describe("ConversationEventRuntime", () => {
 		ignoreError: () => false,
 		isDuplicateToolUse: () => Effect.succeed(false),
 		persist: () => Effect.void,
+	});
+
+	test.each([
+		"committed",
+		"rejected",
+		"interrupted",
+	] as const)("settles cursor delivery on its emitting handle when persistence is %s", async (outcome) => {
+		const observed: string[] = [];
+		const handle = (name: string) => ({
+			acknowledgeProviderEventCursor: (cursor: string) =>
+				Effect.sync(() => {
+					observed.push(`${name}:ack:${cursor}`);
+				}),
+			releaseProviderEventCursor: (cursor: string) =>
+				Effect.sync(() => {
+					observed.push(`${name}:release:${cursor}`);
+				}),
+		});
+		let current = handle("old");
+		const delivery = bindProviderEventDelivery(current, {
+			scope: "session",
+			event: {
+				_tag: "SessionCursor",
+				cursor: "thread",
+				strategy: "grok-session-id",
+				providerEventCursor: "cursor",
+			},
+		});
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const persisting = yield* Deferred.make<void>();
+					const streamDone = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.succeed(delivery).pipe(
+								Stream.ensuring(Deferred.succeed(streamDone, undefined)),
+							),
+						),
+						bindProviderThread: () =>
+							Effect.gen(function* () {
+								current = handle("replacement");
+								yield* Deferred.succeed(persisting, undefined);
+								if (outcome === "interrupted") return yield* Effect.never;
+								if (outcome === "rejected")
+									return yield* Effect.fail(
+										new AttemptOwnershipConflict({
+											turnId: "turn",
+											expectedAttemptId: "old",
+											actualAttemptId: "new",
+										}),
+									);
+							}),
+					});
+					yield* runtime.start(SessionId.make("session"));
+					yield* Deferred.await(persisting);
+					if (outcome !== "interrupted") yield* Deferred.await(streamDone);
+					yield* runtime.interrupt(SessionId.make("session"));
+				}),
+			),
+		);
+		expect(observed).toEqual([
+			`old:${outcome === "committed" ? "ack" : "release"}:cursor`,
+		]);
+	});
+
+	test.each([
+		"end",
+		"failure",
+		"interrupt",
+	] as const)("releases unfinished notification delivery on stream %s", async (ending) => {
+		let releases = 0;
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const pending = yield* Deferred.make<void>();
+					const ended = yield* Deferred.make<void>();
+					const delivery = bindProviderEventDelivery(
+						{
+							releaseProviderEventCursor: () =>
+								Effect.sync(() => {
+									releases++;
+								}),
+						},
+						{
+							scope: "session",
+							event: {
+								_tag: "ProviderNotificationMetadata",
+								eventId: "pending",
+								isReplay: false,
+							},
+						},
+					);
+					const stream = Stream.concat(
+						Stream.succeed(delivery),
+						Stream.fromEffect(
+							Deferred.succeed(pending, undefined).pipe(
+								Effect.andThen(
+									ending === "end"
+										? Effect.void
+										: ending === "failure"
+											? Effect.die("stream failed")
+											: Effect.never,
+								),
+							),
+						).pipe(Stream.drain),
+					);
+					const runtime = yield* makeConversationEventRuntime(
+						options(yield* Effect.scope, () =>
+							stream.pipe(Stream.ensuring(Deferred.succeed(ended, undefined))),
+						),
+					);
+					yield* runtime.start(SessionId.make("session"));
+					yield* Deferred.await(pending);
+					if (ending !== "interrupt") yield* Deferred.await(ended);
+					yield* runtime.interrupt(SessionId.make("session"));
+				}),
+			),
+		);
+		expect(releases).toBe(1);
+	});
+
+	test("does not publish completion when settlement loses ownership", async () => {
+		let publications = 0;
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.succeed<ProviderEventEnvelope>({
+								scope: "turn",
+								turnId: "turn-1" as AgentTurnId,
+								event: { _tag: "Completed", reason: "ended" },
+							}).pipe(Stream.ensuring(Deferred.succeed(done, undefined))),
+						),
+						settleTurn: () => Effect.succeed(false),
+						publishApiActivity: () =>
+							Effect.sync(() => {
+								publications++;
+							}),
+					});
+					yield* runtime.start(SessionId.make("session-1"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(publications).toBe(0);
+	});
+
+	test("rejects obsolete events before publication", async () => {
+		let callbacks = 0;
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const consumed = yield* Deferred.make<void>();
+					const ownership = {
+						turnId: "turn-1" as AgentTurnId,
+						attemptId: AttemptId.make("old-attempt"),
+					};
+					const envelopes: ProviderEventEnvelope[] = [
+						{
+							scope: "turn",
+							turnId: ownership.turnId,
+							ownership,
+							event: { _tag: "Completed", reason: "ended" },
+						},
+						{
+							scope: "session",
+							ownership,
+							event: {
+								_tag: "SessionCursor",
+								strategy: "claude-session-id",
+								cursor: "old-head",
+							},
+						},
+						{
+							scope: "turn",
+							turnId: ownership.turnId,
+							ownership,
+							event: {
+								_tag: "AssistantMessage",
+								itemId: AgentItemId.make("old-item"),
+								text: "obsolete",
+							},
+						},
+					];
+					const callback = () =>
+						Effect.sync(() => {
+							callbacks++;
+						});
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.fromIterable(envelopes).pipe(
+								Stream.ensuring(Deferred.succeed(consumed, undefined)),
+							),
+						),
+						ownsAttempt: () => Effect.succeed(false),
+						settleTurn: () => callback().pipe(Effect.as(true)),
+						bindProviderThread: () =>
+							Effect.fail(
+								new AttemptOwnershipConflict({
+									turnId: ownership.turnId,
+									expectedAttemptId: ownership.attemptId,
+									actualAttemptId: "new",
+								}),
+							),
+						persist: callback,
+						publishApiActivity: callback,
+					});
+					yield* runtime.start(SessionId.make("session-1"));
+					yield* Deferred.await(consumed);
+				}),
+			),
+		);
+		expect(callbacks).toBe(0);
+	});
+	test("continues consuming when ownership changes between preflight and persistence", async () => {
+		const persisted: string[] = [];
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const ownership = {
+						turnId: "turn-1" as AgentTurnId,
+						attemptId: AttemptId.make("attempt-1"),
+					};
+					const envelopes: ProviderEventEnvelope[] = ["racing", "current"].map(
+						(text) => ({
+							scope: "turn",
+							turnId: ownership.turnId,
+							ownership,
+							event: {
+								_tag: "AssistantMessage",
+								itemId: AgentItemId.make(text),
+								text,
+							},
+						}),
+					);
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.fromIterable(envelopes).pipe(
+								Stream.ensuring(Deferred.succeed(done, undefined)),
+							),
+						),
+						persist: (_session, _turn, content, _identity, expected) => {
+							expect(expected).toEqual(ownership);
+							if (content._tag === "assistant" && content.text === "racing")
+								return Effect.fail(
+									new AttemptOwnershipConflict({
+										turnId: ownership.turnId,
+										expectedAttemptId: ownership.attemptId,
+										actualAttemptId: "new",
+									}),
+								);
+							return Effect.sync(() => {
+								if (content._tag === "assistant") persisted.push(content.text);
+							});
+						},
+					});
+					yield* runtime.start(SessionId.make("session-1"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(persisted).toEqual(["current"]);
 	});
 
 	test("does not guess a terminal when an uncorrelated stream ends", async () => {

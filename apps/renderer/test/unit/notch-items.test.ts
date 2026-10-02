@@ -43,8 +43,7 @@ const session = (status: Session["status"] = "idle") =>
 		model: "gpt-5.3-codex",
 		status,
 		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none",
+		providerThread: null,
 		runtimeMode: "approval-required",
 		worktreeId: null,
 	}) as Session;

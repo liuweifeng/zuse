@@ -18,6 +18,8 @@ import {
 	chatFromRow,
 	type MessageRow,
 	messageFromRow,
+	SESSION_ROW_COLUMNS,
+	SESSION_ROW_FROM,
 	type SessionRow,
 	sessionFromRow,
 } from "./conversation-records.ts";
@@ -162,14 +164,10 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				return yield* new ChatNotArchivedError({ chatId });
 			}
 			const rows = yield* sql<SessionRow>`
-        SELECT id, project_id, title, title_provenance, provider_id, model, status,
-               archived_at, cursor, resume_strategy, runtime_mode,
-               agents_json, worktree_id, chat_id, forked_from_session_id,
-               forked_from_message_id, permission_mode, tool_search,
-               created_at, updated_at
-        FROM sessions
-        WHERE chat_id = ${chatId}
-        ORDER BY created_at ASC
+        SELECT ${sql.literal(SESSION_ROW_COLUMNS)}
+        ${sql.literal(SESSION_ROW_FROM)}
+        WHERE s.chat_id = ${chatId}
+        ORDER BY s.created_at ASC
       `.pipe(Effect.orDie);
 			return { chat, sessions: rows.map(sessionFromRow) };
 		});
@@ -283,13 +281,9 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			const chatId = input.chatId ?? (crypto.randomUUID() as unknown as ChatId);
 			if (input.chatId !== undefined && input.initialSessionId !== undefined) {
 				const existingSessions = yield* sql<SessionRow>`
-					SELECT id, project_id, title, title_provenance, provider_id, model, status,
-					       archived_at, cursor, resume_strategy, runtime_mode,
-					       agents_json, worktree_id, chat_id, forked_from_session_id,
-					       forked_from_message_id, permission_mode, tool_search,
-					       created_at, updated_at
-					FROM sessions
-					WHERE id = ${input.initialSessionId} AND chat_id = ${input.chatId}
+					SELECT ${sql.literal(SESSION_ROW_COLUMNS)}
+					${sql.literal(SESSION_ROW_FROM)}
+					WHERE s.id = ${input.initialSessionId} AND s.chat_id = ${input.chatId}
 					LIMIT 1
 				`.pipe(Effect.orDie);
 				const [existingSessionRow] = existingSessions;
@@ -422,8 +416,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				modelOptions: input.modelOptions,
 				toolSearch: input.toolSearch,
 				queuePaused: input.queuePaused,
-				resumeCursor: input.resumeCursor,
-				resumeStrategy: input.resumeStrategy,
+				providerThread: input.providerThread,
 				forkedFromSessionId: input.forkedFromSessionId,
 				forkedFromMessageId: input.forkedFromMessageId,
 				forkFromResume: input.forkFromResume,

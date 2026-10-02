@@ -10,14 +10,14 @@ import {
 	type MessageOrigin,
 	type Session,
 	SessionId,
-	type SessionStartError,
+	SessionStartError,
 	type SkillRef,
 	type TurnInterruptReceipt,
 	type WorkspaceActor,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
-import { Deferred, Effect, type FileSystem, type Scope } from "effect";
+import { Cause, Deferred, Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
@@ -95,7 +95,7 @@ export interface MessageOperationsOptions {
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
 	) => Effect.Effect<AgentTurnId | undefined>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
 	readonly recoverStatus: (
 		sessionId: SessionId,
@@ -187,17 +187,19 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						: yield* decodeProviderStartRequest(row.provider_start_json).pipe(
 								Effect.orDie,
 							);
+				const startupJson = row.provider_start_json;
 				const modelOptions =
 					startup?.modelOptionsJson == null
 						? undefined
 						: yield* decodeProviderModelOptions(startup.modelOptionsJson).pipe(
 								Effect.orDie,
 							);
-				return { input, startup, modelOptions };
+				return { input, startup, startupJson, modelOptions };
 			});
-		const restartSession: ConversationOperations["resumeSession"] = (
-			sessionId,
-		) =>
+		const restartSession = (
+			sessionId: SessionId,
+			reason: "retry" | "provider_recovery" = "retry",
+		): ReturnType<ConversationOperations["resumeSession"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
 				// Best-effort cleanup of any stale in-memory session before opening
@@ -220,27 +222,39 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					yield* settleTurn(sessionId, activeTurnId, "interrupted");
 				}
 				const turnId = request === null ? undefined : activeTurnId;
-				// When a durable turn is active, reopen replays that exact request. The
-				// renderer must not submit the last user message again after success.
-				yield* ensureForTurn(session.id, {
-					initialPrompt: request?.startup?.initialPrompt ?? undefined,
-					initialTurnId: request?.startup?.initialTurnId ?? undefined,
-					modelOptions: request?.modelOptions,
-					enableSubagents: request?.startup?.enableSubagents,
-					forkFromResume: request?.startup?.forkFromResume,
-					postBootStatus: request === null ? "idle" : "running",
-					...(request === null || turnId === undefined
+				if (turnId === undefined || request === null) {
+					// No durable turn to continue: reopen the provider idle.
+					yield* ensureForTurn(session.id, {
+						initialPrompt: request?.startup?.initialPrompt ?? undefined,
+						modelOptions: request?.modelOptions,
+						enableSubagents: request?.startup?.enableSubagents,
+						forkFromResume: request?.startup?.forkFromResume,
+						postBootStatus: "idle",
+					});
+					return yield* lookupSession(sessionId);
+				}
+				// A durable turn is active: start a new attempt of it. The attempt
+				// implies a send job that replays the exact provider request, so the
+				// renderer never re-submits the last user message.
+				yield* dispatchSessionCommand(sessionId, {
+					_tag: "RetryTurn",
+					turnId,
+					reason,
+					providerInputJson: JSON.stringify(request.input),
+					...(request.startupJson === null
 						? {}
-						: {
-								sendAfterOpen: {
-									turnId,
-									text: request.input.text,
-									attachments: request.input.attachments,
-									fileRefs: request.input.fileRefs,
-									skillRefs: request.input.skillRefs,
-								},
+						: { providerStartJson: request.startupJson }),
+					requestedAt: Date.now(),
+				}).pipe(
+					Effect.catchCause((cause) =>
+						Effect.fail(
+							new SessionStartError({
+								providerId: session.providerId,
+								reason: String(Cause.squash(cause)),
 							}),
-				});
+						),
+					),
+				);
 				return yield* lookupSession(sessionId);
 			});
 
@@ -594,7 +608,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				SELECT id, status FROM sessions
 				WHERE archived_at IS NULL AND (
 					status IN ('running', 'booting')
-					OR (status = 'idle' AND current_turn_id IS NOT NULL)
+					OR (status = 'idle' AND EXISTS (SELECT 1 FROM session_turns WHERE session_id = sessions.id AND status IN ('starting', 'running')))
 				)
 			`.pipe(Effect.orDie);
 			for (const stale of staleSessions) {
@@ -629,7 +643,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						yield* recoverStatus(sessionId, "error");
 					}
 				} else {
-					yield* restartSession(sessionId).pipe(
+					yield* restartSession(sessionId, "provider_recovery").pipe(
 						Effect.catch(() => recoverStatus(sessionId, "error")),
 					);
 				}
@@ -701,7 +715,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						: Effect.void;
 				// Even if pausing the provider goal fails, still deliver Stop.
 				yield* pauseGoal.pipe(
-					Effect.ensuring(runSessionReactors),
+					Effect.ensuring(runSessionReactors(sessionId)),
 					Effect.orDie,
 				);
 				return outcome;

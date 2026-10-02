@@ -48,7 +48,6 @@ describe("chat landing progress", () => {
 				updatedAt: new Date("2026-08-21T00:00:00Z"),
 				sourcePath: null,
 				cursor: "cursor-1",
-				resumeStrategy: "codex-thread-id",
 				available: true,
 			}),
 			ExternalThread.make({
@@ -61,7 +60,6 @@ describe("chat landing progress", () => {
 				updatedAt: new Date("2026-08-20T00:00:00Z"),
 				sourcePath: null,
 				cursor: "cursor-2",
-				resumeStrategy: "claude-session-id",
 				available: true,
 			}),
 		];
@@ -83,7 +81,6 @@ describe("chat landing progress", () => {
 				updatedAt: new Date("2026-08-21T00:00:00Z"),
 				sourcePath: null,
 				cursor: "cursor",
-				resumeStrategy: "codex-thread-id",
 				available,
 			});
 

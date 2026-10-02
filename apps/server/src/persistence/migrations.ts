@@ -65,6 +65,10 @@ import { Migration0061HarnessExecutions } from "./migrations/0061_harness_execut
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
+import { Migration0061Jobs } from "./migrations/0061_jobs.ts";
+import { Migration0062SessionGraph } from "./migrations/0062_session_graph.ts";
+import { Migration0063ProviderThreadOwnership } from "./migrations/0063_provider_thread_ownership.ts";
+import { Migration0064JobAttemptOwnership } from "./migrations/0064_job_attempt_ownership.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -152,13 +156,25 @@ const MigrationDefinitionsThrough0059 = {
 	"0059_event_sequence_index": Migration0059EventSequenceIndex,
 } as const;
 
-const MigrationDefinitions = {
+const MigrationDefinitionsThrough0060 = {
 	...MigrationDefinitionsThrough0059,
 	"0060_chat_user_message_time": Migration0060ChatUserMessageTime,
+} as const;
+
+const MigrationDefinitionsThrough0062 = {
+	...MigrationDefinitionsThrough0060,
 	"0061_harness_executions": Migration0061HarnessExecutions,
 	"0062_model_connections": Migration0062ModelConnections,
 	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
 	"0064_provider_accounts": Migration0064ProviderAccounts,
+} as const;
+
+const MigrationDefinitions = {
+	...MigrationDefinitionsThrough0062,
+	"0061_jobs": Migration0061Jobs,
+	"0062_session_graph": Migration0062SessionGraph,
+	"0063_provider_thread_ownership": Migration0063ProviderThreadOwnership,
+	"0064_job_attempt_ownership": Migration0064JobAttemptOwnership,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
@@ -234,5 +250,12 @@ export const MigrationsLive = Layer.effectDiscard(
 export const MigrationsThrough0059Live = Layer.effectDiscard(
 	Migrator.make({})({
 		loader: Migrator.fromRecord(MigrationDefinitionsThrough0059),
+	}),
+);
+
+/** Pre-engine schema, retained for real upgrade fixtures. */
+export const MigrationsThrough0060Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0060),
 	}),
 );

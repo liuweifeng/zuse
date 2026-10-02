@@ -4,6 +4,7 @@ import type { SqlError } from "effect/unstable/sql/SqlError";
 
 import type {
 	MessageReadRecord,
+	SessionProviderThreadRecord,
 	SessionReadRecord,
 } from "../projectors/read-model.js";
 import type {
@@ -36,9 +37,7 @@ interface SessionRow {
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly provider_id: string;
 	readonly model: string;
-	readonly cursor: string | null;
-	readonly provider_event_cursor?: string | null;
-	readonly resume_strategy: string;
+	readonly active_provider_thread_id: string | null;
 	readonly runtime_mode: string;
 	readonly agents_json: string | null;
 	readonly worktree_id: string | null;
@@ -49,7 +48,48 @@ interface SessionRow {
 	readonly archived_at: string | null;
 	readonly created_at: string;
 	readonly updated_at: string;
+	readonly pt_id: string | null;
+	readonly pt_provider: string | null;
+	readonly pt_native_thread_id: string | null;
+	readonly pt_native_head_id: string | null;
+	readonly pt_status: string | null;
+	readonly pt_first_turn_ordinal: number | null;
+	readonly pt_last_turn_ordinal: number | null;
+	readonly pt_created_at: string | null;
+	readonly pt_updated_at: string | null;
 }
+
+/** Columns for a session row joined with its active provider thread. */
+export const SESSION_WITH_PROVIDER_THREAD_SELECT = `
+	SELECT s.*,
+		p.id AS pt_id, p.provider AS pt_provider,
+		p.native_thread_id AS pt_native_thread_id,
+		p.native_head_id AS pt_native_head_id, p.status AS pt_status,
+		p.first_turn_ordinal AS pt_first_turn_ordinal,
+		p.last_turn_ordinal AS pt_last_turn_ordinal,
+		p.created_at AS pt_created_at, p.updated_at AS pt_updated_at
+	FROM sessions s
+	LEFT JOIN session_provider_threads p ON p.id = s.active_provider_thread_id`;
+
+const providerThreadFromRow = (
+	row: SessionRow,
+): SessionProviderThreadRecord | null =>
+	row.pt_id === null ||
+	row.pt_provider === null ||
+	row.pt_native_thread_id === null ||
+	row.pt_status === null
+		? null
+		: {
+				id: row.pt_id,
+				provider: row.pt_provider,
+				nativeThreadId: row.pt_native_thread_id,
+				nativeHeadId: row.pt_native_head_id,
+				status: row.pt_status as SessionProviderThreadRecord["status"],
+				firstTurnOrdinal: row.pt_first_turn_ordinal,
+				lastTurnOrdinal: row.pt_last_turn_ordinal,
+				createdAt: Date.parse(row.pt_created_at ?? ""),
+				updatedAt: Date.parse(row.pt_updated_at ?? ""),
+			};
 
 interface MessageRow {
 	readonly id: string;
@@ -70,7 +110,6 @@ export type SqlSessionReadRecord = SessionReadRecord & {
 	readonly titleProvenance: "pending" | "automatic" | "manual";
 	readonly providerId: string;
 	readonly model: string;
-	readonly resumeStrategy: string;
 	readonly runtimeMode: string;
 	readonly permissionMode: string;
 };
@@ -102,9 +141,7 @@ const sessionRecord = Effect.fn("SqlSessionQueries.sessionRecord")(function* (
 		status: row.status,
 		providerId: row.provider_id,
 		model: row.model,
-		cursor: row.cursor,
-		providerEventCursor: row.provider_event_cursor ?? null,
-		resumeStrategy: row.resume_strategy,
+		activeProviderThread: providerThreadFromRow(row),
 		runtimeMode: row.runtime_mode,
 		agentsJson: row.agents_json,
 		worktreeId: row.worktree_id,
@@ -165,7 +202,7 @@ export const makeSqlSessionQueries = (
 ): SqlSessionQueriesApi => {
 	const get = Effect.fn("SqlSessionQueries.get")(function* (sessionId: string) {
 		const rows = yield* sql.unsafe<SessionRow>(
-			"SELECT * FROM sessions WHERE id = ? LIMIT 1",
+			`${SESSION_WITH_PROVIDER_THREAD_SELECT} WHERE s.id = ? LIMIT 1`,
 			[sessionId],
 		);
 		const row = rows[0];
@@ -192,9 +229,9 @@ export const makeSqlSessionQueries = (
 	) {
 		const archived = input.includeArchived === true;
 		const rows = yield* sql.unsafe<SessionRow>(
-			`SELECT * FROM sessions
-			 WHERE project_id = ? AND (? = 1 OR archived_at IS NULL)
-			 ORDER BY updated_at DESC, id ASC`,
+			`${SESSION_WITH_PROVIDER_THREAD_SELECT}
+			 WHERE s.project_id = ? AND (? = 1 OR s.archived_at IS NULL)
+			 ORDER BY s.updated_at DESC, s.id ASC`,
 			[input.projectId, archived ? 1 : 0],
 		);
 		return yield* Effect.forEach(rows, sessionRecord);

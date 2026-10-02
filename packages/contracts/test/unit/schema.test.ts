@@ -367,8 +367,7 @@ describe("Session round-trip", () => {
 		model: "claude-opus-4-8",
 		status: "idle" as const,
 		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none" as const,
+		providerThread: null,
 		runtimeMode: "approval-required" as const,
 		worktreeId: null,
 		chatId: "chat1",
@@ -390,8 +389,21 @@ describe("Session round-trip", () => {
 		roundTrip(Session, {
 			...encoded,
 			archivedAt: "2026-06-17T12:00:00.000Z",
-			cursor: "claude-session-abc",
-			resumeStrategy: "claude-session-id" as const,
+			providerThread: {
+				id: "provider-thread:provider:claude:native-thread:claude-session-abc",
+				provider: "claude" as const,
+				nativeThreadRef: {
+					provider: "claude" as const,
+					nativeId: "claude-session-abc",
+					strength: "strong" as const,
+				},
+				nativeHeadRef: null,
+				status: "idle" as const,
+				firstTurnOrdinal: 1,
+				lastTurnOrdinal: 3,
+				createdAt: "2026-06-17T12:00:00.000Z",
+				updatedAt: "2026-06-17T12:00:00.000Z",
+			},
 		});
 	});
 

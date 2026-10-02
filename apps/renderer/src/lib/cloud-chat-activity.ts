@@ -82,7 +82,7 @@ export const deriveCloudChatActivity = ({
 	if (
 		(computeReady || timeline?.connection === "connected") &&
 		timeline?.origin === "runtime" &&
-		timeline.data?.currentTurn != null
+		timeline.data?.activeTurn != null
 	) {
 		const observed = runtimeStateFromTimeline(timeline.data);
 		if (

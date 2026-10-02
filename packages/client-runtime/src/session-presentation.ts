@@ -58,11 +58,11 @@ export const runtimeStateFromTimeline = (
 ): SessionRuntimeState => {
 	if (projection.status === "error") return "failed";
 	if (projection.status === "booting") return "starting";
-	const phase = projection.currentTurn?.phase;
+	const phase = projection.activeTurn?.phase;
 	if (phase === "interrupt-requested" || phase === "interrupt-acknowledged") {
 		return "stopping";
 	}
-	if (projection.currentTurn !== null || projection.status === "running") {
+	if (projection.activeTurn !== null || projection.status === "running") {
 		return "running";
 	}
 	return "idle";
@@ -161,7 +161,7 @@ export const deriveSessionPresentation = ({
 	const qualified =
 		view.cursor !== null ||
 		(view.data !== null &&
-			(view.sync === "live" || view.data.currentTurn !== null));
+			(view.sync === "live" || view.data.activeTurn !== null));
 	const catalogFallback =
 		catalogRuntime ??
 		(catalogStatus === undefined
@@ -181,7 +181,7 @@ export const deriveSessionPresentation = ({
 			(command) => command.kind === "messages.interrupt",
 		) &&
 		(view.data === null ||
-			view.data.currentTurn !== null ||
+			view.data.activeTurn !== null ||
 			(!qualified && latestConversationalRole(view.data) !== "assistant") ||
 			isSessionTurnActive(runtime))
 	) {

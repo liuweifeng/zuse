@@ -3,7 +3,7 @@ import {
 	type TurnSettlementOutcome as TurnSettlementOutcomeType,
 } from "@zuse/contracts";
 import { Schema } from "effect";
-import { SessionCreatedFields } from "./session-fields.js";
+import { ProviderThreadSeed, SessionCreatedFields } from "./session-fields.js";
 
 export const SegmentKind = Schema.Literals(["assistant", "reasoning", "tool"]);
 export type SegmentKind = typeof SegmentKind.Type;
@@ -11,6 +11,13 @@ export type SegmentKind = typeof SegmentKind.Type;
 /** Domain alias retained for callers; the wire contract is the source of truth. */
 export const SettlementOutcome = TurnSettlementOutcome;
 export type SettlementOutcome = TurnSettlementOutcomeType;
+
+export const AttemptReason = Schema.Literals([
+	"initial",
+	"retry",
+	"provider_recovery",
+]);
+export type AttemptReason = typeof AttemptReason.Type;
 
 export const TurnPhase = Schema.Literals([
 	"running",
@@ -23,11 +30,13 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("CreateSession", {
 		...SessionCreatedFields,
 		providerStartJson: Schema.optional(Schema.String),
+		providerThread: Schema.optional(ProviderThreadSeed),
 	}),
 	Schema.TaggedStruct("CreateSessionWithInitialTurn", {
 		...SessionCreatedFields,
 		/** Legacy startup options retained on the turn, never an eager-start signal. */
 		providerStartJson: Schema.optional(Schema.String),
+		providerThread: Schema.optional(ProviderThreadSeed),
 		turnId: Schema.String,
 		messageId: Schema.String,
 		messageContentJson: Schema.String,
@@ -75,11 +84,25 @@ export const SessionCommand = Schema.Union([
 		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
-	Schema.TaggedStruct("SetResume", {
-		cursor: SessionCreatedFields.cursor,
-		resumeStrategy: SessionCreatedFields.resumeStrategy,
-		providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
+	/**
+	 * Bind the provider-native thread the driver reported as the session's
+	 * active provider thread. Idempotent for the same native id and head.
+	 */
+	Schema.TaggedStruct("BindProviderThread", {
+		nativeThreadId: Schema.String,
+		nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
+	}),
+	/**
+	 * Start a new attempt of the active turn: the user retried after a
+	 * provider failure, or boot recovery reopened a session mid-turn.
+	 */
+	Schema.TaggedStruct("RetryTurn", {
+		turnId: Schema.String,
+		reason: Schema.Literals(["retry", "provider_recovery"]),
+		providerInputJson: Schema.String,
+		providerStartJson: Schema.optional(Schema.String),
+		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ArchiveSession", { archivedAt: Schema.Number }),
 	Schema.TaggedStruct("UnarchiveSession", { unarchivedAt: Schema.Number }),
@@ -189,9 +212,13 @@ export const SessionCommand = Schema.Union([
 	}),
 	Schema.TaggedStruct("AttachProvider", {
 		providerId: Schema.String,
+		providerSessionId: Schema.optional(Schema.String),
 		attachedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestProviderStop", { requestedAt: Schema.Number }),
-	Schema.TaggedStruct("DetachProvider", { detachedAt: Schema.Number }),
+	Schema.TaggedStruct("DetachProvider", {
+		detachedAt: Schema.Number,
+		expectedProviderSessionId: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
 ]);
 export type SessionCommand = typeof SessionCommand.Type;
