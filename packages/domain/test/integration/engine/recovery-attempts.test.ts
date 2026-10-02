@@ -102,3 +102,76 @@ test("recovery durably replaces delivery with read-only work and preserves its s
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 });
+
+test("uninterrupted ownership is checked before receipt replay and transactional callbacks", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(crypto.randomUUID()),
+				);
+				const dispatch = (command: SessionCommand) =>
+					domain.dispatch({
+						commandId: crypto.randomUUID(),
+						streamId: "session-1",
+						command,
+					});
+				yield* dispatch(createSessionCommand);
+				yield* dispatch({ _tag: "StartTurn", turnId: "turn-1", startedAt: 1 });
+				const expectedAttempt = {
+					turnId: "turn-1",
+					attemptId: attemptIdFor("turn-1", 1),
+					requireUninterrupted: true,
+				};
+				const input = {
+					commandId: "recovery-write",
+					streamId: "session-1",
+					expectedAttempt,
+					command: {
+						_tag: "PersistMessage" as const,
+						messageId: "output",
+						turnId: "turn-1",
+						role: "assistant",
+						kind: "assistant",
+						contentJson: '{"_tag":"assistant","text":"before"}',
+						parentItemId: null,
+						createdAt: 2,
+					},
+				};
+				yield* domain.dispatch(input);
+				yield* dispatch({ _tag: "RequestTurnInterrupt", requestedAt: 3 });
+				let callbacks = 0;
+				for (const commandId of ["recovery-write", "new-recovery-write"]) {
+					const result = yield* Effect.exit(
+						domain.dispatchTransactionally({ ...input, commandId }, () =>
+							Effect.sync(() => {
+								callbacks++;
+							}),
+						),
+					);
+					expect(Exit.isFailure(result)).toBe(true);
+				}
+				expect(callbacks).toBe(0);
+				expect(yield* sql`SELECT 1 FROM messages`).toHaveLength(1);
+				// The interrupt worker retains authority to acknowledge and settle cancellation.
+				yield* domain.dispatch({
+					commandId: "settle-interrupted",
+					streamId: "session-1",
+					expectedAttempt: {
+						turnId: expectedAttempt.turnId,
+						attemptId: expectedAttempt.attemptId,
+					},
+					command: {
+						_tag: "SettleTurn",
+						turnId: "turn-1",
+						outcome: "interrupted",
+						settledAt: 4,
+					},
+				});
+				expect(yield* domain.activeAttempt("session-1")).toBeNull();
+			}),
+		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});

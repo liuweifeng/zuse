@@ -128,6 +128,7 @@ export const recoverProviderTurn = (
 		const sessionId = SessionId.make(job.sessionId);
 		const turnId = AgentTurnId.make(request.turnId);
 		const ownership: AttemptOwnership = {
+			requireUninterrupted: true,
 			turnId,
 			attemptId: request.attemptId,
 		};
