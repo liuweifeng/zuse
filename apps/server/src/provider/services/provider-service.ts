@@ -171,6 +171,11 @@ export interface ProviderServiceShape {
 		feedback?: string,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
+	readonly acknowledgePlanResponse?: (
+		sessionId: AgentSessionId,
+		itemId: AgentItemId,
+	) => Effect.Effect<void>;
+
 	readonly getGoal: (
 		sessionId: AgentSessionId,
 	) => Effect.Effect<ThreadGoal | null, AgentSessionNotFoundError>;

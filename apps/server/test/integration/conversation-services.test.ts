@@ -201,6 +201,7 @@ let beforeProviderWrite:
 let providerQuestionAttached = false;
 let providerPlanAvailable = false;
 let providerPlanResponses = 0;
+let providerPlanAcknowledgements = 0;
 let providerQuestionHasCalls = 0;
 let detachProviderQuestionAfterHasCall: number | null = null;
 let attachProviderQuestionAfterHasCall: number | null = null;
@@ -440,6 +441,10 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	acknowledgeQuestionResolution: () =>
 		Effect.sync(() => {
 			providerQuestionAttached = false;
+		}),
+	acknowledgePlanResponse: () =>
+		Effect.sync(() => {
+			providerPlanAcknowledgements++;
 		}),
 	respondToPlan: (sessionId) =>
 		Effect.suspend(() => {
@@ -960,6 +965,7 @@ beforeEach(() => {
 	providerQuestionAttached = false;
 	providerPlanAvailable = false;
 	providerPlanResponses = 0;
+	providerPlanAcknowledgements = 0;
 	providerQuestionHasCalls = 0;
 	detachProviderQuestionAfterHasCall = null;
 	attachProviderQuestionAfterHasCall = null;
@@ -3324,6 +3330,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					);
 					await respond("approved");
 					expect(providerPlanResponses).toBe(1);
+					expect(providerPlanAcknowledgements).toBe(3);
 					const rows = await run(
 						Effect.gen(function* () {
 							const sql = yield* SqlClient.SqlClient;
@@ -3341,6 +3348,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						_tag: "PlanResolutionError",
 					});
 					expect(providerPlanResponses).toBe(mode === "missing" ? 1 : 0);
+					expect(providerPlanAcknowledgements).toBe(0);
 					const messages = await run(
 						Effect.flatMap(store, (service) => service.listMessages(sessionId)),
 					);
