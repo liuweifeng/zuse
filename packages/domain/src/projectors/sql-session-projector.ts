@@ -557,6 +557,7 @@ export const makeSqlSessionProjector = (
 					}
 					return;
 				}
+				case "ProviderSessionReserved":
 				case "ProviderAttached":
 				case "ProviderStopRequested":
 				case "ProviderDetached":

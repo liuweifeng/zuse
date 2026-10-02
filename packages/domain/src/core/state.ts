@@ -127,6 +127,10 @@ export type SessionState = {
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
 	readonly attachedProviderSessionId: string | null;
+	readonly providerReservation: {
+		readonly providerId: string;
+		readonly providerSessionId: string;
+	} | null;
 	readonly version: number;
 };
 
@@ -165,6 +169,7 @@ export const initialSessionState: SessionState = {
 	providerId: null,
 	attachedProviderId: null,
 	attachedProviderSessionId: null,
+	providerReservation: null,
 	version: 0,
 };
 
@@ -341,6 +346,7 @@ export const evolve = (
 				model: event.model,
 				attachedProviderId: null,
 				attachedProviderSessionId: null,
+				providerReservation: null,
 				version,
 			};
 		case "SessionProviderSet":
@@ -351,6 +357,7 @@ export const evolve = (
 				model: event.model,
 				attachedProviderId: null,
 				attachedProviderSessionId: null,
+				providerReservation: null,
 				...retireActiveProviderThread(state, event.updatedAt),
 				version,
 			};
@@ -362,6 +369,10 @@ export const evolve = (
 			return {
 				...state,
 				worktreeId: event.worktreeId,
+				providerReservation:
+					state.worktreeId === event.worktreeId
+						? state.providerReservation
+						: null,
 				...(state.worktreeId === event.worktreeId
 					? {}
 					: retireActiveProviderThread(state, event.updatedAt)),
@@ -433,11 +444,11 @@ export const evolve = (
 				version,
 			};
 		case "SessionArchived":
-			return { ...state, archived: true, version };
+			return { ...state, archived: true, providerReservation: null, version };
 		case "SessionUnarchived":
 			return { ...state, archived: false, version };
 		case "SessionDeleted":
-			return { ...state, deleted: true, version };
+			return { ...state, deleted: true, providerReservation: null, version };
 		case "TurnStarted": {
 			const ordinal = event.ordinal ?? state.turnCount + 1;
 			const attemptId = event.attemptId ?? attemptIdFor(event.turnId, 1);
@@ -702,20 +713,47 @@ export const evolve = (
 				resolvedQuestionIds: added(state.resolvedQuestionIds, event.itemId),
 				version,
 			};
+		case "ProviderSessionReserved":
+			return {
+				...state,
+				providerReservation: {
+					providerId: event.providerId,
+					providerSessionId: event.providerSessionId,
+				},
+				version,
+			};
 		case "ProviderAttached":
 			return {
 				...state,
 				attachedProviderId: event.providerId,
 				attachedProviderSessionId: event.providerSessionId ?? null,
+				providerReservation:
+					state.providerReservation?.providerSessionId ===
+					event.providerSessionId
+						? state.providerReservation
+						: null,
 				version,
 			};
 		case "ProviderStopRequested":
-			return { ...state, version };
+			return {
+				...state,
+				providerReservation:
+					state.providerReservation?.providerSessionId ===
+					event.providerSessionId
+						? null
+						: state.providerReservation,
+				version,
+			};
 		case "ProviderDetached":
 			return {
 				...state,
 				attachedProviderId: null,
 				attachedProviderSessionId: null,
+				providerReservation:
+					state.providerReservation?.providerSessionId ===
+					event.providerSessionId
+						? null
+						: state.providerReservation,
 				version,
 			};
 	}

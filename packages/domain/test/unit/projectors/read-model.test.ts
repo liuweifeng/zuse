@@ -20,6 +20,26 @@ const stored = (
 });
 
 describe("session read-model projector", () => {
+	test("advances the read model across a startup reservation", async () => {
+		const model = new InMemorySessionReadModel();
+		await Effect.runPromise(
+			model.apply(
+				stored(1, "session-1", { _tag: "SessionCreated", ...sessionCreation }),
+			),
+		);
+		await Effect.runPromise(
+			model.apply(
+				stored(2, "session-1", {
+					_tag: "ProviderSessionReserved",
+					providerId: "provider-1",
+					providerSessionId: "starting",
+					reservedAt: 42,
+				}),
+			),
+		);
+		expect(model.session("session-1")).toMatchObject({ updatedAt: 42 });
+	});
+
 	test("projects lifecycle and preserves message payload bytes", async () => {
 		const model = new InMemorySessionReadModel();
 		const contentJson = '{"role":"user", "content":[{"text":"hello"}]}';

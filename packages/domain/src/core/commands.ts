@@ -210,6 +210,11 @@ export const SessionCommand = Schema.Union([
 		resolution: Schema.Literal("cancelled"),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ReserveProviderSession", {
+		providerId: Schema.String,
+		providerSessionId: Schema.String,
+		reservedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("AttachProvider", {
 		providerId: Schema.String,
 		providerSessionId: Schema.optional(Schema.String),
