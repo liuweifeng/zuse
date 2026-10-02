@@ -25,6 +25,10 @@ import type {
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -279,6 +283,7 @@ export const startGeminiSession = (
 					...executionEnv,
 					...(apiKey !== null ? { GEMINI_API_KEY: apiKey } : {}),
 				},
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 		} catch (cause) {
@@ -291,9 +296,8 @@ export const startGeminiSession = (
 			);
 		}
 
-		startup.add(() => {
-			child.kill("SIGTERM");
-		});
+		watchProviderProcess(child);
+		startup.add(() => stopProviderProcess(child, { processGroup: true }));
 		child.stdout.setEncoding("utf-8");
 		child.stderr.setEncoding("utf-8");
 		const rl = readline.createInterface({ input: child.stdout });
@@ -751,7 +755,9 @@ export const startGeminiSession = (
 					} catch {
 						// ignore — stdin may already be closed by the child
 					}
-					child.kill("SIGTERM");
+					yield* Effect.promise(() =>
+						stopProviderProcess(child, { processGroup: true }),
+					);
 					rl.close();
 					yield* Effect.promise(() => stdioMcpFallback.close());
 					yield* Effect.promise(() => mcpGatewaySession.close());

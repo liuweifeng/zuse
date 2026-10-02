@@ -75,8 +75,13 @@ those resources, including Promise allocations that finish after cancellation.
 Successful startup transfers ownership to the handle. All nine structured provider
 drivers use this startup ownership guard, including SDK resume/fallback, local
 server readiness, HTTP event connections and Pi initialization. Cancellation
-cannot turn a failed resume into a new SDK agent. Legacy unowned lifecycle paths,
-CLI processes and shutdown of unresponsive children still need a recovery audit. Uncorrelated drivers currently require
+cannot turn a failed resume into a new SDK agent. Direct child-process drivers
+share bounded shutdown: a grace period followed by forced termination, with
+Unix process-group cleanup even when the original parent exits first. Handle
+close waits for shutdown; exit watchers also retire leftover descendants. Linux
+process tests cover children that ignore termination. Windows tree termination
+and macOS behavior still require native verification, along with SDK-internal
+process teardown and legacy unowned lifecycle paths. Uncorrelated drivers currently require
 a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
