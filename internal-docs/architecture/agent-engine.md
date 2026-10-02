@@ -175,7 +175,13 @@ plan ID. Requests and tool results retain application correlation. Plan requests
 record their original owner in the accepted message event. Responses validate that
 owner, persist a stable receipt on the original turn after provider acceptance,
 and serialize identical retries without delivering twice after commit. Missing
-callbacks return a plan-specific error without fabricating a result. Plan expiry,
+callbacks return a plan-specific error without fabricating a result. Questions and
+plans share one callback delivery primitive: matching callers join in-flight work,
+a client disconnect does not cancel it, and revoked ownership interrupts it. Native
+plan handles retain successful delivery results for receipt retries and retain
+uncertain failures without invoking the callback again. Close revokes delivery
+before waiting for native teardown. These results are process-local; they are not
+restart recovery evidence. Plan expiry,
 an indexed plan input projection, delivery intent/jobs, and recovery after provider
 acceptance but before receipt commit remain outstanding; these preflights are not
 an atomic provider/SQLite commit.

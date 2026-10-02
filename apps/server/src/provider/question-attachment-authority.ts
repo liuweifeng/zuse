@@ -11,26 +11,19 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
-import { Deferred, type Duration, Effect, Exit } from "effect";
-
-type DeliveryState<DeliveryError> =
-	| { readonly _tag: "pending" }
-	| {
-			readonly _tag: "delivering";
-			readonly deliveryKey: string;
-			readonly completion: Deferred.Deferred<
-				void,
-				AgentSessionNotFoundError | DeliveryError
-			>;
-	  }
-	| { readonly _tag: "delivered"; readonly deliveryKey: string };
+import { type Duration, Effect } from "effect";
+import {
+	type InputCallbackDelivery,
+	makeInputCallbackDelivery,
+} from "./input-callback-delivery.ts";
 
 type AttachmentEntry<DeliveryError> = {
 	readonly attachment: QuestionAttachment;
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly questionKey: string;
-	readonly revoked: Deferred.Deferred<never, AgentSessionNotFoundError>;
-	state: DeliveryState<DeliveryError>;
+	readonly delivery: InputCallbackDelivery<
+		AgentSessionNotFoundError | DeliveryError
+	>;
 };
 
 type QuestionAttachmentAuthorityOptions = {
@@ -84,10 +77,7 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 		new AgentSessionNotFoundError({ sessionId });
 	const revoke = (key: string, entry: AttachmentEntry<DeliveryError>) => {
 		entries.delete(key);
-		Deferred.doneUnsafe(
-			entry.revoked,
-			Effect.fail(missingAttachment(entry.attachment.sessionId)),
-		);
+		entry.delivery.revoke();
 	};
 	const isValidAnswer = (
 		entry: AttachmentEntry<DeliveryError>,
@@ -101,72 +91,12 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 		invokeProvider: Effect.Effect<void, DeliveryError, R>,
 		validateEntry: (entry: AttachmentEntry<DeliveryError>) => boolean,
 	): Effect.Effect<void, AgentSessionNotFoundError | DeliveryError, R> =>
-		Effect.uninterruptibleMask((restore) =>
-			Effect.gen(function* () {
-				const key = keyOf(sessionId, itemId);
-				const entry = entries.get(key);
-				if (entry === undefined || !validateEntry(entry)) {
-					return yield* missingAttachment(sessionId);
-				}
-				if (entry.state._tag === "delivered") {
-					if (entry.state.deliveryKey !== deliveryKey) {
-						return yield* missingAttachment(sessionId);
-					}
-					return;
-				}
-				if (entry.state._tag === "delivering") {
-					if (entry.state.deliveryKey !== deliveryKey) {
-						return yield* missingAttachment(sessionId);
-					}
-					return yield* restore(Deferred.await(entry.state.completion));
-				}
-
-				const completion = yield* Deferred.make<
-					void,
-					AgentSessionNotFoundError | DeliveryError
-				>();
-				entry.state = { _tag: "delivering", deliveryKey, completion };
-				const boundedProviderDelivery = Effect.suspend(
-					(): Effect.Effect<
-						void,
-						AgentSessionNotFoundError | DeliveryError,
-						R
-					> =>
-						entries.get(key) === entry
-							? invokeProvider
-							: Effect.fail(missingAttachment(sessionId)),
-				).pipe(
-					Effect.interruptible,
-					Effect.raceFirst(Deferred.await(entry.revoked)),
-					Effect.timeoutOrElse({
-						duration: deliveryTimeout,
-						orElse: () => Effect.fail(missingAttachment(sessionId)),
-					}),
-				);
-				const completeDelivery = Effect.exit(boundedProviderDelivery).pipe(
-					Effect.flatMap((exit) =>
-						Effect.sync(() => {
-							// Detach/reattach creates a new authority entry. Never let an old
-							// callback completion mutate the replacement callback's state.
-							if (entries.get(key) !== entry) {
-								return Exit.fail(missingAttachment(sessionId));
-							}
-							entry.state = Exit.isSuccess(exit)
-								? { _tag: "delivered", deliveryKey }
-								: { _tag: "pending" };
-							return exit;
-						}).pipe(
-							Effect.flatMap((result) => Deferred.done(completion, result)),
-						),
-					),
-				);
-				// Provider invocation is owned by this authority rather than the RPC
-				// caller. An interrupted/lost caller can retry and join the same result
-				// without opening a second callback invocation window.
-				yield* Effect.forkDetach(completeDelivery);
-				return yield* restore(Deferred.await(completion));
-			}),
-		);
+		Effect.suspend(() => {
+			const entry = entries.get(keyOf(sessionId, itemId));
+			if (entry === undefined || !validateEntry(entry))
+				return Effect.fail(missingAttachment(sessionId));
+			return entry.delivery.run(deliveryKey, invokeProvider);
+		});
 
 	return {
 		attach: (
@@ -182,13 +112,20 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 					: "conflict";
 			}
 			if (entries.size >= maxEntries) return "full";
-			entries.set(key, {
+			const entry: AttachmentEntry<DeliveryError> = {
 				attachment,
 				questions,
 				questionKey: nextQuestionKey,
-				revoked: Deferred.makeUnsafe(),
-				state: { _tag: "pending" },
-			});
+				delivery: makeInputCallbackDelivery<
+					AgentSessionNotFoundError | DeliveryError
+				>({
+					isCurrent: () => entries.get(key) === entry,
+					unavailable: () => missingAttachment(attachment.sessionId),
+					timeout: deliveryTimeout,
+					retryFailures: true,
+				}),
+			};
+			entries.set(key, entry);
 			return "attached";
 		},
 		detach: (sessionId: AgentSessionId, itemId: AgentItemId): boolean => {

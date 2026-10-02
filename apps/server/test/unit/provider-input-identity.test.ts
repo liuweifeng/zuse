@@ -27,7 +27,10 @@ const question = {
 } as const;
 const answers = [{ questionIndex: 0, selected: [0] }];
 
-const fixture = (close = Effect.void) =>
+const fixture = (
+	close = Effect.void,
+	planEffect: Effect.Effect<void, Error> = Effect.void,
+) =>
 	Effect.gen(function* () {
 		const input = yield* Queue.unbounded<ProviderDriverEvent>();
 		const output = yield* Queue.unbounded<ProviderDriverEvent>();
@@ -49,7 +52,7 @@ const fixture = (close = Effect.void) =>
 			respondToPlan: (itemId, outcome) =>
 				Effect.sync(() => {
 					delivered.push(`plan:${itemId}:${outcome}`);
-				}),
+				}).pipe(Effect.andThen(planEffect)),
 			acknowledgeQuestionAnswer: (itemId) =>
 				Effect.sync(() => {
 					delivered.push(`ack:${itemId}`);
@@ -325,5 +328,85 @@ it("binds native plans to an acquisition and keeps their tool results correlated
 				).toBe(true);
 			}),
 		),
+	);
+});
+
+it("reuses accepted plan delivery until receipt commit and rejects conflicting decisions", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const started = yield* Deferred.make<void>();
+				const release = yield* Deferred.make<void>();
+				const current = yield* fixture(
+					Effect.void,
+					Deferred.succeed(started, undefined).pipe(
+						Effect.andThen(Deferred.await(release)),
+					),
+				);
+				const plan = yield* current.publish({
+					_tag: "ToolUse",
+					itemId: nativeId,
+					tool: "ExitPlanMode",
+					input: {},
+				});
+				if (
+					plan._tag !== "ToolUse" ||
+					current.handle.respondToPlan === undefined
+				)
+					throw new Error("Missing plan");
+				const respond = current.handle.respondToPlan;
+				const first = yield* respond(plan.itemId, "approved").pipe(
+					Effect.forkScoped,
+				);
+				yield* Deferred.await(started);
+				const second = yield* respond(plan.itemId, "approved").pipe(
+					Effect.forkScoped,
+				);
+				expect(
+					Exit.isFailure(yield* Effect.exit(respond(plan.itemId, "cancelled"))),
+				).toBe(true);
+				yield* Deferred.succeed(release, undefined);
+				yield* Fiber.join(first);
+				yield* Fiber.join(second);
+				yield* respond(plan.itemId, "approved");
+				expect(current.delivered).toEqual([`plan:${nativeId}:approved`]);
+			}),
+		),
+	);
+});
+
+it("close revokes a hung plan delivery before native close finishes", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const started = yield* Deferred.make<void>();
+				const interrupted = yield* Deferred.make<void>();
+				const current = yield* fixture(
+					Effect.never,
+					Deferred.succeed(started, undefined).pipe(
+						Effect.andThen(Effect.never),
+						Effect.onInterrupt(() => Deferred.succeed(interrupted, undefined)),
+					),
+				);
+				const plan = yield* current.publish({
+					_tag: "ToolUse",
+					itemId: nativeId,
+					tool: "ExitPlanMode",
+					input: {},
+				});
+				if (
+					plan._tag !== "ToolUse" ||
+					current.handle.respondToPlan === undefined
+				)
+					throw new Error("Missing plan");
+				const delivery = yield* current.handle
+					.respondToPlan(plan.itemId, "approved")
+					.pipe(Effect.forkScoped);
+				yield* Deferred.await(started);
+				yield* current.handle.close().pipe(Effect.forkScoped);
+				yield* Deferred.await(interrupted);
+				expect(Exit.isFailure(yield* Fiber.await(delivery))).toBe(true);
+			}),
+		).pipe(Effect.timeout("2 seconds")),
 	);
 });
