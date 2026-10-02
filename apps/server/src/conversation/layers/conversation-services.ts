@@ -364,32 +364,6 @@ const ConversationRuntimeLive = Layer.effect(
 					`[ConversationServices] job ${failure.job.id} (${failure.job.request._tag}) ${failure.outcome}: ${failure.failure.message}`,
 				),
 		});
-		// Reconcile durable claims before any worker can claim or execute them.
-		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
-		// Background loops pick up retries and work committed by other processes.
-		// Commands still drain synchronously so a caller sees its own outcome.
-		yield* jobWorker.start.pipe(
-			Effect.provideService(Scope.Scope, serviceScope),
-		);
-		yield* Effect.forkIn(
-			Effect.gen(function* () {
-				const wake = yield* PubSub.subscribe(sessionDomain.jobWakeups);
-				while (true) {
-					yield* PubSub.take(wake);
-					yield* jobWorker.notify;
-				}
-			}).pipe(Effect.scoped),
-			serviceScope,
-		);
-		yield* Effect.forkIn(
-			Effect.gen(function* () {
-				const cancellations = yield* PubSub.subscribe(
-					sessionDomain.jobCancellations,
-				);
-				while (true) yield* jobWorker.cancel(yield* PubSub.take(cancellations));
-			}).pipe(Effect.scoped),
-			serviceScope,
-		);
 
 		const handleAutoName = (
 			input: Parameters<
@@ -594,6 +568,32 @@ const ConversationRuntimeLive = Layer.effect(
 			interruptSession,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;
+		// Construct every command handler before a recovered job can call back
+		// into the conversation runtime. Subscribe before starting workers so a
+		// cancellation committed at startup cannot fall into a notification gap.
+		const jobWakeups = yield* PubSub.subscribe(sessionDomain.jobWakeups).pipe(
+			Effect.provideService(Scope.Scope, serviceScope),
+		);
+		const jobCancellations = yield* PubSub.subscribe(
+			sessionDomain.jobCancellations,
+		).pipe(Effect.provideService(Scope.Scope, serviceScope));
+		yield* Effect.forkIn(
+			Effect.forever(
+				PubSub.take(jobWakeups).pipe(Effect.andThen(jobWorker.notify)),
+			),
+			serviceScope,
+		);
+		yield* Effect.forkIn(
+			Effect.forever(
+				PubSub.take(jobCancellations).pipe(Effect.flatMap(jobWorker.cancel)),
+			),
+			serviceScope,
+		);
+		// The production persistence layer already holds exclusive ownership.
+		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
+		yield* jobWorker.start.pipe(
+			Effect.provideService(Scope.Scope, serviceScope),
+		);
 		// Provider replay may wait for user input. Run all durable catch-up only
 		// after every service dependency exists, and keep it scoped to this layer
 		// without delaying RPC availability.
