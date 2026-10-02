@@ -137,8 +137,13 @@ acknowledgments cross only that exact mapping. Existing receipts and legacy nati
 IDs cannot authorize a replacement callback, including after restart. Provider
 resolution also removes live attachment authority. Question rejection has its own
 RPC error instead of claiming that an existing session is missing. Question intent
-and receipt storage still use the existing delivery path; unified input records,
-durable answer jobs and cancellation of in-flight driver callbacks remain targets.
+and receipt storage still use the existing delivery path; unified input records
+and durable answer jobs remain targets. Detaching live question authority now
+interrupts its in-flight delivery and rejects waiting callers without altering a
+replacement callback. Client disconnection alone does not cancel delivery. Question
+delivery does not hold the provider lifecycle lane, so close can revoke a hung
+callback. This cannot undo an answer already accepted by the external provider;
+driver-native side effects still require their own cancellation guarantees.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

@@ -29,6 +29,7 @@ type AttachmentEntry<DeliveryError> = {
 	readonly attachment: QuestionAttachment;
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly questionKey: string;
+	readonly revoked: Deferred.Deferred<never, AgentSessionNotFoundError>;
 	state: DeliveryState<DeliveryError>;
 };
 
@@ -81,6 +82,13 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 		);
 	const missingAttachment = (sessionId: AgentSessionId) =>
 		new AgentSessionNotFoundError({ sessionId });
+	const revoke = (key: string, entry: AttachmentEntry<DeliveryError>) => {
+		entries.delete(key);
+		Deferred.doneUnsafe(
+			entry.revoked,
+			Effect.fail(missingAttachment(entry.attachment.sessionId)),
+		);
+	};
 	const isValidAnswer = (
 		entry: AttachmentEntry<DeliveryError>,
 		answers: ReadonlyArray<UserQuestionAnswer>,
@@ -118,7 +126,18 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 					AgentSessionNotFoundError | DeliveryError
 				>();
 				entry.state = { _tag: "delivering", deliveryKey, completion };
-				const boundedProviderDelivery = invokeProvider.pipe(
+				const boundedProviderDelivery = Effect.suspend(
+					(): Effect.Effect<
+						void,
+						AgentSessionNotFoundError | DeliveryError,
+						R
+					> =>
+						entries.get(key) === entry
+							? invokeProvider
+							: Effect.fail(missingAttachment(sessionId)),
+				).pipe(
+					Effect.interruptible,
+					Effect.raceFirst(Deferred.await(entry.revoked)),
 					Effect.timeoutOrElse({
 						duration: deliveryTimeout,
 						orElse: () => Effect.fail(missingAttachment(sessionId)),
@@ -129,11 +148,16 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 						Effect.sync(() => {
 							// Detach/reattach creates a new authority entry. Never let an old
 							// callback completion mutate the replacement callback's state.
-							if (entries.get(key) !== entry) return;
+							if (entries.get(key) !== entry) {
+								return Exit.fail(missingAttachment(sessionId));
+							}
 							entry.state = Exit.isSuccess(exit)
 								? { _tag: "delivered", deliveryKey }
 								: { _tag: "pending" };
-						}).pipe(Effect.andThen(Deferred.done(completion, exit))),
+							return exit;
+						}).pipe(
+							Effect.flatMap((result) => Deferred.done(completion, result)),
+						),
 					),
 				);
 				// Provider invocation is owned by this authority rather than the RPC
@@ -162,19 +186,25 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 				attachment,
 				questions,
 				questionKey: nextQuestionKey,
+				revoked: Deferred.makeUnsafe(),
 				state: { _tag: "pending" },
 			});
 			return "attached";
 		},
-		detach: (sessionId: AgentSessionId, itemId: AgentItemId): boolean =>
-			entries.delete(keyOf(sessionId, itemId)),
+		detach: (sessionId: AgentSessionId, itemId: AgentItemId): boolean => {
+			const key = keyOf(sessionId, itemId);
+			const entry = entries.get(key);
+			if (entry === undefined) return false;
+			revoke(key, entry);
+			return true;
+		},
 		detachSession: (
 			sessionId: AgentSessionId,
 		): ReadonlyArray<QuestionAttachment> => {
 			const detached: QuestionAttachment[] = [];
 			for (const [key, entry] of entries) {
 				if (entry.attachment.sessionId !== sessionId) continue;
-				entries.delete(key);
+				revoke(key, entry);
 				detached.push(entry.attachment);
 			}
 			return detached;
