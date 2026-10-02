@@ -130,6 +130,15 @@ be dismissed, but cannot become allow decisions. A background pass detects
 physical handle release even without client activity. This extends the existing
 approval ledger; questions, plan responses and unified durable answer jobs
 still need their shared input lifecycle.
+Question callbacks now receive application IDs at acquisition, independently of
+provider-native item IDs. Duplicate live events retain the same ID; replacement,
+release and acknowledgment revoke the mapping. Driver answers, cancellations and
+acknowledgments cross only that exact mapping. Existing receipts and legacy native
+IDs cannot authorize a replacement callback, including after restart. Provider
+resolution also removes live attachment authority. Question rejection has its own
+RPC error instead of claiming that an existing session is missing. Question intent
+and receipt storage still use the existing delivery path; unified input records,
+durable answer jobs and cancellation of in-flight driver callbacks remain targets.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

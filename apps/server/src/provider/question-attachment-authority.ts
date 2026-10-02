@@ -51,8 +51,8 @@ export type QuestionAttachmentAdmission =
  *
  * The delivered answer key deliberately lives only in memory: it makes a
  * post-provider/pre-database retry idempotent in the same process. Across a
- * restart, delivery resumes only after the provider reissues the callback;
- * an existing durable receipt is then replayed automatically.
+ * restart, the provider boundary allocates fresh application question IDs;
+ * a durable receipt cannot authorize a replacement callback.
  */
 export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 	options: QuestionAttachmentAuthorityOptions = {},

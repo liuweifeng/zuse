@@ -685,6 +685,11 @@ export class SessionNotFoundError extends Schema.TaggedErrorClass<SessionNotFoun
 	{ sessionId: SessionId },
 ) {}
 
+export class QuestionResolutionError extends Schema.TaggedErrorClass<QuestionResolutionError>()(
+	"QuestionResolutionError",
+	{ sessionId: SessionId, itemId: AgentItemId, reason: Schema.String },
+) {}
+
 export class SessionStartError extends Schema.TaggedErrorClass<SessionStartError>()(
 	"SessionStartError",
 	{ providerId: ProviderId, reason: Schema.String },
@@ -1581,7 +1586,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
 );
 
 /**
- * Resolve the pending `AskUserQuestion` tool call identified by `itemId`.
+ * Resolve the pending question callback identified by its application `itemId`.
  * The driver returns the answers as the tool result, the SDK turn unwinds,
  * and the renderer paints a paired `user_question_answer` row.
  */
@@ -1631,7 +1636,7 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 		answers: Schema.Array(UserQuestionAnswer),
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QuestionResolutionError]),
 });
 
 export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {
@@ -1640,7 +1645,7 @@ export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {
 		itemId: AgentItemId,
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QuestionResolutionError]),
 });
 
 export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {

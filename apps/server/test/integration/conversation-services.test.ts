@@ -6835,7 +6835,11 @@ describe("ConversationServices — provider event persistence", () => {
 							]),
 						),
 					),
-				).rejects.toThrow();
+				).rejects.toMatchObject({
+					_tag: "QuestionResolutionError",
+					sessionId,
+					itemId,
+				});
 
 				const delivered = await run(
 					Effect.gen(function* () {
@@ -6919,10 +6923,13 @@ describe("ConversationServices — provider event persistence", () => {
 				detachProviderQuestionAfterHasCall = providerQuestionHasCalls + 2;
 				const raced = await run(
 					Effect.flatMap(store, (service) =>
-						Effect.exit(service.answerQuestion(sessionId, itemId, answers)),
+						Effect.result(service.answerQuestion(sessionId, itemId, answers)),
 					),
 				);
-				expect(raced._tag).toBe("Failure");
+				expect(raced).toMatchObject({
+					_tag: "Failure",
+					failure: { _tag: "QuestionResolutionError", sessionId, itemId },
+				});
 				expect(providerAnswerAttempts).toBe(1);
 				const pending = await run(
 					Effect.gen(function* () {
@@ -7046,7 +7053,11 @@ describe("ConversationServices — provider event persistence", () => {
 								service.answerQuestion(sessionId, itemId, answers),
 							),
 						),
-					).rejects.toThrow();
+					).rejects.toMatchObject({
+						_tag: "QuestionResolutionError",
+						sessionId,
+						itemId,
+					});
 				}
 				const beforeValid = await run(
 					Effect.gen(function* () {

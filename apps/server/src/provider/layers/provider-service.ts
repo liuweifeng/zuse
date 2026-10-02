@@ -88,6 +88,7 @@ import { validateApiKey } from "../api-key-validation.ts";
 import { probeProvidersWithPaths, resolveCliPath, withOpencodeInventoryAccount } from "../availability.ts";
 import { bindProviderEventDelivery, type ProviderEventDelivery } from "../provider-event-delivery.ts";
 import { closeProviderHandle } from "../provider-handle-cleanup.ts";
+import { ownProviderQuestions } from "../provider-question-identity.ts";
 import { sendProviderSession } from "../provider-send.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
 import {
@@ -202,7 +203,17 @@ export const ProviderServiceLive = Layer.effect(
 					// Never forward a durable question that has no corresponding live
 					// authority. Cancel the exact callback; if a broken driver cannot do
 					// that, close it so its bounded waiter registry is still drained.
-					yield* (handle.cancelQuestion?.(itemId) ?? handle.close()).pipe(
+					yield* (
+						handle.cancelQuestion === undefined
+							? handle.close()
+							: handle
+									.cancelQuestion(itemId)
+									.pipe(
+										Effect.andThen(
+											handle.acknowledgeQuestionAnswer?.(itemId) ?? Effect.void,
+										),
+									)
+					).pipe(
 						Effect.catch(() =>
 							handle.close().pipe(Effect.catch(() => Effect.void)),
 						),
@@ -1168,7 +1179,7 @@ export const ProviderServiceLive = Layer.effect(
 							}),
 						},
 					);
-					const providerHandle = acquiredHandle.handle;
+					const providerHandle = ownProviderQuestions(acquiredHandle.handle);
 					const handle = yield* makeTurnScopedSessionHandle(
 						providerHandle,
 						input.initialTurnId,
@@ -1387,6 +1398,11 @@ export const ProviderServiceLive = Layer.effect(
 							Stream.filter(() => registry.lookup(sessionId) === entry),
 							Stream.filterEffect((envelope) => {
 								const event = envelope.event;
+								if (event._tag === "UserQuestionResolved") {
+									return detachQuestion(sessionId, event.itemId).pipe(
+										Effect.as(true),
+									);
+								}
 								if (event._tag === "QuestionCallbackReleased") {
 									return detachQuestion(sessionId, event.itemId).pipe(
 										Effect.as(false),
