@@ -1482,7 +1482,11 @@ export const ProviderServiceLive = Layer.effect(
 							}),
 							Stream.filter(isPublicProviderEvent),
 							Stream.map((envelope) =>
-								bindProviderEventDelivery(entry.handle, envelope),
+								bindProviderEventDelivery(
+									entry.handle,
+									envelope,
+									entry.providerSessionId,
+								),
 							),
 						),
 					),

@@ -11,6 +11,7 @@ import type {
 import type {
 	AttemptOwnership,
 	AttemptOwnershipConflict,
+	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
 import {
 	Deferred,
@@ -45,13 +46,21 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		ownership: AttemptOwnership,
 	) => Effect.Effect<boolean>;
+	readonly ownsProviderSession: (
+		sessionId: SessionId,
+		providerSessionId: string,
+	) => Effect.Effect<boolean>;
 	readonly providerId: (sessionId: SessionId) => Effect.Effect<ProviderId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 		expectedAttempt?: AttemptOwnership,
-	) => Effect.Effect<boolean, AttemptOwnershipConflict>;
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		boolean,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	/**
 	 * Durably starts a turn the provider opened on its own. Resolves to the
 	 * proposed id, or to the application turn that is already running when the
@@ -67,12 +76,20 @@ export interface ConversationEventRuntimeOptions {
 		nativeThreadId: string,
 		nativeHeadId?: string,
 		expectedAttempt?: AttemptOwnership,
-	) => Effect.Effect<void, AttemptOwnershipConflict>;
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
 		expectedAttempt?: AttemptOwnership,
-	) => Effect.Effect<void, AttemptOwnershipConflict>;
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	readonly publishGoal: (
 		sessionId: SessionId,
 		goal: ThreadGoal | null,
@@ -96,7 +113,11 @@ export interface ConversationEventRuntimeOptions {
 		content: MessageContent,
 		providerItemIdentity?: string,
 		expectedAttempt?: AttemptOwnership,
-	) => Effect.Effect<void, AttemptOwnershipConflict>;
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 }
 
 export interface ConversationEventRuntime {
@@ -180,6 +201,16 @@ export const makeConversationEventRuntime = Effect.fn(
 							Stream.runForEach(options.events(sessionId), (envelope) =>
 								Effect.gen(function* () {
 									const ownership = envelope.ownership;
+									const providerSessionId = envelope.providerSessionId;
+									if (
+										!(yield* options.ownsProviderSession(
+											sessionId,
+											providerSessionId,
+										))
+									) {
+										yield* envelope.cursorReceipt?.release ?? Effect.void;
+										return;
+									}
 									if (
 										ownership !== undefined &&
 										envelope.event._tag !== "SessionCursor" &&
@@ -234,6 +265,7 @@ export const makeConversationEventRuntime = Effect.fn(
 											turnId,
 											outcome,
 											ownership,
+											providerSessionId,
 										);
 										if (settled === false) return;
 										yield* options.publishApiActivity(
@@ -250,6 +282,7 @@ export const makeConversationEventRuntime = Effect.fn(
 												event.cursor,
 												event.providerEventCursor,
 												ownership,
+												providerSessionId,
 											)
 											.pipe(
 												Effect.onExit((exit) =>
@@ -276,6 +309,7 @@ export const makeConversationEventRuntime = Effect.fn(
 											sessionId,
 											event.mode,
 											ownership,
+											providerSessionId,
 										);
 										return;
 									}
@@ -331,13 +365,17 @@ export const makeConversationEventRuntime = Effect.fn(
 											? `${event._tag}:${event.itemId}`
 											: undefined,
 										ownership,
+										providerSessionId,
 									);
 									if (event._tag === "Error") {
 										yield* options.publishApiActivity(sessionId, "error");
 									}
 								}).pipe(
 									Effect.catchTag(
-										"AttemptOwnershipConflict",
+										[
+											"AttemptOwnershipConflict",
+											"ProviderSessionOwnershipConflict",
+										],
 										() => Effect.void,
 									),
 								),
