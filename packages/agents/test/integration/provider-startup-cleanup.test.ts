@@ -80,14 +80,14 @@ it.each([
 	"pi",
 	"opencode",
 	"opencode2",
-] as const)("cancelling %s during initialization kills the process and revokes its MCP context", async (providerId) => {
+] as const)("cancelling %s forcibly stops an unresponsive process and revokes its MCP context", async (providerId) => {
 	const root = await mkdtemp(join(tmpdir(), "zuse-startup-cancel-"));
 	const executable = join(root, "provider-cli");
 	const pidFile = join(root, "pid");
 	// Report only after the driver sends its first handshake request. Never reply.
 	await writeFile(
 		executable,
-		`#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\n${providerId.startsWith("opencode") ? `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));` : ""}\nprocess.stdin.on("data", () => writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)));\n`,
+		`#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nprocess.on("SIGTERM", () => {});\n${providerId.startsWith("opencode") ? `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));` : ""}\nprocess.stdin.on("data", () => writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)));\n`,
 	);
 	await chmod(executable, 0o755);
 	const baseline = mcpGatewayDiagnostics().activeSessionCount;
@@ -159,15 +159,18 @@ it.each([
 		await Effect.runPromise(Fiber.interrupt(fiber));
 		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(baseline);
 		await expect
-			.poll(() => {
-				if (pid === undefined) return false;
-				try {
-					process.kill(pid, 0);
-					return false;
-				} catch {
-					return true;
-				}
-			})
+			.poll(
+				() => {
+					if (pid === undefined) return false;
+					try {
+						process.kill(pid, 0);
+						return false;
+					} catch {
+						return true;
+					}
+				},
+				{ timeout: 4_000 },
+			)
 			.toBe(true);
 	} finally {
 		await Effect.runPromise(Fiber.interrupt(fiber));

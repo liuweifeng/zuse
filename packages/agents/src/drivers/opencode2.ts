@@ -28,6 +28,10 @@ import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { isSensitivePath } from "../kernel/permission-policy.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
+import {
 	type ProviderStartup,
 	withProviderStartup,
 } from "../kernel/provider-startup.ts";
@@ -241,22 +245,6 @@ const findFreePort = (): Promise<number> =>
 		});
 	});
 
-const stopChild = (child: ChildProcessWithoutNullStreams): void => {
-	try {
-		if (process.platform !== "win32" && child.pid !== undefined) {
-			process.kill(-child.pid, "SIGTERM");
-			return;
-		}
-		child.kill("SIGTERM");
-	} catch {
-		try {
-			child.kill("SIGTERM");
-		} catch {
-			// ignore
-		}
-	}
-};
-
 interface Opencode2ServerProcess {
 	readonly child: ChildProcessWithoutNullStreams;
 	readonly url: string;
@@ -308,7 +296,8 @@ const spawnOpencode2Server = (
 					reject(cause);
 					return;
 				}
-				startup?.add(() => stopChild(child));
+				watchProviderProcess(child);
+				startup?.add(() => stopProviderProcess(child, { processGroup: true }));
 				child.stdout.setEncoding("utf-8");
 				child.stderr.setEncoding("utf-8");
 				let stdoutBuf = "";
@@ -317,7 +306,7 @@ const spawnOpencode2Server = (
 				const timer = setTimeout(() => {
 					if (settled) return;
 					settled = true;
-					stopChild(child);
+					stopProviderProcess(child, { processGroup: true });
 					const stderrTail = stderrBuf.trim().slice(-512);
 					reject(
 						new Error(
@@ -901,7 +890,7 @@ export const loadOpencode2Inventory = (
 				);
 				return inventory;
 			} finally {
-				stopChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>
@@ -926,7 +915,7 @@ const withOpencode2Server = <A>(
 				await waitForCatalog(proc.url, proc.password, cwd);
 				return await fn({ url: proc.url, password: proc.password });
 			} finally {
-				stopChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>
@@ -1813,7 +1802,9 @@ export const startOpencode2Session = (
 					} catch {
 						// ignore
 					}
-					stopChild(server.child);
+					yield* Effect.promise(() =>
+						stopProviderProcess(server.child, { processGroup: true }),
+					);
 					yield* Queue.end(events);
 				}),
 			setPermissionMode: (mode) =>

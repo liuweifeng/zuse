@@ -1653,7 +1653,7 @@ export const startCodexSession = (
 						`[mcp-gateway] session ${sessionId} HTTP setup failed; retrying with stdio compatibility transport`,
 						httpCause,
 					);
-					app.close();
+					await app.close();
 					const fallback = (await stdioMcpFallback.ensure())[0];
 					if (fallback === undefined) {
 						throw new Error("MCP stdio fallback produced no server config.");
@@ -2171,7 +2171,7 @@ export const startCodexSession = (
 					emit({ _tag: "Completed", reason: "ended" });
 					releasePendingQuestions("closed");
 					closed = true;
-					app.close();
+					await app.close();
 					return true;
 				default:
 					return false;
@@ -2668,13 +2668,13 @@ export const startCodexSession = (
 					}
 				}),
 			close: () =>
-				Effect.sync(() => {
+				Effect.promise(async () => {
 					emit({ _tag: "Completed", reason: "ended" });
 					releasePendingQuestions("closed");
 					closed = true;
 					void mcpGatewaySession.close();
 					void stdioMcpFallback.close();
-					app.close();
+					await app.close();
 					Queue.endUnsafe(events);
 				}),
 			setPermissionMode: (mode) =>

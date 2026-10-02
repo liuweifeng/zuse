@@ -27,6 +27,10 @@ import type {
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
@@ -412,11 +416,11 @@ export const startGrokSession = (
 					GROK_CURSOR_MCPS_ENABLED: "0",
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
-			startup.add(() => {
-				nextChild.kill("SIGTERM");
-			});
+			watchProviderProcess(nextChild);
+			startup.add(() => stopProviderProcess(nextChild, { processGroup: true }));
 			stderrTail = "";
 			nextChild.stdout.setEncoding("utf-8");
 			nextChild.stderr.setEncoding("utf-8");
@@ -429,7 +433,7 @@ export const startGrokSession = (
 				return await runHandshake(cursor);
 			} catch (cause) {
 				nextRl.close();
-				nextChild.kill("SIGTERM");
+				await stopProviderProcess(nextChild, { processGroup: true });
 				throw cause;
 			}
 		};
@@ -1153,7 +1157,7 @@ export const startGrokSession = (
 							// reloads the same durable ACP conversation.
 							dead = true;
 							try {
-								child.kill("SIGTERM");
+								await stopProviderProcess(child, { processGroup: true });
 							} catch {
 								// Child may already be closing after the auth failure.
 							}
@@ -1264,7 +1268,9 @@ export const startGrokSession = (
 					} catch {
 						// ignore — stdin may already be closed by the child
 					}
-					child.kill("SIGTERM");
+					yield* Effect.promise(() =>
+						stopProviderProcess(child, { processGroup: true }),
+					);
 					rl.close();
 					yield* Effect.promise(() => mcpGatewaySession.close());
 					yield* Effect.promise(() => stdioMcpFallback.close());

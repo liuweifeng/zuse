@@ -30,6 +30,10 @@ import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
 import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
+import {
 	type ProviderStartup,
 	withProviderStartup,
 } from "../kernel/provider-startup.ts";
@@ -203,22 +207,6 @@ interface OpencodeServerProcess {
 	readonly url: string;
 }
 
-const stopOpencodeChild = (child: ChildProcessWithoutNullStreams): void => {
-	try {
-		if (process.platform !== "win32" && child.pid !== undefined) {
-			process.kill(-child.pid, "SIGTERM");
-			return;
-		}
-		child.kill("SIGTERM");
-	} catch {
-		try {
-			child.kill("SIGTERM");
-		} catch {
-			// ignore — child may already be gone
-		}
-	}
-};
-
 /**
  * Spawn `opencode serve` on a fresh local port and wait for the URL it
  * prints to stdout. Resolves with the running child + the resolved URL.
@@ -248,7 +236,7 @@ const spawnOpencodeServer = (
 							OPENCODE_CONFIG_CONTENT: configContent,
 						},
 						// Detach so SIGTERM can take down the whole process group on Unix.
-						// On Windows we leave the default — `child.kill` walks the tree.
+						// Windows tree termination is handled by the shutdown helper.
 						detached: process.platform !== "win32",
 						stdio: ["pipe", "pipe", "pipe"],
 					});
@@ -257,7 +245,8 @@ const spawnOpencodeServer = (
 					return;
 				}
 
-				startup?.add(() => stopOpencodeChild(child));
+				watchProviderProcess(child);
+				startup?.add(() => stopProviderProcess(child, { processGroup: true }));
 				child.stdout.setEncoding("utf-8");
 				child.stderr.setEncoding("utf-8");
 				let stdoutBuf = "";
@@ -267,7 +256,7 @@ const spawnOpencodeServer = (
 				const timer = setTimeout(() => {
 					if (settled) return;
 					settled = true;
-					stopOpencodeChild(child);
+					stopProviderProcess(child, { processGroup: true });
 					const stderrTail = stderrBuf.trim().slice(-512);
 					reject(
 						new Error(
@@ -1314,7 +1303,9 @@ export const startOpencodeSession = (
 					} catch {
 						// ignore
 					}
-					stopOpencodeChild(server.child);
+					yield* Effect.promise(() =>
+						stopProviderProcess(server.child, { processGroup: true }),
+					);
 					yield* Queue.end(events);
 				}),
 			setPermissionMode: (mode) =>
@@ -1595,7 +1586,7 @@ export const loadOpencodeInventory = (
 				ddump(`  inventory.result`, { providers, agents });
 				return { providers, agents } satisfies OpencodeInventory;
 			} finally {
-				stopOpencodeChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>
@@ -1625,7 +1616,7 @@ const withOpencodeServer = <A>(
 			try {
 				return await fn(client);
 			} finally {
-				stopOpencodeChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>

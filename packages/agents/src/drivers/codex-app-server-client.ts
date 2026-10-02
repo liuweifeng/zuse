@@ -4,6 +4,10 @@ import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
 import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import { DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS } from "./device-command-tools.ts";
 
@@ -256,8 +260,9 @@ export class CodexAppServerClient {
 				...codexAppServerLaunchArgs(options.mcp),
 				...(hasApiKey ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : []),
 			],
-			options.env === undefined ? undefined : { env: options.env },
+			{ env: options.env, detached: process.platform !== "win32" },
 		);
+		watchProviderProcess(child);
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
 
@@ -301,7 +306,9 @@ export class CodexAppServerClient {
 			);
 		});
 
-		const abortStartup = () => bootstrap.close();
+		const abortStartup = () => {
+			void bootstrap.close();
+		};
 		options.startupSignal?.addEventListener("abort", abortStartup, {
 			once: true,
 		});
@@ -360,7 +367,7 @@ export class CodexAppServerClient {
 			}
 			return bootstrap;
 		} catch (cause) {
-			bootstrap.close();
+			await bootstrap.close();
 			throw cause;
 		} finally {
 			if (timer !== undefined) clearTimeout(timer);
@@ -416,12 +423,13 @@ export class CodexAppServerClient {
 		this.child.stdin.write(`${JSON.stringify({ id, result })}\n`);
 	}
 
-	close(): void {
-		if (this.closed) return;
-		this.closed = true;
-		this.rl.close();
-		this.rejectPending(new Error("Codex app-server is closed"));
-		this.child.kill();
+	close(): Promise<void> {
+		if (!this.closed) {
+			this.closed = true;
+			this.rl.close();
+			this.rejectPending(new Error("Codex app-server is closed"));
+		}
+		return stopProviderProcess(this.child, { processGroup: true });
 	}
 
 	private appendStderr(text: string): void {
