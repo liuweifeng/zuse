@@ -206,7 +206,7 @@ export const makeSqlSessionProjector = (
 				case "SessionModelSet": {
 					const updatedAt = iso(event.updatedAt);
 					yield* sql`
-						UPDATE sessions SET model = ${event.model}, updated_at = ${updatedAt}
+						UPDATE sessions SET model = ${event.model}, provider_reservation_id = NULL, updated_at = ${updatedAt}
 						WHERE id = ${record.streamId}
 					`;
 					return;
@@ -216,7 +216,7 @@ export const makeSqlSessionProjector = (
 					yield* retireActiveProviderThread(record.streamId, updatedAt);
 					yield* sql`
 						UPDATE sessions
-						SET provider_id = ${event.providerId}, model = ${event.model},
+						SET provider_id = ${event.providerId}, model = ${event.model}, provider_reservation_id = NULL,
 							updated_at = ${updatedAt}
 						WHERE id = ${record.streamId}
 					`;
@@ -253,7 +253,8 @@ export const makeSqlSessionProjector = (
 					}
 					yield* sql`
 						UPDATE sessions
-						SET worktree_id = ${event.worktreeId}, updated_at = ${updatedAt}
+						SET provider_reservation_id = CASE WHEN worktree_id IS ${event.worktreeId} THEN provider_reservation_id ELSE NULL END,
+						worktree_id = ${event.worktreeId}, updated_at = ${updatedAt}
 						WHERE id = ${record.streamId}
 					`;
 					return;
@@ -350,7 +351,7 @@ export const makeSqlSessionProjector = (
 					const archivedAt = iso(event.archivedAt);
 					yield* sql`
 						UPDATE sessions
-						SET archived_at = ${archivedAt}, updated_at = ${archivedAt}
+						SET archived_at = ${archivedAt}, provider_reservation_id = NULL, updated_at = ${archivedAt}
 						WHERE id = ${record.streamId}
 					`;
 					yield* replaceUnavailableActiveSession(
@@ -558,9 +559,15 @@ export const makeSqlSessionProjector = (
 					return;
 				}
 				case "ProviderSessionReserved":
+					yield* sql`UPDATE sessions SET provider_reservation_id = ${event.providerSessionId} WHERE id = ${record.streamId}`;
+					return;
 				case "ProviderAttached":
+					yield* sql`UPDATE sessions SET provider_reservation_id = NULL WHERE id = ${record.streamId} AND provider_reservation_id IS NOT ${event.providerSessionId ?? null}`;
+					return;
 				case "ProviderStopRequested":
 				case "ProviderDetached":
+					yield* sql`UPDATE sessions SET provider_reservation_id = NULL WHERE id = ${record.streamId} AND provider_reservation_id = ${event.providerSessionId ?? null}`;
+					return;
 				case "SegmentOpened":
 				case "SegmentSettled":
 				case "PermissionRequested":

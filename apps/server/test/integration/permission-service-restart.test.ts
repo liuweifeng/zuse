@@ -53,7 +53,7 @@ const createSchema = Effect.gen(function* () {
 			id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
 			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			provider_id TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
-			archived_at TEXT, active_provider_thread_id TEXT,
+			archived_at TEXT, active_provider_thread_id TEXT, provider_reservation_id TEXT,
 			runtime_mode TEXT NOT NULL, agents_json TEXT, worktree_id TEXT,
 			chat_id TEXT NOT NULL, forked_from_session_id TEXT,
 			forked_from_message_id TEXT, permission_mode TEXT NOT NULL,
