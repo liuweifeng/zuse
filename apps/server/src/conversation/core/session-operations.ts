@@ -1,4 +1,5 @@
 import {
+	type AgentItemId,
 	AgentTurnId,
 	type AttachmentRef,
 	type Chat,
@@ -10,8 +11,9 @@ import {
 	MessageId,
 	type MessageOrigin,
 	type ProviderId,
-	providerCapabilities,
 	ProviderThreadId,
+	providerCapabilities,
+	QuestionResolutionError,
 	type ResumeStrategy,
 	Session,
 	SessionAlreadyStartedError,
@@ -50,6 +52,14 @@ import {
 	lookupDurableQuestionResolution,
 	settleDurableQuestionResolution,
 } from "./question-resolution-receipt.ts";
+
+const questionResolutionError = (sessionId: SessionId, itemId: AgentItemId) =>
+	new QuestionResolutionError({
+		sessionId,
+		itemId,
+		reason:
+			"The question could not be resolved. It may have expired, or an earlier response may already be recorded.",
+	});
 
 export interface SessionOperationsOptions
 	extends Omit<
@@ -572,10 +582,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 					if (conflicts) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					return;
 				}
@@ -587,16 +599,18 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				if (receipt._tag === "invalid") {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				yield* provider
 					.validateQuestionAnswer(sessionId, itemId, answers)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 
 				const rows = yield* sql<{
 					readonly action: "answer" | "cancel";
@@ -610,10 +624,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				let delivery = rows[0];
 				if (delivery === undefined) {
 					// A durable question reconstructed from disk has no live provider
-					// callback after process death. Do not even record intent until the
-					// replacement provider reattaches that callback.
+					// callback after process death. Only a currently attached application
+					// question can accept intent; replacements receive a new identity.
 					if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					const now = yield* currentTimestamp;
 					yield* sql`
@@ -629,7 +645,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					};
 				}
 				if (delivery.action !== "answer" || delivery.answers_json === null) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				const durableDelivery = parseQuestionAnswerDeliveryPayload(
 					delivery.answers_json,
@@ -638,7 +654,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					durableDelivery === null ||
 					durableDelivery.answerKey !== requestedDelivery.answerKey
 				) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 
 				const persistReceipt = Effect.gen(function* () {
@@ -654,12 +670,14 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
 				});
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 
 				yield* provider
 					.answerQuestion(sessionId, itemId, durableDelivery.answers)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 				// There is no atomic commit spanning a provider callback and SQLite.
 				// Driver-local settled state makes same-process retries idempotent, but it
 				// intentionally does not survive process death. After restart, an
@@ -701,15 +719,17 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 					if (receipt._tag === "answer") {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					return;
 				}
 				if (receipt._tag === "invalid") {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 
 				/** Record one cancellation receipt for both attached and detached callbacks. */
@@ -740,7 +760,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					existing !== undefined &&
 					(existing.action !== "cancel" || existing.answers_json !== null)
 				) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
 					// Cancellation does not claim an answer reached the provider. A
@@ -755,7 +775,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						LIMIT 1
 					`.pipe(Effect.orDie);
 					if (questions.length === 0) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					yield* persistCancellation;
 					return yield* settleDurableQuestionResolution(
@@ -765,7 +787,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						{ _tag: "cancel" },
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 				}
 				if (existing === undefined) {
@@ -778,11 +800,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				}
 
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				yield* provider
 					.cancelQuestion(sessionId, itemId)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 				yield* persistCancellation;
 				yield* sql`
 					DELETE FROM question_answer_deliveries

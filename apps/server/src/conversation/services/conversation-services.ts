@@ -32,6 +32,7 @@ import type {
 	PermissionMode,
 	PlanApprovalOutcome,
 	ProviderId,
+	QuestionResolutionError,
 	QueuedMessage,
 	QueuedMessageCapacityError,
 	QueuedMessageNotFoundError,
@@ -313,12 +314,12 @@ export interface ConversationOperations {
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | QuestionResolutionError>;
 	/** Cancel a pending question without encoding cancellation as an answer. */
 	readonly cancelQuestion: (
 		sessionId: SessionId,
 		itemId: AgentItemId,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | QuestionResolutionError>;
 
 	readonly respondToPlan: (
 		sessionId: SessionId,
