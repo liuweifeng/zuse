@@ -44,6 +44,7 @@ describe("ConversationEventRuntime", () => {
 		settleTurn: (...args: Parameters<typeof settleTurn>) =>
 			settleTurn(...args).pipe(Effect.as(true)),
 		bindProviderThread: () => Effect.void,
+		bindAttemptProviderTurn: () => Effect.void,
 		setPermissionMode: () => Effect.void,
 		publishGoal: () => Effect.void,
 		publishApiActivity: () => Effect.void,
@@ -51,6 +52,60 @@ describe("ConversationEventRuntime", () => {
 		ignoreError: () => false,
 		isDuplicateToolUse: () => Effect.succeed(false),
 		persist: () => Effect.void,
+	});
+
+	test.each([
+		"valid",
+		"revoked",
+		"unowned",
+		"foreign-provider",
+	] as const)("admits only owned native execution references: %s", async (mode) => {
+		const bound: unknown[] = [];
+		const ownership = {
+			turnId: "turn-1" as AgentTurnId,
+			attemptId: AttemptId.make("attempt-1"),
+		};
+		const reference = {
+			provider:
+				mode === "foreign-provider" ? ("codex" as const) : ("claude" as const),
+			nativeThreadId: "thread",
+			nativeTurnId: "turn",
+		};
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.succeed({
+								scope: "turn" as const,
+								turnId: ownership.turnId,
+								...(mode === "unowned" ? {} : { ownership }),
+								event: { _tag: "NativeTurnStarted" as const, reference },
+							}).pipe(Stream.ensuring(Deferred.succeed(done, undefined))),
+						),
+						ownsProviderSession: () => Effect.succeed(mode !== "revoked"),
+						bindAttemptProviderTurn: (_session, value, expected, residency) =>
+							Effect.sync(() => {
+								bound.push({ value, expected, residency });
+							}),
+					});
+					yield* runtime.start(SessionId.make("session-1"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(bound).toEqual(
+			mode === "valid"
+				? [
+						{
+							value: reference,
+							expected: ownership,
+							residency: "test-residency",
+						},
+					]
+				: [],
+		);
 	});
 
 	test.each([

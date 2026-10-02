@@ -345,6 +345,57 @@ export const decide = (
 						]),
 			]);
 		}
+		case "BindAttemptProviderTurn": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.attemptId ||
+				state.archived
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Native execution must belong to the active attempt",
+					}),
+				);
+			if (
+				command.reference.provider !== state.providerId ||
+				command.reference.nativeThreadId.length === 0 ||
+				command.reference.nativeTurnId.length === 0
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Invalid native execution reference",
+					}),
+				);
+			const existing = state.attemptProviderTurns.get(command.attemptId);
+			if (existing !== undefined) {
+				if (
+					existing.provider === command.reference.provider &&
+					existing.nativeThreadId === command.reference.nativeThreadId &&
+					existing.nativeTurnId === command.reference.nativeTurnId
+				)
+					return success([]);
+				return Result.fail(
+					new ValidationFailed({
+						message: "An attempt cannot change its native execution",
+					}),
+				);
+			}
+			for (const [attemptId, reference] of state.attemptProviderTurns) {
+				if (
+					attemptId !== command.attemptId &&
+					reference.provider === command.reference.provider &&
+					reference.nativeThreadId === command.reference.nativeThreadId &&
+					reference.nativeTurnId === command.reference.nativeTurnId
+				)
+					return Result.fail(
+						new ValidationFailed({
+							message: "Native execution already belongs to another attempt",
+						}),
+					);
+			}
+			return success([{ ...command, _tag: "AttemptProviderTurnBound" }]);
+		}
 		case "RetryTurn": {
 			const turn = state.turns.get(command.turnId);
 			if (state.currentTurnId !== command.turnId || turn === undefined) {

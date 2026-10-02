@@ -84,6 +84,14 @@ and macOS behavior still require native verification, along with SDK-internal
 process teardown and legacy unowned lifecycle paths. Uncorrelated drivers currently require
 a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
+Native execution correlation is now durable per attempt. The Codex driver reports
+its root native thread and turn IDs only while the application attempt is active;
+transactional attempt and residency guards fence persistence. A reference cannot
+change or be reused by a later attempt in the same session. Migration leaves
+historical attempts uncorrelated rather than guessing from prompt text. This is
+the evidence needed for recovery; native transcript reads, redacted backfill and
+provider-recovery jobs still need implementation. Other drivers have not yet
+reported strong native turn identity.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

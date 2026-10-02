@@ -2262,6 +2262,14 @@ export const startCodexSession = (
 					currentTurnId = notification.params.turn.id;
 					return [
 						...cursorLifecycle.turnStarted(notification.params.threadId),
+						{
+							_tag: "NativeTurnStarted",
+							reference: {
+								provider: "codex",
+								nativeThreadId: notification.params.threadId,
+								nativeTurnId: notification.params.turn.id,
+							},
+						},
 						{ _tag: "Status", status: "running" },
 					];
 				case "turn/completed":

@@ -706,6 +706,25 @@ export const makeConversationStoreRuntime = Effect.fn(
 			),
 		beginProviderTurn: beginTurn,
 		settleTurn: settleTurnWithResult,
+		bindAttemptProviderTurn: (
+			sessionId,
+			reference,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
+			Effect.gen(function* () {
+				yield* dispatchProviderCommand(
+					sessionId,
+					{
+						_tag: "BindAttemptProviderTurn",
+						...expectedAttempt,
+						reference,
+						boundAt: yield* currentTimestamp,
+					},
+					expectedAttempt,
+					expectedProviderSessionId,
+				);
+			}),
 		bindProviderThread: (
 			sessionId,
 			nativeThreadId,

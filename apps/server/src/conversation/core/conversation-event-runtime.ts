@@ -5,6 +5,7 @@ import type {
 	MessageContent,
 	PermissionMode,
 	ProviderId,
+	ProviderTurnReference,
 	SessionId,
 	ThreadGoal,
 } from "@zuse/contracts";
@@ -70,6 +71,16 @@ export interface ConversationEventRuntimeOptions {
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 	) => Effect.Effect<AgentTurnId>;
+	/** Bind the native execution reported by the owning provider process. */
+	readonly bindAttemptProviderTurn: (
+		sessionId: SessionId,
+		reference: ProviderTurnReference,
+		expectedAttempt: AttemptOwnership,
+		expectedProviderSessionId: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	/** Bind the provider-native thread the driver reported for this session. */
 	readonly bindProviderThread: (
 		sessionId: SessionId,
@@ -272,6 +283,21 @@ export const makeConversationEventRuntime = Effect.fn(
 											sessionId,
 											event.reason === "error" ? "error" : "completed",
 										);
+										return;
+									}
+									if (event._tag === "NativeTurnStarted") {
+										if (
+											envelope.scope === "turn" &&
+											ownership !== undefined &&
+											event.reference.provider === providerId
+										) {
+											yield* options.bindAttemptProviderTurn(
+												sessionId,
+												event.reference,
+												ownership,
+												providerSessionId,
+											);
+										}
 										return;
 									}
 									if (event._tag === "SessionCursor") {

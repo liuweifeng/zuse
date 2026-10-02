@@ -28,6 +28,49 @@ const handleWithEvents = (
 });
 
 describe("turn-scoped provider protocol", () => {
+	it("correlates native execution only while the attempt is active", async () => {
+		const native: AgentEvent = {
+			_tag: "NativeTurnStarted",
+			reference: {
+				provider: "codex",
+				nativeThreadId: "native-thread",
+				nativeTurnId: "native-turn",
+			},
+		};
+		const attemptId = "attempt-1" as AttemptId;
+		const idle = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				handleWithEvents([native]),
+				turnId,
+				attemptId,
+			),
+		);
+		expect(await Effect.runPromise(Stream.runCollect(idle.events))).toEqual([]);
+		const active = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				handleWithEvents([
+					native,
+					{ _tag: "Completed", reason: "ended" },
+					native,
+				]),
+				turnId,
+				attemptId,
+			),
+		);
+		await Effect.runPromise(active.send(turnId, "run"));
+		const events = await Effect.runPromise(Stream.runCollect(active.events));
+		expect(
+			events.filter((envelope) => envelope.event._tag === "NativeTurnStarted"),
+		).toEqual([
+			{
+				scope: "turn",
+				turnId,
+				ownership: { turnId, attemptId },
+				event: native,
+			},
+		]);
+	});
+
 	it("rejects an unsent attempt whose event stream already ended", async () => {
 		let sends = 0;
 		const scoped = await Effect.runPromise(

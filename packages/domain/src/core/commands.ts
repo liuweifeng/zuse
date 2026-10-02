@@ -1,9 +1,17 @@
 import {
+	ProviderTurnReference,
 	TurnSettlementOutcome,
 	type TurnSettlementOutcome as TurnSettlementOutcomeType,
 } from "@zuse/contracts";
 import { Schema } from "effect";
 import { ProviderThreadSeed, SessionCreatedFields } from "./session-fields.js";
+
+export const AttemptProviderTurnFields = {
+	turnId: Schema.String,
+	attemptId: Schema.String,
+	reference: ProviderTurnReference,
+	boundAt: Schema.Number,
+};
 
 export const SegmentKind = Schema.Literals(["assistant", "reasoning", "tool"]);
 export type SegmentKind = typeof SegmentKind.Type;
@@ -88,6 +96,7 @@ export const SessionCommand = Schema.Union([
 	 * Bind the provider-native thread the driver reported as the session's
 	 * active provider thread. Idempotent for the same native id and head.
 	 */
+	Schema.TaggedStruct("BindAttemptProviderTurn", AttemptProviderTurnFields),
 	Schema.TaggedStruct("BindProviderThread", {
 		nativeThreadId: Schema.String,
 		nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),

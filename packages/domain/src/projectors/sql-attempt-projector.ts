@@ -14,6 +14,11 @@ export const projectSessionAttempt = (
 			yield* sql`DELETE FROM session_attempts WHERE session_id = ${streamId}`;
 			return;
 		}
+		if (event._tag === "AttemptProviderTurnBound") {
+			yield* sql`UPDATE session_attempts SET provider_turn_json = ${JSON.stringify(event.reference)}
+				WHERE session_id = ${streamId} AND turn_id = ${event.turnId} AND id = ${event.attemptId} AND provider_turn_json IS NULL`;
+			return;
+		}
 		if (event._tag === "TurnStarted" || event._tag === "AttemptStarted") {
 			const initial = event._tag === "TurnStarted";
 			const id = initial

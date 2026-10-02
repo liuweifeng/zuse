@@ -37,7 +37,10 @@ import {
 	SessionDomain,
 	type SessionDomainApi,
 } from "@zuse/domain/engine/session-domain";
-import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
+import {
+	makeSqlSessionQueries,
+	SqlSessionQueries,
+} from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
 // Exercise ConversationServicesLive through the same node:sqlite client layer used by
@@ -111,6 +114,7 @@ import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts
 import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062_session_graph.ts";
 import { Migration0065ProviderReservations } from "../../src/persistence/migrations/0065_provider_reservations.ts";
 import { Migration0066AttemptHistory } from "../../src/persistence/migrations/0066_attempt_history.ts";
+import { Migration0067AttemptProviderTurn } from "../../src/persistence/migrations/0067_attempt_provider_turn.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -320,8 +324,22 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	events: (sessionId) =>
 		Stream.suspend(() => {
 			providerEventsStarted?.();
+			const startup = [...providerStartInputs]
+				.reverse()
+				.find((input) => input.sessionId === sessionId);
+			const ownership =
+				startup?.initialTurnId !== undefined &&
+				startup.initialAttemptId !== undefined
+					? {
+							turnId: startup.initialTurnId,
+							attemptId: startup.initialAttemptId,
+						}
+					: undefined;
 			const events = scriptedEvents.map((event) => ({
 				scope: "turn" as const,
+				...(event._tag === "NativeTurnStarted" && ownership !== undefined
+					? { ownership }
+					: {}),
 				providerSessionId:
 					activeProviderResidencies.get(sessionId) ?? "test-residency",
 				turnId: providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
@@ -749,6 +767,7 @@ const runAllMigrations = Effect.all(
 		Migration0062SessionGraph,
 		Migration0065ProviderReservations,
 		Migration0066AttemptHistory,
+		Migration0067AttemptProviderTurn,
 	],
 	{ discard: true },
 );
@@ -7443,6 +7462,43 @@ describe("ConversationServices — provider event persistence", () => {
 		}
 	});
 
+	it("persists the provider execution reference on its exact active attempt", async () => {
+		const finished = deferred<void>();
+		providerEventsFinished = () => finished.resolve();
+		const reference = {
+			provider: "codex" as const,
+			nativeThreadId: "native-thread",
+			nativeTurnId: "native-turn",
+		};
+		scriptedEvents = [{ _tag: "NativeTurnStarted", reference }];
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "codex",
+						model: "gpt-5.4",
+						initialPrompt: "work",
+					}),
+				),
+			);
+			await finished.promise;
+			const actual = await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const queries = makeSqlSessionQueries(yield* SqlClient.SqlClient);
+					const active = yield* domain.activeAttempt(initialSession.id);
+					if (active === null) return null;
+					return yield* queries.attemptProviderTurn(
+						initialSession.id,
+						active.attemptId,
+					);
+				}),
+			);
+			expect(actual).toEqual(reference);
+		});
+	});
+
 	it.each([
 		[
 			"PersistMessage",
@@ -7458,6 +7514,17 @@ describe("ConversationServices — provider event persistence", () => {
 				_tag: "SessionCursor",
 				cursor: "stale-thread",
 				strategy: "grok-session-id",
+			},
+		],
+		[
+			"BindAttemptProviderTurn",
+			{
+				_tag: "NativeTurnStarted",
+				reference: {
+					provider: "claude",
+					nativeThreadId: "stale-thread",
+					nativeTurnId: "stale-turn",
+				},
 			},
 		],
 		["SettleTurn", { _tag: "Completed", reason: "ended" }],
@@ -7505,7 +7572,7 @@ describe("ConversationServices — provider event persistence", () => {
 						active: yield* domain.activeAttempt(initialSession.id),
 						events: yield* sql<{
 							type: string;
-						}>`SELECT type FROM events WHERE stream_id = ${initialSession.id} AND type IN ('TurnSettled', 'PermissionModeChanged', 'ProviderThreadBound')`,
+						}>`SELECT type FROM events WHERE stream_id = ${initialSession.id} AND type IN ('TurnSettled', 'PermissionModeChanged', 'ProviderThreadBound', 'AttemptProviderTurnBound')`,
 						messages: yield* sql<{
 							kind: string;
 						}>`SELECT kind FROM messages WHERE session_id = ${initialSession.id}`,
