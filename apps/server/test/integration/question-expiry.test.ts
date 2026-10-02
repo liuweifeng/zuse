@@ -9,7 +9,7 @@ import { expect, test } from "vitest";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
 import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
 import { makeQuestionExpiry } from "../../src/conversation/core/question-expiry.ts";
-import { Migration0071QuestionExpiry } from "../../src/persistence/migrations/0071_question_expiry.ts";
+import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
 
 test.each([
 	"live",
@@ -137,8 +137,8 @@ test("question expiry schema upgrades existing input projections idempotently", 
 			yield* sql`CREATE TABLE sessions (id TEXT PRIMARY KEY)`;
 			yield* sql`CREATE TABLE session_inputs (session_id TEXT, kind TEXT, request_id TEXT, status TEXT, request_json TEXT, requested_sequence INTEGER)`;
 			yield* sql`INSERT INTO session_inputs VALUES ('session', 'question', 'question', 'pending', '{}', 1)`;
-			yield* Migration0071QuestionExpiry;
-			yield* Migration0071QuestionExpiry;
+			yield* Migration0073QuestionExpiry;
+			yield* Migration0073QuestionExpiry;
 			expect(yield* sql`SELECT awaiting_dismissal FROM session_inputs`).toEqual(
 				[{ awaiting_dismissal: 0 }],
 			);

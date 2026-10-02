@@ -14,7 +14,7 @@ import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { AppPaths } from "../../src/app-paths.ts";
-import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
+import { Migration0063Jobs } from "../../src/persistence/migrations/0063_jobs.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
 import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
 import { PermissionService } from "../../src/provider/services/permission-service.ts";
@@ -65,7 +65,7 @@ const makeRuntime = (
 
 const createSchema = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
-	yield* Migration0061Jobs;
+	yield* Migration0063Jobs;
 	yield* createSessionInputProjection(sql);
 	yield* sql`CREATE TABLE queued_messages (id TEXT, session_id TEXT, input_json TEXT, queue_order INTEGER, created_at TEXT, updated_at TEXT, ready INTEGER)`;
 	yield* sql`

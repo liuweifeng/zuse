@@ -2,14 +2,14 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
-import { Migration0061Jobs } from "../../src/persistence/migrations/0061_jobs.ts";
-import { Migration0064JobAttemptOwnership } from "../../src/persistence/migrations/0064_job_attempt_ownership.ts";
+import { Migration0063Jobs } from "../../src/persistence/migrations/0063_jobs.ts";
+import { Migration0066JobAttemptOwnership } from "../../src/persistence/migrations/0066_job_attempt_ownership.ts";
 
 it("binds old jobs to their causal attempt and refuses missing history", async () => {
 	await Effect.runPromise(
 		Effect.gen(function* () {
 			const sql = yield* SqlClient.SqlClient;
-			yield* Migration0061Jobs;
+			yield* Migration0063Jobs;
 			yield* sql`CREATE TABLE events (event_id TEXT, stream_kind TEXT, stream_id TEXT, stream_version INTEGER, type TEXT, payload_json TEXT)`;
 			const events = [
 				["start", "TurnStarted", { turnId: "turn-1" }],
@@ -47,7 +47,7 @@ it("binds old jobs to their causal attempt and refuses missing history", async (
 				yield* sql`INSERT INTO jobs (id, session_id, kind, request_json, status, available_at, causation_event_id, created_at, updated_at)
     VALUES (${id}, 'session-1', ${kind}, ${payload}, 'pending', 'now', ${id}, 'now', 'now')`;
 			}
-			yield* Migration0064JobAttemptOwnership;
+			yield* Migration0066JobAttemptOwnership;
 			const rows =
 				yield* sql`SELECT id, status, json_extract(request_json, '$.attemptId') AS attempt FROM jobs ORDER BY sequence`;
 			expect(rows).toEqual([
@@ -60,7 +60,7 @@ it("binds old jobs to their causal attempt and refuses missing history", async (
 				{ id: "interrupt-retry", status: "pending", attempt: "retry-attempt" },
 				{ id: "missing", status: "failed", attempt: null },
 			]);
-			yield* Migration0064JobAttemptOwnership;
+			yield* Migration0066JobAttemptOwnership;
 			expect(
 				yield* sql`SELECT id, status, json_extract(request_json, '$.attemptId') AS attempt FROM jobs ORDER BY sequence`,
 			).toEqual(rows);

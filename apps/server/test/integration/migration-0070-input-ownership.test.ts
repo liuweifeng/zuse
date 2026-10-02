@@ -2,7 +2,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
-import { Migration0070InputOwnership } from "../../src/persistence/migrations/0070_input_ownership.ts";
+import { Migration0072InputOwnership } from "../../src/persistence/migrations/0072_input_ownership.ts";
 
 test("upgrades original input attribution without inferring legacy callback ownership", async () => {
 	await Effect.runPromise(
@@ -44,7 +44,7 @@ test("upgrades original input attribution without inferring legacy callback owne
 						},
 					)})`;
 			}
-			yield* Migration0070InputOwnership;
+			yield* Migration0072InputOwnership;
 			const read = sql`SELECT request_id, turn_id, owner_json FROM session_inputs ORDER BY request_id`;
 			const expected = [
 				{ request_id: "legacy", turn_id: "original-turn", owner_json: null },
@@ -55,10 +55,10 @@ test("upgrades original input attribution without inferring legacy callback owne
 				},
 			];
 			expect(yield* read).toEqual(expected);
-			yield* Migration0070InputOwnership;
+			yield* Migration0072InputOwnership;
 			expect(yield* read).toEqual(expected);
 			yield* sql`DELETE FROM session_inputs`;
-			yield* Migration0070InputOwnership;
+			yield* Migration0072InputOwnership;
 			expect(yield* read).toEqual(expected);
 		}).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);

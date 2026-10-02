@@ -3,7 +3,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
-import { Migration0069SessionInputs } from "../../src/persistence/migrations/0069_session_inputs.ts";
+import { Migration0071SessionInputs } from "../../src/persistence/migrations/0071_session_inputs.ts";
 
 const question = (itemId: string) =>
 	JSON.stringify({
@@ -47,7 +47,7 @@ test("backfills paged legacy inputs and preserves terminal state on replay", asy
 				'2026-01-01T00:00:01.000Z', 2)`;
 			yield* sql`INSERT INTO messages VALUES ('invalid', 'session', NULL,
 				'user_question', '{invalid json', '2026-01-01T00:00:00.000Z', 0)`;
-			yield* Migration0069SessionInputs;
+			yield* Migration0071SessionInputs;
 			expect(yield* sql`SELECT count(*) AS total FROM session_inputs`).toEqual([
 				{ total: 504 },
 			]);
@@ -69,7 +69,7 @@ test("backfills paged legacy inputs and preserves terminal state on replay", asy
 					resolvedAt: 6,
 				},
 			});
-			yield* Migration0069SessionInputs;
+			yield* Migration0071SessionInputs;
 			expect(
 				yield* sql`SELECT status FROM session_inputs WHERE request_id = 'permission'`,
 			).toEqual([{ status: "answered" }]);

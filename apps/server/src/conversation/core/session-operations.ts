@@ -11,6 +11,7 @@ import {
 	MessageId,
 	type MessageOrigin,
 	PlanResolutionError,
+	PROVIDER_CAPABILITIES,
 	type ProviderId,
 	ProviderThreadId,
 	providerCapabilities,

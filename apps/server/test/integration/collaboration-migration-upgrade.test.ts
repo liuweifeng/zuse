@@ -78,7 +78,7 @@ it.each([
 					connections:
 						yield* sql`SELECT connection_id FROM model_connection_secrets`,
 					ledger:
-						yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 58 ORDER BY migration_id`,
+						yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id BETWEEN 58 AND 62 ORDER BY migration_id`,
 					indexes:
 						yield* sql`SELECT name FROM sqlite_master WHERE name = 'idx_events_kind_sequence'`,
 					columns: yield* sql<{ name: string }>`PRAGMA table_info(chats)`,

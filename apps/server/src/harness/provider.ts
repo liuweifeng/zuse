@@ -23,7 +23,10 @@ import { Context, Effect, Layer, Option, Schema } from "effect";
 import { AppPaths } from "../app-paths.ts";
 import { makeKeyedSwrCache } from "../cache/swr-cache.ts";
 import { ConfigStoreService } from "../config-store/services/config-store-service.ts";
-import { PermissionService } from "../provider/services/permission-service.ts";
+import {
+	PermissionService,
+	type RequestOptions,
+} from "../provider/services/permission-service.ts";
 import { SkillDiscoveryService } from "../skill/services/skill-discovery.ts";
 import { ModelConnections } from "./connections-service.ts";
 import { makeHarnessJournal } from "./journal.ts";
@@ -71,6 +74,7 @@ export class HarnessProvider extends Context.Service<
 			sessionId: AgentSessionId,
 			resumeCursor: string | null,
 			runtimeMode: () => RuntimeMode,
+			permissionAuthority?: Pick<RequestOptions, "owner" | "isCurrent">,
 		) => Effect.Effect<ProviderSessionHandle, AgentSessionStartError>;
 	}
 >()("zuse/HarnessProvider") {}
@@ -326,7 +330,14 @@ export const HarnessProviderLive = Layer.effect(
 						lastCheckedAt: new Date(),
 					});
 				}),
-			start: (input, cwd, sessionId, resumeCursor, runtimeMode) =>
+			start: (
+				input,
+				cwd,
+				sessionId,
+				resumeCursor,
+				runtimeMode,
+				permissionAuthority,
+			) =>
 				Effect.gen(function* () {
 					const settings = yield* config.getSettings();
 					if (settings.providerEnabled.zuse !== true)
@@ -516,6 +527,7 @@ export const HarnessProviderLive = Layer.effect(
 														};
 										const decision = await Effect.runPromise(
 											permissions.request(sessionId, kind, {
+												...permissionAuthority,
 												projectId: input.folderId,
 												forcePrompt:
 													request.path !== undefined &&

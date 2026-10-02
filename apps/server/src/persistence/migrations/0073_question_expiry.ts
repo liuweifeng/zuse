@@ -2,7 +2,7 @@ import { createSessionInputProjection } from "@zuse/domain/projectors/sql-input-
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
-export const Migration0071QuestionExpiry = Effect.gen(function* () {
+export const Migration0073QuestionExpiry = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const columns = yield* sql<{
 		name: string;

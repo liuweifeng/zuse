@@ -4,7 +4,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
-import { Migration0066AttemptHistory } from "../../src/persistence/migrations/0066_attempt_history.ts";
+import { Migration0068AttemptHistory } from "../../src/persistence/migrations/0068_attempt_history.ts";
 
 test("rebuilds legacy and retried attempts without transcripts or cross-session collisions", async () => {
 	await Effect.runPromise(
@@ -47,7 +47,7 @@ test("rebuilds legacy and retried attempts without transcripts or cross-session 
 					?.attempts.values() ?? []),
 			];
 			for (let pass = 0; pass < 2; pass++) {
-				yield* Migration0066AttemptHistory;
+				yield* Migration0068AttemptHistory;
 				for (const session of ["one", "two"]) {
 					const rows = yield* sql<{
 						id: string;
@@ -101,7 +101,7 @@ test("continues attempt reconstruction across lifecycle event pages", async () =
 							};
 				yield* sql`INSERT INTO events VALUES (${ordinal}, 'many', 'session', ${event._tag}, ${JSON.stringify(event)})`;
 			}
-			yield* Migration0066AttemptHistory;
+			yield* Migration0068AttemptHistory;
 			expect(
 				yield* sql`SELECT status, COUNT(*) AS count FROM session_attempts GROUP BY status ORDER BY status`,
 			).toEqual([

@@ -24,7 +24,10 @@ import {
 	HarnessProviderLive,
 } from "../../src/harness/provider.ts";
 import { Migration0061HarnessExecutions } from "../../src/persistence/migrations/0061_harness_executions.ts";
-import { PermissionService } from "../../src/provider/services/permission-service.ts";
+import {
+	PermissionService,
+	type RequestOptions,
+} from "../../src/provider/services/permission-service.ts";
 
 vi.mock("@zuse/agents/harness/model", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@zuse/agents/harness/model")>()),
@@ -138,7 +141,10 @@ async function setup(contextWindow?: number, autoCompactTokenLimit?: number) {
 		model: "chatgpt/test-model",
 		modelOptions: { reasoning: "medium" },
 	};
-	const start = (cursor: string | null = null) =>
+	const start = (
+		cursor: string | null = null,
+		authority?: Pick<RequestOptions, "owner" | "isCurrent">,
+	) =>
 		runtime.runPromise(
 			provider.start(
 				input,
@@ -146,6 +152,7 @@ async function setup(contextWindow?: number, autoCompactTokenLimit?: number) {
 				input.sessionId,
 				cursor,
 				() => "approval-required",
+				authority,
 			),
 		);
 	return {
@@ -227,8 +234,12 @@ it("edits and runs bash through the provider handle, streams, and resumes withou
 				input.onText("Done");
 				return output("Done");
 			});
+		const authority = {
+			owner: { providerSessionId: "harness-residency" },
+			isCurrent: Effect.succeed(true),
+		};
 		const handle = await env.runtime.runPromise(
-			makeTurnScopedSessionHandle(await env.start()),
+			makeTurnScopedSessionHandle(await env.start(null, authority)),
 		);
 		const events: AgentEvent[] = [];
 		const reading = env.runtime.runPromise(
@@ -246,6 +257,11 @@ it("edits and runs bash through the provider handle, streams, and resumes withou
 			.toBe(true);
 		expect(await readFile(join(env.dir, "hello.txt"), "utf8")).toBe("hello");
 		expect(env.requestPermission).toHaveBeenCalledTimes(2);
+		expect(env.requestPermission).toHaveBeenCalledWith(
+			AgentSessionId.make("test-session"),
+			expect.anything(),
+			expect.objectContaining(authority),
+		);
 		expect(events).toContainEqual(
 			expect.objectContaining({ _tag: "ToolUse", tool: "Bash" }),
 		);

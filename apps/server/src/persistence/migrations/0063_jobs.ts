@@ -6,7 +6,7 @@ import { SqlClient } from "effect/unstable/sql";
  * is inserted here inside the same transaction, then claimed, leased, retried,
  * and settled by the job worker.
  */
-export const Migration0061Jobs = Effect.gen(function* () {
+export const Migration0063Jobs = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`
 		CREATE TABLE jobs (

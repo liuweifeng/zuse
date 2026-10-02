@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 
 /** Recover ownership from the causing event's position, never the latest turn. */
-export const Migration0064JobAttemptOwnership = Effect.gen(function* () {
+export const Migration0066JobAttemptOwnership = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	const jobs = yield* sql<{
 		readonly id: string;

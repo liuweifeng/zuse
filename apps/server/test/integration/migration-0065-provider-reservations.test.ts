@@ -3,7 +3,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
-import { Migration0065ProviderReservations } from "../../src/persistence/migrations/0065_provider_reservations.ts";
+import { Migration0067ProviderReservations } from "../../src/persistence/migrations/0067_provider_reservations.ts";
 
 it("reconstructs only surviving reservations and can run again", async () => {
 	await Effect.runPromise(
@@ -74,7 +74,7 @@ it("reconstructs only surviving reservations and can run again", async () => {
 				}
 			}
 			for (let pass = 0; pass < 2; pass++) {
-				yield* Migration0065ProviderReservations;
+				yield* Migration0067ProviderReservations;
 				for (const [id, , expected] of scenarios) {
 					const rows = yield* sql<{
 						provider_reservation_id: string | null;

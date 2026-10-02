@@ -42,6 +42,7 @@ const unused = () => Effect.die("unused");
 const makeOptions = (
 	overrides: Partial<ProviderJobExecutorOptions>,
 ): ProviderJobExecutorOptions => ({
+	authorizeQueuedTurn: () => Effect.succeed(true),
 	delivery: {
 		state: () => Effect.succeed("missing" as const),
 		isCompleted: () => Effect.succeed(false),

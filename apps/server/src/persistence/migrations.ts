@@ -65,17 +65,17 @@ import { Migration0061HarnessExecutions } from "./migrations/0061_harness_execut
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
-import { Migration0061Jobs } from "./migrations/0061_jobs.ts";
-import { Migration0062SessionGraph } from "./migrations/0062_session_graph.ts";
-import { Migration0063ProviderThreadOwnership } from "./migrations/0063_provider_thread_ownership.ts";
-import { Migration0064JobAttemptOwnership } from "./migrations/0064_job_attempt_ownership.ts";
-import { Migration0065ProviderReservations } from "./migrations/0065_provider_reservations.ts";
-import { Migration0066AttemptHistory } from "./migrations/0066_attempt_history.ts";
-import { Migration0067AttemptProviderTurn } from "./migrations/0067_attempt_provider_turn.ts";
-import { Migration0068IngestionLeases } from "./migrations/0068_ingestion_leases.ts";
-import { Migration0069SessionInputs } from "./migrations/0069_session_inputs.ts";
-import { Migration0070InputOwnership } from "./migrations/0070_input_ownership.ts";
-import { Migration0071QuestionExpiry } from "./migrations/0071_question_expiry.ts";
+import { Migration0063Jobs } from "./migrations/0063_jobs.ts";
+import { Migration0064SessionGraph } from "./migrations/0064_session_graph.ts";
+import { Migration0065ProviderThreadOwnership } from "./migrations/0065_provider_thread_ownership.ts";
+import { Migration0066JobAttemptOwnership } from "./migrations/0066_job_attempt_ownership.ts";
+import { Migration0067ProviderReservations } from "./migrations/0067_provider_reservations.ts";
+import { Migration0068AttemptHistory } from "./migrations/0068_attempt_history.ts";
+import { Migration0069AttemptProviderTurn } from "./migrations/0069_attempt_provider_turn.ts";
+import { Migration0070IngestionLeases } from "./migrations/0070_ingestion_leases.ts";
+import { Migration0071SessionInputs } from "./migrations/0071_session_inputs.ts";
+import { Migration0072InputOwnership } from "./migrations/0072_input_ownership.ts";
+import { Migration0073QuestionExpiry } from "./migrations/0073_question_expiry.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -178,17 +178,17 @@ const MigrationDefinitionsThrough0062 = {
 
 const MigrationDefinitions = {
 	...MigrationDefinitionsThrough0062,
-	"0061_jobs": Migration0061Jobs,
-	"0062_session_graph": Migration0062SessionGraph,
-	"0063_provider_thread_ownership": Migration0063ProviderThreadOwnership,
-	"0064_job_attempt_ownership": Migration0064JobAttemptOwnership,
-	"0065_provider_reservations": Migration0065ProviderReservations,
-	"0066_attempt_history": Migration0066AttemptHistory,
-	"0067_attempt_provider_turn": Migration0067AttemptProviderTurn,
-	"0068_ingestion_leases": Migration0068IngestionLeases,
-	"0069_session_inputs": Migration0069SessionInputs,
-	"0070_input_ownership": Migration0070InputOwnership,
-	"0071_question_expiry": Migration0071QuestionExpiry,
+	"0063_jobs": Migration0063Jobs,
+	"0064_session_graph": Migration0064SessionGraph,
+	"0065_provider_thread_ownership": Migration0065ProviderThreadOwnership,
+	"0066_job_attempt_ownership": Migration0066JobAttemptOwnership,
+	"0067_provider_reservations": Migration0067ProviderReservations,
+	"0068_attempt_history": Migration0068AttemptHistory,
+	"0069_attempt_provider_turn": Migration0069AttemptProviderTurn,
+	"0070_ingestion_leases": Migration0070IngestionLeases,
+	"0071_session_inputs": Migration0071SessionInputs,
+	"0072_input_ownership": Migration0072InputOwnership,
+	"0073_question_expiry": Migration0073QuestionExpiry,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
@@ -211,6 +211,46 @@ export const MigrationsLive = Layer.effectDiscard(
 		const tables =
 			yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
 		if (tables.length > 0) {
+			// Unpublished engine builds used slots now occupied by main's harness.
+			// Move only the recognized engine ledger, preserving all application data.
+			yield* sql.withTransaction(
+				Effect.gen(function* () {
+					const legacy =
+						yield* sql`SELECT 1 FROM effect_sql_migrations WHERE migration_id = 61 AND name = 'jobs'`;
+					if (legacy.length === 0) return;
+					const rows = yield* sql<{
+						migration_id: number;
+						name: string;
+					}>`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id DESC`;
+					const names = [
+						"jobs",
+						"session_graph",
+						"provider_thread_ownership",
+						"job_attempt_ownership",
+						"provider_reservations",
+						"attempt_history",
+						"attempt_provider_turn",
+						"ingestion_leases",
+						"session_inputs",
+						"input_ownership",
+						"question_expiry",
+					];
+					for (const row of rows) {
+						if (names[row.migration_id - 61] !== row.name)
+							return yield* Effect.die(
+								new Error(
+									"Unrecognized migration history after the legacy engine boundary",
+								),
+							);
+					}
+					yield* Migration0061HarnessExecutions;
+					yield* Migration0062ModelConnections;
+					for (const row of rows)
+						yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id + 2} WHERE migration_id = ${row.migration_id}`;
+					yield* sql`INSERT INTO effect_sql_migrations (migration_id,name) VALUES (61,'harness_executions'),(62,'model_connections')`;
+				}),
+			);
+
 			// Earlier branch builds used 58, then 59, for collaboration.
 			// Apply the intervening main migrations before advancing the ledger.
 			yield* sql.withTransaction(
@@ -264,6 +304,13 @@ export const MigrationsLive = Layer.effectDiscard(
 export const MigrationsThrough0059Live = Layer.effectDiscard(
 	Migrator.make({})({
 		loader: Migrator.fromRecord(MigrationDefinitionsThrough0059),
+	}),
+);
+
+/** Current main schema, before Agent Engine tables. */
+export const MigrationsThrough0062Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0062),
 	}),
 );
 
