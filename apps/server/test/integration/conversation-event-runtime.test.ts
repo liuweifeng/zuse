@@ -713,7 +713,9 @@ describe("ConversationEventRuntime", () => {
 								Effect.as(resolveStart(turnId)),
 							),
 						persist: (_sessionId, turnId) =>
-							Ref.update(persisted, (turns) => turnId === null ? turns : [...turns, turnId]),
+							Ref.update(persisted, (turns) =>
+								turnId === null ? turns : [...turns, turnId],
+							),
 					});
 					yield* runtime.start(SessionId.make("session-1"));
 					yield* Deferred.await(done);
@@ -748,6 +750,7 @@ describe("ConversationEventRuntime", () => {
 			persisted: ["turn_application"],
 			settled: [],
 		});
+	});
 
 	test.each([
 		"current",

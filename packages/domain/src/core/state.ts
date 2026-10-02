@@ -4,10 +4,16 @@ import type {
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
+import { MessageContent } from "@zuse/contracts";
+import { Result, Schema } from "effect";
 import { derive, scopeProviderThreadId } from "../agent-engine/ids.js";
 import { type TitleProvenance, titleProvenanceOrManual } from "../naming.js";
 import type { TurnPhase } from "./commands.js";
 import type { SessionEvent } from "./events.js";
+
+const decodeInputContent = Schema.decodeUnknownResult(
+	Schema.fromJsonString(MessageContent),
+);
 
 export type OpenSegment = {
 	readonly turnId: string;
@@ -133,6 +139,7 @@ export type SessionState = {
 	readonly messageCheckpoints: ReadonlyMap<string, MessageCheckpointState>;
 	readonly pendingPermissionIds: ReadonlySet<string>;
 	readonly expiredPermissionIds: ReadonlySet<string>;
+	readonly expiredQuestionIds: ReadonlySet<string>;
 	readonly resolvedQuestionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
@@ -178,6 +185,7 @@ export const initialSessionState: SessionState = {
 	messageCheckpoints: new Map(),
 	pendingPermissionIds: new Set(),
 	expiredPermissionIds: new Set(),
+	expiredQuestionIds: new Set(),
 	resolvedQuestionIds: new Set(),
 	providerId: null,
 	attachedProviderId: null,
@@ -696,6 +704,18 @@ export const evolve = (
 		case "ScheduledSuccessorReady":
 			return { ...state, scheduledSuccessor: null, version };
 		case "MessagePersisted": {
+			let expiredQuestionIds = state.expiredQuestionIds;
+			let resolvedQuestionIds = state.resolvedQuestionIds;
+			if (event.kind === "user_question_answer") {
+				const decoded = decodeInputContent(event.contentJson);
+				if (Result.isSuccess(decoded)) {
+					const content = decoded.success;
+					if (content._tag === "user_question_answer") {
+						expiredQuestionIds = removed(expiredQuestionIds, content.itemId);
+						resolvedQuestionIds = added(resolvedQuestionIds, content.itemId);
+					}
+				}
+			}
 			const messageCheckpoints = new Map(state.messageCheckpoints);
 			if (event.checkpointRevision !== undefined) {
 				messageCheckpoints.set(event.messageId, {
@@ -705,6 +725,8 @@ export const evolve = (
 			}
 			return {
 				...state,
+				expiredQuestionIds,
+				resolvedQuestionIds,
 				messageIds: added(state.messageIds, event.messageId),
 				messageCheckpoints,
 				version,
@@ -754,9 +776,16 @@ export const evolve = (
 				),
 				version,
 			};
+		case "QuestionExpired":
+			return {
+				...state,
+				expiredQuestionIds: added(state.expiredQuestionIds, event.itemId),
+				version,
+			};
 		case "QuestionResolved":
 			return {
 				...state,
+				expiredQuestionIds: removed(state.expiredQuestionIds, event.itemId),
 				resolvedQuestionIds: added(state.resolvedQuestionIds, event.itemId),
 				version,
 			};

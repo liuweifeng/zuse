@@ -23,6 +23,7 @@ interface QuestionCardProps {
 	readonly questions: ReadonlyArray<UserQuestion>;
 	/** True while the durable question is waiting for a live callback reattach. */
 	readonly disabled?: boolean;
+	readonly expired?: boolean;
 	/** Authoritative ClientBus overlay for this exact question identity. */
 	readonly submission?: SessionInteractionSubmission;
 	readonly submissionError?: string | null;
@@ -61,6 +62,7 @@ export function QuestionCard({
 	itemId,
 	questions,
 	disabled = false,
+	expired = false,
 	submission = "pending",
 	submissionError = null,
 	answer,
@@ -76,6 +78,7 @@ export function QuestionCard({
 			itemId={itemId}
 			questions={questions}
 			disabled={disabled}
+			expired={expired}
 			submission={submission}
 			submissionError={submissionError}
 		/>
@@ -89,6 +92,7 @@ function InteractiveQuestionCard({
 	itemId,
 	questions,
 	disabled,
+	expired,
 	submission,
 	submissionError,
 }: {
@@ -97,6 +101,7 @@ function InteractiveQuestionCard({
 	readonly itemId: AgentItemId;
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly disabled: boolean;
+	readonly expired: boolean;
 	readonly submission: SessionInteractionSubmission;
 	readonly submissionError: string | null;
 }) {
@@ -112,14 +117,16 @@ function InteractiveQuestionCard({
 	const submittingRef = useRef(false);
 	const otherInputRef = useRef<HTMLInputElement>(null);
 	const authoritativeSubmitting = submission === "submitting";
-	const interactionDisabled = disabled || submitting || authoritativeSubmitting;
+	const interactionDisabled =
+		disabled || expired || submitting || authoritativeSubmitting;
 	useEffect(() => {
 		if (!interactionDisabled) otherInputRef.current?.focus();
 	}, [interactionDisabled]);
 	const submitAnswers = async (
 		answers: ReadonlyArray<UserQuestionAnswer>,
 	): Promise<void> => {
-		if (disabled || authoritativeSubmitting || submittingRef.current) return;
+		if (disabled || expired || authoritativeSubmitting || submittingRef.current)
+			return;
 		submittingRef.current = true;
 		setSubmitting(true);
 		try {
@@ -254,9 +261,11 @@ function InteractiveQuestionCard({
 					<X size={16} strokeWidth={1.8} />
 				</button>
 			</div>
-			{disabled ? (
+			{disabled || expired ? (
 				<div className="mt-2 text-xs text-muted-foreground" role="status">
-					{uiMessage("chat:question_reconnecting")}
+					{uiMessage(
+						expired ? "chat:question_expired" : "chat:question_reconnecting",
+					)}
 				</div>
 			) : null}
 			{submission === "submitting" ? (

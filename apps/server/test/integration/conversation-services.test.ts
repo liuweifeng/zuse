@@ -119,6 +119,7 @@ import { Migration0067AttemptProviderTurn } from "../../src/persistence/migratio
 import { Migration0068IngestionLeases } from "../../src/persistence/migrations/0068_ingestion_leases.ts";
 import { Migration0069SessionInputs } from "../../src/persistence/migrations/0069_session_inputs.ts";
 import { Migration0070InputOwnership } from "../../src/persistence/migrations/0070_input_ownership.ts";
+import { Migration0071QuestionExpiry } from "../../src/persistence/migrations/0071_question_expiry.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -786,6 +787,7 @@ const runAllMigrations = Effect.all(
 		Migration0068IngestionLeases,
 		Migration0069SessionInputs,
 		Migration0070InputOwnership,
+		Migration0071QuestionExpiry,
 	],
 	{ discard: true },
 );
@@ -7170,12 +7172,14 @@ describe("ConversationServices — provider event persistence", () => {
 	});
 
 	it.each([
-		{ attached: true, reattach: false },
-		{ attached: false, reattach: false },
-		{ attached: false, reattach: true },
-	])("persists cancellation without a blank answer and rejects answer/cancel conflicts (attached: $attached, reattach: $reattach)", async ({
+		{ attached: true, reattach: false, mode: "live" },
+		{ attached: false, reattach: false, mode: "live" },
+		{ attached: false, reattach: true, mode: "live" },
+		{ attached: true, reattach: false, mode: "expired" },
+	])("persists cancellation without a blank answer and rejects answer/cancel conflicts (attached: $attached, reattach: $reattach, mode: $mode)", async ({
 		attached,
 		reattach,
+		mode,
 	}) => {
 		const itemId = "question-cancel" as never;
 		scriptedEvents = [
@@ -7227,6 +7231,23 @@ describe("ConversationServices — provider event persistence", () => {
 					// Reconnect after settlement observes no callback, before cleanup.
 					attachProviderQuestionAfterHasCall = providerQuestionHasCalls + 2;
 				}
+				if (mode === "expired") {
+					providerQuestionAttached = false;
+					await expect
+						.poll(() =>
+							run(
+								Effect.gen(function* () {
+									const sql = yield* SqlClient.SqlClient;
+									const rows = yield* sql<{
+										status: string;
+									}>`SELECT status FROM session_inputs WHERE session_id = ${sessionId} AND request_id = ${itemId}`;
+									return rows[0]?.status;
+								}),
+							),
+						)
+						.toBe("expired");
+				}
+
 				await run(
 					Effect.flatMap(store, (service) =>
 						service.cancelQuestion(sessionId, itemId),
@@ -7243,7 +7264,7 @@ describe("ConversationServices — provider event persistence", () => {
 						service.cancelQuestion(sessionId, itemId),
 					),
 				);
-				providerQuestionAttached = true;
+				providerQuestionAttached = mode === "live";
 				providerQuestionConsumed = false;
 				await expect(
 					run(
@@ -7273,9 +7294,11 @@ describe("ConversationServices — provider event persistence", () => {
 						};
 					}),
 				);
-				expect(providerCancelAttempts).toBe(attached || reattach ? 2 : 1);
+				expect(providerCancelAttempts).toBe(
+					mode === "expired" ? 0 : attached || reattach ? 2 : 1,
+				);
 				expect(providerQuestionContinuations).toBe(
-					attached || reattach ? 2 : 1,
+					mode === "expired" ? 0 : attached || reattach ? 2 : 1,
 				);
 				expect(
 					persisted.messages.filter(

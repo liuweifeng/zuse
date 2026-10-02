@@ -53,6 +53,7 @@ import {
 	makeMessageOperations,
 } from "../core/message-operations.ts";
 import { makeProviderJobExecutor } from "../core/provider-jobs.ts";
+import { makeQuestionExpiry } from "../core/question-expiry.ts";
 import { makeSessionOperations } from "../core/session-operations.ts";
 import {
 	hasRecoverableProviderSend,
@@ -597,6 +598,19 @@ const ConversationRuntimeLive = Layer.effect(
 		// The production persistence layer already holds exclusive ownership.
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
 		yield* reconcileSessionRuntime(sql, sessionDomain);
+		const expireQuestions = makeQuestionExpiry(sql, sessionDomain, provider);
+		yield* expireQuestions;
+		yield* Effect.forkIn(
+			Effect.forever(
+				Effect.sleep("1 second").pipe(
+					Effect.andThen(expireQuestions),
+					Effect.catchCause(() =>
+						Effect.logError("[ConversationServices] question expiry failed"),
+					),
+				),
+			),
+			serviceScope,
+		);
 		yield* Effect.forkIn(
 			Effect.forever(
 				Effect.sleep(INGESTION_HEARTBEAT_MS).pipe(

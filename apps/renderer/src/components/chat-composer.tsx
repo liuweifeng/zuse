@@ -1571,6 +1571,9 @@ export function ChatComposer({
 								itemId={pendingQuestion.interaction.id}
 								questions={pendingQuestion.interaction.questions}
 								disabled={presentedQuestion?.actionable !== true}
+								expired={
+									pendingQuestion.interaction.recoveryState === "expired"
+								}
 								submission={pendingQuestion.submission}
 								submissionError={pendingQuestion.error}
 							/>

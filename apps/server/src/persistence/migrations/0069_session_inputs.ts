@@ -60,7 +60,7 @@ export const Migration0069SessionInputs = Effect.gen(function* () {
 			SELECT e.sequence, e.stream_id, e.type, e.payload_json
 			FROM events e JOIN sessions s ON s.id = e.stream_id
 			WHERE e.stream_kind = 'session' AND e.sequence > ${after}
-				AND (e.type IN ('PermissionRequested', 'PermissionExpired', 'PermissionResolved', 'QuestionResolved')
+				AND (e.type IN ('PermissionRequested', 'PermissionExpired', 'PermissionResolved', 'QuestionResolved', 'QuestionExpired')
 					OR (e.type = 'MessagePersisted' AND json_valid(e.payload_json)
 						AND json_type(e.payload_json, '$.inputOwner') = 'object'))
 			ORDER BY e.sequence LIMIT 500

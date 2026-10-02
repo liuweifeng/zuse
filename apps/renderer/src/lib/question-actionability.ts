@@ -50,8 +50,9 @@ export const selectPresentedQuestion = (
 		if (!isPresentedQuestion(item)) continue;
 		firstDurable ??= item;
 		if (
+			item.interaction.recoveryState !== "expired" &&
 			attachmentsByKey[structuralTupleKey(sessionId, item.interaction.id)] !==
-			undefined
+				undefined
 		) {
 			return { question: item, actionable: true };
 		}
@@ -97,6 +98,7 @@ export const filterActionableQuestionInteractions = (
 	interactions.filter(
 		(interaction) =>
 			interaction._tag !== "Question" ||
-			attachmentsByKey[structuralTupleKey(sessionId, interaction.id)] !==
-				undefined,
+			(interaction.recoveryState !== "expired" &&
+				attachmentsByKey[structuralTupleKey(sessionId, interaction.id)] !==
+					undefined),
 	);

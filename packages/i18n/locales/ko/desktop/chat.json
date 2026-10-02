@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "아래에 피드백을 입력하거나 계획을 승인하세요",
 	"decision_submitting": "결정 제출 중…",
 	"decision_submit_failed": "결정을 제출하지 못했습니다: {{error}}",
+	"question_expired": "이 질문은 만료되었습니다.",
 	"question_reconnecting": "이 질문에 다시 연결 중…",
 	"answer_submitting": "답변 제출 중…",
 	"answer_submit_failed": "답변을 제출하지 못했습니다",

@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "在下方輸入回饋，或核准計畫",
 	"decision_submitting": "正在提交決定…",
 	"decision_submit_failed": "無法提交決定：{{error}}",
+	"question_expired": "此問題已過期。",
 	"question_reconnecting": "正在重新連線至此問題…",
 	"answer_submitting": "正在提交回答…",
 	"answer_submit_failed": "無法提交回答",

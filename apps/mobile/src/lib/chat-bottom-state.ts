@@ -1,11 +1,13 @@
 import type { PendingPlanInteraction } from "@zuse/client-runtime/plan-interactions";
 import type {
 	PermissionRequest,
+	SessionInteraction,
 	ThreadGoal,
 	UserQuestion,
 } from "@zuse/contracts";
 
 export type PendingQuestion = {
+	readonly expired?: boolean;
 	readonly itemId: string;
 	readonly questions: readonly UserQuestion[];
 };
@@ -53,3 +55,19 @@ export const coordinateChatBottomState = ({
 		paused: queuePaused,
 	},
 });
+
+/** Durable interactions include resolutions outside the loaded transcript window. */
+export const selectPendingQuestion = (
+	interactions: readonly SessionInteraction[],
+): PendingQuestion | null => {
+	const questions = interactions.filter((item) => item._tag === "Question");
+	const question =
+		questions.find((item) => item.recoveryState !== "expired") ?? questions[0];
+	return question === undefined
+		? null
+		: {
+				itemId: question.id,
+				questions: question.questions,
+				expired: question.recoveryState === "expired",
+			};
+};

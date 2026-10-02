@@ -65,7 +65,10 @@ import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { UndeliveredMessage } from "~/components/undelivered-message";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
-import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
+import {
+	coordinateChatBottomState,
+	selectPendingQuestion,
+} from "~/lib/chat-bottom-state";
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -127,6 +130,7 @@ import {
 	resumeQueue,
 	runQueuedMessageNext,
 	sessionDeliveryAtom,
+	sessionInteractionsAtom,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
@@ -247,6 +251,7 @@ function ThreadScreen() {
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
+	const interactions = useAtomValue(sessionInteractionsAtom(stateKey));
 	const transcriptReady = useAtomValue(sessionTranscriptReadyAtom(stateKey));
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
@@ -498,18 +503,7 @@ function ThreadScreen() {
 					isRunning: sessionActive,
 				});
 	const headPermission = permissionRequests[0] ?? null;
-	const pendingQuestion = (() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const content = messages[index]?.content;
-			if (
-				content?._tag === "user_question" &&
-				!answeredQuestionIds.has(content.itemId)
-			) {
-				return { itemId: content.itemId, questions: content.questions };
-			}
-		}
-		return null;
-	})();
+	const pendingQuestion = selectPendingQuestion(interactions);
 	const bottomState = coordinateChatBottomState({
 		permissions: permissionRequests,
 		question: pendingQuestion,
@@ -527,7 +521,7 @@ function ThreadScreen() {
 		// Nothing runs while the cloud workspace itself is starting or asleep.
 		cloudLifecycleState === null &&
 		headPermission === null &&
-		pendingQuestion === null &&
+		(pendingQuestion === null || pendingQuestion.expired === true) &&
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 	// Desktop-style wording: "Codex is working", or "Waiting for Codex" while a
@@ -1414,6 +1408,7 @@ function ThreadScreen() {
 							<PendingUserInputCard
 								itemId={bottomState.blocking.question.itemId}
 								questions={bottomState.blocking.question.questions}
+								expired={bottomState.blocking.question.expired}
 								onSubmit={onAnswerQuestion}
 								onCancel={onCancelQuestion}
 							/>

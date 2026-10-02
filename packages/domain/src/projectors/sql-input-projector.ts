@@ -13,6 +13,7 @@ export const createSessionInputProjection = (sql: SqlClient.SqlClient) =>
 			request_id TEXT NOT NULL,
 			status TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'cancelled', 'expired')),
 			request_json TEXT,
+			awaiting_dismissal INTEGER NOT NULL DEFAULT 0,
 			owner_json TEXT,
 			turn_id TEXT,
 			requested_at TEXT,
@@ -20,6 +21,8 @@ export const createSessionInputProjection = (sql: SqlClient.SqlClient) =>
 			updated_sequence INTEGER NOT NULL,
 			PRIMARY KEY (session_id, kind, request_id)
 		)`;
+		yield* sql`CREATE INDEX IF NOT EXISTS session_inputs_expiry_scan ON session_inputs(session_id, request_id)
+			WHERE kind = 'question' AND status = 'pending' AND request_json IS NOT NULL`;
 		yield* sql`CREATE INDEX IF NOT EXISTS session_inputs_pending
 			ON session_inputs(session_id, kind, status, requested_sequence)`;
 	});
@@ -76,6 +79,7 @@ export const projectSessionInput = (
 			VALUES (${streamId}, ${kind}, ${id}, ${status}, ${sequence})
 			ON CONFLICT(session_id, kind, request_id) DO UPDATE SET
 				status = excluded.status,
+				awaiting_dismissal = 0,
 				updated_sequence = MAX(session_inputs.updated_sequence, excluded.updated_sequence)
 			WHERE session_inputs.status = 'pending'
 				OR (session_inputs.status = 'expired' AND session_inputs.updated_sequence < excluded.updated_sequence)
@@ -101,6 +105,12 @@ export const projectSessionInput = (
 				return;
 			case "PermissionResolved":
 				yield* resolve("permission", event.requestId, "answered");
+				return;
+			case "QuestionExpired":
+				yield* resolve("question", event.itemId, "expired");
+				yield* sql`UPDATE session_inputs SET awaiting_dismissal = 1 WHERE session_id = ${streamId}
+					AND kind = 'question' AND request_id = ${event.itemId} AND status = 'expired'
+					AND updated_sequence = ${sequence}`;
 				return;
 			case "QuestionResolved":
 				yield* resolve("question", event.itemId, "cancelled");

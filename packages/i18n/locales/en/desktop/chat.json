@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "Type feedback below, or approve the plan",
 	"decision_submitting": "Submitting decision…",
 	"decision_submit_failed": "Couldn’t submit decision: {{error}}",
+	"question_expired": "This question has expired.",
 	"question_reconnecting": "Reconnecting to this question…",
 	"answer_submitting": "Submitting answer…",
 	"answer_submit_failed": "Couldn’t submit answer",

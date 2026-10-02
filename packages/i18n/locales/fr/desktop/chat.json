@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "Saisissez vos commentaires ci-dessous ou approuvez le plan",
 	"decision_submitting": "Envoi de la décision…",
 	"decision_submit_failed": "Impossible d’envoyer la décision : {{error}}",
+	"question_expired": "Cette question a expiré.",
 	"question_reconnecting": "Reconnexion à cette question…",
 	"answer_submitting": "Envoi de la réponse…",
 	"answer_submit_failed": "Impossible d’envoyer la réponse",

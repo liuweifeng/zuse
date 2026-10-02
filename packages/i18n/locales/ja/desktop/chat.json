@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "下にフィードバックを入力するか、プランを承認してください",
 	"decision_submitting": "判断を送信中…",
 	"decision_submit_failed": "判断を送信できませんでした: {{error}}",
+	"question_expired": "この質問は期限切れです。",
 	"question_reconnecting": "この質問に再接続中…",
 	"answer_submitting": "回答を送信中…",
 	"answer_submit_failed": "回答を送信できませんでした",
