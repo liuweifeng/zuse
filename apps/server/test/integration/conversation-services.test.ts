@@ -5486,7 +5486,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
-	it("settles an orphaned idle turn on the first restart without reopening the provider", async () => {
+	it.each([
+		"idle",
+		"booting",
+		"running",
+	] as const)("settles an orphaned %s turn on restart without repeating delivery", async (status) => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-orphaned-idle-turn-"));
 		const dbPath = join(directory, "test.sqlite");
 		const first = makeRuntime(dbPath);
@@ -5526,7 +5530,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						streamId: initialSession.id,
 						command: {
 							_tag: "SetStatus",
-							status: "idle",
+							status,
 							updatedAt: Date.now(),
 						},
 					}),
@@ -5561,6 +5565,75 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					]);
 				expect(providerSentTexts).toEqual(["do not replay this command"]);
 				expect(providerStartInputs).toHaveLength(startsBeforeRestart);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("preserves a paused initial turn across restart until setup releases it", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-paused-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		const first = makeRuntime(dbPath);
+		const sessionId = SessionId.make("paused-restart");
+		const turnId = AgentTurnId.make("paused-restart-turn");
+		try {
+			await first.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`INSERT INTO projects (id, path, name, created_at, updated_at) VALUES (${PROJECT_ID}, ${directory}, 'Test', '2026-01-01', '2026-01-01')`,
+				),
+			);
+			await first.runPromise(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialSessionId: sessionId,
+						initialTurnId: turnId,
+						initialPrompt: "wait for setup",
+						queuePaused: true,
+						background: true,
+					}),
+				),
+			);
+			await first.dispose();
+			const restarted = makeRuntime(dbPath, false);
+			try {
+				expect(
+					await restarted.runPromise(
+						Effect.flatMap(store, (service) => service.getSession(sessionId)),
+					),
+				).toMatchObject({ status: "booting" });
+				expect(
+					await restarted.runPromise(
+						Effect.flatMap(SessionDomain, (domain) =>
+							domain.activeAttempt(sessionId),
+						),
+					),
+				).toMatchObject({ turnId });
+				expect(providerStartInputs).toEqual([]);
+				await restarted.runPromise(
+					Effect.flatMap(store, (service) =>
+						service.releaseInitialTurn(
+							"release-after-restart",
+							sessionId,
+							turnId,
+							JSON.stringify({
+								text: "wait for setup",
+								attachments: [],
+								fileRefs: [],
+								skillRefs: [],
+							}),
+						),
+					),
+				);
+				await expect.poll(() => providerSentTexts).toEqual(["wait for setup"]);
 			} finally {
 				await restarted.dispose();
 			}
@@ -5628,6 +5701,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			);
 			await first.dispose();
 
+			const acquisition = deferred<void>();
+			providerStartBarrier = acquisition.promise;
 			const restarted = makeRuntime(dbPath, false);
 			const runRestarted = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
 				restarted.runPromise(effect as Effect.Effect<A, unknown, never>);
@@ -5637,7 +5712,37 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						service.getSession(initialSession.id),
 					),
 				);
-				expect(recovered.status).toBe("running");
+				expect(recovered.status).toBe("booting");
+				// A blocked provider must not hold recovery reads or unrelated writes.
+				const healthy = await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+						}),
+					),
+				);
+				expect(healthy.initialSession.status).toBe("idle");
+				await runRestarted(
+					Effect.flatMap(store, (service) =>
+						service.resumeSession(initialSession.id),
+					),
+				);
+				acquisition.resolve();
+				providerStartBarrier = null;
+				await expect
+					.poll(() => providerSentTexts)
+					.toEqual(["resume exactly once"]);
+				await expect
+					.poll(() =>
+						runRestarted(
+							Effect.flatMap(store, (service) =>
+								service.getSession(initialSession.id),
+							),
+						).then((session) => session.status),
+					)
+					.toBe("running");
 				expect(providerSentTexts).toEqual(["resume exactly once"]);
 				const sendJobs = await runRestarted(
 					Effect.flatMap(SessionDomain, (domain) =>
@@ -5650,6 +5755,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					{ status: "succeeded", attemptCount: 1 },
 				]);
 			} finally {
+				acquisition.resolve();
+				providerStartBarrier = null;
 				await restarted.dispose();
 			}
 		} finally {

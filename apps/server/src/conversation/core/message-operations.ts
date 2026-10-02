@@ -9,7 +9,7 @@ import {
 	type MessageId,
 	type MessageOrigin,
 	type Session,
-	SessionId,
+	type SessionId,
 	SessionStartError,
 	type SkillRef,
 	type TurnInterruptReceipt,
@@ -17,7 +17,7 @@ import {
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
-import { Cause, Deferred, Effect, type FileSystem, type Scope } from "effect";
+import { Cause, Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
@@ -97,10 +97,9 @@ export interface MessageOperationsOptions {
 	) => Effect.Effect<AgentTurnId | undefined>;
 	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
-	readonly recoverStatus: (
+	readonly hasPendingProviderTurn: (
 		sessionId: SessionId,
-		status: Session["status"],
-	) => Effect.Effect<void>;
+	) => Effect.Effect<boolean>;
 	readonly closeProvider: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly hasProvider: (sessionId: SessionId) => Effect.Effect<boolean>;
 	readonly interruptProviderFiber: (
@@ -114,12 +113,6 @@ export interface MessageOperations {
 	readonly sendMessageWithInput: ConversationOperations["sendMessageWithInput"];
 	readonly interruptSession: ConversationOperations["interruptSession"];
 	readonly queueRuntime: QueueServiceRuntime;
-	readonly runStartupRecovery: <E>(
-		catchUp: Effect.Effect<void, E>,
-	) => Effect.Effect<void>;
-	readonly withStartupRecovery: <A, E, R>(
-		effect: Effect.Effect<A, E, R>,
-	) => Effect.Effect<A, E, R>;
 }
 
 export const makeMessageOperations = Effect.fn("MessageOperations.make")(
@@ -141,7 +134,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			resolveActiveTurn,
 			runSessionReactors,
 			serviceScope,
-			recoverStatus,
+			hasPendingProviderTurn,
 			closeProvider,
 			hasProvider,
 			interruptProviderFiber,
@@ -597,84 +590,16 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			runSessionReactors,
 			resolveActiveTurn,
 		});
-		// Recovery can reopen a provider turn that waits for user input (for
-		// example, a permission decision). Keep it owned by the service scope, but
-		// never block construction of the RPC layer on that long-lived work.
-		const recoverStaleSessions = Effect.gen(function* () {
-			const staleSessions = yield* sql<{
-				readonly id: string;
-				readonly status: "running" | "booting" | "idle";
-			}>`
-				SELECT id, status FROM sessions
-				WHERE archived_at IS NULL AND (
-					status IN ('running', 'booting')
-					OR (status = 'idle' AND EXISTS (SELECT 1 FROM session_turns WHERE session_id = sessions.id AND status IN ('starting', 'running')))
-				)
-			`.pipe(Effect.orDie);
-			for (const stale of staleSessions) {
-				const sessionId = SessionId.make(stale.id);
-				// Provider startup can publish idle before its durable turn settles.
-				// After a crash the turn, rather than that status, is the authority.
-				if (stale.status !== "booting") {
-					const turnId = yield* resolveActiveTurn(sessionId);
-					if (turnId !== undefined) {
-						// Catch-up may have just recreated this provider and replayed the
-						// unfinished turn. Only settle rows whose in-memory owner is gone.
-						if (yield* hasProvider(sessionId)) continue;
-						const lifecycle = yield* sql<{ readonly type: string }>`
-							SELECT type FROM events
-							WHERE stream_kind = 'session' AND stream_id = ${sessionId}
-								AND type IN (
-									'TurnInterruptRequested',
-									'TurnInterruptAcknowledged',
-									'TurnSettled'
-								)
-							ORDER BY stream_version DESC
-							LIMIT 1
-						`.pipe(Effect.orDie);
-						const interrupted =
-							lifecycle[0]?.type.startsWith("TurnInterrupt") === true;
-						yield* settleTurn(
-							sessionId,
-							turnId,
-							interrupted ? "interrupted" : "error",
-						);
-					} else {
-						yield* recoverStatus(sessionId, "error");
-					}
-				} else {
-					yield* restartSession(sessionId, "provider_recovery").pipe(
-						Effect.catch(() => recoverStatus(sessionId, "error")),
-					);
-				}
-			}
-		});
-		const startupRecoveryDone = yield* Deferred.make<void>();
-		const runStartupRecovery = <E>(catchUp: Effect.Effect<void, E>) =>
-			catchUp.pipe(
-				Effect.andThen(recoverStaleSessions),
-				// Queue entries are durable work. Reconcile them after session catch-up
-				// instead of relying on a process-local enqueue/settlement wake-up.
-				Effect.andThen(queueRuntime.reconcileReadyQueues),
-				Effect.catchCause((cause) =>
-					Effect.logError(
-						`[ConversationServices] startup recovery failed: ${String(cause)}`,
-					),
-				),
-				Effect.ensuring(Deferred.succeed(startupRecoveryDone, undefined)),
-			);
-		const withStartupRecovery = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-			Deferred.await(startupRecoveryDone).pipe(Effect.andThen(effect));
 		const resumeSession: ConversationOperations["resumeSession"] = (
 			sessionId,
 		) =>
 			Effect.gen(function* () {
-				// A manual retry can arrive as soon as RPC becomes available while
-				// durable startup recovery is still reopening the same provider. Join
-				// that single flight instead of closing its newly recovered handle.
-				yield* withStartupRecovery(Effect.void);
 				const session = yield* lookupSession(sessionId);
-				if (session.status !== "error" && (yield* hasProvider(sessionId))) {
+				if (
+					session.status !== "error" &&
+					((yield* hasPendingProviderTurn(sessionId)) ||
+						(yield* hasProvider(sessionId)))
+				) {
 					return session;
 				}
 				return yield* restartSession(sessionId);
@@ -727,8 +652,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
-			runStartupRecovery,
-			withStartupRecovery,
 		};
 	},
 );

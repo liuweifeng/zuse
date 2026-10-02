@@ -19,6 +19,14 @@ migration and runtime construction. A second engine for the same data directory
 fails before reconciliation; process death releases ownership without stale-file
 stealing. Linux process tests cover contention, suspension and forced termination.
 Native macOS and Windows validation is still outstanding.
+Conversation construction now completes local durable reconciliation before workers
+start. It revokes prior residency metadata, preserves intentionally held initial
+turns and exact pending sends, and records explicit failure for orphaned execution
+without resending. Pending sends still pass the delivery journal before execution.
+Services become available after this local pass; provider interaction, naming and
+chat cleanup continue independently in the background. Native transcript inspection
+and recovery attempts remain outstanding; this currently exposes uncertain execution
+for deliberate recovery instead of reconstructing the lost provider output.
 Jobs now use renewable claims with unique acquisition owners, expiry recovery,
 post-commit cancellation, and session-scoped command drains. Provider sends retain
 a durable delivery fence: an uncertain outcome is surfaced instead of resending.

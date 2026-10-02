@@ -67,10 +67,7 @@ export interface ConversationReactorRuntime {
 	readonly runProviderStop: (sessionId: string) => Effect.Effect<void>;
 	readonly runChatArchive: Effect.Effect<void, ChatArchiveReactorError>;
 	readonly runChatDelete: Effect.Effect<void, ChatNotFoundError>;
-	readonly catchUpAll: Effect.Effect<
-		void,
-		ChatArchiveReactorError | ChatNotFoundError
-	>;
+	readonly catchUpAll: Effect.Effect<void>;
 }
 
 const decodeChatEvent = Schema.decodeUnknownEffect(
@@ -184,13 +181,28 @@ export const makeConversationReactorRuntime = Effect.fn(
 		runProviderStop,
 		runChatArchive,
 		runChatDelete,
-		catchUpAll: Effect.gen(function* () {
-			// Claims were reconciled before worker startup. Delivery fences decide
-			// whether a recovered send is safe or must report an uncertain outcome.
-			yield* jobs.worker.drain.pipe(Effect.orDie);
-			yield* runAutoName;
-			yield* runChatArchive;
-			yield* runChatDelete;
-		}),
+		catchUpAll: Effect.all(
+			(
+				[
+					["providers", jobs.worker.drain.pipe(Effect.orDie)],
+					["naming", runAutoName],
+					[
+						"chat lifecycle",
+						runChatArchive.pipe(Effect.andThen(runChatDelete)),
+					],
+				] satisfies ReadonlyArray<
+					readonly [string, Effect.Effect<unknown, unknown>]
+				>
+			).map(([name, effect]) =>
+				effect.pipe(
+					Effect.catchCause((cause) =>
+						Effect.logError(
+							`[ConversationReactors] ${name} recovery failed: ${String(cause)}`,
+						),
+					),
+				),
+			),
+			{ concurrency: "unbounded", discard: true },
+		),
 	};
 });
