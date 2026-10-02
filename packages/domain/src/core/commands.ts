@@ -102,10 +102,13 @@ export const SessionCommand = Schema.Union([
 		nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
 	}),
-	/**
-	 * Start a new attempt of the active turn: the user retried after a
-	 * provider failure, or boot recovery reopened a session mid-turn.
-	 */
+	/** Inspect a proven native execution in a fresh attempt, without resending. */
+	Schema.TaggedStruct("RecoverTurn", {
+		turnId: Schema.String,
+		expectedAttemptId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+	/** Intentional delivery retry. Historical recovery callers used this path. */
 	Schema.TaggedStruct("RetryTurn", {
 		turnId: Schema.String,
 		reason: Schema.Literals(["retry", "provider_recovery"]),

@@ -1,33 +1,23 @@
 import { createHash } from "node:crypto";
-
 import type {
 	DiagnosticEvent,
 	DiagnosticFailureGroup,
 	DiagnosticSeverity,
 } from "@zuse/contracts";
+import { redactSecretText } from "../security/secret-redaction.ts";
 
-const SECRET_PATTERNS: ReadonlyArray<[RegExp, string]> = [
-	[/\b(Bearer\s+)[^\s]+/gi, "$1[REDACTED]"],
-	[/([?&])[^=\s]+=[^&\s]+/g, "$1[REDACTED]"],
+const PRIVATE_PATH_PATTERNS: ReadonlyArray<[RegExp, string]> = [
 	[/\/Users\/[^/\s]+/g, "/Users/[USER]"],
 	[/\/home\/[^/\s]+/g, "/home/[USER]"],
 	[/\b[A-Za-z]:\\Users\\[^\\\s]+/g, "[DRIVE]:\\Users\\[USER]"],
-	[
-		/\b(?:sk|ghp|github_pat|xox[abprs])[-_][A-Za-z0-9._-]{8,}\b/gi,
-		"[REDACTED]",
-	],
-	[
-		/\b([A-Za-z0-9_]*(?:api[_-]?key|token|secret|password|credential)[A-Za-z0-9_]*)\s*[:=]\s*["']?[^\s"',;]+/gi,
-		"$1=[REDACTED]",
-	],
 ];
 
 const EXCLUDED_EXPORT_KEYS =
 	/^(?:prompt|transcript|conversation|content|environment|env|credentials?|secrets?|tokens?|terminalOutput|openFile|path|sourcePath|rawCommand)$/i;
 
 export function sanitizeDiagnosticText(value: string): string {
-	let result = value;
-	for (const [pattern, replacement] of SECRET_PATTERNS) {
+	let result = redactSecretText(value);
+	for (const [pattern, replacement] of PRIVATE_PATH_PATTERNS) {
 		result = result.replace(pattern, replacement);
 	}
 	return result.slice(0, 8_000);

@@ -26,6 +26,7 @@ import type { ProviderServiceShape } from "../../provider/services/provider-serv
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { OpenProviderSessionOptions } from "./provider-session-runtime.ts";
+import { recoverProviderTurn } from "./provider-turn-recovery.ts";
 import {
 	decodeProviderModelOptions,
 	decodeProviderStartRequest,
@@ -134,6 +135,32 @@ export const makeProviderJobExecutor = (
 		expectedAttempt: AttemptOwnership,
 	) =>
 		Effect.gen(function* () {
+			const recovering = yield* sessionDomain
+				.dispatch({
+					commandId: `${job.id}:recover`,
+					streamId: sessionId,
+					expectedAttempt,
+					command: {
+						_tag: "RecoverTurn",
+						turnId,
+						expectedAttemptId: expectedAttempt.attemptId,
+						requestedAt: Date.now(),
+					},
+				})
+				.pipe(
+					Effect.as(true),
+					Effect.catchTag("ValidationFailed", () => Effect.succeed(false)),
+					Effect.catch((error) =>
+						error._tag === "AttemptOwnershipConflict"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
+				);
+			if (recovering) {
+				yield* delivery.markOutcomeUnknown(job.id);
+				return;
+			}
+
 			yield* persistMessage(
 				sessionId,
 				{ _tag: "error", message: PROVIDER_DELIVERY_OUTCOME_UNKNOWN },
@@ -471,6 +498,13 @@ export const makeProviderJobExecutor = (
 		switch (request._tag) {
 			case "provider.stop":
 				return providerStop(job, request);
+			case "provider.turn.recover":
+				return recoverProviderTurn(job, options).pipe(
+					Effect.catchTag("AttemptOwnershipConflict", () => Effect.void),
+					Effect.mapError(() =>
+						failure("Native recovery failed", { retry: "on_demand" }),
+					),
+				);
 			case "provider.turn.send":
 				return providerTurnSend(job, request).pipe(
 					Effect.catchTag("AttemptOwnershipConflict", () => Effect.void),

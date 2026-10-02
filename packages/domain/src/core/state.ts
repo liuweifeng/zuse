@@ -109,6 +109,13 @@ export type SessionState = {
 	readonly activeProviderThreadId: string | null;
 	/** Every counted turn, by turn id. */
 	readonly turns: ReadonlyMap<string, TurnState>;
+	readonly attemptRecoveries: ReadonlyMap<
+		string,
+		{
+			readonly sourceAttemptId: string;
+			readonly reference: ProviderTurnReference;
+		}
+	>;
 	readonly attemptProviderTurns: ReadonlyMap<string, ProviderTurnReference>;
 	/** Highest turn ordinal issued so far. */
 	readonly turnCount: number;
@@ -155,6 +162,7 @@ export const initialSessionState: SessionState = {
 	activeProviderThreadId: null,
 	turns: new Map(),
 	attemptProviderTurns: new Map(),
+	attemptRecoveries: new Map(),
 	turnCount: 0,
 	currentTurnId: null,
 	currentTurnPhase: null,
@@ -560,6 +568,14 @@ export const evolve = (
 						: state.currentTurnPhase,
 				version,
 			};
+		}
+		case "ProviderRecoveryRequested": {
+			const attemptRecoveries = new Map(state.attemptRecoveries);
+			attemptRecoveries.set(event.attemptId, {
+				sourceAttemptId: event.sourceAttemptId,
+				reference: event.reference,
+			});
+			return { ...state, attemptRecoveries, version };
 		}
 		case "ProviderTurnRequested":
 			return { ...state, version };

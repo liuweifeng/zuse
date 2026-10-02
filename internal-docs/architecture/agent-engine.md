@@ -24,9 +24,11 @@ start. It revokes prior residency metadata, preserves intentionally held initial
 turns and exact pending sends, and records explicit failure for orphaned execution
 without resending. Pending sends still pass the delivery journal before execution.
 Services become available after this local pass; provider interaction, naming and
-chat cleanup continue independently in the background. Native transcript inspection
-and recovery attempts remain outstanding; this currently exposes uncertain execution
-for deliberate recovery instead of reconstructing the lost provider output.
+chat cleanup continue independently in the background. When a proven native
+execution identity exists, local reconciliation enqueues a
+read-only recovery attempt. The worker inspects that exact execution, backfills
+redacted output and settles from a complete terminal result. Uncorrelated or
+unverifiable executions still expose explicit uncertainty without automatic resend.
 Jobs now use renewable claims with unique acquisition owners, expiry recovery,
 post-commit cancellation, and session-scoped command drains. Provider sends retain
 a durable delivery fence: an uncertain outcome is surfaced instead of resending.
@@ -93,9 +95,16 @@ the evidence needed for recovery. A shared read-only native reader now verifies
 exact thread and turn identity and distinguishes missing, partial, running and
 terminal evidence. Reads time out without closing concurrent control-client
 requests; transport errors are not interpreted as absence. Transcript import
-uses the same thread reader. Redacted backfill and provider-recovery jobs still
-need implementation. Other drivers have not yet
-reported strong native turn identity.
+uses the same thread reader. Recovery has a distinct durable job, retaining the
+original execution attempt as its source across retries and restarts. It revokes
+prior provider ownership, cancels superseded delivery/recovery jobs, and guards
+backfill and settlement with the recovery attempt. Live ingestion and recovery
+share message identity; final recovered checkpoints replace partial snapshots.
+Credential patterns are shared with diagnostics, while recovered transcript text
+is preserved without diagnostic truncation. Missing, incomplete, running or
+unreadable evidence produces an explicit uncertain outcome. Other drivers have
+not yet reported strong native turn identity; native child-run transcript
+reconstruction and full provider lifecycle validation remain outstanding.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
