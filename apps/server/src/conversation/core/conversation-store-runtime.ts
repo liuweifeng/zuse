@@ -423,7 +423,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 		commandIdentityOverride?: string,
 		expectedAttempt?: AttemptOwnership,
 		expectedProviderSessionId?: string,
@@ -464,7 +464,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					command: {
 						_tag: "PersistMessage",
 						messageId: id,
-						turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
+						turnId: turnIdOverride === undefined ? (state.activeTurn(sessionId) ?? null) : turnIdOverride,
 						role,
 						kind: content._tag,
 						contentJson: JSON.stringify(content),
@@ -843,7 +843,10 @@ export const makeConversationStoreRuntime = Effect.fn(
 					providerItemIdentity === undefined
 						? undefined
 						: providerMessageId(
-								expectedAttempt?.attemptId ?? turnId,
+								expectedAttempt?.attemptId ??
+									turnId ??
+									expectedProviderSessionId ??
+									sessionId,
 								providerItemIdentity,
 							);
 				const persisted = yield* persistOwnedMessage(

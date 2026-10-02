@@ -713,7 +713,7 @@ describe("ConversationEventRuntime", () => {
 								Effect.as(resolveStart(turnId)),
 							),
 						persist: (_sessionId, turnId) =>
-							Ref.update(persisted, (turns) => [...turns, turnId]),
+							Ref.update(persisted, (turns) => turnId === null ? turns : [...turns, turnId]),
 					});
 					yield* runtime.start(SessionId.make("session-1"));
 					yield* Deferred.await(done);
@@ -748,5 +748,85 @@ describe("ConversationEventRuntime", () => {
 			persisted: ["turn_application"],
 			settled: [],
 		});
+
+	test.each([
+		"current",
+		"revoked",
+		"commit-race",
+	] as const)("persists startup questions only under current residency (%s)", async (mode) => {
+		const order: string[] = [];
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const itemId = AgentItemId.make("startup-question");
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.make(
+								{
+									scope: "session",
+									event: {
+										_tag: "UserQuestion",
+										itemId,
+										questions: [{ question: "Continue?", options: ["Yes"] }],
+									},
+								},
+								{
+									scope: "session",
+									event: {
+										_tag: "UserQuestionResolved",
+										itemId,
+										resolution: "timed-out",
+									},
+								},
+								{
+									scope: "session",
+									event: {
+										_tag: "AssistantMessage",
+										itemId: AgentItemId.make("unowned"),
+										text: "must remain unprojected",
+									},
+								},
+							).pipe(Stream.ensuring(Deferred.succeed(done, undefined))),
+						),
+						ownsProviderSession: () => Effect.succeed(mode !== "revoked"),
+						persist: (
+							_session,
+							turnId,
+							content,
+							identity,
+							ownership,
+							residency,
+						) => {
+							expect(turnId).toBeNull();
+							expect(ownership).toBeUndefined();
+							expect(residency).toBe("test-residency");
+							expect(identity).toContain("startup-question");
+							if (mode === "commit-race")
+								return Effect.fail(
+									new ProviderSessionOwnershipConflict({
+										expectedProviderSessionId: "test-residency",
+										actualProviderSessionId: "replacement",
+									}),
+								);
+							return Effect.sync(() => {
+								order.push(content._tag);
+							});
+						},
+						publishApiActivity: (_session, activity) =>
+							Effect.sync(() => {
+								order.push(activity);
+							}),
+					});
+					yield* runtime.start(SessionId.make("session-1"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(order).toEqual(
+			mode === "current"
+				? ["user_question", "question-needed", "user_question_answer"]
+				: [],
+		);
 	});
 });

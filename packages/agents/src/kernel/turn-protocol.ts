@@ -258,10 +258,10 @@ export const makeTurnScopedSessionHandle = (
 					if (active === null) {
 						// A provider may reissue a durable blocking question while restoring
 						// its own cursor after the application turn was settled during process
-						// recovery. Preserve it as a session-scoped availability signal: the
-						// conversation runtime will not persist it as a new turn event, while
-						// ProviderService can reattach the live callback authority.
-						return event._tag === "UserQuestion"
+						// recovery. Keep both request and resolution session-scoped so the
+						// runtime can persist their lifecycle without inventing a turn.
+						return event._tag === "UserQuestion" ||
+							event._tag === "UserQuestionResolved"
 							? [{ events: [sessionEnvelope(event)] }, null]
 							: [{ events: [] }, null];
 					}

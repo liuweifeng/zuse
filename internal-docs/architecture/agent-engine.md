@@ -144,6 +144,12 @@ replacement callback. Client disconnection alone does not cancel delivery. Quest
 delivery does not hold the provider lifecycle lane, so close can revoke a hung
 callback. This cannot undo an answer already accepted by the external provider;
 driver-native side effects still require their own cancellation guarantees.
+Session-scoped provider questions and their resolutions are persisted even when no
+turn is attached. They retain an explicit null turn instead of inheriting whichever
+turn happens to be active at commit time. Provider residency still fences those
+writes, repeated events without attempt ownership use stable residency-scoped
+message IDs, and question notifications follow the durable commit. Other uncorrelated transcript events do
+not acquire turn authority through this input path.
 Question and permission lifecycle events now update one indexed `session_inputs`
 read model in the event transaction. Timeline snapshots read this projection instead
 of rescanning transcript and event history. Migration 0069 backfills imported
