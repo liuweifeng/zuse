@@ -11,6 +11,7 @@ import {
 	SavedDecision,
 	type SessionId,
 } from "@zuse/contracts";
+import { ownsInputRequest } from "@zuse/domain/agent-engine/input-owner";
 import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import { ReactorRunner } from "@zuse/domain/engine/reactor-runner";
 import { SessionDomain } from "@zuse/domain/engine/session-domain";
@@ -214,16 +215,11 @@ export const PermissionServiceLive = Layer.effect(
 					return false;
 				const owner = authority?.owner;
 				if (owner === undefined) return true;
-				const rows =
-					yield* sql`SELECT 1 FROM sessions s WHERE s.id = ${sessionId}
- AND s.archived_at IS NULL AND s.provider_reservation_id = ${owner.providerSessionId}
- AND (${owner.attempt === undefined} OR EXISTS (SELECT 1 FROM session_turns t WHERE t.session_id = s.id
- AND t.id = ${owner.attempt?.turnId ?? null} AND t.active_attempt_id = ${owner.attempt?.attemptId ?? null}
- AND t.status IN ('starting', 'running') AND t.phase = 'running'))`.pipe(
-						Effect.orDie,
-					);
+				const owns = yield* ownsInputRequest(sql, sessionId, owner).pipe(
+					Effect.orDie,
+				);
 				return (
-					rows.length === 1 &&
+					owns &&
 					(authority?.isCurrent === undefined || (yield* authority.isCurrent))
 				);
 			});
@@ -550,6 +546,7 @@ export const PermissionServiceLive = Layer.effect(
 									streamId: sessionId,
 									command: {
 										_tag: "RequestPermission",
+										inputOwner: options?.owner,
 										requestId: id,
 										turnId:
 											options.owner?.attempt?.turnId ??

@@ -4,6 +4,7 @@ import {
 	type TurnSettlementOutcome as TurnSettlementOutcomeType,
 } from "@zuse/contracts";
 import { Schema } from "effect";
+import { InputRequestOwner } from "../agent-engine/input-owner.js";
 import { ProviderThreadSeed, SessionCreatedFields } from "./session-fields.js";
 
 export const AttemptProviderTurnFields = {
@@ -188,6 +189,7 @@ export const SessionCommand = Schema.Union([
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("PersistMessage", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		messageId: Schema.String,
 		turnId: Schema.NullOr(Schema.String),
 		role: Schema.String,
@@ -211,6 +213,7 @@ export const SessionCommand = Schema.Union([
 		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestPermission", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		requestId: Schema.String,
 		turnId: Schema.String,
 		payloadJson: Schema.String,

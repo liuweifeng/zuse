@@ -293,6 +293,7 @@ describe("SqlSessionProjector", () => {
 				);
 				const request: StoredEvent["event"] = {
 					_tag: "MessagePersisted",
+					inputOwner: { providerSessionId: "original-provider" },
 					messageId: "question",
 					turnId: null,
 					role: "assistant",
@@ -345,7 +346,24 @@ describe("SqlSessionProjector", () => {
 					yield* sql`SELECT status FROM session_inputs WHERE kind = 'question'`,
 				).toEqual([{ status: "pending" }]);
 				yield* projector.apply(stored(5, cancelled));
-				yield* projector.apply(stored(6, request));
+				yield* projector.apply(
+					stored(6, {
+						...request,
+						messageId: "later-question",
+						turnId: "later-turn",
+						inputOwner: { providerSessionId: "later-provider" },
+					}),
+				);
+				expect(
+					yield* sql`SELECT turn_id, owner_json FROM session_inputs WHERE kind = 'question'`,
+				).toEqual([
+					{
+						turn_id: null,
+						owner_json: JSON.stringify({
+							providerSessionId: "original-provider",
+						}),
+					},
+				]);
 				yield* projector.apply(
 					stored(7, {
 						_tag: "PermissionResolved",

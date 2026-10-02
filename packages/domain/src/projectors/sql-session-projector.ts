@@ -12,7 +12,10 @@ import {
 	updateChatLastUserMessage,
 } from "./chat-last-message-projection.js";
 import { projectSessionAttempt } from "./sql-attempt-projector.js";
-import { projectSessionInput } from "./sql-input-projector.js";
+import {
+	projectCommittedMessageInput,
+	projectSessionInput,
+} from "./sql-input-projector.js";
 
 export class SessionProjectionDecodeError extends Schema.TaggedErrorClass<SessionProjectionDecodeError>()(
 	"SessionProjectionDecodeError",
@@ -544,31 +547,7 @@ export const makeSqlSessionProjector = (
 									AND (messages.checkpoint_revision IS NULL
 										OR excluded.checkpoint_revision > messages.checkpoint_revision)))
 					`;
-					if (
-						event.kind === "user_question" ||
-						event.kind === "user_question_answer"
-					) {
-						const rows = yield* sql<{
-							content_json: string;
-							kind: string;
-							created_at: string;
-							sequence: number;
-						}>`
-							SELECT content_json, kind, created_at, sequence FROM messages WHERE id = ${event.messageId}
-						`;
-						const row = rows[0];
-						if (row !== undefined)
-							yield* projectSessionInput(sql, {
-								...record,
-								sequence: row.sequence,
-								event: {
-									...event,
-									contentJson: row.content_json,
-									kind: row.kind,
-									createdAt: new Date(row.created_at).getTime(),
-								},
-							});
-					}
+					yield* projectCommittedMessageInput(sql, record);
 
 					yield* sql`
 						UPDATE sessions SET updated_at = ${createdAt}

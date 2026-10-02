@@ -118,7 +118,7 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 	) => Effect.Effect<PersistedMessage>;
 	readonly submitTurn: (
 		sessionId: SessionId,
@@ -463,8 +463,19 @@ export const makeConversationStoreRuntime = Effect.fn(
 					expectedProviderSessionId,
 					command: {
 						_tag: "PersistMessage",
+						inputOwner:
+							content._tag === "user_question" &&
+							expectedProviderSessionId !== undefined
+								? {
+										providerSessionId: expectedProviderSessionId,
+										attempt: expectedAttempt,
+									}
+								: undefined,
 						messageId: id,
-						turnId: turnIdOverride === undefined ? (state.activeTurn(sessionId) ?? null) : turnIdOverride,
+						turnId:
+							turnIdOverride === undefined
+								? (state.activeTurn(sessionId) ?? null)
+								: turnIdOverride,
 						role,
 						kind: content._tag,
 						contentJson: JSON.stringify(content),

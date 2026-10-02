@@ -12,6 +12,7 @@ import type {
 	SavedDecision,
 	SessionId,
 } from "@zuse/contracts";
+import type { InputRequestOwner } from "@zuse/domain/agent-engine/input-owner";
 import { Context, type Effect, type Stream } from "effect";
 
 /**
@@ -42,10 +43,7 @@ export interface RequestOptions {
 	readonly projectId: FolderId;
 	readonly forcePrompt?: boolean;
 	/** Captured at provider acquisition; never inferred from a later active turn. */
-	readonly owner?: {
-		readonly providerSessionId: string;
-		readonly attempt?: { readonly turnId: string; readonly attemptId: string };
-	};
+	readonly owner?: InputRequestOwner;
 	readonly isCurrent?: Effect.Effect<boolean>;
 }
 
