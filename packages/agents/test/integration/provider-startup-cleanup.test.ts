@@ -5,6 +5,9 @@ import { startCodexSession } from "@zuse/agents/drivers/codex";
 import { startGeminiSession } from "@zuse/agents/drivers/gemini";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
+import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
+import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
+import { startPiSession } from "@zuse/agents/drivers/pi";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import { __testing, mcpGatewayDiagnostics } from "@zuse/agents/mcp-gateway";
 import type { AgentSessionId, FolderId } from "@zuse/contracts";
@@ -74,6 +77,9 @@ it.each([
 	"grok",
 	"gemini",
 	"codex",
+	"pi",
+	"opencode",
+	"opencode2",
 ] as const)("cancelling %s during initialization kills the process and revokes its MCP context", async (providerId) => {
 	const root = await mkdtemp(join(tmpdir(), "zuse-startup-cancel-"));
 	const executable = join(root, "provider-cli");
@@ -81,7 +87,7 @@ it.each([
 	// Report only after the driver sends its first handshake request. Never reply.
 	await writeFile(
 		executable,
-		`#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nprocess.stdin.on("data", () => writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)));\n`,
+		`#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\n${providerId.startsWith("opencode") ? `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));` : ""}\nprocess.stdin.on("data", () => writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)));\n`,
 	);
 	await chmod(executable, 0o755);
 	const baseline = mcpGatewayDiagnostics().activeSessionCount;
@@ -99,33 +105,41 @@ it.each([
 		ok: false as const,
 		error: "unused",
 	});
+	const resumeFile = join(root, "session.jsonl");
+	await writeFile(resumeFile, JSON.stringify({ type: "session" }) + "\n");
 	const start =
-		providerId === "kiro"
-			? startKiroSession(
-					input,
-					root,
-					executable,
-					sessionId,
-					requestPermission,
-					runtimeMode,
-					browserSend,
-					"node",
-				)
-			: (providerId === "grok"
-					? startGrokSession
-					: providerId === "gemini"
-						? startGeminiSession
-						: startCodexSession)(
-					input,
-					root,
-					null,
-					executable,
-					sessionId,
-					requestPermission,
-					runtimeMode,
-					browserSend,
-					"node",
-				);
+		providerId === "pi"
+			? startPiSession(input, root, executable, sessionId, resumeFile)
+			: providerId === "opencode" || providerId === "opencode2"
+				? (providerId === "opencode"
+						? startOpencodeSession
+						: startOpencode2Session)(input, root, [], executable, sessionId)
+				: providerId === "kiro"
+					? startKiroSession(
+							input,
+							root,
+							executable,
+							sessionId,
+							requestPermission,
+							runtimeMode,
+							browserSend,
+							"node",
+						)
+					: (providerId === "grok"
+							? startGrokSession
+							: providerId === "gemini"
+								? startGeminiSession
+								: startCodexSession)(
+							input,
+							root,
+							null,
+							executable,
+							sessionId,
+							requestPermission,
+							runtimeMode,
+							browserSend,
+							"node",
+						);
 	const fiber = Effect.runFork(start.pipe(Effect.provide(attachments)));
 	let pid: number | undefined;
 	try {
@@ -139,9 +153,81 @@ it.each([
 				}
 			})
 			.toBe(true);
-		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(baseline + 1);
+		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(
+			baseline + (["pi", "opencode", "opencode2"].includes(providerId) ? 0 : 1),
+		);
 		await Effect.runPromise(Fiber.interrupt(fiber));
 		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(baseline);
+		await expect
+			.poll(() => {
+				if (pid === undefined) return false;
+				try {
+					process.kill(pid, 0);
+					return false;
+				} catch {
+					return true;
+				}
+			})
+			.toBe(true);
+	} finally {
+		await Effect.runPromise(Fiber.interrupt(fiber));
+		if (pid !== undefined) {
+			try {
+				process.kill(pid, "SIGKILL");
+			} catch {
+				/* already exited */
+			}
+		}
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+it.each([
+	"opencode",
+	"opencode2",
+] as const)("cancelling %s after server readiness closes its pending HTTP startup", async (providerId) => {
+	const root = await mkdtemp(join(tmpdir(), "zuse-http-startup-cancel-"));
+	const executable = join(root, "provider-cli");
+	const pidFile = join(root, "pid");
+	await writeFile(
+		executable,
+		`#!/usr/bin/env node
+import { createServer } from "node:http";
+import { writeFileSync } from "node:fs";
+const server = createServer((req, res) => {
+  writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+  // Keep both session creation and the event connection pending.
+});
+server.listen(0, "127.0.0.1", () => {
+  console.log("listening on http://127.0.0.1:" + server.address().port);
+  console.log("server password fixture-only");
+});
+`,
+	);
+	await chmod(executable, 0o755);
+	const start = (
+		providerId === "opencode" ? startOpencodeSession : startOpencode2Session
+	)(
+		{ folderId: "cleanup-folder" as FolderId, providerId, mode: "sdk" },
+		root,
+		[],
+		executable,
+		`http-cancel-${providerId}` as AgentSessionId,
+	);
+	const fiber = Effect.runFork(start.pipe(Effect.provide(attachments)));
+	let pid: number | undefined;
+	try {
+		await expect
+			.poll(async () => {
+				try {
+					pid = Number(await readFile(pidFile, "utf8"));
+					return pid > 0;
+				} catch {
+					return false;
+				}
+			})
+			.toBe(true);
+		await Effect.runPromise(Fiber.interrupt(fiber));
 		await expect
 			.poll(() => {
 				if (pid === undefined) return false;
