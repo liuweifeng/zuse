@@ -171,9 +171,14 @@ and mobile render a disabled, dismissible card from the durable interaction proj
 provider-native timeout receipts remain resolved rather than reappearing as cards.
 Native plan callback IDs are now scoped to a provider acquisition using the same
 application identity boundary as questions; a replacement cannot accept an older
-plan ID. Requests and tool results retain application correlation. Durable plan
-ownership, expiry, response receipts and answer jobs remain outstanding; the answer preflights
-are not an atomic provider/SQLite commit.
+plan ID. Requests and tool results retain application correlation. Plan requests
+record their original owner in the accepted message event. Responses validate that
+owner, persist a stable receipt on the original turn after provider acceptance,
+and serialize identical retries without delivering twice after commit. Missing
+callbacks return a plan-specific error without fabricating a result. Plan expiry,
+an indexed plan input projection, delivery intent/jobs, and recovery after provider
+acceptance but before receipt commit remain outstanding; these preflights are not
+an atomic provider/SQLite commit.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

@@ -464,7 +464,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					command: {
 						_tag: "PersistMessage",
 						inputOwner:
-							content._tag === "user_question" &&
+							(content._tag === "user_question" || (content._tag === "tool_use" && content.tool === "ExitPlanMode")) &&
 							expectedProviderSessionId !== undefined
 								? {
 										providerSessionId: expectedProviderSessionId,

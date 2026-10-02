@@ -199,6 +199,8 @@ let beforeProviderWrite:
 	| ((domain: SessionDomainApi, input: DispatchInput) => Effect.Effect<void>)
 	| undefined;
 let providerQuestionAttached = false;
+let providerPlanAvailable = false;
+let providerPlanResponses = 0;
 let providerQuestionHasCalls = 0;
 let detachProviderQuestionAfterHasCall: number | null = null;
 let attachProviderQuestionAfterHasCall: number | null = null;
@@ -440,7 +442,12 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			providerQuestionAttached = false;
 		}),
 	respondToPlan: (sessionId) =>
-		Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+		Effect.suspend(() => {
+			providerPlanResponses++;
+			return providerPlanAvailable
+				? Effect.void
+				: Effect.fail(new AgentSessionNotFoundError({ sessionId }));
+		}),
 	getGoal: (sessionId) =>
 		Effect.sync(() => providerGoals.get(sessionId) ?? null),
 	setGoal: (sessionId, input) =>
@@ -951,6 +958,8 @@ beforeEach(() => {
 	providerEventsStarted = undefined;
 	beforeProviderWrite = undefined;
 	providerQuestionAttached = false;
+	providerPlanAvailable = false;
+	providerPlanResponses = 0;
 	providerQuestionHasCalls = 0;
 	detachProviderQuestionAfterHasCall = null;
 	attachProviderQuestionAfterHasCall = null;
@@ -3196,7 +3205,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
-	it("settles a stale plan interaction when its provider handle is gone", async () => {
+	it("reports a stale plan decision without inventing a failed result", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
 				Effect.flatMap(store, (s) =>
@@ -3225,16 +3234,126 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const messages = await run(
 				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
 			);
-			expect(messages.at(-1)?.content).toMatchObject({
-				_tag: "tool_result",
-				itemId: toolCallId,
-				isError: true,
-				output: {
-					outcome: "cancelled",
-					reason: "provider_session_unavailable",
-				},
+			expect(result).toMatchObject({
+				_tag: "Failure",
+				failure: { _tag: "PlanResolutionError" },
 			});
+			expect(
+				messages.some((message) => message.content._tag === "tool_result"),
+			).toBe(false);
+			expect(providerPlanResponses).toBe(0);
 		});
+	});
+
+	it.each([
+		"accepted",
+		"replaced",
+		"missing",
+		"legacy",
+	] as const)("handles %s plan response with original ownership and a stable receipt", async (mode) => {
+		const toolCallId = AgentItemId.make("plan-owned");
+		scriptedEvents = [
+			{
+				_tag: "ToolUse",
+				itemId: toolCallId,
+				tool: "ExitPlanMode",
+				input: { plan: "Implement recovery" },
+			},
+		];
+		providerPlanAvailable = mode !== "missing";
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "grok",
+							model: "grok-code",
+							initialPrompt: "Plan recovery",
+						}),
+					),
+				);
+				const sessionId = initialSession.id;
+				await expect
+					.poll(() =>
+						run(
+							Effect.flatMap(store, (service) =>
+								service.listMessages(sessionId),
+							),
+						).then((messages) =>
+							messages.some((message) => message.content._tag === "tool_use"),
+						),
+					)
+					.toBe(true);
+				if (mode === "replaced")
+					await run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							yield* sql`UPDATE sessions SET provider_reservation_id = 'replacement' WHERE id = ${sessionId}`;
+						}),
+					);
+				if (mode === "legacy")
+					await run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							yield* sql`UPDATE events SET payload_json = json_remove(payload_json,'$.inputOwner') WHERE stream_id = ${sessionId} AND type = 'MessagePersisted'`;
+						}),
+					);
+				const respond = (outcome: "approved" | "cancelled") =>
+					run(
+						Effect.flatMap(store, (service) =>
+							service.respondToPlan(
+								sessionId,
+								toolCallId,
+								outcome,
+								"Use recovery",
+							),
+						),
+					);
+				if (mode === "accepted") {
+					await Promise.all([respond("approved"), respond("approved")]);
+					await expect(respond("cancelled")).rejects.toMatchObject({
+						_tag: "PlanResolutionError",
+					});
+					providerPlanAvailable = false;
+					await run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							yield* sql`UPDATE sessions SET provider_reservation_id = NULL WHERE id = ${sessionId}`;
+						}),
+					);
+					await respond("approved");
+					expect(providerPlanResponses).toBe(1);
+					const rows = await run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							return yield* sql<{
+								kind: string;
+								turn_id: string;
+							}>`SELECT kind,turn_id FROM messages WHERE session_id = ${sessionId} AND kind IN ('tool_use','tool_result') ORDER BY sequence`;
+						}),
+					);
+					expect(rows).toHaveLength(2);
+					expect(rows[1]?.turn_id).toBe(rows[0]?.turn_id);
+					expect(rows[0]?.turn_id).not.toBeNull();
+				} else {
+					await expect(respond("approved")).rejects.toMatchObject({
+						_tag: "PlanResolutionError",
+					});
+					expect(providerPlanResponses).toBe(mode === "missing" ? 1 : 0);
+					const messages = await run(
+						Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+					);
+					expect(
+						messages.filter(
+							(message) => message.content._tag === "tool_result",
+						),
+					).toEqual([]);
+				}
+			});
+		} finally {
+			scriptedEvents = [];
+		}
 	});
 
 	it("rejects Pi permission changes without persisting them", async () => {
