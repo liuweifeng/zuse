@@ -34,6 +34,7 @@ import type { ConversationGoalState } from "./conversation-goal-state.ts";
 import { makeConversationGoalState } from "./conversation-goal-state.ts";
 import {
 	parentItemIdOfContent,
+	providerMessageId,
 	roleForContent,
 } from "./conversation-message-mapping.ts";
 import { parseAgents, sessionFromRecord } from "./conversation-records.ts";
@@ -832,8 +833,9 @@ export const makeConversationStoreRuntime = Effect.fn(
 				const stableId =
 					providerItemIdentity === undefined
 						? undefined
-						: MessageId.make(
-								`provider:${expectedAttempt?.attemptId ?? turnId}:${providerItemIdentity}`,
+						: providerMessageId(
+								expectedAttempt?.attemptId ?? turnId,
+								providerItemIdentity,
 							);
 				const persisted = yield* persistOwnedMessage(
 					sessionId,

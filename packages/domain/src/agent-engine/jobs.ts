@@ -1,4 +1,4 @@
-import { JobId } from "@zuse/contracts";
+import { JobId, ProviderTurnReference } from "@zuse/contracts";
 import { Schema } from "effect";
 
 import type { SessionEvent } from "../core/events.js";
@@ -25,6 +25,12 @@ export const JobRequest = Schema.Union([
 		providerSessionId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("provider.turn.recover", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		sourceAttemptId: Schema.String,
+		reference: ProviderTurnReference,
+	}),
 	Schema.TaggedStruct("provider.turn.send", {
 		turnId: Schema.String,
 		/** Absent only on historical requests written before attempt ownership. */
@@ -50,6 +56,7 @@ export type JobKind = JobRequest["_tag"];
 export const JOB_KINDS = [
 	"provider.stop",
 	"provider.turn.send",
+	"provider.turn.recover",
 	"provider.turn.interrupt",
 	"provider.successor.start",
 ] as const satisfies ReadonlyArray<JobKind>;
@@ -62,6 +69,7 @@ export const JOB_KINDS = [
 export const REPLAYABLE_JOB_KINDS = [
 	"provider.stop",
 	"provider.turn.send",
+	"provider.turn.recover",
 	"provider.turn.interrupt",
 	"provider.successor.start",
 ] as const satisfies ReadonlyArray<JobKind>;
@@ -157,6 +165,16 @@ const jobRequestsForEvent = (
 					...(event.providerSessionId === undefined
 						? {}
 						: { providerSessionId: event.providerSessionId }),
+				},
+			];
+		case "ProviderRecoveryRequested":
+			return [
+				{
+					_tag: "provider.turn.recover",
+					turnId: event.turnId,
+					attemptId: event.attemptId,
+					sourceAttemptId: event.sourceAttemptId,
+					reference: event.reference,
 				},
 			];
 		case "ProviderTurnRequested":

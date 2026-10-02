@@ -12,7 +12,7 @@ export const hasRecoverableProviderSend = (
 ) =>
 	sql<{ present: number }>`
 	SELECT EXISTS(SELECT 1 FROM jobs WHERE session_id = ${sessionId}
-		AND kind = 'provider.turn.send' AND status IN ('pending', 'running', 'waiting')
+		AND kind IN ('provider.turn.send', 'provider.turn.recover') AND status IN ('pending', 'running', 'waiting')
 		AND json_valid(request_json)
 		AND json_extract(request_json, '$.turnId') = ${attempt.turnId}
 		AND json_extract(request_json, '$.attemptId') = ${attempt.attemptId}) AS present
@@ -114,6 +114,25 @@ export const reconcileSessionRuntime = (
 					const interrupted =
 						row.phase === "interrupt-requested" ||
 						row.phase === "interrupt-acknowledged";
+					if (!interrupted) {
+						const evidence =
+							yield* sql`SELECT 1 FROM session_attempts WHERE session_id = ${row.id} AND id = ${row.attempt_id} AND provider_turn_json IS NOT NULL LIMIT 1`.pipe(
+								Effect.orDie,
+							);
+						if (evidence.length > 0) {
+							yield* dispatch(
+								"recover",
+								{
+									_tag: "RecoverTurn",
+									turnId: row.turn_id,
+									expectedAttemptId: row.attempt_id,
+									requestedAt: now,
+								},
+								attempt,
+							);
+							continue;
+						}
+					}
 					if (!interrupted)
 						yield* dispatch(
 							"explain",

@@ -396,6 +396,59 @@ export const decide = (
 			}
 			return success([{ ...command, _tag: "AttemptProviderTurnBound" }]);
 		}
+		case "RecoverTurn": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.archived ||
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.expectedAttemptId ||
+				turn.phase !== "running"
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Recovery must own an active, uninterrupted turn",
+					}),
+				);
+			const prior = state.attemptRecoveries.get(command.expectedAttemptId);
+			const reference =
+				prior?.reference ??
+				state.attemptProviderTurns.get(command.expectedAttemptId);
+			if (reference === undefined || reference.provider !== state.providerId)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Recovery requires proven native execution identity",
+					}),
+				);
+			const ordinal = turn.attempts.size + 1;
+			const attemptId = attemptIdFor(command.turnId, ordinal);
+			return success([
+				...providerStops(state, command.requestedAt),
+				{
+					_tag: "AttemptStarted",
+					turnId: command.turnId,
+					attemptId,
+					ordinal,
+					reason: "provider_recovery",
+					startedAt: command.requestedAt,
+					turnOrdinal: turn.ordinal,
+					providerThreadId: turn.providerThreadId,
+					turnRequestedAt: turn.requestedAt,
+				},
+				{
+					_tag: "SessionStatusSet",
+					status: "booting",
+					updatedAt: command.requestedAt,
+				},
+				{
+					_tag: "ProviderRecoveryRequested",
+					turnId: command.turnId,
+					attemptId,
+					sourceAttemptId: prior?.sourceAttemptId ?? command.expectedAttemptId,
+					reference,
+					requestedAt: command.requestedAt,
+				},
+			]);
+		}
 		case "RetryTurn": {
 			const turn = state.turns.get(command.turnId);
 			if (state.currentTurnId !== command.turnId || turn === undefined) {

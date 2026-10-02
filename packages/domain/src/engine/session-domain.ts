@@ -545,7 +545,11 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 								) {
 									cancelled = yield* jobs.cancelUnsettled({
 										sessionId: input.streamId,
-										kinds: ["provider.turn.send", "provider.turn.interrupt"],
+										kinds: [
+											"provider.turn.send",
+											"provider.turn.interrupt",
+											"provider.turn.recover",
+										],
 										reason: "Superseded by a new attempt.",
 									});
 								}

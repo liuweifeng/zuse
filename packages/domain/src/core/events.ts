@@ -102,6 +102,13 @@ export const SessionEvent = Schema.Union([
 		providerThreadId: Schema.NullOr(Schema.String),
 		turnRequestedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ProviderRecoveryRequested", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		sourceAttemptId: Schema.String,
+		reference: AttemptProviderTurnFields.reference,
+		requestedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ProviderTurnRequested", {
 		turnId: Schema.String,
 		/** Absent only on historical requests written before attempt ownership. */

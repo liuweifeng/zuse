@@ -6,7 +6,10 @@ import {
 	SessionStartError,
 } from "@zuse/contracts";
 import type { Job } from "@zuse/domain/agent-engine/jobs";
-import { TurnAlreadyRunning } from "@zuse/domain/core/decider";
+import {
+	TurnAlreadyRunning,
+	ValidationFailed,
+} from "@zuse/domain/core/decider";
 import { AttemptOwnershipConflict } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import { Effect } from "effect";
@@ -62,7 +65,12 @@ const makeOptions = (
 	rememberActiveTurn: () => undefined,
 	provider: {} as ProviderJobExecutorOptions["provider"],
 	sessionDomain: {
-		dispatch: unused,
+		dispatch: (input) =>
+			input.command._tag === "RecoverTurn"
+				? Effect.fail(
+						new ValidationFailed({ message: "No native identity in fixture" }),
+					)
+				: unused(),
 		activeAttempt: () =>
 			Effect.succeed({
 				turnId: "turn-active",
@@ -540,4 +548,64 @@ describe("provider job executor", () => {
 		expect(statuses).toEqual(["running", "error"]);
 		expect(SessionId.make("session-1")).toBe("session-1");
 	});
+});
+
+it("routes uncertain delivery to a separate recovery attempt when native identity is available", async () => {
+	const commands: unknown[] = [];
+	let marked = 0;
+	const defaults = makeOptions({});
+	const execute = makeProviderJobExecutor(
+		makeOptions({
+			delivery: {
+				...defaults.delivery,
+				begin: () => Effect.succeed("already-started"),
+				markOutcomeUnknown: () =>
+					Effect.sync(() => {
+						marked++;
+					}),
+			},
+			sessionDomain: {
+				...defaults.sessionDomain,
+				dispatch: (input) =>
+					Effect.sync(() => {
+						commands.push({
+							command: input.command,
+							ownership: input.expectedAttempt,
+						});
+						return {
+							commandId: input.commandId,
+							streamId: input.streamId,
+							streamVersion: 2,
+							eventIds: ["recovery-request"],
+						};
+					}),
+			},
+		}),
+	);
+	await Effect.runPromise(
+		execute(
+			job({
+				_tag: "provider.turn.send",
+				turnId: "turn-active",
+				attemptId: "attempt:turn:turn-active:ordinal:1",
+				providerInputJson:
+					'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+			}),
+		),
+	);
+	expect(commands).toEqual([
+		{
+			command: {
+				_tag: "RecoverTurn",
+				turnId: "turn-active",
+				expectedAttemptId: "attempt:turn:turn-active:ordinal:1",
+				requestedAt: expect.any(Number),
+			},
+			ownership: {
+				turnId: "turn-active",
+				attemptId: "attempt:turn:turn-active:ordinal:1",
+			},
+		},
+	]);
+	expect(marked).toBe(1);
 });
