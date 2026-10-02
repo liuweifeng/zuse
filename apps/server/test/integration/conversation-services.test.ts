@@ -14,6 +14,7 @@ import type {
 	WorktreeId,
 } from "@zuse/contracts";
 import {
+	AgentItemId,
 	AgentSessionNotFoundError,
 	AgentSessionStartError,
 	AgentTurnId,
@@ -155,6 +156,7 @@ const TestConversationLive = Layer.effect(
  * provider-event → messages-table pipeline without a real agent CLI.
  */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
+let scriptedEventScope: "turn" | "session" = "turn";
 let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 const providerGoals = new Map<string, ThreadGoal>();
@@ -337,16 +339,26 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 							attemptId: startup.initialAttemptId,
 						}
 					: undefined;
-			const events = scriptedEvents.map((event) => ({
-				scope: "turn" as const,
-				...(event._tag === "NativeTurnStarted" && ownership !== undefined
-					? { ownership }
-					: {}),
-				providerSessionId:
-					activeProviderResidencies.get(sessionId) ?? "test-residency",
-				turnId: providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
-				event,
-			}));
+			const events = scriptedEvents.map((event) =>
+				scriptedEventScope === "session"
+					? {
+							scope: "session" as const,
+							providerSessionId:
+								activeProviderResidencies.get(sessionId) ?? "test-residency",
+							event,
+						}
+					: {
+							scope: "turn" as const,
+							...(event._tag === "NativeTurnStarted" && ownership !== undefined
+								? { ownership }
+								: {}),
+							providerSessionId:
+								activeProviderResidencies.get(sessionId) ?? "test-residency",
+							turnId:
+								providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
+							event,
+						},
+			);
 			const stream =
 				events.length === 0
 					? Stream.never
@@ -6573,6 +6585,45 @@ describe("ConversationServices — provider event persistence", () => {
 		} finally {
 			naming.resolve();
 			titleGenerationBarrier = null;
+			scriptedEvents = [];
+		}
+	});
+
+	it("persists session questions once without assigning them to the active turn", async () => {
+		const itemId = AgentItemId.make("startup-question");
+		const event: AgentEvent = {
+			_tag: "UserQuestion",
+			itemId,
+			questions: [{ question: "Continue startup?", options: ["Yes"] }],
+		};
+		scriptedEventScope = "session";
+		scriptedEvents = [event, event];
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Start work",
+						}),
+					),
+				);
+				const read = () =>
+					run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							return yield* sql`SELECT m.turn_id, i.status FROM messages m JOIN session_inputs i
+						ON i.session_id = m.session_id AND i.kind = 'question'
+						AND i.request_id = json_extract(m.content_json, '$.itemId')
+						WHERE m.session_id = ${initialSession.id} AND m.kind = 'user_question'`;
+						}),
+					);
+				await expect.poll(read).toEqual([{ turn_id: null, status: "pending" }]);
+			});
+		} finally {
+			scriptedEventScope = "turn";
 			scriptedEvents = [];
 		}
 	});

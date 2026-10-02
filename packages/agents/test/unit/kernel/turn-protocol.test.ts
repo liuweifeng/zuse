@@ -186,6 +186,40 @@ describe("turn-scoped provider protocol", () => {
 		]);
 	});
 
+	it.each([
+		false,
+		true,
+	])("preserves question lifecycle outside an active turn (after completion=%s)", async (afterCompletion) => {
+		const question: AgentEvent = {
+			_tag: "UserQuestion",
+			itemId,
+			questions: [{ question: "Continue?", options: ["Yes"] }],
+		};
+		const resolution: AgentEvent = {
+			_tag: "UserQuestionResolved",
+			itemId,
+			resolution: "timed-out",
+		};
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(
+				handleWithEvents([
+					{ _tag: "Completed", reason: "ended" },
+					question,
+					resolution,
+					{ _tag: "AssistantMessage", itemId, text: "uncorrelated" },
+				]),
+			),
+		);
+		if (afterCompletion) await Effect.runPromise(scoped.send(turnId, "start"));
+		const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+		expect(
+			events.filter((envelope) => envelope.event._tag !== "Completed"),
+		).toEqual([
+			{ scope: "session", event: question },
+			{ scope: "session", event: resolution },
+		]);
+	});
+
 	it("forwards ephemeral question callback release independently of turn state", async () => {
 		const scoped = await Effect.runPromise(
 			makeTurnScopedSessionHandle(

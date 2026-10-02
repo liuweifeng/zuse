@@ -130,7 +130,7 @@ export interface ConversationEventRuntimeOptions {
 	) => Effect.Effect<boolean>;
 	readonly persist: (
 		sessionId: SessionId,
-		turnId: AgentTurnId,
+		turnId: AgentTurnId | null,
 		content: MessageContent,
 		providerItemIdentity?: string,
 		expectedAttempt?: AttemptOwnership,
@@ -437,17 +437,16 @@ export const makeConversationEventRuntime = Effect.fn(
 									) {
 										return;
 									}
-									if (envelope.scope !== "turn" || turnId === undefined) return;
+									if (
+										envelope.scope !== "turn" &&
+										event._tag !== "UserQuestion" &&
+										event._tag !== "UserQuestionResolved"
+									)
+										return;
 									if (event._tag === "PermissionRequest") {
 										yield* options.publishApiActivity(
 											sessionId,
 											"approval-needed",
-										);
-									}
-									if (event._tag === "UserQuestion") {
-										yield* options.publishApiActivity(
-											sessionId,
-											"question-needed",
 										);
 									}
 									const content = eventToContent(event);
@@ -460,7 +459,7 @@ export const makeConversationEventRuntime = Effect.fn(
 									}
 									yield* options.persist(
 										sessionId,
-										turnId,
+										turnId ?? null,
 										content,
 										"itemId" in event && typeof event.itemId === "string"
 											? `${event._tag}:${event.itemId}`
@@ -468,6 +467,12 @@ export const makeConversationEventRuntime = Effect.fn(
 										ownership,
 										providerSessionId,
 									);
+									if (event._tag === "UserQuestion") {
+										yield* options.publishApiActivity(
+											sessionId,
+											"question-needed",
+										);
+									}
 									if (event._tag === "Error") {
 										yield* options.publishApiActivity(sessionId, "error");
 									}
