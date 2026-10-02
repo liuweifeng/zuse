@@ -196,7 +196,11 @@ export const deriveSessionPresentation = ({
 		(item) => item.interaction._tag === "Permission",
 	)
 		? "permission"
-		: interactions.some((item) => item.interaction._tag === "Question")
+		: interactions.some(
+					(item) =>
+						item.interaction._tag === "Question" &&
+						item.interaction.recoveryState !== "expired",
+				)
 			? "question"
 			: isSessionRuntimeBusy(runtime)
 				? "running"

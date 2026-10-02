@@ -12,6 +12,7 @@ import type {
 	MessageId,
 	QueuedMessage,
 	SessionId,
+	SessionInteraction,
 } from "@zuse/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -36,6 +37,14 @@ import {
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
+
+const interactionsBySessionAtom = Atom.make<
+	Record<string, readonly SessionInteraction[]>
+>({}).pipe(Atom.keepAlive);
+const EMPTY_INTERACTIONS: readonly SessionInteraction[] = [];
+export const sessionInteractionsAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(interactionsBySessionAtom)[key] ?? EMPTY_INTERACTIONS),
+);
 
 export const messagesBySessionAtom = Atom.make<
 	Record<string, readonly Message[]>
@@ -198,6 +207,11 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		markSessionTurnWaiting(liveKey);
 	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
+		appAtomRegistry.update(interactionsBySessionAtom, (state) =>
+			state[liveKey] === projection.interactions
+				? state
+				: { ...state, [liveKey]: projection.interactions },
+		);
 		appAtomRegistry.update(transcriptReadyBySessionAtom, (state) =>
 			state[liveKey] ? state : { ...state, [liveKey]: true },
 		);
@@ -262,6 +276,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
+		appAtomRegistry.set(interactionsBySessionAtom, {});
 		appAtomRegistry.set(transcriptReadyBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
 		appAtomRegistry.set(queuePausedBySessionAtom, {});

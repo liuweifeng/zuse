@@ -65,6 +65,13 @@ export const applyTimelineEvent = (
 			const content = event.message.content;
 			const interactions = (() => {
 				if (content._tag === "user_question") {
+					if (index !== -1) return projection.interactions;
+					if (
+						projection.interactions.some(
+							(item) => item._tag === "Question" && item.id === content.itemId,
+						)
+					)
+						return projection.interactions;
 					return upsertInteraction(projection.interactions, {
 						_tag: "Question",
 						id: content.itemId,
@@ -172,6 +179,15 @@ export const applyTimelineEvent = (
 					projection.interactions,
 					"Permission",
 					event.requestId,
+				),
+			});
+		case "QuestionExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((interaction) =>
+					interaction._tag === "Question" && interaction.id === event.itemId
+						? { ...interaction, recoveryState: "expired" as const }
+						: interaction,
 				),
 			});
 		case "QuestionResolved":

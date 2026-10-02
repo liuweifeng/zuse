@@ -188,3 +188,24 @@ describe("question actionability", () => {
 		).toEqual({ question: candidate, actionable: false });
 	});
 });
+
+it("never reactivates an expired question from stale callback attachment state", () => {
+	const expired: PresentedQuestionInteraction = {
+		...question,
+		interaction: { ...question.interaction, recoveryState: "expired" },
+	};
+	const attachments = {
+		[structuralTupleKey(sessionId, itemId)]: { sessionId, itemId },
+	};
+	expect(selectPresentedQuestion(sessionId, [expired], attachments)).toEqual({
+		question: expired,
+		actionable: false,
+	});
+	expect(
+		filterActionableQuestionInteractions(
+			sessionId,
+			[expired.interaction],
+			attachments,
+		),
+	).toEqual([]);
+});

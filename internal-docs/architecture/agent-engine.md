@@ -163,8 +163,14 @@ recorded ownership and original turn IDs without assigning current owners to leg
 requests. Unreceipted question answers/cancellations require known durable ownership
 and recheck it before callback delivery, using the same ownership predicate as
 approvals. Answer receipts retain the request's original turn, including null for
-session inputs. Plan responses, engine-driven question expiry and durable answer
-jobs remain outstanding; these preflights are not an atomic provider/SQLite commit.
+session inputs. A bounded question sweep now expires requests whose recorded owner
+or callback is gone, with ownership rechecked inside the expiry transaction.
+Startup checks the first 100 pending requests; subsequent pages run in the background.
+Imported requests with unknown ownership also become explicitly expired. Desktop
+and mobile render a disabled, dismissible card from the durable interaction projection;
+provider-native timeout receipts remain resolved rather than reappearing as cards.
+Plan responses and durable answer jobs remain outstanding; the answer preflights
+are not an atomic provider/SQLite commit.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

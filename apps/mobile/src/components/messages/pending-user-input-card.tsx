@@ -30,10 +30,12 @@ const complete = (
 export const PendingUserInputCard = ({
 	itemId,
 	questions,
+	expired = false,
 	onSubmit,
 	onCancel,
 }: {
 	itemId: string;
+	expired?: boolean;
 	questions: readonly UserQuestion[];
 	onSubmit: (
 		itemId: string,
@@ -54,10 +56,44 @@ export const PendingUserInputCard = ({
 		[drafts, questions],
 	);
 
+	const dismiss = async () => {
+		if (submitting) return;
+		setSubmitting(true);
+		setError(null);
+		try {
+			await onCancel(itemId);
+			preservedDrafts.delete(itemId);
+		} catch (cause) {
+			setError(cause instanceof Error ? cause.message : String(cause));
+			setSubmitting(false);
+		}
+	};
+
+	if (expired)
+		return (
+			<View className="rounded-2xl bg-secondary p-3">
+				<Text className="text-sm text-muted-foreground">
+					This question has expired.
+				</Text>
+				<Pressable
+					accessibilityRole="button"
+					disabled={submitting}
+					onPress={() => {
+						void dismiss();
+					}}
+				>
+					<Text className="mt-2 text-sm text-primary">Dismiss</Text>
+				</Pressable>
+				{error === null ? null : (
+					<Text className="text-sm text-destructive">{error}</Text>
+				)}
+			</View>
+		);
+
 	if (active === undefined) return null;
 
 	const submitWith = async (nextDrafts: readonly Draft[]) => {
-		if (submitting || !complete(questions, nextDrafts)) return;
+		if (expired || submitting || !complete(questions, nextDrafts)) return;
 		setSubmitting(true);
 		setError(null);
 		try {
@@ -98,19 +134,6 @@ export const PendingUserInputCard = ({
 			return;
 		}
 		commit({ selected: [optionIndex], other: "" }, true);
-	};
-
-	const dismiss = async () => {
-		if (submitting) return;
-		setSubmitting(true);
-		setError(null);
-		try {
-			await onCancel(itemId);
-			preservedDrafts.delete(itemId);
-		} catch (cause) {
-			setError(cause instanceof Error ? cause.message : String(cause));
-			setSubmitting(false);
-		}
 	};
 
 	return (

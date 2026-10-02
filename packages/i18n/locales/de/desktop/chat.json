@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "Feedback unten eingeben oder den Plan genehmigen",
 	"decision_submitting": "Entscheidung wird übermittelt…",
 	"decision_submit_failed": "Entscheidung konnte nicht übermittelt werden: {{error}}",
+	"question_expired": "Diese Frage ist abgelaufen.",
 	"question_reconnecting": "Verbindung zu dieser Frage wird wiederhergestellt…",
 	"answer_submitting": "Antwort wird übermittelt…",
 	"answer_submit_failed": "Antwort konnte nicht übermittelt werden",

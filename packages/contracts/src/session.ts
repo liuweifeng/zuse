@@ -544,6 +544,7 @@ export type SessionTurn = typeof SessionTurn.Type;
 export const SessionInteraction = Schema.Union([
 	Schema.TaggedStruct("Question", {
 		id: AgentItemId,
+		recoveryState: Schema.optional(Schema.Literal("expired")),
 		questions: Schema.Array(UserQuestion),
 		requestedAt: Schema.DateFromString,
 	}),
@@ -606,6 +607,7 @@ export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("PermissionRequested", { request: PermissionRequest }),
 	Schema.TaggedStruct("PermissionResolved", { requestId: Schema.String }),
 	Schema.TaggedStruct("PermissionExpired", { requestId: Schema.String }),
+	Schema.TaggedStruct("QuestionExpired", { itemId: AgentItemId }),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: AgentItemId,
 		resolution: Schema.Literal("cancelled"),

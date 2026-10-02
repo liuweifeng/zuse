@@ -60,6 +60,7 @@ interface QueueRow {
 }
 
 interface PendingQuestionRow {
+	readonly expired: number;
 	readonly content_json: string;
 	readonly created_at: string;
 }
@@ -102,9 +103,10 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 	sessionId: SessionId,
 ) {
 	const questionRows = yield* sql<PendingQuestionRow>`
-		SELECT request_json AS content_json, requested_at AS created_at
+		SELECT request_json AS content_json, requested_at AS created_at,
+			CASE WHEN status = 'expired' THEN 1 ELSE 0 END AS expired
 		FROM session_inputs
-		WHERE session_id = ${sessionId} AND kind = 'question' AND status = 'pending'
+		WHERE session_id = ${sessionId} AND kind = 'question' AND (status = 'pending' OR (status = 'expired' AND awaiting_dismissal = 1))
 			AND request_json IS NOT NULL
 		ORDER BY requested_sequence LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
 	`;
@@ -139,6 +141,7 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 		interactions.push({
 			_tag: "Question",
 			id: content.success.itemId,
+			...(row.expired === 1 ? { recoveryState: "expired" as const } : {}),
 			questions: content.success.questions,
 			requestedAt: requestedAt.success,
 		});

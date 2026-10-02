@@ -141,6 +141,11 @@ export const timelineEventFromDomain = (
 			return { _tag: "PermissionExpired", requestId: event.requestId };
 		case "PermissionResolved":
 			return { _tag: "PermissionResolved", requestId: event.requestId };
+		case "QuestionExpired":
+			return {
+				_tag: "QuestionExpired",
+				itemId: event.itemId as import("@zuse/contracts").AgentItemId,
+			};
 		case "QuestionResolved":
 			return {
 				_tag: "QuestionResolved",

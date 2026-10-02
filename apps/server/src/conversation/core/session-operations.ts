@@ -748,6 +748,28 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				if (receipt._tag === "invalid") {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				const expired =
+					yield* sql`SELECT 1 FROM session_inputs WHERE session_id = ${sessionId}
+					AND kind = 'question' AND request_id = ${itemId} AND status = 'expired'`.pipe(
+						Effect.orDie,
+					);
+				if (expired.length > 0) {
+					yield* dispatchSessionCommandWithId(
+						sessionId,
+						questionCancellationCommandId(sessionId, itemId),
+						{
+							_tag: "ResolveQuestion",
+							itemId,
+							resolution: "cancelled",
+							resolvedAt: yield* currentTimestamp,
+						},
+					);
+					yield* sql`DELETE FROM question_answer_deliveries WHERE session_id = ${sessionId} AND item_id = ${itemId}`.pipe(
+						Effect.orDie,
+					);
+					return;
+				}
+
 				const authority = yield* loadQuestionAuthority(
 					sql,
 					sessionId,

@@ -229,6 +229,10 @@ export const SessionCommand = Schema.Union([
 		requestId: Schema.String,
 		expiredAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ExpireQuestion", {
+		itemId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ResolveQuestion", {
 		itemId: Schema.String,
 		resolution: Schema.Literal("cancelled"),

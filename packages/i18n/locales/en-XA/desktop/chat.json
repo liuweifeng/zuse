@@ -25,6 +25,7 @@
 	"plan_feedback_or_approve": "⟦Typëë fëëëëdbààck bëëlôôw, ôôr ààpprôôvëë thëë plààn⟧",
 	"decision_submitting": "⟦Süübmïïttïïng dëëcïïsïïôôn…⟧",
 	"decision_submit_failed": "⟦Côôüüldn’t süübmïït dëëcïïsïïôôn: {{error}}⟧",
+	"question_expired": "⟦Thïïs qüüëëstïïôôn hààs ëëxpïïrëëd.⟧",
 	"question_reconnecting": "⟦Rëëcôônnëëctïïng tôô thïïs qüüëëstïïôôn…⟧",
 	"answer_submitting": "⟦Süübmïïttïïng àànswëër…⟧",
 	"answer_submit_failed": "⟦Côôüüldn’t süübmïït àànswëër⟧",
