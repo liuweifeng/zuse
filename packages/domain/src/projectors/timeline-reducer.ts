@@ -18,7 +18,8 @@ export const emptyTimelineProjection = (): SessionTimelineProjection =>
 		messages: [],
 		olderMessageSequence: null,
 		status: "idle",
-		currentTurn: null,
+		activeTurn: null,
+		turnCount: 0,
 		queue: QueueState.make({ items: [], paused: false }),
 		permissionMode: DEFAULT_PERMISSION_MODE,
 		runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -85,31 +86,48 @@ export const applyTimelineEvent = (
 				interactions,
 			});
 		}
-		case "StatusSet":
+		case "StatusSet": {
+			// The provider accepted the active turn: it is running, not starting.
+			const activeTurn =
+				event.status === "running" &&
+				projection.activeTurn !== null &&
+				projection.activeTurn.status === "starting"
+					? { ...projection.activeTurn, status: "running" as const }
+					: projection.activeTurn;
 			return SessionTimelineProjection.make({
 				...projection,
 				status: event.status,
+				activeTurn,
 			});
+		}
 		case "TurnStarted":
 			return SessionTimelineProjection.make({
 				...projection,
-				currentTurn: { turnId: event.turnId, phase: event.phase },
+				activeTurn: event.turn,
+				turnCount: Math.max(projection.turnCount, event.turn.ordinal),
 			});
-		case "TurnPhaseSet":
-			return projection.currentTurn?.turnId === event.turnId
+		case "TurnUpdated":
+			return projection.activeTurn?.id === event.turn.id
 				? SessionTimelineProjection.make({
 						...projection,
-						currentTurn: { turnId: event.turnId, phase: event.phase },
+						activeTurn: event.turn,
+					})
+				: projection;
+		case "TurnPhaseSet":
+			return projection.activeTurn?.id === event.turnId
+				? SessionTimelineProjection.make({
+						...projection,
+						activeTurn: { ...projection.activeTurn, phase: event.phase },
 					})
 				: projection;
 		case "TurnSettled":
 			// Settlement is the authoritative terminal transition for a turn. Keep
 			// the live reducer identical to the SQLite projector: otherwise a client
-			// can clear currentTurn while retaining status="running" until remount.
+			// can clear the active turn while retaining status="running" until remount.
 			return SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
 			});
 		case "PermissionModeSet":
 			return SessionTimelineProjection.make({

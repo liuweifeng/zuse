@@ -1,5 +1,6 @@
 import { Result } from "effect";
 import { describe, expect, test } from "vitest";
+import { scopeProviderThreadId } from "../../../src/agent-engine/ids.js";
 import { decide, turnInterruptReceipt } from "../../../src/core/decider.js";
 import { evolveAll, initialSessionState } from "../../../src/core/state.js";
 import {
@@ -19,6 +20,60 @@ const created = () =>
 	]);
 
 describe("session decider", () => {
+	test("replays historical provider-thread references into the owning session", () => {
+		const historicalId = "provider-thread:provider:codex:native-thread:native";
+		const state = evolveAll(created(), [
+			{
+				_tag: "SessionProviderSet",
+				providerId: "codex",
+				model: "codex",
+				updatedAt: 1,
+			},
+			{
+				_tag: "ProviderThreadUpdated",
+				providerThread: {
+					id: historicalId,
+					provider: "codex",
+					nativeThreadId: "native",
+					nativeHeadId: "head",
+					status: "idle",
+					firstTurnOrdinal: null,
+					lastTurnOrdinal: null,
+					createdAt: 1,
+					updatedAt: 1,
+				},
+			},
+			{
+				_tag: "ActiveProviderThreadSet",
+				providerThreadId: historicalId,
+				updatedAt: 1,
+			},
+			{
+				_tag: "TurnStarted",
+				turnId: "turn-legacy",
+				startedAt: 2,
+				providerThreadId: historicalId,
+			},
+		]);
+		const expectedId = scopeProviderThreadId(
+			sessionCreation.sessionId,
+			historicalId,
+		);
+		expect(state.activeProviderThreadId).toBe(expectedId);
+		expect(state.turns.get("turn-legacy")?.providerThreadId).toBe(expectedId);
+		expect([...state.providerThreads.keys()]).toEqual([expectedId]);
+		expect(
+			Result.getOrThrow(
+				decide(state, {
+					_tag: "BindProviderThread",
+					nativeThreadId: "native",
+					nativeHeadId: "next-head",
+					updatedAt: 3,
+				}),
+			).find((event) => event._tag === "ProviderThreadUpdated"),
+		).toMatchObject({ providerThread: { id: expectedId } });
+	});
+
 	test("allows automatic naming only while the session title is pending", () => {
 		let state = created();
 		const automatic = Result.getOrThrow(
@@ -94,35 +149,99 @@ describe("session decider", () => {
 		]);
 	});
 
-	test("treats the provider replay cursor as resume identity", () => {
-		const resumed = evolveAll(created(), [
-			{
-				_tag: "SessionResumeSet",
-				cursor: "provider-session",
-				resumeStrategy: "grok-session-id",
-				providerEventCursor: "event-7",
-				updatedAt: 2,
-			},
+	test("binds the provider thread the driver reported and treats the head as identity", () => {
+		const bound = evolveAll(created(), [
+			...Result.getOrThrow(
+				decide(created(), {
+					_tag: "BindProviderThread",
+					nativeThreadId: "provider-session",
+					nativeHeadId: "event-7",
+					updatedAt: 2,
+				}),
+			),
 		]);
+		expect(bound.activeProviderThreadId).toBe(
+			"provider-thread:session:session-1:provider-thread%3Aprovider%3Aprovider-1%3Anative-thread%3Aprovider-session",
+		);
 		expect(
 			Result.getOrThrow(
-				decide(resumed, {
-					_tag: "SetResume",
-					cursor: "provider-session",
-					resumeStrategy: "grok-session-id",
-					providerEventCursor: "event-8",
+				decide(bound, {
+					_tag: "BindProviderThread",
+					nativeThreadId: "provider-session",
+					nativeHeadId: "event-7",
 					updatedAt: 3,
 				}),
 			),
-		).toEqual([
-			{
-				_tag: "SessionResumeSet",
-				cursor: "provider-session",
-				resumeStrategy: "grok-session-id",
-				providerEventCursor: "event-8",
+		).toEqual([]);
+		const advanced = Result.getOrThrow(
+			decide(bound, {
+				_tag: "BindProviderThread",
+				nativeThreadId: "provider-session",
+				nativeHeadId: "event-8",
 				updatedAt: 3,
+			}),
+		);
+		expect(advanced).toHaveLength(1);
+		expect(advanced[0]).toMatchObject({
+			_tag: "ProviderThreadUpdated",
+			providerThread: { nativeHeadId: "event-8", status: "idle" },
+		});
+	});
+
+	test("counts turns and records attempts for retries", () => {
+		const state = created();
+		const first = Result.getOrThrow(
+			decide(state, {
+				_tag: "StartTurn",
+				turnId: "turn-1",
+				startedAt: 2,
+			}),
+		);
+		expect(first[0]).toMatchObject({
+			_tag: "TurnStarted",
+			ordinal: 1,
+			attemptId: "attempt:turn:turn-1:ordinal:1",
+		});
+		const running = evolveAll(state, first);
+		expect(running.turns.get("turn-1")).toMatchObject({
+			ordinal: 1,
+			status: "starting",
+		});
+		const retried = Result.getOrThrow(
+			decide(running, {
+				_tag: "RetryTurn",
+				turnId: "turn-1",
+				reason: "retry",
+				providerInputJson: "{}",
+				requestedAt: 3,
+			}),
+		);
+		expect(retried.map((event) => event._tag)).toEqual([
+			"AttemptStarted",
+			"SessionStatusSet",
+			"ProviderTurnRequested",
+		]);
+		const afterRetry = evolveAll(running, retried);
+		const turn = afterRetry.turns.get("turn-1");
+		expect(turn?.activeAttemptId).toBe("attempt:turn:turn-1:ordinal:2");
+		expect(turn?.attempts.get("attempt:turn:turn-1:ordinal:1")?.status).toBe(
+			"superseded",
+		);
+		const settled = evolveAll(afterRetry, [
+			{
+				_tag: "TurnSettled",
+				turnId: "turn-1",
+				outcome: "completed",
+				settledAt: 4,
 			},
 		]);
+		expect(settled.turns.get("turn-1")?.status).toBe("completed");
+		expect(settled.currentTurnId).toBeNull();
+		expect(
+			Result.getOrThrow(
+				decide(settled, { _tag: "StartTurn", turnId: "turn-2", startedAt: 5 }),
+			)[0],
+		).toMatchObject({ ordinal: 2 });
 	});
 
 	test("creates a session exactly once", () => {
@@ -381,6 +500,65 @@ describe("session decider", () => {
 		).toEqual([]);
 	});
 
+	test("targets a stop at its attachment and preserves a later same-provider process", () => {
+		const first = evolveAll(created(), [
+			{
+				_tag: "ProviderAttached",
+				providerId: "claude",
+				providerSessionId: "first",
+				attachedAt: 1,
+			},
+		]);
+		const stop = Result.getOrThrow(
+			decide(first, { _tag: "RequestProviderStop", requestedAt: 2 }),
+		);
+		expect(stop).toEqual([
+			{
+				_tag: "ProviderStopRequested",
+				providerId: "claude",
+				providerSessionId: "first",
+				requestedAt: 2,
+			},
+		]);
+		const attach = Result.getOrThrow(
+			decide(evolveAll(first, stop), {
+				_tag: "AttachProvider",
+				providerId: "claude",
+				providerSessionId: "second",
+				attachedAt: 3,
+			}),
+		);
+		const second = evolveAll(first, attach);
+		expect(second.attachedProviderSessionId).toBe("second");
+		for (const expectedProviderSessionId of ["first", null]) {
+			expect(
+				Result.getOrThrow(
+					decide(second, {
+						_tag: "DetachProvider",
+						expectedProviderSessionId,
+						detachedAt: 4,
+					}),
+				),
+			).toEqual([]);
+		}
+		const detach = Result.getOrThrow(
+			decide(second, {
+				_tag: "DetachProvider",
+				expectedProviderSessionId: "second",
+				detachedAt: 5,
+			}),
+		);
+		expect(detach).toEqual([
+			{
+				_tag: "ProviderDetached",
+				providerId: "claude",
+				providerSessionId: "second",
+				detachedAt: 5,
+			},
+		]);
+		expect(evolveAll(second, detach).attachedProviderSessionId).toBeNull();
+	});
+
 	test("records queue pause changes idempotently", () => {
 		const command = {
 			_tag: "SetQueuePaused" as const,
@@ -409,10 +587,20 @@ describe("session decider", () => {
 				}),
 			),
 		).toEqual([
-			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 3 },
+			{
+				_tag: "TurnInterruptRequested",
+				turnId: "turn-1",
+				attemptId: "attempt:turn:turn-1:ordinal:1",
+				requestedAt: 3,
+			},
 		]);
 		const requested = evolveAll(running, [
-			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 3 },
+			{
+				_tag: "TurnInterruptRequested",
+				turnId: "turn-1",
+				attemptId: "attempt:turn:turn-1:ordinal:1",
+				requestedAt: 3,
+			},
 		]);
 		expect(requested.currentTurnId).toBe("turn-1");
 		expect(requested.currentTurnPhase).toBe("interrupt-requested");
@@ -584,7 +772,12 @@ describe("session decider", () => {
 			),
 		).toEqual([
 			{ _tag: "QueuedTurnClaimed", queueId: "queue-1", claimedAt: 4 },
-			{ _tag: "TurnInterruptRequested", turnId: "turn-1", requestedAt: 4 },
+			{
+				_tag: "TurnInterruptRequested",
+				turnId: "turn-1",
+				attemptId: "attempt:turn:turn-1:ordinal:1",
+				requestedAt: 4,
+			},
 			{
 				_tag: "SuccessorTurnScheduled",
 				predecessorTurnId: "turn-1",

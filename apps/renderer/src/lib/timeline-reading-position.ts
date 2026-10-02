@@ -1,12 +1,11 @@
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { SessionId } from "@zuse/contracts";
-
-import { CHAT_LIST_ANCHOR_OFFSET } from "./chat-list-anchor.ts";
 import {
 	type ChatTimelineRow,
 	rowAnchorMessageId,
 } from "./chat-timeline-rows.ts";
 import type { TimelineListMeasurementState } from "./timeline-scroll-anchoring.ts";
+import { TRANSCRIPT_TURN_INSET_PX } from "./timeline-scroll-anchoring.ts";
 import type { TranscriptScrollMode } from "./transcript-scroll-coordinator.ts";
 
 export const TIMELINE_READING_POSITION_SCHEMA_VERSION = 1;
@@ -101,7 +100,7 @@ export function resolveInitialTimelineTarget({
 			position !== undefined &&
 			target.messageId === position.userTurnMessageId
 				? position.viewportOffset
-				: CHAT_LIST_ANCHOR_OFFSET,
+				: TRANSCRIPT_TURN_INSET_PX,
 	};
 }
 
@@ -131,7 +130,7 @@ export function resolveTimelineReadingPosition({
 			schemaVersion: TIMELINE_READING_POSITION_SCHEMA_VERSION,
 			sessionId,
 			userTurnMessageId: latest.messageId,
-			viewportOffset: CHAT_LIST_ANCHOR_OFFSET,
+			viewportOffset: TRANSCRIPT_TURN_INSET_PX,
 			updatedAt: now,
 		};
 	}
@@ -140,7 +139,7 @@ export function resolveTimelineReadingPosition({
 	for (const turn of userTurns) {
 		const top = measurement.positionAtIndex(turn.index);
 		if (!Number.isFinite(top)) continue;
-		if ((top ?? 0) <= measurement.scroll + CHAT_LIST_ANCHOR_OFFSET) {
+		if ((top ?? 0) <= measurement.scroll + TRANSCRIPT_TURN_INSET_PX) {
 			active = turn;
 			continue;
 		}

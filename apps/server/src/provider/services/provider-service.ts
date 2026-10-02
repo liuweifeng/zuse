@@ -13,7 +13,6 @@ import type {
 	FileRef,
 	PermissionMode,
 	PlanApprovalOutcome,
-	ProviderEventEnvelope,
 	ProviderId,
 	ProviderNotAvailableError,
 	QuestionAttachmentChange,
@@ -26,6 +25,7 @@ import type {
 } from "@zuse/contracts";
 import { Context, type Effect, type Stream } from "effect";
 import type { CredentialsError } from "../errors.ts";
+import type { ProviderEventDelivery } from "../provider-event-delivery.ts";
 
 /**
  * Live-read of the per-session runtime mode. Bound at start time and read by
@@ -56,11 +56,15 @@ export interface ProviderServiceShape {
 		 */
 		orchestrationTools?: OrchestrationSessionTools | null,
 		providerEventCursor?: string | null,
+		/** Checked inside lifecycle serialization before replacing any handle. */
+		admit?: Effect.Effect<boolean>,
 	) => Effect.Effect<
 		{
 			readonly sessionId: AgentSessionId;
 			/** Ownership generation for guarded post-start publication. */
 			readonly generation?: number;
+			/** Unique live process residency; never reused after replacement or restart. */
+			readonly providerSessionId?: string;
 			/** The process started, but a newer lifecycle command invalidated it. */
 			readonly superseded?: boolean;
 		},
@@ -80,29 +84,26 @@ export interface ProviderServiceShape {
 		attachments?: ReadonlyArray<AttachmentRef>,
 		fileRefs?: ReadonlyArray<FileRef>,
 		skillRefs?: ReadonlyArray<SkillRef>,
+		attemptId?: import("@zuse/contracts").AttemptId,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
 	readonly interrupt: (
 		sessionId: AgentSessionId,
 		turnId: AgentTurnId,
+		attemptId?: import("@zuse/contracts").AttemptId,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
 	readonly close: (
 		sessionId: AgentSessionId,
+		ownership?: import("@zuse/contracts").ProviderAttemptOwnership,
+		/** null matches historical handles only; undefined is an administrative close. */
+		expectedProviderSessionId?: string | null,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
 	readonly events: (
 		sessionId: AgentSessionId,
-	) => Stream.Stream<ProviderEventEnvelope, AgentSessionNotFoundError>;
+	) => Stream.Stream<ProviderEventDelivery, AgentSessionNotFoundError>;
 
-	readonly acknowledgeProviderEventCursor?: (
-		sessionId: AgentSessionId,
-		cursor: string,
-	) => Effect.Effect<void, AgentSessionNotFoundError>;
-	readonly releaseProviderEventCursor?: (
-		sessionId: AgentSessionId,
-		cursor: string,
-	) => Effect.Effect<void, AgentSessionNotFoundError>;
 	readonly updateMcpServers?: (
 		sessionId: AgentSessionId,
 		servers: ReadonlyArray<unknown>,

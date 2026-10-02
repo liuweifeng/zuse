@@ -101,7 +101,8 @@ describe("message stream lifecycle", () => {
 			savedAt: Date.now(),
 			projection: {
 				messages: [],
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: { items: [], paused: false },
 				olderMessageSequence: null,
 			},

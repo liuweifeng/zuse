@@ -38,9 +38,7 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			model TEXT NOT NULL,
 			status TEXT NOT NULL,
 			archived_at TEXT,
-			cursor TEXT,
-			provider_event_cursor TEXT,
-			resume_strategy TEXT NOT NULL,
+			active_provider_thread_id TEXT,
 			runtime_mode TEXT NOT NULL,
 			agents_json TEXT,
 			worktree_id TEXT,
@@ -50,10 +48,38 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			permission_mode TEXT NOT NULL,
 			tool_search INTEGER NOT NULL,
 			queue_paused INTEGER NOT NULL DEFAULT 0,
-			current_turn_id TEXT,
-			current_turn_phase TEXT,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE session_provider_threads (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			provider TEXT NOT NULL,
+			native_thread_id TEXT NOT NULL,
+			native_head_id TEXT,
+			status TEXT NOT NULL,
+			first_turn_ordinal INTEGER,
+			last_turn_ordinal INTEGER,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE session_turns (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			phase TEXT,
+			provider_thread_id TEXT,
+			active_attempt_id TEXT NOT NULL,
+			attempt_ordinal INTEGER NOT NULL,
+			attempt_reason TEXT NOT NULL,
+			requested_at TEXT NOT NULL,
+			completed_at TEXT,
+			UNIQUE (session_id, ordinal)
 		)
 	`;
 		yield* sql`
@@ -124,6 +150,26 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 		CREATE TABLE projected_messages (
 			message_id TEXT PRIMARY KEY,
 			content_json TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE jobs (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT NOT NULL UNIQUE,
+			session_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			request_json TEXT NOT NULL,
+			status TEXT NOT NULL,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			available_at TEXT NOT NULL,
+			lease_owner TEXT,
+			lease_expires_at TEXT,
+			causation_event_id TEXT,
+			correlation_id TEXT,
+			last_error TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			completed_at TEXT
 		)
 	`;
 	},

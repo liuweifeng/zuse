@@ -3,7 +3,6 @@ import {
 	type Message,
 	type MessageContent,
 	type MessageId,
-	type ResumeStrategy,
 	type Session,
 	SessionStartError,
 } from "@zuse/contracts";
@@ -57,8 +56,7 @@ export const makeTranscriptOperations = (
 			Effect.gen(function* () {
 				const result = yield* createChat({
 					...input,
-					resumeCursor: input.resumeCursor,
-					resumeStrategy: input.resumeStrategy,
+					providerThread: input.providerThread,
 				});
 				return {
 					chat: result.chat,
@@ -171,8 +169,7 @@ export const makeTranscriptOperations = (
 				isTail &&
 				providerId === source.providerId &&
 				providerCanFork &&
-				source.cursor !== null &&
-				source.resumeStrategy !== "none"
+				source.providerThread !== null
 					? "resume"
 					: "copy";
 			const title =
@@ -181,9 +178,15 @@ export const makeTranscriptOperations = (
 				.slice(0, forkIndex + 1)
 				.map(messageFromRow)
 				.filter((message) => shouldIncludeInTranscript(message.content));
-			const resumeCursor = forkMode === "resume" ? source.cursor : null;
-			const resumeStrategy: ResumeStrategy =
-				forkMode === "resume" ? source.resumeStrategy : "none";
+			const providerThread =
+				forkMode === "resume" && source.providerThread !== null
+					? {
+							nativeThreadId:
+								source.providerThread.nativeThreadRef.nativeId ?? "",
+							nativeHeadId:
+								source.providerThread.nativeHeadRef?.nativeId ?? null,
+						}
+					: undefined;
 
 			let chat: Chat;
 			let session: Session;
@@ -197,8 +200,7 @@ export const makeTranscriptOperations = (
 					permissionMode: source.permissionMode,
 					toolSearch: source.toolSearch,
 					background: true,
-					resumeCursor,
-					resumeStrategy,
+					providerThread,
 					forkedFromSessionId: input.sourceSessionId,
 					forkedFromMessageId: input.fromMessageId,
 					forkFromResume: forkMode === "resume",
@@ -217,8 +219,7 @@ export const makeTranscriptOperations = (
 					runtimeMode: source.runtimeMode,
 					permissionMode: source.permissionMode,
 					toolSearch: source.toolSearch,
-					resumeCursor,
-					resumeStrategy,
+					providerThread,
 					// Cross-machine ancestry is recorded in the workspace lineage; the
 					// source session is not a row in this fresh database.
 					forkedFromSessionId:

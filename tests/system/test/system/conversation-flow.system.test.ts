@@ -50,7 +50,7 @@ describe("conversation flow through production RPC", () => {
 				}),
 			);
 			expect(completedSession.status).toBe("idle");
-			expect(completedSession.cursor).not.toBeNull();
+			expect(completedSession.providerThread).not.toBeNull();
 
 			await session.dispose();
 			await server.stop("SIGKILL");
@@ -68,7 +68,9 @@ describe("conversation flow through production RPC", () => {
 				}),
 			);
 			expect(restoredSession.status).toBe("idle");
-			expect(restoredSession.cursor).toBe(completedSession.cursor);
+			expect(restoredSession.providerThread?.nativeThreadRef.nativeId).toBe(
+				completedSession.providerThread?.nativeThreadRef.nativeId,
+			);
 			expect(
 				restored.some(
 					(message) =>

@@ -12,8 +12,7 @@ const session = {
 	providerId: "provider-1",
 	model: "model-1",
 	status: "idle",
-	cursor: null,
-	resumeStrategy: "none",
+	providerThread: null,
 	runtimeMode: "approval-required",
 	agentsJson: null,
 	worktreeId: null,
@@ -86,7 +85,6 @@ describe("synthesizeBackfill", () => {
 			_tag: "SessionCreated",
 			providerId: "provider-1",
 			model: "model-1",
-			resumeStrategy: "none",
 			runtimeMode: "approval-required",
 			permissionMode: "default",
 		});

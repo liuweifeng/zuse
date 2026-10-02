@@ -7,6 +7,7 @@ import {
 	ChatId,
 	FolderId,
 	MessageId,
+	ProviderThreadId,
 	Session,
 	SessionId,
 } from "@zuse/contracts";
@@ -28,8 +29,21 @@ const session = Session.make({
 	model: "model",
 	status: "idle",
 	archivedAt: null,
-	cursor: "cursor",
-	resumeStrategy: "codex-thread-id",
+	providerThread: {
+		id: ProviderThreadId.make("thread-source"),
+		provider: "codex",
+		nativeThreadRef: {
+			provider: "codex",
+			nativeId: "cursor",
+			strength: "strong",
+		},
+		nativeHeadRef: null,
+		status: "idle",
+		firstTurnOrdinal: null,
+		lastTurnOrdinal: null,
+		createdAt: now,
+		updatedAt: now,
+	},
 	runtimeMode: "full-access",
 	worktreeId: null,
 	forkedFromSessionId: SessionId.make("source"),
@@ -54,7 +68,7 @@ const chat = Chat.make({
 	updatedAt: now,
 });
 
-const sourceFixture = (path: string) => {
+const sourceFixture = (path: string, schema: "legacy" | "engine") => {
 	const db = new DatabaseSync(path);
 	db.exec(`CREATE TABLE sessions (id TEXT, chat_id TEXT, project_id TEXT, title TEXT, provider_id TEXT, model TEXT, status TEXT, archived_at TEXT, cursor TEXT, resume_strategy TEXT, runtime_mode TEXT, worktree_id TEXT, forked_from_session_id TEXT, forked_from_message_id TEXT, permission_mode TEXT, tool_search INTEGER, created_at TEXT, updated_at TEXT);
  INSERT INTO sessions VALUES ('source','parent-chat','old-project','Original','codex','model','idle',NULL,'provider-cursor','codex-thread-id','full-access',NULL,NULL,NULL,'default',0,'2026-01-01','2026-01-01');
@@ -76,17 +90,28 @@ const sourceFixture = (path: string) => {
 		JSON.stringify({ _tag: "assistant", text: "world" }),
 		2,
 	);
+	if (schema === "engine") {
+		db.exec(`ALTER TABLE sessions ADD COLUMN active_provider_thread_id TEXT;
+   CREATE TABLE session_provider_threads (id TEXT, session_id TEXT, provider TEXT, native_thread_id TEXT, native_head_id TEXT, status TEXT, first_turn_ordinal INTEGER, last_turn_ordinal INTEGER, created_at TEXT, updated_at TEXT);
+   INSERT INTO session_provider_threads VALUES ('thread-source', 'source', 'codex', 'provider-cursor', NULL, 'idle', NULL, NULL, '2026-01-01', '2026-01-01');
+   UPDATE sessions SET active_provider_thread_id = 'thread-source';
+   ALTER TABLE sessions DROP COLUMN cursor;
+   ALTER TABLE sessions DROP COLUMN resume_strategy;`);
+	}
 	db.close();
 };
 
-describe("machine fork transcript import", () => {
+describe.each([
+	"legacy",
+	"engine",
+] as const)("machine fork transcript import (%s schema)", (schema) => {
 	test.each([
 		"start",
 		"tail",
 	])("imports through %s and replays without duplicate messages", async (point) => {
 		const dir = mkdtempSync(join(tmpdir(), "zuse-fork-"));
 		const path = join(dir, "source.sqlite");
-		sourceFixture(path);
+		sourceFixture(path, schema);
 		try {
 			await Effect.runPromise(
 				Effect.gen(function* () {
@@ -139,7 +164,10 @@ describe("machine fork transcript import", () => {
 							chatId: "new-chat",
 							initialSessionId: "new-session",
 							commandId: "launch:child",
-							resumeCursor: point === "tail" ? "provider-cursor" : null,
+							providerThread:
+								point === "tail"
+									? { nativeThreadId: "provider-cursor", nativeHeadId: null }
+									: undefined,
 							forkFromResume: point === "tail",
 							forkedFromSessionId: null,
 						}),

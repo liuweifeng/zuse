@@ -2,10 +2,11 @@ import {
 	type ChatId,
 	type FolderId,
 	type ProviderId,
-	type SessionId,
+	SessionId,
 	SessionNotFoundError,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { makeJobWorker } from "@zuse/domain/agent-engine/job-worker";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
@@ -13,7 +14,15 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { DateTime, Effect, FileSystem, Layer } from "effect";
+import {
+	DateTime,
+	Effect,
+	FileSystem,
+	Layer,
+	Option,
+	PubSub,
+	Scope,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
@@ -42,7 +51,7 @@ import {
 	type MessageOperations,
 	makeMessageOperations,
 } from "../core/message-operations.ts";
-import { makeProviderReactorHandlers } from "../core/provider-reactor-handlers.ts";
+import { makeProviderJobExecutor } from "../core/provider-jobs.ts";
 import { makeSessionOperations } from "../core/session-operations.ts";
 import { makeTranscriptOperations } from "../core/transcript-operations.ts";
 import { ConversationRuntime } from "../services/conversation-runtime.ts";
@@ -93,7 +102,9 @@ const ConversationRuntimeLive = Layer.effect(
 			command: SessionCommand,
 		): Effect.Effect<void> {
 			return appendSessionCommand(sessionId, command).pipe(
-				Effect.andThen(Effect.suspend(() => reactorRuntime.runSession)),
+				Effect.andThen(
+					Effect.suspend(() => reactorRuntime.runSession(sessionId)),
+				),
 			);
 		}
 		const dispatchChatCommand = (
@@ -109,10 +120,15 @@ const ConversationRuntimeLive = Layer.effect(
 				})
 				.pipe(Effect.asVoid, Effect.orDie);
 		const provider = yield* ProviderService;
-		const attachProvider = (sessionId: SessionId, providerId: ProviderId) =>
+		const attachProvider = (
+			sessionId: SessionId,
+			providerId: ProviderId,
+			providerSessionId?: string,
+		) =>
 			Effect.gen(function* () {
 				yield* appendSessionCommand(sessionId, {
 					_tag: "AttachProvider",
+					providerSessionId,
 					providerId,
 					attachedAt: yield* currentTimestamp,
 				});
@@ -123,7 +139,7 @@ const ConversationRuntimeLive = Layer.effect(
 					_tag: "RequestProviderStop",
 					requestedAt: yield* currentTimestamp,
 				});
-				yield* reactorRuntime.runProviderStop;
+				yield* reactorRuntime.runProviderStop(sessionId);
 			});
 		const ndjson = yield* NdjsonLogger;
 		const worktrees = yield* WorktreeService;
@@ -185,13 +201,16 @@ const ConversationRuntimeLive = Layer.effect(
 				apiActivity,
 				provider,
 				dispatchSessionCommand: appendSessionCommand,
-				runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
+				runSessionReactors: (sessionId) =>
+					Effect.suspend(() => reactorRuntime.runSession(sessionId)),
 				flushQueueAfterIdle: (sessionId): Effect.Effect<void> =>
 					Effect.suspend(() => queueRuntime.flushAfterIdle(sessionId)),
 				shutdownQueueSession: (sessionId): Effect.Effect<void> =>
 					Effect.suspend(() => queueRuntime.shutdown(sessionId)),
 			});
 		const {
+			persistAttemptMessage,
+			setAttemptStatus,
 			beginTurn,
 			resolveActiveTurn,
 			settleTurn,
@@ -238,7 +257,8 @@ const ConversationRuntimeLive = Layer.effect(
 			startSubscription,
 			broadcastChat,
 			persistMessage,
-			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
+			runSessionReactors: (sessionId) =>
+				Effect.suspend(() => reactorRuntime.runSession(sessionId)),
 			dispatchSessionCommand: appendSessionCommand,
 			dispatchSessionCommandWithId: (sessionId, commandId, command) =>
 				sessionDomain
@@ -323,23 +343,14 @@ const ConversationRuntimeLive = Layer.effect(
 			configStore,
 		});
 		const { renameChat, markChatRead, autoNameChat } = autoNameOperations;
-		const {
-			handleProviderStart,
-			handleProviderStop,
-			handleProviderTurn,
-			handleProviderInterrupt,
-			handleScheduledSuccessor,
-			handleAutoName,
-		} = makeProviderReactorHandlers({
-			awaitWorkspaceReady: executionPolicy.awaitReady,
+		const executeProviderJob = makeProviderJobExecutor({
+			delivery: reactorEffects,
 			authorizeQueuedTurn: executionPolicy.authorize,
-			reactorEffects,
 			getSession: lookupSession,
 			ensureForTurn,
-			persistMessage,
+			persistMessage: persistAttemptMessage,
 			ndjsonAppend,
-			setStatus,
-			resolveActiveTurn,
+			setStatus: setAttemptStatus,
 			getProviderStartJson: (sessionId) =>
 				sql<{ readonly provider_start_json: string | null }>`
 					SELECT json_extract(payload_json, '$.providerStartJson') AS provider_start_json
@@ -353,13 +364,63 @@ const ConversationRuntimeLive = Layer.effect(
 					Effect.map((rows) => rows[0]?.provider_start_json ?? null),
 					Effect.orDie,
 				),
-			settleTurnFromReactor,
+			settleTurn: settleTurnFromReactor,
 			rememberActiveTurn: (sessionId, turnId) =>
 				state.rememberActiveTurn(sessionId, turnId),
 			provider,
 			sessionDomain,
-			autoNameChat,
 		});
+		const jobWorker = yield* makeJobWorker({
+			ledger: sessionDomain.jobs,
+			execute: executeProviderJob,
+			workerId: `server:${process.pid}`,
+			onFailure: (failure) =>
+				Effect.logWarning(
+					`[ConversationServices] job ${failure.job.id} (${failure.job.request._tag}) ${failure.outcome}: ${failure.failure.message}`,
+				),
+		});
+		// Reconcile durable claims before any worker can claim or execute them.
+		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
+		// Background loops pick up retries and work committed by other processes.
+		// Commands still drain synchronously so a caller sees its own outcome.
+		yield* jobWorker.start.pipe(
+			Effect.provideService(Scope.Scope, serviceScope),
+		);
+		yield* Effect.forkIn(
+			Effect.gen(function* () {
+				const wake = yield* PubSub.subscribe(sessionDomain.jobWakeups);
+				while (true) {
+					yield* PubSub.take(wake);
+					yield* jobWorker.notify;
+				}
+			}).pipe(Effect.scoped),
+			serviceScope,
+		);
+		yield* Effect.forkIn(
+			Effect.gen(function* () {
+				const cancellations = yield* PubSub.subscribe(
+					sessionDomain.jobCancellations,
+				);
+				while (true) yield* jobWorker.cancel(yield* PubSub.take(cancellations));
+			}).pipe(Effect.scoped),
+			serviceScope,
+		);
+
+		const handleAutoName = (
+			input: Parameters<
+				Parameters<typeof makeConversationReactorRuntime>[0]["autoName"]
+			>[0],
+		) =>
+			Effect.gen(function* () {
+				const sessionId = SessionId.make(input.streamId);
+				const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
+				yield* autoNameChat(
+					session.chatId,
+					sessionId,
+					input.command.turnId,
+					input.commandId,
+				);
+			});
 
 		/**
 		 * Worktrees are immutable past the first user message in any of the
@@ -399,15 +460,11 @@ const ConversationRuntimeLive = Layer.effect(
 		const reactorRuntime: ConversationReactorRuntime =
 			yield* makeConversationReactorRuntime(
 				{
-					providerStart: handleProviderStart,
-					providerStop: handleProviderStop,
-					providerTurn: handleProviderTurn,
-					providerInterrupt: handleProviderInterrupt,
-					scheduledSuccessor: handleScheduledSuccessor,
 					autoName: handleAutoName,
 					chatArchive: handleChatArchive,
 					chatDelete: handleChatDelete,
 				},
+				{ ledger: sessionDomain.jobs, worker: jobWorker },
 				serviceScope,
 			);
 		const archiveChat: ConversationOperations["archiveChat"] = (
@@ -470,7 +527,8 @@ const ConversationRuntimeLive = Layer.effect(
 			beginTurn,
 			settleTurn,
 			resolveActiveTurn,
-			runSessionReactors: Effect.suspend(() => reactorRuntime.runSession),
+			runSessionReactors: (sessionId) =>
+				Effect.suspend(() => reactorRuntime.runSession(sessionId)),
 			serviceScope,
 			recoverStatus: (sessionId, status) =>
 				dispatchSessionCommand(sessionId, {

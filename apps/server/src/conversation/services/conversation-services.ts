@@ -36,7 +36,6 @@ import type {
 	QueuedMessageCapacityError,
 	QueuedMessageNotFoundError,
 	QueueState,
-	ResumeStrategy,
 	RuntimeMode,
 	Session,
 	SessionAlreadyStartedError,
@@ -67,6 +66,12 @@ import { Context, type Effect, type Stream } from "effect";
  *   (`Started`, `Status`, `Completed`) update the session row but are not
  *   persisted as messages.
  */
+/** Native handle of a provider thread to bind at creation. */
+export interface ProviderThreadSeedInput {
+	readonly nativeThreadId: string;
+	readonly nativeHeadId?: string | null;
+}
+
 export interface CreateSessionInput {
 	readonly actor?: WorkspaceActor;
 	readonly githubSlackMessageId?: string;
@@ -125,8 +130,8 @@ export interface CreateSessionInput {
 	 * timing is preserved.
 	 */
 	readonly background?: boolean;
-	readonly resumeCursor?: string | null;
-	readonly resumeStrategy?: ResumeStrategy;
+	/** Provider-native thread to continue or fork, keyed by the new session's provider. */
+	readonly providerThread?: ProviderThreadSeedInput;
 	/**
 	 * Fork provenance — set when this session branches from another. Persisted
 	 * to the `forked_from_*` columns. `forkFromResume` tells the driver to fork
@@ -177,8 +182,7 @@ export interface CreateChatInput {
 	 * for user-created chats.
 	 */
 	readonly originSessionId?: SessionId | null;
-	readonly resumeCursor?: string | null;
-	readonly resumeStrategy?: ResumeStrategy;
+	readonly providerThread?: ProviderThreadSeedInput;
 	readonly forkedFromSessionId?: SessionId | null;
 	readonly forkedFromMessageId?: MessageId | null;
 	readonly forkFromResume?: boolean;
@@ -386,8 +390,7 @@ export interface ConversationOperations {
 
 	readonly continueExternalThread: (
 		input: CreateChatInput & {
-			readonly resumeCursor: string;
-			readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+			readonly providerThread: ProviderThreadSeedInput;
 		},
 	) => Effect.Effect<
 		{

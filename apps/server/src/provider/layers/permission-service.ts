@@ -301,8 +301,8 @@ export const PermissionServiceLive = Layer.effect(
 		const unresolved = yield* sql<PendingRequestRow>`
       SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
              sessions.project_id,
-             CASE WHEN sessions.current_turn_id IS NOT NULL AND (
-               json_extract(requested.payload_json, '$.turnId') = sessions.current_turn_id
+             CASE WHEN active_turn.id IS NOT NULL AND (
+               json_extract(requested.payload_json, '$.turnId') = active_turn.id
                OR (
                  json_extract(requested.payload_json, '$.turnId') =
                    json_extract(requested.payload_json, '$.requestId')
@@ -312,9 +312,11 @@ export const PermissionServiceLive = Layer.effect(
                      AND later.type = 'TurnStarted' AND later.sequence > requested.sequence
                  )
                )
-             ) THEN sessions.current_turn_id ELSE NULL END AS abandoned_turn_id
+             ) THEN active_turn.id ELSE NULL END AS abandoned_turn_id
       FROM events AS requested
       JOIN sessions ON sessions.id = requested.stream_id
+      LEFT JOIN session_turns AS active_turn ON active_turn.session_id = sessions.id
+        AND active_turn.status IN ('starting', 'running')
       WHERE requested.stream_kind = 'session'
         AND requested.type = 'PermissionRequested'
         AND json_valid(requested.payload_json)
@@ -418,7 +420,7 @@ export const PermissionServiceLive = Layer.effect(
 					return next;
 				});
 				const [owner] = yield* sql<{ readonly current_turn_id: string | null }>`
-					SELECT current_turn_id FROM sessions WHERE id = ${sessionId}
+					SELECT id AS current_turn_id FROM session_turns WHERE session_id = ${sessionId} AND status IN ('starting', 'running')
 				`.pipe(Effect.orDie);
 				yield* sessionDomain
 					.dispatch({

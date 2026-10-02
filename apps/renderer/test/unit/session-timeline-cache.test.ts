@@ -90,7 +90,8 @@ describe("session timeline reading-position cache", () => {
 		const projection = SessionTimelineProjection.make({
 			messages: [],
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 0,
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "approval-required",

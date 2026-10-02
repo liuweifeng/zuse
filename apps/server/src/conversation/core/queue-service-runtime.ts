@@ -72,7 +72,7 @@ export interface QueueServiceRuntimeDeps {
 		command: SessionCommand,
 		onCommitted: (receipt: CommandReceipt) => Effect.Effect<A, never, R>,
 	) => Effect.Effect<A, never, R>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
 	) => Effect.Effect<AgentTurnId | undefined>;
@@ -602,7 +602,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 							successorTurnId: AgentTurnId.make(`turn_queued_${queueId}`),
 							requestedAt: Date.now(),
 						}),
-						runSessionReactors,
+						runSessionReactors(sessionId),
 						serviceScope,
 					);
 				}),

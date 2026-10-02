@@ -9,6 +9,7 @@ import {
 } from "@zuse/client-runtime/resource-ref";
 import {
 	AgentTurnId,
+	AttemptId,
 	CloudWorkspaceOpError,
 	CommandAcceptance,
 	CommandId,
@@ -157,7 +158,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 		const projection = SessionTimelineProjection.make({
 			messages: [userMessage],
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 0,
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "full-access",
@@ -180,7 +182,21 @@ describe("renderer session timeline ClientBus adapter", () => {
 				data: SessionTimelineProjection.make({
 					...projection,
 					status: "running",
-					currentTurn: { turnId: AgentTurnId.make("turn-1"), phase: "running" },
+					activeTurn: {
+						id: AgentTurnId.make("turn-1"),
+						ordinal: 1,
+						status: "running",
+						phase: "running",
+						attempt: {
+							id: AttemptId.make("attempt-1"),
+							ordinal: 1,
+							reason: "initial",
+						},
+						providerThreadId: null,
+						requestedAt: new Date(0),
+						completedAt: null,
+					},
+					turnCount: 1,
 				}),
 				origin: "runtime",
 				connection: "connected",
@@ -285,7 +301,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "running",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",
@@ -452,7 +469,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",
@@ -838,7 +856,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [existing],
 				status: "running",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",
@@ -938,7 +957,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "running",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",
@@ -972,7 +992,8 @@ describe("renderer session timeline ClientBus adapter", () => {
 				messages: [],
 				olderMessageSequence: 20,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",

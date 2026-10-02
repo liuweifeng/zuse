@@ -283,7 +283,8 @@ describe("session actions", () => {
 				data: SessionTimelineProjection.make({
 					messages: [],
 					status: "idle",
-					currentTurn: null,
+					activeTurn: null,
+					turnCount: 0,
 					queue: QueueState.make({ items: [], paused: false }),
 					permissionMode: "default",
 					runtimeMode: "approval-required",
@@ -386,7 +387,8 @@ describe("session actions", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({
 					items: [
 						QueuedMessage.make({
@@ -455,7 +457,8 @@ describe("session actions", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",

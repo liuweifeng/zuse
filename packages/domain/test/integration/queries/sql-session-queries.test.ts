@@ -26,11 +26,11 @@ describe("SqlSessionQueries", () => {
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`
 					INSERT INTO sessions
-						(id, project_id, title, provider_id, model, status, resume_strategy,
+						(id, project_id, title, provider_id, model, status,
 						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
 					VALUES
 						('interactions', 'project-1', 'Interactions', 'claude', 'model',
-						 'running', 'none', 'approval-required', 'chat-1', 'default', 0,
+						 'running', 'approval-required', 'chat-1', 'default', 0,
 						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
 				`;
 				const question = JSON.stringify({
@@ -109,12 +109,12 @@ describe("SqlSessionQueries", () => {
 				yield* sql`
 					INSERT INTO sessions
 						(id, project_id, title, provider_id, model, status, archived_at,
-						 cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
+						 runtime_mode, agents_json, worktree_id,
 						 chat_id, forked_from_session_id, forked_from_message_id,
 						 permission_mode, tool_search, created_at, updated_at)
 					VALUES
 						('session-1', 'project-1', 'Title', 'claude', 'model', 'idle',
-						 NULL, NULL, 'none', 'approval-required', NULL, NULL, 'chat-1',
+						 NULL, 'approval-required', NULL, NULL, 'chat-1',
 						 NULL, NULL, 'default', 0, '2026-01-01T00:00:00.000Z',
 						 '2026-01-02T00:00:00.000Z')
 				`;
@@ -158,10 +158,10 @@ describe("SqlSessionQueries", () => {
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`
 					INSERT INTO sessions
-						(id, project_id, title, provider_id, model, status, resume_strategy,
+						(id, project_id, title, provider_id, model, status,
 						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
 					VALUES
-						('bad', 'project-1', 'Bad', 'claude', 'model', 'idle', 'none',
+						('bad', 'project-1', 'Bad', 'claude', 'model', 'idle',
 						 'approval-required', 'chat-1', 'default', 0, 'invalid', 'invalid')
 				`;
 				return yield* Effect.exit(makeSqlSessionQueries(sql).get("bad"));
@@ -181,10 +181,10 @@ describe("SqlSessionQueries", () => {
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`
 					INSERT INTO sessions
-						(id, project_id, title, provider_id, model, status, resume_strategy,
+						(id, project_id, title, provider_id, model, status,
 						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
 					VALUES
-						('large', 'project-1', 'Large', 'claude', 'model', 'idle', 'none',
+						('large', 'project-1', 'Large', 'claude', 'model', 'idle',
 						 'approval-required', 'chat-1', 'default', 0,
 						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
 				`;
@@ -239,11 +239,11 @@ describe("SqlSessionQueries", () => {
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`
 					INSERT INTO sessions
-						(id, project_id, title, provider_id, model, status, resume_strategy,
+						(id, project_id, title, provider_id, model, status,
 						 runtime_mode, chat_id, permission_mode, tool_search, created_at, updated_at)
 					VALUES
 						('large-queue', 'project-1', 'Large queue', 'claude', 'model',
-						 'running', 'none', 'approval-required', 'chat-1', 'default', 0,
+						 'running', 'approval-required', 'chat-1', 'default', 0,
 						 '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')
 				`;
 				const inputJson = JSON.stringify({

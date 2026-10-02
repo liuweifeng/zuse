@@ -1,5 +1,7 @@
 import {
 	AgentTurnId,
+	AttemptId,
+	ComposerInput,
 	DEFAULT_PERMISSION_MODE,
 	DEFAULT_RUNTIME_MODE,
 	MAX_SESSION_QUEUE_ITEMS,
@@ -9,6 +11,7 @@ import {
 	MessageId,
 	MessageRole,
 	PermissionRequest,
+	ProviderThreadId,
 	QueuedMessage,
 	QueuedMessageInput,
 	QueueState,
@@ -17,6 +20,8 @@ import {
 	type SessionInteraction,
 	SessionTimelineProjection,
 	SessionTimelineTurnPhase,
+	type SessionTurn,
+	TurnStatus,
 } from "@zuse/contracts";
 import { Effect, Result, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -33,8 +38,16 @@ interface TimelineHeadRow {
 	readonly runtime_mode: string;
 	readonly permission_mode: string;
 	readonly queue_paused: number;
-	readonly current_turn_id: string | null;
-	readonly current_turn_phase: string | null;
+	readonly turn_count: number;
+	readonly turn_id: string | null;
+	readonly turn_ordinal: number | null;
+	readonly turn_status: string | null;
+	readonly turn_phase: string | null;
+	readonly turn_provider_thread_id: string | null;
+	readonly attempt_id: string | null;
+	readonly attempt_ordinal: number | null;
+	readonly attempt_reason: string | null;
+	readonly turn_requested_at: string | null;
 }
 
 interface QueueRow {
@@ -218,6 +231,41 @@ export const readSessionTimelineMessagePage = Effect.fn(
 	return { items, olderMessageSequence: page.olderSequence };
 });
 
+const activeTurnFromHead = (head: TimelineHeadRow): SessionTurn | null => {
+	if (
+		head.turn_id === null ||
+		head.turn_ordinal === null ||
+		head.attempt_id === null ||
+		head.turn_requested_at === null
+	) {
+		return null;
+	}
+	const status = Schema.decodeUnknownResult(TurnStatus)(head.turn_status);
+	const phase = Schema.decodeUnknownResult(SessionTimelineTurnPhase)(
+		head.turn_phase ?? "running",
+	);
+	const reason = Schema.decodeUnknownResult(
+		Schema.Literals(["initial", "retry", "provider_recovery"]),
+	)(head.attempt_reason);
+	return {
+		id: AgentTurnId.make(head.turn_id),
+		ordinal: head.turn_ordinal,
+		status: Result.isSuccess(status) ? status.success : "running",
+		phase: Result.isSuccess(phase) ? phase.success : "running",
+		attempt: {
+			id: AttemptId.make(head.attempt_id),
+			ordinal: head.attempt_ordinal ?? 1,
+			reason: Result.isSuccess(reason) ? reason.success : "initial",
+		},
+		providerThreadId:
+			head.turn_provider_thread_id === null
+				? null
+				: ProviderThreadId.make(head.turn_provider_thread_id),
+		requestedAt: new Date(head.turn_requested_at),
+		completedAt: null,
+	};
+};
+
 /** Read a bounded, fully materialized timeline without folding event history. */
 export const readSessionTimelineSnapshot = Effect.fn(
 	"readSessionTimelineSnapshot",
@@ -227,9 +275,19 @@ export const readSessionTimelineSnapshot = Effect.fn(
 ): Effect.fn.Return<SessionTimelineSnapshot, SqlSessionQueryError> {
 	const queries = makeSqlSessionQueries(sql);
 	const headRows = yield* sql<TimelineHeadRow>`
-		SELECT status, runtime_mode, permission_mode, queue_paused,
-			current_turn_id, current_turn_phase
-		FROM sessions WHERE id = ${sessionId} LIMIT 1
+		SELECT s.status, s.runtime_mode, s.permission_mode, s.queue_paused,
+			(SELECT COALESCE(MAX(ordinal), 0) FROM session_turns
+				WHERE session_id = s.id) AS turn_count,
+			t.id AS turn_id, t.ordinal AS turn_ordinal, t.status AS turn_status,
+			t.phase AS turn_phase, t.provider_thread_id AS turn_provider_thread_id,
+			t.active_attempt_id AS attempt_id, t.attempt_ordinal AS attempt_ordinal,
+			t.attempt_reason AS attempt_reason, t.requested_at AS turn_requested_at
+		FROM sessions s
+		LEFT JOIN session_turns t
+			ON t.session_id = s.id AND t.status IN ('starting', 'running')
+		WHERE s.id = ${sessionId}
+		ORDER BY t.ordinal DESC
+		LIMIT 1
 	`;
 	const head = headRows[0];
 	if (head === undefined) {
@@ -284,16 +342,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			),
 		);
 	}
-	const phase = Schema.decodeUnknownResult(SessionTimelineTurnPhase)(
-		head.current_turn_phase,
-	);
-	const currentTurn =
-		head.current_turn_id === null || Result.isFailure(phase)
-			? null
-			: {
-					turnId: AgentTurnId.make(head.current_turn_id),
-					phase: phase.success,
-				};
+	const activeTurn = activeTurnFromHead(head);
 	const runtimeMode = Schema.decodeUnknownResult(RuntimeMode)(
 		head.runtime_mode,
 	);
@@ -306,7 +355,8 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			messages: messages.map(({ message }) => message),
 			olderMessageSequence: null,
 			status: head.status,
-			currentTurn,
+			activeTurn,
+			turnCount: head.turn_count,
 			queue: QueueState.make({
 				items: queueItems,
 				paused: head.queue_paused !== 0,

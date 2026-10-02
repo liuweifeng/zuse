@@ -53,13 +53,29 @@ const createSchema = Effect.gen(function* () {
 			id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
 			title_provenance TEXT NOT NULL DEFAULT 'manual',
 			provider_id TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
-			archived_at TEXT, cursor TEXT, resume_strategy TEXT NOT NULL,
+			archived_at TEXT, active_provider_thread_id TEXT,
 			runtime_mode TEXT NOT NULL, agents_json TEXT, worktree_id TEXT,
 			chat_id TEXT NOT NULL, forked_from_session_id TEXT,
 			forked_from_message_id TEXT, permission_mode TEXT NOT NULL,
 			tool_search INTEGER NOT NULL, queue_paused INTEGER NOT NULL DEFAULT 0,
-			current_turn_id TEXT, current_turn_phase TEXT,
 			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)
+	`;
+	yield* sql`
+		CREATE TABLE session_provider_threads (
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, provider TEXT NOT NULL,
+			native_thread_id TEXT NOT NULL, native_head_id TEXT, status TEXT NOT NULL,
+			first_turn_ordinal INTEGER, last_turn_ordinal INTEGER,
+			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+		)
+	`;
+	yield* sql`
+		CREATE TABLE session_turns (
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+			status TEXT NOT NULL, phase TEXT, provider_thread_id TEXT,
+			active_attempt_id TEXT NOT NULL, attempt_ordinal INTEGER NOT NULL,
+			attempt_reason TEXT NOT NULL, requested_at TEXT NOT NULL, completed_at TEXT,
+			UNIQUE (session_id, ordinal)
 		)
 	`;
 	yield* sql`
@@ -126,8 +142,6 @@ const createSession = Effect.gen(function* () {
 			providerId: "claude",
 			model: "model-1",
 			status: "running",
-			cursor: null,
-			resumeStrategy: "none",
 			runtimeMode: "approval-required",
 			agentsJson: null,
 			worktreeId: null,
@@ -221,7 +235,7 @@ describe("PermissionService restart recovery", () => {
 				Effect.flatMap(
 					SqlClient.SqlClient,
 					(sql) =>
-						sql`SELECT current_turn_id FROM sessions WHERE id = 'session-1'`,
+						sql`SELECT t.id AS current_turn_id FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running') WHERE s.id = 'session-1'`,
 				),
 			);
 			expect(rows).toEqual([{ current_turn_id: newer ? "turn-2" : null }]);
@@ -367,7 +381,7 @@ describe("PermissionService restart recovery", () => {
 				Effect.flatMap(
 					SqlClient.SqlClient,
 					(sql) =>
-						sql`SELECT status, current_turn_id FROM sessions WHERE id = 'session-1'`,
+						sql`SELECT s.status, t.id AS current_turn_id FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running') WHERE s.id = 'session-1'`,
 				),
 			);
 			expect(session).toEqual([{ status: "idle", current_turn_id: null }]);

@@ -3991,7 +3991,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								fail("workspace_api_command_head_unavailable"),
 							),
 						);
-					if (initialTimeline.projection.currentTurn === null) {
+					if (initialTimeline.projection.activeTurn === null) {
 						yield* apiCommandPump.drain.pipe(
 							Effect.forkScoped({ startImmediately: true }),
 						);

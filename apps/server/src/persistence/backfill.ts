@@ -1,9 +1,4 @@
-import {
-	PermissionMode,
-	ResumeStrategy,
-	RuntimeMode,
-	SessionStatus,
-} from "@zuse/contracts";
+import { PermissionMode, RuntimeMode, SessionStatus } from "@zuse/contracts";
 import { ChatEvent } from "@zuse/domain/chat/events";
 import { SessionEvent } from "@zuse/domain/core/events";
 import {
@@ -23,8 +18,6 @@ const PROJECTORS = [
 	"chat-read-model",
 	"reactor:auto-name-chat",
 	"reactor:permission-lifecycle",
-	"reactor:provider-start",
-	"reactor:provider-stop",
 	"reactor:chat-archive",
 	"reactor:chat-delete",
 ] as const;
@@ -52,8 +45,6 @@ interface SessionRow {
 	readonly provider_id: string;
 	readonly model: string;
 	readonly status: string;
-	readonly cursor: string | null;
-	readonly resume_strategy: string;
 	readonly runtime_mode: string;
 	readonly agents_json: string | null;
 	readonly worktree_id: string | null;
@@ -65,6 +56,9 @@ interface SessionRow {
 	readonly created_at: string;
 	readonly updated_at: string;
 	readonly archived_at: string | null;
+	readonly pt_provider: string | null;
+	readonly pt_native_thread_id: string | null;
+	readonly pt_native_head_id: string | null;
 }
 
 interface MessageRow {
@@ -139,7 +133,6 @@ const requiredTimestamp = (value: string, field: string): number => {
 };
 
 const decodeSessionStatus = Schema.decodeUnknownEffect(SessionStatus);
-const decodeResumeStrategy = Schema.decodeUnknownEffect(ResumeStrategy);
 const decodeRuntimeMode = Schema.decodeUnknownEffect(RuntimeMode);
 const decodePermissionMode = Schema.decodeUnknownEffect(PermissionMode);
 const decodeSessionEvent = Schema.decodeUnknownEffect(
@@ -468,11 +461,15 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			);
 
 			const sessions = yield* sql<SessionRow>`
-				SELECT id, chat_id, project_id, title, provider_id, model, status,
-					cursor, resume_strategy, runtime_mode, agents_json, worktree_id,
-					forked_from_session_id, forked_from_message_id, permission_mode,
-					tool_search, queue_paused, created_at, updated_at, archived_at
-				FROM sessions ORDER BY created_at, id
+				SELECT s.id, s.chat_id, s.project_id, s.title, s.provider_id, s.model, s.status,
+					s.runtime_mode, s.agents_json, s.worktree_id,
+					s.forked_from_session_id, s.forked_from_message_id, s.permission_mode,
+					s.tool_search, s.queue_paused, s.created_at, s.updated_at, s.archived_at,
+					p.provider AS pt_provider, p.native_thread_id AS pt_native_thread_id,
+					p.native_head_id AS pt_native_head_id
+				FROM sessions s
+				LEFT JOIN session_provider_threads p ON p.id = s.active_provider_thread_id
+				ORDER BY s.created_at, s.id
 			`;
 			const chats = yield* sql<ChatRow>`
 				SELECT id, project_id, worktree_id, title, active_session_id,
@@ -520,9 +517,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			const sessionSnapshots = yield* Effect.forEach(sessions, (row) =>
 				Effect.gen(function* () {
 					const status = yield* decodeSessionStatus(row.status);
-					const resumeStrategy = yield* decodeResumeStrategy(
-						row.resume_strategy,
-					);
 					const runtimeMode = yield* decodeRuntimeMode(row.runtime_mode);
 					const permissionMode = yield* decodePermissionMode(
 						row.permission_mode,
@@ -535,8 +529,14 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						providerId: row.provider_id,
 						model: row.model,
 						status,
-						cursor: row.cursor,
-						resumeStrategy,
+						providerThread:
+							row.pt_provider === null || row.pt_native_thread_id === null
+								? null
+								: {
+										provider: row.pt_provider,
+										nativeThreadId: row.pt_native_thread_id,
+										nativeHeadId: row.pt_native_head_id,
+									},
 						runtimeMode,
 						agentsJson: row.agents_json,
 						worktreeId: row.worktree_id,

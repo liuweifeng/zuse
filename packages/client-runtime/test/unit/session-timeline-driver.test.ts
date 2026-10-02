@@ -1,5 +1,6 @@
 import {
 	AgentTurnId,
+	AttemptId,
 	EnvironmentId,
 	Message,
 	MessageId,
@@ -32,7 +33,17 @@ const turnId = AgentTurnId.make("turn-driver");
 const projection = SessionTimelineProjection.make({
 	messages: [],
 	status: "running",
-	currentTurn: { turnId, phase: "running" },
+	activeTurn: {
+		id: turnId,
+		ordinal: 1,
+		status: "running",
+		phase: "running",
+		attempt: { id: AttemptId.make("attempt-1"), ordinal: 1, reason: "initial" },
+		providerThreadId: null,
+		requestedAt: new Date(0),
+		completedAt: null,
+	},
+	turnCount: 1,
 	queue: QueueState.make({ items: [], paused: false }),
 	permissionMode: "default",
 	runtimeMode: "approval-required",
@@ -375,7 +386,8 @@ describe("shared session timeline resource driver", () => {
 		await waitUntil(() => test.view().cursor?.version === 2);
 		expect(test.view().data).toMatchObject({
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 1,
 		});
 		expect(test.updates.at(-1)).toMatchObject({ persist: true });
 		driver.stop();
