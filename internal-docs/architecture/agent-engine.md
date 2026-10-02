@@ -10,8 +10,8 @@ never infer state from a live process.
 
 This document describes the target architecture, not a guarantee provided by
 the current runtime. The branch implements the transactional
-job ledger, provider-thread rows, turn rows, attempt history in the event-sourced
-aggregate, and `activeTurn` timeline projection. These cover slices 1–3, with
+job ledger, provider-thread rows, turn rows, attempt history in both the event-sourced
+aggregate and paginated SQL projection, and `activeTurn` timeline projection. These cover slices 1–3, with
 reliability gaps still to close before treating those slices as complete.
 
 Production persistence now acquires a process-lifetime SQLite lock before database
@@ -68,8 +68,11 @@ a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
-The current SQL turn projection stores the latest attempt; it is not a queryable
-history of all attempts. Contracts for later entities do not imply runtime support.
+SQL turn rows retain the active attempt pointer, while `session_attempts` records
+each initial, retry and recovery attempt with its outcome and timestamps. Migration
+and live projection share the same lifecycle projector; sequence guards preserve
+history during replay. This history is queryable internally but has no client
+history view yet. Contracts for later entities do not imply runtime support.
 
 Delivery should follow the outcome groups below. The numbered slices remain a
 mechanism inventory, not an instruction to defer recovery until slice 9.

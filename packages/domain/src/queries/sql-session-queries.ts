@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { AttemptState } from "../core/state.js";
 
 import type {
 	MessageReadRecord,
@@ -18,7 +19,7 @@ import { SessionQueryNotFound } from "./session-queries.js";
 export class SessionQueryDecodeError extends Schema.TaggedErrorClass<SessionQueryDecodeError>()(
 	"SessionQueryDecodeError",
 	{
-		recordKind: Schema.Literals(["session", "message"]),
+		recordKind: Schema.Literals(["session", "message", "attempt"]),
 		reason: Schema.String,
 	},
 ) {}
@@ -116,7 +117,7 @@ export type SqlSessionReadRecord = SessionReadRecord & {
 
 const timestamp = (
 	value: string,
-	recordKind: "session" | "message",
+	recordKind: "session" | "message" | "attempt",
 ): Effect.Effect<number, SessionQueryDecodeError> => {
 	const parsed = Date.parse(value);
 	return Number.isFinite(parsed)
@@ -179,7 +180,21 @@ const messageRecord = Effect.fn("SqlSessionQueries.messageRecord")(function* (
 	} satisfies MessageReadRecord;
 });
 
+export interface AttemptHistoryInput {
+	readonly sessionId: string;
+	readonly turnId: string;
+	readonly afterOrdinal?: number;
+	readonly limit?: number;
+}
+export interface AttemptHistoryPage {
+	readonly items: readonly AttemptState[];
+	readonly nextOrdinal: number | null;
+}
+
 export interface SqlSessionQueriesApi {
+	readonly attemptHistory: (
+		input: AttemptHistoryInput,
+	) => Effect.Effect<AttemptHistoryPage, SqlSessionQueryError>;
 	readonly list: (
 		input: SessionListInput,
 	) => Effect.Effect<readonly SqlSessionReadRecord[], SqlSessionQueryError>;
@@ -210,6 +225,50 @@ export const makeSqlSessionQueries = (
 			return yield* new SessionQueryNotFound({ sessionId });
 		return yield* sessionRecord(row);
 	});
+
+	const attemptHistory: SqlSessionQueriesApi["attemptHistory"] = (input) =>
+		Effect.gen(function* () {
+			yield* get(input.sessionId);
+			const limit =
+				input.limit !== undefined && Number.isSafeInteger(input.limit)
+					? Math.max(1, Math.min(100, input.limit))
+					: 50;
+			const after =
+				input.afterOrdinal !== undefined &&
+				Number.isSafeInteger(input.afterOrdinal)
+					? Math.max(0, input.afterOrdinal)
+					: 0;
+			const rows = yield* sql<{
+				id: string;
+				ordinal: number;
+				reason: AttemptState["reason"];
+				status: AttemptState["status"];
+				started_at: string;
+				completed_at: string | null;
+			}>`SELECT id, ordinal, reason, status, started_at, completed_at FROM session_attempts
+			WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId} AND ordinal > ${after}
+			ORDER BY ordinal LIMIT ${limit + 1}`;
+			const items = yield* Effect.forEach(rows.slice(0, limit), (row) =>
+				Effect.gen(function* () {
+					return {
+						id: row.id,
+						ordinal: row.ordinal,
+						reason: row.reason,
+						status: row.status,
+						startedAt: yield* timestamp(row.started_at, "attempt"),
+						completedAt:
+							row.completed_at === null
+								? null
+								: yield* timestamp(row.completed_at, "attempt"),
+					};
+				}),
+			);
+			return {
+				items,
+				nextOrdinal:
+					rows.length > limit ? (items.at(-1)?.ordinal ?? null) : null,
+			};
+		});
 
 	const messages = Effect.fn("SqlSessionQueries.messages")(function* (
 		sessionId: string,
@@ -266,7 +325,7 @@ export const makeSqlSessionQueries = (
 		return { session, messages: yield* messages(sessionId) };
 	});
 
-	return { list, get, messages, messagePage, transcript };
+	return { list, get, messages, messagePage, transcript, attemptHistory };
 };
 
 export class SqlSessionQueries extends Context.Service<

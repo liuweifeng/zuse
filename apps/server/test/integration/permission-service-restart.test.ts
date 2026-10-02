@@ -70,6 +70,22 @@ const createSchema = Effect.gen(function* () {
 		)
 	`;
 	yield* sql`
+		CREATE TABLE IF NOT EXISTS session_attempts (
+			session_id TEXT NOT NULL,
+			id TEXT NOT NULL,
+			turn_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+			reason TEXT NOT NULL CHECK (reason IN ('initial', 'retry', 'provider_recovery')),
+			status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'interrupted', 'failed', 'superseded')),
+			started_at TEXT NOT NULL,
+			completed_at TEXT,
+			started_sequence INTEGER NOT NULL,
+			updated_sequence INTEGER NOT NULL,
+			PRIMARY KEY (session_id, id),
+			UNIQUE (session_id, turn_id, ordinal)
+		)
+	`;
+	yield* sql`
 		CREATE TABLE session_turns (
 			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
 			status TEXT NOT NULL, phase TEXT, provider_thread_id TEXT,
