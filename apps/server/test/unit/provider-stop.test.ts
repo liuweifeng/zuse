@@ -95,3 +95,26 @@ it("closes the retired handle when question detachment is cancelled", async () =
 	);
 	expect(closed).toBe(1);
 });
+
+it("revokes a matching unpublished reservation before its handle can publish", () => {
+	const registry = makeProviderSessionRegistry<
+		string,
+		{ providerSessionId: string }
+	>();
+	const generation = registry.begin("session", "pending");
+	expect(
+		retireProviderSession(registry, "session", undefined, "pending"),
+	).toEqual({ _tag: "retired", entry: undefined });
+	expect(
+		registry.publish("session", generation, { providerSessionId: "pending" }),
+	).toBe(false);
+	const replacement = registry.begin("session", "replacement");
+	expect(
+		retireProviderSession(registry, "session", undefined, "pending"),
+	).toEqual({ _tag: "obsolete" });
+	expect(
+		registry.publish("session", replacement, {
+			providerSessionId: "replacement",
+		}),
+	).toBe(true);
+});

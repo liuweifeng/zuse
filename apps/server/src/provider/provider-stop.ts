@@ -19,10 +19,12 @@ export const retireProviderSession = <
 	| { readonly _tag: "obsolete" }
 	| { readonly _tag: "retired"; readonly entry: Entry | undefined } => {
 	const current = registry.lookup(sessionId);
+	const currentProviderSessionId =
+		current?.providerSessionId ?? registry.currentProviderSessionId(sessionId);
 	if (
 		expectedProviderSessionId !== undefined &&
-		(current === undefined ||
-			(current.providerSessionId ?? null) !== expectedProviderSessionId)
+		((current === undefined && currentProviderSessionId === undefined) ||
+			(currentProviderSessionId ?? null) !== expectedProviderSessionId)
 	)
 		return { _tag: "obsolete" };
 	if (

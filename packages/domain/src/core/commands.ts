@@ -211,6 +211,11 @@ export const SessionCommand = Schema.Union([
 		resolvedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ReserveProviderSession", {
+		ownerAttempt: Schema.optional(
+			Schema.Struct({ turnId: Schema.String, attemptId: Schema.String }),
+		),
+		expectedModel: Schema.optional(Schema.String),
+		expectedWorktreeId: Schema.optional(Schema.NullOr(Schema.String)),
 		providerId: Schema.String,
 		providerSessionId: Schema.String,
 		reservedAt: Schema.Number,

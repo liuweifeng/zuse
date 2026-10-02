@@ -500,6 +500,62 @@ describe("session decider", () => {
 		).toEqual([]);
 	});
 
+	test("maintenance cannot replace startup owned by an active attempt", () => {
+		const running = evolveAll(created(), [
+			{
+				_tag: "TurnStarted",
+				turnId: "turn",
+				attemptId: "attempt",
+				startedAt: 2,
+			},
+			{
+				_tag: "ProviderSessionReserved",
+				providerId: "provider-1",
+				providerSessionId: "current",
+				reservedAt: 3,
+			},
+		]);
+		const command = {
+			_tag: "ReserveProviderSession" as const,
+			providerId: "provider-1",
+			providerSessionId: "replacement",
+			reservedAt: 4,
+		};
+		expect(failure(decide(running, command))?._tag).toBe("ValidationFailed");
+		expect(
+			Result.isSuccess(
+				decide(running, {
+					...command,
+					ownerAttempt: { turnId: "turn", attemptId: "attempt" },
+				}),
+			),
+		).toBe(true);
+	});
+
+	test("rejects stale startup configuration before replacing a reservation", () => {
+		const reserved = evolveAll(created(), [
+			{
+				_tag: "ProviderSessionReserved",
+				providerId: "provider-1",
+				providerSessionId: "current",
+				reservedAt: 2,
+			},
+		]);
+		for (const configuration of [
+			{ expectedModel: "old-model" },
+			{ expectedWorktreeId: "old-worktree" },
+		]) {
+			const result = decide(reserved, {
+				_tag: "ReserveProviderSession",
+				providerId: "provider-1",
+				providerSessionId: "stale",
+				reservedAt: 3,
+				...configuration,
+			});
+			expect(failure(result)?._tag).toBe("ValidationFailed");
+		}
+	});
+
 	test("targets a stop at its attachment and preserves a later same-provider process", () => {
 		const first = evolveAll(created(), [
 			{

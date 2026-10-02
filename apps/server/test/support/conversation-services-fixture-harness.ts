@@ -201,14 +201,24 @@ export const makeConversationFixtureRuntime = (
 	scriptedEvents: ReadonlyArray<AgentEvent>,
 ) => {
 	let providerStarted = false;
+	let currentResidency: string | undefined;
 	const StubProviderLive = Layer.succeed(ProviderService, {
 		availability: () => Effect.succeed([]),
 		hasSession: () => Effect.succeed(providerStarted),
 		guardCurrent: (_sessionId, _generation, effect) =>
 			effect.pipe(Effect.as(true)),
-		start: (input: StartSessionInput) =>
+		start: (
+			input: StartSessionInput,
+			_resume,
+			_mode,
+			_tools,
+			_cursor,
+			_admit,
+			residency,
+		) =>
 			Effect.sync(() => {
 				providerStarted = true;
+				currentResidency = residency;
 				return {
 					sessionId: input.sessionId ?? ("fixture-session" as AgentSessionId),
 				};
@@ -218,8 +228,10 @@ export const makeConversationFixtureRuntime = (
 				? Effect.void
 				: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
 		interrupt: () => Effect.void,
-		close: () =>
+		close: (_sessionId, _ownership, expected) =>
 			Effect.sync(() => {
+				if (expected !== undefined && (currentResidency ?? null) !== expected)
+					return;
 				providerStarted = false;
 			}),
 		events: () =>

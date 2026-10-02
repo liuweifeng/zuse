@@ -758,6 +758,34 @@ export const decide = (
 				? success([])
 				: success([{ ...command, _tag: "QuestionResolved" }]);
 		case "ReserveProviderSession":
+			if (
+				state.currentTurnId !== null &&
+				(command.ownerAttempt?.turnId !== state.currentTurnId ||
+					command.ownerAttempt.attemptId !==
+						state.turns.get(state.currentTurnId)?.activeAttemptId)
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "an active attempt owns provider startup",
+					}),
+				);
+			if (state.currentTurnId === null && command.ownerAttempt !== undefined)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider startup attempt is no longer active",
+					}),
+				);
+			if (
+				(command.expectedModel !== undefined &&
+					command.expectedModel !== state.model) ||
+				(command.expectedWorktreeId !== undefined &&
+					command.expectedWorktreeId !== state.worktreeId)
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider configuration changed before reservation",
+					}),
+				);
 			if (state.archived)
 				return Result.fail(
 					new ValidationFailed({
@@ -777,7 +805,12 @@ export const decide = (
 				return success([]);
 			return success([
 				...providerStops(state, command.reservedAt),
-				{ ...command, _tag: "ProviderSessionReserved" },
+				{
+					_tag: "ProviderSessionReserved",
+					providerId: command.providerId,
+					providerSessionId: command.providerSessionId,
+					reservedAt: command.reservedAt,
+				},
 			]);
 		case "AttachProvider":
 			if (

@@ -58,6 +58,8 @@ export interface ProviderServiceShape {
 		providerEventCursor?: string | null,
 		/** Checked inside lifecycle serialization before replacing any handle. */
 		admit?: Effect.Effect<boolean>,
+		/** Durable identity reserved by the conversation runtime before acquisition. */
+		providerSessionId?: string,
 	) => Effect.Effect<
 		{
 			readonly sessionId: AgentSessionId;
