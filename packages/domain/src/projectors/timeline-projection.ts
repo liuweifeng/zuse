@@ -137,6 +137,8 @@ export const timelineEventFromDomain = (
 				? { _tag: "Noop" }
 				: { _tag: "PermissionRequested", request: request.success };
 		}
+		case "PermissionExpired":
+			return { _tag: "PermissionExpired", requestId: event.requestId };
 		case "PermissionResolved":
 			return { _tag: "PermissionResolved", requestId: event.requestId };
 		case "QuestionResolved":

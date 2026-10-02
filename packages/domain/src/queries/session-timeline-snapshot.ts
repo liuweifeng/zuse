@@ -66,6 +66,7 @@ interface PendingQuestionRow {
 
 interface PendingPermissionRow {
 	readonly request_json: string;
+	readonly expired: number;
 }
 
 export type SessionTimelineSnapshot = {
@@ -127,7 +128,16 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
 		`;
 	const permissionRows = yield* sql<PendingPermissionRow>`
-			SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json
+			SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
+				EXISTS (
+					SELECT 1 FROM events AS expired
+					WHERE expired.stream_kind = 'session'
+						AND expired.stream_id = requested.stream_id
+						AND expired.type = 'PermissionExpired'
+						AND json_valid(expired.payload_json)
+						AND json_extract(expired.payload_json, '$.requestId') =
+							json_extract(requested.payload_json, '$.requestId')
+				) AS expired
 			FROM events AS requested
 			WHERE requested.stream_kind = 'session'
 				AND requested.stream_id = ${sessionId}
@@ -179,7 +189,13 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 		interactions.push({
 			_tag: "Permission",
 			id: request.success.id,
-			request: request.success,
+			request:
+				row.expired === 1
+					? PermissionRequest.make({
+							...request.success,
+							recoveryState: "expired",
+						})
+					: request.success,
 		});
 	}
 	interactions.sort((left, right) => {

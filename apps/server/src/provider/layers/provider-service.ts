@@ -236,7 +236,13 @@ export const ProviderServiceLive = Layer.effect(
 		// runtime captured at layer construction. `projectId` is bound at
 		// start() time so the driver doesn't need to know about projects.
 		const buildRequestPermission =
-			(projectId: FolderId) =>
+			(
+				projectId: FolderId,
+				authority: Pick<
+					import("../services/permission-service.ts").RequestOptions,
+					"owner" | "isCurrent"
+				>,
+			) =>
 			(
 				sessionId: AgentSessionId,
 				kind: PermissionKind,
@@ -244,6 +250,7 @@ export const ProviderServiceLive = Layer.effect(
 			): Promise<PermissionDecision> =>
 				Effect.runPromiseWith(runtime)(
 					permissions.request(sessionId, kind, {
+						...authority,
 						projectId,
 						forcePrompt: options.forcePrompt,
 					}),
@@ -500,6 +507,27 @@ export const ProviderServiceLive = Layer.effect(
 					}
 					yield* reservation.releaseDisplaced;
 					const generation = reservation.generation;
+					const permissionAuthority = {
+						isCurrent: Effect.sync(
+							() =>
+								registry.currentProviderSessionId(sessionId) === residencyId &&
+								registry.currentGeneration(sessionId) === generation,
+						),
+						owner:
+							providerSessionId === undefined
+								? undefined
+								: {
+										providerSessionId: residencyId,
+										attempt:
+											input.initialTurnId === undefined ||
+											input.initialAttemptId === undefined
+												? undefined
+												: {
+														turnId: input.initialTurnId,
+														attemptId: input.initialAttemptId,
+													},
+									},
+					};
 					const binaryPaths =
 						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					const runtimeModeGetter =
@@ -612,7 +640,7 @@ export const ProviderServiceLive = Layer.effect(
 											? {
 													client,
 													requestPermission: (kind, options) =>
-														buildRequestPermission(input.folderId)(
+														buildRequestPermission(input.folderId, permissionAuthority)(
 															sessionId,
 															kind,
 															options,
@@ -742,7 +770,7 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									geminiPath,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
@@ -822,7 +850,7 @@ export const ProviderServiceLive = Layer.effect(
 									cwd,
 									kiroPath,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
@@ -872,7 +900,7 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									grokPath,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
@@ -951,7 +979,7 @@ export const ProviderServiceLive = Layer.effect(
 									opencode2Path,
 									sessionId,
 									resumeCursor,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									managedMcp,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -1012,7 +1040,7 @@ export const ProviderServiceLive = Layer.effect(
 									managedCredential,
 									claudePath,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									resumeCursor,
 									(command) =>
@@ -1092,7 +1120,7 @@ export const ProviderServiceLive = Layer.effect(
 									apiKey,
 									codexPath,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(

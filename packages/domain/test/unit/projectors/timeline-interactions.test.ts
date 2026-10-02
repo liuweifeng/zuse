@@ -149,6 +149,20 @@ describe("durable session interactions", () => {
 			}),
 		]);
 
+		const expired = applyTimelineEvent(
+			requested,
+			timelineEventFromDomain(sessionId, {
+				_tag: "PermissionExpired",
+				requestId: request.id,
+				expiredAt: requestedAt + 1,
+			}),
+		);
+		expect(expired.interactions).toEqual([
+			expect.objectContaining({
+				_tag: "Permission",
+				request: expect.objectContaining({ recoveryState: "expired" }),
+			}),
+		]);
 		const resolvedEvent = timelineEventFromDomain(sessionId, {
 			_tag: "PermissionResolved",
 			requestId: request.id,
