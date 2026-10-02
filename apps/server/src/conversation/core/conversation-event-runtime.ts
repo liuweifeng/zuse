@@ -30,6 +30,11 @@ import type {
 	ProviderEventDelivery,
 } from "../../provider/provider-event-delivery.ts";
 import { eventToContent } from "./conversation-message-mapping.ts";
+import {
+	INGESTION_HEARTBEAT_MS,
+	type IngestionLease,
+	type IngestionLeaseIdentity,
+} from "./ingestion-lease.ts";
 
 type ApiActivity =
 	| "approval-needed"
@@ -40,6 +45,11 @@ type ApiActivity =
 
 export interface ConversationEventRuntimeOptions {
 	readonly scope: Scope.Scope;
+	readonly ingestionHeartbeatMs?: number;
+	readonly acquireIngestionLease?: (
+		sessionId: SessionId,
+		identity: IngestionLeaseIdentity,
+	) => Effect.Effect<IngestionLease | null>;
 	readonly events: (
 		sessionId: SessionId,
 	) => Stream.Stream<ProviderEventDelivery, unknown>;
@@ -132,7 +142,10 @@ export interface ConversationEventRuntimeOptions {
 }
 
 export interface ConversationEventRuntime {
-	readonly start: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly start: (
+		sessionId: SessionId,
+		identity?: IngestionLeaseIdentity,
+	) => Effect.Effect<void>;
 	readonly interrupt: (sessionId: SessionId) => Effect.Effect<void>;
 }
 
@@ -193,7 +206,7 @@ export const makeConversationEventRuntime = Effect.fn(
 				.pipe(Effect.ensuring(release));
 		});
 
-	const start: ConversationEventRuntime["start"] = (sessionId) =>
+	const start: ConversationEventRuntime["start"] = (sessionId, identity) =>
 		withLifecycle(
 			sessionId,
 			Effect.gen(function* () {
@@ -201,6 +214,59 @@ export const makeConversationEventRuntime = Effect.fn(
 				if (existing !== undefined) yield* Fiber.interrupt(existing.fiber);
 				const providerId = yield* options.providerId(sessionId);
 				const token = {};
+				const lease =
+					identity === undefined || options.acquireIngestionLease === undefined
+						? null
+						: yield* options.acquireIngestionLease(sessionId, identity);
+				if (
+					identity !== undefined &&
+					options.acquireIngestionLease !== undefined &&
+					lease === null
+				)
+					return yield* Effect.interrupt;
+				let renewLease = true;
+				let lastProviderActivityAt: number | undefined;
+				let lastRenewedAt = Date.now();
+				const heartbeatMs =
+					options.ingestionHeartbeatMs ?? INGESTION_HEARTBEAT_MS;
+				const heartbeat = Effect.suspend(() =>
+					Effect.gen(function* () {
+						if (
+							!renewLease ||
+							lease === null ||
+							Date.now() - lastRenewedAt < heartbeatMs
+						)
+							return;
+						if (yield* lease.renew(lastProviderActivityAt)) {
+							lastRenewedAt = Date.now();
+							return;
+						}
+						renewLease = false;
+						if (
+							identity !== undefined &&
+							(yield* options.ownsAttempt(sessionId, identity)) &&
+							(yield* options.ownsProviderSession(
+								sessionId,
+								identity.providerSessionId,
+							))
+						)
+							return yield* Effect.interrupt;
+					}),
+				);
+
+				const events =
+					lease === null
+						? options.events(sessionId)
+						: Stream.merge(
+								options.events(sessionId),
+								Stream.tick(
+									options.ingestionHeartbeatMs ?? INGESTION_HEARTBEAT_MS,
+								).pipe(
+									Stream.takeWhile(() => renewLease),
+									Stream.map(() => null),
+								),
+								{ haltStrategy: "left" },
+							);
 				let pendingReceipt: ProviderCursorReceipt | undefined;
 				// Provider-opened turns that lost the race to an application turn,
 				// mapped onto the application turn that absorbed their events.
@@ -209,8 +275,16 @@ export const makeConversationEventRuntime = Effect.fn(
 				const fiber = yield* Effect.forkIn(
 					Deferred.await(ready).pipe(
 						Effect.andThen(
-							Stream.runForEach(options.events(sessionId), (envelope) =>
+							Stream.runForEach(events, (envelope) =>
 								Effect.gen(function* () {
+									yield* heartbeat.pipe(
+										Effect.onExit((exit) =>
+											Exit.isFailure(exit)
+												? (envelope?.cursorReceipt?.release ?? Effect.void)
+												: Effect.void,
+										),
+									);
+									if (envelope === null) return;
 									const ownership = envelope.ownership;
 									const providerSessionId = envelope.providerSessionId;
 									if (
@@ -230,6 +304,7 @@ export const makeConversationEventRuntime = Effect.fn(
 										yield* envelope.cursorReceipt?.release ?? Effect.void;
 										return;
 									}
+									lastProviderActivityAt = Date.now();
 									const event = envelope.event;
 									if (event._tag === "ProviderTurnStarted") {
 										if (envelope.scope !== "turn") return;
@@ -415,6 +490,7 @@ export const makeConversationEventRuntime = Effect.fn(
 								yield* Effect.logDebug(cause);
 							}),
 						),
+						Effect.ensuring(lease?.expire ?? Effect.void),
 						Effect.ensuring(
 							Effect.suspend(() => pendingReceipt?.release ?? Effect.void),
 						),

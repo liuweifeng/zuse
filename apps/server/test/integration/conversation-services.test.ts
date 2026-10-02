@@ -115,6 +115,7 @@ import { Migration0062SessionGraph } from "../../src/persistence/migrations/0062
 import { Migration0065ProviderReservations } from "../../src/persistence/migrations/0065_provider_reservations.ts";
 import { Migration0066AttemptHistory } from "../../src/persistence/migrations/0066_attempt_history.ts";
 import { Migration0067AttemptProviderTurn } from "../../src/persistence/migrations/0067_attempt_provider_turn.ts";
+import { Migration0068IngestionLeases } from "../../src/persistence/migrations/0068_ingestion_leases.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -768,6 +769,7 @@ const runAllMigrations = Effect.all(
 		Migration0065ProviderReservations,
 		Migration0066AttemptHistory,
 		Migration0067AttemptProviderTurn,
+		Migration0068IngestionLeases,
 	],
 	{ discard: true },
 );

@@ -41,6 +41,10 @@ import { parseAgents, sessionFromRecord } from "./conversation-records.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import {
+	acquireIngestionLease,
+	type IngestionLeaseIdentity,
+} from "./ingestion-lease.ts";
+import {
 	lookupDurableQuestionResolution,
 	settleDurableQuestionResolution,
 } from "./question-resolution-receipt.ts";
@@ -129,7 +133,10 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		status: Session["status"],
 	) => Effect.Effect<void>;
-	readonly startSubscription: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly startSubscription: (
+		sessionId: SessionId,
+		identity?: IngestionLeaseIdentity,
+	) => Effect.Effect<void>;
 	readonly interruptProviderFiber: (
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
@@ -685,6 +692,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	const eventRuntime = yield* makeConversationEventRuntime({
 		scope: serviceScope,
+		acquireIngestionLease: (sessionId, identity) =>
+			acquireIngestionLease(sql, sessionId, identity),
 		ownsProviderSession: (sessionId, providerSessionId) =>
 			sessionDomain.providerReservation(sessionId).pipe(
 				Effect.map((current) => current === providerSessionId),

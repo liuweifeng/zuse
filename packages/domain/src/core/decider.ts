@@ -396,6 +396,56 @@ export const decide = (
 			}
 			return success([{ ...command, _tag: "AttemptProviderTurnBound" }]);
 		}
+		case "ExpireAttempt": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.expectedAttemptId
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Expired ingestion no longer owns this attempt",
+					}),
+				);
+			const recovery = decide(state, {
+				_tag: "RecoverTurn",
+				turnId: command.turnId,
+				expectedAttemptId: command.expectedAttemptId,
+				requestedAt: command.expiredAt,
+			});
+			if (Result.isSuccess(recovery)) return recovery;
+			const interrupted = turn.phase !== "running" || state.archived;
+			const settlement = decide(state, {
+				_tag: "SettleTurn",
+				turnId: command.turnId,
+				outcome: interrupted ? "interrupted" : "error",
+				settledAt: command.expiredAt,
+			});
+			if (Result.isFailure(settlement)) return settlement;
+			const explanation: readonly SessionEvent[] = interrupted
+				? []
+				: [
+						{
+							_tag: "MessagePersisted",
+							messageId: `ingestion-expired:${command.expectedAttemptId}`,
+							turnId: command.turnId,
+							role: "system",
+							kind: "error",
+							contentJson: JSON.stringify({
+								_tag: "error",
+								message:
+									"The Agent Engine stopped ingesting this execution. Delivery was not repeated automatically; review the provider result before retrying.",
+							}),
+							parentItemId: null,
+							createdAt: command.expiredAt,
+						},
+					];
+			return success([
+				...providerStops(state, command.expiredAt),
+				...explanation,
+				...settlement.success,
+			]);
+		}
 		case "RecoverTurn": {
 			const turn = state.turns.get(command.turnId);
 			if (

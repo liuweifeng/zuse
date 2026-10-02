@@ -46,6 +46,8 @@ import {
 	type ConversationStoreRuntime,
 	makeConversationStoreRuntime,
 } from "../core/conversation-store-runtime.ts";
+import { INGESTION_HEARTBEAT_MS } from "../core/ingestion-lease.ts";
+import { sweepIngestionLeases } from "../core/ingestion-sweeper.ts";
 import {
 	type MessageOperations,
 	makeMessageOperations,
@@ -595,6 +597,21 @@ const ConversationRuntimeLive = Layer.effect(
 		// The production persistence layer already holds exclusive ownership.
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
 		yield* reconcileSessionRuntime(sql, sessionDomain);
+		yield* Effect.forkIn(
+			Effect.forever(
+				Effect.sleep(INGESTION_HEARTBEAT_MS).pipe(
+					Effect.andThen(
+						Effect.suspend(() => sweepIngestionLeases(sql, sessionDomain)),
+					),
+					Effect.catchCause(() =>
+						Effect.logError(
+							"[ConversationServices] ingestion lease sweep failed",
+						),
+					),
+				),
+			),
+			serviceScope,
+		);
 		yield* jobWorker.start.pipe(
 			Effect.provideService(Scope.Scope, serviceScope),
 		);

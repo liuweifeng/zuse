@@ -103,6 +103,11 @@ export const SessionCommand = Schema.Union([
 		updatedAt: Schema.Number,
 	}),
 	/** Inspect a proven native execution in a fresh attempt, without resending. */
+	Schema.TaggedStruct("ExpireAttempt", {
+		turnId: Schema.String,
+		expectedAttemptId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("RecoverTurn", {
 		turnId: Schema.String,
 		expectedAttemptId: Schema.String,
