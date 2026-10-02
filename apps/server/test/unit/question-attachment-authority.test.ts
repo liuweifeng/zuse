@@ -331,4 +331,100 @@ describe("question attachment authority", () => {
 		);
 		expect(deliveries).toBe(1);
 	});
+	it.each([
+		"question",
+		"session",
+	] as const)("revokes in-flight delivery on %s detach without touching its replacement", async (scope) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const authority = makeQuestionAttachmentAuthority();
+				const sessionId = AgentSessionId.make("revoked-session");
+				const itemId = AgentItemId.make("revoked-item");
+				const started = yield* Deferred.make<void>();
+				const cancelled = yield* Deferred.make<void>();
+				const release = yield* Deferred.make<void>();
+				let oldDeliveries = 0;
+				let newDeliveries = 0;
+				authority.attach({ sessionId, itemId }, questions);
+				const first = yield* authority
+					.deliverAnswer(
+						sessionId,
+						itemId,
+						[{ questionIndex: 0, selected: [0] }],
+						Deferred.succeed(started, undefined).pipe(
+							Effect.andThen(Deferred.await(release)),
+							Effect.andThen(
+								Effect.sync(() => {
+									oldDeliveries += 1;
+								}),
+							),
+							Effect.onInterrupt(() => Deferred.succeed(cancelled, undefined)),
+						),
+					)
+					.pipe(Effect.forkChild);
+				yield* Deferred.await(started);
+				if (scope === "question") authority.detach(sessionId, itemId);
+				else authority.detachSession(sessionId);
+				expect(authority.attach({ sessionId, itemId }, questions)).toBe(
+					"attached",
+				);
+				// Cancellation must complete without releasing the old provider operation.
+				yield* Deferred.await(cancelled);
+				expect(Exit.isFailure(yield* Fiber.await(first))).toBe(true);
+				yield* Deferred.succeed(release, undefined);
+				const replacement = authority.deliverAnswer(
+					sessionId,
+					itemId,
+					[{ questionIndex: 0, selected: [1] }],
+					Effect.sync(() => {
+						newDeliveries += 1;
+					}),
+				);
+				yield* replacement;
+				yield* replacement;
+				expect(oldDeliveries).toBe(0);
+				expect(newDeliveries).toBe(1);
+			}),
+		);
+	});
+	it("keeps delivery alive when the caller disconnects, until its authority is revoked", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const authority = makeQuestionAttachmentAuthority();
+				const sessionId = AgentSessionId.make("disconnected-session");
+				const itemId = AgentItemId.make("disconnected-item");
+				const started = yield* Deferred.make<void>();
+				const release = yield* Deferred.make<void>();
+				let deliveries = 0;
+				let interrupted = false;
+				authority.attach({ sessionId, itemId }, questions);
+				const operation = Deferred.succeed(started, undefined).pipe(
+					Effect.andThen(Deferred.await(release)),
+					Effect.andThen(
+						Effect.sync(() => {
+							deliveries += 1;
+						}),
+					),
+					Effect.onInterrupt(() =>
+						Effect.sync(() => {
+							interrupted = true;
+						}),
+					),
+				);
+				const caller = yield* authority
+					.deliverCancellation(sessionId, itemId, operation)
+					.pipe(Effect.forkChild);
+				yield* Deferred.await(started);
+				yield* Fiber.interrupt(caller);
+				expect(interrupted).toBe(false);
+				const retry = yield* authority
+					.deliverCancellation(sessionId, itemId, operation)
+					.pipe(Effect.forkChild);
+				yield* Deferred.succeed(release, undefined);
+				yield* Fiber.join(retry);
+				expect(deliveries).toBe(1);
+				expect(interrupted).toBe(false);
+			}),
+		);
+	});
 });

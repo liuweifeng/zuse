@@ -1583,45 +1583,41 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.sync(() => questionAttachments.has(sessionId, itemId)),
 			validateQuestionAnswer: (sessionId, itemId, answers) =>
 				questionAttachments.validateAnswer(sessionId, itemId, answers),
+			// Attachment authority serializes each callback. Holding the session
+			// lifecycle lane here would prevent close from revoking a hung delivery.
 			answerQuestion: (sessionId, itemId, answers) =>
-				lifecycleWorker.run(
-					sessionId,
-					Effect.gen(function* () {
-						const { handle } = yield* lookup(sessionId);
-						yield* questionAttachments.deliverAnswer(
-							sessionId,
-							itemId,
-							answers,
-							handle
-								.answerQuestion(itemId, answers)
-								.pipe(
-									Effect.mapError(
-										() => new AgentSessionNotFoundError({ sessionId }),
-									),
-								),
-						);
-					}),
-				),
-			cancelQuestion: (sessionId, itemId) =>
-				lifecycleWorker.run(
-					sessionId,
-					Effect.gen(function* () {
-						const { handle } = yield* lookup(sessionId);
-						const cancel = handle.cancelQuestion;
-						if (cancel === undefined) {
-							return yield* new AgentSessionNotFoundError({ sessionId });
-						}
-						yield* questionAttachments.deliverCancellation(
-							sessionId,
-							itemId,
-							cancel(itemId).pipe(
+				Effect.gen(function* () {
+					const { handle } = yield* lookup(sessionId);
+					yield* questionAttachments.deliverAnswer(
+						sessionId,
+						itemId,
+						answers,
+						handle
+							.answerQuestion(itemId, answers)
+							.pipe(
 								Effect.mapError(
 									() => new AgentSessionNotFoundError({ sessionId }),
 								),
 							),
-						);
-					}),
-				),
+					);
+				}),
+			cancelQuestion: (sessionId, itemId) =>
+				Effect.gen(function* () {
+					const { handle } = yield* lookup(sessionId);
+					const cancel = handle.cancelQuestion;
+					if (cancel === undefined) {
+						return yield* new AgentSessionNotFoundError({ sessionId });
+					}
+					yield* questionAttachments.deliverCancellation(
+						sessionId,
+						itemId,
+						cancel(itemId).pipe(
+							Effect.mapError(
+								() => new AgentSessionNotFoundError({ sessionId }),
+							),
+						),
+					);
+				}),
 			acknowledgeQuestionResolution: (sessionId, itemId) =>
 				lifecycleWorker.run(
 					sessionId,

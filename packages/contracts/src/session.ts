@@ -354,8 +354,8 @@ const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
 });
 
 /**
- * Persisted form of a `UserQuestion` event. `itemId` is the SDK's
- * `tool_use.id` for the AskUserQuestion call; the paired
+ * Persisted form of a `UserQuestion` event. `itemId` is the application
+ * callback identity allocated at provider acquisition; the paired
  * `user_question_answer` row uses the same `itemId`.
  */
 const UserQuestionContent = Schema.TaggedStruct("user_question", {
