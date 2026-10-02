@@ -91,6 +91,27 @@ export const turnInterruptReceipt = (
 
 const success = (events: readonly SessionEvent[]) => Result.succeed(events);
 
+/** Stop both a published handle and any distinct startup reservation. */
+const providerStops = (
+	state: SessionState,
+	requestedAt: number,
+): readonly SessionEvent[] => {
+	const targets = new Map<string | null, string>();
+	if (state.attachedProviderId !== null)
+		targets.set(state.attachedProviderSessionId, state.attachedProviderId);
+	if (state.providerReservation !== null)
+		targets.set(
+			state.providerReservation.providerSessionId,
+			state.providerReservation.providerId,
+		);
+	return [...targets].map(([providerSessionId, providerId]) => ({
+		_tag: "ProviderStopRequested",
+		providerId,
+		...(providerSessionId === null ? {} : { providerSessionId }),
+		requestedAt,
+	}));
+};
+
 /** Events that bind a provider-native thread supplied at creation. */
 const providerThreadSeedEvents = (
 	sessionId: string,
@@ -736,6 +757,28 @@ export const decide = (
 			return state.resolvedQuestionIds.has(command.itemId)
 				? success([])
 				: success([{ ...command, _tag: "QuestionResolved" }]);
+		case "ReserveProviderSession":
+			if (state.archived)
+				return Result.fail(
+					new ValidationFailed({
+						message: "cannot start a provider for an archived session",
+					}),
+				);
+			if (state.providerId !== null && state.providerId !== command.providerId)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider reservation must match the selected provider",
+					}),
+				);
+			if (
+				state.providerReservation?.providerSessionId ===
+				command.providerSessionId
+			)
+				return success([]);
+			return success([
+				...providerStops(state, command.reservedAt),
+				{ ...command, _tag: "ProviderSessionReserved" },
+			]);
 		case "AttachProvider":
 			if (
 				state.attachedProviderId === command.providerId &&
@@ -758,18 +801,7 @@ export const decide = (
 				{ ...command, _tag: "ProviderAttached" },
 			]);
 		case "RequestProviderStop":
-			return state.attachedProviderId === null
-				? success([])
-				: success([
-						{
-							_tag: "ProviderStopRequested",
-							providerId: state.attachedProviderId,
-							...(state.attachedProviderSessionId === null
-								? {}
-								: { providerSessionId: state.attachedProviderSessionId }),
-							requestedAt: command.requestedAt,
-						},
-					]);
+			return success(providerStops(state, command.requestedAt));
 		case "DetachProvider":
 			if (
 				command.expectedProviderSessionId !== undefined &&

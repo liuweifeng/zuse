@@ -61,6 +61,14 @@ export class AttemptOwnershipConflict extends Schema.TaggedErrorClass<AttemptOwn
 	},
 ) {}
 
+export class ProviderSessionOwnershipConflict extends Schema.TaggedErrorClass<ProviderSessionOwnershipConflict>()(
+	"ProviderSessionOwnershipConflict",
+	{
+		expectedProviderSessionId: Schema.String,
+		actualProviderSessionId: Schema.NullOr(Schema.String),
+	},
+) {}
+
 export type DispatchInput<Command = SessionCommand> = {
 	readonly commandId: string;
 	readonly streamId: string;
@@ -69,6 +77,8 @@ export type DispatchInput<Command = SessionCommand> = {
 	readonly receiptIdentity?: CommandReceiptIdentity;
 	/** Runtime-originated writes must still own this active attempt at commit. */
 	readonly expectedAttempt?: AttemptOwnership;
+	/** Guards publication against stop/replacement of a durable startup reservation. */
+	readonly expectedProviderSessionId?: string;
 	readonly command: Command;
 };
 
@@ -191,7 +201,11 @@ export class DispatchEngine<
 		input: DispatchInput,
 	) {
 		const existing = yield* this.storage.receipt(input.commandId);
-		if (existing !== null && input.expectedAttempt === undefined)
+		if (
+			existing !== null &&
+			input.expectedAttempt === undefined &&
+			input.expectedProviderSessionId === undefined
+		)
 			return yield* validateCommandReceipt(input, existing);
 
 		const stored = yield* this.storage.events(input.streamId);
@@ -199,6 +213,18 @@ export class DispatchEngine<
 			initialSessionState,
 			stored.map((record) => record.event),
 		);
+		if (input.expectedProviderSessionId !== undefined) {
+			const actual =
+				state.deleted || state.archived
+					? null
+					: (state.providerReservation?.providerSessionId ?? null);
+			if (actual !== input.expectedProviderSessionId)
+				return yield* new ProviderSessionOwnershipConflict({
+					expectedProviderSessionId: input.expectedProviderSessionId,
+					actualProviderSessionId: actual,
+				});
+		}
+
 		if (input.expectedAttempt !== undefined) {
 			const expected = input.expectedAttempt;
 			const turn = state.turns.get(expected.turnId);
@@ -329,6 +355,7 @@ export class InMemoryDispatchStorage
 export type DispatchFailure<StorageError = never> =
 	| DomainError
 	| AttemptOwnershipConflict
+	| ProviderSessionOwnershipConflict
 	| ConcurrencyConflict
 	| CommandReceiptConflict
 	| CommandReceiptIdentityConflict

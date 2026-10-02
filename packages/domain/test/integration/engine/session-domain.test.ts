@@ -48,6 +48,153 @@ const makeDomainRuntime = (filename: string, eventPrefix: string) => {
 };
 
 describe("SessionDomain", () => {
+	test("a durable stop revokes unpublished startup and guarded receipt replay", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const make = () =>
+					makeSessionDomain(sql, () =>
+						Effect.succeed(`reservation-${++sequence}`),
+					);
+				const domain = yield* make();
+				yield* domain.dispatch({
+					commandId: "create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					commandId: "reserve",
+					streamId: "session-1",
+					command: {
+						_tag: "ReserveProviderSession",
+						providerId: "provider-1",
+						providerSessionId: "starting",
+						reservedAt: 2,
+					},
+				});
+				const publication = {
+					commandId: "publish-status",
+					streamId: "session-1",
+					expectedProviderSessionId: "starting",
+					command: {
+						_tag: "SetStatus" as const,
+						status: "booting" as const,
+						updatedAt: 3,
+					},
+				};
+				yield* domain.dispatch(publication);
+				yield* domain.dispatch({
+					commandId: "stop",
+					streamId: "session-1",
+					command: { _tag: "RequestProviderStop", requestedAt: 4 },
+				});
+				expect(
+					(yield* domain.jobs.listBySession("session-1")).map(
+						(job) => job.request,
+					),
+				).toEqual([
+					{
+						_tag: "provider.stop",
+						providerSessionId: "starting",
+						requestedAt: 4,
+					},
+				]);
+				const restarted = yield* make();
+				for (const input of [
+					publication,
+					{
+						commandId: "late-attach",
+						streamId: "session-1",
+						expectedProviderSessionId: "starting",
+						command: {
+							_tag: "AttachProvider" as const,
+							providerId: "provider-1",
+							providerSessionId: "starting",
+							attachedAt: 5,
+						},
+					},
+				]) {
+					let callback = false;
+					const result = yield* restarted
+						.dispatchTransactionally(input, () =>
+							Effect.sync(() => {
+								callback = true;
+							}),
+						)
+						.pipe(Effect.result);
+					expect(result._tag).toBe("Failure");
+					if (result._tag === "Failure")
+						expect(result.failure._tag).toBe(
+							"ProviderSessionOwnershipConflict",
+						);
+					expect(callback).toBe(false);
+				}
+			}),
+		);
+	});
+
+	test("retiring the old attachment preserves a replacement startup reservation", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`replacement-${++sequence}`),
+				);
+				const dispatch = (commandId: string, command: SessionCommand) =>
+					domain.dispatch({ commandId, streamId: "session-1", command });
+				yield* dispatch("create", createSessionCommand);
+				yield* dispatch("old-attach", {
+					_tag: "AttachProvider",
+					providerId: "provider-1",
+					providerSessionId: "old",
+					attachedAt: 2,
+				});
+				yield* dispatch("reserve", {
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: "replacement",
+					reservedAt: 3,
+				});
+				yield* dispatch("old-detach", {
+					_tag: "DetachProvider",
+					expectedProviderSessionId: "old",
+					detachedAt: 4,
+				});
+				yield* domain.dispatch({
+					commandId: "new-attach",
+					streamId: "session-1",
+					expectedProviderSessionId: "replacement",
+					command: {
+						_tag: "AttachProvider",
+						providerId: "provider-1",
+						providerSessionId: "replacement",
+						attachedAt: 5,
+					},
+				});
+				yield* dispatch("stop-new", {
+					_tag: "RequestProviderStop",
+					requestedAt: 6,
+				});
+				expect(
+					(yield* domain.jobs.listBySession("session-1")).map(
+						(job) => job.request,
+					),
+				).toEqual([
+					{ _tag: "provider.stop", providerSessionId: "old", requestedAt: 3 },
+					{
+						_tag: "provider.stop",
+						providerSessionId: "replacement",
+						requestedAt: 6,
+					},
+				]);
+			}),
+		);
+	});
+
 	test("replays stop residency and fences detachment after provider replacement", async () => {
 		await run(
 			Effect.gen(function* () {

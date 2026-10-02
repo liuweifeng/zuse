@@ -35,8 +35,11 @@ Provider attachments and stop jobs now carry a unique live provider-session
 identity. Delayed stops retire only that identity and cannot detach a replacement,
 including a newer process for the same provider. Historical stops without an
 identity cannot target newly identified handles. Stop cleanup retains the retired
-handle through cancellation. Durable reservation of unpublished startups remains
-an outstanding lifecycle requirement.
+handle through cancellation. The domain now supports durable startup reservations
+and transactional reservation guards, including rejection of receipt replay after
+revocation. Stop requests target both the attached handle and a distinct pending
+reservation. Runtime adoption and an indexed reservation projection remain
+outstanding, so unpublished startup cancellation is not yet an end-to-end guarantee.
 Job status and failure-message writes now carry transactional attempt guards,
 and interrupt cleanup closes only the matching provider handle. Handles whose
 event stream ended before the first send reject work as undelivered and are
