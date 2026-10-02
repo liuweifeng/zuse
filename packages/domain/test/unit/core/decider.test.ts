@@ -425,6 +425,37 @@ describe("session decider", () => {
 				requestedAt: 2,
 			},
 		]);
+		const expired = evolveAll(
+			pending,
+			Result.getOrThrow(
+				decide(pending, {
+					_tag: "ExpirePermission",
+					requestId: "permission-1",
+					expiredAt: 3,
+				}),
+			),
+		);
+		expect(
+			failure(
+				decide(expired, {
+					_tag: "ResolvePermission",
+					requestId: "permission-1",
+					decision: "AllowOnce",
+					resolvedAt: 4,
+				}),
+			)?._tag,
+		).toBe("PermissionNotPending");
+		expect(
+			Result.getOrThrow(
+				decide(expired, {
+					_tag: "ResolvePermission",
+					requestId: "permission-1",
+					decision: "Deny",
+					resolvedAt: 4,
+				}),
+			)[0]?._tag,
+		).toBe("PermissionResolved");
+
 		expect(
 			Result.getOrThrow(
 				decide(pending, {

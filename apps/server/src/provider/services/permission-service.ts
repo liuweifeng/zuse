@@ -41,6 +41,12 @@ import { Context, type Effect, type Stream } from "effect";
 export interface RequestOptions {
 	readonly projectId: FolderId;
 	readonly forcePrompt?: boolean;
+	/** Captured at provider acquisition; never inferred from a later active turn. */
+	readonly owner?: {
+		readonly providerSessionId: string;
+		readonly attempt?: { readonly turnId: string; readonly attemptId: string };
+	};
+	readonly isCurrent?: Effect.Effect<boolean>;
 }
 
 export interface PermissionServiceShape {

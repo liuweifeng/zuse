@@ -1,6 +1,7 @@
 import {
 	DEFAULT_PERMISSION_MODE,
 	DEFAULT_RUNTIME_MODE,
+	PermissionRequest,
 	QueuedMessage,
 	QueueState,
 	type SessionInteraction,
@@ -147,6 +148,22 @@ export const applyTimelineEvent = (
 					id: event.request.id,
 					request: event.request,
 				}),
+			});
+		case "PermissionExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((interaction) =>
+					interaction._tag === "Permission" &&
+					interaction.id === event.requestId
+						? {
+								...interaction,
+								request: PermissionRequest.make({
+									...interaction.request,
+									recoveryState: "expired",
+								}),
+							}
+						: interaction,
+				),
 			});
 		case "PermissionResolved":
 			return SessionTimelineProjection.make({

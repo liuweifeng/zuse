@@ -121,6 +121,15 @@ read-only recovery from proven native evidence or records an explicit uncertain
 failure without resending. Stream termination expires its lease immediately.
 This does not yet provide client liveness projections, provider-inactivity
 classification, or native-platform failure validation.
+Approval callbacks now capture their original provider residency and attempt.
+Request admission and decisions enforce that ownership inside the domain
+transaction; saved grants cannot authorize a stale callback. Revocation records
+`PermissionExpired`, denies the waiting callback, and updates both live timeline
+projections and restored snapshots. Expired approvals remain auditable and can
+be dismissed, but cannot become allow decisions. A background pass detects
+physical handle release even without client activity. This extends the existing
+approval ledger; questions, plan responses and unified durable answer jobs
+still need their shared input lifecycle.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

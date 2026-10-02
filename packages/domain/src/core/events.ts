@@ -212,6 +212,10 @@ export const SessionEvent = Schema.Union([
 		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("PermissionExpired", {
+		requestId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: Schema.String,
 		resolution: Schema.Literal("cancelled"),

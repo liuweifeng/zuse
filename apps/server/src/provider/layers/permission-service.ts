@@ -35,12 +35,14 @@ import { AppPaths } from "../../app-paths.ts";
 import {
 	PermissionService,
 	type PermissionServiceShape,
+	type RequestOptions,
 } from "../services/permission-service.ts";
 
 interface PendingEntry {
 	readonly request: PermissionRequest;
 	readonly deferred: Deferred.Deferred<PermissionDecision>;
 	readonly projectId: FolderId;
+	readonly authority?: RequestOptions;
 }
 
 interface DecisionRow {
@@ -127,8 +129,7 @@ const decisionTag = (
 	decision: PermissionDecision,
 ): "AllowOnce" | "AllowForSession" | "Deny" | "AlwaysAllow" => decision._tag;
 
-let requestCounter = 0;
-const nextRequestId = (): string => `pr_${Date.now()}_${++requestCounter}`;
+const nextRequestId = (): string => `pr_${crypto.randomUUID()}`;
 
 export const PermissionServiceLive = Layer.effect(
 	PermissionService,
@@ -204,8 +205,42 @@ export const PermissionServiceLive = Layer.effect(
 				),
 			);
 
+		const ownsRequest = (
+			sessionId: SessionId,
+			authority?: RequestOptions,
+		): Effect.Effect<boolean> =>
+			Effect.gen(function* () {
+				if (authority?.isCurrent !== undefined && !(yield* authority.isCurrent))
+					return false;
+				const owner = authority?.owner;
+				if (owner === undefined) return true;
+				const rows =
+					yield* sql`SELECT 1 FROM sessions s WHERE s.id = ${sessionId}
+ AND s.archived_at IS NULL AND s.provider_reservation_id = ${owner.providerSessionId}
+ AND (${owner.attempt === undefined} OR EXISTS (SELECT 1 FROM session_turns t WHERE t.session_id = s.id
+ AND t.id = ${owner.attempt?.turnId ?? null} AND t.active_attempt_id = ${owner.attempt?.attemptId ?? null}
+ AND t.status IN ('starting', 'running') AND t.phase = 'running'))`.pipe(
+						Effect.orDie,
+					);
+				return (
+					rows.length === 1 &&
+					(authority?.isCurrent === undefined || (yield* authority.isCurrent))
+				);
+			});
+
+		const removePendingRequest = (requestId: string) =>
+			Ref.update(pending, (current) => {
+				const next = new Map(current);
+				next.delete(requestId);
+				return next;
+			}).pipe(
+				Effect.andThen(PubSub.publish(pubsub, { _tag: "remove", requestId })),
+				Effect.asVoid,
+			);
+
 		type PermissionLifecycleCommand =
 			| { readonly _tag: "PublishPermission"; readonly requestId: string }
+			| { readonly _tag: "ExpirePermission"; readonly requestId: string }
 			| {
 					readonly _tag: "CompletePermission";
 					readonly requestId: string;
@@ -236,20 +271,30 @@ export const PermissionServiceLive = Layer.effect(
 						return;
 					}
 
+					if (input.command._tag === "ExpirePermission") {
+						const request = PermissionRequest.make({
+							...entry.request,
+							recoveryState: "expired",
+						});
+						yield* Ref.update(pending, (current) =>
+							new Map(current).set(request.id, { ...entry, request }),
+						);
+						yield* Deferred.succeed(entry.deferred, { _tag: "Deny" });
+						yield* PubSub.publish(pubsub, { _tag: "change", request });
+						return;
+					}
+
 					const decision = yield* decodePermissionDecision(
 						JSON.parse(input.command.decisionJson),
 					).pipe(Effect.orDie);
 					yield* persistDecision(entry.request, entry.projectId, decision);
-					yield* Ref.update(pending, (current) => {
-						const next = new Map(current);
-						next.delete(input.command.requestId);
-						return next;
-					});
-					yield* PubSub.publish(pubsub, {
-						_tag: "remove",
-						requestId: input.command.requestId,
-					});
-					yield* Deferred.succeed(entry.deferred, decision);
+					yield* removePendingRequest(input.command.requestId);
+					yield* Deferred.succeed(
+						entry.deferred,
+						(yield* ownsRequest(entry.request.sessionId, entry.authority))
+							? decision
+							: ({ _tag: "Deny" } as const),
+					);
 					log("decide.pending_removed", {
 						requestId: input.command.requestId,
 						sessionId: entry.request.sessionId,
@@ -271,6 +316,17 @@ export const PermissionServiceLive = Layer.effect(
 							},
 						]);
 					}
+					if (record.event._tag === "PermissionExpired")
+						return Effect.succeed([
+							{
+								streamId: record.streamId,
+								command: {
+									_tag: "ExpirePermission" as const,
+									requestId: record.event.requestId,
+								},
+							},
+						]);
+
 					if (record.event._tag === "PermissionResolved") {
 						return Effect.succeed([
 							{
@@ -293,6 +349,51 @@ export const PermissionServiceLive = Layer.effect(
 		const runPermissionReactor = permissionReactorLock.withPermits(1)(
 			permissionReactor.catchUp().pipe(Effect.asVoid, Effect.orDie),
 		);
+
+		const expireRequest = (entry: PendingEntry) =>
+			sessionDomain
+				.dispatch({
+					commandId: `permission:expire:${entry.request.id}`,
+					streamId: entry.request.sessionId,
+					command: {
+						_tag: "ExpirePermission",
+						requestId: entry.request.id,
+						expiredAt: Date.now(),
+					},
+				})
+				.pipe(
+					Effect.catchTag("SessionDeletedConflict", () =>
+						removePendingRequest(entry.request.id).pipe(
+							Effect.andThen(
+								Deferred.succeed(entry.deferred, { _tag: "Deny" }),
+							),
+						),
+					),
+					Effect.andThen(runPermissionReactor),
+					Effect.orDie,
+				);
+		const refreshAnswerability = Effect.gen(function* () {
+			const entries = [...(yield* Ref.get(pending)).values()];
+			if (entries.length === 0) return;
+			const liveSessions = yield* sql<{
+				id: string;
+			}>`SELECT id FROM sessions WHERE id IN ${sql.in([...new Set(entries.map((entry) => entry.request.sessionId))])}`.pipe(
+				Effect.orDie,
+			);
+			const existing = new Set(liveSessions.map((session) => session.id));
+			for (const entry of entries) {
+				if (!existing.has(entry.request.sessionId)) {
+					yield* removePendingRequest(entry.request.id);
+					yield* Deferred.succeed(entry.deferred, { _tag: "Deny" });
+					continue;
+				}
+				if (
+					entry.request.recoveryState !== "expired" &&
+					!(yield* ownsRequest(entry.request.sessionId, entry.authority))
+				)
+					yield* expireRequest(entry);
+			}
+		});
 
 		// The driver Deferred is process-local, but the prompt itself is durable.
 		// A restart destroys its provider callback, not its audit record. Keep the
@@ -347,6 +448,17 @@ export const PermissionServiceLive = Layer.effect(
 				});
 				return next;
 			});
+			yield* sessionDomain
+				.dispatch({
+					commandId: `permission:expire:${recovered.id}`,
+					streamId: recovered.sessionId,
+					command: {
+						_tag: "ExpirePermission",
+						requestId: recovered.id,
+						expiredAt: Date.now(),
+					},
+				})
+				.pipe(Effect.orDie);
 			log("request.recovered", {
 				requestId: recovered.id,
 				sessionId: recovered.sessionId,
@@ -369,12 +481,25 @@ export const PermissionServiceLive = Layer.effect(
 		}
 		yield* runPermissionReactor;
 
+		yield* Effect.forever(
+			Effect.sleep("1 second").pipe(
+				Effect.andThen(refreshAnswerability),
+				Effect.catchCause(() =>
+					Effect.logError(
+						"[PermissionService] approval answerability refresh failed",
+					),
+				),
+			),
+		).pipe(Effect.forkScoped);
+
 		const request: PermissionServiceShape["request"] = (
 			sessionId,
 			kind,
 			options,
 		) =>
 			Effect.gen(function* () {
+				if (!(yield* ownsRequest(sessionId, options)))
+					return { _tag: "Deny" } as const;
 				if (options.forcePrompt !== true) {
 					const allowed = yield* findExistingAllow(
 						sessionId,
@@ -382,6 +507,8 @@ export const PermissionServiceLive = Layer.effect(
 						kind,
 					);
 					if (allowed) {
+						if (!(yield* ownsRequest(sessionId, options)))
+							return { _tag: "Deny" } as const;
 						log("request.auto_allowed", {
 							sessionId,
 							projectId: options.projectId,
@@ -401,52 +528,90 @@ export const PermissionServiceLive = Layer.effect(
 					forcePrompt: options.forcePrompt === true,
 				});
 				const deferred = yield* Deferred.make<PermissionDecision>();
-				yield* Ref.update(pending, (m) => {
-					const next = new Map(m);
-					next.set(id, {
-						request: req,
-						deferred,
-						projectId: options.projectId,
-					});
-					log("request.pending_added", {
-						requestId: id,
-						sessionId,
-						projectId: options.projectId,
-						kindTag: kind._tag,
-						kindKey: kindKey(kind),
-						forcePrompt: req.forcePrompt,
-						pendingCount: next.size,
-					});
-					return next;
-				});
 				const [owner] = yield* sql<{ readonly current_turn_id: string | null }>`
 					SELECT id AS current_turn_id FROM session_turns WHERE session_id = ${sessionId} AND status IN ('starting', 'running')
 				`.pipe(Effect.orDie);
-				yield* sessionDomain
-					.dispatch({
-						commandId: `permission:request:${id}`,
-						streamId: sessionId,
-						command: {
-							_tag: "RequestPermission",
-							requestId: id,
-							turnId: owner?.current_turn_id ?? id,
-							payloadJson: JSON.stringify(req),
-							requestedAt: req.requestedAt.getTime(),
-						},
-					})
-					.pipe(Effect.orDie);
-				yield* runPermissionReactor;
+				// Keep uncommitted prompts out of snapshots, and prevent the reactor
+				// from consuming the request before its callback authority is installed.
+				const admitted = yield* permissionReactorLock
+					.withPermits(1)(
+						Effect.gen(function* () {
+							const committed = yield* sessionDomain
+								.dispatch({
+									commandId: `permission:request:${id}`,
+									expectedProviderSessionId: options.owner?.providerSessionId,
+									expectedAttempt:
+										options.owner?.attempt === undefined
+											? undefined
+											: {
+													...options.owner.attempt,
+													requireUninterrupted: true,
+												},
+									streamId: sessionId,
+									command: {
+										_tag: "RequestPermission",
+										requestId: id,
+										turnId:
+											options.owner?.attempt?.turnId ??
+											owner?.current_turn_id ??
+											id,
+										payloadJson: JSON.stringify(req),
+										requestedAt: req.requestedAt.getTime(),
+									},
+								})
+								.pipe(
+									Effect.as(true),
+									Effect.catchTag(
+										[
+											"AttemptOwnershipConflict",
+											"ProviderSessionOwnershipConflict",
+										],
+										() => Effect.succeed(false),
+									),
+									Effect.orDie,
+								);
+							if (!committed) return false;
+
+							yield* Ref.update(pending, (m) => {
+								const next = new Map(m);
+								next.set(id, {
+									request: req,
+									deferred,
+									projectId: options.projectId,
+									authority: options,
+								});
+								log("request.pending_added", {
+									requestId: id,
+									sessionId,
+									projectId: options.projectId,
+									kindTag: kind._tag,
+									kindKey: kindKey(kind),
+									forcePrompt: req.forcePrompt,
+									pendingCount: next.size,
+								});
+								return next;
+							});
+							yield* permissionReactor.catchUp().pipe(Effect.orDie);
+							return true;
+						}),
+					)
+					.pipe(Effect.uninterruptible);
+				if (!admitted) return { _tag: "Deny" } as const;
+
 				const decision = yield* Deferred.await(deferred);
 				log("request.resolved", {
 					requestId: id,
 					sessionId,
 					decision: decision._tag,
 				});
-				return decision;
+				return (yield* ownsRequest(sessionId, options))
+					? decision
+					: ({ _tag: "Deny" } as const);
 			});
 
 		const decide: PermissionServiceShape["decide"] = (requestId, decision) =>
 			Effect.gen(function* () {
+				yield* refreshAnswerability;
 				const map = yield* Ref.get(pending);
 				const entry = map.get(requestId);
 				if (entry === undefined) {
@@ -482,6 +647,18 @@ export const PermissionServiceLive = Layer.effect(
 				yield* sessionDomain
 					.dispatch({
 						commandId: `permission:resolve:${requestId}`,
+						expectedProviderSessionId:
+							decision._tag === "Deny"
+								? undefined
+								: entry.authority?.owner?.providerSessionId,
+						expectedAttempt:
+							decision._tag === "Deny" ||
+							entry.authority?.owner?.attempt === undefined
+								? undefined
+								: {
+										...entry.authority.owner.attempt,
+										requireUninterrupted: true,
+									},
 						streamId: entry.request.sessionId,
 						command: {
 							_tag: "ResolvePermission",
@@ -491,12 +668,33 @@ export const PermissionServiceLive = Layer.effect(
 							resolvedAt: (yield* DateTime.nowAsDate).getTime(),
 						},
 					})
-					.pipe(Effect.orDie);
+					.pipe(
+						Effect.catchTag(
+							["AttemptOwnershipConflict", "ProviderSessionOwnershipConflict"],
+							() =>
+								expireRequest(entry).pipe(
+									Effect.andThen(
+										Effect.fail(
+											new PermissionRequestExpiredError({ requestId }),
+										),
+									),
+								),
+						),
+						Effect.catchTag("PermissionNotPending", () =>
+							Effect.fail(new PermissionRequestExpiredError({ requestId })),
+						),
+						Effect.catch((error) =>
+							error._tag === "PermissionRequestExpiredError"
+								? Effect.fail(error)
+								: Effect.die(error),
+						),
+					);
 				yield* runPermissionReactor;
 			});
 
 		const listPending: PermissionServiceShape["listPending"] = (sessionId) =>
 			Effect.gen(function* () {
+				yield* refreshAnswerability;
 				const map = yield* Ref.get(pending);
 				const out: PermissionRequest[] = [];
 				for (const entry of map.values()) {
@@ -516,6 +714,7 @@ export const PermissionServiceLive = Layer.effect(
 			Stream.unwrap(
 				Effect.gen(function* () {
 					const dequeue = yield* PubSub.subscribe(pubsub);
+					yield* refreshAnswerability;
 					const map = yield* Ref.get(pending);
 					const current = Array.from(map.values()).map(
 						(entry) => entry.request,

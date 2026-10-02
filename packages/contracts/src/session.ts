@@ -605,6 +605,7 @@ export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
 	Schema.TaggedStruct("PermissionRequested", { request: PermissionRequest }),
 	Schema.TaggedStruct("PermissionResolved", { requestId: Schema.String }),
+	Schema.TaggedStruct("PermissionExpired", { requestId: Schema.String }),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: AgentItemId,
 		resolution: Schema.Literal("cancelled"),

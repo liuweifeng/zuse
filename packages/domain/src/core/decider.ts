@@ -901,8 +901,15 @@ export const decide = (
 			return state.pendingPermissionIds.has(command.requestId)
 				? success([])
 				: success([{ ...command, _tag: "PermissionRequested" }]);
+		case "ExpirePermission":
+			return state.pendingPermissionIds.has(command.requestId) &&
+				!state.expiredPermissionIds.has(command.requestId)
+				? success([{ ...command, _tag: "PermissionExpired" }])
+				: success([]);
 		case "ResolvePermission":
-			return state.pendingPermissionIds.has(command.requestId)
+			return state.pendingPermissionIds.has(command.requestId) &&
+				(!state.expiredPermissionIds.has(command.requestId) ||
+					command.decision === "Deny")
 				? success([{ ...command, _tag: "PermissionResolved" }])
 				: Result.fail(
 						new PermissionNotPending({ requestId: command.requestId }),
