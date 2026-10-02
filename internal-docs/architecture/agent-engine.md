@@ -14,6 +14,11 @@ job ledger, provider-thread rows, turn rows, attempt history in the event-source
 aggregate, and `activeTurn` timeline projection. These cover slices 1–3, with
 reliability gaps still to close before treating those slices as complete.
 
+Production persistence now acquires a process-lifetime SQLite lock before database
+migration and runtime construction. A second engine for the same data directory
+fails before reconciliation; process death releases ownership without stale-file
+stealing. Linux process tests cover contention, suspension and forced termination.
+Native macOS and Windows validation is still outstanding.
 Jobs now use renewable claims with unique acquisition owners, expiry recovery,
 post-commit cancellation, and session-scoped command drains. Provider sends retain
 a durable delivery fence: an uncertain outcome is surfaced instead of resending.
