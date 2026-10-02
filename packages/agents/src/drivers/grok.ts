@@ -116,7 +116,7 @@ export interface GrokSessionHandle extends GoalCapableSessionHandle {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 	readonly updateMcpServers: (
 		servers: ReadonlyArray<unknown>,
 	) => Effect.Effect<void>;
@@ -1318,22 +1318,26 @@ export const startGrokSession = (
 					userQuestions.acknowledge(itemId);
 				}),
 			respondToPlan: (toolCallId, outcome, feedback) =>
-				Effect.sync(() => {
-					const pending = pendingPlanResponses.get(toolCallId);
-					if (pending === undefined)
-						throw new Error(`No pending Grok plan approval ${toolCallId}.`);
-					writeMessage({
-						jsonrpc: "2.0",
-						id: pending.rpcId,
-						result: {
-							outcome,
-							...(feedback === undefined || feedback.trim().length === 0
-								? {}
-								: { feedback: feedback.trim() }),
-						},
-					});
-					pendingPlanResponses.delete(toolCallId);
-					lifecycle.transition("running");
+				Effect.try({
+					try: () => {
+						const pending = pendingPlanResponses.get(toolCallId);
+						if (pending === undefined)
+							throw new Error(`No pending Grok plan approval ${toolCallId}.`);
+						writeMessage({
+							jsonrpc: "2.0",
+							id: pending.rpcId,
+							result: {
+								outcome,
+								...(feedback === undefined || feedback.trim().length === 0
+									? {}
+									: { feedback: feedback.trim() }),
+							},
+						});
+						pendingPlanResponses.delete(toolCallId);
+						lifecycle.transition("running");
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
 				}),
 			acknowledgeProviderEventCursor: (cursor) =>
 				Effect.sync(() => eventCursor.commit(cursor)),

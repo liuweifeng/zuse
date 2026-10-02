@@ -47,7 +47,7 @@ export interface ProviderSessionHandle {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 	readonly acknowledgeProviderEventCursor?: (
 		cursor: string,
 	) => Effect.Effect<void>;

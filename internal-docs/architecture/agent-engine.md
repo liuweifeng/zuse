@@ -169,7 +169,10 @@ Startup checks the first 100 pending requests; subsequent pages run in the backg
 Imported requests with unknown ownership also become explicitly expired. Desktop
 and mobile render a disabled, dismissible card from the durable interaction projection;
 provider-native timeout receipts remain resolved rather than reappearing as cards.
-Plan responses and durable answer jobs remain outstanding; the answer preflights
+Native plan callback IDs are now scoped to a provider acquisition using the same
+application identity boundary as questions; a replacement cannot accept an older
+plan ID. Requests and tool results retain application correlation. Durable plan
+ownership, expiry, response receipts and answer jobs remain outstanding; the answer preflights
 are not an atomic provider/SQLite commit.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
