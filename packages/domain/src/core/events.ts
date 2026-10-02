@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { InputRequestOwner } from "../agent-engine/input-owner.js";
 
 import {
 	AttemptProviderTurnFields,
@@ -178,6 +179,7 @@ export const SessionEvent = Schema.Union([
 		readyAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("MessagePersisted", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		messageId: Schema.String,
 		turnId: Schema.NullOr(Schema.String),
 		role: Schema.String,
@@ -201,6 +203,7 @@ export const SessionEvent = Schema.Union([
 		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("PermissionRequested", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		requestId: Schema.String,
 		turnId: Schema.String,
 		payloadJson: Schema.String,

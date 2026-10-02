@@ -23,6 +23,7 @@ import {
 	SessionStartError,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { ownsInputRequest } from "@zuse/domain/agent-engine/input-owner";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import { providerThreadIdFor } from "@zuse/domain/core/state";
 import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
@@ -42,6 +43,7 @@ import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
 } from "./provider-session-runtime.ts";
+import { loadQuestionAuthority } from "./question-authority.ts";
 import {
 	makeQuestionAnswerDeliveryPayload,
 	parseQuestionAnswerDeliveryPayload,
@@ -80,7 +82,7 @@ export interface SessionOperationsOptions
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: import("@zuse/contracts").MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 	) => Effect.Effect<PersistedMessage>;
 	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly dispatchSessionCommand: (
@@ -606,6 +608,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				if (receipt._tag === "invalid") {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				const authority = yield* loadQuestionAuthority(
+					sql,
+					sessionId,
+					itemId,
+				).pipe(Effect.orDie);
+				if (authority === null)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				yield* provider
 					.validateQuestionAnswer(sessionId, itemId, answers)
 					.pipe(
@@ -666,12 +675,20 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 							answers: durableDelivery.answers,
 						},
 						answerMessageId,
+						authority.turnId,
 					);
 					if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
 				});
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+
+				if (
+					!(yield* ownsInputRequest(sql, sessionId, authority.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 
 				yield* provider
 					.answerQuestion(sessionId, itemId, durableDelivery.answers)
@@ -681,7 +698,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				// There is no atomic commit spanning a provider callback and SQLite.
 				// Driver-local settled state makes same-process retries idempotent, but it
 				// intentionally does not survive process death. After restart, an
-				// unreceipted intent still requires the provider to reissue the callback;
+				// unreceipted intent cannot authorize a newly issued replacement callback;
 				// never synthesize a public receipt from an ambiguous delivery marker.
 				yield* persistReceipt;
 				yield* sql`
@@ -731,6 +748,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				if (receipt._tag === "invalid") {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				const authority = yield* loadQuestionAuthority(
+					sql,
+					sessionId,
+					itemId,
+				).pipe(Effect.orDie);
+				if (authority === null)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 
 				/** Record one cancellation receipt for both attached and detached callbacks. */
 				const persistCancellation = Effect.gen(function* () {
@@ -802,6 +826,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				if (
+					!(yield* ownsInputRequest(sql, sessionId, authority.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
+
 				yield* provider
 					.cancelQuestion(sessionId, itemId)
 					.pipe(

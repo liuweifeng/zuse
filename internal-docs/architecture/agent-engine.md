@@ -156,8 +156,15 @@ of rescanning transcript and event history. Migration 0069 backfills imported
 message rows and permission/cancellation events in bounded pages; resolved inputs
 cannot reopen during replay, and deleted sessions remove their input rows. This
 projection records durable status but does not grant live callback authority or
-replace the existing answer delivery mechanisms. Unified request ownership, plan
-responses, explicit question expiry and durable answer jobs remain outstanding.
+replace the existing answer delivery mechanisms. Question and approval events now
+capture their original provider residency and optional attempt; the projection
+retains that owner and the first request's turn attribution. Migration 0070 restores
+recorded ownership and original turn IDs without assigning current owners to legacy
+requests. Unreceipted question answers/cancellations require known durable ownership
+and recheck it before callback delivery, using the same ownership predicate as
+approvals. Answer receipts retain the request's original turn, including null for
+session inputs. Plan responses, engine-driven question expiry and durable answer
+jobs remain outstanding; these preflights are not an atomic provider/SQLite commit.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records

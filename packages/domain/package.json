@@ -12,6 +12,7 @@
 		"./core/commands": "./src/core/commands.ts",
 		"./core/decider": "./src/core/decider.ts",
 		"./core/events": "./src/core/events.ts",
+		"./agent-engine/input-owner": "./src/agent-engine/input-owner.ts",
 		"./agent-engine/ids": "./src/agent-engine/ids.ts",
 		"./agent-engine/job-ledger": "./src/agent-engine/job-ledger.ts",
 		"./agent-engine/job-worker": "./src/agent-engine/job-worker.ts",

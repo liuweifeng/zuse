@@ -1,6 +1,7 @@
 import { MessageContent } from "@zuse/contracts";
 import { Effect, Result, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import type { InputRequestOwner } from "../agent-engine/input-owner.js";
 import type { StoredEvent } from "../engine/dispatch.js";
 
 /** Shared DDL keeps migration and isolated domain databases on the same schema. */
@@ -12,6 +13,8 @@ export const createSessionInputProjection = (sql: SqlClient.SqlClient) =>
 			request_id TEXT NOT NULL,
 			status TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'cancelled', 'expired')),
 			request_json TEXT,
+			owner_json TEXT,
+			turn_id TEXT,
 			requested_at TEXT,
 			requested_sequence INTEGER,
 			updated_sequence INTEGER NOT NULL,
@@ -39,22 +42,28 @@ export const projectSessionInput = (
 			id: string,
 			json: string,
 			at: number,
+			turnId: string | null,
+			owner?: InputRequestOwner,
 		) => {
 			const requestedAt = new Date(at);
 			if (Number.isNaN(requestedAt.getTime())) return Effect.void;
 			return sql`
 			INSERT INTO session_inputs
 				(session_id, kind, request_id, status, request_json, requested_at,
-				 requested_sequence, updated_sequence)
+				 requested_sequence, updated_sequence, owner_json, turn_id)
 			VALUES (${streamId}, ${kind}, ${id}, 'pending', ${json},
-				${requestedAt.toISOString()}, ${sequence}, ${sequence})
+				${requestedAt.toISOString()}, ${sequence}, ${sequence},
+				${owner === undefined ? null : JSON.stringify(owner)}, ${turnId})
 			ON CONFLICT(session_id, kind, request_id) DO UPDATE SET
 				request_json = excluded.request_json,
+				owner_json = CASE WHEN session_inputs.requested_sequence > excluded.requested_sequence
+					THEN excluded.owner_json ELSE COALESCE(session_inputs.owner_json, excluded.owner_json) END,
+				turn_id = excluded.turn_id,
 				requested_at = excluded.requested_at,
 				requested_sequence = excluded.requested_sequence,
 				updated_sequence = MAX(session_inputs.updated_sequence, excluded.updated_sequence)
 			WHERE session_inputs.requested_sequence IS NULL
-				OR session_inputs.requested_sequence <= excluded.requested_sequence
+				OR session_inputs.requested_sequence >= excluded.requested_sequence
 		`;
 		};
 		const resolve = (
@@ -81,6 +90,10 @@ export const projectSessionInput = (
 					event.requestId,
 					event.payloadJson,
 					event.requestedAt,
+					event.inputOwner === undefined
+						? event.turnId
+						: (event.inputOwner.attempt?.turnId ?? null),
+					event.inputOwner,
 				);
 				return;
 			case "PermissionExpired":
@@ -107,6 +120,8 @@ export const projectSessionInput = (
 						content.itemId,
 						event.contentJson,
 						event.createdAt,
+						event.turnId,
+						event.inputOwner,
 					);
 				} else if (content._tag === "user_question_answer") {
 					yield* resolve(
@@ -124,4 +139,39 @@ export const projectSessionInput = (
 			default:
 				return;
 		}
+	});
+
+/** Read the accepted message after checkpoint conflict handling, shared with backfill. */
+export const projectCommittedMessageInput = (
+	sql: SqlClient.SqlClient,
+	record: InputEvent,
+) =>
+	Effect.gen(function* () {
+		const event = record.event;
+		if (
+			event._tag !== "MessagePersisted" ||
+			(event.kind !== "user_question" && event.kind !== "user_question_answer")
+		)
+			return;
+		const rows = yield* sql<{
+			content_json: string;
+			kind: string;
+			created_at: string;
+			sequence: number;
+		}>`
+			SELECT content_json, kind, created_at, COALESCE(sequence, 0) AS sequence FROM messages
+			WHERE id = ${event.messageId} AND session_id = ${record.streamId}
+		`;
+		const row = rows[0];
+		if (row === undefined) return;
+		yield* projectSessionInput(sql, {
+			...record,
+			sequence: row.sequence,
+			event: {
+				...event,
+				contentJson: row.content_json,
+				kind: row.kind,
+				createdAt: new Date(row.created_at).getTime(),
+			},
+		});
 	});
