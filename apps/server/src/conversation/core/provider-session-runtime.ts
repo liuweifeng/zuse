@@ -28,6 +28,7 @@ import { formatProviderFailure } from "./conversation-input.ts";
 import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import type { IngestionLeaseIdentity } from "./ingestion-lease.ts";
 import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface OpenProviderSessionOptions {
@@ -91,7 +92,10 @@ export interface ProviderSessionRuntimeOptions {
 		turnIdOverride?: AgentTurnId,
 	) => Effect.Effect<PersistedMessage>;
 	readonly provider: ProviderServiceShape;
-	readonly startSubscription: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly startSubscription: (
+		sessionId: SessionId,
+		identity?: IngestionLeaseIdentity,
+	) => Effect.Effect<void>;
 }
 
 export const makeProviderSessionRuntime = (
@@ -398,7 +402,17 @@ export const makeProviderSessionRuntime = (
 					!(yield* publish(status(options.postBootStatus)))
 				)
 					return false;
-				if (!(yield* publish(startSubscription(session.id)))) return false;
+				if (
+					!(yield* publish(
+						startSubscription(
+							session.id,
+							ownership === undefined
+								? undefined
+								: { ...ownership, providerSessionId },
+						),
+					))
+				)
+					return false;
 				if (
 					options.sendAfterOpen !== undefined &&
 					!(yield* publish(

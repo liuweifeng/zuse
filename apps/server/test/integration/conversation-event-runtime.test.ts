@@ -9,8 +9,8 @@ import {
 	AttemptOwnershipConflict,
 	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
-import { Deferred, Effect, Ref, Stream } from "effect";
-import { describe, expect, test } from "vitest";
+import { Deferred, Effect, Exit, Ref, Stream } from "effect";
+import { describe, expect, test, vi } from "vitest";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
 import {
 	bindProviderEventDelivery,
@@ -52,6 +52,176 @@ describe("ConversationEventRuntime", () => {
 		ignoreError: () => false,
 		isDuplicateToolUse: () => Effect.succeed(false),
 		persist: () => Effect.void,
+	});
+
+	test("rejected ingestion ownership interrupts startup before delivery can continue", async () => {
+		let continued = false;
+		const result = await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () => Stream.never),
+						acquireIngestionLease: () => Effect.succeed(null),
+					});
+					return yield* runtime
+						.start(SessionId.make("session-1"), {
+							turnId: "turn-1",
+							attemptId: "attempt-1",
+							providerSessionId: "test-residency",
+						})
+						.pipe(
+							Effect.andThen(
+								Effect.sync(() => {
+									continued = true;
+								}),
+							),
+							Effect.exit,
+						);
+				}),
+			),
+		);
+		expect(Exit.isFailure(result)).toBe(true);
+		expect(continued).toBe(false);
+	});
+
+	test("releases an arriving cursor when lease renewal revokes its consumer", async () => {
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now);
+		let released = 0;
+		let bound = 0;
+		try {
+			await Effect.runPromise(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const ended = yield* Deferred.make<void>();
+						const runtime = yield* makeConversationEventRuntime({
+							...options(yield* Effect.scope, () =>
+								Stream.fromEffect(
+									Effect.sync(() => {
+										clock.mockReturnValue(now + 60_000);
+										return bindProviderEventDelivery(
+											{
+												releaseProviderEventCursor: () =>
+													Effect.sync(() => {
+														released++;
+													}),
+											},
+											{
+												scope: "session",
+												event: {
+													_tag: "SessionCursor",
+													cursor: "thread-1",
+													strategy: "claude-session-id",
+													providerEventCursor: "cursor-1",
+												},
+											},
+											"test-residency",
+										);
+									}),
+								),
+							),
+							ingestionHeartbeatMs: 30_000,
+							acquireIngestionLease: () =>
+								Effect.succeed({
+									renew: () => Effect.succeed(false),
+									release: Effect.void,
+									expire: Deferred.succeed(ended, undefined).pipe(
+										Effect.asVoid,
+									),
+								}),
+							bindProviderThread: () =>
+								Effect.sync(() => {
+									bound++;
+								}),
+						});
+						yield* runtime.start(SessionId.make("session-1"), {
+							turnId: "turn-1",
+							attemptId: "attempt-1",
+							providerSessionId: "test-residency",
+						});
+						yield* Deferred.await(ended);
+						expect(released).toBe(1);
+						expect(bound).toBe(0);
+					}),
+				),
+			);
+		} finally {
+			clock.mockRestore();
+		}
+	});
+
+	test.each([
+		false,
+		true,
+	])("heartbeat shares the event consumer (blocked write: %s)", async (blocked) => {
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const entered = yield* Deferred.make<void>();
+					const release = yield* Deferred.make<void>();
+					const heartbeat = yield* Deferred.make<void>();
+					let renewed = 0;
+					let expired = 0;
+					let activity: number | undefined;
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							blocked
+								? Stream.succeed({
+										scope: "turn" as const,
+										turnId: "turn-1" as AgentTurnId,
+										event: {
+											_tag: "AssistantMessage" as const,
+											itemId: AgentItemId.make("output"),
+											text: "hello",
+										},
+									}).pipe(Stream.concat(Stream.never))
+								: Stream.never,
+						),
+						ingestionHeartbeatMs: 10,
+						acquireIngestionLease: () =>
+							Effect.succeed({
+								renew: (lastActivity) =>
+									Effect.sync(() => {
+										renewed++;
+										activity = lastActivity;
+									}).pipe(
+										Effect.andThen(
+											!blocked || lastActivity !== undefined
+												? Deferred.succeed(heartbeat, undefined)
+												: Effect.void,
+										),
+										Effect.as(true),
+									),
+								release: Effect.void,
+								expire: Effect.sync(() => {
+									expired++;
+								}),
+							}),
+						persist: () =>
+							Deferred.succeed(entered, undefined).pipe(
+								Effect.andThen(Deferred.await(release)),
+							),
+					});
+					const sessionId = SessionId.make("session-1");
+					yield* runtime.start(sessionId, {
+						turnId: "turn-1",
+						attemptId: "attempt-1",
+						providerSessionId: "test-residency",
+					});
+					if (blocked) {
+						yield* Deferred.await(entered);
+						const before = renewed;
+						yield* Effect.sleep("40 millis");
+						expect(renewed).toBe(before);
+						yield* Deferred.succeed(release, undefined);
+					}
+					yield* Deferred.await(heartbeat);
+					expect(activity === undefined).toBe(!blocked);
+					yield* runtime.interrupt(sessionId);
+					expect(expired).toBe(1);
+				}),
+			),
+		);
 	});
 
 	test.each([

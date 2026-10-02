@@ -539,6 +539,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 								// send still parked or pending would double-send.
 								let cancelled: ReadonlyArray<JobId> = [];
 								if (
+									input.command._tag === "ExpireAttempt" ||
 									appended.some(
 										(record) => record.event._tag === "AttemptStarted",
 									)

@@ -112,6 +112,15 @@ is preserved without diagnostic truncation. Missing, incomplete, running or
 unreadable evidence produces an explicit uncertain outcome. Other drivers have
 not yet reported strong native turn identity; native child-run transcript
 reconstruction and full provider lifecycle validation remain outstanding.
+Owned event consumers now acquire a durable ingestion lease for their exact attempt
+and provider residency. Heartbeats run in the consumer, so blocked persistence
+stops renewal; a quiet provider can remain healthy without inventing provider
+activity. Expired owners cannot renew or release replacement leases. A bounded
+sweep revalidates expiry in the command transaction, then either requests
+read-only recovery from proven native evidence or records an explicit uncertain
+failure without resending. Stream termination expires its lease immediately.
+This does not yet provide client liveness projections, provider-inactivity
+classification, or native-platform failure validation.
 Durable input requests, step ownership, context handoffs, detached desktop runtime,
 and server-owned liveness remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
