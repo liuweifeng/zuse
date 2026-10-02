@@ -5,7 +5,10 @@ import {
 	type ProviderEventEnvelope,
 	SessionId,
 } from "@zuse/contracts";
-import { AttemptOwnershipConflict } from "@zuse/domain/engine/dispatch";
+import {
+	AttemptOwnershipConflict,
+	ProviderSessionOwnershipConflict,
+} from "@zuse/domain/engine/dispatch";
 import { Deferred, Effect, Ref, Stream } from "effect";
 import { describe, expect, test } from "vitest";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
@@ -17,7 +20,7 @@ import {
 describe("ConversationEventRuntime", () => {
 	const options = (
 		scope: import("effect").Scope.Scope,
-		events: () => Stream.Stream<ProviderEventDelivery>,
+		events: () => Stream.Stream<ProviderEventEnvelope | ProviderEventDelivery>,
 		settleTurn: (
 			sessionId: SessionId,
 			turnId: AgentTurnId,
@@ -25,8 +28,15 @@ describe("ConversationEventRuntime", () => {
 		) => Effect.Effect<void> = () => Effect.void,
 	) => ({
 		scope,
-		events,
+		events: () =>
+			events().pipe(
+				Stream.map((envelope) => ({
+					providerSessionId: "test-residency",
+					...envelope,
+				})),
+			),
 		ownsAttempt: () => Effect.succeed(true),
+		ownsProviderSession: () => Effect.succeed(true),
 		providerId: () => Effect.succeed("claude" as const),
 		setStatus: () => Effect.void,
 		beginProviderTurn: (_sessionId: SessionId, turnId: AgentTurnId) =>
@@ -46,6 +56,7 @@ describe("ConversationEventRuntime", () => {
 	test.each([
 		"committed",
 		"rejected",
+		"revoked",
 		"interrupted",
 	] as const)("settles cursor delivery on its emitting handle when persistence is %s", async (outcome) => {
 		const observed: string[] = [];
@@ -60,15 +71,19 @@ describe("ConversationEventRuntime", () => {
 				}),
 		});
 		let current = handle("old");
-		const delivery = bindProviderEventDelivery(current, {
-			scope: "session",
-			event: {
-				_tag: "SessionCursor",
-				cursor: "thread",
-				strategy: "grok-session-id",
-				providerEventCursor: "cursor",
+		const delivery = bindProviderEventDelivery(
+			current,
+			{
+				scope: "session",
+				event: {
+					_tag: "SessionCursor",
+					cursor: "thread",
+					strategy: "grok-session-id",
+					providerEventCursor: "cursor",
+				},
 			},
-		});
+			"old-residency",
+		);
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
@@ -85,6 +100,13 @@ describe("ConversationEventRuntime", () => {
 								current = handle("replacement");
 								yield* Deferred.succeed(persisting, undefined);
 								if (outcome === "interrupted") return yield* Effect.never;
+								if (outcome === "revoked")
+									return yield* Effect.fail(
+										new ProviderSessionOwnershipConflict({
+											expectedProviderSessionId: "old-residency",
+											actualProviderSessionId: "replacement",
+										}),
+									);
 								if (outcome === "rejected")
 									return yield* Effect.fail(
 										new AttemptOwnershipConflict({
@@ -133,6 +155,7 @@ describe("ConversationEventRuntime", () => {
 								isReplay: false,
 							},
 						},
+						"old-residency",
 					);
 					const stream = Stream.concat(
 						Stream.succeed(delivery),

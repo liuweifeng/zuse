@@ -10,6 +10,7 @@ export interface ProviderCursorReceipt {
 }
 
 export type ProviderEventDelivery = ProviderEventEnvelope & {
+	readonly providerSessionId: string;
 	readonly cursorReceipt?: ProviderCursorReceipt;
 };
 
@@ -19,6 +20,7 @@ export const bindProviderEventDelivery = (
 		"acknowledgeProviderEventCursor" | "releaseProviderEventCursor"
 	>,
 	envelope: ProviderEventEnvelope,
+	providerSessionId: string,
 ): ProviderEventDelivery => {
 	const event = envelope.event;
 	const cursor =
@@ -27,9 +29,10 @@ export const bindProviderEventDelivery = (
 			: event._tag === "SessionCursor"
 				? event.providerEventCursor
 				: undefined;
-	if (cursor === undefined) return envelope;
+	if (cursor === undefined) return { ...envelope, providerSessionId };
 	return {
 		...envelope,
+		providerSessionId,
 		cursorReceipt: {
 			cursor,
 			acknowledge: Effect.suspend(

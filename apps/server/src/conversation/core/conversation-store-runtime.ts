@@ -17,6 +17,7 @@ import type {
 	AttemptOwnership,
 	AttemptOwnershipConflict,
 	CommandReceiptIdentity,
+	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
@@ -42,7 +43,7 @@ import {
 	lookupDurableQuestionResolution,
 	settleDurableQuestionResolution,
 } from "./question-resolution-receipt.ts";
-import { dispatchRuntimeCommand } from "./runtime-command.ts";
+import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface ConversationStoreRuntimeOptions {
 	readonly isWorkspaceReady?: () => boolean;
@@ -214,12 +215,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
 	): Effect.Effect<boolean> =>
 		Effect.gen(function* () {
 			const settled = yield* sessionDomain
 				.dispatch({
 					commandId: `turn:settle:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
 					expectedAttempt,
+					expectedProviderSessionId,
 					streamId: sessionId,
 					command: {
 						_tag: "SettleTurn",
@@ -230,8 +233,9 @@ export const makeConversationStoreRuntime = Effect.fn(
 				})
 				.pipe(
 					Effect.as(true),
-					Effect.catchTag("AttemptOwnershipConflict", () =>
-						Effect.succeed(false),
+					Effect.catchTag(
+						["AttemptOwnershipConflict", "ProviderSessionOwnershipConflict"],
+						() => Effect.succeed(false),
 					),
 					Effect.orDie,
 				);
@@ -258,6 +262,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
 		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
 	): Effect.Effect<boolean> =>
 		Effect.gen(function* () {
 			if (
@@ -266,6 +271,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					turnId,
 					outcome,
 					expectedAttempt,
+					expectedProviderSessionId,
 				))
 			)
 				return false;
@@ -412,7 +418,11 @@ export const makeConversationStoreRuntime = Effect.fn(
 		turnIdOverride?: AgentTurnId,
 		commandIdentityOverride?: string,
 		expectedAttempt?: AttemptOwnership,
-	): Effect.Effect<PersistedMessage, AttemptOwnershipConflict> =>
+		expectedProviderSessionId?: string,
+	): Effect.Effect<
+		PersistedMessage,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	> =>
 		Effect.gen(function* () {
 			// `idOverride` is the renderer-minted `clientMessageId` for an
 			// optimistic user message — reuse it so the live-stream echo carries
@@ -426,40 +436,37 @@ export const makeConversationStoreRuntime = Effect.fn(
 				content._tag === "assistant" || content._tag === "thinking"
 					? content.checkpoint
 					: undefined;
-			const receipt = yield* sessionDomain
-				.dispatchTransactionally(
-					{
-						commandId:
-							commandIdentityOverride === undefined
-								? `message:persist:${id}`
-								: `message:persist:${id}:${commandIdentityOverride}`,
-						streamId: sessionId,
-						expectedAttempt,
-						command: {
-							_tag: "PersistMessage",
-							messageId: id,
-							turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
-							role,
-							kind: content._tag,
-							contentJson: JSON.stringify(content),
-							parentItemId,
-							checkpointRevision: checkpoint?.revision,
-							checkpointFinal: checkpoint?.final,
-							createdAt: now.getTime(),
-						},
-					},
-					(receipt) =>
-						pinHtmlRenderAttachment(sql, sessionId, id, content).pipe(
-							Effect.as(receipt),
+			const receipt = yield* dispatchReservedRuntimeCommand(
+				{
+					dispatch: (input) =>
+						sessionDomain.dispatchTransactionally(input, (receipt) =>
+							pinHtmlRenderAttachment(sql, sessionId, id, content).pipe(
+								Effect.as(receipt),
+							),
 						),
-				)
-				.pipe(
-					Effect.catch((error) =>
-						error._tag === "AttemptOwnershipConflict"
-							? Effect.fail(error)
-							: Effect.die(error),
-					),
-				);
+				},
+				{
+					commandId:
+						commandIdentityOverride === undefined
+							? `message:persist:${id}`
+							: `message:persist:${id}:${commandIdentityOverride}`,
+					streamId: sessionId,
+					expectedAttempt,
+					expectedProviderSessionId,
+					command: {
+						_tag: "PersistMessage",
+						messageId: id,
+						turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
+						role,
+						kind: content._tag,
+						contentJson: JSON.stringify(content),
+						parentItemId,
+						checkpointRevision: checkpoint?.revision,
+						checkpointFinal: checkpoint?.final,
+						createdAt: now.getTime(),
+					},
+				},
+			);
 			const projected = yield* sql<{
 				readonly sequence: number;
 				readonly role: typeof role;
@@ -665,16 +672,23 @@ export const makeConversationStoreRuntime = Effect.fn(
 		sessionId: SessionId,
 		command: SessionCommand,
 		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
 	) =>
-		dispatchRuntimeCommand(sessionDomain, {
+		dispatchReservedRuntimeCommand(sessionDomain, {
 			commandId: crypto.randomUUID(),
 			streamId: sessionId,
 			command,
 			expectedAttempt,
+			expectedProviderSessionId,
 		}).pipe(Effect.asVoid);
 
 	const eventRuntime = yield* makeConversationEventRuntime({
 		scope: serviceScope,
+		ownsProviderSession: (sessionId, providerSessionId) =>
+			sessionDomain.providerReservation(sessionId).pipe(
+				Effect.map((current) => current === providerSessionId),
+				Effect.orDie,
+			),
 		ownsAttempt: (sessionId, ownership) =>
 			sessionDomain.activeAttempt(sessionId).pipe(
 				Effect.map(
@@ -697,6 +711,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			nativeThreadId,
 			nativeHeadId,
 			expectedAttempt,
+			expectedProviderSessionId,
 		) =>
 			Effect.gen(function* () {
 				yield* dispatchProviderCommand(
@@ -708,9 +723,15 @@ export const makeConversationStoreRuntime = Effect.fn(
 						updatedAt: yield* currentTimestamp,
 					},
 					expectedAttempt,
+					expectedProviderSessionId,
 				);
 			}),
-		setPermissionMode: (sessionId, mode, expectedAttempt) =>
+		setPermissionMode: (
+			sessionId,
+			mode,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
 			Effect.gen(function* () {
 				yield* dispatchProviderCommand(
 					sessionId,
@@ -720,6 +741,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 						updatedAt: yield* currentTimestamp,
 					},
 					expectedAttempt,
+					expectedProviderSessionId,
 				);
 			}),
 		publishGoal: (sessionId, goal) =>
@@ -775,6 +797,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			content,
 			providerItemIdentity,
 			expectedAttempt,
+			expectedProviderSessionId,
 		) =>
 			Effect.gen(function* () {
 				const checkpoint =
@@ -804,6 +827,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 							? (fingerprint >>> 0).toString(16)
 							: `checkpoint:${checkpoint.revision}`,
 					expectedAttempt,
+					expectedProviderSessionId,
 				);
 				if (persisted.changed !== false)
 					yield* ndjsonAppend(sessionId, persisted);
@@ -820,7 +844,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	const persistAttemptMessage: ConversationStoreRuntime["persistAttemptMessage"] =
 		(sessionId, content, id, turnId, ownership) =>
-			persistOwnedMessage(sessionId, content, id, turnId, undefined, ownership);
+			persistOwnedMessage(
+				sessionId,
+				content,
+				id,
+				turnId,
+				undefined,
+				ownership,
+			).pipe(Effect.catchTag("ProviderSessionOwnershipConflict", Effect.die));
 	const setAttemptStatus: ConversationStoreRuntime["setAttemptStatus"] = (
 		sessionId,
 		status,
@@ -831,7 +862,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				sessionId,
 				{ _tag: "SetStatus", status, updatedAt: yield* currentTimestamp },
 				ownership,
-			);
+			).pipe(Effect.catchTag("ProviderSessionOwnershipConflict", Effect.die));
 		});
 	return {
 		persistAttemptMessage,

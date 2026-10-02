@@ -32,7 +32,7 @@ import {
 } from "@zuse/contracts";
 import type { SessionEvent } from "@zuse/domain/core/events";
 import { ChatDomain } from "@zuse/domain/engine/chat-domain";
-import type { StoredEvent } from "@zuse/domain/engine/dispatch";
+import type { DispatchInput, StoredEvent } from "@zuse/domain/engine/dispatch";
 import {
 	SessionDomain,
 	type SessionDomainApi,
@@ -182,6 +182,11 @@ let providerInterruptCalls: Array<{
 	readonly turnId: AgentTurnId;
 }> = [];
 let providerEventsBarrier: Promise<void> | null = null;
+let providerEventsFinished: (() => void) | undefined;
+let providerEventsStarted: (() => void) | undefined;
+let beforeProviderWrite:
+	| ((domain: SessionDomainApi, input: DispatchInput) => Effect.Effect<void>)
+	| undefined;
 let providerQuestionAttached = false;
 let providerQuestionHasCalls = 0;
 let detachProviderQuestionAfterHasCall: number | null = null;
@@ -313,13 +318,20 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 		}),
 	events: (sessionId) =>
 		Stream.suspend(() => {
+			providerEventsStarted?.();
 			const events = scriptedEvents.map((event) => ({
 				scope: "turn" as const,
+				providerSessionId:
+					activeProviderResidencies.get(sessionId) ?? "test-residency",
 				turnId: providerTurnIds.get(sessionId) ?? AgentTurnId.make("test-turn"),
 				event,
 			}));
 			const stream =
-				events.length === 0 ? Stream.never : Stream.fromIterable(events);
+				events.length === 0
+					? Stream.never
+					: Stream.fromIterable(events).pipe(
+							Stream.ensuring(Effect.sync(() => providerEventsFinished?.())),
+						);
 			return providerEventsBarrier === null
 				? stream
 				: Stream.fromEffect(
@@ -748,10 +760,20 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 	const Migrated = migrate
 		? Layer.effectDiscard(runAllMigrations).pipe(Layer.provideMerge(SqlLive))
 		: SqlLive;
-	const DomainLive = SessionDomain.layer.pipe(
+	const BaseDomainLive = SessionDomain.layer.pipe(
 		Layer.provide(Migrated),
 		Layer.provide(NodeServices.layer),
 	);
+	const DomainLive = Layer.effect(
+		SessionDomain,
+		Effect.map(SessionDomain, (domain) => ({
+			...domain,
+			dispatch: (input) =>
+				Effect.suspend(
+					() => beforeProviderWrite?.(domain, input) ?? Effect.void,
+				).pipe(Effect.andThen(domain.dispatch(input))),
+		})),
+	).pipe(Layer.provide(BaseDomainLive));
 	const ChatDomainLive = ChatDomain.layer.pipe(
 		Layer.provide(Migrated),
 		Layer.provide(NodeServices.layer),
@@ -884,6 +906,9 @@ beforeEach(() => {
 	providerInterruptBarrier = null;
 	providerInterruptCalls = [];
 	providerEventsBarrier = null;
+	providerEventsFinished = undefined;
+	providerEventsStarted = undefined;
+	beforeProviderWrite = undefined;
 	providerQuestionAttached = false;
 	providerQuestionHasCalls = 0;
 	detachProviderQuestionAfterHasCall = null;
@@ -7306,6 +7331,151 @@ describe("ConversationServices — provider event persistence", () => {
 			});
 		} finally {
 			scriptedEvents = [];
+		}
+	});
+
+	it.each([
+		[
+			"PersistMessage",
+			{ _tag: "AssistantMessage", itemId: "stale" as never, text: "stale" },
+		],
+		[
+			"SetPermissionMode",
+			{ _tag: "PermissionModeChanged", mode: "acceptEdits" },
+		],
+		[
+			"BindProviderThread",
+			{
+				_tag: "SessionCursor",
+				cursor: "stale-thread",
+				strategy: "grok-session-id",
+			},
+		],
+		["SettleTurn", { _tag: "Completed", reason: "ended" }],
+	] satisfies ReadonlyArray<
+		readonly [string, AgentEvent]
+	>)("rejects %s when residency is revoked after event admission", async (commandTag, event) => {
+		const finished = deferred<void>();
+		let intercepted = false;
+		scriptedEvents = [event];
+		providerEventsFinished = () => finished.resolve();
+		beforeProviderWrite = (domain, input) =>
+			Effect.gen(function* () {
+				if (
+					input.expectedProviderSessionId === undefined ||
+					input.command._tag !== commandTag ||
+					intercepted
+				)
+					return;
+				intercepted = true;
+				yield* domain
+					.dispatch({
+						commandId: `stop-before-${commandTag}`,
+						streamId: input.streamId,
+						command: { _tag: "RequestProviderStop", requestedAt: Date.now() },
+					})
+					.pipe(Effect.orDie);
+			});
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "work",
+					}),
+				),
+			);
+			await finished.promise;
+			const result = await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const sql = yield* SqlClient.SqlClient;
+					return {
+						active: yield* domain.activeAttempt(initialSession.id),
+						events: yield* sql<{
+							type: string;
+						}>`SELECT type FROM events WHERE stream_id = ${initialSession.id} AND type IN ('TurnSettled', 'PermissionModeChanged', 'ProviderThreadBound')`,
+						messages: yield* sql<{
+							kind: string;
+						}>`SELECT kind FROM messages WHERE session_id = ${initialSession.id}`,
+					};
+				}),
+			);
+			expect(intercepted).toBe(true);
+			expect(result.active).not.toBeNull();
+			expect(result.events).toEqual([]);
+			expect(result.messages.map((row) => row.kind)).toEqual(["user"]);
+		});
+	});
+
+	it("drops output from a revoked residency while its attempt is still active", async () => {
+		const gate = deferred<void>();
+		const finished = deferred<void>();
+		const started = deferred<void>();
+		providerEventsBarrier = gate.promise;
+		providerEventsFinished = () => finished.resolve();
+		providerEventsStarted = () => started.resolve();
+		scriptedEvents = [
+			{
+				_tag: "AssistantMessage",
+				itemId: "revoked-output" as never,
+				text: "obsolete output",
+			},
+			{ _tag: "PermissionModeChanged", mode: "acceptEdits" },
+			{
+				_tag: "SessionCursor",
+				cursor: "obsolete-thread",
+				strategy: "grok-session-id",
+			},
+			{ _tag: "Completed", reason: "ended" },
+		];
+		try {
+			await withRuntime(async (run) => {
+				const { initialSession } = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "work",
+						}),
+					),
+				);
+				await started.promise;
+				await run(
+					Effect.flatMap(SessionDomain, (domain) =>
+						domain.dispatch({
+							commandId: "revoke-emitter",
+							streamId: initialSession.id,
+							command: { _tag: "RequestProviderStop", requestedAt: Date.now() },
+						}),
+					),
+				);
+				gate.resolve();
+				await finished.promise;
+				const result = await run(
+					Effect.gen(function* () {
+						const domain = yield* SessionDomain;
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							active: yield* domain.activeAttempt(initialSession.id),
+							events: yield* sql<{
+								type: string;
+							}>`SELECT type FROM events WHERE stream_id = ${initialSession.id} AND type IN ('TurnSettled', 'PermissionModeChanged', 'ProviderThreadBound')`,
+							messages: yield* sql<{
+								kind: string;
+							}>`SELECT kind FROM messages WHERE session_id = ${initialSession.id}`,
+						};
+					}),
+				);
+				expect(result.active).not.toBeNull();
+				expect(result.events).toEqual([]);
+				expect(result.messages.map((row) => row.kind)).toEqual(["user"]);
+			});
+		} finally {
+			gate.resolve();
 		}
 	});
 

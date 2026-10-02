@@ -238,6 +238,7 @@ export const makeConversationFixtureRuntime = (
 			Stream.fromIterable(
 				scriptedEvents.map((event) => ({
 					scope: "turn" as const,
+					providerSessionId: currentResidency ?? "fixture-residency",
 					turnId: AgentTurnId.make("fixture-turn"),
 					event,
 				})),

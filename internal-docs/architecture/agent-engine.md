@@ -44,8 +44,11 @@ identity before workspace resolution or driver acquisition. Pending registry
 entries carry that identity; admission and attachment/status publication check
 both durable ownership and physical generation. Failed or cancelled startup
 revokes and closes only its own identity. Maintenance startup cannot replace an
-active attempt. Stop-before-reservation, physical send races, and residency
-ownership in event ingestion still need end-to-end fencing.
+active attempt. Provider deliveries carry the emitting residency identity; event
+admission and transactional message, permission, cursor and settlement writes
+reject revoked identities even while the same attempt remains active.
+Stop-before-reservation, physical send races, and process-local question/goal
+callbacks still need end-to-end fencing.
 Job status and failure-message writes now carry transactional attempt guards,
 and interrupt cleanup closes only the matching provider handle. Handles whose
 event stream ended before the first send reject work as undelivered and are
