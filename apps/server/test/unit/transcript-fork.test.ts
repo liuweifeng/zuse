@@ -117,8 +117,12 @@ describe.each([
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`PRAGMA foreign_keys = ON`;
+					yield* sql`CREATE TABLE session_fork_constructions (session_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,created_at INTEGER NOT NULL,error TEXT,cancelled_at INTEGER,completed_at INTEGER)`;
+					yield* sql`CREATE TABLE session_context_handoffs (id TEXT PRIMARY KEY,session_id TEXT,provider_id TEXT,context_text TEXT,first_turn_id TEXT,active INTEGER DEFAULT 1,created_at INTEGER,resume_thread_id TEXT,fallback_context_text TEXT,fallback_at INTEGER)`;
+					yield* sql`CREATE TABLE session_context_links (target_message_id TEXT,target_session_id TEXT,first_turn_id TEXT,invalidated_at INTEGER)`;
+					yield* sql`CREATE TABLE chats (id TEXT PRIMARY KEY)`;
 					yield* sql`CREATE TABLE sessions (id TEXT PRIMARY KEY, forked_from_session_id TEXT REFERENCES sessions(id))`;
-					yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, content_json TEXT)`;
+					yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, content_json TEXT, role TEXT, kind TEXT, parent_item_id TEXT, created_at TEXT, sequence INTEGER,turn_id TEXT)`;
 					const createChat = vi.fn(
 						(input: { forkedFromSessionId?: SessionId | null }) =>
 							sql`INSERT OR IGNORE INTO sessions VALUES (${session.id}, ${input.forkedFromSessionId ?? null})`.pipe(
@@ -135,9 +139,12 @@ describe.each([
 						createChat,
 						createSession: () => Effect.die("must not create a tab"),
 						lookupChat: () => Effect.succeed(chat),
-						lookupSession: () => Effect.die("must read retained snapshot"),
+						lookupSession: (id) =>
+							id === session.id
+								? Effect.succeed(session)
+								: Effect.die("must read retained snapshot"),
 						persistMessage: (id, content, messageId) =>
-							sql`INSERT INTO messages VALUES (${messageId}, ${id}, ${JSON.stringify(content)})`.pipe(
+							sql`INSERT OR IGNORE INTO messages (id,session_id,content_json,role,kind,parent_item_id,created_at,sequence) VALUES (${messageId}, ${id}, ${JSON.stringify(content)}, ${content._tag === "user" ? "user" : "assistant"}, ${content._tag}, NULL, ${new Date().toISOString()}, (SELECT COUNT(*) + 1 FROM messages))`.pipe(
 								Effect.orDie,
 								Effect.as({ message: {} as never, sequence: 1 }),
 							),
@@ -157,18 +164,15 @@ describe.each([
 					};
 					const result = yield* ops.forkSession(input);
 					yield* ops.forkSession(input);
-					expect(result.forkMode).toBe(point === "tail" ? "resume" : "copy");
+					expect(result.forkMode).toBe("copy");
 					expect(createChat).toHaveBeenCalledWith(
 						expect.objectContaining({
 							projectId,
 							chatId: "new-chat",
 							initialSessionId: "new-session",
 							commandId: "launch:child",
-							providerThread:
-								point === "tail"
-									? { nativeThreadId: "provider-cursor", nativeHeadId: null }
-									: undefined,
-							forkFromResume: point === "tail",
+							providerThread: undefined,
+							forkFromResume: false,
 							forkedFromSessionId: null,
 						}),
 					);
@@ -190,7 +194,7 @@ describe.each([
 						})
 						.pipe(Effect.result);
 					expect(rejected._tag).toBe("Failure");
-					expect(createChat).toHaveBeenCalledTimes(2);
+					expect(createChat).toHaveBeenCalledTimes(1);
 				}).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 			);
 		} finally {

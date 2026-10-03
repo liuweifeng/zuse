@@ -73,6 +73,8 @@ export type AttemptState = {
 };
 
 export type TurnStatus =
+	| "rolled_back"
+	| "finalizing"
 	| "starting"
 	| "running"
 	| "completed"
@@ -322,6 +324,49 @@ const withTurnPhase = (
 	const turns = new Map(state.turns);
 	turns.set(turnId, { ...turn, phase });
 	return { turns, currentTurnPhase: phase };
+};
+
+type MessageCollections = {
+	readonly messageIds: Set<string>;
+	readonly messageCheckpoints: Map<string, MessageCheckpointState>;
+};
+
+const evolveMessage = (
+	state: SessionState,
+	event: Extract<SessionEvent, { readonly _tag: "MessagePersisted" }>,
+	version: number,
+	owned?: MessageCollections,
+): SessionState => {
+	let expiredQuestionIds = state.expiredQuestionIds;
+	let resolvedQuestionIds = state.resolvedQuestionIds;
+	if (event.kind === "user_question_answer") {
+		const decoded = decodeInputContent(event.contentJson);
+		if (Result.isSuccess(decoded)) {
+			const content = decoded.success;
+			if (content._tag === "user_question_answer") {
+				expiredQuestionIds = removed(expiredQuestionIds, content.itemId);
+				resolvedQuestionIds = added(resolvedQuestionIds, content.itemId);
+			}
+		}
+	}
+	const messageCheckpoints =
+		owned?.messageCheckpoints ?? new Map(state.messageCheckpoints);
+	const messageIds = owned?.messageIds ?? new Set(state.messageIds);
+	messageIds.add(event.messageId);
+	if (event.checkpointRevision !== undefined) {
+		messageCheckpoints.set(event.messageId, {
+			revision: event.checkpointRevision,
+			final: event.checkpointFinal === true,
+		});
+	}
+	return {
+		...state,
+		expiredQuestionIds,
+		resolvedQuestionIds,
+		messageIds,
+		messageCheckpoints,
+		version,
+	};
 };
 
 export const evolve = (
@@ -609,6 +654,51 @@ export const evolve = (
 				...withTurnPhase(state, event.turnId, "running"),
 				version,
 			};
+		case "TurnsRolledBack": {
+			const turns = new Map(state.turns);
+			const messageIds = new Set(state.messageIds);
+			const messageCheckpoints = new Map(state.messageCheckpoints);
+			for (const id of event.removedMessageIds) {
+				messageIds.delete(id);
+				messageCheckpoints.delete(id);
+			}
+			const providerThreads = new Map(state.providerThreads);
+			for (const [id, thread] of providerThreads)
+				providerThreads.set(id, {
+					...thread,
+					status: "closed",
+					updatedAt: event.rolledBackAt,
+				});
+			for (const [id, turn] of turns)
+				if (turn.ordinal > event.throughOrdinal)
+					turns.set(id, { ...turn, status: "rolled_back" });
+			return {
+				...state,
+				turns,
+				messageIds,
+				messageCheckpoints,
+				providerThreads,
+				pendingPermissionIds: new Set(),
+				expiredPermissionIds: new Set([
+					...state.expiredPermissionIds,
+					...state.pendingPermissionIds,
+				]),
+				activeProviderThreadId: null,
+				lastSettledTurnId: null,
+				lastSettlementOutcome: null,
+				version,
+			};
+		}
+		case "TurnFinalizationRequested": {
+			const turn = state.turns.get(event.turnId);
+			return turn === undefined
+				? { ...state, version }
+				: {
+						...state,
+						...withTurn(state, { ...turn, status: "finalizing" }),
+						version,
+					};
+		}
 		case "TurnSettled": {
 			const turn = state.turns.get(event.turnId);
 			const turnStatus: TurnStatus =
@@ -705,35 +795,8 @@ export const evolve = (
 			};
 		case "ScheduledSuccessorReady":
 			return { ...state, scheduledSuccessor: null, version };
-		case "MessagePersisted": {
-			let expiredQuestionIds = state.expiredQuestionIds;
-			let resolvedQuestionIds = state.resolvedQuestionIds;
-			if (event.kind === "user_question_answer") {
-				const decoded = decodeInputContent(event.contentJson);
-				if (Result.isSuccess(decoded)) {
-					const content = decoded.success;
-					if (content._tag === "user_question_answer") {
-						expiredQuestionIds = removed(expiredQuestionIds, content.itemId);
-						resolvedQuestionIds = added(resolvedQuestionIds, content.itemId);
-					}
-				}
-			}
-			const messageCheckpoints = new Map(state.messageCheckpoints);
-			if (event.checkpointRevision !== undefined) {
-				messageCheckpoints.set(event.messageId, {
-					revision: event.checkpointRevision,
-					final: event.checkpointFinal === true,
-				});
-			}
-			return {
-				...state,
-				expiredQuestionIds,
-				resolvedQuestionIds,
-				messageIds: added(state.messageIds, event.messageId),
-				messageCheckpoints,
-				version,
-			};
-		}
+		case "MessagePersisted":
+			return evolveMessage(state, event, version);
 		case "SegmentOpened": {
 			const openSegments = new Map(state.openSegments);
 			openSegments.set(event.segmentId, {
@@ -846,7 +909,26 @@ export const evolve = (
 export const evolveAll = (
 	state: SessionState,
 	events: readonly SessionEvent[],
-): SessionState => events.reduce(evolve, state);
+): SessionState => {
+	let current = state;
+	let owned: MessageCollections | undefined;
+	for (const event of events) {
+		if (event._tag !== "MessagePersisted") {
+			current = evolve(current, event);
+			owned = undefined;
+			continue;
+		}
+		// Only this synchronous fold can observe its intermediate states. Copy
+		// once per contiguous message batch, avoiding quadratic transcript replay
+		// while keeping the supplied state and ordinary evolve calls immutable.
+		owned ??= {
+			messageIds: new Set(current.messageIds),
+			messageCheckpoints: new Map(current.messageCheckpoints),
+		};
+		current = evolveMessage(current, event, current.version + 1, owned);
+	}
+	return current;
+};
 
 /** The active provider thread, when one is bound. */
 export const activeProviderThread = (

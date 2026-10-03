@@ -49,6 +49,7 @@ import {
 	CodexAppServerClient,
 	CodexAppServerRequestError,
 } from "./codex-app-server-client.ts";
+import { makeCodexHistoryCheckpoints } from "./codex-history-checkpoint.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import { mapCodexRateLimits } from "./codex-usage-limits.ts";
 import {
@@ -1762,6 +1763,7 @@ export const startCodexSession = (
 			}
 		};
 
+		let nativeResumeFallback = false;
 		const startOrResume = async (): Promise<void> => {
 			if (activeThreadId !== null && input.forkFromResume === true) {
 				// "Fork chat": branch the source thread into a NEW thread so the
@@ -1775,6 +1777,7 @@ export const startCodexSession = (
 					adoptDurableThread(forked);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
+					nativeResumeFallback = true;
 					console.warn(
 						"[codex] source rollout is unavailable; starting a replacement thread",
 					);
@@ -1789,6 +1792,7 @@ export const startCodexSession = (
 					adoptDurableThread(resumed);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
+					nativeResumeFallback = true;
 					console.warn(
 						"[codex] rollout is unavailable; starting a replacement thread",
 					);
@@ -2654,7 +2658,37 @@ export const startCodexSession = (
 			enqueueTurn(input.initialPrompt);
 		}
 
+		const historyCheckpoints = makeCodexHistoryCheckpoints({
+			read: async (threadId) =>
+				(
+					await app.request<
+						import("./codex/generated/v2/ThreadReadResponse.ts").ThreadReadResponse
+					>("thread/read", { threadId, includeTurns: true })
+				).thread,
+			rollback: (threadId, numTurns) =>
+				app.request("thread/rollback", { threadId, numTurns }),
+		});
 		return {
+			nativeResumeFallback,
+			captureHistoryCheckpoint: () =>
+				Effect.tryPromise({
+					try: () =>
+						activeThreadId === null || currentTurnId !== null
+							? Promise.resolve(null)
+							: historyCheckpoints.capture(activeThreadId),
+					catch: (error) =>
+						error instanceof Error ? error : new Error(String(error)),
+				}),
+			restoreHistoryCheckpoint: (checkpoint) =>
+				Effect.tryPromise({
+					try: () =>
+						activeThreadId !== checkpoint.nativeThreadId ||
+						currentTurnId !== null
+							? Promise.resolve(false)
+							: historyCheckpoints.restore(checkpoint),
+					catch: (error) =>
+						error instanceof Error ? error : new Error(String(error)),
+				}),
 			events: Stream.fromQueue(events),
 			send: (text, attachmentRefs, fileRefs, skillRefs) =>
 				Effect.sync(() => {

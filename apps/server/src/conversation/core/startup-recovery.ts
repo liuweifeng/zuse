@@ -31,6 +31,7 @@ interface RuntimeRecoveryRow {
 	turn_id: string | null;
 	attempt_id: string | null;
 	phase: string | null;
+	turn_status: string | null;
 }
 
 /** Requires exclusive runtime ownership and no workers. Performs only local durable work. */
@@ -47,8 +48,8 @@ export const reconcileSessionRuntime = (
 			SELECT s.id, s.status, s.queue_paused, s.archived_at, s.provider_reservation_id,
 				(SELECT e.type FROM events e WHERE e.stream_kind = 'session' AND e.stream_id = s.id
 					AND e.type IN ('ProviderAttached', 'ProviderDetached') ORDER BY e.stream_version DESC LIMIT 1) AS attachment,
-				t.id AS turn_id, t.active_attempt_id AS attempt_id, t.phase
-			FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running')
+				t.id AS turn_id, t.active_attempt_id AS attempt_id, t.phase, t.status AS turn_status
+			FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running', 'finalizing')
 			WHERE ${after === null ? sql.literal("1") : sql`s.id > ${after}`} ORDER BY s.id LIMIT 100
 		`.pipe(Effect.orDie);
 			if (rows.length === 0) break;
@@ -81,6 +82,7 @@ export const reconcileSessionRuntime = (
 						detachedAt: now,
 					});
 				}
+				if (row.turn_status === "finalizing") continue;
 				if (row.archived_at !== null) {
 					if (row.turn_id !== null)
 						yield* dispatch("archived-turn", {

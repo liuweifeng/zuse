@@ -6,6 +6,7 @@ import {
 	type DesktopEngineEndpoint,
 	type EngineChannel,
 	readEngineEndpoint,
+	requestIdleEngineShutdown,
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
 
@@ -61,10 +62,16 @@ export const ensureDesktopEngine = async (options: {
 		if (
 			endpoint.appVersion !== config.appVersion ||
 			endpoint.buildId !== config.buildId
-		)
+		) {
+			const stopped = await requestIdleEngineShutdown(endpoint, {
+				userData: config.userData,
+				signal,
+			});
+			if (stopped === "stopped") return null;
 			throw new Error(
 				"A different engine version is still running. Finish its active work before restarting the engine.",
 			);
+		}
 		return endpoint;
 	};
 	const existing = await probe();

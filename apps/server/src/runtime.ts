@@ -11,6 +11,7 @@ import { GitHubClient, GitHubClientService } from "@zuse/git/github-client";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
 import { Effect, Layer, Schedule } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
+import { SqlClient } from "effect/unstable/sql";
 import {
 	AccountAccessProcessLive,
 	AccountAccessServiceLive,
@@ -42,6 +43,7 @@ import { ConfigStoreServiceLive } from "./config-store/layers/config-store-servi
 import { ConversationState } from "./conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "./conversation/layers/conversation-services.ts";
 import { PendingWorkspaceExecutionPolicy } from "./conversation/services/workspace-execution-policy.ts";
+import { prepareIdleShutdown } from "./desktop-engine/idle.ts";
 import { DeviceBridgeServiceLive } from "./device-bridge/service.ts";
 import { DiagnosticsServiceLive } from "./diagnostics/layers/diagnostics-service.ts";
 import { ExternalThreadServiceLive } from "./external-thread/layers/external-thread-service.ts";
@@ -85,6 +87,7 @@ import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
 import type { CredentialsService } from "./provider/services/credentials-service.ts";
 import { providerAccountsLayer } from "./provider/services/provider-accounts.ts";
+import { ProviderService } from "./provider/services/provider-service.ts";
 import {
 	makeRuntimeGitExecution,
 	RuntimeGitExecution,
@@ -186,6 +189,7 @@ export interface MainLayerDeps {
 	};
 	/** Server-derived activity; native hosts must not depend on a connected renderer. */
 	readonly onActiveTurns?: (count: number) => void;
+	readonly onPrepareShutdown?: (prepare: () => Promise<boolean>) => () => void;
 	readonly onStartupPhase?: (
 		phase: "migrations-ready" | "projectors-ready",
 	) => void;
@@ -586,6 +590,38 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AnalyticsLayer),
 		Layer.provide(NodeServices.layer),
 	);
+	const ShutdownLayer =
+		deps.onPrepareShutdown === undefined
+			? Layer.empty
+			: Layer.effectDiscard(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						const domain = yield* SessionDomain;
+						const queries = yield* SqlSessionQueries;
+						const provider = yield* ProviderService;
+						const prepare = prepareIdleShutdown({
+							sql,
+							domain,
+							activeTurnCount: queries.activeTurnCount,
+							hasSession: provider.hasSession,
+						});
+						yield* Effect.acquireRelease(
+							Effect.sync(() =>
+								deps.onPrepareShutdown?.(() => Effect.runPromise(prepare)),
+							),
+							(stop) => Effect.sync(() => stop?.()),
+						);
+					}),
+				).pipe(
+					Layer.provide(
+						Layer.mergeAll(
+							BackfilledSqlite,
+							SessionDomainLayer,
+							SessionQueriesLayer,
+							ProviderLayer,
+						),
+					),
+				);
 
 	// NdjsonLogger writes a best-effort transcript audit file alongside the
 	// SQLite store. Provided to Conversation services so the same daemon that persists
@@ -895,6 +931,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		ActivityLayer,
+		ShutdownLayer,
 		CliAccessLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

@@ -1,12 +1,11 @@
 import type {
 	AgentEvent,
-	AgentItemId,
 	AgentTurnId,
 	AttemptId,
 	ProviderAttemptOwnership,
 	ProviderEventEnvelope,
 } from "@zuse/contracts";
-import { Deferred, Effect, Ref, Schema, Stream } from "effect";
+import { Deferred, Effect, Queue, Ref, Schema, Stream } from "effect";
 import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
@@ -21,12 +20,22 @@ export type TurnScopedProviderEventEnvelope =
 			readonly event: QuestionCallbackReleased;
 	  };
 
+type NativeChild = Extract<AgentEvent, { _tag: "ToolUse" }> & {
+	readonly subagent: {
+		readonly childSessionId: string;
+		readonly presentation: "inline" | "detached";
+	};
+};
+
 type ActiveTurn = {
 	readonly turnId: AgentTurnId;
 	readonly released: Deferred.Deferred<void>;
 	readonly sent: boolean;
 	/** `provider` turns were opened by `ProviderTurnStarted`, not by `send`. */
 	readonly origin: "application" | "provider";
+	readonly children: ReadonlyMap<string, NativeChild>;
+	readonly completedChildren: ReadonlySet<string>;
+	readonly pendingCompletion?: Extract<AgentEvent, { _tag: "Completed" }>;
 };
 
 /**
@@ -88,30 +97,11 @@ const turnEnvelope = (
 	event: AgentEvent,
 ): ProviderEventEnvelope => ({ scope: "turn", turnId, event });
 
-const parentItemIdOf = (event: AgentEvent): string | undefined =>
-	"parentItemId" in event && typeof event.parentItemId === "string"
-		? event.parentItemId
-		: undefined;
-
-/** Events whose own `itemId` refers back to an earlier `ToolUse`. */
-const referencesToolUse = (
-	event: AgentEvent,
-): event is Extract<AgentEvent, { readonly itemId: AgentItemId }> =>
-	event._tag === "ToolUse" ||
-	event._tag === "ToolResult" ||
-	event._tag === "SubagentSummary";
-
 /**
  * Converts every legacy provider handle at one kernel boundary. This is the
  * only place allowed to correlate native events with an application turn.
  * The server admits at most one provider turn through this handle, so a new
  * send cannot silently supersede an unsettled turn.
- *
- * Work can outlive the turn that started it: background sub-agents and shells
- * keep emitting after their parent turn settles. Those events are attributed
- * to the turn whose `ToolUse` spawned them rather than dropped or folded into
- * whichever turn is current. When the provider starts a top-level turn on its
- * own (`ProviderTurnStarted`), a provider-origin turn is opened for it.
  */
 export const makeTurnScopedSessionHandle = (
 	handle: ProviderSessionHandle,
@@ -127,6 +117,7 @@ export const makeTurnScopedSessionHandle = (
 			initialTurnId !== undefined && initialAttemptId !== undefined
 				? { turnId: initialTurnId, attemptId: initialAttemptId }
 				: undefined;
+		const injected = yield* Queue.unbounded<ProviderDriverEvent>();
 		const finished = yield* Ref.make(false);
 		const ended = yield* Ref.make(false);
 		const initialReleased = yield* Deferred.make<void>();
@@ -138,6 +129,8 @@ export const makeTurnScopedSessionHandle = (
 						released: initialReleased,
 						sent: false,
 						origin: "application",
+						children: new Map<string, NativeChild>(),
+						completedChildren: new Set<string>(),
 					},
 		);
 		// Tool-use item id → the turn that emitted it. Insertion order doubles as
@@ -196,105 +189,258 @@ export const makeTurnScopedSessionHandle = (
 								released: Deferred.makeUnsafe<void>(),
 								sent: true,
 								origin: "provider",
+								children: new Map<string, NativeChild>(),
+								completedChildren: new Set<string>(),
 							},
 						] as const;
 					},
 				).pipe(Effect.flatMap(releaseBatch));
 			}
-			return Ref.modify(
-				activeTurn,
-				(active): readonly [NormalizedBatch, ActiveTurn | null] => {
-					if (sessionEventTags.has(event._tag)) {
-						return [{ events: [sessionEnvelope(event)] }, active] as const;
-					}
+			const quiesce = Effect.gen(function* () {
+				const active = yield* Ref.get(activeTurn);
+				if (
+					active !== null &&
+					active.children.size > 0 &&
+					(event._tag === "Interrupted" ||
+						event._tag === "Error" ||
+						(event._tag === "Completed" &&
+							(event.reason === "error" || event.reason === "interrupted")))
+				) {
+					// Native terminal signals may precede detached process exit. Do not
+					// publish terminal ownership or allow checkpoints until close joins it.
+					yield* handle.close();
+				}
+			});
+			return quiesce.pipe(
+				Effect.andThen(
+					Ref.modify(
+						activeTurn,
+						(active): readonly [NormalizedBatch, ActiveTurn | null] => {
+							if (sessionEventTags.has(event._tag)) {
+								return [{ events: [sessionEnvelope(event)] }, active] as const;
+							}
 
-					if (event._tag === "Status") {
-						if (active !== null && event.status === "idle") {
-							return [
-								{
-									events: [
-										turnEnvelope(active.turnId, {
-											_tag: "Completed",
-											reason: "ended",
-										}),
-										sessionEnvelope(event),
-									],
-									released: active.released,
-								},
-								null,
-							] as const;
-						}
-						if (
-							active !== null &&
-							(event.status === "closed" || event.status === "error")
-						) {
-							return [
-								{
-									events: [
-										turnEnvelope(active.turnId, {
-											_tag: "Error",
-											message: `Provider entered ${event.status} state`,
-										}),
-										turnEnvelope(active.turnId, {
-											_tag: "Completed",
-											reason: "error",
-										}),
-										sessionEnvelope(event),
-									],
-									released: active.released,
-								},
-								null,
-							] as const;
-						}
-						return [{ events: [sessionEnvelope(event)] }, active] as const;
-					}
+							const origin = originTurnOf(event);
+							if (origin !== undefined && origin !== active?.turnId) {
+								rememberItem(event, origin);
+								return [
+									{ events: [turnEnvelope(origin, event)] },
+									active,
+								] as const;
+							}
 
-					const origin = originTurnOf(event);
-					if (origin !== undefined && origin !== active?.turnId) {
-						rememberItem(event, origin);
-						return [{ events: [turnEnvelope(origin, event)] }, active] as const;
-					}
-
-					if (active === null) {
-						// A provider may reissue a durable blocking question while restoring
-						// its own cursor after the application turn was settled during process
-						// recovery. Keep both request and resolution session-scoped so the
-						// runtime can persist their lifecycle without inventing a turn.
-						return event._tag === "UserQuestion" ||
-							event._tag === "UserQuestionResolved"
-							? [{ events: [sessionEnvelope(event)] }, null]
-							: [{ events: [] }, null];
-					}
-
-					if (event._tag === "Completed") {
-						return [
-							{
-								events: [turnEnvelope(active.turnId, event)],
-								released: active.released,
-							},
-							null,
-						] as const;
-					}
-					if (event._tag === "Interrupted") {
-						return [
-							{
-								events: [
-									turnEnvelope(active.turnId, event),
+							if (
+								active?.pendingCompletion !== undefined &&
+								event._tag !== "Completed" &&
+								event._tag !== "Interrupted" &&
+								event._tag !== "Error" &&
+								event._tag !== "Status"
+							) {
+								const known =
+									event._tag === "SubagentSummary"
+										? active.children.has(event.itemId)
+										: event._tag === "SubagentProgress"
+											? [...active.children.values()].some(
+													(child) =>
+														child.subagent.childSessionId ===
+														event.childSessionId,
+												)
+											: "parentItemId" in event &&
+												event.parentItemId !== undefined &&
+												active.children.has(event.parentItemId);
+								if (!known) return [{ events: [] }, active];
+							}
+							if (
+								active !== null &&
+								event._tag === "ToolUse" &&
+								event.subagent !== undefined
+							) {
+								if (active.completedChildren.has(event.itemId))
+									return [{ events: [] }, active];
+								rememberItem(event, active.turnId);
+								const children = new Map(active.children);
+								children.set(event.itemId, {
+									...event,
+									subagent: event.subagent,
+								});
+								return [
+									{ events: [turnEnvelope(active.turnId, event)] },
+									{ ...active, children },
+								];
+							}
+							if (active !== null && event._tag === "SubagentSummary") {
+								const children = new Map(active.children);
+								children.delete(event.itemId);
+								const completedChildren = new Set(active.completedChildren);
+								completedChildren.add(event.itemId);
+								const events = [turnEnvelope(active.turnId, event)];
+								if (
+									children.size === 0 &&
+									active.pendingCompletion !== undefined
+								) {
+									events.push(
+										turnEnvelope(active.turnId, active.pendingCompletion),
+									);
+									return [{ events, released: active.released }, null];
+								}
+								return [{ events }, { ...active, children, completedChildren }];
+							}
+							if (
+								active !== null &&
+								active.children.size > 0 &&
+								((event._tag === "Completed" &&
+									event.reason !== "error" &&
+									event.reason !== "interrupted") ||
+									(event._tag === "Status" && event.status === "idle"))
+							) {
+								const completed =
+									event._tag === "Completed"
+										? event
+										: { _tag: "Completed" as const, reason: "ended" as const };
+								if (active.pendingCompletion !== undefined)
+									return [{ events: [] }, active];
+								const events = [...active.children.values()].map((child) =>
 									turnEnvelope(active.turnId, {
-										_tag: "Completed",
-										reason: "interrupted",
+										_tag: "SubagentProgress",
+										childId: child.itemId,
+										parentId: child.itemId,
+										childSessionId: child.subagent.childSessionId,
+										status: "running",
+										rootCompleted: true,
+										durationMs: 0,
+										turns: 0,
+										toolCalls: 0,
+										tokens: 0,
+										contextPercentage: 0,
+										toolsUsed: [],
+										errorCount: 0,
 									}),
-								],
-								released: active.released,
-							},
-							null,
-						] as const;
-					}
-					if (event._tag === "Error") {
+								);
+								return [
+									{ events },
+									{ ...active, pendingCompletion: completed },
+								];
+							}
+							if (event._tag === "Status") {
+								if (active !== null && event.status === "idle") {
+									return [
+										{
+											events: [
+												turnEnvelope(active.turnId, {
+													_tag: "Completed",
+													reason: "ended",
+												}),
+												sessionEnvelope(event),
+											],
+											released: active.released,
+										},
+										null,
+									] as const;
+								}
+								if (
+									active !== null &&
+									(event.status === "closed" || event.status === "error")
+								) {
+									return [
+										{
+											events: [
+												turnEnvelope(active.turnId, {
+													_tag: "Error",
+													message: `Provider entered ${event.status} state`,
+												}),
+												turnEnvelope(active.turnId, {
+													_tag: "Completed",
+													reason: "error",
+												}),
+												sessionEnvelope(event),
+											],
+											released: active.released,
+										},
+										null,
+									] as const;
+								}
+								return [{ events: [sessionEnvelope(event)] }, active] as const;
+							}
+
+							if (active === null) {
+								// A provider may reissue a durable blocking question while restoring
+								// its own cursor after the application turn was settled during process
+								// recovery. Keep both request and resolution session-scoped so the
+								// runtime can persist their lifecycle without inventing a turn.
+								return event._tag === "UserQuestion" ||
+									event._tag === "UserQuestionResolved"
+									? [{ events: [sessionEnvelope(event)] }, null]
+									: [{ events: [] }, null];
+							}
+
+							if (event._tag === "Completed") {
+								return [
+									{
+										events: [turnEnvelope(active.turnId, event)],
+										released: active.released,
+									},
+									null,
+								] as const;
+							}
+							if (event._tag === "Interrupted") {
+								return [
+									{
+										events: [
+											turnEnvelope(active.turnId, event),
+											turnEnvelope(active.turnId, {
+												_tag: "Completed",
+												reason: "interrupted",
+											}),
+										],
+										released: active.released,
+									},
+									null,
+								] as const;
+							}
+							if (event._tag === "Error") {
+								return [
+									{
+										events: [
+											turnEnvelope(active.turnId, event),
+											turnEnvelope(active.turnId, {
+												_tag: "Completed",
+												reason: "error",
+											}),
+										],
+										released: active.released,
+									},
+									null,
+								] as const;
+							}
+							rememberItem(event, active.turnId);
+							return [
+								{ events: [turnEnvelope(active.turnId, event)] },
+								active,
+							] as const;
+						},
+					),
+				),
+				Effect.flatMap(releaseBatch),
+			);
+		};
+
+		const finalizeUnexpectedExit = Effect.gen(function* () {
+			const active = yield* Ref.get(activeTurn);
+			if (active !== null && active.children.size > 0) yield* handle.close();
+		}).pipe(
+			Effect.andThen(
+				Ref.modify(
+					activeTurn,
+					(active): readonly [NormalizedBatch, ActiveTurn | null] => {
+						if (active === null) return [{ events: [] }, null] as const;
 						return [
 							{
 								events: [
-									turnEnvelope(active.turnId, event),
+									turnEnvelope(active.turnId, {
+										_tag: "Error",
+										message:
+											"Provider event stream ended before the turn settled",
+									}),
 									turnEnvelope(active.turnId, {
 										_tag: "Completed",
 										reason: "error",
@@ -304,43 +450,16 @@ export const makeTurnScopedSessionHandle = (
 							},
 							null,
 						] as const;
-					}
-					rememberItem(event, active.turnId);
-					return [
-						{ events: [turnEnvelope(active.turnId, event)] },
-						active,
-					] as const;
-				},
-			).pipe(Effect.flatMap(releaseBatch));
-		};
-
-		const finalizeUnexpectedExit = Ref.modify(
-			activeTurn,
-			(active): readonly [NormalizedBatch, ActiveTurn | null] => {
-				if (active === null) return [{ events: [] }, null] as const;
-				return [
-					{
-						events: [
-							turnEnvelope(active.turnId, {
-								_tag: "Error",
-								message: "Provider event stream ended before the turn settled",
-							}),
-							turnEnvelope(active.turnId, {
-								_tag: "Completed",
-								reason: "error",
-							}),
-						],
-						released: active.released,
 					},
-					null,
-				] as const;
-			},
-		).pipe(
-			Effect.tap(() => Ref.set(ended, true)),
-			Effect.flatMap(releaseBatch),
+				).pipe(
+					Effect.tap(() => Ref.set(ended, true)),
+					Effect.flatMap(releaseBatch),
+				),
+			),
 		);
 
 		const sourceEvents = handle.events.pipe(
+			Stream.merge(Stream.fromQueue(injected), { haltStrategy: "left" }),
 			Stream.catchCause((cause) =>
 				Stream.fromIterable<AgentEvent>([
 					{
@@ -396,7 +515,13 @@ export const makeTurnScopedSessionHandle = (
 									Deferred.succeed(active.released, undefined).pipe(
 										Effect.andThen(handle.send(...args)),
 									),
-									{ turnId, released, sent: true, origin: "application" },
+									{
+										...active,
+										turnId,
+										released,
+										sent: true,
+										origin: "application",
+									},
 								] as const;
 							}
 							return [
@@ -410,7 +535,14 @@ export const makeTurnScopedSessionHandle = (
 						}
 						return [
 							handle.send(...args),
-							{ turnId, released, sent: true, origin: "application" },
+							{
+								turnId,
+								released,
+								sent: true,
+								origin: "application",
+								children: new Map<string, NativeChild>(),
+								completedChildren: new Set<string>(),
+							},
 						] as const;
 					});
 					yield* send.pipe(
@@ -440,7 +572,11 @@ export const makeTurnScopedSessionHandle = (
 							),
 						);
 					}
-					yield* handle.interrupt();
+					if (active.pendingCompletion !== undefined) {
+						yield* Queue.offer(injected, { _tag: "Interrupted" });
+					} else {
+						yield* handle.interrupt();
+					}
 					yield* Deferred.await(active.released);
 				}),
 		};

@@ -61,6 +61,8 @@ export const SessionCommand = Schema.Union([
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SetProvider", {
+		resumeThreadId: Schema.optional(Schema.String),
+		expectedProviderThreadId: Schema.optional(Schema.NullOr(Schema.String)),
 		providerId: Schema.String,
 		model: Schema.String,
 		updatedAt: Schema.Number,
@@ -138,6 +140,17 @@ export const SessionCommand = Schema.Union([
 		parentItemId: Schema.NullOr(Schema.String),
 		providerInputJson: Schema.String,
 		createdAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("RollbackTurns", {
+		throughOrdinal: Schema.Number,
+		messageSequence: Schema.Number,
+		removedMessageIds: Schema.Array(Schema.String),
+		rolledBackAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("FinalizeTurn", {
+		turnId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SettleTurn", {
 		turnId: Schema.String,

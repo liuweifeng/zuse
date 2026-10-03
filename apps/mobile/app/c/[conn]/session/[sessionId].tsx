@@ -97,6 +97,7 @@ import {
 	forkSessionFromMessage,
 	getWorktree,
 	makeTextInput,
+	mergeSessionBack,
 	openSessionOnHost,
 	renameWorktreeBranch,
 	respondToPlan,
@@ -584,6 +585,42 @@ function ThreadScreen() {
 						itemId: AgentItemId.make(itemId),
 					}),
 				);
+
+	const mergeRequest = useRef<{
+		sessionId: SessionId;
+		commandId: string;
+		busy: boolean;
+	} | null>(null);
+	const onMergeBack = async () => {
+		if (options === null || detail?.session.forkedFromSessionId == null) return;
+		if (mergeRequest.current?.sessionId !== normalizedSessionId)
+			mergeRequest.current = {
+				sessionId: normalizedSessionId,
+				commandId: `merge-back:${crypto.randomUUID()}`,
+				busy: false,
+			};
+		const request = mergeRequest.current;
+		if (request.busy) return;
+		request.busy = true;
+		try {
+			await Effect.runPromise(
+				mergeSessionBack({
+					connection: options,
+					sessionId: request.sessionId,
+					commandId: request.commandId,
+				}),
+			);
+			if (mergeRequest.current === request) mergeRequest.current = null;
+			Alert.alert(
+				"Context merged",
+				"The parent conversation will receive this context on its next turn.",
+			);
+		} catch (cause) {
+			Alert.alert("Could not merge context", connectionErrorMessage(cause));
+		} finally {
+			request.busy = false;
+		}
+	};
 
 	const runFork = async (
 		fromMessageId: MessageId,
@@ -1139,6 +1176,11 @@ function ThreadScreen() {
 								connectionSupports(connectionRecord, "desktop-handoff-v1")
 									? openOnDesktop
 									: undefined
+							}
+							onMergeBack={
+								detail?.session.forkedFromSessionId == null
+									? undefined
+									: () => void onMergeBack()
 							}
 							onArchive={onArchive}
 						/>

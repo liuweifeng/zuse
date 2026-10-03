@@ -37,7 +37,8 @@
 		"predist:mac:unsigned": "bun run native:build:universal",
 		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never",
 		"dist:linux": "electron-builder --linux AppImage deb --x64 && bun run check-package:linux",
-		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux"
+		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux",
+		"test:engine-provider": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture"
 	},
 	"dependencies": {
 		"@cursor/sdk": "1.0.32",

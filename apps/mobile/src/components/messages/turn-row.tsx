@@ -1,8 +1,11 @@
+import "@zuse/i18n/english/chat";
+import { nativeBackgroundChildren } from "@zuse/client-runtime/native-background";
 import {
 	summarizeTurnActivity,
 	type TimelineTurn,
 } from "@zuse/client-runtime/timeline";
 import type { Message } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -38,6 +41,11 @@ export function TurnRow({
 	context: MessageRowContext;
 	live: boolean;
 }) {
+	const { message: uiMessage } = useMessages(["chat"]);
+	const background = useMemo(
+		() => nativeBackgroundChildren(turn.body),
+		[turn.body],
+	);
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);
 	const [expandedFile, setExpandedFile] = useState<string | null>(null);
@@ -77,6 +85,11 @@ export function TurnRow({
 				{turn.user === null ? null : (
 					<MessageRow message={turn.user} ctx={context} />
 				)}
+				{live && background.size > 0 ? (
+					<Text className="px-3 py-1 text-xs text-muted-foreground">
+						{uiMessage("chat:native_background_running")}
+					</Text>
+				) : null}
 				{turn.body.map((message, index) => (
 					<MessageRow
 						key={message.id}

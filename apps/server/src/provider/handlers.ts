@@ -1770,11 +1770,46 @@ const SessionResume = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(SessionService, (svc) => svc.resumeSession(sessionId)),
 );
 
+const SessionForkConstructions = MemoizeRpcs.toLayerHandler(
+	"session.forkConstructions",
+	({ sessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.forkConstructions(sessionId),
+		),
+);
+const SessionRetryFork = MemoizeRpcs.toLayerHandler(
+	"session.retryFork",
+	({ sessionId, forkSessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.retryFork(sessionId, forkSessionId),
+		),
+);
+const SessionCancelFork = MemoizeRpcs.toLayerHandler(
+	"session.cancelFork",
+	({ sessionId, forkSessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.cancelFork(sessionId, forkSessionId),
+		),
+);
+const SessionMergeBack = MemoizeRpcs.toLayerHandler(
+	"session.mergeBack",
+	(input) =>
+		Effect.flatMap(TranscriptService, (service) => service.mergeBack(input)),
+);
+const SessionContextLinks = MemoizeRpcs.toLayerHandler(
+	"session.contextLinks",
+	({ sessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.contextLinks(sessionId),
+		),
+);
+
 const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
 	Effect.gen(function* () {
 		const svc = yield* TranscriptService;
 		const analytics = yield* AnalyticsService;
 		const result = yield* svc.forkSession({
+			commandId: input.commandId,
 			sourceSessionId: input.sourceSessionId,
 			fromMessageId: input.fromMessageId,
 			destination: input.destination,
@@ -2381,6 +2416,11 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatDelete,
 	SessionResume,
 	SessionFork,
+	SessionForkConstructions,
+	SessionRetryFork,
+	SessionCancelFork,
+	SessionMergeBack,
+	SessionContextLinks,
 	SessionExportTranscript,
 	SessionLatestPlan,
 	SessionSetRuntimeMode,

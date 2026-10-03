@@ -525,6 +525,8 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
 
 /** Native provider progress for a running child agent. */
 const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
+	/** The native root finished while this child remains active. */
+	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
 	childSessionId: Schema.String,

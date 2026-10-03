@@ -2,7 +2,7 @@
 	"extends": "@repo/typescript-config/base.json",
 	"include": ["src/**/*.ts", "test/**/*.ts"],
 	"compilerOptions": {
-		"lib": ["ES2022"],
+		"lib": ["ES2022", "DOM", "DOM.Iterable"],
 		"module": "Preserve",
 		"moduleResolution": "Bundler",
 		"target": "ES2022",

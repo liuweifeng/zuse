@@ -3,6 +3,7 @@ import type {
 	AgentItemId,
 	AttachmentRef,
 	FileRef,
+	NativeHistoryCheckpoint,
 	PermissionMode,
 	PlanApprovalOutcome,
 	SkillRef,
@@ -24,6 +25,16 @@ export type ProviderDriverEvent = AgentEvent | QuestionCallbackReleased;
 /** Common live-session surface implemented by every provider driver. */
 export interface ProviderSessionHandle {
 	readonly events: Stream.Stream<ProviderDriverEvent>;
+	/** A missing native history was replaced before any user input was delivered. */
+	readonly nativeResumeFallback?: boolean;
+	/** Optional verified native history restoration. Unsupported drivers use portable context. */
+	readonly captureHistoryCheckpoint?: () => Effect.Effect<
+		NativeHistoryCheckpoint | null,
+		Error
+	>;
+	readonly restoreHistoryCheckpoint?: (
+		checkpoint: NativeHistoryCheckpoint,
+	) => Effect.Effect<boolean, Error>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,

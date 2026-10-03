@@ -10,6 +10,8 @@ export const localEngineProtocolLayer = (options: {
 	readonly token: string;
 	readonly host: EngineHost;
 	readonly onListening: (port: number) => Promise<void>;
+	readonly prepareShutdown?: () => Promise<boolean>;
+	readonly shutdown?: () => void;
 }) =>
 	Layer.effect(
 		RpcServer.Protocol,

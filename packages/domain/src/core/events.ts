@@ -119,6 +119,18 @@ export const SessionEvent = Schema.Union([
 		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("TurnsRolledBack", {
+		throughOrdinal: Schema.Number,
+		messageSequence: Schema.Number,
+		removedMessageIds: Schema.Array(Schema.String),
+		rolledBackAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnFinalizationRequested", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: Schema.String,
 		outcome: SettlementOutcome,

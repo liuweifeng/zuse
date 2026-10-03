@@ -5,6 +5,7 @@ import {
 	SessionStatus,
 } from "@zuse/contracts";
 import { Effect, Schema } from "effect";
+import { SessionDelegation } from "../agent-engine/delegation.js";
 import { TitleProvenance } from "../naming.js";
 
 export const SessionIdentityFields = {
@@ -39,6 +40,7 @@ export const SessionConfigurationFields = {
 } as const;
 
 export const SessionCreatedFields = {
+	delegation: Schema.optional(SessionDelegation),
 	...SessionIdentityFields,
 	...SessionConfigurationFields,
 } as const;
@@ -49,6 +51,7 @@ export const CompleteSessionCreatedEvent = Schema.TaggedStruct(
 );
 
 export const SessionCreatedEventFields = {
+	delegation: Schema.optional(SessionDelegation),
 	...SessionIdentityFields,
 	title: Schema.optionalKey(SessionConfigurationFields.title),
 	titleProvenance: SessionConfigurationFields.titleProvenance,

@@ -222,6 +222,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						modelOptions: request?.modelOptions,
 						enableSubagents: request?.startup?.enableSubagents,
 						forkFromResume: request?.startup?.forkFromResume,
+						forkSourceThreadId: request?.startup?.forkSourceThreadId,
 						postBootStatus: "idle",
 					});
 					return yield* lookupSession(sessionId);

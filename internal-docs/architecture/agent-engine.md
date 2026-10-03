@@ -21,37 +21,50 @@ harness permission requests retain the acquiring provider's ownership checks.
 Migrations preserve main's harness/model records and upgrade the earlier engine
 ledger transactionally. Unknown development migration histories fail before writes.
 
-The standalone desktop engine is bundled with an independently locked supervisor,
+The desktop launches a standalone engine with an independently locked supervisor,
 private authenticated local transport, native credential storage, and scoped RPC
-attachments. A process test verifies client detach/reattach, worker crash recovery,
-durable workspace preservation, capability rotation, and supervised shutdown.
-Desktop reattachment checks a hash of both engine executables and the native
-runtime ABI as well as the release version. The supervisor and worker verify
-the prepared build before opening the runtime, including on crash restart.
-An incompatible attachment leaves the existing engine running. Automatic upgrade
-coordination with idle admission is still outstanding.
+attachments. Desktop quit detaches its clients; execution and nearby discovery remain
+owned by the engine. Reopening uses the live API port and reconstructs projections.
+Multiple renderer RPC scopes coexist without sharing request identities. Navigation
+revokes all scopes belonging to the previous document.
+
+Desktop reattachment verifies both engine executables, the native runtime ABI, and
+release version. An incompatible idle engine can stop cleanly before replacement;
+an active owner remains running. Updates and network-listener changes use one
+maintenance coordinator. The engine checks durable turns, jobs, fork construction,
+file restores, unresolved delegation results, and exact provider residency while
+atomically closing admission.
+Installation waits for both worker and supervisor exit. A competing maintenance
+action cannot reopen another action's admission barrier.
+
 Renderer disconnect fails pending RPC calls without replaying mutations. Native
 requests are bound to one desktop attachment; timeout, cancellation, and attachment
-loss revoke their responses. Reconnection never repeats native actions.
+loss revoke their responses. Reconnection never repeats native actions. The worker
+derives sleep prevention from durable active turns and authenticated remote clients.
+Its macOS sleep assertion follows the worker PID; nearby helpers stop on owner pipe
+closure. Linux discovery uses bounded process-group cleanup after owner loss. Sleep
+status is retained and delivered after native reattachment.
 
-The desktop still launches its embedded runtime. Switching it to the standalone
-engine requires wiring the native and renderer attachments and coordinating
-updates with engine admission. Nearby discovery has a shared lifecycle owned by
-the standalone worker's TLS listener; it does not depend on a desktop attachment.
-The standalone worker
-already derives sleep prevention from durable active turns and authenticated remote
-clients. Its macOS sleep assertion follows the worker PID; the native connectivity
-helper exits when its owner's input pipe closes. Linux discovery uses an owner-pipe
-guard with bounded process-group cleanup after normal exit or owner death. Current
-sleep status is retained and delivered after native reattachment; native actions
-are not replayed. These lifetime checks do not yet
-establish end-to-end desktop quit/reopen behavior.
+Counted turns now capture Git baselines before provider execution and remain
+`finalizing` until their durable final capture succeeds. A failed capture is visible
+and retryable. Rollback previews changes, fences execution, restores files, truncates
+the conversation, and freezes retained context for a replacement provider thread.
+The restore journal supports retry across process loss. Codex can preserve a
+verified native turn prefix during rollback; a missing or unsupported native
+boundary uses retained transcript context in a replacement thread. Checkpoint
+scopes belong to root execution steps. Nested native tool and subagent steps
+explicitly report unsupported independent rollback: their notifications do not
+provide a barrier against concurrent filesystem writes.
 
-Full execution trees and checkpoint rollback also remain future work.
-Plan responses now retain durable intent and acknowledgement separately: restart
-repairs acknowledged receipts and expires uncertain deliveries without replay.
-Live-provider crash injection and native Windows lifecycle validation remain release checks;
-automated Linux tests do not establish zero reliability issues.
+Linux validation includes real Electron quit/reopen, renderer reload, automatic
+worker-crash reattachment, and persisted settings. A bundled process test runs the
+real Codex executable and shell tool against local scripted inference: work survives
+client detach, busy updates are refused, and worker loss cleans the tool process
+without repeating its command. These tests do not establish behavior on every
+operating system or eliminate all possible reliability failures.
+
+Plan responses retain durable intent and acknowledgement separately: restart repairs
+acknowledged receipts and expires uncertain deliveries without replay.
 
 Production persistence now acquires a process-lifetime SQLite lock before database
 migration and runtime construction. A second engine for the same data directory
@@ -244,13 +257,15 @@ turns and queued messages transactionally, and durable stop jobs retire only the
 provider residencies. A provider switch freezes a redacted text handoff in the same
 transaction; failed capture rolls back the switch. The first destination turn receives
 up to 200 recent transcript messages and 60,000 characters, with an explicit omission
-notice. Visible user messages remain unchanged. Returning to a prior provider starts
-a fresh native thread with another handoff; resuming old threads with delta context is
-not implemented. Attachments are retained in the application transcript but this
-handoff carries text, not earlier image or file payloads. The frozen handoff survives
+notice. Visible user messages remain unchanged. Returning to a supported provider
+reuses its saved native thread with only the missed canonical context. Coverage
+accounts for pending context-link messages and incomplete turns. If native history
+is unavailable, the handoff durably records a full-context replacement before
+delivery. Attachments are retained in the application transcript, while these
+handoffs carry bounded text rather than earlier image or file payloads. The frozen handoff survives
 restart and is reused for retries of its first turn. Model changes retain native
 continuation while retiring the previous live process.
-Step ownership and detached desktop runtime remain targets.
+Full step ownership remains a target; the standalone desktop lifecycle is implemented.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
 each initial, retry and recovery attempt with its outcome and timestamps. Migration
 and live projection share the same lifecycle projector; sequence guards preserve
@@ -623,3 +638,24 @@ transcript. `TestClock` for time and a deterministic id source for ids. The
 invariant set: simple, multi_turn, steering, interrupt,
 steering_restart_fallback, subagent, subagent_checkpoint, rollback, approval,
 provider_switch_return, restart, and lease sweep.
+
+
+### Reproducible process checks
+
+Run `bun run --cwd apps/desktop test:engine` for the bundled ownership and crash
+checks. `bun run --cwd apps/desktop test:engine-provider` also runs the installed
+Codex CLI against a loopback scripted model endpoint and real temporary shell tools.
+It needs no provider credentials; inference is simulated, while the driver, tool
+processes, engine, supervisor, and database are real. All fixture data is temporary.
+The ordinary authenticated provider suite is `bun run test:live-agents`; disabled
+providers report skipped tests. Explicit model overrides use variables such as
+`ZUSE_LIVE_CODEX_MODEL` without changing user configuration.
+
+For large-history synchronization, run `bunx vitest run
+test/integration/engine/cloud-history-benchmark.test.ts` from `packages/domain`.
+Set `ZUSE_BENCHMARK_OUTPUT` to a JSON output path to save timings and UTF-8 sizes.
+The fixture uses 10, 1,000, and 10,000 persisted messages and measures full history,
+bounded background history, and a five-event cursor resume. It measures domain
+frame production; network transport and rendering costs are excluded. Message
+replay shares the ordinary reducer while privately batching consecutive message
+collections to avoid copying an expanding message set for every historical event.

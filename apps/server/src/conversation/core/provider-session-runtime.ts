@@ -38,9 +38,13 @@ export interface OpenProviderSessionOptions {
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly enableSubagents?: boolean;
 	readonly forkFromResume?: boolean;
+	readonly forkSourceThreadId?: string;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
 		readonly turnId: AgentTurnId;
+		readonly onNativeResumeFallback?: () => Effect.Effect<
+			import("@zuse/contracts").ComposerInput
+		>;
 		readonly attemptId?: import("@zuse/contracts").AttemptId;
 		readonly text: string;
 		readonly attachments: ReadonlyArray<AttachmentRef>;
@@ -229,6 +233,23 @@ export const makeProviderSessionRuntime = (
 				const orchestrationTools = yield* makeConversationOrchestration(
 					{
 						runtime,
+
+						captureDelegation: () =>
+							Effect.gen(function* () {
+								const attempt = yield* optionsState.activeAttempt(session.id);
+								const owned = yield* ownsReservation;
+								if (!owned || attempt === null)
+									return yield* new SessionStartError({
+										providerId: session.providerId,
+										reason: "Delegation requires an active parent execution.",
+									});
+								return {
+									parentSessionId: session.id,
+									parentTurnId: attempt.turnId,
+									parentAttemptId: attempt.attemptId,
+									providerSessionId,
+								};
+							}),
 						getSettings: configStore.getSettings,
 						getModelCatalog: modelCatalog.current,
 						createWorktree: (projectId, source) =>
@@ -285,7 +306,11 @@ export const makeProviderSessionRuntime = (
 							permissionMode: session.permissionMode,
 							modelOptions: options.modelOptions,
 							toolSearch: session.toolSearch,
-							forkFromResume: options.forkFromResume,
+							forkFromResume:
+								options.forkFromResume === true &&
+								(options.forkSourceThreadId === undefined ||
+									session.providerThread?.nativeThreadRef.nativeId ===
+										options.forkSourceThreadId),
 						},
 						session.providerThread?.nativeThreadRef.nativeId ?? null,
 						() => state.runtimeMode(session.id),
@@ -413,6 +438,12 @@ export const makeProviderSessionRuntime = (
 					))
 				)
 					return false;
+				const sendAfterOpen = options.sendAfterOpen;
+				const fallbackInput =
+					started.nativeResumeFallback === true &&
+					sendAfterOpen?.onNativeResumeFallback !== undefined
+						? yield* sendAfterOpen.onNativeResumeFallback()
+						: undefined;
 				if (
 					options.sendAfterOpen !== undefined &&
 					!(yield* publish(
@@ -420,7 +451,7 @@ export const makeProviderSessionRuntime = (
 							.send(
 								session.id,
 								options.sendAfterOpen.turnId,
-								options.sendAfterOpen.text,
+								fallbackInput?.text ?? options.sendAfterOpen.text,
 								options.sendAfterOpen.attachments,
 								options.sendAfterOpen.fileRefs,
 								options.sendAfterOpen.skillRefs,

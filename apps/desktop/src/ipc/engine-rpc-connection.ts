@@ -18,13 +18,13 @@ export const makeEngineRpcConnection = (options: {
 	readonly disconnected: (id: string) => void;
 	readonly connect?: typeof connectLocalEngine;
 }) => {
-	let current: Attachment | null = null;
+	const attachments = new Map<string, Attachment>();
 	let disposed = false;
 	const close = (attachment: Attachment) => {
 		attachment.controller.abort();
 		attachment.channel?.close();
-		if (current !== attachment) return;
-		current = null;
+		if (attachments.get(attachment.id) !== attachment) return;
+		attachments.delete(attachment.id);
 		options.disconnected(attachment.id);
 	};
 	return {
@@ -32,13 +32,16 @@ export const makeEngineRpcConnection = (options: {
 			if (disposed) throw new Error("The desktop window has closed.");
 			if (typeof id !== "string" || id.length === 0 || id.length > 128)
 				throw new Error("Invalid renderer connection identity.");
-			if (current !== null) close(current);
+			const previous = attachments.get(id);
+			if (previous !== undefined) close(previous);
+			if (attachments.size >= 4)
+				throw new Error("Too many local engine connections.");
 			const attachment: Attachment = {
 				id,
 				controller: new AbortController(),
 				channel: null,
 			};
-			current = attachment;
+			attachments.set(id, attachment);
 			try {
 				const endpoint = await options.endpoint(attachment.controller.signal);
 				attachment.controller.signal.throwIfAborted();
@@ -47,13 +50,13 @@ export const makeEngineRpcConnection = (options: {
 					{
 						signal: attachment.controller.signal,
 						receive: (frame: EngineFrame) => {
-							if (current === attachment && frame._tag === "Rpc")
+							if (attachments.get(id) === attachment && frame._tag === "Rpc")
 								options.message(id, frame.payload);
 						},
 					},
 				);
 				attachment.channel = channel;
-				if (current !== attachment || disposed) {
+				if (attachments.get(id) !== attachment || disposed) {
 					channel.close();
 					throw new Error("Renderer connection was replaced.");
 				}
@@ -64,8 +67,8 @@ export const makeEngineRpcConnection = (options: {
 			}
 		},
 		send: (id: string, payload: unknown): void => {
-			const attachment = current;
-			if (attachment === null || attachment.id !== id) return;
+			const attachment = attachments.get(id);
+			if (attachment === undefined) return;
 			// A missing channel is not a buffer: the caller must finish open before sending.
 			if (
 				typeof payload !== "string" ||
@@ -75,14 +78,15 @@ export const makeEngineRpcConnection = (options: {
 				close(attachment);
 		},
 		close: (id: string): void => {
-			if (current?.id === id) close(current);
+			const attachment = attachments.get(id);
+			if (attachment !== undefined) close(attachment);
 		},
 		reset: (): void => {
-			if (current !== null) close(current);
+			for (const attachment of [...attachments.values()]) close(attachment);
 		},
 		dispose: (): void => {
 			disposed = true;
-			if (current !== null) close(current);
+			for (const attachment of [...attachments.values()]) close(attachment);
 		},
 	};
 };

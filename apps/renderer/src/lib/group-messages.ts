@@ -1,3 +1,4 @@
+import { nativeBackgroundChildren } from "@zuse/client-runtime/native-background";
 import type { AgentItemId, Message } from "@zuse/contracts";
 import { subagentDisplayName } from "./subagent-metadata.ts";
 
@@ -12,6 +13,7 @@ export type RenderGroup =
 			readonly modelRequested: string | undefined;
 			readonly childSessionId: string | undefined;
 			readonly presentation: "inline" | "detached";
+			readonly rootCompleted?: boolean;
 			readonly children: ReadonlyArray<Message>;
 			readonly summary: {
 				readonly text: string;
@@ -43,6 +45,8 @@ export const detachedSubagentGroups = (
 
 export const isAgentToolUse = (m: Message): boolean =>
 	(() => {
+		if (m.content._tag === "tool_use" && m.content.subagent !== undefined)
+			return true;
 		if (
 			m.content._tag !== "tool_use" ||
 			(m.content.tool !== "Agent" && m.content.tool !== "Task") ||
@@ -68,6 +72,7 @@ export function groupMessages(
 	messages: ReadonlyArray<Message>,
 ): ReadonlyArray<RenderGroup> {
 	const out: RenderGroup[] = [];
+	const background = nativeBackgroundChildren(messages);
 
 	const childrenByParent = new Map<AgentItemId, Message[]>();
 	const summariesByItemId = new Map<AgentItemId, Message>();
@@ -167,6 +172,10 @@ export function groupMessages(
 				modelRequested,
 				childSessionId: enrichedContent.subagent?.childSessionId,
 				presentation: enrichedContent.subagent?.presentation ?? "inline",
+				rootCompleted:
+					enrichedContent.subagent === undefined
+						? false
+						: background.has(enrichedContent.subagent.childSessionId),
 				children: childrenByParent.get(enrichedContent.itemId) ?? [],
 				summary,
 			});

@@ -43,6 +43,7 @@ export function ChatWorkingRow({
 	providerId,
 	pendingCommands,
 	runtimeState,
+	finalizing = false,
 }: {
 	readonly messages: ReadonlyArray<Message>;
 	readonly chatId: ChatId | null;
@@ -51,6 +52,7 @@ export function ChatWorkingRow({
 	readonly providerId: ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
+	readonly finalizing?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
@@ -101,17 +103,19 @@ export function ChatWorkingRow({
 					showStartup && delayed ? "text-warning" : "text-muted-foreground"
 				}
 			>
-				{waitingCommand !== null
-					? waitingCommand.label
-					: showStartup
-						? providerStartupLabel({
-								providerLabel,
-								failed: false,
-								delayed,
-							})
-						: uiMessage("chat:chat_working_row_is_working", {
-								providerLabel: String(providerLabel),
-							})}
+				{finalizing
+					? uiMessage("chat:checkpoints_saving")
+					: waitingCommand !== null
+						? waitingCommand.label
+						: showStartup
+							? providerStartupLabel({
+									providerLabel,
+									failed: false,
+									delayed,
+								})
+							: uiMessage("chat:chat_working_row_is_working", {
+									providerLabel: String(providerLabel),
+								})}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

@@ -237,6 +237,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 		case "SubagentProgress":
 			return {
 				_tag: "subagent_progress",
+				rootCompleted: event.rootCompleted,
 				childId: event.childId,
 				parentId: event.parentId,
 				childSessionId: event.childSessionId,

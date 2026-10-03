@@ -1,4 +1,5 @@
 import { Context } from "effect";
+import type { CheckpointService } from "../../checkpoint/service.ts";
 import type {
 	ChatServiceShape,
 	MessageServiceShape,
@@ -10,6 +11,7 @@ import type {
 
 /** Internal runtime shared by the five public conversation service layers. */
 export interface ConversationRuntimeShape {
+	readonly checkpoints: CheckpointService["Service"];
 	readonly session: SessionServiceShape;
 	readonly chat: ChatServiceShape;
 	readonly transcript: TranscriptServiceShape;

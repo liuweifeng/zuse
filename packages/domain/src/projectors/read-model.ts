@@ -103,6 +103,9 @@ const eventTimestamp = (event: StoredEvent["event"]): number | undefined => {
 			return event.deletedAt;
 		case "TurnStarted":
 			return event.startedAt;
+		case "TurnsRolledBack":
+			return event.rolledBackAt;
+		case "TurnFinalizationRequested":
 		case "TurnSettled":
 			return event.settledAt;
 		case "MessagePersisted":
@@ -299,6 +302,20 @@ export class InMemorySessionReadModel
 					break;
 				case "TurnStarted":
 					next = { ...next, status: "running" };
+					break;
+				case "TurnsRolledBack":
+					for (const id of event.removedMessageIds)
+						this.messageRecords.delete(id);
+					next = {
+						...next,
+						activeProviderThread: null,
+						lastMessageAt: [...this.messageRecords.values()]
+							.filter((message) => message.sessionId === record.streamId)
+							.reduce<number | null>(
+								(latest, message) => Math.max(latest ?? 0, message.createdAt),
+								null,
+							),
+					};
 					break;
 				case "TurnSettled":
 					next = { ...next, status: "idle" };

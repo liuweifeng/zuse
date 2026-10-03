@@ -12,6 +12,11 @@ const Frame = Schema.Union([
 	}),
 	Schema.TaggedStruct("Welcome", { version: Schema.Number }),
 	Schema.TaggedStruct("Rpc", { payload: Schema.String }),
+	Schema.TaggedStruct("ShutdownRequest", { id: Schema.String }),
+	Schema.TaggedStruct("ShutdownResult", {
+		id: Schema.String,
+		status: Schema.Literals(["accepted", "busy", "failed"]),
+	}),
 	Schema.TaggedStruct("HostRequest", {
 		id: Schema.String,
 		method: Schema.Literals(["pickFolder", "openExternal"]),

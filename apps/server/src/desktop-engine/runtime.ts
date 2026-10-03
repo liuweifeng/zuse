@@ -37,10 +37,18 @@ export const runDesktopEngine = (
 				);
 			const listening = yield* Deferred.make<number>();
 			const ready = yield* Deferred.make<void>();
+			const stopping = yield* Deferred.make<void>();
+			let prepareShutdown: (() => Promise<boolean>) | undefined;
 			const diagnostic = (event: string, fields?: Record<string, unknown>) =>
 				host.notify("diagnostic", { event, fields });
 			const layer = makeMainLayer({
 				...native,
+				onPrepareShutdown: (prepare) => {
+					prepareShutdown = prepare;
+					return () => {
+						prepareShutdown = undefined;
+					};
+				},
 				userData: config.userData,
 				telemetryIdentity: { kind: "desktop", instance: "local" },
 				autoApiLink: { apiUrl: config.apiUrl },
@@ -72,6 +80,10 @@ export const runDesktopEngine = (
 				serverProtocol: localEngineProtocolLayer({
 					token,
 					host,
+					prepareShutdown: () => prepareShutdown?.() ?? Promise.resolve(false),
+					shutdown: () => {
+						Effect.runSync(Deferred.succeed(stopping, undefined));
+					},
 					onListening: (port) =>
 						Effect.runPromise(Deferred.succeed(listening, port)).then(() => {}),
 				}),
@@ -148,15 +160,21 @@ export const runDesktopEngine = (
 						token,
 						port,
 						pid: process.pid,
+						supervisorPid:
+							process.send === undefined ? undefined : process.ppid,
 						appVersion: config.appVersion,
 						buildId: config.buildId,
 						apiPort: config.apiPort,
+						network: {
+							bindHost: config.bindHost,
+							advertisedHost: config.advertisedHost,
+						},
 					}),
 				),
 				() =>
 					Effect.promise(() => removeEngineEndpoint(config.userData, token)),
 			);
-			yield* Fiber.join(runtime);
+			yield* Effect.raceFirst(Fiber.join(runtime), Deferred.await(stopping));
 		}),
 	);
 

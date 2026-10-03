@@ -1,7 +1,6 @@
 import {
 	AgentTurnId,
 	AttemptId,
-	ComposerInput,
 	DEFAULT_PERMISSION_MODE,
 	DEFAULT_RUNTIME_MODE,
 	MAX_SESSION_QUEUE_ITEMS,
@@ -16,6 +15,7 @@ import {
 	QueuedMessageInput,
 	QueueState,
 	RuntimeMode,
+	type SessionExecutionStep,
 	type SessionId,
 	type SessionInteraction,
 	SessionTimelineProjection,
@@ -281,7 +281,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			t.attempt_reason AS attempt_reason, t.requested_at AS turn_requested_at
 		FROM sessions s
 		LEFT JOIN session_turns t
-			ON t.session_id = s.id AND t.status IN ('starting', 'running')
+			ON t.session_id = s.id AND t.status IN ('starting', 'running', 'finalizing')
 		WHERE s.id = ${sessionId}
 		ORDER BY t.ordinal DESC
 		LIMIT 1
@@ -347,9 +347,15 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		Schema.Literals(["default", "plan", "acceptEdits"]),
 	)(head.permission_mode);
 	const interactions = yield* readPendingInteractions(sql, sessionId);
+	const stepRows =
+		yield* sql<SessionExecutionStep>`SELECT 'unsupported' AS checkpointCapability,id,turn_id AS turnId,attempt_id AS attemptId,item_id AS itemId,parent_item_id AS parentItemId,kind,label,status,child_session_id AS childSessionId,native_child_id AS nativeChildId,root_completed_at AS rootCompletedAt,created_at AS createdAt,updated_at AS updatedAt FROM session_execution_steps WHERE session_id=${sessionId} ORDER BY created_at DESC,id LIMIT 201`;
+	const executionSteps = stepRows.slice(0, 200);
+	let executionStepsTruncated = stepRows.length > 200;
 	const makeProjection = () =>
 		SessionTimelineProjection.make({
 			messages: messages.map(({ message }) => message),
+			executionSteps,
+			executionStepsTruncated,
 			olderMessageSequence: null,
 			status: head.status,
 			activeTurn,
@@ -380,6 +386,14 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		budgetPageCursor =
 			messages[0]?.sequence ??
 			(omitted === undefined ? budgetPageCursor : omitted.sequence + 1);
+		projection = makeProjection();
+	}
+	while (
+		executionSteps.length > 0 &&
+		projectionBytes() > MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES
+	) {
+		executionSteps.pop();
+		executionStepsTruncated = true;
 		projection = makeProjection();
 	}
 	if (projectionBytes() > MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES) {

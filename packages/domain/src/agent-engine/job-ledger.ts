@@ -23,7 +23,9 @@ import {
  * caller's post-commit responsibility.
  */
 
-export type JobLedgerError = SqlError | JobRowDecodeError;
+import type { AdmissionClosed } from "../engine/admission.js";
+
+export type JobLedgerError = SqlError | JobRowDecodeError | AdmissionClosed;
 
 export class JobRowDecodeError extends Schema.TaggedErrorClass<JobRowDecodeError>()(
 	"JobRowDecodeError",

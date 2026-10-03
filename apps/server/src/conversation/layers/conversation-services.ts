@@ -1,6 +1,7 @@
 import {
 	type ChatId,
 	type FolderId,
+	SessionCheckpointError,
 	SessionId,
 	SessionNotFoundError,
 	type WorktreeId,
@@ -24,6 +25,7 @@ import {
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
+import { CheckpointService } from "../../checkpoint/service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { ModelCatalogService } from "../../model-catalog/services/model-catalog-service.ts";
 import { NdjsonLogger } from "../../persistence/ndjson-logger.ts";
@@ -35,6 +37,7 @@ import { RepositorySettingsService } from "../../repository-settings/services/re
 import { makeArchiveOperations } from "../core/archive-operations.ts";
 import { makeAutoNameOperations } from "../core/auto-name-operations.ts";
 import { makeChatOperations } from "../core/chat-operations.ts";
+import { makeCheckpointRestore } from "../core/checkpoint-restore.ts";
 import { makeContextHandoff } from "../core/context-handoff.ts";
 import { makeConversationGoalOperations } from "../core/conversation-goal-operations.ts";
 import {
@@ -47,6 +50,7 @@ import {
 	type ConversationStoreRuntime,
 	makeConversationStoreRuntime,
 } from "../core/conversation-store-runtime.ts";
+import { makeDelegationRuntime } from "../core/delegation-runtime.ts";
 import { INGESTION_HEARTBEAT_MS } from "../core/ingestion-lease.ts";
 import { sweepIngestionLeases } from "../core/ingestion-sweeper.ts";
 import {
@@ -55,6 +59,10 @@ import {
 } from "../core/message-operations.ts";
 import { makeProviderJobExecutor } from "../core/provider-jobs.ts";
 import { makeQuestionExpiry } from "../core/question-expiry.ts";
+import {
+	CheckpointFiles,
+	makeSessionCheckpoints,
+} from "../core/session-checkpoints.ts";
 import { makeSessionOperations } from "../core/session-operations.ts";
 import {
 	hasRecoverableProviderSend,
@@ -185,6 +193,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const storeRuntime: ConversationStoreRuntime =
 			yield* makeConversationStoreRuntime({
 				isWorkspaceReady: () => executionPolicy.isReady,
+				checkpointFinalization: true,
 				serviceScope,
 				sql,
 				state,
@@ -308,16 +317,32 @@ const ConversationRuntimeLive = Layer.effect(
 
 		const transcriptOperations = makeTranscriptOperations({
 			sql,
+			sessionDomain,
+			admitConstruction: (work) =>
+				sessionDomain.admission.run(work).pipe(Effect.orDie),
 			createChat,
 			createSession,
 			lookupChat,
 			lookupSession,
 			persistMessage,
 		});
+		yield* Effect.forkIn(
+			Effect.forever(
+				transcriptOperations
+					.recoverForks()
+					.pipe(Effect.andThen(Effect.sleep("2 seconds"))),
+			),
+			serviceScope,
+		);
 		const {
 			continueExternalThread,
 			importExternalMessages,
 			forkSession,
+			forkConstructions,
+			retryFork,
+			cancelFork,
+			mergeBack,
+			contextLinks,
 			exportTranscript,
 			latestPlan,
 		} = transcriptOperations;
@@ -336,8 +361,47 @@ const ConversationRuntimeLive = Layer.effect(
 			configStore,
 		});
 		const { renameChat, markChatRead, autoNameChat } = autoNameOperations;
+		const checkpoints = makeSessionCheckpoints(
+			sql,
+			git,
+			yield* CheckpointFiles,
+			provider.captureHistoryCheckpoint,
+		);
 		const executeProviderJob = makeProviderJobExecutor({
+			captureBaseline: (session, turnId, attemptId) =>
+				checkpoints.capture(session, turnId, attemptId, "baseline"),
+			finalizeCheckpoint: (sessionId, turnId, attemptId, outcome) =>
+				Effect.gen(function* () {
+					const active = yield* sessionDomain
+						.activeAttempt(sessionId)
+						.pipe(Effect.orDie);
+					if (active?.turnId !== turnId || active.attemptId !== attemptId)
+						return;
+					const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
+					if (outcome !== "completed" && provider.quiesce !== undefined)
+						yield* provider.quiesce(sessionId).pipe(
+							Effect.mapError(
+								() =>
+									new SessionCheckpointError({
+										message:
+											"Provider processes must stop before the interrupted turn can be checkpointed.",
+									}),
+							),
+						);
+					yield* checkpoints.capture(
+						session,
+						turnId,
+						attemptId,
+						"final",
+						outcome,
+					);
+					yield* storeRuntime.completeFinalization(sessionId, turnId, outcome, {
+						turnId,
+						attemptId,
+					});
+				}),
 			prepareContext: makeContextHandoff(sql).prepare,
+			prepareFallbackContext: makeContextHandoff(sql).prepareFallback,
 			delivery: reactorEffects,
 			authorizeQueuedTurn: executionPolicy.authorize,
 			getSession: lookupSession,
@@ -566,6 +630,11 @@ const ConversationRuntimeLive = Layer.effect(
 			continueExternalThread,
 			importExternalMessages,
 			forkSession,
+			forkConstructions,
+			retryFork,
+			cancelFork,
+			mergeBack,
+			contextLinks,
 			exportTranscript,
 			latestPlan,
 		} satisfies TranscriptServiceShape;
@@ -599,9 +668,21 @@ const ConversationRuntimeLive = Layer.effect(
 		);
 		// The production persistence layer already holds exclusive ownership.
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
+		const checkpointService = yield* makeCheckpointRestore({
+			sql,
+			activeTurnCount: sessionQueries.activeTurnCount,
+			domain: sessionDomain,
+			getSession: lookupSession,
+			provider,
+			teardown: storeRuntime.teardownSubscription,
+			retryFinalization: (sessionId) => reactorRuntime.runSession(sessionId),
+		});
 		yield* reconcileSessionRuntime(sql, sessionDomain);
+		yield* checkpointService.recover;
 		yield* sessionOperations.recoverPlanResponses;
 		yield* sessionOperations.reconcilePlanInputs;
+		const delegatedWork = makeDelegationRuntime(sql, sessionDomain);
+		yield* delegatedWork.sweep;
 		const expireQuestions = makeQuestionExpiry(sql, sessionDomain, provider);
 		yield* expireQuestions;
 		yield* Effect.forkIn(
@@ -609,6 +690,7 @@ const ConversationRuntimeLive = Layer.effect(
 				Effect.sleep("1 second").pipe(
 					Effect.andThen(expireQuestions),
 					Effect.andThen(sessionOperations.reconcilePlanInputs),
+					Effect.andThen(delegatedWork.sweep),
 					Effect.catchCause(() =>
 						Effect.logError("[ConversationServices] question expiry failed"),
 					),
@@ -651,6 +733,7 @@ const ConversationRuntimeLive = Layer.effect(
 			serviceScope,
 		);
 		return ConversationRuntime.of({
+			checkpoints: checkpointService,
 			session: sessionService,
 			chat: chatService,
 			transcript: transcriptService,
@@ -663,6 +746,10 @@ const ConversationRuntimeLive = Layer.effect(
 
 /** Public compatibility aggregate; each tag is implemented by its own layer. */
 export const ConversationServicesLive = Layer.mergeAll(
+	Layer.effect(
+		CheckpointService,
+		Effect.map(ConversationRuntime, (runtime) => runtime.checkpoints),
+	),
 	SessionServiceLive,
 	ChatServiceLive,
 	TranscriptServiceLive,

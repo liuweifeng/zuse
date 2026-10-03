@@ -10,7 +10,7 @@ describe("desktop startup readiness", () => {
 			"utf8",
 		);
 		const protocolSetup = mainSource.indexOf(
-			"const serverProtocol = electronServerProtocolLayer(",
+			"installEngineServerBridge(mainWindow.webContents, desktopEngine)",
 		);
 
 		expect(protocolSetup).toBeGreaterThan(-1);

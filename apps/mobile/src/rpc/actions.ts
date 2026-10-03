@@ -215,14 +215,34 @@ export const forkSessionFromMessage = (options: {
 	fromMessageId: MessageId;
 	destination: "tab" | "chat";
 	worktreeId?: WorktreeId | null;
-}) =>
-	Effect.gen(function* () {
+	commandId?: string;
+}) => {
+	const commandId = options.commandId ?? `session-fork:${crypto.randomUUID()}`;
+	return Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
 		return yield* client["session.fork"]({
+			commandId,
 			sourceSessionId: options.sourceSessionId,
 			fromMessageId: options.fromMessageId,
 			destination: options.destination,
 			worktreeId: options.worktreeId,
+		});
+	});
+};
+
+/** Caller may retain commandId across reconnects to recover a lost merge acknowledgement. */
+export const mergeSessionBack = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	commandId: string;
+	throughMessageId?: MessageId;
+}) =>
+	Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["session.mergeBack"]({
+			commandId: options.commandId,
+			sessionId: options.sessionId,
+			throughMessageId: options.throughMessageId,
 		});
 	});
 

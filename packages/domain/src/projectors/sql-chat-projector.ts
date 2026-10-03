@@ -120,6 +120,7 @@ export const makeSqlChatProjector = (
 			case "ChatDeleteRequested":
 				return;
 			case "ChatDeleted":
+				yield* sql`UPDATE session_fork_constructions SET completed_at=${event.deletedAt},cancelled_at=${event.deletedAt},error=NULL,payload_json=json_set(payload_json,'$.messages',json('[]')) WHERE json_valid(payload_json) AND json_extract(payload_json,'$.chatId')=${record.streamId} AND completed_at IS NULL`;
 				yield* sql`DELETE FROM chats WHERE id = ${record.streamId}`;
 				return;
 		}

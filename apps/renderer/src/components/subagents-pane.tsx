@@ -141,7 +141,10 @@ function AgentSection({
 					{groups.map((group) => {
 						const latest =
 							group.children.at(-1)?.createdAt ?? group.parent.createdAt;
-						const detail = group.summary?.text || group.prompt || "Working…";
+						const detail =
+							group.rootCompleted && group.summary === null
+								? uiMessage("chat:native_background_running")
+								: group.summary?.text || group.prompt || "Working…";
 						return (
 							<button
 								key={group.childSessionId}

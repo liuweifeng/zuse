@@ -1,3 +1,4 @@
+import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 /** Builds the session-bound orchestration tool surface. */
 
 import {
@@ -47,6 +48,7 @@ export interface ConversationOrchestrationContext {
 
 export interface ConversationOrchestrationDependencies {
 	readonly runtime: Context.Context<never>;
+	readonly captureDelegation: () => Effect.Effect<DelegationOrigin, unknown>;
 	readonly getSettings: () => Effect.Effect<SettingsFile, unknown>;
 	/** Resolved model catalog (curated + live); falls back to the bundled snapshot. */
 	readonly getModelCatalog: () => Effect.Effect<ResolvedModelCatalog, unknown>;
@@ -62,6 +64,7 @@ export interface ConversationOrchestrationDependencies {
 		readonly initialPrompt: string;
 		readonly worktreeId: WorktreeId | null;
 		readonly originSessionId: SessionId;
+		readonly delegation: DelegationOrigin;
 	}) => Effect.Effect<
 		{ readonly chat: Chat; readonly initialSession: Session },
 		unknown
@@ -73,6 +76,7 @@ export interface ConversationOrchestrationDependencies {
 		readonly title?: string;
 		readonly initialPrompt: string;
 		readonly originSessionId: SessionId;
+		readonly delegation: DelegationOrigin;
 		readonly background: true;
 	}) => Effect.Effect<Session, unknown>;
 	readonly getChat: (chatId: ChatId) => Effect.Effect<Chat, unknown>;
@@ -157,28 +161,33 @@ export const makeConversationOrchestration = (
 			readonly model?: string;
 		}) => {
 			const { providerId, model } = providerModelFor(input);
-			return dependencies
-				.createChat({
-					projectId: context.projectId,
-					providerId,
-					model,
-					title: input.title,
-					initialPrompt: input.task,
-					worktreeId: input.worktreeId,
-					originSessionId: context.sessionId,
-				})
-				.pipe(
-					Effect.map((result) => ({
-						ok: true as const,
-						chatId: result.chat.id as string,
-						sessionId: result.initialSession.id as string,
-						title: result.chat.title,
-						worktreeId:
-							result.chat.worktreeId === null
-								? null
-								: (result.chat.worktreeId as string),
-					})),
-				);
+			return dependencies.captureDelegation().pipe(
+				Effect.flatMap((delegation) =>
+					dependencies
+						.createChat({
+							delegation,
+							projectId: context.projectId,
+							providerId,
+							model,
+							title: input.title,
+							initialPrompt: input.task,
+							worktreeId: input.worktreeId,
+							originSessionId: context.sessionId,
+						})
+						.pipe(
+							Effect.map((result) => ({
+								ok: true as const,
+								chatId: result.chat.id as string,
+								sessionId: result.initialSession.id as string,
+								title: result.chat.title,
+								worktreeId:
+									result.chat.worktreeId === null
+										? null
+										: (result.chat.worktreeId as string),
+							})),
+						),
+				),
+			);
 		};
 		const createSession = (input: {
 			readonly task: string;
@@ -188,28 +197,33 @@ export const makeConversationOrchestration = (
 			readonly model?: string;
 		}) => {
 			const { providerId, model } = providerModelFor(input);
-			return dependencies
-				.createSession({
-					chatId: input.chatId,
-					providerId,
-					model,
-					title: input.title,
-					initialPrompt: input.task,
-					originSessionId: context.sessionId,
-					background: true,
-				})
-				.pipe(
-					Effect.map((session) => ({
-						ok: true as const,
-						chatId: session.chatId as string,
-						sessionId: session.id as string,
-						title: session.title,
-						worktreeId:
-							session.worktreeId === null
-								? null
-								: (session.worktreeId as string),
-					})),
-				);
+			return dependencies.captureDelegation().pipe(
+				Effect.flatMap((delegation) =>
+					dependencies
+						.createSession({
+							delegation,
+							chatId: input.chatId,
+							providerId,
+							model,
+							title: input.title,
+							initialPrompt: input.task,
+							originSessionId: context.sessionId,
+							background: true,
+						})
+						.pipe(
+							Effect.map((session) => ({
+								ok: true as const,
+								chatId: session.chatId as string,
+								sessionId: session.id as string,
+								title: session.title,
+								worktreeId:
+									session.worktreeId === null
+										? null
+										: (session.worktreeId as string),
+							})),
+						),
+				),
+			);
 		};
 		const toolDependencies: OrchestrationToolDeps = {
 			createWorktree: (input) =>

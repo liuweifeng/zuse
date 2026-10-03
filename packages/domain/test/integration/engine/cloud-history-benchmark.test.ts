@@ -4,6 +4,7 @@ import { Effect, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
 import { makeSessionDomain } from "../../../src/engine/session-domain";
+import { makeSqlDispatchStorage } from "../../../src/engine/sql-dispatch-storage";
 import { createSessionCommand } from "../../../src/test/session";
 import { createDomainTestSchema } from "../../../src/test/sql-schema";
 
@@ -14,8 +15,9 @@ test("recent cloud synchronization remains bounded as history grows", async () =
 				yield* createDomainTestSchema();
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`INSERT INTO chats (id, updated_at) VALUES ('chat-1', '1970-01-01T00:00:00.000Z')`;
+				let nextEvent = 0;
 				const domain = yield* makeSessionDomain(sql, () =>
-					Effect.succeed("benchmark-event"),
+					Effect.succeed(`benchmark-event-${++nextEvent}`),
 				);
 				yield* domain.dispatch({
 					commandId: "create-benchmark",
@@ -23,13 +25,60 @@ test("recent cloud synchronization remains bounded as history grows", async () =
 					command: createSessionCommand,
 				});
 				const results = [];
-				for (const count of [10, 1000, 10000]) {
-					yield* sql`DELETE FROM messages`;
-					const content = JSON.stringify({
-						_tag: "assistant",
-						text: "large command output\n".repeat(100),
+				let seeded = 0;
+				const append = () => {
+					const index = ++seeded;
+					return domain.dispatch({
+						commandId: `message-${index}`,
+						streamId: "session-1",
+						command: {
+							_tag: "PersistMessage",
+							messageId: `message-${index}`,
+							turnId: null,
+							role: "assistant",
+							kind: "assistant",
+							contentJson: JSON.stringify({
+								_tag: "assistant",
+								text: "large command output ✓\n".repeat(100),
+							}),
+							parentItemId: null,
+							createdAt: index,
+						},
 					});
-					yield* sql`WITH RECURSIVE series(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM series WHERE n<${count}) INSERT INTO messages (id,session_id,role,kind,content_json,parent_item_id,created_at,sequence) SELECT 'message-' || n, 'session-1', 'assistant', 'assistant', ${content}, NULL, '2026-01-01T00:00:00.000Z', n FROM series`;
+				};
+				for (const count of [10, 1000, 10000]) {
+					// Seed the immutable log in one fixture batch, then use the real projector.
+					const storage = makeSqlDispatchStorage(sql);
+					const expectedVersion =
+						yield* domain.currentStreamVersion("session-1");
+					const events = Array.from({ length: count - seeded }, () => {
+						const index = ++seeded;
+						return {
+							eventId: `seed-event-${index}`,
+							event: {
+								_tag: "MessagePersisted" as const,
+								messageId: `message-${index}`,
+								turnId: null,
+								role: "assistant",
+								kind: "assistant",
+								contentJson: JSON.stringify({
+									_tag: "assistant",
+									text: "large command output ✓\n".repeat(100),
+								}),
+								parentItemId: null,
+								createdAt: index,
+							},
+						};
+					});
+					yield* storage.append({
+						commandId: `seed-${count}`,
+						streamId: "session-1",
+						correlationId: "seed",
+						causationEventId: null,
+						expectedVersion,
+						events,
+					});
+					yield* domain.catchUp;
 					for (const background of [false, true]) {
 						const start = performance.now();
 						const frames = yield* domain
@@ -58,9 +107,46 @@ test("recent cloud synchronization remains bounded as history grows", async () =
 							count,
 							background,
 							ms,
-							initialBytes: JSON.stringify(frames).length,
+							initialBytes: Buffer.byteLength(JSON.stringify(frames)),
 						});
 					}
+					const afterVersion = yield* domain.currentStreamVersion("session-1");
+					for (let index = 0; index < 5; index++) yield* append();
+					const start = performance.now();
+					const resumed = yield* domain
+						.synchronizedEvents({
+							streamId: "session-1",
+							hasProjection: true,
+							afterVersion,
+						})
+						.pipe(
+							Stream.takeUntil((frame) => frame.kind === "synchronized"),
+							Stream.runCollect,
+						);
+					const ms = performance.now() - start;
+					expect(resumed.map((frame) => frame.kind)).toEqual([
+						"event",
+						"event",
+						"event",
+						"event",
+						"event",
+						"synchronized",
+					]);
+					expect(
+						resumed.flatMap((frame) =>
+							frame.kind === "event" ? [frame.record.streamVersion] : [],
+						),
+					).toEqual(
+						Array.from({ length: 5 }, (_, index) => afterVersion + index + 1),
+					);
+					const bytes = Buffer.byteLength(JSON.stringify(resumed));
+					expect(bytes).toBeLessThan(20000);
+					results.push({
+						count,
+						mode: "resume-five-events",
+						ms,
+						initialBytes: bytes,
+					});
 				}
 				return results;
 			}).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
@@ -71,4 +157,4 @@ test("recent cloud synchronization remains bounded as history grows", async () =
 			process.env.ZUSE_BENCHMARK_OUTPUT,
 			JSON.stringify(results, null, 2),
 		);
-}, 30_000);
+}, 60_000);

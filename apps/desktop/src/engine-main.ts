@@ -78,6 +78,17 @@ const boot = Effect.gen(function* () {
 	});
 });
 // A lost supervisor cannot leave a second unsupervised engine holding the database indefinitely.
+const supervisorDisconnected = () => process.kill(process.pid, "SIGTERM");
 if (process.send !== undefined)
-	process.once("disconnect", () => process.kill(process.pid, "SIGTERM"));
-NodeRuntime.runMain(Effect.scoped(boot));
+	process.once("disconnect", supervisorDisconnected);
+NodeRuntime.runMain(
+	Effect.scoped(boot).pipe(
+		Effect.onExit(() =>
+			Effect.sync(() => {
+				// Release the IPC handle only after all engine resources have closed.
+				process.off("disconnect", supervisorDisconnected);
+				if (process.connected) process.disconnect();
+			}),
+		),
+	),
+);

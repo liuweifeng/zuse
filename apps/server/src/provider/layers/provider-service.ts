@@ -446,8 +446,55 @@ export const ProviderServiceLive = Layer.effect(
 
 		return {
 			availability,
-			hasSession: (sessionId) =>
-				Effect.sync(() => registry.lookup(sessionId) !== undefined),
+			hasSession: (sessionId, expectedProviderSessionId) =>
+				Effect.sync(() => {
+					const entry = registry.lookup(sessionId);
+					return (
+						entry !== undefined &&
+						(expectedProviderSessionId === undefined ||
+							entry.providerSessionId === expectedProviderSessionId)
+					);
+				}),
+			quiesce: (sessionId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.gen(function* () {
+						const entry = registry.lookup(sessionId);
+						if (entry === undefined) return;
+						yield* entry.handle.close().pipe(
+							Effect.timeout("15 seconds"),
+							Effect.catchCause(() =>
+								Effect.fail(
+									new Error(
+										"Provider process quiescence could not be verified.",
+									),
+								),
+							),
+						);
+						registry.invalidate(sessionId);
+						yield* detachSessionQuestions(sessionId);
+					}),
+				),
+			captureHistoryCheckpoint: (sessionId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.suspend(
+						() =>
+							registry.lookup(sessionId)?.handle.captureHistoryCheckpoint?.() ??
+							Effect.succeed(null),
+					),
+				),
+			restoreHistoryCheckpoint: (sessionId, checkpoint) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.suspend(
+						() =>
+							registry
+								.lookup(sessionId)
+								?.handle.restoreHistoryCheckpoint?.(checkpoint) ??
+							Effect.succeed(false),
+					),
+				),
 			guardCurrent: (sessionId, generation, effect) =>
 				lifecycleWorker.run(
 					sessionId,
@@ -1071,6 +1118,7 @@ export const ProviderServiceLive = Layer.effect(
 									orchestrationTools,
 									userMcpServers,
 									skillAllowlist,
+									providerEventCursor,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
@@ -1240,6 +1288,7 @@ export const ProviderServiceLive = Layer.effect(
 						sessionId,
 						generation,
 						providerSessionId: entry.providerSessionId,
+						nativeResumeFallback: providerHandle.nativeResumeFallback,
 					};
 				}).pipe(Effect.scoped);
 				return startupWorker

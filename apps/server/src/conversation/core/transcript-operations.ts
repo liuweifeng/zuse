@@ -1,12 +1,13 @@
+import { matchesClaudeForkPoint } from "@zuse/agents/drivers/claude-fork-point";
 import {
-	type Chat,
+	ChatId,
 	type Message,
 	type MessageContent,
 	type MessageId,
-	type Session,
+	SessionId,
 	SessionStartError,
 } from "@zuse/contracts";
-import { forkMessageId } from "@zuse/domain/conversation/transcript";
+import { joinId } from "@zuse/domain/agent-engine/ids";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -14,11 +15,13 @@ import type {
 	ConversationOperations,
 	TranscriptServiceShape,
 } from "../services/conversation-services.ts";
+import { makeContextLinkOperations } from "./context-link-operations.ts";
 import {
 	shouldIncludeInTranscript,
 	transcriptToMarkdown,
 } from "./conversation-message-mapping.ts";
 import { type MessageRow, messageFromRow } from "./conversation-records.ts";
+import { makeForkConstruction } from "./fork-construction.ts";
 import { readForkSnapshot } from "./fork-snapshot.ts";
 
 interface PersistedMessage {
@@ -28,6 +31,11 @@ interface PersistedMessage {
 
 export interface TranscriptOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
+	readonly sessionDomain?: Pick<
+		import("@zuse/domain/engine/session-domain").SessionDomainApi,
+		"dispatchTransactionally"
+	>;
+	readonly admitConstruction?: <A>(work: Effect.Effect<A>) => Effect.Effect<A>;
 	readonly createChat: ConversationOperations["createChat"];
 	readonly createSession: ConversationOperations["createSession"];
 	readonly lookupChat: ConversationOperations["getChat"];
@@ -41,15 +49,11 @@ export interface TranscriptOperationsOptions {
 
 export const makeTranscriptOperations = (
 	options: TranscriptOperationsOptions,
-): TranscriptServiceShape => {
-	const {
-		sql,
-		createChat,
-		createSession,
-		lookupChat,
-		lookupSession,
-		persistMessage,
-	} = options;
+): TranscriptServiceShape & {
+	readonly recoverForks: () => Effect.Effect<void>;
+} => {
+	const { sql, createChat, lookupSession, persistMessage } = options;
+	const construction = makeForkConstruction(options);
 
 	const continueExternalThread: ConversationOperations["continueExternalThread"] =
 		(input) =>
@@ -125,7 +129,18 @@ export const makeTranscriptOperations = (
 
 	const forkSession: ConversationOperations["forkSession"] = (input) =>
 		Effect.gen(function* () {
+			const commandId = input.commandId ?? `fork:${crypto.randomUUID()}`;
+			const sessionId =
+				input.initialSessionId ??
+				SessionId.make(joinId("fork-session", commandId));
 			const sourceSnapshot = input.sourceSnapshot;
+			if (sourceSnapshot === undefined) {
+				const previous = yield* construction.resume(sessionId, {
+					...input,
+					commandId,
+				});
+				if (previous !== null) return previous;
+			}
 			const snapshot =
 				sourceSnapshot === undefined
 					? undefined
@@ -142,15 +157,21 @@ export const makeTranscriptOperations = (
 									reason: "Machine fork source could not be read",
 								}),
 						});
-			const source =
-				snapshot?.source ?? (yield* lookupSession(input.sourceSessionId));
-			const rows =
-				snapshot?.rows ??
-				(yield* sql<MessageRow>`
-				SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-				FROM messages WHERE session_id = ${input.sourceSessionId}
-				ORDER BY created_at ASC, sequence ASC
-			`.pipe(Effect.orDie));
+			const { source, rows } =
+				snapshot ??
+				(yield* sql
+					.withTransaction(
+						Effect.gen(function* () {
+							const source = yield* lookupSession(input.sourceSessionId);
+							const rows = yield* sql<MessageRow>`
+					SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
+					FROM messages WHERE session_id=${input.sourceSessionId}
+					ORDER BY created_at ASC, sequence ASC
+				`.pipe(Effect.orDie);
+							return { source, rows };
+						}),
+					)
+					.pipe(Effect.catchTag("SqlError", Effect.die)));
 			const forkIndex = rows.findIndex((row) => row.id === input.fromMessageId);
 			if (forkIndex === -1) {
 				return yield* Effect.fail(
@@ -164,7 +185,14 @@ export const makeTranscriptOperations = (
 			const providerId = input.providerId ?? source.providerId;
 			const model = input.model ?? source.model;
 			const isTail = forkIndex === rows.length - 1;
-			const providerCanFork = providerId === "claude" || providerId === "codex";
+			// Native forks are safe only with a provider-supported immutable cutoff
+			// correlated to this exact visible message. A mutable thread ID is not enough.
+			const providerCanFork =
+				providerId === "claude" &&
+				matchesClaudeForkPoint(
+					source.providerThread?.nativeHeadRef?.nativeId ?? null,
+					messageFromRow(rows[forkIndex]!).content,
+				);
 			const forkMode: "resume" | "copy" =
 				isTail &&
 				providerId === source.providerId &&
@@ -188,62 +216,37 @@ export const makeTranscriptOperations = (
 						}
 					: undefined;
 
-			let chat: Chat;
-			let session: Session;
-			if (input.destination === "tab") {
-				session = yield* createSession({
-					chatId: source.chatId,
-					providerId,
-					model,
-					title,
-					runtimeMode: source.runtimeMode,
-					permissionMode: source.permissionMode,
-					toolSearch: source.toolSearch,
-					background: true,
-					providerThread,
-					forkedFromSessionId: input.sourceSessionId,
-					forkedFromMessageId: input.fromMessageId,
-					forkFromResume: forkMode === "resume",
-				});
-				chat = yield* lookupChat(source.chatId).pipe(Effect.orDie);
-			} else {
-				const created = yield* createChat({
-					projectId: input.sourceSnapshot?.projectId ?? source.projectId,
-					chatId: input.chatId,
-					initialSessionId: input.initialSessionId,
-					commandId: input.commandId,
-					providerId,
-					model,
-					title,
-					worktreeId: input.worktreeId ?? null,
-					runtimeMode: source.runtimeMode,
-					permissionMode: source.permissionMode,
-					toolSearch: source.toolSearch,
-					providerThread,
-					// Cross-machine ancestry is recorded in the workspace lineage; the
-					// source session is not a row in this fresh database.
-					forkedFromSessionId:
-						sourceSnapshot === undefined ? input.sourceSessionId : null,
-					forkedFromMessageId: input.fromMessageId,
-					forkFromResume: forkMode === "resume",
-				});
-				chat = created.chat;
-				session = created.initialSession;
-			}
-			for (const message of transcript) {
-				// Stable IDs make interrupted machine-bootstrap imports replayable.
-				const id = forkMessageId(session.id, message.id);
-				const existing =
-					yield* sql`SELECT id FROM messages WHERE id = ${id}`.pipe(
-						Effect.orDie,
-					);
-				if (existing.length === 0)
-					yield* persistMessage(session.id, message.content, id);
-			}
-			return { chat, session, forkMode };
+			return yield* construction.construct({
+				sessionId: sessionId,
+				chatId:
+					input.destination === "tab"
+						? source.chatId
+						: (input.chatId ?? ChatId.make(joinId("fork-chat", commandId))),
+				projectId: sourceSnapshot?.projectId ?? source.projectId,
+				commandId,
+				sourceSessionId: input.sourceSessionId,
+				destination: input.destination,
+				providerId,
+				model,
+				title,
+				runtimeMode: source.runtimeMode,
+				permissionMode: source.permissionMode,
+				toolSearch: source.toolSearch,
+				worktreeId: input.worktreeId ?? null,
+				providerThread,
+				forkedFromSessionId: sourceSnapshot === undefined ? source.id : null,
+				forkedFromMessageId: input.fromMessageId,
+				forkMode,
+				messages: transcript.map(({ id, content }) => ({ id, content })),
+			});
 		});
 
 	return {
+		...makeContextLinkOperations(options),
+		recoverForks: construction.recover,
+		forkConstructions: construction.list,
+		retryFork: construction.retry,
+		cancelFork: construction.cancel,
 		continueExternalThread,
 		importExternalMessages,
 		forkSession,

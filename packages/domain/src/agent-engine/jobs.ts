@@ -21,6 +21,12 @@ import { joinId } from "./ids.js";
  */
 
 export const JobRequest = Schema.Union([
+	Schema.TaggedStruct("checkpoint.capture", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		outcome: Schema.Literals(["completed", "interrupted", "error"]),
+		settledAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("provider.stop", {
 		providerSessionId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
@@ -54,6 +60,7 @@ export type JobRequest = typeof JobRequest.Type;
 export type JobKind = JobRequest["_tag"];
 
 export const JOB_KINDS = [
+	"checkpoint.capture",
 	"provider.stop",
 	"provider.turn.send",
 	"provider.turn.recover",
@@ -67,6 +74,7 @@ export const JOB_KINDS = [
  * work they describe has already happened.
  */
 export const REPLAYABLE_JOB_KINDS = [
+	"checkpoint.capture",
 	"provider.stop",
 	"provider.turn.send",
 	"provider.turn.recover",
@@ -175,6 +183,16 @@ const jobRequestsForEvent = (
 					attemptId: event.attemptId,
 					sourceAttemptId: event.sourceAttemptId,
 					reference: event.reference,
+				},
+			];
+		case "TurnFinalizationRequested":
+			return [
+				{
+					_tag: "checkpoint.capture",
+					turnId: event.turnId,
+					attemptId: event.attemptId,
+					outcome: event.outcome,
+					settledAt: event.settledAt,
 				},
 			];
 		case "ProviderTurnRequested":
