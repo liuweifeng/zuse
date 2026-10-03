@@ -43,13 +43,16 @@ import type {
 import { makeContextHandoff } from "./context-handoff.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { validateDelegationOrigin } from "./delegation-origin.ts";
 import { makePlanDelivery } from "./plan-delivery.ts";
 import { makePlanExpiry } from "./plan-expiry.ts";
 import { PlanResponse, readPlanResponse } from "./plan-response.ts";
+import { makeProviderContexts } from "./provider-contexts.ts";
 import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
 } from "./provider-session-runtime.ts";
+import type { ProviderStartRequest } from "./provider-turn-request.ts";
 import { loadQuestionAuthority } from "./question-authority.ts";
 import {
 	makeQuestionAnswerDeliveryPayload,
@@ -126,17 +129,6 @@ export interface OpenProviderSessionOptions {
 		readonly skillRefs?: ReadonlyArray<import("@zuse/contracts").SkillRef>;
 	};
 }
-
-const ProviderStartRequest = Schema.Struct({
-	initialPrompt: Schema.NullOr(Schema.String),
-	initialTurnId: Schema.optional(Schema.NullOr(AgentTurnId)),
-	modelOptionsJson: Schema.NullOr(Schema.String),
-	enableSubagents: Schema.Boolean,
-	forkFromResume: Schema.Boolean,
-	background: Schema.Boolean,
-	postBootStatus: Schema.Literals(["idle", "running"]),
-});
-type ProviderStartRequest = typeof ProviderStartRequest.Type;
 
 export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const {
@@ -341,6 +333,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						: JSON.stringify(input.modelOptions),
 				enableSubagents: effectiveEnableSubagents,
 				forkFromResume,
+				forkSourceThreadId: forkFromResume
+					? providerThreadSeed?.nativeThreadId
+					: undefined,
 				background: true,
 				postBootStatus,
 			};
@@ -348,59 +343,91 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			// never the provider side effect. The reactor owns the transition
 			// from booting to the requested post-boot status.
 			const rowStatus: Session["status"] = hasInitial ? "booting" : "idle";
+			if (input.delegation !== undefined && initialTurnId === null)
+				return yield* new SessionStartError({
+					providerId: input.providerId,
+					reason: "Delegated work requires an initial task.",
+				});
 			const createSessionRecord = sessionDomain
-				.dispatch({
-					commandId: input.commandId ?? `session:create:${sessionId}`,
-					streamId: sessionId,
-					command: {
-						_tag: hasInitial ? "CreateSessionWithInitialTurn" : "CreateSession",
-						sessionId,
-						chatId: input.chatId,
-						projectId,
-						title,
-						titleProvenance: input.title?.trim() ? "manual" : "pending",
-						providerId: input.providerId,
-						model: input.model,
-						status: rowStatus,
-						runtimeMode: initialRuntimeMode,
-						agentsJson,
-						worktreeId,
-						forkedFromSessionId,
-						forkedFromMessageId,
-						permissionMode: initialPermissionMode,
-						toolSearch: initialToolSearch,
-						queuePaused: input.queuePaused ?? false,
-						providerStartJson: JSON.stringify(providerStart),
-						...(providerThreadSeed === undefined
-							? {}
-							: { providerThread: providerThreadSeed }),
-						...(hasInitial &&
-						initialTurnId !== null &&
-						initialMessageId !== null
-							? {
-									turnId: initialTurnId,
-									messageId: initialMessageId,
-									messageContentJson: JSON.stringify({
-										_tag: "user",
-										text: input.initialPrompt ?? "",
-										goal: false,
-										...(origin !== undefined ? { origin } : {}),
+				.dispatchTransactionally(
+					{
+						commandId: input.commandId ?? `session:create:${sessionId}`,
+						streamId: sessionId,
+						command: {
+							_tag: hasInitial
+								? "CreateSessionWithInitialTurn"
+								: "CreateSession",
+							sessionId,
+							...(input.delegation === undefined || initialTurnId === null
+								? {}
+								: {
+										delegation: {
+											...input.delegation,
+											childTurnId: initialTurnId,
+										},
 									}),
-									providerInputJson: JSON.stringify({
-										actor: input.actor,
-										githubSlackMessageId: input.githubSlackMessageId,
-										text: input.initialPrompt ?? "",
-										attachments: [],
-										fileRefs: [],
-										skillRefs: [],
-										annotations: [],
-									}),
-								}
-							: {}),
-						createdAt: now.getTime(),
-					} as SessionCommand,
-				})
-				.pipe(Effect.orDie);
+							chatId: input.chatId,
+							projectId,
+							title,
+							titleProvenance: input.title?.trim() ? "manual" : "pending",
+							providerId: input.providerId,
+							model: input.model,
+							status: rowStatus,
+							runtimeMode: initialRuntimeMode,
+							agentsJson,
+							worktreeId,
+							forkedFromSessionId,
+							forkedFromMessageId,
+							permissionMode: initialPermissionMode,
+							toolSearch: initialToolSearch,
+							queuePaused: input.queuePaused ?? false,
+							providerStartJson: JSON.stringify(providerStart),
+							...(providerThreadSeed === undefined
+								? {}
+								: { providerThread: providerThreadSeed }),
+							...(hasInitial &&
+							initialTurnId !== null &&
+							initialMessageId !== null
+								? {
+										turnId: initialTurnId,
+										messageId: initialMessageId,
+										messageContentJson: JSON.stringify({
+											_tag: "user",
+											text: input.initialPrompt ?? "",
+											goal: false,
+											...(origin !== undefined ? { origin } : {}),
+										}),
+										providerInputJson: JSON.stringify({
+											actor: input.actor,
+											githubSlackMessageId: input.githubSlackMessageId,
+											text: input.initialPrompt ?? "",
+											attachments: [],
+											fileRefs: [],
+											skillRefs: [],
+											annotations: [],
+										}),
+									}
+								: {}),
+							createdAt: now.getTime(),
+						} as SessionCommand,
+					},
+					(receipt) =>
+						input.delegation === undefined
+							? Effect.succeed(receipt)
+							: validateDelegationOrigin(
+									sql,
+									input.delegation,
+									sessionId,
+									input.providerId,
+								).pipe(Effect.as(receipt)),
+				)
+				.pipe(
+					Effect.catch((error) =>
+						error._tag === "SessionStartError"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
+				);
 			yield* createSessionRecord;
 			yield* lookupChat(input.chatId).pipe(
 				Effect.flatMap(broadcastChat),
@@ -1012,39 +1039,90 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	const handoffs = makeContextHandoff(sql);
+	const providerContexts = makeProviderContexts(sql);
 	const configureProvider = (
 		sessionId: SessionId,
 		command: Extract<SessionCommand, { _tag: "SetProvider" | "SetModel" }>,
 	) =>
-		sessionDomain
-			.dispatchTransactionally(
-				{ commandId: crypto.randomUUID(), streamId: sessionId, command },
-				(receipt) =>
-					Effect.gen(function* () {
-						if (receipt.eventIds.length > 0 && command._tag === "SetProvider")
-							yield* handoffs.capture(
-								sessionId,
-								command.providerId as ProviderId,
-								receipt.eventIds[0]!,
-							);
-					}),
-			)
-			.pipe(
-				Effect.catchTag(["SessionNotFound", "SessionDeletedConflict"], () =>
-					Effect.fail(new SessionNotFoundError({ sessionId })),
-				),
-				Effect.catchTag("ValidationFailed", (error) =>
-					Effect.fail(
-						new SessionConfigurationError({ sessionId, reason: error.message }),
+		Effect.gen(function* () {
+			const previous = yield* lookupSession(sessionId);
+			const resume =
+				command._tag === "SetProvider"
+					? yield* providerContexts
+							.returning(sessionId, command.providerId as ProviderId)
+							.pipe(Effect.orDie)
+					: null;
+			const selectedCommand =
+				command._tag === "SetProvider"
+					? {
+							...command,
+							expectedProviderThreadId: previous.providerThread?.id ?? null,
+							resumeThreadId: resume?.threadId,
+						}
+					: command;
+			return yield* sessionDomain
+				.dispatchTransactionally(
+					{
+						commandId: crypto.randomUUID(),
+						streamId: sessionId,
+						command: selectedCommand,
+					},
+					(receipt) =>
+						Effect.gen(function* () {
+							if (
+								receipt.eventIds.length > 0 &&
+								command._tag === "SetProvider"
+							) {
+								if (resume !== null) {
+									const current = yield* providerContexts.returning(
+										sessionId,
+										command.providerId as ProviderId,
+									);
+									if (
+										current?.threadId !== resume.threadId ||
+										current.throughSequence !== resume.throughSequence ||
+										JSON.stringify(current.pendingMessageIds) !==
+											JSON.stringify(resume.pendingMessageIds)
+									)
+										return yield* new SessionConfigurationError({
+											sessionId,
+											reason:
+												"Provider history changed while switching. Retry the provider selection.",
+										});
+								}
+								yield* providerContexts.remember(
+									sessionId,
+									previous.providerThread?.id ?? null,
+								);
+								yield* handoffs.capture(
+									sessionId,
+									command.providerId as ProviderId,
+									receipt.eventIds[0]!,
+									resume ?? undefined,
+								);
+							}
+						}),
+				)
+				.pipe(
+					Effect.catchTag(["SessionNotFound", "SessionDeletedConflict"], () =>
+						Effect.fail(new SessionNotFoundError({ sessionId })),
 					),
-				),
-				Effect.catch((error) =>
-					error._tag === "SessionNotFoundError" ||
-					error._tag === "SessionConfigurationError"
-						? Effect.fail(error)
-						: Effect.die(error),
-				),
-			);
+					Effect.catchTag("ValidationFailed", (error) =>
+						Effect.fail(
+							new SessionConfigurationError({
+								sessionId,
+								reason: error.message,
+							}),
+						),
+					),
+					Effect.catch((error) =>
+						error._tag === "SessionNotFoundError" ||
+						error._tag === "SessionConfigurationError"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
+				);
+		});
 
 	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
 		configureProvider(sessionId, {

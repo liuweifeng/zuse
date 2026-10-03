@@ -71,11 +71,24 @@ const failure = (
 });
 
 export interface ProviderJobExecutorOptions {
+	readonly captureBaseline?: (
+		session: Session,
+		turnId: AgentTurnId,
+		attemptId: string,
+	) => Effect.Effect<void, { readonly message: string }>;
+	readonly finalizeCheckpoint?: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		attemptId: string,
+		outcome: "completed" | "interrupted" | "error",
+	) => Effect.Effect<void, { readonly message: string }>;
+
 	readonly prepareContext?: (
 		session: Session,
 		turnId: AgentTurnId,
 		input: ComposerInput,
 	) => Effect.Effect<ComposerInput>;
+	readonly prepareFallbackContext?: ProviderJobExecutorOptions["prepareContext"];
 	readonly authorizeQueuedTurn: WorkspaceExecutionAuthorizer;
 	readonly delivery: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
@@ -229,6 +242,14 @@ export const makeProviderJobExecutor = (
 			) {
 				return;
 			}
+			if (options.captureBaseline !== undefined)
+				yield* options
+					.captureBaseline(session, turnId, expectedAttempt.attemptId)
+					.pipe(
+						Effect.mapError((error) =>
+							failure(error.message, { retry: "on_demand", cause: error }),
+						),
+					);
 			const rawInput = yield* decodeProviderTurnInput(
 				request.providerInputJson,
 			).pipe(Effect.orDie);
@@ -285,8 +306,14 @@ export const makeProviderJobExecutor = (
 				modelOptions: startupModelOptions,
 				enableSubagents: startupRequest?.enableSubagents,
 				forkFromResume: startupRequest?.forkFromResume,
+				forkSourceThreadId: startupRequest?.forkSourceThreadId,
 				postBootStatus: "running",
 				sendAfterOpen: {
+					onNativeResumeFallback:
+						options.prepareFallbackContext === undefined
+							? undefined
+							: () =>
+									options.prepareFallbackContext!(session, turnId, rawInput),
 					turnId,
 					attemptId: AttemptId.make(expectedAttempt.attemptId),
 					text: input.text,
@@ -535,6 +562,25 @@ export const makeProviderJobExecutor = (
 	return (job) => {
 		const request = job.request;
 		switch (request._tag) {
+			case "checkpoint.capture":
+				return options.finalizeCheckpoint === undefined
+					? Effect.fail(
+							failure("Checkpoint finalization is unavailable.", {
+								retry: "on_demand",
+							}),
+						)
+					: options
+							.finalizeCheckpoint(
+								SessionId.make(job.sessionId),
+								AgentTurnId.make(request.turnId),
+								request.attemptId,
+								request.outcome,
+							)
+							.pipe(
+								Effect.mapError((error) =>
+									failure(error.message, { retry: "on_demand", cause: error }),
+								),
+							);
 			case "provider.stop":
 				return providerStop(job, request);
 			case "provider.turn.recover":

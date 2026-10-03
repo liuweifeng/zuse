@@ -40,6 +40,8 @@ import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-ans
 import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
+import { claudeForkPoint, claudeResumeOptions } from "./claude-fork-point.ts";
+import { makeClaudeProcessOwner } from "./claude-process.ts";
 import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
 import {
 	type CompactSnapshot,
@@ -1665,6 +1667,7 @@ export const startClaudeSession = (
 	// a list hides unlisted skills from the model and makes the Skill tool
 	// reject them.
 	skillAllowlist: ReadonlyArray<string> | undefined = undefined,
+	resumeHead: string | null = null,
 ): Effect.Effect<
 	ClaudeSessionHandle,
 	AgentSessionStartError,
@@ -1675,6 +1678,8 @@ export const startClaudeSession = (
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
 		const abort = new AbortController();
+		const processes = makeClaudeProcessOwner();
+		startup.add(processes.close);
 		startup.add(() => {
 			inputChannel.close();
 			abort.abort();
@@ -1912,6 +1917,7 @@ export const startClaudeSession = (
 			currentPermissionMode,
 		);
 		const options: Options = {
+			spawnClaudeCodeProcess: processes.spawn,
 			cwd,
 			systemPrompt: {
 				type: "preset",
@@ -2029,17 +2035,23 @@ export const startClaudeSession = (
 			mode: "sdk",
 		});
 
-		// If the caller has a resume cursor, hand it to the SDK before opening
-		// the conversation. When `forkFromResume` is set (the "Fork chat"
-		// feature), also pass `forkSession: true` so the SDK branches the resumed
-		// transcript into a NEW session_id — the source session's transcript is
-		// left untouched and both can run independently.
-		if (resumeCursor !== null) {
-			options.resume = resumeCursor;
-			if (input.forkFromResume === true) {
-				options.forkSession = true;
-			}
-		}
+		const resumeOptions = yield* Effect.try({
+			try: () =>
+				claudeResumeOptions(
+					resumeCursor,
+					input.forkFromResume === true,
+					resumeHead,
+				),
+			catch: (cause) =>
+				new AgentSessionStartError({
+					providerId: "claude",
+					reason:
+						cause instanceof Error
+							? cause.message
+							: "Invalid native fork boundary",
+				}),
+		});
+		Object.assign(options, resumeOptions);
 
 		let q: Query;
 		try {
@@ -2079,6 +2091,14 @@ export const startClaudeSession = (
 					for (const ev of translated) {
 						checkpointBatcher.offer(ev);
 					}
+					const point = claudeForkPoint(msg);
+					if (point !== null && typeof msg.session_id === "string")
+						checkpointBatcher.offer({
+							_tag: "SessionCursor",
+							cursor: msg.session_id,
+							strategy: "claude-session-id",
+							providerEventCursor: point,
+						});
 				}
 			},
 			catch: (cause) => cause,
@@ -2190,7 +2210,7 @@ export const startClaudeSession = (
 					inputChannel.close();
 					abort.abort();
 					void mcpGatewaySession.close();
-				}),
+				}).pipe(Effect.andThen(Effect.promise(processes.close))),
 			setPermissionMode: (mode) =>
 				Effect.tryPromise({
 					try: () =>

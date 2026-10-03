@@ -79,6 +79,13 @@ import { Migration0073QuestionExpiry } from "./migrations/0073_question_expiry.t
 import { Migration0074PlanDeliveries } from "./migrations/0074_plan_deliveries.ts";
 import { Migration0075ContextHandoffs } from "./migrations/0075_context_handoffs.ts";
 import { Migration0076TurnActivityIndex } from "./migrations/0076_turn_activity_index.ts";
+import { Migration0077ForkConstructions } from "./migrations/0077_fork_constructions.ts";
+import { Migration0078SessionCheckpoints } from "./migrations/0078_session_checkpoints.ts";
+import { Migration0079ContextLinks } from "./migrations/0079_context_links.ts";
+import { Migration0080SessionDelegations } from "./migrations/0080_session_delegations.ts";
+import { Migration0081ProviderContexts } from "./migrations/0081_provider_contexts.ts";
+import { Migration0082ExecutionSteps } from "./migrations/0082_execution_steps.ts";
+import { Migration0083NativeCheckpointHistory } from "./migrations/0083_native_checkpoint_history.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -195,10 +202,17 @@ const MigrationDefinitionsThrough0073 = {
 } as const;
 
 const MigrationDefinitions = {
+	"0083_native_checkpoint_history": Migration0083NativeCheckpointHistory,
 	...MigrationDefinitionsThrough0073,
 	"0074_plan_deliveries": Migration0074PlanDeliveries,
 	"0075_context_handoffs": Migration0075ContextHandoffs,
 	"0076_turn_activity_index": Migration0076TurnActivityIndex,
+	"0077_fork_constructions": Migration0077ForkConstructions,
+	"0079_context_links": Migration0079ContextLinks,
+	"0080_session_delegations": Migration0080SessionDelegations,
+	"0081_provider_contexts": Migration0081ProviderContexts,
+	"0082_execution_steps": Migration0082ExecutionSteps,
+	"0078_session_checkpoints": Migration0078SessionCheckpoints,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

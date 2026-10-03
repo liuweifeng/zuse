@@ -16,6 +16,9 @@ import {
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
+import { SessionCheckpoints } from "./session-checkpoints.tsx";
+import { SessionForkRecovery } from "./session-fork-recovery.tsx";
+import { SessionMergeBack } from "./session-merge-back.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -1152,3 +1155,4 @@ function TimelineRow({
 		</div>
 	);
 }
+

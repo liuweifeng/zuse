@@ -607,3 +607,214 @@ describe("turn-scoped provider protocol", () => {
 		expect(send).toHaveBeenCalledOnce();
 	});
 });
+
+const childSpawn: AgentEvent = {
+	_tag: "ToolUse",
+	itemId,
+	tool: "Custom delegated tool",
+	input: {},
+	subagent: { childSessionId: "native-child", presentation: "detached" },
+};
+const childSummary: AgentEvent = {
+	_tag: "SubagentSummary",
+	itemId,
+	agentName: "Worker",
+	model: "test",
+	turns: 1,
+	durationMs: 1,
+	summary: "Done",
+	isError: false,
+	childSessionId: "native-child",
+	presentation: "detached",
+};
+
+it("keeps exact child output after physical root completion and settles once after its summary", async () => {
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				childSpawn,
+				{ _tag: "Completed", reason: "ended" },
+				{
+					_tag: "AssistantMessage",
+					itemId: "child-message" as AgentItemId,
+					parentItemId: itemId,
+					text: "Still finishing",
+				},
+				childSummary,
+				{ _tag: "Completed", reason: "ended" },
+				{
+					_tag: "AssistantMessage",
+					itemId: "late" as AgentItemId,
+					text: "stale",
+				},
+			]),
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+	expect(events.map((e) => e.event._tag)).toEqual([
+		"ToolUse",
+		"SubagentProgress",
+		"AssistantMessage",
+		"SubagentSummary",
+		"Completed",
+	]);
+	expect(events[1]?.event).toMatchObject({ rootCompleted: true });
+	expect(events.every((e) => e.scope === "turn" && e.turnId === turnId)).toBe(
+		true,
+	);
+});
+it("does not wait for a child that already finished before the root", async () => {
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				childSpawn,
+				childSummary,
+				{ _tag: "Completed", reason: "ended" },
+			]),
+			turnId,
+		),
+	);
+	expect(
+		(await Effect.runPromise(Stream.runCollect(scoped.events))).map(
+			(e) => e.event._tag,
+		),
+	).toEqual(["ToolUse", "SubagentSummary", "Completed"]);
+});
+it.each([
+	"error",
+	"interrupted",
+	"missing",
+] as const)("closes owned native processes before publishing %s terminal with open children", async (mode) => {
+	let closed = false;
+	const ending: AgentEvent[] =
+		mode === "missing"
+			? []
+			: mode === "interrupted"
+				? [{ _tag: "Interrupted" }]
+				: [{ _tag: "Error", message: "failed" }];
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			{
+				...handleWithEvents([
+					childSpawn,
+					{ _tag: "Completed", reason: "ended" },
+					...ending,
+				]),
+				close: () =>
+					Effect.sleep("10 millis").pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								closed = true;
+							}),
+						),
+					),
+			},
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(
+		scoped.events.pipe(
+			Stream.tap((e) =>
+				Effect.sync(() => {
+					if (e.event._tag === "Completed") expect(closed).toBe(true);
+				}),
+			),
+			Stream.runCollect,
+		),
+	);
+	expect(events.filter((e) => e.event._tag === "Completed")).toHaveLength(1);
+	expect(events.at(-1)?.event).toMatchObject({
+		_tag: "Completed",
+		reason: mode === "interrupted" ? "interrupted" : "error",
+	});
+});
+it("interrupts the child-draining window even though the native root already ended", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const events = yield* Queue.unbounded<AgentEvent>();
+				const rootFinished = yield* Deferred.make<void>();
+				let closed = false;
+				const scoped = yield* makeTurnScopedSessionHandle(
+					{
+						...handleWithEvents([]),
+						events: Stream.fromQueue(events),
+						interrupt: () => Effect.die("native root is already finished"),
+						close: () =>
+							Effect.sync(() => {
+								closed = true;
+							}),
+					},
+					turnId,
+				);
+				const result = yield* Effect.forkChild(
+					scoped.events.pipe(
+						Stream.tap((e) =>
+							e.event._tag === "SubagentProgress"
+								? Deferred.succeed(rootFinished, undefined)
+								: Effect.void,
+						),
+						Stream.take(4),
+						Stream.runCollect,
+					),
+				);
+				yield* Queue.offer(events, childSpawn);
+				yield* Queue.offer(events, { _tag: "Completed", reason: "ended" });
+				yield* Deferred.await(rootFinished);
+				yield* scoped.interrupt(turnId);
+				const collected = yield* Fiber.join(result);
+				expect(closed).toBe(true);
+				expect(collected.at(-1)?.event).toMatchObject({
+					_tag: "Completed",
+					reason: "interrupted",
+				});
+			}),
+		),
+	);
+});
+
+it("does not publish a terminal event when native process quiescence fails", async () => {
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			{
+				...handleWithEvents([childSpawn, { _tag: "Interrupted" }]),
+				close: () => Effect.die("process still alive"),
+			},
+			turnId,
+		),
+	);
+	const received: ProviderDriverEvent[] = [];
+	const exit = await Effect.runPromise(
+		scoped.events.pipe(
+			Stream.tap((e) =>
+				Effect.sync(() => {
+					received.push(e.event);
+				}),
+			),
+			Stream.runDrain,
+			Effect.exit,
+		),
+	);
+	expect(exit._tag).toBe("Failure");
+	expect(received.some((event) => event._tag === "Completed")).toBe(false);
+});
+it("does not reopen a finished child when a provider repeats its spawn item", async () => {
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				childSpawn,
+				childSummary,
+				childSpawn,
+				{ _tag: "Completed", reason: "ended" },
+			]),
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+	expect(events.at(-1)?.event).toMatchObject({
+		_tag: "Completed",
+		reason: "ended",
+	});
+	expect(events.some((e) => e.event._tag === "SubagentProgress")).toBe(false);
+});

@@ -596,6 +596,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			const commandId = nextCommandId("session-fork");
 			const { result } = await dispatchTimelineCommand<
 				{
+					readonly commandId: string;
 					readonly sourceSessionId: SessionId;
 					readonly fromMessageId: MessageId;
 					readonly destination: ForkDestination;
@@ -614,6 +615,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				"session.fork",
 				commandId,
 				{
+					commandId,
 					sourceSessionId: input.sourceSessionId,
 					fromMessageId: input.fromMessageId,
 					destination: input.destination,
@@ -622,7 +624,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					worktreeId: input.worktreeId,
 					title: input.title,
 				},
-				"never",
+				"safe",
 				environmentId,
 			);
 			const { forkMode } = result;

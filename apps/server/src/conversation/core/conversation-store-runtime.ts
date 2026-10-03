@@ -52,6 +52,7 @@ import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface ConversationStoreRuntimeOptions {
 	readonly isWorkspaceReady?: () => boolean;
+	readonly checkpointFinalization?: boolean;
 	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly state: ConversationStateApi;
@@ -71,6 +72,13 @@ export interface ConversationStoreRuntimeOptions {
 }
 
 export interface ConversationStoreRuntime {
+	readonly completeFinalization: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		outcome: "completed" | "interrupted" | "error",
+		expectedAttempt: AttemptOwnership,
+	) => Effect.Effect<void>;
+
 	readonly persistAttemptMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
@@ -224,16 +232,20 @@ export const makeConversationStoreRuntime = Effect.fn(
 		outcome: "completed" | "interrupted" | "error",
 		expectedAttempt?: AttemptOwnership,
 		expectedProviderSessionId?: string,
+		finalized = false,
 	): Effect.Effect<boolean> =>
 		Effect.gen(function* () {
 			const settled = yield* sessionDomain
 				.dispatch({
-					commandId: `turn:settle:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
+					commandId: `turn:${options.checkpointFinalization && !finalized ? "finalize" : "settle"}:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
 					expectedAttempt,
 					expectedProviderSessionId,
 					streamId: sessionId,
 					command: {
-						_tag: "SettleTurn",
+						_tag:
+							options.checkpointFinalization && !finalized
+								? "FinalizeTurn"
+								: "SettleTurn",
 						turnId,
 						outcome,
 						settledAt: yield* currentTimestamp,
@@ -248,17 +260,35 @@ export const makeConversationStoreRuntime = Effect.fn(
 					Effect.orDie,
 				);
 			if (!settled) return false;
-			if (state.activeTurn(sessionId) === turnId) {
+			if (
+				(!options.checkpointFinalization || finalized) &&
+				state.activeTurn(sessionId) === turnId
+			) {
 				state.clearActiveTurn(sessionId);
 			}
 			return true;
 		});
 
+	const completeFinalization: ConversationStoreRuntime["completeFinalization"] =
+		(sessionId, turnId, outcome, expectedAttempt) =>
+			Effect.gen(function* () {
+				const settled = yield* persistTurnSettlement(
+					sessionId,
+					turnId,
+					outcome,
+					expectedAttempt,
+					undefined,
+					true,
+				);
+				if (settled && outcome !== "error")
+					yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
+			});
+
 	const settleTurnFromReactor: ConversationStoreRuntime["settleTurnFromReactor"] =
 		(sessionId, turnId, outcome, expectedAttempt) =>
 			persistTurnSettlement(sessionId, turnId, outcome, expectedAttempt).pipe(
 				Effect.flatMap((settled) =>
-					!settled || outcome === "error"
+					!settled || outcome === "error" || options.checkpointFinalization
 						? Effect.void
 						: Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope),
 				),
@@ -284,7 +314,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			)
 				return false;
 			yield* runSessionReactors(sessionId);
-			if (outcome !== "error") {
+			if (outcome !== "error" && !options.checkpointFinalization) {
 				yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
 			}
 			return true;
@@ -915,6 +945,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		resolveActiveTurn,
 		settleTurn,
 		settleTurnFromReactor,
+		completeFinalization,
 		ndjsonAppend,
 		goalState,
 		chatChangesHub,

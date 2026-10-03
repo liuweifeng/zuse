@@ -287,6 +287,7 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 		sessionId,
 		cwdOverride: dir,
 		permissionMode: "default",
+		model: process.env[`${provider.envToggle}_MODEL`]?.trim() || undefined,
 	};
 	const binaryPath =
 		provider.providerId === "cursor" ? "" : which(provider.binary);
@@ -361,21 +362,15 @@ const runSmoke = async (provider: LiveProvider): Promise<SmokeResult> => {
 
 describe("live agent smoke tests", () => {
 	for (const provider of providers) {
-		it(
+		it.skipIf(!liveEnabled(provider))(
 			`${provider.providerId} starts, responds, and closes`,
-			async () => {
-				if (!liveEnabled(provider)) {
-					console.warn(
-						`[live-agent] skipping ${provider.providerId}: set ZUSE_LIVE_AGENT_TESTS=1 and ${provider.envToggle}=1`,
-					);
-					return;
-				}
-
+			async (context) => {
 				const result = await runSmoke(provider);
 				if (result._tag === "Skipped") {
 					console.warn(
 						`[live-agent] skipping ${provider.providerId}: ${result.reason}`,
 					);
+					context.skip(result.reason);
 					return;
 				}
 				const { events } = result;

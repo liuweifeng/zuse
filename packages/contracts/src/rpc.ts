@@ -375,6 +375,19 @@ import {
 	SessionUnarchiveRpc,
 } from "./session.ts";
 import {
+	SessionCheckpointPreviewRpc,
+	SessionCheckpointRestoreRpc,
+	SessionCheckpointRetryRpc,
+	SessionCheckpointsListRpc,
+} from "./session-checkpoint.ts";
+import {
+	SessionCancelForkRpc,
+	SessionContextLinksRpc,
+	SessionForkConstructionsRpc,
+	SessionMergeBackRpc,
+	SessionRetryForkRpc,
+} from "./session-context.ts";
+import {
 	SettingsGetRpc,
 	SettingsMigrateLocalStorageRpc,
 	SettingsStreamRpc,
@@ -709,7 +722,16 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionEventsHeadRpc,
 	SessionEventsRpc,
 	SessionMessagesPageRpc,
+	SessionCheckpointsListRpc,
+	SessionCheckpointPreviewRpc,
+	SessionCheckpointRestoreRpc,
+	SessionCheckpointRetryRpc,
 	SessionForkRpc,
+	SessionMergeBackRpc,
+	SessionContextLinksRpc,
+	SessionForkConstructionsRpc,
+	SessionRetryForkRpc,
+	SessionCancelForkRpc,
 	SessionExportTranscriptRpc,
 	SessionLatestPlanRpc,
 	SessionResumeRpc,

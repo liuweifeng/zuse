@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 
 const stopping = new WeakMap<ChildProcess, Promise<void>>();
 const GRACE_MS = 1_500;
@@ -6,7 +6,9 @@ const GRACE_MS = 1_500;
 /** Register a POSIX-detached child immediately after spawn to retire descendants on exit. */
 export const watchOwnedProcess = (child: ChildProcess): void => {
 	child.once("exit", () => {
-		void stopOwnedProcess(child, { processGroup: true });
+		void stopOwnedProcess(child, { processGroup: true }).catch(() => {
+			console.warn("[process] Owned process group cleanup failed");
+		});
 	});
 };
 
@@ -26,9 +28,34 @@ export const stopOwnedProcess = (
 		try {
 			process.kill(-pid, 0);
 			return true;
-		} catch {
-			return false;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ESRCH") return false;
+			throw error;
 		}
+	};
+	const hasLiveGroupMember = async (): Promise<boolean> => {
+		if (!groupExists()) return false;
+		// kill(0) also sees orphan zombies. They cannot mutate files, so inspect
+		// state before treating a dead group's unreaped members as live work.
+		const states = await new Promise<string>((resolve, reject) => {
+			execFile(
+				"ps",
+				["-axo", "pgid=,stat="],
+				{ timeout: 1000, maxBuffer: 2 * 1024 * 1024 },
+				(error, stdout) => {
+					if (error) reject(error);
+					else resolve(stdout);
+				},
+			);
+		});
+		return states.split("\n").some((line) => {
+			const [processGroup, state] = line.trim().split(/\s+/);
+			return (
+				Number(processGroup) === pid &&
+				state !== undefined &&
+				!/^[ZX]/.test(state)
+			);
+		});
 	};
 	const signal = (value: NodeJS.Signals): void => {
 		try {
@@ -69,15 +96,18 @@ export const stopOwnedProcess = (
 		// A group may still contain descendants after its original parent exited.
 		signal("SIGKILL");
 		const killDeadline = performance.now() + GRACE_MS;
-		while (!exited() && performance.now() < killDeadline) {
+		while (performance.now() < killDeadline) {
+			if (exited() && !(await hasLiveGroupMember())) return;
 			await new Promise<void>((resolve) => setTimeout(resolve, 20));
 		}
-		if (!exited())
-			console.warn(
-				"[process] Owned process did not exit after forced shutdown",
-			);
+		throw new Error("Owned process group did not stop after forced shutdown");
 	};
 	const result = run();
 	stopping.set(child, result);
+	void result.catch(() => {
+		// A failed observation is not proof of quiescence. Keep successful closes
+		// idempotent, but allow an explicit retry to verify/stop the group again.
+		if (stopping.get(child) === result) stopping.delete(child);
+	});
 	return result;
 };

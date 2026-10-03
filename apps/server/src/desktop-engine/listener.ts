@@ -19,9 +19,12 @@ export const listenLocalEngine = async (options: {
 	readonly onRpc: (clientId: number, payload: string) => boolean;
 	readonly onDisconnect: (clientId: number) => void;
 	readonly clients: Map<number, EngineChannel>;
+	readonly prepareShutdown?: () => Promise<boolean>;
+	readonly shutdown?: () => void;
 }): Promise<LocalEngineListener> => {
 	let nextId = 0;
 	const sockets = new Set<EngineChannel>();
+	let shutdownRequested = false;
 	const expected = Buffer.from(options.token);
 	const server = createServer((socket) => {
 		if (sockets.size >= 8) {
@@ -30,6 +33,7 @@ export const listenLocalEngine = async (options: {
 		}
 		const id = ++nextId;
 		let authenticated = false;
+		let preparingShutdown = false;
 		const timeout = setTimeout(() => channel.close(), 5_000);
 		const receive = (frame: EngineFrame) => {
 			if (!authenticated) {
@@ -60,6 +64,48 @@ export const listenLocalEngine = async (options: {
 			}
 			if (frame._tag === "Rpc") {
 				if (!options.onRpc(id, frame.payload)) channel.close();
+				return;
+			}
+			if (frame._tag === "ShutdownRequest") {
+				if (preparingShutdown || frame.id.length > 128) {
+					channel.close();
+					return;
+				}
+				preparingShutdown = true;
+				void Promise.resolve().then(async () => {
+					try {
+						const accepted =
+							options.shutdown !== undefined &&
+							(await options.prepareShutdown?.()) === true;
+						channel.send({
+							_tag: "ShutdownResult",
+							id: frame.id,
+							status: accepted ? "accepted" : "busy",
+						});
+						if (!accepted) return;
+						let timer: ReturnType<typeof setTimeout> | undefined;
+						const finish = () => {
+							clearTimeout(timer);
+							socket.off("finish", finish);
+							if (shutdownRequested) return;
+							shutdownRequested = true;
+							options.shutdown?.();
+						};
+						// Flush the decision before scope shutdown destroys transports.
+						timer = setTimeout(finish, 1_000);
+						socket.once("finish", finish);
+						if (socket.destroyed) finish();
+						else socket.end();
+					} catch {
+						channel.send({
+							_tag: "ShutdownResult",
+							id: frame.id,
+							status: "failed",
+						});
+					} finally {
+						preparingShutdown = false;
+					}
+				});
 				return;
 			}
 			if (!options.host.receive(channel, frame)) channel.close();

@@ -270,11 +270,45 @@ export const decide = (
 							"Finish or stop the active turn and clear queued messages before switching provider or model.",
 					}),
 				);
+			const resumed =
+				command._tag === "SetProvider" && command.resumeThreadId !== undefined
+					? state.providerThreads.get(command.resumeThreadId)
+					: undefined;
+			if (
+				command._tag === "SetProvider" &&
+				((command.expectedProviderThreadId !== undefined &&
+					command.expectedProviderThreadId !== state.activeProviderThreadId) ||
+					(command.resumeThreadId !== undefined &&
+						(resumed === undefined || resumed.provider !== command.providerId)))
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Provider history changed while switching. Retry the provider selection.",
+					}),
+				);
 			return success([
 				...providerStops(state, command.updatedAt),
 				command._tag === "SetModel"
 					? { ...command, _tag: "SessionModelSet" }
 					: { ...command, _tag: "SessionProviderSet" },
+				...(resumed === undefined
+					? []
+					: [
+							{
+								_tag: "ProviderThreadUpdated" as const,
+								providerThread: {
+									...resumed,
+									status: "idle" as const,
+									updatedAt: command.updatedAt,
+								},
+							},
+							{
+								_tag: "ActiveProviderThreadSet" as const,
+								providerThreadId: resumed.id,
+								updatedAt: command.updatedAt,
+							},
+						]),
 				{
 					_tag: "SessionStatusSet",
 					status: "idle",
@@ -486,6 +520,13 @@ export const decide = (
 						message: "Recovery requires proven native execution identity",
 					}),
 				);
+			if (turn.status === "finalizing")
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Checkpoint capture must finish before retrying this turn.",
+					}),
+				);
 			const ordinal = turn.attempts.size + 1;
 			const attemptId = attemptIdFor(command.turnId, ordinal);
 			return success([
@@ -526,6 +567,13 @@ export const decide = (
 					}),
 				);
 			}
+			if (turn.status === "finalizing")
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Checkpoint capture must finish before retrying this turn.",
+					}),
+				);
 			const ordinal = turn.attempts.size + 1;
 			return success([
 				{
@@ -627,6 +675,57 @@ export const decide = (
 						},
 					])
 				: Result.fail(new TurnAlreadyRunning({ turnId: state.currentTurnId }));
+		case "RollbackTurns": {
+			if (
+				state.currentTurnId !== null ||
+				state.queuedTurns.size > 0 ||
+				state.providerReservation !== null
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Stop active work and clear queued messages before rollback.",
+					}),
+				);
+			if (
+				!Number.isInteger(command.throughOrdinal) ||
+				command.throughOrdinal < 0 ||
+				command.throughOrdinal > state.turnCount
+			)
+				return Result.fail(
+					new ValidationFailed({ message: "Invalid rollback boundary." }),
+				);
+			return success([
+				{ ...command, _tag: "TurnsRolledBack" },
+				{
+					_tag: "ActiveProviderThreadSet",
+					providerThreadId: null,
+					updatedAt: command.rolledBackAt,
+				},
+			]);
+		}
+		case "FinalizeTurn": {
+			if (state.currentTurnId !== command.turnId) {
+				if (state.settledTurnIds.has(command.turnId)) return success([]);
+				return Result.fail(
+					new TurnConflict({
+						expectedTurnId: command.turnId,
+						actualTurnId: state.currentTurnId,
+					}),
+				);
+			}
+			const turn = state.turns.get(command.turnId);
+			if (turn?.status === "finalizing") return success([]);
+			return success([
+				{
+					_tag: "TurnFinalizationRequested",
+					turnId: command.turnId,
+					attemptId: turn?.activeAttemptId ?? attemptIdFor(command.turnId, 1),
+					outcome: command.outcome,
+					settledAt: command.settledAt,
+				},
+			]);
+		}
 		case "SettleTurn": {
 			if (state.currentTurnId !== command.turnId) {
 				if (state.settledTurnIds.has(command.turnId)) return success([]);

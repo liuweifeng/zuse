@@ -16,13 +16,20 @@ const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
 	for (const close of cleanup.splice(0).reverse()) await close();
 });
-const fixture = async (timeout = 1000) => {
+const fixture = async (
+	timeout = 1000,
+	control: Pick<
+		Parameters<typeof listenLocalEngine>[0],
+		"prepareShutdown" | "shutdown"
+	> = {},
+) => {
 	const token = randomBytes(32).toString("hex");
 	const host = new EngineHost(timeout);
 	const clients = new Map<number, EngineChannel>();
 	const received: { id: number; payload: string }[] = [],
 		disconnected: number[] = [];
 	const listener = await listenLocalEngine({
+		...control,
 		token,
 		host,
 		clients,
@@ -46,6 +53,70 @@ const fixture = async (timeout = 1000) => {
 const hostInfo = {
 	authRedirectUri: "http://localhost:8976/callback",
 };
+
+it("keeps a busy engine usable and flushes acceptance before closing an idle control connection", async () => {
+	let idle = false;
+	let stopped = false;
+	const f = await fixture(1000, {
+		prepareShutdown: async () => idle,
+		shutdown: () => {
+			stopped = true;
+		},
+	});
+	const frames: EngineFrame[] = [];
+	const client = await connectLocalEngine(f.endpoint, {
+		receive: (frame) => {
+			frames.push(frame);
+		},
+	});
+	client.send({ _tag: "ShutdownRequest", id: "busy" });
+	await expect.poll(() => frames.length).toBe(1);
+	expect(frames[0]).toEqual({
+		_tag: "ShutdownResult",
+		id: "busy",
+		status: "busy",
+	});
+	expect(stopped).toBe(false);
+	client.send({ _tag: "Rpc", payload: "still-usable" });
+	await expect.poll(() => f.received.length).toBe(1);
+	idle = true;
+	client.send({ _tag: "ShutdownRequest", id: "idle" });
+	await client.closed;
+	expect(frames[1]).toEqual({
+		_tag: "ShutdownResult",
+		id: "idle",
+		status: "accepted",
+	});
+	await expect.poll(() => stopped).toBe(true);
+});
+
+it("does not treat a failed shutdown check as permission to stop", async () => {
+	let stopped = false;
+	const f = await fixture(1000, {
+		prepareShutdown: async () => {
+			throw new Error("private storage error");
+		},
+		shutdown: () => {
+			stopped = true;
+		},
+	});
+	const frames: EngineFrame[] = [];
+	const client = await connectLocalEngine(f.endpoint, {
+		receive: (frame) => {
+			frames.push(frame);
+		},
+	});
+	client.send({ _tag: "ShutdownRequest", id: "failed" });
+	await expect.poll(() => frames.length).toBe(1);
+	expect(frames[0]).toEqual({
+		_tag: "ShutdownResult",
+		id: "failed",
+		status: "failed",
+	});
+	expect(stopped).toBe(false);
+	client.close();
+	await client.closed;
+});
 
 it("restores the current engine power state after native reattachment without replaying actions", async () => {
 	const f = await fixture();

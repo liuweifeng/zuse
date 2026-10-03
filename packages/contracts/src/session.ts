@@ -294,6 +294,8 @@ const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
 });
 
 const SubagentProgressContent = Schema.TaggedStruct("subagent_progress", {
+	/** The native root finished while this child remains active. */
+	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
 	childSessionId: Schema.String,
@@ -565,6 +567,7 @@ export const SessionRuntimeObservation = Schema.Struct({
 		"idle",
 		"starting",
 		"running",
+		"finalizing",
 		"blocked",
 		"stalled",
 		"unavailable",
@@ -575,10 +578,32 @@ export const SessionRuntimeObservation = Schema.Struct({
 });
 export type SessionRuntimeObservation = typeof SessionRuntimeObservation.Type;
 
+/** Durable provider execution tree. Native children are scoped to their owning attempt. */
+export const SessionExecutionStep = Schema.Struct({
+	/** Native notifications do not provide an atomic filesystem barrier. */
+	checkpointCapability: Schema.Literal("unsupported"),
+	id: Schema.String,
+	turnId: Schema.String,
+	attemptId: Schema.String,
+	itemId: Schema.String,
+	parentItemId: Schema.NullOr(Schema.String),
+	kind: Schema.Literals(["tool", "background", "subagent"]),
+	label: Schema.String,
+	status: Schema.Literals(["running", "completed", "failed", "cancelled"]),
+	childSessionId: Schema.NullOr(Schema.String),
+	nativeChildId: Schema.NullOr(Schema.String),
+	rootCompletedAt: Schema.NullOr(Schema.Number),
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+});
+export type SessionExecutionStep = typeof SessionExecutionStep.Type;
+
 export class SessionTimelineProjection extends Schema.Class<SessionTimelineProjection>(
 	"SessionTimelineProjection",
 )({
 	messages: Schema.Array(Message),
+	executionSteps: Schema.optional(Schema.Array(SessionExecutionStep)),
+	executionStepsTruncated: Schema.optional(Schema.Boolean),
 	runtimeObservation: Schema.optional(SessionRuntimeObservation),
 	/** Sequence immediately before the oldest materialized message, if any. */
 	olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
@@ -610,7 +635,10 @@ export type TurnSettlementOutcome = typeof TurnSettlementOutcome.Type;
 
 export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("Noop", {}),
-	Schema.TaggedStruct("MessagePersisted", { message: Message }),
+	Schema.TaggedStruct("MessagePersisted", {
+		message: Message,
+		turnId: Schema.optional(Schema.NullOr(AgentTurnId)),
+	}),
 	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
 	Schema.TaggedStruct("TurnStarted", { turn: SessionTurn }),
 	/** Attempt or status change on the active turn. */
@@ -619,9 +647,14 @@ export const SessionTimelineEvent = Schema.Union([
 		turnId: AgentTurnId,
 		phase: SessionTimelineTurnPhase,
 	}),
+	Schema.TaggedStruct("TranscriptRolledBack", {
+		removedMessageIds: Schema.Array(MessageId),
+	}),
+	Schema.TaggedStruct("TurnFinalizing", { turnId: AgentTurnId }),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: AgentTurnId,
 		outcome: TurnSettlementOutcome,
+		settledAt: Schema.optional(Schema.Number),
 	}),
 	Schema.TaggedStruct("PermissionModeSet", { permissionMode: PermissionMode }),
 	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
@@ -1316,6 +1349,8 @@ export const ChatRenameRpc = Rpc.make("chat.rename", {
  */
 export const SessionForkRpc = Rpc.make("session.fork", {
 	payload: Schema.Struct({
+		/** Stable client identity; retry returns the same frozen fork. */
+		commandId: Schema.optional(Schema.String),
 		sourceSessionId: SessionId,
 		fromMessageId: MessageId,
 		destination: ForkDestination,

@@ -398,6 +398,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				createdAt,
 			});
 			const initialSession = yield* createSession({
+				delegation: input.delegation,
 				sessionId: input.initialSessionId,
 				commandId: input.commandId,
 				initialTurnId: input.initialTurnId,

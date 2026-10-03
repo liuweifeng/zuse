@@ -57,6 +57,8 @@ export * from "./rpc.ts";
 export * from "./rpc-authorization.ts";
 export * from "./serve.ts";
 export * from "./session.ts";
+export * from "./session-checkpoint.ts";
+export * from "./session-context.ts";
 export * from "./settings.ts";
 export * from "./shell-display.ts";
 export * from "./skill.ts";

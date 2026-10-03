@@ -42,6 +42,9 @@ import type {
 	Session,
 	SessionAlreadyStartedError,
 	SessionConfigurationError,
+	SessionContextError,
+	SessionContextLink,
+	SessionForkConstruction,
 	SessionId,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
@@ -54,6 +57,7 @@ import type {
 	WorkspaceActor,
 	WorktreeId,
 } from "@zuse/contracts";
+import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Context, type Effect, type Stream } from "effect";
 
@@ -78,6 +82,8 @@ export interface ProviderThreadSeedInput {
 export interface CreateSessionInput {
 	readonly actor?: WorkspaceActor;
 	readonly githubSlackMessageId?: string;
+	/** Internal orchestration authority; never accepted directly from a client. */
+	readonly delegation?: DelegationOrigin;
 	/** Stable identity minted by an optimistic client. */
 	readonly sessionId?: SessionId;
 	/** Stable receipt identity for a retry-safe session bootstrap. */
@@ -155,6 +161,7 @@ export interface CreateSessionInput {
 export interface CreateChatInput {
 	readonly actor?: WorkspaceActor;
 	readonly githubSlackMessageId?: string;
+	readonly delegation?: DelegationOrigin;
 	/** Stable identities minted by an optimistic client. */
 	readonly chatId?: ChatId;
 	readonly initialSessionId?: SessionId;
@@ -411,6 +418,29 @@ export interface ConversationOperations {
 	 * transcript up to the fork message). Records `forked_from_*` on the new
 	 * session.
 	 */
+	readonly forkConstructions: (
+		sessionId: SessionId,
+	) => Effect.Effect<
+		ReadonlyArray<SessionForkConstruction>,
+		SessionContextError
+	>;
+	readonly retryFork: (
+		sessionId: SessionId,
+		forkSessionId: SessionId,
+	) => Effect.Effect<void, SessionContextError>;
+	readonly cancelFork: (
+		sessionId: SessionId,
+		forkSessionId: SessionId,
+	) => Effect.Effect<void, SessionContextError>;
+	readonly mergeBack: (input: {
+		readonly commandId: string;
+		readonly sessionId: SessionId;
+		readonly throughMessageId?: MessageId;
+	}) => Effect.Effect<SessionContextLink, SessionContextError>;
+	readonly contextLinks: (
+		sessionId: SessionId,
+	) => Effect.Effect<ReadonlyArray<SessionContextLink>, SessionContextError>;
+
 	readonly forkSession: (
 		input: ForkSessionInput,
 	) => Effect.Effect<
@@ -691,6 +721,11 @@ export type TranscriptServiceShape = Pick<
 	| "continueExternalThread"
 	| "importExternalMessages"
 	| "forkSession"
+	| "forkConstructions"
+	| "retryFork"
+	| "cancelFork"
+	| "mergeBack"
+	| "contextLinks"
 	| "exportTranscript"
 	| "latestPlan"
 >;

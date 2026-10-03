@@ -6,6 +6,7 @@
 	"exports": {
 		"./workspace-change-streams": "./src/workspace-change-streams.ts",
 		"./github-client": "./src/github-client.ts",
+		"./checkpoints": "./src/checkpoints.ts",
 		"./check-runs": "./src/check-runs.ts",
 		"./git-service": "./src/git-service.ts",
 		"./git-service-live": "./src/git-service-live.ts",

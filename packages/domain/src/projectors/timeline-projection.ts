@@ -1,7 +1,6 @@
 import {
 	AgentTurnId,
 	AttemptId,
-	ComposerInput,
 	Message,
 	MessageContent,
 	MessageId,
@@ -46,6 +45,7 @@ export const timelineEventFromDomain = (
 			}
 			return {
 				_tag: "MessagePersisted",
+				turnId: event.turnId === null ? null : AgentTurnId.make(event.turnId),
 				message: Message.make({
 					id: MessageId.make(event.messageId),
 					sessionId,
@@ -118,9 +118,19 @@ export const timelineEventFromDomain = (
 				turnId: AgentTurnId.make(event.turnId),
 				phase: "running",
 			};
+		case "TurnsRolledBack":
+			return {
+				_tag: "TranscriptRolledBack",
+				removedMessageIds: event.removedMessageIds.map((id) =>
+					MessageId.make(id),
+				),
+			};
+		case "TurnFinalizationRequested":
+			return { _tag: "TurnFinalizing", turnId: AgentTurnId.make(event.turnId) };
 		case "TurnSettled":
 			return {
 				_tag: "TurnSettled",
+				settledAt: event.settledAt,
 				turnId: AgentTurnId.make(event.turnId),
 				outcome: event.outcome,
 			};

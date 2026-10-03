@@ -692,6 +692,7 @@ describe("Codex session cursor persistence", () => {
 			{ resumeCursor: "resumed-thread", forkFromResume: true },
 			async (handle) => {
 				const events = await takeEvents(handle.events, 2);
+				expect(handle.nativeResumeFallback).toBe(false);
 
 				expect(events[1]).toMatchObject({
 					_tag: "SessionCursor",
@@ -728,6 +729,7 @@ describe("Codex session cursor persistence", () => {
 		await withSession(
 			{ resumeCursor: "stale-thread", missingResume: true },
 			async (handle) => {
+				expect(handle.nativeResumeFallback).toBe(true);
 				await Effect.runPromise(handle.send("recover"));
 				const events = await takeEvents(handle.events, 5);
 

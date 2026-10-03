@@ -34,6 +34,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
+import { CheckpointFiles } from "../../src/conversation/core/session-checkpoints.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
 import {
 	ChatService,
@@ -96,6 +97,13 @@ import { Migration0072InputOwnership } from "../../src/persistence/migrations/00
 import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
 import { Migration0074PlanDeliveries } from "../../src/persistence/migrations/0074_plan_deliveries.ts";
 import { Migration0075ContextHandoffs } from "../../src/persistence/migrations/0075_context_handoffs.ts";
+import { Migration0077ForkConstructions } from "../../src/persistence/migrations/0077_fork_constructions.ts";
+import { Migration0078SessionCheckpoints } from "../../src/persistence/migrations/0078_session_checkpoints.ts";
+import { Migration0079ContextLinks } from "../../src/persistence/migrations/0079_context_links.ts";
+import { Migration0080SessionDelegations } from "../../src/persistence/migrations/0080_session_delegations.ts";
+import { Migration0081ProviderContexts } from "../../src/persistence/migrations/0081_provider_contexts.ts";
+import { Migration0082ExecutionSteps } from "../../src/persistence/migrations/0082_execution_steps.ts";
+import { Migration0083NativeCheckpointHistory } from "../../src/persistence/migrations/0083_native_checkpoint_history.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -192,6 +200,13 @@ const runAllMigrations = Effect.all(
 		Migration0073QuestionExpiry,
 		Migration0074PlanDeliveries,
 		Migration0075ContextHandoffs,
+		Migration0077ForkConstructions,
+		Migration0079ContextLinks,
+		Migration0080SessionDelegations,
+		Migration0082ExecutionSteps,
+		Migration0081ProviderContexts,
+		Migration0078SessionCheckpoints,
+		Migration0083NativeCheckpointHistory,
 	],
 	{ discard: true },
 );
@@ -441,6 +456,11 @@ export const makeConversationFixtureRuntime = (
 		Layer.provide(Migrated),
 	);
 	const ConversationLayer = ConversationServicesLive.pipe(
+		Layer.provide(
+			Layer.succeed(CheckpointFiles, {
+				capture: async () => ({ commit: "fixture-checkpoint" }),
+			}),
+		),
 		Layer.provide(ConversationState.layer),
 		Layer.provide(StubProviderLive),
 		Layer.provide(StubWorktreeLive),

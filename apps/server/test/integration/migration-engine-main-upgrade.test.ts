@@ -49,7 +49,7 @@ it("upgrades main while preserving harness executions and encrypted model record
 					).toEqual([{ envelope: "encrypted" }]);
 					expect(
 						yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
-					).toHaveLength(16);
+					).toHaveLength(23);
 					expect(yield* sql`SELECT * FROM jobs`).toEqual([]);
 					const plan = yield* sql<{
 						detail: string;

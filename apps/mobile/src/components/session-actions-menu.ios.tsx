@@ -21,6 +21,7 @@ export function SessionActionsMenu({
 	onFiles,
 	onTerminal,
 	onOpenOnDesktop,
+	onMergeBack,
 	onArchive,
 }: {
 	isPinned: boolean;
@@ -34,6 +35,7 @@ export function SessionActionsMenu({
 	onFiles: () => void;
 	onTerminal?: () => void;
 	onOpenOnDesktop?: () => void;
+	onMergeBack?: () => void;
 	onArchive: () => void;
 }) {
 	return (
@@ -123,6 +125,13 @@ export function SessionActionsMenu({
 							label="Open on desktop"
 							systemImage={sf("macbook")}
 							onPress={onOpenOnDesktop}
+						/>
+					) : null}
+					{onMergeBack !== undefined ? (
+						<NativeButton
+							label="Merge back to parent"
+							systemImage={sf("arrow.triangle.merge")}
+							onPress={onMergeBack}
 						/>
 					) : null}
 					{/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI maps this to UIMenu destructive styling. */}

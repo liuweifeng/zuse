@@ -12,6 +12,7 @@ import {
 	updateChatLastUserMessage,
 } from "./chat-last-message-projection.js";
 import { projectSessionAttempt } from "./sql-attempt-projector.js";
+import { projectExecutionStep } from "./sql-execution-step-projector.js";
 import {
 	projectCommittedMessageInput,
 	projectSessionInput,
@@ -30,7 +31,11 @@ export type SqlSessionProjectorError = SqlError | SessionProjectionDecodeError;
 const decodeCreated = Schema.decodeUnknownEffect(CompleteSessionCreatedEvent);
 
 /** Turn statuses that make a turn the session's active turn. */
-export const ACTIVE_SESSION_TURN_STATUSES = ["starting", "running"] as const;
+export const ACTIVE_SESSION_TURN_STATUSES = [
+	"starting",
+	"running",
+	"finalizing",
+] as const;
 
 /** Keep the denormalized chat selection pointed at a live sibling session. */
 const replaceUnavailableActiveSession = (
@@ -156,6 +161,8 @@ export const makeSqlSessionProjector = (
 			const event = record.event;
 			yield* projectSessionAttempt(sql, record);
 			if (event._tag !== "MessagePersisted")
+				yield* projectExecutionStep(sql, record);
+			if (event._tag !== "MessagePersisted")
 				yield* projectSessionInput(sql, record);
 			switch (event._tag) {
 				case "SessionCreated": {
@@ -189,6 +196,13 @@ export const makeSqlSessionProjector = (
 						SET active_session_id = ${created.sessionId}, updated_at = ${createdAt}
 						WHERE id = ${created.chatId}
 					`;
+					if (created.delegation !== undefined) {
+						const delegation = created.delegation;
+						yield* sql`INSERT OR IGNORE INTO session_delegations
+       (child_session_id,child_turn_id,parent_session_id,parent_turn_id,parent_attempt_id,provider_session_id,created_at)
+       VALUES (${created.sessionId},${delegation.childTurnId},${delegation.parentSessionId},${delegation.parentTurnId},${delegation.parentAttemptId},${delegation.providerSessionId},${created.createdAt})`;
+					}
+
 					if (created.cursor !== undefined && created.cursor !== null) {
 						yield* bindLegacyResume(
 							created.sessionId,
@@ -385,6 +399,7 @@ export const makeSqlSessionProjector = (
 					return;
 				}
 				case "SessionDeleted":
+					yield* sql`UPDATE session_fork_constructions SET completed_at=${event.deletedAt},cancelled_at=${event.deletedAt},error=NULL,payload_json=json_set(payload_json,'$.messages',json('[]')) WHERE session_id=${record.streamId} AND completed_at IS NULL`;
 					yield* replaceUnavailableActiveSession(
 						sql,
 						record.streamId,
@@ -495,6 +510,32 @@ export const makeSqlSessionProjector = (
 					`;
 					return;
 				}
+				case "TurnsRolledBack": {
+					yield* sql`UPDATE session_turns SET status='rolled_back' WHERE session_id=${record.streamId} AND ordinal>${event.throughOrdinal}`;
+					yield* sql`DELETE FROM messages WHERE session_id=${record.streamId} AND sequence>${event.messageSequence}`;
+					yield* sql`UPDATE session_provider_threads SET status='closed',updated_at=${iso(event.rolledBackAt)} WHERE session_id=${record.streamId}`;
+					yield* sql`UPDATE sessions SET active_provider_thread_id=NULL,updated_at=${iso(event.rolledBackAt)} WHERE id=${record.streamId}`;
+					yield* sql`DELETE FROM session_inputs WHERE session_id=${record.streamId} AND requested_sequence>${event.messageSequence}`;
+					yield* sql`UPDATE session_inputs SET status='expired',awaiting_dismissal=0 WHERE session_id=${record.streamId} AND status='pending'`;
+					const chats = yield* sql<{
+						chat_id: string;
+						last_message_at: string | null;
+					}>`SELECT s.chat_id,(SELECT MAX(m.created_at) FROM messages m JOIN sessions sibling ON sibling.id=m.session_id WHERE sibling.chat_id=s.chat_id) AS last_message_at FROM sessions s WHERE s.id=${record.streamId}`;
+					const chat = chats[0];
+					if (chat !== undefined)
+						yield* updateChatLastMessage(
+							sql,
+							{ _tag: "Chat", chatId: chat.chat_id },
+							chat.last_message_at === null
+								? null
+								: Date.parse(chat.last_message_at),
+						);
+					return;
+				}
+				case "TurnFinalizationRequested": {
+					yield* sql`UPDATE session_turns SET status='finalizing' WHERE id=${event.turnId} AND session_id=${record.streamId} AND active_attempt_id=${event.attemptId} AND status IN ('starting','running')`;
+					return;
+				}
 				case "TurnSettled": {
 					const settledAt = iso(event.settledAt);
 					const status =
@@ -548,6 +589,7 @@ export const makeSqlSessionProjector = (
 										OR excluded.checkpoint_revision > messages.checkpoint_revision)))
 					`;
 					yield* projectCommittedMessageInput(sql, record);
+					yield* projectExecutionStep(sql, record);
 
 					yield* sql`
 						UPDATE sessions SET updated_at = ${createdAt}

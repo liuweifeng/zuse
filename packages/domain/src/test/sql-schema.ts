@@ -6,6 +6,11 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 	function* () {
 		const sql = yield* SqlClient.SqlClient;
 		yield* createSessionInputProjection(sql);
+		yield* sql`CREATE TABLE session_checkpoint_restores (id TEXT PRIMARY KEY,session_id TEXT NOT NULL,project_id TEXT NOT NULL,worktree_id TEXT,cwd TEXT NOT NULL,target_id TEXT NOT NULL,expected_id TEXT NOT NULL,status TEXT NOT NULL,through_ordinal INTEGER NOT NULL DEFAULT 0,removed_message_ids_json TEXT NOT NULL DEFAULT '[]',error TEXT,created_at INTEGER NOT NULL,completed_at INTEGER)`;
+		yield* sql`CREATE TABLE session_execution_steps (id TEXT PRIMARY KEY,session_id TEXT NOT NULL,turn_id TEXT NOT NULL,attempt_id TEXT NOT NULL,item_id TEXT NOT NULL,parent_item_id TEXT,kind TEXT NOT NULL,label TEXT NOT NULL,status TEXT NOT NULL,child_session_id TEXT,native_child_id TEXT,root_completed_at INTEGER,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(session_id,turn_id,attempt_id,item_id))`;
+		yield* sql`CREATE TABLE session_delegations (child_session_id TEXT PRIMARY KEY,child_turn_id TEXT NOT NULL,parent_session_id TEXT NOT NULL,parent_turn_id TEXT NOT NULL,parent_attempt_id TEXT NOT NULL,provider_session_id TEXT NOT NULL,result_message_id TEXT,result_status TEXT,cancelled_at INTEGER,wake_turn_id TEXT,created_at INTEGER NOT NULL)`;
+		yield* sql`CREATE TABLE session_context_links (id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_session_id TEXT NOT NULL,target_session_id TEXT NOT NULL,target_message_id TEXT NOT NULL,base_message_id TEXT,source_message_id TEXT,source_sequence INTEGER NOT NULL,context_text TEXT NOT NULL,after_turn_ordinal INTEGER NOT NULL,first_turn_id TEXT,invalidated_at INTEGER,origin_turn_id TEXT,origin_attempt_id TEXT,created_at INTEGER NOT NULL)`;
+		yield* sql`CREATE TABLE session_fork_constructions (session_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,created_at INTEGER NOT NULL,error TEXT,cancelled_at INTEGER,completed_at INTEGER)`;
 		yield* sql`
 		CREATE TABLE app_state (
 			key TEXT PRIMARY KEY,

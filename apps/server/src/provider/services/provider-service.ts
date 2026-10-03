@@ -11,6 +11,7 @@ import type {
 	CredentialSetResult,
 	CredentialValidationError,
 	FileRef,
+	NativeHistoryCheckpoint,
 	PermissionMode,
 	PlanApprovalOutcome,
 	ProviderId,
@@ -69,10 +70,23 @@ export interface ProviderServiceShape {
 			readonly providerSessionId?: string;
 			/** The process started, but a newer lifecycle command invalidated it. */
 			readonly superseded?: boolean;
+			readonly nativeResumeFallback?: boolean;
 		},
 		ProviderNotAvailableError | AgentSessionStartError
 	>;
-	readonly hasSession: (sessionId: AgentSessionId) => Effect.Effect<boolean>;
+	readonly hasSession: (
+		sessionId: AgentSessionId,
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<boolean>;
+	/** Stop and verify quiescence before filesystem rollback; failed handles remain owned. */
+	readonly quiesce?: (sessionId: AgentSessionId) => Effect.Effect<void, Error>;
+	readonly captureHistoryCheckpoint?: (
+		sessionId: AgentSessionId,
+	) => Effect.Effect<NativeHistoryCheckpoint | null, Error>;
+	readonly restoreHistoryCheckpoint?: (
+		sessionId: AgentSessionId,
+		checkpoint: NativeHistoryCheckpoint,
+	) => Effect.Effect<boolean, Error>;
 	readonly guardCurrent: <E, R>(
 		sessionId: AgentSessionId,
 		generation: number,

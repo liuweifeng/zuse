@@ -9,9 +9,16 @@ const Endpoint = Schema.Struct({
 	port: Schema.Number,
 	token: Schema.String,
 	pid: Schema.Number,
+	supervisorPid: Schema.optional(Schema.Number),
 	appVersion: Schema.String,
 	buildId: Schema.optional(Schema.String),
 	apiPort: Schema.Number,
+	network: Schema.optional(
+		Schema.Struct({
+			bindHost: Schema.String,
+			advertisedHost: Schema.NullOr(Schema.String),
+		}),
+	),
 });
 export type DesktopEngineEndpoint = typeof Endpoint.Type;
 export const engineEndpointPath = (userData: string): string =>

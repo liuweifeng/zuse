@@ -63,6 +63,7 @@ import { ApiActivityPublisher } from "../../src/api/activity-publisher.ts";
 import { startCloudWorkspaceLaunchIntent } from "../../src/api/cloud-workspace-runtime.ts";
 import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import { ConversationState } from "../../src/conversation/core/conversation-state.ts";
+import { CheckpointFiles } from "../../src/conversation/core/session-checkpoints.ts";
 import { ConversationServicesLive } from "../../src/conversation/layers/conversation-services.ts";
 import {
 	ChatService,
@@ -122,6 +123,13 @@ import { Migration0072InputOwnership } from "../../src/persistence/migrations/00
 import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
 import { Migration0074PlanDeliveries } from "../../src/persistence/migrations/0074_plan_deliveries.ts";
 import { Migration0075ContextHandoffs } from "../../src/persistence/migrations/0075_context_handoffs.ts";
+import { Migration0077ForkConstructions } from "../../src/persistence/migrations/0077_fork_constructions.ts";
+import { Migration0078SessionCheckpoints } from "../../src/persistence/migrations/0078_session_checkpoints.ts";
+import { Migration0079ContextLinks } from "../../src/persistence/migrations/0079_context_links.ts";
+import { Migration0080SessionDelegations } from "../../src/persistence/migrations/0080_session_delegations.ts";
+import { Migration0081ProviderContexts } from "../../src/persistence/migrations/0081_provider_contexts.ts";
+import { Migration0082ExecutionSteps } from "../../src/persistence/migrations/0082_execution_steps.ts";
+import { Migration0083NativeCheckpointHistory } from "../../src/persistence/migrations/0083_native_checkpoint_history.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -186,6 +194,7 @@ let providerStartOrchestrationTools: Array<
 	OrchestrationSessionTools | null | undefined
 > = [];
 let failProviderStart = false;
+let providerNativeResumeFallback = false;
 let failProviderSend = false;
 let providerStartFailureReason = "scripted start failure";
 let providerStartBarrier: Promise<void> | null = null;
@@ -294,6 +303,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			);
 			activeProviderSessions.add(input.sessionId ?? ("stub" as AgentSessionId));
 			return {
+				nativeResumeFallback: providerNativeResumeFallback,
 				...(providerBeforePublication === null ? {} : { generation: 1 }),
 				providerSessionId,
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
@@ -804,6 +814,13 @@ const runAllMigrations = Effect.all(
 		Migration0073QuestionExpiry,
 		Migration0074PlanDeliveries,
 		Migration0075ContextHandoffs,
+		Migration0077ForkConstructions,
+		Migration0079ContextLinks,
+		Migration0080SessionDelegations,
+		Migration0082ExecutionSteps,
+		Migration0081ProviderContexts,
+		Migration0078SessionCheckpoints,
+		Migration0083NativeCheckpointHistory,
 	],
 	{ discard: true },
 );
@@ -839,6 +856,11 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 		Layer.provide(Migrated),
 	);
 	const ConversationLayer = ConversationServicesLive.pipe(
+		Layer.provide(
+			Layer.succeed(CheckpointFiles, {
+				capture: async () => ({ commit: "fixture-checkpoint" }),
+			}),
+		),
 		Layer.provide(
 			Layer.succeed(WorkspaceExecutionPolicy, {
 				get isReady() {
@@ -957,6 +979,7 @@ beforeEach(() => {
 	activeProviderResidencies = new Map();
 	providerStartOrchestrationTools = [];
 	failProviderStart = false;
+	providerNativeResumeFallback = false;
 	failProviderSend = false;
 	providerStartFailureReason = "scripted start failure";
 	providerStartBarrier = null;
@@ -1767,6 +1790,78 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(activeProviderSessions.has(sessionId)).toBe(true);
 		});
 	});
+
+	for (const fallback of [false, true])
+		it(`returns to the earlier native provider with ${fallback ? "explicit full-context fallback" : "only the missed context"}`, async () => {
+			await withRuntime(async (run) => {
+				const sessionId = await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						const domain = yield* SessionDomain;
+						const created = yield* service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "codex",
+							model: "gpt-5.4",
+						});
+						const id = created.initialSession.id;
+						yield* service.importExternalMessages(id, [
+							{ _tag: "user", text: "Original native context" },
+						]);
+						yield* domain.dispatch({
+							commandId: "bind-original",
+							streamId: id,
+							command: {
+								_tag: "BindProviderThread",
+								nativeThreadId: "original-codex-thread",
+								nativeHeadId: null,
+								updatedAt: Date.now(),
+							},
+						});
+						yield* service.setProvider(id, "claude", "claude-opus-4-8");
+						yield* service.importExternalMessages(id, [
+							{
+								_tag: "assistant",
+								text: "Context learned with the other provider",
+							},
+						]);
+						yield* service.setProvider(id, "codex", "gpt-5.4");
+						const returned = yield* service.getSession(id);
+						expect(returned.providerThread?.nativeThreadRef.nativeId).toBe(
+							"original-codex-thread",
+						);
+						return id;
+					}),
+				);
+				providerNativeResumeFallback = fallback;
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.sendMessage(
+							testCommandId("return"),
+							sessionId,
+							"Continue after returning",
+						),
+					),
+				);
+				expect(providerStartCursors.at(-1)).toBe("original-codex-thread");
+				const sent = providerSentTexts.at(-1)!;
+				expect(
+					sent.match(/Context learned with the other provider/g),
+				).toHaveLength(1);
+				expect(sent.match(/Continue after returning/g)).toHaveLength(1);
+				if (fallback)
+					expect(sent.match(/Original native context/g)).toHaveLength(1);
+				else expect(sent).not.toContain("Original native context");
+				const rows = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return yield* sql<{
+							fallback_at: number | null;
+						}>`SELECT fallback_at FROM session_context_handoffs WHERE session_id=${sessionId} AND active=1`;
+					}),
+				);
+				expect(rows[0]?.fallback_at !== null).toBe(fallback);
+			});
+		});
 
 	it("rolls back a provider switch when its context cannot be persisted", async () => {
 		await withRuntime(async (run) => {
@@ -5945,6 +6040,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			// Hold acquisition before admission; otherwise the fixture can deliver the
+			// request before disposal and no longer represents unreceipted work.
+			providerStartBarrier = deferred<void>().promise;
 			const turnId = AgentTurnId.make("turn_restart_pending");
 			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
@@ -7870,7 +7968,7 @@ describe("ConversationServices — provider event persistence", () => {
 				},
 			},
 		],
-		["SettleTurn", { _tag: "Completed", reason: "ended" }],
+		["FinalizeTurn", { _tag: "Completed", reason: "ended" }],
 	] satisfies ReadonlyArray<
 		readonly [string, AgentEvent]
 	>)("rejects %s when residency is revoked after event admission", async (commandTag, event) => {
@@ -8513,6 +8611,449 @@ describe("ConversationServices — fork & transcript export", () => {
 		});
 	});
 
+	for (const action of [
+		"cancel",
+		"cancel-before-session",
+		"delete-session",
+		"delete-chat",
+	] as const)
+		it(`does not resurrect a partial fork after ${action}`, async () => {
+			await withRuntime(async (run) => {
+				const source = await run(
+					Effect.flatMap(store, (service) =>
+						service.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+						}),
+					),
+				);
+				const history = await run(
+					Effect.flatMap(store, (service) =>
+						service.importExternalMessages(source.initialSession.id, [
+							{ _tag: "user", text: "Frozen source" },
+						]),
+					),
+				);
+				const destination = SessionId.make("cancelled-partial-fork");
+				const input = {
+					commandId: "cancelled-fork-command",
+					initialSessionId: destination,
+					sourceSessionId: source.initialSession.id,
+					fromMessageId: history[0]!.id,
+					destination: "tab" as const,
+				};
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						if (action === "cancel-before-session")
+							yield* sql`CREATE TRIGGER fail_cancelled_fork BEFORE INSERT ON sessions WHEN NEW.id='cancelled-partial-fork' BEGIN SELECT RAISE(ABORT,'creation unavailable'); END`;
+						else
+							yield* sql`CREATE TRIGGER fail_cancelled_fork BEFORE INSERT ON messages WHEN NEW.session_id='cancelled-partial-fork' BEGIN SELECT RAISE(ABORT,'import unavailable'); END`;
+					}),
+				);
+				await expect(
+					run(Effect.flatMap(store, (service) => service.forkSession(input))),
+				).rejects.toBeDefined();
+				const pending = await run(
+					Effect.flatMap(store, (service) =>
+						service.forkConstructions(source.initialSession.id),
+					),
+				);
+				expect(pending).toMatchObject([
+					{ sessionId: destination, state: "failed" },
+				]);
+				await run(
+					Effect.gen(function* () {
+						const service = yield* store;
+						if (action === "cancel" || action === "cancel-before-session") {
+							yield* service.cancelFork(source.initialSession.id, destination);
+							yield* service.cancelFork(source.initialSession.id, destination);
+						} else if (action === "delete-session")
+							yield* service.deleteSession(destination);
+						else yield* service.deleteChat(source.chat.id);
+					}),
+				);
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						yield* sql`DROP TRIGGER fail_cancelled_fork`;
+					}),
+				);
+				await expect(
+					run(Effect.flatMap(store, (service) => service.forkSession(input))),
+				).rejects.toBeDefined();
+				const evidence = await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						return {
+							sessions:
+								yield* sql`SELECT id FROM sessions WHERE id=${destination}`,
+							pending:
+								yield* sql`SELECT session_id FROM session_fork_constructions WHERE completed_at IS NULL`,
+							cancelled:
+								yield* sql`SELECT cancelled_at FROM session_fork_constructions WHERE session_id=${destination} AND cancelled_at IS NOT NULL`,
+						};
+					}),
+				);
+				expect(evidence.sessions).toHaveLength(0);
+				expect(evidence.pending).toHaveLength(0);
+				expect(evidence.cancelled).toHaveLength(1);
+			});
+		});
+
+	it("recovers a partial fork before admitting a turn and supplies the frozen context", async () => {
+		await withRuntime(async (run) => {
+			const source = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const history = await run(
+				Effect.flatMap(store, (service) =>
+					service.importExternalMessages(source.initialSession.id, [
+						{ _tag: "user", text: "Preserve this decision." },
+						{ _tag: "assistant", text: "Use the durable queue." },
+					]),
+				),
+			);
+			const sessionId = SessionId.make("fork-interrupted-import");
+			const input = {
+				commandId: "fork-retry",
+				initialSessionId: sessionId,
+				sourceSessionId: source.initialSession.id,
+				fromMessageId: history[1]!.id,
+				destination: "tab" as const,
+			};
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TRIGGER fail_fork_import BEFORE INSERT ON messages WHEN NEW.session_id='fork-interrupted-import' AND NEW.kind='assistant' BEGIN SELECT RAISE(ABORT, 'interrupted import'); END`;
+				}),
+			);
+			await expect(
+				run(Effect.flatMap(store, (service) => service.forkSession(input))),
+			).rejects.toBeDefined();
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.sendMessage("early-fork-send", sessionId, "Too early"),
+					),
+				),
+			).rejects.toBeDefined();
+			expect(providerSentTexts).not.toContain("Too early");
+			await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					yield* service.importExternalMessages(source.initialSession.id, [
+						{ _tag: "assistant", text: "Later source text must not leak." },
+					]);
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`DROP TRIGGER fail_fork_import`;
+				}),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.retryFork(source.initialSession.id, sessionId),
+				),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							const rows = yield* sql<{
+								completed_at: number | null;
+							}>`SELECT completed_at FROM session_fork_constructions WHERE session_id=${sessionId}`;
+							return rows[0]?.completed_at !== null;
+						}),
+					),
+				)
+				.toBe(true);
+			const replay = await run(
+				Effect.flatMap(store, (service) => service.forkSession(input)),
+			);
+			expect(replay.session.id).toBe(sessionId);
+			const copied = await run(
+				Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+			);
+			expect(copied.map((message) => message.content)).toMatchObject([
+				{ _tag: "user", text: "Preserve this decision." },
+				{ _tag: "assistant", text: "Use the durable queue." },
+			]);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage("continue-fork", sessionId, "Implement it"),
+				),
+			);
+			expect(providerSentTexts.at(-1)).toContain("Preserve this decision.");
+			expect(providerSentTexts.at(-1)).toContain("Use the durable queue.");
+			expect(providerSentTexts.at(-1)).not.toContain("Later source text");
+			expect(providerSentTexts.at(-1)).toContain(
+				"Current user request:\nImplement it",
+			);
+		});
+	});
+
+	it("finishes a frozen fork after replacing the runtime without rereading its source", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-fork-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		let runtime = makeRuntime(dbPath);
+		const run = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			runtime.runPromise(effect as Effect.Effect<A, unknown, never>);
+		const destination = SessionId.make("fork-restart-destination");
+		try {
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`INSERT INTO projects(id,path,name,created_at,updated_at) VALUES (${PROJECT_ID},${directory},'Restart',${now},${now})`;
+				}),
+			);
+			const input = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const source = yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const messages = yield* service.importExternalMessages(
+						source.initialSession.id,
+						[
+							{ _tag: "user", text: "Original frozen context" },
+							{ _tag: "assistant", text: "Original answer" },
+						],
+					);
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TRIGGER pause_fork BEFORE INSERT ON messages WHEN NEW.session_id='fork-restart-destination' AND NEW.kind='assistant' BEGIN SELECT RAISE(ABORT,'process stopped'); END`;
+					return {
+						commandId: "fork-restart-command",
+						initialSessionId: destination,
+						sourceSessionId: source.initialSession.id,
+						fromMessageId: messages[1]!.id,
+						destination: "chat" as const,
+					};
+				}),
+			);
+			await expect(
+				run(Effect.flatMap(store, (service) => service.forkSession(input))),
+			).rejects.toBeDefined();
+			await runtime.dispose();
+			runtime = makeRuntime(dbPath, false);
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`DROP TRIGGER pause_fork`;
+					// The imported source is no longer available. Recovery must use its staged snapshot.
+					yield* sql`DELETE FROM messages WHERE session_id=${input.sourceSessionId}`;
+				}),
+			);
+			await expect
+				.poll(() =>
+					run(
+						Effect.gen(function* () {
+							const sql = yield* SqlClient.SqlClient;
+							const rows = yield* sql<{
+								completed_at: number | null;
+							}>`SELECT completed_at FROM session_fork_constructions WHERE session_id=${destination}`;
+							return typeof rows[0]?.completed_at === "number";
+						}),
+					),
+				)
+				.toBe(true);
+			const result = await run(
+				Effect.flatMap(store, (service) => service.forkSession(input)),
+			);
+			expect(result.session.id).toBe(destination);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage("fork-restart-send", destination, "Continue"),
+				),
+			);
+			expect(providerSentTexts.at(-1)).toContain("Original frozen context");
+			expect(providerSentTexts.at(-1)).toContain("Original answer");
+			const copied = await run(
+				Effect.flatMap(store, (service) => service.listMessages(destination)),
+			);
+			expect(
+				copied.filter((message) => message.id.startsWith("fork:")),
+			).toHaveLength(2);
+		} finally {
+			await runtime.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("merges only new fork context into the parent's next turn and replays one receipt", async () => {
+		await withRuntime(async (run) => {
+			const { parent, child } = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const parent = (yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					})).initialSession;
+					const base = yield* service.importExternalMessages(parent.id, [
+						{ _tag: "user", text: "Original base history" },
+					]);
+					const child = (yield* service.forkSession({
+						commandId: "merge-child-fork",
+						sourceSessionId: parent.id,
+						fromMessageId: base[0]!.id,
+						destination: "tab",
+					})).session;
+					yield* service.importExternalMessages(child.id, [
+						{ _tag: "assistant", text: "Child discovered the fix" },
+					]);
+					return { parent, child };
+				}),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						"parent-existing-turn",
+						parent.id,
+						"Existing work",
+					),
+				),
+			);
+			const merged = await run(
+				Effect.flatMap(store, (service) =>
+					service.mergeBack({ commandId: "merge-once", sessionId: child.id }),
+				),
+			);
+			expect(merged.targetSessionId).toBe(parent.id);
+			expect(merged.firstTurnId).toBeNull();
+			const replay = await run(
+				Effect.flatMap(store, (service) =>
+					service.mergeBack({ commandId: "merge-once", sessionId: child.id }),
+				),
+			);
+			expect(replay).toEqual(merged);
+			expect(providerSentTexts.at(-1)).toBe("Existing work");
+			await run(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const attempt = yield* domain.activeAttempt(parent.id);
+					if (attempt === null) throw new Error("Missing parent turn");
+					yield* domain.dispatch({
+						commandId: "settle-existing-parent",
+						streamId: parent.id,
+						command: {
+							_tag: "SettleTurn",
+							turnId: attempt.turnId,
+							outcome: "completed",
+							settledAt: Date.now(),
+						},
+					});
+				}),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage("parent-next-turn", parent.id, "Use the result"),
+				),
+			);
+			expect(providerSentTexts.at(-1)).toContain("Child discovered the fix");
+			expect(providerSentTexts.at(-1)).not.toContain("Original base history");
+			const links = await run(
+				Effect.flatMap(store, (service) => service.contextLinks(parent.id)),
+			);
+			expect(links).toHaveLength(1);
+			expect(links[0]?.firstTurnId).not.toBeNull();
+			const history = await run(
+				Effect.flatMap(store, (service) => service.listMessages(parent.id)),
+			);
+			expect(
+				history.filter((message) =>
+					message.id.startsWith("context-link-message:"),
+				),
+			).toHaveLength(1);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.mergeBack({
+							commandId: "merge-no-delta",
+							sessionId: child.id,
+						}),
+					),
+				),
+			).rejects.toMatchObject({ _tag: "SessionContextError" });
+		});
+	});
+
+	it("rolls back a merge message and receipt when its durable handoff cannot commit", async () => {
+		await withRuntime(async (run) => {
+			const { parent, child } = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const parent = (yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					})).initialSession;
+					const base = yield* service.importExternalMessages(parent.id, [
+						{ _tag: "user", text: "Base" },
+					]);
+					const child = (yield* service.forkSession({
+						sourceSessionId: parent.id,
+						fromMessageId: base[0]!.id,
+						destination: "tab",
+					})).session;
+					yield* service.importExternalMessages(child.id, [
+						{ _tag: "assistant", text: "Delta" },
+					]);
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TRIGGER fail_context_link BEFORE INSERT ON session_context_links BEGIN SELECT RAISE(ABORT,'link unavailable'); END`;
+					return { parent, child };
+				}),
+			);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.mergeBack({
+							commandId: "merge-failure-retry",
+							sessionId: child.id,
+						}),
+					),
+				),
+			).rejects.toMatchObject({ _tag: "SessionContextError" });
+			expect(
+				(
+					await run(
+						Effect.flatMap(store, (service) => service.listMessages(parent.id)),
+					)
+				).filter((message) => message.id.startsWith("context-link-message:")),
+			).toHaveLength(0);
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`DROP TRIGGER fail_context_link`;
+				}),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.mergeBack({
+						commandId: "merge-failure-retry",
+						sessionId: child.id,
+					}),
+				),
+			);
+			expect(
+				(
+					await run(
+						Effect.flatMap(store, (service) => service.listMessages(parent.id)),
+					)
+				).filter((message) => message.id.startsWith("context-link-message:")),
+			).toHaveLength(1);
+		});
+	});
+
 	it("latestPlan returns null for a session with no proposed plan", async () => {
 		await withRuntime(async (run) => {
 			const chat = await run(
@@ -8657,15 +9198,25 @@ describe("ConversationServices — fork & transcript export", () => {
 						providerId: "claude",
 						model: "claude-opus-4-8",
 						title: "Existing thread",
-						providerThread: { nativeThreadId: "claude-session-xyz" },
+						providerThread: {
+							nativeThreadId: "claude-session-xyz",
+							nativeHeadId:
+								"claude-assistant:native-uuid:message-native%3Atext%3A0",
+						},
 					}),
 				),
 			);
 			const sourceId = chat.initialSession.id;
-			// Add a user message so there is a tail to fork from.
+			// Correlate the visible assistant boundary to the SDK UUID cutoff.
 			await run(
 				Effect.flatMap(store, (s) =>
-					s.sendMessage(testCommandId("messages.send"), sourceId, "keep going"),
+					s.importExternalMessages(sourceId, [
+						{
+							_tag: "assistant",
+							itemId: AgentItemId.make("message-native:text:0"),
+							text: "Stable native point",
+						},
+					]),
 				),
 			);
 			const messages = await run(
@@ -8703,7 +9254,7 @@ describe("ConversationServices — fork & transcript export", () => {
 			await expect
 				.poll(() => providerStartInputs.length)
 				.toBe(startsBeforeFork + 1);
-			// The first turn starts the driver with the durable resume metadata.
+			// The first turn starts the driver with the frozen source UUID cutoff.
 			expect(providerStartInputs.at(-1)?.forkFromResume).toBe(true);
 			expect(providerStartCursors.at(-1)).toBe("claude-session-xyz");
 		});

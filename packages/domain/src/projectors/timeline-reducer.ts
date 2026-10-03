@@ -8,6 +8,10 @@ import {
 	type SessionTimelineEvent,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
+import {
+	applyExecutionMessage,
+	settleExecutionSteps,
+} from "./execution-steps.js";
 
 /**
  * The one pure reducer for durable session-timeline state. This module is
@@ -63,6 +67,21 @@ export const applyTimelineEvent = (
 			if (index === -1) messages.push(event.message);
 			else messages[index] = event.message;
 			const content = event.message.content;
+			const turn = projection.activeTurn;
+			const executionSteps =
+				turn === null ||
+				(event.turnId !== undefined && event.turnId !== turn.id)
+					? projection.executionSteps
+					: applyExecutionMessage(
+							projection.executionSteps ?? [],
+							{
+								sessionId: event.message.sessionId,
+								turnId: turn.id,
+								attemptId: turn.attempt.id,
+								at: event.message.createdAt.getTime(),
+							},
+							content,
+						);
 			const interactions = (() => {
 				if (content._tag === "tool_use" && content.tool === "ExitPlanMode") {
 					if (
@@ -116,6 +135,7 @@ export const applyTimelineEvent = (
 			return SessionTimelineProjection.make({
 				...projection,
 				messages,
+				executionSteps,
 				interactions,
 			});
 		}
@@ -153,6 +173,23 @@ export const applyTimelineEvent = (
 						activeTurn: { ...projection.activeTurn, phase: event.phase },
 					})
 				: projection;
+		case "TranscriptRolledBack": {
+			const removed = new Set(event.removedMessageIds);
+			return SessionTimelineProjection.make({
+				...projection,
+				messages: projection.messages.filter(
+					(message) => !removed.has(message.id),
+				),
+				interactions: [],
+			});
+		}
+		case "TurnFinalizing":
+			return projection.activeTurn?.id === event.turnId
+				? SessionTimelineProjection.make({
+						...projection,
+						activeTurn: { ...projection.activeTurn, status: "finalizing" },
+					})
+				: projection;
 		case "TurnSettled":
 			// Settlement is the authoritative terminal transition for a turn. Keep
 			// the live reducer identical to the SQLite projector: otherwise a client
@@ -160,6 +197,12 @@ export const applyTimelineEvent = (
 			return SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
+				executionSteps: settleExecutionSteps(
+					projection.executionSteps ?? [],
+					event.turnId,
+					event.outcome === "error" ? "failed" : "cancelled",
+					event.settledAt ?? 0,
+				),
 				activeTurn: null,
 			});
 		case "PermissionModeSet":

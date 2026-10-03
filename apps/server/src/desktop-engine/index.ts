@@ -9,3 +9,4 @@ export {
 	writeDesktopEngineConfig,
 } from "./config.ts";
 export { type DesktopEngineEndpoint, readEngineEndpoint } from "./endpoint.ts";
+export { requestIdleEngineShutdown } from "./shutdown.ts";

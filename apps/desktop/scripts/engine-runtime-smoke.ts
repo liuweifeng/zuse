@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
@@ -11,9 +12,14 @@ import {
 	type DesktopEngineEndpoint,
 	type EngineChannel,
 	readEngineEndpoint,
+	requestIdleEngineShutdown,
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
 import { readEngineBuildId } from "../src/engine-launcher.ts";
+import {
+	ENGINE_TOOL_COMMAND,
+	startEngineProviderFixture,
+} from "./engine-provider-fixture.ts";
 
 // Run after the desktop build. Every process and database belongs to this fixture.
 const directory = await mkdtemp(join(tmpdir(), "zuse-engine-recovery-"));
@@ -21,6 +27,9 @@ const channels = new Set<EngineChannel>();
 const supervisorPath = fileURLToPath(
 	new URL("../dist-electron/engine-supervisor.cjs", import.meta.url),
 );
+let providerFixture:
+	| Awaited<ReturnType<typeof startEngineProviderFixture>>
+	| undefined;
 let supervisor: ChildProcess | undefined;
 let exited: Promise<void> = Promise.resolve();
 const within = async <T>(work: Promise<T>, ms: number): Promise<T> => {
@@ -120,6 +129,11 @@ const waitReady = async (previousPid?: number) =>
 	);
 
 try {
+	if (
+		process.env.ZUSE_ENGINE_CODEX_FIXTURE === "1" ||
+		process.argv.includes("--provider-fixture")
+	)
+		providerFixture = await startEngineProviderFixture(directory);
 	const reservation = createServer();
 	await new Promise<void>((resolve) =>
 		reservation.listen(0, "127.0.0.1", resolve),
@@ -143,6 +157,7 @@ try {
 	supervisor = spawn(process.execPath, [supervisorPath, configPath], {
 		env: {
 			...process.env,
+			...providerFixture?.environment,
 			ELECTRON_RUN_AS_NODE: "1",
 			ZUSE_SQLITE_MEMORY: "0",
 			MEMOIZE_SQLITE_MEMORY: "0",
@@ -170,7 +185,7 @@ try {
 	);
 	process.kill(initial.pid, "SIGKILL");
 	await within(second.channel.closed, 5_000);
-	const recovered = await waitReady(initial.pid);
+	let recovered = await waitReady(initial.pid);
 	assert.equal(recovered.buildId, buildId);
 	assert.notEqual(recovered.token, initial.token);
 	await assert.rejects(
@@ -179,11 +194,149 @@ try {
 			{ receive: () => {} },
 		),
 	);
-	const third = await connect(recovered);
+	let third = await connect(recovered);
 	assert.deepEqual(await third.call("workspace.list", {}), [folder]);
 	console.log(
 		"PASS: worker crash restarts the engine with durable data and a fresh capability",
 	);
+	if (
+		process.env.ZUSE_LIVE_ENGINE_CODEX === "1" ||
+		providerFixture !== undefined
+	) {
+		const model =
+			providerFixture === undefined
+				? process.env.ZUSE_LIVE_CODEX_MODEL?.trim()
+				: "gpt-5.5";
+		assert(
+			model,
+			"Set ZUSE_LIVE_CODEX_MODEL to an available model for live engine tests",
+		);
+		assert(folder !== null && typeof folder === "object" && "id" in folder);
+		const created = await third.call("chat.create", {
+			projectId: folder.id,
+			providerId: "codex",
+			title: "Engine crash fixture",
+			model,
+			runtimeMode: "full-access",
+			background: true,
+			initialPrompt: [
+				"Run exactly this shell command once in this temporary fixture:",
+				ENGINE_TOOL_COMMAND,
+				"Then reply done. Do not repeat the command.",
+			].join("\n"),
+		});
+		assert(
+			created !== null &&
+				typeof created === "object" &&
+				"initialSession" in created,
+		);
+		const session = created.initialSession;
+		assert(session !== null && typeof session === "object" && "id" in session);
+		await within(
+			(async () => {
+				while (true) {
+					if (
+						(await readFile(join(project, "tool-started.txt"), "utf8").catch(
+							() => "",
+						)) === "started\n"
+					)
+						return;
+					await delay(100);
+				}
+			})(),
+			90_000,
+		);
+		if (providerFixture !== undefined)
+			assert(providerFixture.requestCount() > 0);
+		const toolPid = Number(
+			await readFile(join(project, "tool-pid.txt"), "utf8"),
+		);
+		assert(Number.isSafeInteger(toolPid) && toolPid > 1);
+		assert.equal(
+			await requestIdleEngineShutdown(recovered, { userData: directory }),
+			"busy",
+		);
+		third.channel.close();
+		await third.channel.closed;
+		await delay(1_000);
+		process.kill(toolPid, 0);
+		assert.equal((await readEngineEndpoint(directory))?.pid, recovered.pid);
+		console.log(
+			"PASS: a real provider tool remains active with every desktop client detached; update refuses it",
+		);
+		process.kill(recovered.pid, "SIGKILL");
+		recovered = await waitReady(recovered.pid);
+		third = await connect(recovered);
+		await within(
+			(async () => {
+				while (true) {
+					const state = await third.call("session.get", {
+						sessionId: session.id,
+					});
+					assert(
+						state !== null && typeof state === "object" && "status" in state,
+					);
+					const database = new DatabaseSync(join(directory, "zuse.sqlite"), {
+						readOnly: true,
+					});
+					let activeCount: number | bigint | null = null;
+					try {
+						const active = database
+							.prepare(
+								"SELECT COUNT(*) AS count FROM session_turns WHERE session_id=? AND status IN ('starting','running','finalizing')",
+							)
+							.get(String(session.id));
+						if (
+							typeof active?.count === "number" ||
+							typeof active?.count === "bigint"
+						)
+							activeCount = active.count;
+					} finally {
+						database.close();
+					}
+					if (
+						activeCount === 0 &&
+						state.status !== "booting" &&
+						state.status !== "running"
+					)
+						return;
+					await delay(100);
+				}
+			})(),
+			45_000,
+		);
+		await within(
+			(async () => {
+				while (true) {
+					try {
+						process.kill(toolPid, 0);
+					} catch (error) {
+						if (
+							error !== null &&
+							typeof error === "object" &&
+							"code" in error &&
+							error.code === "ESRCH"
+						)
+							return;
+						throw error;
+					}
+					await delay(100);
+				}
+			})(),
+			10_000,
+		);
+		assert.equal(
+			await readFile(join(project, "tool-started.txt"), "utf8"),
+			"started\n",
+		);
+		const history = await third.call("messages.list", {
+			sessionId: session.id,
+		});
+		assert(Array.isArray(history) && history.length > 0);
+		console.log(
+			"PASS: real provider worker loss cleans the tool process, preserves history, and reaches a terminal turn without replaying the command",
+		);
+	}
 	supervisor.kill("SIGTERM");
 	await within(exited, 10_000);
 	await within(third.channel.closed, 5_000);
@@ -191,6 +344,34 @@ try {
 	assert.throws(() => process.kill(recovered.pid, 0), { code: "ESRCH" });
 	console.log(
 		"PASS: supervisor shutdown awaits the worker and removes the endpoint",
+	);
+	supervisor = spawn(process.execPath, [supervisorPath, configPath], {
+		env: {
+			...process.env,
+			...providerFixture?.environment,
+			ELECTRON_RUN_AS_NODE: "1",
+			ZUSE_SQLITE_MEMORY: "0",
+			MEMOIZE_SQLITE_MEMORY: "0",
+		},
+		stdio: ["ignore", "ignore", "pipe"],
+	});
+	supervisor.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+	exited = new Promise<void>((resolve, reject) => {
+		supervisor?.once("exit", () => resolve());
+		supervisor?.once("error", reject);
+	});
+	const idle = await waitReady();
+	const fourth = await connect(idle);
+	assert.deepEqual(await fourth.call("workspace.list", {}), [folder]);
+	assert.equal(
+		await requestIdleEngineShutdown(idle, { userData: directory }),
+		"stopped",
+	);
+	await within(exited, 5_000);
+	await within(fourth.channel.closed, 5_000);
+	assert.equal(await readEngineEndpoint(directory), null);
+	console.log(
+		"PASS: authenticated idle shutdown waits for engine and supervisor exit",
 	);
 	const database = await readFile(join(directory, "zuse.sqlite"));
 	await writeDesktopEngineConfig({ ...launchConfig, buildId: "stale-build" });
@@ -242,5 +423,6 @@ try {
 			await exited;
 		});
 	}
+	await providerFixture?.close();
 	await rm(directory, { recursive: true, force: true });
 }

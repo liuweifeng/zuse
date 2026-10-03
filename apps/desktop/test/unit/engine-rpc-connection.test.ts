@@ -66,6 +66,7 @@ it("isolates response and cancellation frames across renderer reloads", async ()
 	const f = fixture();
 	await f.connection.open("first");
 	f.connection.send("first", "request 0");
+	f.connection.reset();
 	await f.connection.open("second");
 	expect(f.connections[0]?.isClosed()).toBe(true);
 	f.connection.send("first", "stale interrupt 0");
@@ -153,4 +154,34 @@ it("closes a connection that finishes opening after its renderer was replaced", 
 	});
 	await expect(pending).rejects.toThrow("replaced");
 	expect(closed).toBe(true);
+});
+
+it("keeps imperative and passive renderer clients independent until document reset", async () => {
+	const f = fixture();
+	await Promise.all([
+		f.connection.open("commands"),
+		f.connection.open("events"),
+	]);
+	f.connection.send("commands", "request 0");
+	f.connection.send("events", "request 0");
+	expect(f.connections.every((connection) => !connection.isClosed())).toBe(
+		true,
+	);
+	f.connections[0]?.receive({ _tag: "Rpc", payload: "command response 0" });
+	f.connections[1]?.receive({ _tag: "Rpc", payload: "stream response 0" });
+	expect(f.messages).toEqual([
+		["commands", "command response 0"],
+		["events", "stream response 0"],
+	]);
+	f.connection.close("commands");
+	expect(f.connections[1]?.isClosed()).toBe(false);
+	f.connection.send("events", "ack 0");
+	expect(f.connections[1]?.sent).toEqual([
+		{ _tag: "Rpc", payload: "request 0" },
+		{ _tag: "Rpc", payload: "ack 0" },
+	]);
+	f.connection.reset();
+	expect(f.connections.every((connection) => connection.isClosed())).toBe(true);
+	f.connections[1]?.receive({ _tag: "Rpc", payload: "stale stream 0" });
+	expect(f.messages).toHaveLength(2);
 });

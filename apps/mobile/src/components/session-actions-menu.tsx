@@ -12,6 +12,7 @@ export function SessionActionsMenu(_props: {
 	onFiles: () => void;
 	onTerminal?: () => void;
 	onOpenOnDesktop?: () => void;
+	onMergeBack?: () => void;
 	onArchive: () => void;
 }) {
 	return null;
