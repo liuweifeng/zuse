@@ -3,12 +3,12 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import type { AttemptState } from "../core/state.js";
-
 import type {
 	MessageReadRecord,
 	SessionProviderThreadRecord,
 	SessionReadRecord,
 } from "../projectors/read-model.js";
+import { ACTIVE_SESSION_TURN_STATUSES } from "../projectors/sql-session-projector.js";
 import type {
 	MessagePage,
 	MessagePageInput,
@@ -193,6 +193,7 @@ export interface AttemptHistoryPage {
 }
 
 export interface SqlSessionQueriesApi {
+	readonly activeTurnCount: Effect.Effect<number, SqlSessionQueryError>;
 	readonly attemptProviderTurn: (
 		sessionId: string,
 		attemptId: string,
@@ -355,6 +356,11 @@ export const makeSqlSessionQueries = (
 	});
 
 	return {
+		activeTurnCount: sql<{
+			count: number;
+		}>`SELECT COUNT(*) AS count FROM session_turns WHERE status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])}`.pipe(
+			Effect.map((rows) => rows[0]?.count ?? 0),
+		),
 		list,
 		get,
 		messages,
