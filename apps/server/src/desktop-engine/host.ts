@@ -72,8 +72,10 @@ export class EngineHost {
 				if (!this.pending.delete(id)) return;
 				clearTimeout(timer);
 				signal?.removeEventListener("abort", abort);
-				if (error !== undefined) reject(error);
-				else resolve(value);
+				if (error !== undefined) {
+					owner.send({ _tag: "HostCancel", id });
+					reject(error);
+				} else resolve(value);
 			};
 			const abort = () =>
 				finish(undefined, new Error("The native request was cancelled."));
