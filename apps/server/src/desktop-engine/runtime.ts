@@ -149,6 +149,7 @@ export const runDesktopEngine = (
 						port,
 						pid: process.pid,
 						appVersion: config.appVersion,
+						buildId: config.buildId,
 						apiPort: config.apiPort,
 					}),
 				),

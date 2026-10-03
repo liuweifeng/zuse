@@ -9,6 +9,24 @@ import {
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
 
+import { readEngineBuildId } from "./engine-build-id.ts";
+
+export { readEngineBuildId } from "./engine-build-id.ts";
+
+// A desktop process keeps its loaded build identity across renderer and host reconnects.
+const builds = new Map<string, Promise<string>>();
+const desktopBuildId = (path: string): Promise<string> => {
+	let build = builds.get(path);
+	if (build === undefined) {
+		build = readEngineBuildId(path).catch((error) => {
+			builds.delete(path);
+			throw error;
+		});
+		builds.set(path, build);
+	}
+	return build;
+};
+
 /** Start once or attach to the existing owner. Closing the desktop never stops this process. */
 export const ensureDesktopEngine = async (options: {
 	readonly config: DesktopEngineConfig;
@@ -17,7 +35,13 @@ export const ensureDesktopEngine = async (options: {
 	readonly signal?: AbortSignal;
 	readonly startupTimeoutMs?: number;
 }): Promise<DesktopEngineEndpoint> => {
-	const { config, signal } = options;
+	const { signal } = options;
+	signal?.throwIfAborted();
+	const config = {
+		...options.config,
+		buildId:
+			options.config.buildId ?? (await desktopBuildId(options.supervisorPath)),
+	};
 	signal?.throwIfAborted();
 	const probe = async () => {
 		const endpoint = await readEngineEndpoint(config.userData);
@@ -34,7 +58,10 @@ export const ensureDesktopEngine = async (options: {
 		}
 		channel.close();
 		await channel.closed;
-		if (endpoint.appVersion !== config.appVersion)
+		if (
+			endpoint.appVersion !== config.appVersion ||
+			endpoint.buildId !== config.buildId
+		)
 			throw new Error(
 				"A different engine version is still running. Finish its active work before restarting the engine.",
 			);
