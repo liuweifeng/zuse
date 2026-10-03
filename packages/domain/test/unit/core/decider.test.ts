@@ -20,6 +20,31 @@ const created = () =>
 	]);
 
 describe("session decider", () => {
+	test.each([
+		"SetProvider",
+		"SetModel",
+	] as const)("%s preserves a running attempt and rejects queued work", (tag) => {
+		const command =
+			tag === "SetModel"
+				? { _tag: tag, model: "new-model", updatedAt: 10 }
+				: { _tag: tag, providerId: "codex", model: "new-model", updatedAt: 10 };
+		const active = evolveAll(created(), [
+			{ _tag: "TurnStarted", turnId: "active", startedAt: 2 },
+		]);
+		expect(failure(decide(active, command))?._tag).toBe("ValidationFailed");
+		const queued = evolveAll(created(), [
+			{
+				_tag: "QueuedTurnEnqueued",
+				queueId: "queued",
+				inputJson: "{}",
+				createdAt: 2,
+				position: 0,
+				ready: true,
+			},
+		]);
+		expect(failure(decide(queued, command))?._tag).toBe("ValidationFailed");
+	});
+
 	test("replays historical provider-thread references into the owning session", () => {
 		const historicalId = "provider-thread:provider:codex:native-thread:native";
 		const state = evolveAll(created(), [

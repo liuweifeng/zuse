@@ -22,7 +22,7 @@ Migrations preserve main's harness/model records and upgrade the earlier engine
 ledger transactionally. Unknown development migration histories fail before writes.
 
 This is not completion of all delivery slices below. Detached desktop execution,
-provider handoffs, full execution trees, and checkpoint rollback remain future work.
+full execution trees, and checkpoint rollback remain future work.
 Plan responses now retain durable intent and acknowledgement separately: restart
 repairs acknowledged receipts and expires uncertain deliveries without replay.
 Live-provider crash injection and native macOS/Windows lifecycle validation remain release checks;
@@ -137,7 +137,9 @@ Opt-in runtime observation frames now report execution health on the session fee
 without changing its durable cursor. A server sample distinguishes a quiet provider
 (two minutes without activity), blocking input, startup and missing execution ownership.
 Clients accept samples only for the current epoch, stream version and attempt; cached
-observations do not establish health after reconnect. Desktop and mobile show quiet or
+observations do not establish health after reconnect. If an observation reports a
+newer committed cursor and the corresponding event has not arrived within ten seconds,
+the client reconnects to repair the gap. Desktop and mobile show quiet or
 unavailable execution separately from transport disconnection. Native-platform failure
 validation remains outstanding.
 Approval callbacks now capture their original provider residency and attempt.
@@ -210,7 +212,18 @@ projection, bounded expiry scans and transactional ownership rechecks. Desktop/m
 remove expired and uncertain decisions from actionable plans and show recovery notices.
 The provider/SQLite boundary remains non-atomic: a crash before acknowledgement is
 explicit uncertainty, never a fabricated success or an automatic resend.
-Step ownership, context handoffs and detached desktop runtime remain targets.
+Idle conversations now switch providers in place. Configuration changes reject active
+turns and queued messages transactionally, and durable stop jobs retire only the old
+provider residencies. A provider switch freezes a redacted text handoff in the same
+transaction; failed capture rolls back the switch. The first destination turn receives
+up to 200 recent transcript messages and 60,000 characters, with an explicit omission
+notice. Visible user messages remain unchanged. Returning to a prior provider starts
+a fresh native thread with another handoff; resuming old threads with delta context is
+not implemented. Attachments are retained in the application transcript but this
+handoff carries text, not earlier image or file payloads. The frozen handoff survives
+restart and is reused for retries of its first turn. Model changes retain native
+continuation while retiring the previous live process.
+Step ownership and detached desktop runtime remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
 each initial, retry and recovery attempt with its outcome and timestamps. Migration
 and live projection share the same lifecycle projector; sequence guards preserve

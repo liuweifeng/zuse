@@ -121,6 +121,7 @@ import { Migration0071SessionInputs } from "../../src/persistence/migrations/007
 import { Migration0072InputOwnership } from "../../src/persistence/migrations/0072_input_ownership.ts";
 import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
 import { Migration0074PlanDeliveries } from "../../src/persistence/migrations/0074_plan_deliveries.ts";
+import { Migration0075ContextHandoffs } from "../../src/persistence/migrations/0075_context_handoffs.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -802,6 +803,7 @@ const runAllMigrations = Effect.all(
 		Migration0072InputOwnership,
 		Migration0073QuestionExpiry,
 		Migration0074PlanDeliveries,
+		Migration0075ContextHandoffs,
 	],
 	{ discard: true },
 );
@@ -1701,6 +1703,112 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			).toMatchObject({ turnId });
 			expect(evidence.receipts).toEqual([{ stream_id: sessionId }]);
 			expect(evidence.sessions).toEqual([{ runtime_mode: "full-access" }]);
+		});
+	});
+
+	it("switches an existing conversation and hands its context to the new provider", async () => {
+		await withRuntime(async (run) => {
+			const sessionId = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const created = yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const id = created.initialSession.id;
+					yield* service.importExternalMessages(id, [
+						{ _tag: "user", text: "We chose SQLite for the queue." },
+						{ _tag: "assistant", text: "Use a durable job ledger." },
+					]);
+					yield* service.setProvider(id, "codex", "gpt-5.4");
+					yield* service.setProvider(id, "codex", "gpt-5.4");
+					const sql = yield* SqlClient.SqlClient;
+					expect(
+						yield* sql`SELECT id FROM sessions WHERE chat_id=${created.chat.id}`,
+					).toHaveLength(1);
+					expect(
+						yield* sql`SELECT id FROM session_context_handoffs WHERE session_id=${id}`,
+					).toHaveLength(1);
+					return id;
+				}),
+			);
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessage(
+						testCommandId("messages.send"),
+						sessionId,
+						"Implement the queue",
+					),
+				),
+			);
+			expect(providerSentTexts.at(-1)).toContain(
+				"We chose SQLite for the queue.",
+			);
+			expect(providerSentTexts.at(-1)).toContain("Use a durable job ledger.");
+			expect(providerSentTexts.at(-1)).toContain(
+				"Current user request:\nImplement the queue",
+			);
+			expect(providerStartInputs.at(-1)?.providerId).toBe("codex");
+			const messages = await run(
+				Effect.flatMap(store, (service) => service.listMessages(sessionId)),
+			);
+			expect(messages.at(-1)?.content).toMatchObject({
+				_tag: "user",
+				text: "Implement the queue",
+			});
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.setProvider(sessionId, "claude", "claude-opus-4-8"),
+					),
+				),
+			).rejects.toMatchObject({ _tag: "SessionConfigurationError" });
+			expect(activeProviderSessions.has(sessionId)).toBe(true);
+		});
+	});
+
+	it("rolls back a provider switch when its context cannot be persisted", async () => {
+		await withRuntime(async (run) => {
+			const sessionId = await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					const created = yield* service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					});
+					const id = created.initialSession.id;
+					yield* service.importExternalMessages(id, [
+						{ _tag: "user", text: "Important context" },
+					]);
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`CREATE TRIGGER reject_handoff BEFORE INSERT ON session_context_handoffs BEGIN SELECT RAISE(ABORT, 'handoff unavailable'); END`;
+					return id;
+				}),
+			);
+			await expect(
+				run(
+					Effect.flatMap(store, (service) =>
+						service.setProvider(sessionId, "codex", "gpt-5.4"),
+					),
+				),
+			).rejects.toBeDefined();
+			await run(
+				Effect.gen(function* () {
+					const service = yield* store;
+					expect((yield* service.getSession(sessionId)).providerId).toBe(
+						"claude",
+					);
+					const sql = yield* SqlClient.SqlClient;
+					expect(
+						yield* sql`SELECT id FROM session_context_handoffs`,
+					).toHaveLength(0);
+					expect(
+						yield* sql`SELECT sequence FROM events WHERE stream_id=${sessionId} AND type='SessionProviderSet'`,
+					).toHaveLength(0);
+				}),
+			);
 		});
 	});
 

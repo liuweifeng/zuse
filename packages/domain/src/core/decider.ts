@@ -257,14 +257,31 @@ export const decide = (
 					]);
 		}
 		case "SetModel":
-			return state.model === command.model
-				? success([])
-				: success([{ ...command, _tag: "SessionModelSet" }]);
-		case "SetProvider":
-			return state.providerId === command.providerId &&
-				state.model === command.model
-				? success([])
-				: success([{ ...command, _tag: "SessionProviderSet" }]);
+		case "SetProvider": {
+			const unchanged =
+				state.model === command.model &&
+				(command._tag === "SetModel" ||
+					state.providerId === command.providerId);
+			if (unchanged) return success([]);
+			if (state.currentTurnId !== null || state.queuedTurns.size > 0)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Finish or stop the active turn and clear queued messages before switching provider or model.",
+					}),
+				);
+			return success([
+				...providerStops(state, command.updatedAt),
+				command._tag === "SetModel"
+					? { ...command, _tag: "SessionModelSet" }
+					: { ...command, _tag: "SessionProviderSet" },
+				{
+					_tag: "SessionStatusSet",
+					status: "idle",
+					updatedAt: command.updatedAt,
+				},
+			]);
+		}
 		case "SetRuntimeMode":
 			return state.runtimeMode === command.runtimeMode
 				? success([])

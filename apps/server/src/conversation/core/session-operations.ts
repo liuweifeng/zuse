@@ -19,6 +19,7 @@ import {
 	type ResumeStrategy,
 	Session,
 	SessionAlreadyStartedError,
+	SessionConfigurationError,
 	SessionId,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
@@ -39,6 +40,7 @@ import type {
 	ConversationOperations,
 	CreateSessionInput,
 } from "../services/conversation-services.ts";
+import { makeContextHandoff } from "./context-handoff.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import { makePlanDelivery } from "./plan-delivery.ts";
@@ -1009,52 +1011,57 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			yield* setStatus(sessionId, "idle");
 		});
 
-	/**
-	 * Persist a new model on the session row and tear down the in-memory
-	 * provider session so the next user turn lazy-restarts the SDK with the
-	 * new model. Existing message history stays attached to the same row.
-	 */
-	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			// Invalidate any warm or in-flight provider before the new metadata is
-			// visible. A startup that finishes later cannot attach under this model.
-			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
-			yield* interruptProviderFiber(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
-				_tag: "SetModel",
-				model,
-				updatedAt: yield* currentTimestamp,
-			});
-			yield* setStatus(sessionId, "idle");
-		});
+	const handoffs = makeContextHandoff(sql);
+	const configureProvider = (
+		sessionId: SessionId,
+		command: Extract<SessionCommand, { _tag: "SetProvider" | "SetModel" }>,
+	) =>
+		sessionDomain
+			.dispatchTransactionally(
+				{ commandId: crypto.randomUUID(), streamId: sessionId, command },
+				(receipt) =>
+					Effect.gen(function* () {
+						if (receipt.eventIds.length > 0 && command._tag === "SetProvider")
+							yield* handoffs.capture(
+								sessionId,
+								command.providerId as ProviderId,
+								receipt.eventIds[0]!,
+							);
+					}),
+			)
+			.pipe(
+				Effect.catchTag(["SessionNotFound", "SessionDeletedConflict"], () =>
+					Effect.fail(new SessionNotFoundError({ sessionId })),
+				),
+				Effect.catchTag("ValidationFailed", (error) =>
+					Effect.fail(
+						new SessionConfigurationError({ sessionId, reason: error.message }),
+					),
+				),
+				Effect.catch((error) =>
+					error._tag === "SessionNotFoundError" ||
+					error._tag === "SessionConfigurationError"
+						? Effect.fail(error)
+						: Effect.die(error),
+				),
+			);
 
-	/**
-	 * Switch a session's provider (and the model it runs under) before any
-	 * user message has been sent. The new CLI can't read the prior CLI's
-	 * transcript, so this is fresh-session-only — mid-chat callers get
-	 * `SessionAlreadyStartedError`. Resets `cursor` / `resume_strategy`
-	 * since both are provider-specific.
-	 */
+	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
+		configureProvider(sessionId, {
+			_tag: "SetModel",
+			model,
+			updatedAt: Date.now(),
+		});
 	const setProvider: ConversationOperations["setProvider"] = (
 		sessionId,
 		providerId,
 		model,
 	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			yield* ensureSessionNotStarted(sessionId);
-			// Invalidate before persisting the selection so an explicit warm-up
-			// cannot attach the previous provider after the metadata switch.
-			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
-			yield* interruptProviderFiber(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
-				_tag: "SetProvider",
-				providerId,
-				model,
-				updatedAt: yield* currentTimestamp,
-			});
-			yield* setStatus(sessionId, "idle");
+		configureProvider(sessionId, {
+			_tag: "SetProvider",
+			providerId,
+			model,
+			updatedAt: Date.now(),
 		});
 
 	const archiveSession: ConversationOperations["archiveSession"] = (
