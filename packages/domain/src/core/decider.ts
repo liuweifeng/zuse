@@ -696,7 +696,13 @@ export const decide = (
 					new ValidationFailed({ message: "Invalid rollback boundary." }),
 				);
 			return success([
-				{ ...command, _tag: "TurnsRolledBack" },
+				{
+					...command,
+					_tag: "TurnsRolledBack",
+					rolledBackTurnIds: [...state.turns.values()]
+						.filter((turn) => turn.ordinal > command.throughOrdinal)
+						.map((turn) => turn.id),
+				},
 				{
 					_tag: "ActiveProviderThreadSet",
 					providerThreadId: null,

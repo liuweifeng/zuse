@@ -64,8 +64,10 @@ register("chat", true, ["chat.rename", "chat.markRead"]);
 register("session", false, [
 	"session.get",
 	"session.checkpoints.list",
+	"session.attempts.list",
 	"session.latestPlan",
 	"session.contextLinks",
+	"session.wait",
 	"session.forkConstructions",
 	"session.exportTranscript",
 	"messages.list",
@@ -80,6 +82,7 @@ register("session", false, [
 register("session", true, [
 	"session.rename",
 	"session.mergeBack",
+	"session.sendAndWait",
 	"session.retryFork",
 	"session.cancelFork",
 	"session.checkpoints.preview",

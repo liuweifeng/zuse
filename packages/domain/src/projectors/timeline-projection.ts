@@ -98,7 +98,7 @@ export const timelineEventFromDomain = (
 				requestedAt: new Date(event.turnRequestedAt),
 				completedAt: null,
 			};
-			return { _tag: "TurnUpdated", turn };
+			return { _tag: "TurnUpdated", turn, updatedAt: event.startedAt };
 		}
 		case "TurnInterruptRequested":
 			return {
@@ -121,6 +121,8 @@ export const timelineEventFromDomain = (
 		case "TurnsRolledBack":
 			return {
 				_tag: "TranscriptRolledBack",
+				rolledBackTurnIds: event.rolledBackTurnIds,
+				rolledBackAt: event.rolledBackAt,
 				removedMessageIds: event.removedMessageIds.map((id) =>
 					MessageId.make(id),
 				),

@@ -1,4 +1,5 @@
 import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
+import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-connect.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
@@ -136,6 +137,7 @@ import {
 } from "../lib/question-actionability.ts";
 import {
 	interruptSession,
+	persistQueuedMessage,
 	queueSessionMessage,
 	sendSessionMessage,
 	sessionModelOptionStorageKey,
@@ -385,11 +387,19 @@ export function ChatComposer({
 	// A message queued while offline must wait for the network. The server has
 	// no connectivity signal, so its immediate flush is suppressed here and the
 	// held queue drains through the shared online-edge recovery.
-	const queue = (input: ComposerInput) =>
-		queueSessionMessage(goalRef, input, {
+	const queue = async (input: ComposerInput) => {
+		const options = {
 			providerId: session.providerId,
+			rejectIfBlocked: true,
 			...(platformOnline ? {} : { flush: false }),
+		};
+		const queueId = queueSessionMessage(goalRef, input, {
+			...options,
+			persist: false,
 		});
+		return persistQueuedMessage(goalRef, queueId, input, options);
+	};
+
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
@@ -1205,6 +1215,16 @@ export function ChatComposer({
 
 	const submit = (): boolean => {
 		if (
+			composerSendBlocked(timeline.presentation.health, sendPlanFeedbackNow)
+		) {
+			toastManager.add({
+				type: "error",
+				title: uiMessage("chat:send_blocked"),
+			});
+			return false;
+		}
+
+		if (
 			submitDisabled ||
 			directoryUnavailable ||
 			submitting ||
@@ -1364,10 +1384,17 @@ export function ChatComposer({
 				// Mid-turn submit — or a submit while the provider is still coming up
 				// — becomes a queue chip; auto-flushed when the turn ends or steered
 				// manually.
-				commitComposerSubmission();
-				queue(
-					goalSendMode ? ComposerInput.make({ ...input, asGoal: true }) : input,
-				);
+				setSubmitting(true);
+				void commitAcceptedComposerDelivery(
+					queue(
+						goalSendMode
+							? ComposerInput.make({ ...input, asGoal: true })
+							: input,
+					),
+					commitComposerSubmission,
+				)
+					.catch(() => undefined)
+					.finally(() => setSubmitting(false));
 				break;
 			case "send":
 				sendAndCommitAfterAcceptance();

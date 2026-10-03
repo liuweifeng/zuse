@@ -32,6 +32,7 @@ import {
 } from "./provider-turn-request.ts";
 import type { QueueServiceRuntime } from "./queue-service-runtime.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
+import { assertSessionInputUnblocked } from "./session-input-admission.ts";
 
 export interface MessageOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -123,13 +124,9 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			goalState,
 			lookupSession,
 			ensureForTurn,
-			setStatus,
-			persistMessage,
 			submitTurn,
-			ndjsonAppend,
 			setGoal,
 			dispatchSessionCommand,
-			beginTurn,
 			settleTurn,
 			resolveActiveTurn,
 			runSessionReactors,
@@ -270,6 +267,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		): ReturnType<ConversationOperations["sendMessageWithInput"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
+				yield* assertSessionInputUnblocked(sql, sessionId, commandId);
 				const directoryRows = yield* sql<{
 					readonly project_id: string;
 					readonly project_path: string | null;
@@ -384,26 +382,40 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					skillRefs: skillRefs ?? [],
 					annotations: annotationList,
 				});
-				const persisted =
-					asGoal === true
-						? yield* beginTurn(sessionId, turnId).pipe(
-								Effect.andThen(
-									persistMessage(sessionId, content, clientMessageId, turnId),
-								),
-							)
-						: yield* submitTurn(
-								sessionId,
-								turnId,
-								content,
-								JSON.stringify({
-									...providerInput,
-									actor,
-									githubSlackMessageId,
-								}),
-								clientMessageId,
-								commandId,
-								receiptIdentity,
-							);
+				if (asGoal === true && text.trim().length === 0)
+					return { accepted: false };
+				if (asGoal === true && !isGoalCapableProvider(session.providerId)) {
+					const user = yield* options.persistMessage(
+						sessionId,
+						content,
+						clientMessageId,
+					);
+					yield* options.ndjsonAppend(sessionId, user);
+					const error = yield* options.persistMessage(sessionId, {
+						_tag: "error",
+						message:
+							"Goal mode is currently only supported for Codex and Grok sessions.",
+					});
+					yield* options.ndjsonAppend(sessionId, error);
+					return { accepted: false, messageId: user.message.id };
+				}
+				const persisted = yield* submitTurn(
+					sessionId,
+					turnId,
+					content,
+					JSON.stringify({
+						...providerInput,
+						actor,
+						githubSlackMessageId,
+						goal:
+							asGoal === true
+								? { objective: text.trim(), status: "active" }
+								: undefined,
+					}),
+					clientMessageId,
+					commandId,
+					receiptIdentity,
+				);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
 				// GC join intact.
@@ -413,61 +425,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
             VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignore);
 				}
-				if (asGoal === true) {
-					const objective = text.trim();
-					if (objective.length === 0) return { accepted: false };
-					if (!isGoalCapableProvider(session.providerId)) {
-						const persistedError = yield* persistMessage(sessionId, {
-							_tag: "error",
-							message:
-								"Goal mode is currently only supported for Codex and Grok sessions.",
-						});
-						yield* ndjsonAppend(sessionId, persistedError);
-						return {
-							accepted: false,
-							messageId: persisted.message.id,
-							turnId: persisted.turnId ?? turnId,
-						};
-					}
-					const goal = yield* setGoal(sessionId, {
-						objective,
-						status: "active",
-					}).pipe(
-						Effect.catch((err) =>
-							Effect.gen(function* () {
-								const message =
-									err._tag === "SessionStartError"
-										? `Goal mode could not start ${session.providerId}: ${err.reason}`
-										: `Goal mode could not start ${session.providerId} for this session.`;
-								const persistedError = yield* persistMessage(sessionId, {
-									_tag: "error",
-									message,
-								});
-								yield* ndjsonAppend(sessionId, persistedError);
-								yield* setStatus(sessionId, "idle");
-								return null;
-							}),
-						),
-					);
-					if (goal === null)
-						return {
-							accepted: false,
-							messageId: persisted.message.id,
-							turnId: persisted.turnId ?? turnId,
-						};
-					// Grok runs goal mode by forwarding `/goal` as a real prompt turn,
-					// so reflect the running turn the way a normal send does — the
-					// driver emits `Status: idle` when the goal run finishes. Codex
-					// drives its own status via native goal notifications, so leave it.
-					if (session.providerId === "grok") {
-						yield* setStatus(sessionId, "running");
-					}
-					return {
-						accepted: true,
-						messageId: persisted.message.id,
-						turnId: persisted.turnId ?? turnId,
-					};
-				}
+
 				return {
 					accepted: true,
 					messageId: persisted.message.id,

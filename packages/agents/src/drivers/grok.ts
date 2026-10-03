@@ -125,7 +125,10 @@ export interface GrokSessionHandle extends GoalCapableSessionHandle {
 	 * from typed `goal_updated` notifications.
 	 */
 	readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
-	readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+	readonly setGoal: (
+		goal: ThreadGoalSetInput,
+		options?: { readonly execute?: boolean },
+	) => Effect.Effect<ThreadGoal>;
 	readonly clearGoal: () => Effect.Effect<void>;
 }
 
@@ -1352,7 +1355,7 @@ export const startGrokSession = (
 					});
 				}),
 			getGoal: () => Effect.sync(() => currentGoal),
-			setGoal: (goalInput) =>
+			setGoal: (goalInput, options) =>
 				Effect.sync(() => {
 					const now = Date.now();
 					const objective = (
@@ -1376,14 +1379,22 @@ export const startGrokSession = (
 						createdAt: currentGoal?.createdAt ?? now,
 						updatedAt: now,
 					});
-					if (currentGoal === null && objective.length > 0) {
+					if (
+						objective.length > 0 &&
+						(currentGoal === null ||
+							(goalInput.objective !== undefined &&
+								objective !== currentGoal.objective))
+					) {
 						const budget = goal.tokenBudget;
 						enqueuePrompt(
 							`/goal ${objective}${budget === null ? "" : ` --budget ${budget}`}`,
 						);
 					} else if (status === "paused" && previousStatus !== "paused") {
 						enqueuePrompt("/goal pause");
-					} else if (status === "active" && previousStatus === "paused") {
+					} else if (
+						status === "active" &&
+						(options?.execute === true || previousStatus === "paused")
+					) {
 						enqueuePrompt("/goal resume");
 					}
 					return goal;

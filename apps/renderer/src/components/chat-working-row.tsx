@@ -1,3 +1,4 @@
+import { nativeBackgroundChildren } from "@zuse/client-runtime/native-background";
 import "@zuse/i18n/english/chat";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { SessionRuntimeState } from "@zuse/client-runtime/session-presentation";
@@ -91,6 +92,10 @@ export function ChatWorkingRow({
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
 	const activityState = deriveAgentActivityState(messages, interactions);
+	const background = useMemo(
+		() => nativeBackgroundChildren(messages),
+		[messages],
+	);
 
 	return (
 		<div
@@ -105,17 +110,19 @@ export function ChatWorkingRow({
 			>
 				{finalizing
 					? uiMessage("chat:checkpoints_saving")
-					: waitingCommand !== null
-						? waitingCommand.label
-						: showStartup
-							? providerStartupLabel({
-									providerLabel,
-									failed: false,
-									delayed,
-								})
-							: uiMessage("chat:chat_working_row_is_working", {
-									providerLabel: String(providerLabel),
-								})}
+					: background.size > 0
+						? uiMessage("chat:native_background_running")
+						: waitingCommand !== null
+							? waitingCommand.label
+							: showStartup
+								? providerStartupLabel({
+										providerLabel,
+										failed: false,
+										delayed,
+									})
+								: uiMessage("chat:chat_working_row_is_working", {
+										providerLabel: String(providerLabel),
+									})}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}

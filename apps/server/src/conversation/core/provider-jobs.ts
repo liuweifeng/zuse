@@ -290,6 +290,10 @@ export const makeProviderJobExecutor = (
 					input.fileRefs,
 					input.skillRefs,
 					AttemptId.make(expectedAttempt.attemptId),
+					rawInput.goal ??
+						(rawInput.asGoal === true
+							? { objective: rawInput.text, status: "active" as const }
+							: undefined),
 				)
 				.pipe(Effect.exit);
 			if (sent._tag === "Success") {
@@ -300,6 +304,7 @@ export const makeProviderJobExecutor = (
 				yield* recoverUnknownDelivery(job, sessionId, turnId, expectedAttempt);
 				return;
 			}
+			const prepareFallbackContext = options.prepareFallbackContext;
 			const restarted = yield* ensureForTurn(sessionId, {
 				initialTurnId: turnId,
 				initialAttemptId: AttemptId.make(expectedAttempt.attemptId),
@@ -309,11 +314,15 @@ export const makeProviderJobExecutor = (
 				forkSourceThreadId: startupRequest?.forkSourceThreadId,
 				postBootStatus: "running",
 				sendAfterOpen: {
+					goal:
+						rawInput.goal ??
+						(rawInput.asGoal === true
+							? { objective: rawInput.text, status: "active" as const }
+							: undefined),
 					onNativeResumeFallback:
-						options.prepareFallbackContext === undefined
+						prepareFallbackContext === undefined
 							? undefined
-							: () =>
-									options.prepareFallbackContext!(session, turnId, rawInput),
+							: () => prepareFallbackContext(session, turnId, rawInput),
 					turnId,
 					attemptId: AttemptId.make(expectedAttempt.attemptId),
 					text: input.text,
@@ -510,12 +519,12 @@ export const makeProviderJobExecutor = (
 						fileRefs: input.fileRefs,
 						skillRefs: input.skillRefs,
 						annotations: input.annotations ?? [],
-						goal: false,
+						goal: input.asGoal === true,
 					}
 				: {
 						_tag: "user" as const,
 						text: input.text,
-						goal: false,
+						goal: input.asGoal === true,
 						actor: input.actor,
 					};
 			const admitted = yield* sessionDomain

@@ -23,6 +23,10 @@ import {
 import { type MessageRow, messageFromRow } from "./conversation-records.ts";
 import { makeForkConstruction } from "./fork-construction.ts";
 import { readForkSnapshot } from "./fork-snapshot.ts";
+import {
+	captureNativeChildFork,
+	type inspectNativeChildThread,
+} from "./native-child-fork.ts";
 
 interface PersistedMessage {
 	readonly message: Message;
@@ -31,6 +35,7 @@ interface PersistedMessage {
 
 export interface TranscriptOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
+	readonly inspectNativeChildThread?: typeof inspectNativeChildThread;
 	readonly sessionDomain?: Pick<
 		import("@zuse/domain/engine/session-domain").SessionDomainApi,
 		"dispatchTransactionally"
@@ -194,12 +199,22 @@ export const makeTranscriptOperations = (
 					messageFromRow(rows[forkIndex]!).content,
 				);
 			const forkMode: "resume" | "copy" =
+				input.nativeChildStepId === undefined &&
 				isTail &&
 				providerId === source.providerId &&
 				providerCanFork &&
 				source.providerThread !== null
 					? "resume"
 					: "copy";
+			const nativeTranscript =
+				input.nativeChildStepId === undefined
+					? undefined
+					: yield* captureNativeChildFork(
+							sql,
+							input.sourceSessionId,
+							input.nativeChildStepId,
+							options.inspectNativeChildThread,
+						);
 			const title =
 				input.title?.trim() || `Fork of ${source.title}`.slice(0, 120);
 			const transcript = rows
@@ -236,8 +251,11 @@ export const makeTranscriptOperations = (
 				providerThread,
 				forkedFromSessionId: sourceSnapshot === undefined ? source.id : null,
 				forkedFromMessageId: input.fromMessageId,
+				nativeChildStepId: input.nativeChildStepId,
 				forkMode,
-				messages: transcript.map(({ id, content }) => ({ id, content })),
+				messages:
+					nativeTranscript ??
+					transcript.map(({ id, content }) => ({ id, content })),
 			});
 		});
 

@@ -35,6 +35,7 @@ describe("orchestration MCP tools", () => {
 			"create_thread",
 			"create_session",
 			"send_to_thread",
+			"wait_for_thread",
 			"read_thread",
 			"list_threads",
 			"list_models",
@@ -49,6 +50,7 @@ describe("orchestration MCP tools", () => {
 			"list_models",
 			"list_threads",
 			"read_thread",
+			"wait_for_thread",
 			"whoami",
 		]);
 		expect([...MUTATING_ORCHESTRATION_TOOLS].sort()).toEqual([

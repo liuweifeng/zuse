@@ -8,6 +8,7 @@ import type {
 import { type Cause, Deferred, Effect, Fiber, Queue, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type {
+	GoalCapableSessionHandle,
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 } from "../../../src/kernel/driver.ts";
@@ -28,6 +29,70 @@ const handleWithEvents = (
 });
 
 describe("turn-scoped provider protocol", () => {
+	it("binds native goal output and completion to the durable attempt before setGoal executes", async () => {
+		let admittedExecutions = 0;
+		const native: GoalCapableSessionHandle = {
+			...handleWithEvents([
+				{
+					_tag: "NativeTurnStarted",
+					reference: {
+						provider: "codex",
+						nativeThreadId: "goal-thread",
+						nativeTurnId: "first",
+					},
+				},
+				{
+					_tag: "NativeTurnStarted",
+					reference: {
+						provider: "codex",
+						nativeThreadId: "goal-thread",
+						nativeTurnId: "second",
+					},
+				},
+				{ _tag: "AssistantMessage", itemId, text: "goal result" },
+				{ _tag: "Completed", reason: "ended" },
+			]),
+			getGoal: () => Effect.succeed(null),
+			clearGoal: () => Effect.void,
+			setGoal: (_goal, options) =>
+				Effect.sync(() => {
+					if (options?.execute) admittedExecutions += 1;
+					return {
+						threadId: "grok-thread",
+						objective: "work",
+						status: "active",
+						tokenBudget: null,
+						tokensUsed: 0,
+						timeUsedSeconds: 0,
+						createdAt: 1,
+						updatedAt: 1,
+					};
+				}),
+		};
+		const attemptId = "goal-attempt" as AttemptId;
+		const scoped = await Effect.runPromise(
+			makeTurnScopedSessionHandle(native, turnId, attemptId),
+		);
+		await Effect.runPromise(
+			scoped.sendGoal(turnId, { objective: "work", status: "active" }),
+		);
+		await Effect.runPromise(
+			scoped.sendGoal(turnId, { objective: "work", status: "active" }),
+		);
+		expect(admittedExecutions).toBe(1);
+		const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+		expect(events.map((value) => value.event._tag)).toEqual([
+			"AssistantMessage",
+			"Completed",
+		]);
+		expect(
+			events.every(
+				(value) =>
+					value.scope === "turn" && value.ownership?.attemptId === attemptId,
+			),
+		).toBe(true);
+	});
+
 	it("correlates native execution only while the attempt is active", async () => {
 		const native: AgentEvent = {
 			_tag: "NativeTurnStarted",
@@ -755,7 +820,7 @@ it("interrupts the child-draining window even though the native root already end
 								? Deferred.succeed(rootFinished, undefined)
 								: Effect.void,
 						),
-						Stream.take(4),
+						Stream.take(5),
 						Stream.runCollect,
 					),
 				);
@@ -817,4 +882,132 @@ it("does not reopen a finished child when a provider repeats its spawn item", as
 		reason: "ended",
 	});
 	expect(events.some((e) => e.event._tag === "SubagentProgress")).toBe(false);
+});
+
+it.each([
+	"closed",
+	"error",
+] as const)("joins native children before terminal provider status %s", async (status) => {
+	let closed = false;
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			{
+				...handleWithEvents([childSpawn, { _tag: "Status", status }]),
+				close: () =>
+					Effect.sync(() => {
+						closed = true;
+					}),
+			},
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(
+		scoped.events.pipe(
+			Stream.tap((e) =>
+				Effect.sync(() => {
+					if (
+						e.event._tag === "SubagentSummary" ||
+						e.event._tag === "Completed"
+					)
+						expect(closed).toBe(true);
+				}),
+			),
+			Stream.runCollect,
+		),
+	);
+	expect(
+		events.some((e) => e.event._tag === "SubagentSummary" && e.event.isError),
+	).toBe(true);
+	expect(events.filter((e) => e.event._tag === "Completed")).toHaveLength(1);
+});
+
+it("keeps a background shell task alive after root completion until its explicit result arrives", async () => {
+	const task: AgentEvent = {
+		_tag: "ToolUse",
+		itemId,
+		tool: "Bash",
+		input: { command: "work" },
+		backgroundTask: { taskId: "background-shell" },
+	};
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				task,
+				{ _tag: "Completed", reason: "ended" },
+				{ _tag: "ToolResult", itemId, output: "Finished", isError: false },
+			]),
+			turnId,
+		),
+	);
+	const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+	expect(events.map((e) => e.event._tag)).toEqual([
+		"ToolUse",
+		"SubagentProgress",
+		"ToolResult",
+		"Completed",
+	]);
+	expect(events[1]?.event).toMatchObject({
+		rootCompleted: true,
+		childSessionId: "background-shell",
+	});
+});
+
+it("interrupts an autonomous goal between native turns only after process quiescence", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const events = yield* Queue.unbounded<AgentEvent>();
+				const closing = yield* Deferred.make<void>();
+				const release = yield* Deferred.make<void>();
+				let terminal = false;
+				const native: GoalCapableSessionHandle = {
+					...handleWithEvents([]),
+					events: Stream.fromQueue(events),
+					getGoal: () => Effect.succeed(null),
+					clearGoal: () => Effect.void,
+					setGoal: () =>
+						Effect.succeed({
+							threadId: "goal",
+							objective: "work",
+							status: "active",
+							tokenBudget: null,
+							tokensUsed: 0,
+							timeUsedSeconds: 0,
+							createdAt: 1,
+							updatedAt: 1,
+						}),
+					interrupt: () => Effect.die("no physical turn to interrupt"),
+					close: () =>
+						Deferred.succeed(closing, undefined).pipe(
+							Effect.andThen(Deferred.await(release)),
+						),
+				};
+				const scoped = yield* makeTurnScopedSessionHandle(
+					native,
+					turnId,
+					"attempt-goal" as AttemptId,
+				);
+				yield* scoped.sendGoal(turnId, { objective: "work", status: "active" });
+				const result = yield* scoped.events.pipe(
+					Stream.tap((e) =>
+						Effect.sync(() => {
+							if (e.event._tag === "Completed") terminal = true;
+						}),
+					),
+					Stream.takeUntil((e) => e.event._tag === "Completed"),
+					Stream.runCollect,
+					Effect.forkChild,
+				);
+				const stop = yield* scoped.interrupt(turnId).pipe(Effect.forkChild);
+				yield* Deferred.await(closing);
+				expect(terminal).toBe(false);
+				yield* Deferred.succeed(release, undefined);
+				yield* Fiber.join(stop);
+				expect((yield* Fiber.join(result)).at(-1)?.event).toEqual({
+					_tag: "Completed",
+					reason: "interrupted",
+				});
+			}),
+		),
+	);
 });

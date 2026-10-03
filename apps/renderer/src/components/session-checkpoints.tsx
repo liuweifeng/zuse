@@ -235,18 +235,20 @@ export function SessionCheckpoints({
 													disabled={busy}
 													onClick={() =>
 														void run(async (client) => {
+															const current = generation.current;
 															await Effect.runPromise(
 																client["session.checkpoints.retry"]({
 																	sessionId,
 																}),
 															);
-															setRows(
-																await Effect.runPromise(
-																	client["session.checkpoints.list"]({
-																		sessionId,
-																	}),
-																),
+															if (current !== generation.current) return;
+															const result = await Effect.runPromise(
+																client["session.checkpoints.list"]({
+																	sessionId,
+																}),
 															);
+															if (current === generation.current)
+																setRows(result);
 														})
 													}
 												>

@@ -1,12 +1,20 @@
 import { AgentItemId, type MessageContent, SessionId } from "@zuse/contracts";
+import { SessionEvent } from "@zuse/domain/core/events";
+import { attemptIdFor } from "@zuse/domain/core/state";
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
+import { timelineEventFromDomain } from "../../../../packages/domain/src/projectors/timeline-projection.ts";
+import {
+	applyTimelineEvent,
+	emptyTimelineProjection,
+} from "../../../../packages/domain/src/projectors/timeline-reducer.ts";
 import { readSessionTimelineSnapshot } from "../../../../packages/domain/src/queries/session-timeline-snapshot.ts";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
 import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
+import { Migration0082ExecutionSteps } from "../../src/persistence/migrations/0082_execution_steps.ts";
 
 it("persists native child lineage and physical root completion separately from child terminal status", async () => {
 	await Effect.runPromise(
@@ -28,7 +36,7 @@ it("persists native child lineage and physical root completion separately from c
 					commandId: "start",
 					command: { _tag: "StartTurn", turnId: "turn", startedAt: 2 },
 				});
-				yield* sql`UPDATE session_turns SET active_attempt_id='attempt' WHERE id='turn'`;
+
 				const persist = (id: string, content: MessageContent) =>
 					domain.dispatch({
 						streamId: sessionId,
@@ -83,7 +91,7 @@ it("persists native child lineage and physical root completion separately from c
 							kind: "subagent",
 							status: "running",
 							nativeChildId: "native-child",
-							attemptId: "attempt",
+							attemptId: attemptIdFor("turn", 1),
 							rootCompletedAt: 3,
 						}),
 						expect.objectContaining({
@@ -134,6 +142,66 @@ it("persists native child lineage and physical root completion separately from c
 					]),
 				);
 				expect(snapshot.projection.activeTurn).toBeNull();
+				const records = yield* sql<{
+					payload_json: string;
+				}>`SELECT payload_json FROM events WHERE stream_id=${sessionId} ORDER BY sequence`;
+				let live = emptyTimelineProjection();
+				for (const row of records)
+					live = applyTimelineEvent(
+						live,
+						timelineEventFromDomain(
+							sessionId,
+							Schema.decodeUnknownSync(Schema.fromJsonString(SessionEvent))(
+								row.payload_json,
+							),
+						),
+					);
+				expect(live.executionSteps).toEqual(snapshot.projection.executionSteps);
+				yield* sql`DROP TABLE session_execution_steps`;
+				yield* Migration0082ExecutionSteps;
+				const upgraded = yield* readSessionTimelineSnapshot(sql, sessionId);
+				expect(upgraded.projection.executionSteps).toEqual(
+					snapshot.projection.executionSteps,
+				);
+				yield* domain.dispatch({
+					streamId: sessionId,
+					commandId: "rollback",
+					command: {
+						_tag: "RollbackTurns",
+						throughOrdinal: 0,
+						messageSequence: 0,
+						removedMessageIds: snapshot.projection.messages.map(
+							(message) => message.id,
+						),
+						rolledBackAt: 5,
+					},
+				});
+				const rollbackSnapshot = yield* readSessionTimelineSnapshot(
+					sql,
+					sessionId,
+				);
+				const rollbackRecords = yield* sql<{
+					payload_json: string;
+				}>`SELECT payload_json FROM events WHERE stream_id=${sessionId} ORDER BY sequence`;
+				let rollbackLive = emptyTimelineProjection();
+				for (const row of rollbackRecords)
+					rollbackLive = applyTimelineEvent(
+						rollbackLive,
+						timelineEventFromDomain(
+							sessionId,
+							Schema.decodeUnknownSync(Schema.fromJsonString(SessionEvent))(
+								row.payload_json,
+							),
+						),
+					);
+				expect(rollbackLive.executionSteps).toEqual(
+					rollbackSnapshot.projection.executionSteps,
+				);
+				expect(
+					rollbackLive.executionSteps?.every(
+						(step) => step.status === "cancelled" && step.updatedAt === 5,
+					),
+				).toBe(true);
 			}),
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);

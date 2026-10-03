@@ -9,6 +9,7 @@ import {
 	type ChatAttentionState,
 	deriveChatAttentionState,
 	derivePermissionAttention,
+	executionAttentionState,
 	mergeChatAttentionStates,
 } from "./chat-attention-state.ts";
 import { useActiveEnvironmentEntities } from "./environment-entity-hooks.ts";
@@ -64,7 +65,10 @@ export function useChatAttention(
 		() =>
 			mergeChatAttentionStates(
 				timelines.map((timeline) =>
-					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
+					executionAttentionState(
+						isSessionRuntimeBusy(timeline.runtime),
+						timeline.presentation.health,
+					),
 				),
 			),
 		[timelines],

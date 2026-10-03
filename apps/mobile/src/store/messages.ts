@@ -15,6 +15,7 @@ import type {
 	Message,
 	MessageId,
 	QueuedMessage,
+	SessionExecutionStep,
 	SessionId,
 	SessionInteraction,
 } from "@zuse/contracts";
@@ -41,6 +42,16 @@ import {
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
+
+const executionStepsBySessionAtom = Atom.make<
+	Record<string, readonly SessionExecutionStep[]>
+>({}).pipe(Atom.keepAlive);
+const EMPTY_EXECUTION_STEPS: readonly SessionExecutionStep[] = [];
+export const sessionExecutionStepsAtom = Atom.family((key: string) =>
+	Atom.make(
+		(get) => get(executionStepsBySessionAtom)[key] ?? EMPTY_EXECUTION_STEPS,
+	),
+);
 
 const healthBySessionAtom = Atom.make<
 	Record<string, SessionPresentation["health"]>
@@ -216,6 +227,14 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		markSessionTurnWaiting(liveKey);
 	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
+		appAtomRegistry.update(executionStepsBySessionAtom, (state) =>
+			state[liveKey] === projection.executionSteps
+				? state
+				: {
+						...state,
+						[liveKey]: projection.executionSteps ?? EMPTY_EXECUTION_STEPS,
+					},
+		);
 		appAtomRegistry.update(interactionsBySessionAtom, (state) =>
 			state[liveKey] === projection.interactions
 				? state
@@ -293,6 +312,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
 		appAtomRegistry.set(interactionsBySessionAtom, {});
 		appAtomRegistry.set(healthBySessionAtom, {});
+		appAtomRegistry.set(executionStepsBySessionAtom, {});
 		appAtomRegistry.set(transcriptReadyBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
 		appAtomRegistry.set(queuePausedBySessionAtom, {});

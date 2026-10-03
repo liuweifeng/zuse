@@ -1,3 +1,5 @@
+import { completedNativeChildStep } from "@zuse/client-runtime/native-subagent-fork";
+import { Button } from "~/components/ui/button";
 import "@zuse/i18n/english/chat";
 import type { FileChange } from "@zuse/client-runtime/timeline";
 import {
@@ -8,6 +10,7 @@ import type {
 	AttachmentRef,
 	Message,
 	MessageContent,
+	SessionExecutionStep,
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
@@ -69,11 +72,13 @@ export type MessageRowContext = {
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
 	/** Whether the session is actively running (drives the shimmer on the last row). */
 	sessionRunning?: boolean;
+	executionSteps?: readonly SessionExecutionStep[];
 	lastAssistantMessageId?: Message["id"];
 	onAnswerQuestion: (
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;
+	onForkNativeChild?: (messageId: Message["id"], stepId: string) => void;
 	onForkFromMessage?: (
 		messageId: Message["id"],
 		destination: "tab" | "chat",
@@ -178,14 +183,24 @@ const MessageRowContent = ({
 				);
 			}
 			return (
-				<ToolUseRow
-					content={content}
-					result={ctx.toolResultsByItemId.get(content.itemId)}
-					shimmer={shimmerActive}
-					connectionKey={ctx.connectionKey}
-					sessionId={ctx.sessionId}
-					workspaceRoot={ctx.workspaceRoot}
-				/>
+				<View>
+					<ToolUseRow
+						content={content}
+						result={ctx.toolResultsByItemId.get(content.itemId)}
+						shimmer={shimmerActive}
+						connectionKey={ctx.connectionKey}
+						sessionId={ctx.sessionId}
+						workspaceRoot={ctx.workspaceRoot}
+					/>
+					{content.subagent !== undefined ? (
+						<NativeChildFork
+							messageId={message.id}
+							itemId={content.itemId}
+							nativeChildId={content.subagent.childSessionId}
+							context={ctx}
+						/>
+					) : null}
+				</View>
 			);
 		}
 		case "tool_result":
@@ -1108,3 +1123,34 @@ const planResultStatus = (
 	if (text.includes("abandon")) return "Abandoned";
 	return "Resolved";
 };
+
+function NativeChildFork({
+	messageId,
+	itemId,
+	nativeChildId,
+	context,
+}: {
+	messageId: Message["id"];
+	itemId: string;
+	nativeChildId?: string;
+	context: MessageRowContext;
+}) {
+	const { message } = useMessages(["chat"]);
+	const step =
+		nativeChildId === undefined
+			? null
+			: completedNativeChildStep(context.executionSteps ?? [], {
+					itemId,
+					nativeChildId,
+				});
+	if (step === null || context.onForkNativeChild === undefined) return null;
+	return (
+		<Button
+			className="h-7 self-start"
+			variant="ghost"
+			onPress={() => context.onForkNativeChild?.(messageId, step.id)}
+		>
+			{message("chat:fork_menu_fork_in_new_tab")}
+		</Button>
+	);
+}

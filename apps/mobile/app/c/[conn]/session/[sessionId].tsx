@@ -132,6 +132,7 @@ import {
 	resumeQueue,
 	runQueuedMessageNext,
 	sessionDeliveryAtom,
+	sessionExecutionStepsAtom,
 	sessionHealthAtom,
 	sessionInteractionsAtom,
 	sessionMessagesAtom,
@@ -256,6 +257,7 @@ function ThreadScreen() {
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
 	const interactions = useAtomValue(sessionInteractionsAtom(stateKey));
 	const executionHealth = useAtomValue(sessionHealthAtom(stateKey));
+	const executionSteps = useAtomValue(sessionExecutionStepsAtom(stateKey));
 	const transcriptReady = useAtomValue(sessionTranscriptReadyAtom(stateKey));
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
@@ -622,12 +624,15 @@ function ThreadScreen() {
 		}
 	};
 
+	const forkPending = useRef(false);
 	const runFork = async (
 		fromMessageId: MessageId,
 		destination: "tab" | "chat",
 		isolated: boolean,
+		nativeChildStepId?: string,
 	) => {
-		if (detail === null || options === null) return;
+		if (detail === null || options === null || forkPending.current) return;
+		forkPending.current = true;
 		try {
 			const detail = await prepareSessionWorkspace(
 				connKey,
@@ -650,6 +655,7 @@ function ThreadScreen() {
 					connection: options,
 					sourceSessionId: normalizedSessionId,
 					fromMessageId,
+					nativeChildStepId,
 					destination,
 					worktreeId,
 				}),
@@ -675,6 +681,8 @@ function ThreadScreen() {
 			);
 		} catch (cause) {
 			Alert.alert("Could not create fork", connectionErrorMessage(cause));
+		} finally {
+			forkPending.current = false;
 		}
 	};
 
@@ -696,8 +704,12 @@ function ThreadScreen() {
 		questionsByItemId,
 		toolResultsByItemId,
 		sessionRunning: sessionActive,
+		executionSteps,
 		onAnswerQuestion,
 		onForkFromMessage,
+		onForkNativeChild: (messageId, stepId) => {
+			void runFork(messageId, "tab", false, stepId);
+		},
 	};
 
 	useEffect(() => {
@@ -1165,6 +1177,18 @@ function ThreadScreen() {
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}
+							onCheckpoints={() =>
+								router.push({
+									pathname: "/c/[conn]/session/[sessionId]/checkpoints",
+									params: { conn: connKey, sessionId: normalizedSessionId },
+								})
+							}
+							onAttempts={() =>
+								router.push({
+									pathname: "/c/[conn]/session/[sessionId]/attempts",
+									params: { conn: connKey, sessionId: normalizedSessionId },
+								})
+							}
 							onTerminal={
 								mobileReleaseFeatures.terminal &&
 								(options?.cloudWorkspaceId !== undefined ||

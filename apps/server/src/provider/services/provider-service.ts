@@ -1,5 +1,4 @@
 import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
-
 import type {
 	AgentAvailability,
 	AgentItemId,
@@ -27,6 +26,7 @@ import type {
 import { Context, type Effect, type Stream } from "effect";
 import type { CredentialsError } from "../errors.ts";
 import type { ProviderEventDelivery } from "../provider-event-delivery.ts";
+import type { GoalCurrentCheck, GoalPublication } from "../provider-goal.ts";
 
 /**
  * Live-read of the per-session runtime mode. Bound at start time and read by
@@ -101,6 +101,7 @@ export interface ProviderServiceShape {
 		fileRefs?: ReadonlyArray<FileRef>,
 		skillRefs?: ReadonlyArray<SkillRef>,
 		attemptId?: import("@zuse/contracts").AttemptId,
+		goal?: ThreadGoalSetInput,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
 	readonly interrupt: (
@@ -192,15 +193,21 @@ export interface ProviderServiceShape {
 
 	readonly getGoal: (
 		sessionId: AgentSessionId,
+		onResult?: GoalPublication<ThreadGoal | null>,
+		verify?: GoalCurrentCheck,
 	) => Effect.Effect<ThreadGoal | null, AgentSessionNotFoundError>;
 
 	readonly setGoal: (
 		sessionId: AgentSessionId,
 		goal: ThreadGoalSetInput,
+		onResult?: GoalPublication<ThreadGoal>,
+		verify?: GoalCurrentCheck,
 	) => Effect.Effect<ThreadGoal, AgentSessionNotFoundError>;
 
 	readonly clearGoal: (
 		sessionId: AgentSessionId,
+		onResult?: GoalPublication<void>,
+		verify?: GoalCurrentCheck,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 }
 

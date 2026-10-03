@@ -2,6 +2,7 @@ import {
 	AgentTurnId,
 	ComposerInput,
 	QueuedMessageInput,
+	ThreadGoalSetInput,
 } from "@zuse/contracts";
 import { Schema } from "effect";
 
@@ -27,7 +28,12 @@ export const decodeProviderModelOptions = Schema.decodeUnknownEffect(
 );
 
 export const decodeProviderTurnInput = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(ComposerInput),
+	Schema.fromJsonString(
+		Schema.Struct({
+			...ComposerInput.fields,
+			goal: Schema.optional(ThreadGoalSetInput),
+		}),
+	),
 );
 
 export const decodeQueuedTurnInput = Schema.decodeUnknownEffect(

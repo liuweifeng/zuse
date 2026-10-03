@@ -136,6 +136,16 @@ export const applyTimelineEvent = (
 				...projection,
 				messages,
 				executionSteps,
+				executionStepsTruncated:
+					projection.executionStepsTruncated ||
+					(content._tag === "tool_use" &&
+						(projection.executionSteps?.length ?? 0) >= 200 &&
+						!projection.executionSteps?.some(
+							(step) =>
+								step.turnId === turn?.id &&
+								step.attemptId === turn.attempt.id &&
+								step.itemId === content.itemId,
+						)),
 				interactions,
 			});
 		}
@@ -163,6 +173,15 @@ export const applyTimelineEvent = (
 			return projection.activeTurn?.id === event.turn.id
 				? SessionTimelineProjection.make({
 						...projection,
+						executionSteps:
+							projection.activeTurn.attempt.id === event.turn.attempt.id
+								? projection.executionSteps
+								: settleExecutionSteps(
+										projection.executionSteps ?? [],
+										event.turn.id,
+										"cancelled",
+										event.updatedAt ?? event.turn.requestedAt.getTime(),
+									),
 						activeTurn: event.turn,
 					})
 				: projection;
@@ -175,8 +194,18 @@ export const applyTimelineEvent = (
 				: projection;
 		case "TranscriptRolledBack": {
 			const removed = new Set(event.removedMessageIds);
+			const rolledBackTurns = new Set(event.rolledBackTurnIds ?? []);
 			return SessionTimelineProjection.make({
 				...projection,
+				executionSteps: projection.executionSteps?.map((step) =>
+					rolledBackTurns.has(step.turnId)
+						? {
+								...step,
+								status: "cancelled",
+								updatedAt: event.rolledBackAt ?? step.updatedAt,
+							}
+						: step,
+				),
 				messages: projection.messages.filter(
 					(message) => !removed.has(message.id),
 				),

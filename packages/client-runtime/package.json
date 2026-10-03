@@ -5,6 +5,8 @@
 	"type": "module",
 	"exports": {
 		"./background-agent-presentation": "./src/background-agent-presentation.ts",
+		"./native-subagent-fork": "./src/native-subagent-fork.ts",
+		"./session-attempt-history": "./src/session-attempt-history.ts",
 		"./native-background": "./src/native-background.ts",
 		"./chat-sharing": "./src/chat-sharing.ts",
 		"./attachment-upload": "./src/attachment-upload.ts",

@@ -3,10 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
 	chatAttentionLabel,
 	deriveChatAttentionState,
+	executionAttentionState,
 	mergeChatAttentionStates,
 } from "../../src/lib/chat-attention-state.ts";
 
 type TestMessage = Parameters<typeof deriveChatAttentionState>[0][number];
+
+it("preserves observed execution health without treating quiet or disconnected work as done", () => {
+	expect(executionAttentionState(true, "stalled")).toBe("quiet");
+	expect(executionAttentionState(true, "unavailable")).toBe("unavailable");
+	expect(executionAttentionState(true, "disconnected")).toBe("disconnected");
+	expect(executionAttentionState(true, "unknown")).toBe("checking");
+	expect(executionAttentionState(false, "stalled")).toBe("idle");
+	expect(mergeChatAttentionStates(["running", "quiet"])).toBe("quiet");
+	expect(mergeChatAttentionStates(["unavailable", "permission"])).toBe(
+		"permission",
+	);
+});
 
 const question = (itemId: string): TestMessage => ({
 	content: {

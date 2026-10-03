@@ -1,4 +1,4 @@
-/** Maintains live goal state while SQLite remains the durable authority. */
+/** Caches authoritative native goal notifications; execution ownership lives in the durable turn ledger. */
 import {
 	MessageContent,
 	type SessionId,

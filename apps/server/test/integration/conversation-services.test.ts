@@ -173,6 +173,7 @@ let providerStartInputs: StartSessionInput[] = [];
 let providerStartCursors: Array<string | null> = [];
 const providerGoals = new Map<string, ThreadGoal>();
 let providerSentTexts: string[] = [];
+let providerSentGoals: unknown[] = [];
 let providerSendAttempts = 0;
 let providerBeforePublication:
 	| ((sessionId: AgentSessionId, ordinal: number) => Effect.Effect<void>)
@@ -309,7 +310,16 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				sessionId: input.sessionId ?? ("stub" as AgentSessionId),
 			};
 		}),
-	send: (sessionId, turnId, text) =>
+	send: (
+		sessionId,
+		turnId,
+		text,
+		_attachments,
+		_files,
+		_skills,
+		_attempt,
+		goal,
+	) =>
 		Effect.sync(() => {
 			providerSendAttempts += 1;
 			providerTurnIds.set(sessionId, turnId);
@@ -319,6 +329,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					: Effect.sync(() => {
 							providerSentTexts.push(text);
+							if (goal !== undefined) providerSentGoals.push(goal);
 						}),
 			),
 		),
@@ -465,9 +476,18 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 				? Effect.void
 				: Effect.fail(new AgentSessionNotFoundError({ sessionId }));
 		}),
-	getGoal: (sessionId) =>
-		Effect.sync(() => providerGoals.get(sessionId) ?? null),
-	setGoal: (sessionId, input) =>
+	getGoal: (sessionId, publish) =>
+		Effect.sync(() => providerGoals.get(sessionId) ?? null).pipe(
+			Effect.tap(
+				(goal) =>
+					publish?.(goal, {
+						providerSessionId:
+							activeProviderResidencies.get(sessionId) ?? "missing",
+						providerId: "codex",
+					}) ?? Effect.void,
+			),
+		),
+	setGoal: (sessionId, input, publish) =>
 		Effect.sync(() => {
 			const previous = providerGoals.get(sessionId);
 			const goal = ThreadGoal.make({
@@ -482,7 +502,16 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 			});
 			providerGoals.set(sessionId, goal);
 			return goal;
-		}),
+		}).pipe(
+			Effect.tap(
+				(goal) =>
+					publish?.(goal, {
+						providerSessionId:
+							activeProviderResidencies.get(sessionId) ?? "missing",
+						providerId: "codex",
+					}) ?? Effect.void,
+			),
+		),
 	clearGoal: () => Effect.void,
 });
 
@@ -973,6 +1002,7 @@ beforeEach(() => {
 	providerStartInputs = [];
 	providerStartCursors = [];
 	providerSentTexts = [];
+	providerSentGoals = [];
 	providerTurnIds.clear();
 	providerSendAttempts = 0;
 	activeProviderSessions = new Set();
@@ -4113,6 +4143,43 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("send-and-wait pins durable identities across observer timeouts and command replay", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const input = {
+				sessionId: initialSession.id,
+				commandId: "wait-idempotent-send",
+				text: "perform this once",
+			};
+			const first = await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessageAndWait(input, { target: "done", timeoutMs: 30 }),
+				),
+			);
+			const second = await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessageAndWait(input, { target: "done", timeoutMs: 30 }),
+				),
+			);
+			expect(second.turnId).toBe(first.turnId);
+			expect(second.attemptId).toBe(first.attemptId);
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(
+				messages.filter((message) => message.role === "user"),
+			).toHaveLength(1);
+		});
+	});
+
 	it("sendMessageWithInput returns the original causal identities on command replay", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -5344,6 +5411,92 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("ordinary auto-queue refuses newly blocking input atomically while intentional queue remains available", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const id = initialSession.id;
+			await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`UPDATE sessions SET provider_reservation_id='input-owner' WHERE id=${id}`,
+				),
+			);
+			// Input appeared after the client had already decided to auto-queue.
+			await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`INSERT INTO session_inputs(session_id,kind,request_id,status,owner_json,updated_sequence) VALUES(${id},'question','late-question','pending','{"providerSessionId":"input-owner"}',1)`,
+				),
+			);
+			const input = ComposerInput.make({
+				text: "keep this draft",
+				attachments: [],
+				fileRefs: [],
+				skillRefs: [],
+				annotations: [],
+			});
+			const rejected = await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						"ordinary-queue",
+						id,
+						input,
+						"ordinary-item",
+						true,
+						false,
+						undefined,
+						true,
+					),
+				).pipe(Effect.result),
+			);
+			expect(rejected).toMatchObject({
+				_tag: "Failure",
+				failure: {
+					_tag: "SessionInputBlockedError",
+					requestId: "late-question",
+				},
+			});
+			const rows = await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) => sql`SELECT id FROM queued_messages WHERE session_id=${id}`,
+				),
+			);
+			expect(rows).toHaveLength(0);
+			const receipts = await run(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT command_id FROM command_receipts WHERE command_id='ordinary-queue'`,
+				),
+			);
+			expect(receipts).toHaveLength(0);
+			const deliberate = await run(
+				Effect.flatMap(store, (s) =>
+					s.addQueuedMessage(
+						"explicit-queue",
+						id,
+						input,
+						"explicit-item",
+						true,
+						false,
+					),
+				),
+			);
+			expect(deliberate.id).toBe("explicit-item");
+		});
+	});
+
 	it("auto-flushes from authoritative turn state when status projection is stale", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -6139,6 +6292,50 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		}
 	});
 
+	it("submits Grok goals through the durable turn delivery ledger", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "grok",
+						model: "grok-code-fast-1",
+					}),
+				),
+			);
+			const result = await run(
+				Effect.flatMap(store, (s) =>
+					s.sendMessageWithInput({
+						commandId: "goal-send",
+						sessionId: initialSession.id,
+						text: "implement durable goal",
+						asGoal: true,
+					}),
+				),
+			);
+			expect(result.accepted).toBe(true);
+			await expect
+				.poll(() => providerSentGoals)
+				.toEqual([{ objective: "implement durable goal", status: "active" }]);
+			const events = await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.events({ streamId: initialSession.id }).pipe(
+						Stream.takeUntil((record) => record.event._tag === "TurnStarted"),
+						Stream.runCollect,
+					),
+				),
+			);
+			expect(events.some((event) => event.event._tag === "TurnStarted")).toBe(
+				true,
+			);
+			const messages = await run(
+				Effect.flatMap(store, (s) => s.listMessages(initialSession.id)),
+			);
+			expect(
+				messages.find((message) => message.role === "user")?.content,
+			).toMatchObject({ goal: true, text: "implement durable goal" });
+		});
+	});
 	it("manual interrupt pauses the active goal and publishes the paused state", async () => {
 		await withRuntime(async (run) => {
 			const { initialSession } = await run(
@@ -6151,14 +6348,20 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			await run(
-				Effect.flatMap(store, (s) =>
-					s.setGoal(initialSession.id, {
-						objective: "Test interrupt goal",
-						status: "active",
-					}),
-				),
+			providerGoals.set(
+				initialSession.id,
+				ThreadGoal.make({
+					threadId: initialSession.id,
+					objective: "Test interrupt goal",
+					status: "active",
+					tokenBudget: null,
+					tokensUsed: 0,
+					timeUsedSeconds: 0,
+					createdAt: 1,
+					updatedAt: 1,
+				}),
 			);
+			await run(Effect.flatMap(store, (s) => s.getGoal(initialSession.id)));
 			const paused = run(
 				Effect.flatMap(store, (s) =>
 					Stream.runHead(
@@ -6276,11 +6479,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						projectId: PROJECT_ID,
 						providerId: "codex",
 						model: "gpt-5.6-sol",
-						initialPrompt: "first turn",
 					}),
 				),
 			);
-			await run(
+			const goal = await run(
 				Effect.flatMap(store, (s) =>
 					s.setGoal(initialSession.id, {
 						objective: "Keep pursuing the successor",
@@ -6288,6 +6490,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
+			// The provider fixture acknowledges goal execution separately from its live state.
+			providerGoals.set(initialSession.id, goal);
+			await run(Effect.flatMap(store, (s) => s.getGoal(initialSession.id)));
 			const firstTurn = requireProviderTurnId(initialSession.id);
 			const successorTurn = AgentTurnId.make("turn-successor");
 			await run(

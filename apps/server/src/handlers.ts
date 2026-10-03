@@ -9,6 +9,7 @@ import { OrganizationHandlersLayer } from "./collaboration/organization-handlers
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
 import { DeviceBridgeHandlersLayer } from "./device-bridge/handlers.ts";
 import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
+import { ExecutionHistoryHandlersLayer } from "./execution-history/handlers.ts";
 import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
 import { GitHandlersLayer } from "./git/handlers.ts";
@@ -37,6 +38,7 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	ExecutionHistoryHandlersLayer,
 	CheckpointHandlersLayer,
 	ModelConnectionsHandlersLayer,
 	DeviceBridgeHandlersLayer,

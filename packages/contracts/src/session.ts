@@ -642,12 +642,17 @@ export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
 	Schema.TaggedStruct("TurnStarted", { turn: SessionTurn }),
 	/** Attempt or status change on the active turn. */
-	Schema.TaggedStruct("TurnUpdated", { turn: SessionTurn }),
+	Schema.TaggedStruct("TurnUpdated", {
+		turn: SessionTurn,
+		updatedAt: Schema.optional(Schema.Number),
+	}),
 	Schema.TaggedStruct("TurnPhaseSet", {
 		turnId: AgentTurnId,
 		phase: SessionTimelineTurnPhase,
 	}),
 	Schema.TaggedStruct("TranscriptRolledBack", {
+		rolledBackTurnIds: Schema.optional(Schema.Array(Schema.String)),
+		rolledBackAt: Schema.optional(Schema.Number),
 		removedMessageIds: Schema.Array(MessageId),
 	}),
 	Schema.TaggedStruct("TurnFinalizing", { turnId: AgentTurnId }),
@@ -1353,6 +1358,7 @@ export const SessionForkRpc = Rpc.make("session.fork", {
 		commandId: Schema.optional(Schema.String),
 		sourceSessionId: SessionId,
 		fromMessageId: MessageId,
+		nativeChildStepId: Schema.optional(Schema.String),
 		destination: ForkDestination,
 		providerId: Schema.optional(ProviderId),
 		model: Schema.optional(Schema.String),
@@ -1484,6 +1490,16 @@ export const MessagesListRpc = Rpc.make("messages.list", {
  * `ComposerInput` in a follow-up phase without a wire flag-day. Server
  * prefers `input` when both are present.
  */
+export class SessionInputBlockedError extends Schema.TaggedErrorClass<SessionInputBlockedError>()(
+	"SessionInputBlockedError",
+	{
+		sessionId: SessionId,
+		requestId: Schema.String,
+		kind: Schema.Literals(["permission", "question", "plan"]),
+		message: Schema.String,
+	},
+) {}
+
 export const MessagesSendRpc = Rpc.make("messages.send", {
 	payload: Schema.Struct({
 		commandId: CommandId,
@@ -1500,7 +1516,11 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 		clientMessageId: Schema.optional(MessageId),
 	}),
 	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, DirectoryUnavailableError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		DirectoryUnavailableError,
+		SessionInputBlockedError,
+	]),
 });
 
 /** Durable outcome of an exact-turn interrupt request. */
@@ -1544,9 +1564,15 @@ export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 		ready: Schema.optional(Schema.Boolean),
 		/** Skip the idle auto-flush when restoring a cancelled composer edit. */
 		flush: Schema.optional(Schema.Boolean),
+		/** Ordinary composer auto-queue must refuse pending input; explicit queue may omit. */
+		rejectIfBlocked: Schema.optional(Schema.Boolean),
 	}),
 	success: QueuedMessage,
-	error: Schema.Union([SessionNotFoundError, QueuedMessageCapacityError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		QueuedMessageCapacityError,
+		SessionInputBlockedError,
+	]),
 });
 
 export const MessagesQueueUpdateRpc = Rpc.make("messages.queue.update", {

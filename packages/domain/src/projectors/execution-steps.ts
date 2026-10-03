@@ -18,7 +18,25 @@ export const evolveExecutionStep = (
 	content: MessageContent,
 ): SessionExecutionStep | null => {
 	if (content._tag === "tool_use") {
-		if (previous !== null) return previous;
+		if (previous !== null) {
+			if (
+				previous.kind === "tool" &&
+				(content.subagent !== undefined || content.backgroundTask !== undefined)
+			)
+				return {
+					...previous,
+					kind: content.subagent !== undefined ? "subagent" : "background",
+					status: "running",
+					nativeChildId:
+						content.subagent?.childSessionId ??
+						content.backgroundTask?.taskId ??
+						null,
+					childSessionId:
+						content.subagent === undefined ? null : `native:${previous.id}`,
+					updatedAt: identity.at,
+				};
+			return previous;
+		}
 		const id = JSON.stringify([
 			identity.sessionId,
 			identity.turnId,
@@ -77,6 +95,7 @@ export const applyExecutionMessage = (
 	content: MessageContent,
 ): readonly SessionExecutionStep[] => {
 	const item = executionStepItem(content);
+	if (item === null && content._tag !== "subagent_progress") return steps;
 	const index = steps.findIndex(
 		(step) =>
 			step.turnId === identity.turnId &&

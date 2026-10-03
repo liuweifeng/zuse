@@ -32,6 +32,15 @@ export const projectExecutionStep = (
 			return;
 		}
 		if (event._tag !== "MessagePersisted" || event.turnId === null) return;
+		if (
+			![
+				"tool_use",
+				"tool_result",
+				"subagent_summary",
+				"subagent_progress",
+			].includes(event.kind)
+		)
+			return;
 		const accepted =
 			yield* sql`SELECT 1 FROM messages WHERE id=${event.messageId} AND session_id=${record.streamId} AND content_json=${event.contentJson}`;
 		if (accepted.length === 0) return;
@@ -60,5 +69,5 @@ export const projectExecutionStep = (
 			content,
 		);
 		if (next === null || next === previous) return;
-		yield* sql`INSERT INTO session_execution_steps(id,session_id,turn_id,attempt_id,item_id,parent_item_id,kind,label,status,child_session_id,native_child_id,root_completed_at,created_at,updated_at) VALUES(${next.id},${record.streamId},${next.turnId},${next.attemptId},${next.itemId},${next.parentItemId},${next.kind},${next.label},${next.status},${next.childSessionId},${next.nativeChildId},${next.rootCompletedAt},${next.createdAt},${next.updatedAt}) ON CONFLICT(id) DO UPDATE SET status=excluded.status,root_completed_at=excluded.root_completed_at,updated_at=excluded.updated_at`;
+		yield* sql`INSERT INTO session_execution_steps(id,session_id,turn_id,attempt_id,item_id,parent_item_id,kind,label,status,child_session_id,native_child_id,root_completed_at,created_at,updated_at) VALUES(${next.id},${record.streamId},${next.turnId},${next.attemptId},${next.itemId},${next.parentItemId},${next.kind},${next.label},${next.status},${next.childSessionId},${next.nativeChildId},${next.rootCompletedAt},${next.createdAt},${next.updatedAt}) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,child_session_id=excluded.child_session_id,native_child_id=excluded.native_child_id,status=excluded.status,root_completed_at=excluded.root_completed_at,updated_at=excluded.updated_at`;
 	});

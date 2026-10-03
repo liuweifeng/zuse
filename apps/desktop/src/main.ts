@@ -1,4 +1,9 @@
-import {guardHtmlVisualNavigation, installHtmlVisualNetwork, VISUAL_ASSET_SCHEMES} from "./html-visual-network.ts";
+import {
+	guardHtmlVisualNavigation,
+	installHtmlVisualNetwork,
+	VISUAL_ASSET_SCHEMES,
+} from "./html-visual-network.ts";
+import { sanitizeNotchItems } from "./notch-tray-items.ts";
 import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import { installTerminalShortcutRouting } from "./terminal-shortcuts.ts";
 import "@zuse/i18n/english/desktop";
@@ -3687,47 +3692,6 @@ ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
 	lastAccelerators = sanitizeAccelerators(payload);
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 });
-
-const isNotchItemState = (value: unknown): value is NotchTrayItem["state"] =>
-	value === "running" ||
-	value === "completed" ||
-	value === "failed" ||
-	value === "planReady" ||
-	value === "question" ||
-	value === "permission";
-
-const sanitizeNotchItems = (raw: unknown): ReadonlyArray<NotchTrayItem> => {
-	if (!Array.isArray(raw)) return [];
-	const out: NotchTrayItem[] = [];
-	for (const item of raw) {
-		if (item === null || typeof item !== "object") continue;
-		const obj = item as Record<string, unknown>;
-		if (
-			typeof obj.id !== "string" ||
-			typeof obj.chatId !== "string" ||
-			typeof obj.sessionId !== "string" ||
-			typeof obj.title !== "string" ||
-			typeof obj.subtitle !== "string" ||
-			typeof obj.label !== "string" ||
-			typeof obj.updatedAt !== "number" ||
-			!isNotchItemState(obj.state)
-		) {
-			continue;
-		}
-		out.push({
-			id: obj.id,
-			chatId: obj.chatId,
-			sessionId: obj.sessionId,
-			title: obj.title.slice(0, 160),
-			subtitle: obj.subtitle.slice(0, 180),
-			state: obj.state,
-			label: obj.label.slice(0, 80),
-			updatedAt: obj.updatedAt,
-		});
-		if (out.length >= 12) break;
-	}
-	return out;
-};
 
 ipcMain.on("notch:setItems", (_event, payload: unknown) => {
 	notchTray?.setItems(sanitizeNotchItems(payload));

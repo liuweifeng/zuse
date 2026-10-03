@@ -2,8 +2,8 @@
 
 The Agent Engine is the server subsystem that owns agent sessions. It keeps a
 durable graph of what the user asked for and what each provider did about it,
-treats every provider as a replaceable backend, and runs every provider
-interaction as a durable job. Clients render projections of that graph and
+treats every provider as a replaceable backend, and admits provider execution through durable jobs. Live control operations
+share its ownership and maintenance fences. Clients render projections of that graph and
 never infer state from a live process.
 
 ## Implementation status
@@ -119,8 +119,15 @@ Stop cancels pending or running delivery and recovery jobs after commit; deliver
 status/error writes require an uninterrupted attempt. Send admission checks exact
 provider residency both before and after asynchronous preparation. Cancellation
 closes only that sending handle, including while driver preparation is pending.
-Stop-before-reservation, driver-internal physical send races, and process-local
-question/goal callbacks still need end-to-end fencing.
+Provider acquisition, physical send cancellation, and question/plan callbacks
+retain the same ownership boundary. Goal execution uses the same durable submission path as other turns. Live goal
+controls hold a scoped admission lease and retain exact provider ownership;
+provider calls run outside the database transaction.
+Autonomous goals may span several native turns. The goal remains active until its
+native goal status and physical execution both finish; interruption joins the
+exact process before releasing ownership. An individual native turn is not a
+recovery identity for the whole goal. Unverifiable goal execution after process
+loss is explicitly uncertain and is never automatically resent.
 Job status and failure-message writes now carry transactional attempt guards,
 and interrupt cleanup closes only the matching provider handle. Handles whose
 event stream ended before the first send reject work as undelivered and are
@@ -164,8 +171,10 @@ share message identity; final recovered checkpoints replace partial snapshots.
 Credential patterns are shared with diagnostics, while recovered transcript text
 is preserved without diagnostic truncation. Missing, incomplete, running or
 unreadable evidence produces an explicit uncertain outcome. Other drivers have
-not yet reported strong native turn identity; native child-run transcript
-reconstruction and full provider lifecycle validation remain outstanding.
+not yet reported strong native turn identity. A completed native root with child
+activity is insufficient evidence of completion: recovery preserves available
+output and reports uncertainty unless child completion can be proven. Independent
+native child transcript reconstruction remains capability-dependent.
 Owned event consumers now acquire a durable ingestion lease for their exact attempt
 and provider residency. Heartbeats run in the consumer, so blocked persistence
 stops renewal; a quiet provider can remain healthy without inventing provider
@@ -180,8 +189,8 @@ Clients accept samples only for the current epoch, stream version and attempt; c
 observations do not establish health after reconnect. If an observation reports a
 newer committed cursor and the corresponding event has not arrived within ten seconds,
 the client reconnects to repair the gap. Desktop and mobile show quiet or
-unavailable execution separately from transport disconnection. Native-platform failure
-validation remains outstanding.
+unavailable execution separately from transport disconnection. Linux process tests cover these failure paths; other platforms still need
+native verification.
 Approval callbacks now capture their original provider residency and attempt.
 Request admission and decisions enforce that ownership inside the domain
 transaction; saved grants cannot authorize a stale callback. Revocation records
@@ -198,8 +207,9 @@ acknowledgments cross only that exact mapping. Existing receipts and legacy nati
 IDs cannot authorize a replacement callback, including after restart. Provider
 resolution also removes live attachment authority. Question rejection has its own
 RPC error instead of claiming that an existing session is missing. Question intent
-and receipt storage still use the existing delivery path; unified input records
-and durable answer jobs remain targets. Detaching live question authority now
+and receipt storage use the existing fenced delivery path. Indexed input records
+unify lifecycle state while provider-specific delivery retains its acknowledgement
+protocol. Detaching live question authority now
 interrupts its in-flight delivery and rejects waiting callers without altering a
 replacement callback. Client disconnection alone does not cancel delivery. Question
 delivery does not hold the provider lifecycle lane, so close can revoke a hung
@@ -265,12 +275,46 @@ delivery. Attachments are retained in the application transcript, while these
 handoffs carry bounded text rather than earlier image or file payloads. The frozen handoff survives
 restart and is reused for retries of its first turn. Model changes retain native
 continuation while retiring the previous live process.
-Full step ownership remains a target; the standalone desktop lifecycle is implemented.
+Execution steps have a durable SQL projection and a shared live timeline reducer.
+Native subagents and explicit background shell tasks keep the root active after its
+own response finishes. Interruption closes their visible state before settling the
+root. Snapshots bound the tree and report truncation; rollback cancels affected
+steps in both snapshots and live deltas. App-owned delegations bind child sessions
+to the exact parent attempt, persist results and context links, and schedule one
+stable completion wake. Cancelled children from an earlier attempt cannot block
+results from a later attempt.
+
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
 each initial, retry and recovery attempt with its outcome and timestamps. Migration
 and live projection share the same lifecycle projector; sequence guards preserve
-history during replay. This history is queryable internally but has no client
-history view yet. Contracts for later entities do not imply runtime support.
+history during replay. Desktop and mobile expose a read-only attempt-history view
+through a session-scoped RPC, with bounded keyset pagination and rollback markers.
+Their shared paging controller fences late responses and deduplicates overlapping
+pages. Desktop and mobile both expose checkpoint review, retry, restore and
+interrupted-restore resumption using the same server policy.
+
+Completed Codex native children can be copied into a new session from verified
+full transcripts. The engine checks the exact completed execution step and native
+parent lineage, then freezes the child transcript in the durable fork construction.
+Retries reuse that snapshot; source rollback during capture prevents publication.
+Unknown lineage, partial history, non-text native inputs and unverified nested
+work are explicitly unsupported. Other providers require a verified native child
+reader before this action can succeed; an app-owned child is already a canonical
+session and uses ordinary session forking.
+
+Semantic waits pin a turn and attempt with the durable event cursor in one
+transaction. They replay and tail that session's events, and report replacement,
+deletion, timeout or terminal-before-target explicitly. Send-and-wait derives
+execution identities from the submission command before admission. Observer
+cancellation never cancels admitted work. Ready, unpaused queued work is starting,
+not idle. Ordinary composer submission preserves the draft when a blocking input
+appears; intentional queueing remains a separate policy.
+
+Cross-session sidebar and tray attention use the same server-observation health
+as the conversation. Quiet execution, missing ownership, disconnected transport
+and unconfirmed state are distinct from healthy running work. Live user input
+requests retain higher attention priority. A quiet observation does not declare
+failure or completion.
 
 Delivery should follow the outcome groups below. The numbered slices remain a
 mechanism inventory, not an instruction to defer recovery until slice 9.
@@ -520,8 +564,8 @@ Agents and clients coordinate on graph state, never on process completion.
 `session.wait` takes a session, an optional turn or attempt id, and a target
 state (`idle`, `blocked`, `done`) and resolves when the durable state reaches
 it. The wait is pinned to the attempt it started against, so a restart or a
-replacement attempt cannot satisfy it by accident. `session.send` accepts an
-optional wait so a prompt and its wait are one atomic request. The
+replacement attempt cannot satisfy it by accident. `session.sendAndWait` binds
+a prompt and its wait to one durable submission identity. The
 orchestration tools that let an agent delegate to other agents are built on
 these primitives, so a parent never polls output text or fires keystrokes
 into a child that is not ready.

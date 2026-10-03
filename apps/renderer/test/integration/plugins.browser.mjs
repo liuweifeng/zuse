@@ -54,6 +54,7 @@ const server = await createServer({
 				if (
 					importer?.includes("plugins-page.tsx") ||
 					importer?.includes("plugin-return-handler.tsx") ||
+					importer?.includes("plugin-return-redemption.ts") ||
 					importer?.includes("connected-plugins.ts") ||
 					importer?.includes("plugins-settings-pane.tsx")
 				) {
@@ -151,12 +152,51 @@ try {
 	};
 	const errors = [];
 	page.on("pageerror", (error) => errors.push(error.message));
+	const requestedModules = [];
+	page.on("request", (request) => requestedModules.push(request.url()));
+	// Ordinary startup captures callback events without loading redemption code.
+	await page.goto("http://127.0.0.1:15834/__plugins");
+	await page.getByRole("heading", { name: "Featured" }).waitFor();
+	assert(
+		!requestedModules.some((url) => url.includes("plugin-return-redemption")),
+	);
+	// A failed lazy chunk never consumes the hosted ticket. Reload can recover
+	// from the retained return even though its query parameters were removed.
+	const failedReturn = await browser.newPage();
+	await failedReturn.route("**/plugin-return-redemption.ts*", (route) =>
+		route.abort("failed"),
+	);
+	await failedReturn.goto(
+		"http://127.0.0.1:15834/__plugins?plugin_ticket=load-failure&plugin_tenant=personal%3Afixture&plugin=Linear",
+	);
+	await failedReturn
+		.getByText(/Failed to fetch dynamically imported module/)
+		.waitFor();
+	assert.equal(
+		await failedReturn.evaluate(
+			() => JSON.parse(sessionStorage.getItem("zuse.plugin-return")).ticket,
+		),
+		"load-failure",
+	);
+	await failedReturn.unroute("**/plugin-return-redemption.ts*");
+	await failedReturn.reload();
+	await failedReturn.getByText("Linear connected", { exact: true }).waitFor();
+	assert.equal(
+		await failedReturn.evaluate(() =>
+			sessionStorage.getItem("zuse.plugin-return"),
+		),
+		null,
+	);
+	await failedReturn.close();
 	// A browser return redeems itself: no confirmation dialog.
 	await page.goto(
 		"http://127.0.0.1:15834/__plugins?plugin_ticket=fixture&plugin_tenant=personal%3Afixture&plugin=Linear",
 	);
 	await page.getByText("Linear connected", { exact: true }).waitFor();
 	assert(!page.url().includes("plugin_ticket"));
+	assert(
+		requestedModules.some((url) => url.includes("plugin-return-redemption")),
+	);
 	await page
 		.getByRole("button", { name: "Manage Linear", exact: true })
 		.first()

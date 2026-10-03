@@ -6,7 +6,10 @@ import type { SessionCommand } from "../../../src/core/commands.js";
 import { evolveAll, initialSessionState } from "../../../src/core/state.js";
 import { makeSessionDomain } from "../../../src/engine/session-domain.js";
 import { projectSessionAttempt } from "../../../src/projectors/sql-attempt-projector.js";
-import { makeSqlSessionQueries } from "../../../src/queries/sql-session-queries.js";
+import {
+	makeSqlSessionQueries,
+	readSessionAttemptHistory,
+} from "../../../src/queries/sql-session-queries.js";
 import { createSessionCommand } from "../../../src/test/session.js";
 import { createDomainTestSchema } from "../../../src/test/sql-schema.js";
 
@@ -108,6 +111,125 @@ test("projects and pages complete attempt history consistently with aggregate re
 					command: { _tag: "DeleteSession", deletedAt: 50 },
 				});
 				expect(yield* sql`SELECT id FROM session_attempts`).toEqual([]);
+			}),
+		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});
+
+test("session history pages every turn without duplicates when new work arrives", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let id = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`history-event-${++id}`),
+				);
+				const dispatch = (command: SessionCommand) =>
+					domain.dispatch({
+						commandId: `history-command-${++id}`,
+						streamId: "session-1",
+						command,
+					});
+				yield* dispatch(createSessionCommand);
+				for (let turn = 1; turn <= 3; turn++) {
+					const turnId = `turn-${turn}`;
+					yield* dispatch({ _tag: "StartTurn", turnId, startedAt: turn * 100 });
+					for (let attempt = 2; attempt <= 20; attempt++)
+						yield* dispatch({
+							_tag: "RetryTurn",
+							turnId,
+							reason: "retry",
+							providerInputJson: "{}",
+							requestedAt: turn * 100 + attempt,
+						});
+					yield* dispatch({
+						_tag: "SettleTurn",
+						turnId,
+						outcome: "completed",
+						settledAt: turn * 100 + 50,
+					});
+				}
+				const first = yield* readSessionAttemptHistory(sql, "session-1");
+				expect(first.items).toHaveLength(50);
+				expect(first.items[0]).toMatchObject({
+					turnId: "turn-3",
+					ordinal: 20,
+					reason: "retry",
+					status: "completed",
+				});
+				expect(first.nextCursor).toEqual({
+					turnOrdinal: 1,
+					attemptOrdinal: 11,
+				});
+				yield* dispatch({
+					_tag: "StartTurn",
+					turnId: "turn-4",
+					startedAt: 400,
+				});
+				const second = yield* readSessionAttemptHistory(
+					sql,
+					"session-1",
+					first.nextCursor ?? undefined,
+				);
+				expect(second.items).toHaveLength(10);
+				expect(second.nextCursor).toBeNull();
+				expect(
+					new Set([...first.items, ...second.items].map((item) => item.id))
+						.size,
+				).toBe(60);
+				expect(second.items.at(-1)).toMatchObject({
+					turnId: "turn-1",
+					ordinal: 1,
+					reason: "initial",
+					status: "superseded",
+				});
+				expect(
+					(yield* readSessionAttemptHistory(sql, "session-1")).items[0],
+				).toMatchObject({ turnId: "turn-4", status: "running" });
+				yield* dispatch({
+					_tag: "SettleTurn",
+					turnId: "turn-4",
+					outcome: "interrupted",
+					settledAt: 410,
+				});
+				yield* dispatch({
+					_tag: "RollbackTurns",
+					throughOrdinal: 2,
+					messageSequence: 0,
+					removedMessageIds: [],
+					rolledBackAt: 420,
+				});
+				const afterRollback = yield* readSessionAttemptHistory(
+					sql,
+					"session-1",
+				);
+				expect(
+					afterRollback.items
+						.filter((row) => row.turnOrdinal > 2)
+						.every((row) => row.rolledBack),
+				).toBe(true);
+				expect(
+					afterRollback.items
+						.filter((row) => row.turnOrdinal <= 2)
+						.every((row) => !row.rolledBack),
+				).toBe(true);
+				expect(
+					yield* readSessionAttemptHistory(sql, "missing").pipe(Effect.result),
+				).toMatchObject({
+					_tag: "Failure",
+					failure: { _tag: "SessionQueryNotFound" },
+				});
+				expect(
+					yield* readSessionAttemptHistory(sql, "session-1", {
+						turnOrdinal: 1,
+						attemptOrdinal: -1,
+					}).pipe(Effect.result),
+				).toMatchObject({
+					_tag: "Failure",
+					failure: { _tag: "SessionQueryDecodeError" },
+				});
 			}),
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);

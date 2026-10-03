@@ -122,6 +122,7 @@ export interface OpenProviderSessionOptions {
 	readonly forkFromResume?: boolean;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
+		readonly goal?: import("@zuse/contracts").ThreadGoalSetInput;
 		readonly turnId: AgentTurnId;
 		readonly text: string;
 		readonly attachments: ReadonlyArray<AttachmentRef>;
@@ -223,6 +224,8 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		getChat: lookupChat,
 		getSession: lookupSession,
 		sendMessage,
+		waitSession: options.waitSession,
+		sendMessageAndWait: options.sendMessageAndWait,
 		listMessages,
 		listChats,
 		listSessions,

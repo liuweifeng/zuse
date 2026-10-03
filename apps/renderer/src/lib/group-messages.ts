@@ -1,5 +1,9 @@
 import { nativeBackgroundChildren } from "@zuse/client-runtime/native-background";
-import type { AgentItemId, Message } from "@zuse/contracts";
+import type {
+	AgentItemId,
+	Message,
+	SessionExecutionStep,
+} from "@zuse/contracts";
 import { subagentDisplayName } from "./subagent-metadata.ts";
 
 export type RenderGroup =
@@ -34,8 +38,9 @@ export type DetachedSubagentGroup = Extract<
 /** Detached subagents in transcript order, shared by the pane and shortcuts. */
 export const detachedSubagentGroups = (
 	messages: ReadonlyArray<Message>,
+	steps: readonly SessionExecutionStep[] = [],
 ): DetachedSubagentGroup[] =>
-	groupMessages(messages).flatMap((group) =>
+	groupMessages(messages, steps).flatMap((group) =>
 		group.kind === "subagent" &&
 		group.presentation === "detached" &&
 		group.childSessionId !== undefined
@@ -70,9 +75,10 @@ export const isAgentToolUse = (m: Message): boolean =>
  */
 export function groupMessages(
 	messages: ReadonlyArray<Message>,
+	steps: readonly SessionExecutionStep[] = [],
 ): ReadonlyArray<RenderGroup> {
 	const out: RenderGroup[] = [];
-	const background = nativeBackgroundChildren(messages);
+	const background = nativeBackgroundChildren(messages, steps);
 
 	const childrenByParent = new Map<AgentItemId, Message[]>();
 	const summariesByItemId = new Map<AgentItemId, Message>();

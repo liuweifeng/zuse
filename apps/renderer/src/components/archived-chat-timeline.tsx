@@ -127,3 +127,21 @@ function ArchivedTimelineRow({
 					parentLive={false}
 					chatRef={null}
 					environmentId={environmentId}
+					readOnly
+				/>
+			);
+		case "turn-summary":
+			return (
+				<TurnSummary
+					body={row.body}
+					environmentId={environmentId}
+					sessionId={sessionId}
+					forkDestination="chat"
+					sourceProjectId={projectId}
+					showAssistantCommands={row.showAssistantCommands}
+				/>
+			);
+		case "working":
+			return null;
+	}
+}

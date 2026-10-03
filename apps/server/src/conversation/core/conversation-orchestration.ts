@@ -1,3 +1,8 @@
+import type {
+	SessionWaitInput,
+	SessionWaitOptions,
+	SessionWaitResult,
+} from "@zuse/contracts";
 import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 /** Builds the session-bound orchestration tool surface. */
 
@@ -83,6 +88,9 @@ export interface ConversationOrchestrationDependencies {
 	readonly getSession: (
 		sessionId: SessionId,
 	) => Effect.Effect<Session, unknown>;
+	readonly waitForSession?: (
+		input: SessionWaitInput,
+	) => Effect.Effect<SessionWaitResult, unknown>;
 	readonly sendToSession: (
 		sessionId: SessionId,
 		text: string,
@@ -91,7 +99,9 @@ export interface ConversationOrchestrationDependencies {
 			readonly sessionId: SessionId;
 			readonly providerId: ProviderId;
 		},
-	) => Effect.Effect<void, unknown>;
+		wait?: SessionWaitOptions,
+		commandId?: string,
+	) => Effect.Effect<void | SessionWaitResult, unknown>;
 	readonly listMessages: (
 		sessionId: SessionId,
 	) => Effect.Effect<ReadonlyArray<Message>, unknown>;
@@ -330,16 +340,47 @@ export const makeConversationOrchestration = (
 					Effect.gen(function* () {
 						const sessionId = input.sessionId as SessionId;
 						const target = yield* dependencies.getSession(sessionId);
-						yield* dependencies.sendToSession(sessionId, input.text, {
-							chatId: context.chatId,
-							sessionId: context.sessionId,
-							providerId: context.providerId,
-						});
+						const waited = yield* dependencies.sendToSession(
+							sessionId,
+							input.text,
+							{
+								chatId: context.chatId,
+								sessionId: context.sessionId,
+								providerId: context.providerId,
+							},
+							input.wait,
+							input.commandId,
+						);
 						return {
 							ok: true as const,
+							wait: waited ?? undefined,
 							queued: false,
 							chatId: target.chatId as string,
 						};
+					}).pipe(
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
+			waitForThread: (input) =>
+				run(
+					Effect.gen(function* () {
+						if (dependencies.waitForSession === undefined)
+							return {
+								ok: false as const,
+								error: "Semantic waits are unavailable.",
+							};
+						const result = yield* dependencies.waitForSession({
+							...input,
+							sessionId: input.sessionId as SessionId,
+							turnId: input.turnId as SessionWaitInput["turnId"],
+							attemptId: input.attemptId as SessionWaitInput["attemptId"],
+						});
+						return { ok: true as const, wait: result };
 					}).pipe(
 						Effect.catch((error) =>
 							Effect.succeed({

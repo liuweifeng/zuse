@@ -43,8 +43,8 @@ export function TurnRow({
 }) {
 	const { message: uiMessage } = useMessages(["chat"]);
 	const background = useMemo(
-		() => nativeBackgroundChildren(turn.body),
-		[turn.body],
+		() => nativeBackgroundChildren(turn.body, context.executionSteps),
+		[turn.body, context.executionSteps],
 	);
 	const [activityOpen, setActivityOpen] = useState(false);
 	const [filesOpen, setFilesOpen] = useState(false);

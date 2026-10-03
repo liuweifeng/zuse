@@ -116,6 +116,7 @@ type SessionsState = {
 	readonly fork: (input: {
 		sourceSessionId: SessionId;
 		fromMessageId: MessageId;
+		nativeChildStepId?: string;
 		destination: ForkDestination;
 		providerId?: ProviderId;
 		model?: string;
@@ -558,6 +559,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 	},
 	fork: async (input) => {
+		const originEnvironment = getActiveEnvironment();
 		set({ error: null });
 		try {
 			const source = activeSessionById(input.sourceSessionId);
@@ -599,6 +601,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					readonly commandId: string;
 					readonly sourceSessionId: SessionId;
 					readonly fromMessageId: MessageId;
+					readonly nativeChildStepId?: string;
 					readonly destination: ForkDestination;
 					readonly providerId?: ProviderId;
 					readonly model?: string;
@@ -619,6 +622,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					sourceSessionId: input.sourceSessionId,
 					fromMessageId: input.fromMessageId,
 					destination: input.destination,
+					nativeChildStepId: input.nativeChildStepId,
 					providerId: input.providerId,
 					model: input.model,
 					worktreeId: input.worktreeId,
@@ -628,6 +632,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				environmentId,
 			);
 			const { forkMode } = result;
+			// Cloud sessions can be presented inside the local shell. Fence that
+			// originating UI separately from the execution environment used by RPC.
+			if (getActiveEnvironment() !== originEnvironment)
+				return {
+					chatId: result.chat.id,
+					sessionId: result.session.id,
+					forkMode,
+				};
 			const projectId =
 				cloud === null
 					? result.session.projectId
@@ -664,7 +676,8 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			upsertForkedChat(chat, session);
 			return { chatId: chat.id, sessionId: session.id, forkMode };
 		} catch (err) {
-			set({ error: formatError(err) });
+			if (getActiveEnvironment() === originEnvironment)
+				set({ error: formatError(err) });
 			return null;
 		}
 	},

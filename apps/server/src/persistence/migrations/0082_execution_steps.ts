@@ -60,5 +60,5 @@ export const Migration0082ExecutionSteps = Effect.gen(function* () {
 		}
 	}
 	// Historical open steps are not evidence of live processes after upgrade.
-	yield* sql`UPDATE session_execution_steps SET status='cancelled' WHERE status='running' AND NOT EXISTS(SELECT 1 FROM session_turns t WHERE t.session_id=session_execution_steps.session_id AND t.id=session_execution_steps.turn_id AND t.active_attempt_id=session_execution_steps.attempt_id AND t.status IN ('starting','running'))`;
+	yield* sql`UPDATE session_execution_steps SET status=CASE WHEN (SELECT status FROM session_turns t WHERE t.id=session_execution_steps.turn_id AND t.session_id=session_execution_steps.session_id)='failed' THEN 'failed' ELSE 'cancelled' END,updated_at=COALESCE((SELECT CAST(ROUND((julianday(t.completed_at)-2440587.5)*86400000) AS INTEGER) FROM session_turns t WHERE t.id=session_execution_steps.turn_id AND t.session_id=session_execution_steps.session_id),updated_at) WHERE status='running' AND NOT EXISTS(SELECT 1 FROM session_turns t WHERE t.session_id=session_execution_steps.session_id AND t.id=session_execution_steps.turn_id AND t.active_attempt_id=session_execution_steps.attempt_id AND t.status IN ('starting','running'))`;
 });

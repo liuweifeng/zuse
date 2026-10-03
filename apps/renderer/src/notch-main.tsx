@@ -17,15 +17,6 @@ import {
 } from "./lib/use-relative-time.ts";
 import { cn } from "./lib/utils.ts";
 
-const STATE_LABEL: Record<NotchTrayItemState, string> = {
-	permission: "Permission",
-	question: "Question",
-	planReady: "Plan ready",
-	failed: "Failed",
-	completed: "Done",
-	running: "Running",
-};
-
 /** Fill color for each state's status dot. */
 const STATE_DOT: Record<NotchTrayItemState, string> = {
 	permission: "bg-warning",
@@ -34,6 +25,10 @@ const STATE_DOT: Record<NotchTrayItemState, string> = {
 	failed: "bg-destructive",
 	completed: "bg-success",
 	running: "bg-white/60",
+	quiet: "bg-warning",
+	unavailable: "bg-warning",
+	disconnected: "bg-muted-foreground",
+	checking: "bg-muted-foreground",
 };
 
 /** Colored halo ring, applied only to states that need the user. */
@@ -44,6 +39,10 @@ const STATE_HALO: Record<NotchTrayItemState, string> = {
 	failed: "ring-2 ring-destructive/30",
 	completed: "",
 	running: "",
+	quiet: "ring-2 ring-warning/30",
+	unavailable: "ring-2 ring-warning/30",
+	disconnected: "",
+	checking: "",
 };
 
 /** States that block the user and deserve visual weight in the collapsed cap. */
@@ -52,6 +51,7 @@ const NEEDS_YOU: ReadonlySet<NotchTrayItemState> = new Set<NotchTrayItemState>([
 	"question",
 	"planReady",
 	"failed",
+	"unavailable",
 ]);
 
 /** States that gently pulse to draw the eye. */
@@ -160,7 +160,8 @@ function NotchTray() {
 								return (
 									<span
 										key={item.id}
-										aria-label={`${STATE_LABEL[item.state]}: ${item.title}`}
+										role="img"
+										aria-label={`${item.label}: ${item.title}`}
 										className={cn(
 											"shrink-0 rounded-full transition-all duration-200 ease-out",
 											STATE_DOT[item.state],

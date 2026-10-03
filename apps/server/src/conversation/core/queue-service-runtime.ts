@@ -13,6 +13,7 @@ import {
 	QueueState,
 	type Session,
 	SessionId,
+	type SessionInputBlockedError,
 	type SessionNotFoundError,
 	type WorkspaceActor,
 } from "@zuse/contracts";
@@ -26,6 +27,7 @@ import type {
 } from "../services/conversation-services.ts";
 import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy.ts";
 import { handoffToServiceScope } from "./service-scope.ts";
+import { assertSessionInputUnblocked } from "./session-input-admission.ts";
 
 interface QueuedMessageRow {
 	readonly id: string;
@@ -49,7 +51,10 @@ export interface QueueServiceRuntimeDeps {
 		input: ComposerInput,
 		clientMessageId: MessageId,
 		actor?: WorkspaceActor,
-	) => Effect.Effect<boolean, SessionNotFoundError | DirectoryUnavailableError>;
+	) => Effect.Effect<
+		boolean,
+		SessionNotFoundError | DirectoryUnavailableError | SessionInputBlockedError
+	>;
 	/** Explicit user recovery; automatic drains must never call it. */
 	readonly resumeFailedSession: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly setQueuePaused: (
@@ -264,6 +269,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			ready = true,
 			flush = true,
 			actor,
+			rejectIfBlocked = false,
 		) =>
 			capacityLock(sessionId).withPermits(1)(
 				Effect.gen(function* () {
@@ -298,57 +304,67 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 							ready,
 						}),
 					);
-					const item = yield* dispatchSessionCommandWithIdTransactionally(
-						sessionId,
-						commandId,
-						{
-							_tag: "EnqueueTurn",
-							queueId: id,
-							inputJson,
-							position,
-							createdAt: now.getTime(),
-							ready,
-						},
-						(receipt) =>
-							sql<QueuedMessageRow>`
+					const item = yield* sql
+						.withTransaction(
+							Effect.gen(function* () {
+								if (rejectIfBlocked)
+									yield* assertSessionInputUnblocked(sql, sessionId, commandId);
+								return yield* dispatchSessionCommandWithIdTransactionally(
+									sessionId,
+									commandId,
+									{
+										_tag: "EnqueueTurn",
+										queueId: id,
+										inputJson,
+										position,
+										createdAt: now.getTime(),
+										ready,
+									},
+									(receipt) =>
+										sql<QueuedMessageRow>`
                 SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
                 FROM queued_messages
                 WHERE id = ${id}
                 LIMIT 1
               `.pipe(
-								Effect.flatMap((rows) => {
-									const row = rows[0];
-									if (row !== undefined && row.session_id !== sessionId) {
-										return Effect.die(
-											new Error(`queue id ${id} belongs to another session`),
-										);
-									}
-									if (row === undefined && receipt.eventIds.length > 0) {
-										return Effect.die(
-											new Error(`queue id ${id} was not projected`),
-										);
-									}
-									// An idempotent replay can arrive after the ready item was
-									// already claimed. The original command still succeeded, so
-									// return its convergent representation instead of a false error.
-									return Effect.succeed(
-										row === undefined
-											? QueuedMessage.make({
-													id,
-													sessionId,
-													input,
-													actor,
-													position,
-													createdAt: now,
-													updatedAt: now,
-													ready,
-												})
-											: queuedMessageFromRow(row),
-									);
-								}),
-								Effect.orDie,
-							),
-					);
+											Effect.flatMap((rows) => {
+												const row = rows[0];
+												if (row !== undefined && row.session_id !== sessionId) {
+													return Effect.die(
+														new Error(
+															`queue id ${id} belongs to another session`,
+														),
+													);
+												}
+												if (row === undefined && receipt.eventIds.length > 0) {
+													return Effect.die(
+														new Error(`queue id ${id} was not projected`),
+													);
+												}
+												// An idempotent replay can arrive after the ready item was
+												// already claimed. The original command still succeeded, so
+												// return its convergent representation instead of a false error.
+												return Effect.succeed(
+													row === undefined
+														? QueuedMessage.make({
+																id,
+																sessionId,
+																input,
+																actor,
+																position,
+																createdAt: now,
+																updatedAt: now,
+																ready,
+															})
+														: queuedMessageFromRow(row),
+												);
+											}),
+											Effect.orDie,
+										),
+								);
+							}),
+						)
+						.pipe(Effect.catchTag("SqlError", Effect.die));
 					if (item.ready && flush) {
 						yield* requestFlush(sessionId);
 					}
@@ -561,6 +577,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 				item.actor,
 			).pipe(
 				Effect.flatMap((accepted) => (accepted ? Effect.void : restore(item))),
+				Effect.catchTag("SessionInputBlockedError", () => restore(item)),
 				Effect.catchTag("DirectoryUnavailableError", () =>
 					restore(item).pipe(Effect.andThen(setPaused(item.sessionId, true))),
 				),
