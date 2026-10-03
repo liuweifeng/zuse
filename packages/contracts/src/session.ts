@@ -781,6 +781,11 @@ export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionA
 	{ sessionId: SessionId },
 ) {}
 
+export class SessionConfigurationError extends Schema.TaggedErrorClass<SessionConfigurationError>()(
+	"SessionConfigurationError",
+	{ sessionId: SessionId, reason: Schema.String },
+) {}
+
 // ---------------------------------------------------------------------------
 // Session RPCs
 // ---------------------------------------------------------------------------
@@ -889,14 +894,11 @@ export const SessionRenameRpc = Rpc.make("session.rename", {
 export const SessionSetModelRpc = Rpc.make("session.setModel", {
 	payload: Schema.Struct({ sessionId: SessionId, model: Schema.String }),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, SessionConfigurationError]),
 });
 
 /**
- * Switch a session's provider (and the model it runs under). Allowed only
- * before the first user message is recorded — the new CLI cannot read the
- * prior CLI's transcript, so mid-chat swaps would silently drop context.
- * Returns `SessionAlreadyStartedError` once the session has started.
+ * Switch an idle conversation to another provider with a durable context handoff.
  */
 export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 	payload: Schema.Struct({
@@ -905,7 +907,7 @@ export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 		model: Schema.String,
 	}),
 	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, SessionAlreadyStartedError]),
+	error: Schema.Union([SessionNotFoundError, SessionConfigurationError]),
 });
 
 export const SessionArchiveRpc = Rpc.make("session.archive", {

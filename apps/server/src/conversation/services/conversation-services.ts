@@ -41,6 +41,7 @@ import type {
 	RuntimeMode,
 	Session,
 	SessionAlreadyStartedError,
+	SessionConfigurationError,
 	SessionId,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
@@ -270,19 +271,14 @@ export interface ConversationOperations {
 	readonly setModel: (
 		sessionId: SessionId,
 		model: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionConfigurationError>;
 
-	/**
-	 * Switch a session's provider and model. Allowed only before the first
-	 * user message has been recorded — fails with `SessionAlreadyStartedError`
-	 * otherwise, because the new CLI cannot read the prior CLI's transcript.
-	 * Also clears the resume cursor since it's provider-specific.
-	 */
+	/** Switch an idle conversation, preserving history through an explicit handoff. */
 	readonly setProvider: (
 		sessionId: SessionId,
 		providerId: ProviderId,
 		model: string,
-	) => Effect.Effect<void, SessionNotFoundError | SessionAlreadyStartedError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionConfigurationError>;
 
 	/**
 	 * Update the per-session permission posture. The change applies to the

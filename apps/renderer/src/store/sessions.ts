@@ -188,9 +188,8 @@ type SessionsState = {
 		},
 	) => Promise<"accepted" | "session-not-found" | "failed">;
 	/**
-	 * Switch the session's provider and model. Allowed only before the first
-	 * user message — server returns `SessionAlreadyStartedError` otherwise,
-	 * surfaced here as `{ ok: false, reason }`. Worktree changes go through
+	 * Switch an idle session's provider and model with a durable context handoff.
+	 * Failures are surfaced here as `{ ok: false, reason }`. Worktree changes go through
 	 * `chats.setWorktree` instead — the chat owns the workspace binding.
 	 */
 	readonly setProvider: (

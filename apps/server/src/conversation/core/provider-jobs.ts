@@ -2,8 +2,10 @@ import {
 	type AgentSessionNotFoundError,
 	AgentTurnId,
 	AttemptId,
+	type ComposerInput,
 	type MessageContent,
 	MessageId,
+	type Session,
 	SessionId,
 	type SessionStartError,
 } from "@zuse/contracts";
@@ -69,6 +71,11 @@ const failure = (
 });
 
 export interface ProviderJobExecutorOptions {
+	readonly prepareContext?: (
+		session: Session,
+		turnId: AgentTurnId,
+		input: ComposerInput,
+	) => Effect.Effect<ComposerInput>;
 	readonly authorizeQueuedTurn: WorkspaceExecutionAuthorizer;
 	readonly delivery: ReturnType<typeof makeReactorEffectJournal>;
 	readonly getSession: ConversationOperations["getSession"];
@@ -222,9 +229,13 @@ export const makeProviderJobExecutor = (
 			) {
 				return;
 			}
-			const input = yield* decodeProviderTurnInput(
+			const rawInput = yield* decodeProviderTurnInput(
 				request.providerInputJson,
 			).pipe(Effect.orDie);
+			const input =
+				options.prepareContext === undefined
+					? rawInput
+					: yield* options.prepareContext(session, turnId, rawInput);
 			const providerStartJson =
 				request.providerStartJson ?? (yield* getProviderStartJson(sessionId));
 			const startupRequest =

@@ -77,6 +77,7 @@ import { Migration0071SessionInputs } from "./migrations/0071_session_inputs.ts"
 import { Migration0072InputOwnership } from "./migrations/0072_input_ownership.ts";
 import { Migration0073QuestionExpiry } from "./migrations/0073_question_expiry.ts";
 import { Migration0074PlanDeliveries } from "./migrations/0074_plan_deliveries.ts";
+import { Migration0075ContextHandoffs } from "./migrations/0075_context_handoffs.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -191,6 +192,7 @@ const MigrationDefinitions = {
 	"0072_input_ownership": Migration0072InputOwnership,
 	"0073_question_expiry": Migration0073QuestionExpiry,
 	"0074_plan_deliveries": Migration0074PlanDeliveries,
+	"0075_context_handoffs": Migration0075ContextHandoffs,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

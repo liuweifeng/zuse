@@ -35,6 +35,7 @@ import { RepositorySettingsService } from "../../repository-settings/services/re
 import { makeArchiveOperations } from "../core/archive-operations.ts";
 import { makeAutoNameOperations } from "../core/auto-name-operations.ts";
 import { makeChatOperations } from "../core/chat-operations.ts";
+import { makeContextHandoff } from "../core/context-handoff.ts";
 import { makeConversationGoalOperations } from "../core/conversation-goal-operations.ts";
 import {
 	type ConversationReactorRuntime,
@@ -336,6 +337,7 @@ const ConversationRuntimeLive = Layer.effect(
 		});
 		const { renameChat, markChatRead, autoNameChat } = autoNameOperations;
 		const executeProviderJob = makeProviderJobExecutor({
+			prepareContext: makeContextHandoff(sql).prepare,
 			delivery: reactorEffects,
 			authorizeQueuedTurn: executionPolicy.authorize,
 			getSession: lookupSession,
@@ -349,8 +351,8 @@ const ConversationRuntimeLive = Layer.effect(
 					FROM events
 					WHERE stream_kind = 'session'
 						AND stream_id = ${sessionId}
-						AND type = 'SessionCreated'
-					ORDER BY stream_version ASC
+						AND type IN ('SessionCreated', 'SessionProviderSet')
+					ORDER BY stream_version DESC
 					LIMIT 1
 				`.pipe(
 					Effect.map((rows) => rows[0]?.provider_start_json ?? null),
