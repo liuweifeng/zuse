@@ -4,7 +4,7 @@ import type {
 	EngineFrame,
 } from "@zusehq/server/desktop-engine";
 import { expect, it } from "vitest";
-import { makeEngineRpcRelay } from "../../src/ipc/engine-rpc-relay.ts";
+import { makeEngineRpcConnection } from "../../src/ipc/engine-rpc-connection.ts";
 
 const endpoint: DesktopEngineEndpoint = {
 	version: 1,
@@ -23,7 +23,7 @@ const fixture = () => {
 	}> = [];
 	const messages: Array<[string, string]> = [];
 	const disconnected: string[] = [];
-	const relay = makeEngineRpcRelay({
+	const connection = makeEngineRpcConnection({
 		endpoint: async () => endpoint,
 		message: (id, payload) => {
 			messages.push([id, payload]);
@@ -59,48 +59,48 @@ const fixture = () => {
 			return channel;
 		},
 	});
-	return { relay, connections, messages, disconnected };
+	return { connection, connections, messages, disconnected };
 };
 
 it("isolates response and cancellation frames across renderer reloads", async () => {
 	const f = fixture();
-	await f.relay.open("first");
-	f.relay.send("first", "request 0");
-	await f.relay.open("second");
+	await f.connection.open("first");
+	f.connection.send("first", "request 0");
+	await f.connection.open("second");
 	expect(f.connections[0]?.isClosed()).toBe(true);
-	f.relay.send("first", "stale interrupt 0");
-	f.relay.close("first");
+	f.connection.send("first", "stale interrupt 0");
+	f.connection.close("first");
 	f.connections[0]?.receive({ _tag: "Rpc", payload: "stale response 0" });
-	f.relay.send("second", "request 0");
+	f.connection.send("second", "request 0");
 	f.connections[1]?.receive({ _tag: "Rpc", payload: "response 0" });
 	expect(f.connections[1]?.sent).toEqual([
 		{ _tag: "Rpc", payload: "request 0" },
 	]);
 	expect(f.messages).toEqual([["second", "response 0"]]);
 	expect(f.disconnected).toEqual(["first"]);
-	f.relay.dispose();
+	f.connection.dispose();
 	expect(f.connections[1]?.isClosed()).toBe(true);
-	await expect(f.relay.open("third")).rejects.toThrow("closed");
+	await expect(f.connection.open("third")).rejects.toThrow("closed");
 });
 
 it("reports a channel loss once and never replays requests on replacement", async () => {
 	const f = fixture();
-	await f.relay.open("first");
-	f.relay.send("first", "mutation");
+	await f.connection.open("first");
+	f.connection.send("first", "mutation");
 	f.connections[0]?.channel.close();
 	await Promise.resolve();
-	f.relay.send("first", "late mutation");
-	await f.relay.open("second");
+	f.connection.send("first", "late mutation");
+	await f.connection.open("second");
 	expect(f.disconnected).toEqual(["first"]);
 	expect(f.connections[1]?.sent).toEqual([]);
-	f.relay.dispose();
+	f.connection.dispose();
 });
 
 it("cancels pending endpoint discovery when a renderer disappears", async () => {
 	let finish: (value: DesktopEngineEndpoint) => void = () => {};
 	let signal: AbortSignal | undefined;
 	let connectCount = 0;
-	const relay = makeEngineRpcRelay({
+	const connection = makeEngineRpcConnection({
 		endpoint: (value) => {
 			signal = value;
 			return new Promise((resolve) => {
@@ -114,8 +114,8 @@ it("cancels pending endpoint discovery when a renderer disappears", async () => 
 			throw new Error("should not connect");
 		},
 	});
-	const pending = relay.open("first");
-	relay.dispose();
+	const pending = connection.open("first");
+	connection.dispose();
 	finish(endpoint);
 	await expect(pending).rejects.toThrow();
 	expect(signal?.aborted).toBe(true);
@@ -129,7 +129,7 @@ it("closes a connection that finishes opening after its renderer was replaced", 
 		begun = resolve;
 	});
 	let closed = false;
-	const relay = makeEngineRpcRelay({
+	const connection = makeEngineRpcConnection({
 		endpoint: async () => endpoint,
 		message: () => {},
 		disconnected: () => {},
@@ -140,9 +140,9 @@ it("closes a connection that finishes opening after its renderer was replaced", 
 			});
 		},
 	});
-	const pending = relay.open("first");
+	const pending = connection.open("first");
 	await connecting;
-	relay.reset();
+	connection.reset();
 	finish({
 		closed: Promise.resolve(),
 		close: () => {
