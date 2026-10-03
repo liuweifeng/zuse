@@ -184,6 +184,8 @@ export interface MainLayerDeps {
 		readonly path: string;
 		readonly wsUrl: string;
 	};
+	/** Server-derived activity; native hosts must not depend on a connected renderer. */
+	readonly onActiveTurns?: (count: number) => void;
 	readonly onStartupPhase?: (
 		phase: "migrations-ready" | "projectors-ready",
 	) => void;
@@ -436,6 +438,25 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const SessionQueriesLayer = SqlSessionQueries.layer.pipe(
 		Layer.provide(BackfilledSqlite),
 	);
+
+	const ActivityLayer =
+		deps.onActiveTurns === undefined
+			? Layer.empty
+			: Layer.effectDiscard(
+					Effect.gen(function* () {
+						const queries = yield* SqlSessionQueries;
+						yield* queries.activeTurnCount.pipe(
+							Effect.tap((count) =>
+								Effect.sync(() => deps.onActiveTurns?.(count)),
+							),
+							Effect.catchCause((cause) =>
+								Effect.logWarning("Could not observe engine activity", cause),
+							),
+							Effect.repeat(Schedule.spaced("2 seconds")),
+							Effect.forkScoped,
+						);
+					}),
+				).pipe(Layer.provide(SessionQueriesLayer));
 
 	// PermissionService brokers between the SDK permission callback (driver
 	// side) and the renderer toast (RPC side). It writes decisions to
@@ -873,6 +894,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		RetireApiLinkLayer,
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
+		ActivityLayer,
 		CliAccessLayer,
 	).pipe(Layer.provide(TelemetryLayer));
 };

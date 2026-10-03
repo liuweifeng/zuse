@@ -78,6 +78,7 @@ import { Migration0072InputOwnership } from "./migrations/0072_input_ownership.t
 import { Migration0073QuestionExpiry } from "./migrations/0073_question_expiry.ts";
 import { Migration0074PlanDeliveries } from "./migrations/0074_plan_deliveries.ts";
 import { Migration0075ContextHandoffs } from "./migrations/0075_context_handoffs.ts";
+import { Migration0076TurnActivityIndex } from "./migrations/0076_turn_activity_index.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -178,7 +179,7 @@ const MigrationDefinitionsThrough0062 = {
 	"0064_provider_accounts": Migration0064ProviderAccounts,
 } as const;
 
-const MigrationDefinitions = {
+const MigrationDefinitionsThrough0073 = {
 	...MigrationDefinitionsThrough0062,
 	"0063_jobs": Migration0063Jobs,
 	"0064_session_graph": Migration0064SessionGraph,
@@ -191,8 +192,13 @@ const MigrationDefinitions = {
 	"0071_session_inputs": Migration0071SessionInputs,
 	"0072_input_ownership": Migration0072InputOwnership,
 	"0073_question_expiry": Migration0073QuestionExpiry,
+} as const;
+
+const MigrationDefinitions = {
+	...MigrationDefinitionsThrough0073,
 	"0074_plan_deliveries": Migration0074PlanDeliveries,
 	"0075_context_handoffs": Migration0075ContextHandoffs,
+	"0076_turn_activity_index": Migration0076TurnActivityIndex,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
@@ -322,5 +328,12 @@ export const MigrationsThrough0062Live = Layer.effectDiscard(
 export const MigrationsThrough0060Live = Layer.effectDiscard(
 	Migrator.make({})({
 		loader: Migrator.fromRecord(MigrationDefinitionsThrough0060),
+	}),
+);
+
+/** Fixed historical engine boundary used to reproduce pre-rebase database upgrades. */
+export const MigrationsThrough0073Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0073),
 	}),
 );

@@ -235,14 +235,25 @@ monitor.pathUpdateHandler = { path in
 monitor.start(queue: queue)
 nearby.start()
 
-signal(SIGTERM, SIG_IGN)
-private let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: queue)
-termination.setEventHandler {
+private func stopHelper() {
   nearby.stop()
   monitor.cancel()
   exit(0)
 }
+
+signal(SIGTERM, SIG_IGN)
+private let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: queue)
+termination.setEventHandler { stopHelper() }
 termination.resume()
+
+// The launcher owns stdin's pipe. EOF also covers SIGKILL and engine crashes,
+// when no graceful termination signal can reach this helper.
+private let ownerLifetime = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: queue)
+ownerLifetime.setEventHandler {
+  if FileHandle.standardInput.availableData.isEmpty { stopHelper() }
+}
+ownerLifetime.resume()
+
 private let wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
   forName: NSWorkspace.didWakeNotification,
   object: nil,

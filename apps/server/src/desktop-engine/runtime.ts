@@ -11,7 +11,12 @@ import { localEngineProtocolLayer } from "./protocol.ts";
 
 export const runDesktopEngine = (
 	config: DesktopEngineConfig,
-	native: Pick<MainLayerDeps, "credentialsLayer" | "modelConnectionMasterKey">,
+	native: Pick<
+		MainLayerDeps,
+		"credentialsLayer" | "modelConnectionMasterKey" | "onActiveTurns"
+	> & {
+		readonly onRemoteConnection?: () => () => void;
+	},
 ) =>
 	Effect.scoped(
 		Effect.gen(function* () {
@@ -69,6 +74,7 @@ export const runDesktopEngine = (
 						staticDir: config.staticDir,
 						devServerUrl: config.devServerUrl,
 						onDiagnostic: diagnostic,
+						onAuthenticatedConnection: native.onRemoteConnection,
 					}),
 					...(config.nearbyTls === undefined
 						? []
@@ -80,6 +86,7 @@ export const runDesktopEngine = (
 											? config.bindHost
 											: "127.0.0.1",
 									tls: config.nearbyTls,
+									onAuthenticatedConnection: native.onRemoteConnection,
 									onListening: (address) =>
 										host.notify("diagnostic", {
 											event: "engine.nearby.listening",

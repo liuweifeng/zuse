@@ -74,10 +74,14 @@ describe("ComputerAwakeController", () => {
 
 		controller.setActiveAgents(1);
 		expect(blocker.start).toHaveBeenCalledWith("prevent-app-suspension");
-		expect(spawn).toHaveBeenCalledWith("/usr/bin/caffeinate", ["-i", "-s"], {
-			stdio: "ignore",
-			windowsHide: true,
-		});
+		expect(spawn).toHaveBeenCalledWith(
+			"/usr/bin/caffeinate",
+			["-i", "-s", "-w", String(process.pid)],
+			{
+				stdio: "ignore",
+				windowsHide: true,
+			},
+		);
 		expect(controller.getStatus()).toMatchObject({
 			active: true,
 			activeAgents: 1,
@@ -209,4 +213,27 @@ describe("ComputerAwakeController", () => {
 		expect(powerMonitor.off).toHaveBeenCalledOnce();
 		expect(spawn).toHaveBeenCalledOnce();
 	});
+});
+
+it("holds the daemon's native assertion without requiring an Electron blocker", () => {
+	const { controller, children, spawn } = makeHarness({ blocker: undefined });
+	try {
+		controller.setActiveAgents(1);
+		expect(spawn).toHaveBeenCalledWith(
+			"/usr/bin/caffeinate",
+			["-i", "-s", "-w", String(process.pid)],
+			{ stdio: "ignore", windowsHide: true },
+		);
+		expect(controller.getStatus()).toMatchObject({
+			active: true,
+			caffeinateActive: true,
+			electronBlockerActive: false,
+			warning: null,
+		});
+		controller.setActiveAgents(0);
+		expect(children[0]?.kill).toHaveBeenCalledOnce();
+		expect(controller.getStatus().active).toBe(false);
+	} finally {
+		controller.dispose();
+	}
 });
