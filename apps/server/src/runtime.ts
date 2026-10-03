@@ -9,7 +9,7 @@ import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitServiceLive } from "@zuse/git/git-service-live";
 import { GitHubClient, GitHubClientService } from "@zuse/git/github-client";
 import { WorktreeServiceLive } from "@zuse/git/worktree-service-live";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Schedule } from "effect";
 import { RpcServer } from "effect/unstable/rpc";
 import {
 	AccountAccessProcessLive,

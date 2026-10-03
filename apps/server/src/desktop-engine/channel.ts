@@ -8,7 +8,6 @@ const Frame = Schema.Union([
 		version: Schema.Number,
 		host: Schema.Boolean,
 		authRedirectUri: Schema.optional(Schema.String),
-		linearRedirectUri: Schema.optional(Schema.String),
 	}),
 	Schema.TaggedStruct("Welcome", { version: Schema.Number }),
 	Schema.TaggedStruct("Rpc", { payload: Schema.String }),
@@ -27,7 +26,7 @@ const Frame = Schema.Union([
 		payload: Schema.Unknown,
 	}),
 	Schema.TaggedStruct("HostCallback", {
-		flow: Schema.Literals(["account", "linear"]),
+		flow: Schema.Literal("account"),
 		url: Schema.String,
 	}),
 	Schema.TaggedStruct("Ping", {}),

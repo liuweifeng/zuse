@@ -18,7 +18,6 @@ export const connectLocalEngine = (
 	options: {
 		readonly host?: {
 			readonly authRedirectUri: string;
-			readonly linearRedirectUri: string;
 		};
 		readonly receive: (
 			frame: Exclude<

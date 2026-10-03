@@ -12,20 +12,11 @@ export class EngineHost {
 		string,
 		{ owner: EngineChannel; finish: (value: unknown, error?: Error) => void }
 	>();
-	private readonly callbacks = new Map<
-		"account" | "linear",
-		(url: string) => void
-	>();
+	private readonly callbacks = new Map<"account", (url: string) => void>();
 	constructor(private readonly timeoutMs = 30_000) {}
 	get redirectUri(): string {
 		return (
 			this.owner?.hello.authRedirectUri ?? "http://localhost:8976/callback"
-		);
-	}
-	get linearRedirectUri(): string {
-		return (
-			this.owner?.hello.linearRedirectUri ??
-			"http://localhost:8976/linear/callback"
 		);
 	}
 	attach(channel: EngineChannel, hello: Hello): boolean {
@@ -40,7 +31,7 @@ export class EngineHost {
 		});
 		return true;
 	}
-	onCallback(flow: "account" | "linear", handler: (url: string) => void): void {
+	onCallback(flow: "account", handler: (url: string) => void): void {
 		this.callbacks.set(flow, handler);
 	}
 	receive(channel: EngineChannel, frame: EngineFrame): boolean {
