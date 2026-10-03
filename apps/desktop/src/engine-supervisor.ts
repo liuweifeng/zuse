@@ -6,6 +6,7 @@ import {
 	superviseEngine,
 } from "@zusehq/server/desktop-engine/supervisor";
 import { makeBatchedLogWriter } from "./batched-log-writer.ts";
+import { verifyEngineBuild } from "./engine-build-id.ts";
 import { runOwnedHelper } from "./owned-helper.ts";
 
 const main = async () => {
@@ -21,6 +22,7 @@ const main = async () => {
 	if (path === undefined || entry === undefined)
 		throw new Error("Missing engine supervisor configuration.");
 	const config = await readDesktopEngineConfig(path);
+	await verifyEngineBuild(config.buildId, entry);
 	const logPath = join(config.userData, "engine", "runtime.log");
 	const writer = makeBatchedLogWriter({
 		writeBatch: async (file, lines) => {

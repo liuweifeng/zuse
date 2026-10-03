@@ -10,6 +10,7 @@ const Endpoint = Schema.Struct({
 	token: Schema.String,
 	pid: Schema.Number,
 	appVersion: Schema.String,
+	buildId: Schema.optional(Schema.String),
 	apiPort: Schema.Number,
 });
 export type DesktopEngineEndpoint = typeof Endpoint.Type;

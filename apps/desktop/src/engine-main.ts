@@ -13,6 +13,7 @@ import {
 	readComputerAwakePreference,
 	watchComputerAwakePreference,
 } from "./computer-awake-preference.ts";
+import { verifyEngineBuild } from "./engine-build-id.ts";
 import { createLocalConnectivity } from "./local-connectivity.ts";
 
 const boot = Effect.gen(function* () {
@@ -22,14 +23,18 @@ const boot = Effect.gen(function* () {
 			new Error("Missing private engine configuration path."),
 		);
 	const config = yield* Effect.tryPromise(() => readDesktopEngineConfig(path));
+	const supervisorPath = join(
+		dirname(process.argv[1] ?? path),
+		"engine-supervisor.cjs",
+	);
+	yield* Effect.tryPromise(() =>
+		verifyEngineBuild(config.buildId, supervisorPath),
+	);
 	const connectivity = yield* Effect.acquireRelease(
 		Effect.sync(() =>
 			createLocalConnectivity({
 				helperPath: config.nearbyHelperPath,
-				supervisorPath: join(
-					dirname(process.argv[1] ?? path),
-					"engine-supervisor.cjs",
-				),
+				supervisorPath,
 				serviceName: hostname(),
 				log: (event, fields) =>
 					console.info(JSON.stringify({ event, ...fields })),

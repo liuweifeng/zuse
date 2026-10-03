@@ -25,6 +25,11 @@ The standalone desktop engine is bundled with an independently locked supervisor
 private authenticated local transport, native credential storage, and scoped RPC
 attachments. A process test verifies client detach/reattach, worker crash recovery,
 durable workspace preservation, capability rotation, and supervised shutdown.
+Desktop reattachment checks a hash of both engine executables and the native
+runtime ABI as well as the release version. The supervisor and worker verify
+the prepared build before opening the runtime, including on crash restart.
+An incompatible attachment leaves the existing engine running. Automatic upgrade
+coordination with idle admission is still outstanding.
 Renderer disconnect fails pending RPC calls without replaying mutations. Native
 requests are bound to one desktop attachment; timeout, cancellation, and attachment
 loss revoke their responses. Reconnection never repeats native actions.

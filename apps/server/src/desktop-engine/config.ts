@@ -7,6 +7,7 @@ import { atomicWritePrivateJson } from "../atomic-private-file.ts";
 export const DesktopEngineConfig = Schema.Struct({
 	userData: Schema.String,
 	appVersion: Schema.String,
+	buildId: Schema.optional(Schema.String),
 	apiPort: Schema.Number,
 	bindHost: Schema.String,
 	advertisedHost: Schema.NullOr(Schema.String),

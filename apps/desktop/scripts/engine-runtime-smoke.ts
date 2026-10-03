@@ -13,10 +13,14 @@ import {
 	readEngineEndpoint,
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
+import { readEngineBuildId } from "../src/engine-launcher.ts";
 
 // Run after the desktop build. Every process and database belongs to this fixture.
 const directory = await mkdtemp(join(tmpdir(), "zuse-engine-recovery-"));
 const channels = new Set<EngineChannel>();
+const supervisorPath = fileURLToPath(
+	new URL("../dist-electron/engine-supervisor.cjs", import.meta.url),
+);
 let supervisor: ChildProcess | undefined;
 let exited: Promise<void> = Promise.resolve();
 const within = async <T>(work: Promise<T>, ms: number): Promise<T> => {
@@ -125,38 +129,33 @@ try {
 	await new Promise<void>((resolve, reject) =>
 		reservation.close((error) => (error ? reject(error) : resolve())),
 	);
-	const configPath = await writeDesktopEngineConfig({
+	const buildId = await readEngineBuildId(supervisorPath);
+	const launchConfig = {
 		userData: directory,
 		appVersion: "engine-smoke",
+		buildId,
 		apiPort: address.port,
 		bindHost: "127.0.0.1",
 		advertisedHost: null,
 		apiUrl: "http://127.0.0.1:9",
-	});
-	supervisor = spawn(
-		process.execPath,
-		[
-			fileURLToPath(
-				new URL("../dist-electron/engine-supervisor.cjs", import.meta.url),
-			),
-			configPath,
-		],
-		{
-			env: {
-				...process.env,
-				ELECTRON_RUN_AS_NODE: "1",
-				ZUSE_SQLITE_MEMORY: "0",
-				MEMOIZE_SQLITE_MEMORY: "0",
-			},
-			stdio: ["ignore", "ignore", "pipe"],
+	};
+	const configPath = await writeDesktopEngineConfig(launchConfig);
+	supervisor = spawn(process.execPath, [supervisorPath, configPath], {
+		env: {
+			...process.env,
+			ELECTRON_RUN_AS_NODE: "1",
+			ZUSE_SQLITE_MEMORY: "0",
+			MEMOIZE_SQLITE_MEMORY: "0",
 		},
-	);
+		stdio: ["ignore", "ignore", "pipe"],
+	});
 	supervisor.stderr?.on("data", (data) => process.stderr.write(data));
 	exited = new Promise<void>((resolve, reject) => {
 		supervisor?.once("exit", () => resolve());
 		supervisor?.once("error", reject);
 	});
 	const initial = await waitReady();
+	assert.equal(initial.buildId, buildId);
 	const first = await connect(initial);
 	const project = join(directory, "project");
 	await mkdir(project);
@@ -172,6 +171,7 @@ try {
 	process.kill(initial.pid, "SIGKILL");
 	await within(second.channel.closed, 5_000);
 	const recovered = await waitReady(initial.pid);
+	assert.equal(recovered.buildId, buildId);
 	assert.notEqual(recovered.token, initial.token);
 	await assert.rejects(
 		connectLocalEngine(
@@ -191,6 +191,36 @@ try {
 	assert.throws(() => process.kill(recovered.pid, 0), { code: "ESRCH" });
 	console.log(
 		"PASS: supervisor shutdown awaits the worker and removes the endpoint",
+	);
+	const database = await readFile(join(directory, "zuse.sqlite"));
+	await writeDesktopEngineConfig({ ...launchConfig, buildId: "stale-build" });
+	for (const entry of [
+		supervisorPath,
+		fileURLToPath(new URL("../dist-electron/engine-main.cjs", import.meta.url)),
+	]) {
+		let failure = "";
+		supervisor = spawn(process.execPath, [entry, configPath], {
+			env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		supervisor.stdout?.on("data", (chunk) => {
+			failure += String(chunk);
+		});
+		supervisor.stderr?.on("data", (chunk) => {
+			failure += String(chunk);
+		});
+		exited = new Promise<void>((resolve, reject) => {
+			supervisor?.once("exit", () => resolve());
+			supervisor?.once("error", reject);
+		});
+		await within(exited, 10_000);
+		assert.notEqual(supervisor.exitCode, 0);
+		assert.match(failure, /engine files changed/);
+		assert.equal(await readEngineEndpoint(directory), null);
+		assert.deepEqual(await readFile(join(directory, "zuse.sqlite")), database);
+	}
+	console.log(
+		"PASS: changed engine builds are rejected before modifying durable data",
 	);
 } catch (error) {
 	process.stderr.write(
