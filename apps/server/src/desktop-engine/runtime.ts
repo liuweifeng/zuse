@@ -44,9 +44,6 @@ export const runDesktopEngine = (
 					get redirectUri() {
 						return host.redirectUri;
 					},
-					get linearRedirectUri() {
-						return host.linearRedirectUri;
-					},
 					open: (url) =>
 						Effect.tryPromise({
 							try: (signal) => host.request("openExternal", url, signal),
@@ -58,8 +55,6 @@ export const runDesktopEngine = (
 						}).pipe(Effect.asVoid),
 					onCallbackUrl: (callback) =>
 						Effect.sync(() => host.onCallback("account", callback)),
-					onLinearCallbackUrl: (callback) =>
-						Effect.sync(() => host.onCallback("linear", callback)),
 				},
 				serverProtocol: localEngineProtocolLayer({
 					token,

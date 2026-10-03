@@ -44,7 +44,6 @@ const fixture = async (timeout = 1000) => {
 };
 const hostInfo = {
 	authRedirectUri: "http://localhost:8976/callback",
-	linearRedirectUri: "http://localhost:8976/linear/callback",
 };
 
 it("authenticates attachments and fences callbacks from non-host clients", async () => {

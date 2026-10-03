@@ -634,35 +634,44 @@ export const ProviderServiceLive = Layer.effect(
 						["cursor", "opencode", "opencode2", "pi"].includes(input.providerId)
 					) {
 						managedPlugins = yield* Effect.tryPromise({
-							try: async () => {
+							try: async (signal) => {
 								const client = await getDefaultPluginClient();
+								signal.throwIfAborted();
 
-								return issueMcpGatewaySession({
-									sessionId,
-									scopes: {
-										browser: false,
-										orchestration: false,
-										plugins: client !== undefined,
-										html: true,
+								const lease = await issueMcpGatewaySession(
+									{
+										sessionId,
+										scopes: {
+											browser: false,
+											orchestration: false,
+											plugins: client !== undefined,
+											html: true,
+										},
+										ctx: {
+											html: { client: htmlTools.client, cwd },
+											plugins: client
+												? {
+														client,
+														requestPermission: (kind, options) =>
+															buildRequestPermission(
+																input.folderId,
+																permissionAuthority,
+															)(sessionId, kind, options),
+														getRuntimeMode: () =>
+															getRuntimeMode?.() ?? "approval-required",
+														getPermissionMode: () => managedPermissionMode,
+													}
+												: undefined,
+										},
 									},
-									ctx: {
-										html: { client: htmlTools.client, cwd },
-										plugins: client
-											? {
-													client,
-													requestPermission: (kind, options) =>
-														buildRequestPermission(input.folderId, permissionAuthority)(
-															sessionId,
-															kind,
-															options,
-														),
-													getRuntimeMode: () =>
-														getRuntimeMode?.() ?? "approval-required",
-													getPermissionMode: () => managedPermissionMode,
-												}
-											: undefined,
-									},
-								});
+									signal,
+								);
+								if (signal.aborted) {
+									await lease.close();
+									signal.throwIfAborted();
+								}
+								managedPlugins = lease;
+								return lease;
 							},
 							catch: () =>
 								new AgentSessionStartError({
