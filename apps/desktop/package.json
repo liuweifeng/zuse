@@ -24,6 +24,7 @@
 		"check-types": "tsc --noEmit",
 		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs && node --test scripts/*.test.mjs",
 		"test:unit": "vp test run test/unit && node --test scripts/*.test.mjs",
+		"test:engine": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
 		"icon": "node scripts/make-icon.mjs",
@@ -71,6 +72,7 @@
 		"typescript": "catalog:",
 		"vite-plus": "0.2.5",
 		"vitest": "catalog:",
-		"@zuse/i18n": "workspace:*"
+		"@zuse/i18n": "workspace:*",
+		"@effect/platform-node": "catalog:"
 	}
 }

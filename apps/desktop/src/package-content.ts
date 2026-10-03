@@ -2,6 +2,8 @@ const REQUIRED_RUNTIME_ENTRIES = [
 	"/dist-electron/app-mcp-proxy-child.cjs",
 	"/dist-electron/browser-mcp-child.cjs",
 	"/dist-electron/main.cjs",
+	"/dist-electron/engine-main.cjs",
+	"/dist-electron/engine-supervisor.cjs",
 	"/dist-electron/orchestration-mcp-child.cjs",
 	"/dist-electron/preload.cjs",
 	"/dist-electron/ssh-bridge-child.cjs",
