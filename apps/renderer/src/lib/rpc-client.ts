@@ -280,9 +280,13 @@ const makeRendererRpcSession = async (
 	};
 	const protocolLayer =
 		options.kind === "electron"
-			? electronClientProtocolLayer(options.bridge).pipe(
-					Layer.provide(RpcSerialization.layerJson),
-				)
+			? electronClientProtocolLayer(options.bridge, () =>
+					notifyClose({
+						code: 1006,
+						reason: "Local engine disconnected",
+						wasClean: false,
+					}),
+				).pipe(Layer.provide(RpcSerialization.layerJson))
 			: wsClientProtocolLayer(
 					withWireProtocolVersion(
 						options.wsUrl || (await requestBrowserWebSocketUrl()),
@@ -351,7 +355,7 @@ const supervisor = createConnectionSupervisor<
 				reportRendererEntryFailure(
 					options.key,
 					new Error(
-						`WebSocket closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+						`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
 					),
 				);
 			});

@@ -30,9 +30,16 @@ import type {
  * encoded RPC frames; serialization + framing happen at the Effect RPC layer.
  */
 export interface RpcBridge {
-	readonly send: (frame: string | Uint8Array) => void;
+	/** Optional scoped attachment for a detached local engine. */
+	readonly connect?: (connectionId: string) => Promise<void>;
+	readonly disconnect?: (connectionId: string) => void;
+	readonly onDisconnect?: (
+		handler: (connectionId: string) => void,
+	) => () => void;
+	readonly send: (frame: string | Uint8Array, connectionId?: string) => void;
 	readonly onMessage: (
 		handler: (frame: string | Uint8Array) => void,
+		connectionId?: string,
 	) => () => void;
 }
 
