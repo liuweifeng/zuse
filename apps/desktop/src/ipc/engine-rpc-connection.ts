@@ -12,7 +12,7 @@ interface Attachment {
 }
 
 /** Each renderer RPC scope gets a fresh server client. Frames never cross scopes or replay. */
-export const makeEngineRpcRelay = (options: {
+export const makeEngineRpcConnection = (options: {
 	readonly endpoint: (signal: AbortSignal) => Promise<DesktopEngineEndpoint>;
 	readonly message: (id: string, payload: string) => void;
 	readonly disconnected: (id: string) => void;
