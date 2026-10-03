@@ -718,5 +718,9 @@
 	"selection_menu_label": "Actions sur la sélection",
 	"selection_menu_annotate": "Annoter",
 	"selection_menu_copy": "Copier",
-	"selection_menu_copied": "Copié"
+	"selection_menu_copied": "Copié",
+	"plan_expired": "Cette demande de validation du plan a expiré. Envoyez un nouveau message pour continuer.",
+	"plan_delivery_uncertain": "La transmission de la décision sur le plan n’a pas pu être confirmée. Vérifiez la conversation avant de démarrer un nouveau tour.",
+	"provider_quiet": "Aucune activité récente du fournisseur. Vous pouvez attendre ou arrêter ce tour.",
+	"execution_unavailable": "Le propriétaire de l’exécution n’a pas pu être confirmé. Récupération en attente."
 }

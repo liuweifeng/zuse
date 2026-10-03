@@ -22,6 +22,7 @@ export type SessionTimelineDriverClient = Readonly<{
 			afterVersion?: number;
 			streamEpoch?: string;
 			hasProjection?: boolean;
+			includeRuntime?: boolean;
 			historyMode?: "background";
 		}>,
 	) => Stream.Stream<SessionTimelineFrame, unknown>;
@@ -90,6 +91,8 @@ export const makeSessionTimelineResourceDriver = <
 	let checkpointCancel: (() => void) | null = null;
 	let persistCurrentOnStop: (() => void) | null = null;
 	let active = false;
+	let continuityCancel: (() => void) | null = null;
+	let continuityToken = 0;
 
 	return {
 		start: (context) => {
@@ -107,6 +110,56 @@ export const makeSessionTimelineResourceDriver = <
 					state.projection.status === "booting");
 			let catchingUp = true;
 			let eventsSinceCheckpoint = 0;
+			let missingVersion: number | null = null;
+			const clearContinuity = () => {
+				continuityCancel?.();
+				continuityCancel = null;
+				missingVersion = null;
+				continuityToken++;
+			};
+			const observeContinuity = (frame: SessionTimelineFrame) => {
+				if (
+					missingVersion !== null &&
+					state.cursor !== null &&
+					state.cursor.version >= missingVersion
+				)
+					clearContinuity();
+				if (
+					frame.kind !== "runtime" ||
+					state.phase !== "live" ||
+					state.cursor?.epoch !== frame.cursor.epoch ||
+					frame.cursor.version <= state.cursor.version ||
+					continuityCancel !== null
+				)
+					return;
+				missingVersion = frame.cursor.version;
+				const token = ++continuityToken;
+				const schedule =
+					options.schedule ??
+					((delay: number, task: () => void) => {
+						const timer = setTimeout(task, delay);
+						return () => clearTimeout(timer);
+					});
+				continuityCancel = schedule(10_000, () => {
+					if (
+						!active ||
+						!context.isCurrent() ||
+						token !== continuityToken ||
+						missingVersion === null ||
+						(state.cursor?.version ?? 0) >= missingVersion
+					)
+						return;
+					context.emit({ sync: "failed" });
+					options.reportFailure(
+						ref.environmentId,
+						context.generation,
+						new Error(
+							"Session stream missed a committed event; reconnecting to repair its cursor",
+						),
+					);
+					if (fiber !== null) void Effect.runPromise(Fiber.interrupt(fiber));
+				});
+			};
 			const clearCheckpoint = (): void => {
 				checkpointCancel?.();
 				checkpointCancel = null;
@@ -142,6 +195,7 @@ export const makeSessionTimelineResourceDriver = <
 					...(backgroundHistory ? { historyMode: "background" as const } : {}),
 					afterVersion: state.cursor?.version,
 					streamEpoch: state.cursor?.epoch,
+					includeRuntime: true,
 					hasProjection:
 						state.projection !== null &&
 						state.projection.olderMessageSequence == null &&
@@ -166,6 +220,7 @@ export const makeSessionTimelineResourceDriver = <
 						}
 						const previous = state;
 						state = reduceSessionTimelineFrame(state, frame);
+						observeContinuity(frame);
 						if (state === previous) return;
 						if (
 							frame.kind === "snapshot" &&
@@ -259,6 +314,9 @@ export const makeSessionTimelineResourceDriver = <
 			persistCurrentOnStop = null;
 			persistCurrent?.();
 			active = false;
+			continuityCancel?.();
+			continuityCancel = null;
+			continuityToken++;
 			const running = fiber;
 			fiber = null;
 			if (running !== null) void Effect.runPromise(Fiber.interrupt(running));

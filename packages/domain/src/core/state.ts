@@ -140,6 +140,7 @@ export type SessionState = {
 	readonly pendingPermissionIds: ReadonlySet<string>;
 	readonly expiredPermissionIds: ReadonlySet<string>;
 	readonly expiredQuestionIds: ReadonlySet<string>;
+	readonly expiredPlanIds: ReadonlySet<string>;
 	readonly resolvedQuestionIds: ReadonlySet<string>;
 	readonly providerId: string | null;
 	readonly attachedProviderId: string | null;
@@ -186,6 +187,7 @@ export const initialSessionState: SessionState = {
 	pendingPermissionIds: new Set(),
 	expiredPermissionIds: new Set(),
 	expiredQuestionIds: new Set(),
+	expiredPlanIds: new Set(),
 	resolvedQuestionIds: new Set(),
 	providerId: null,
 	attachedProviderId: null,
@@ -774,6 +776,12 @@ export const evolve = (
 					state.pendingPermissionIds,
 					event.requestId,
 				),
+				version,
+			};
+		case "PlanExpired":
+			return {
+				...state,
+				expiredPlanIds: added(state.expiredPlanIds, event.itemId),
 				version,
 			};
 		case "QuestionExpired":

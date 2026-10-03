@@ -23,9 +23,9 @@ ledger transactionally. Unknown development migration histories fail before writ
 
 This is not completion of all delivery slices below. Detached desktop execution,
 provider handoffs, full execution trees, and checkpoint rollback remain future work.
-Plan-response receipts are durable, but accepted responses interrupted before
-receipt commit do not yet have complete restart recovery. Live-provider crash
-injection and native macOS/Windows lifecycle validation remain release checks;
+Plan responses now retain durable intent and acknowledgement separately: restart
+repairs acknowledged receipts and expires uncertain deliveries without replay.
+Live-provider crash injection and native macOS/Windows lifecycle validation remain release checks;
 automated Linux tests do not establish zero reliability issues.
 
 Production persistence now acquires a process-lifetime SQLite lock before database
@@ -133,8 +133,13 @@ activity. Expired owners cannot renew or release replacement leases. A bounded
 sweep revalidates expiry in the command transaction, then either requests
 read-only recovery from proven native evidence or records an explicit uncertain
 failure without resending. Stream termination expires its lease immediately.
-This does not yet provide client liveness projections, provider-inactivity
-classification, or native-platform failure validation.
+Opt-in runtime observation frames now report execution health on the session feed
+without changing its durable cursor. A server sample distinguishes a quiet provider
+(two minutes without activity), blocking input, startup and missing execution ownership.
+Clients accept samples only for the current epoch, stream version and attempt; cached
+observations do not establish health after reconnect. Desktop and mobile show quiet or
+unavailable execution separately from transport disconnection. Native-platform failure
+validation remains outstanding.
 Approval callbacks now capture their original provider residency and attempt.
 Request admission and decisions enforce that ownership inside the domain
 transaction; saved grants cannot authorize a stale callback. Revocation records
@@ -142,8 +147,8 @@ transaction; saved grants cannot authorize a stale callback. Revocation records
 projections and restored snapshots. Expired approvals remain auditable and can
 be dismissed, but cannot become allow decisions. A background pass detects
 physical handle release even without client activity. This extends the existing
-approval ledger; questions, plan responses and unified durable answer jobs
-still need their shared input lifecycle.
+approval ledger. Questions and plans share its indexed input lifecycle; their
+provider delivery protocols retain separate acknowledgement semantics.
 Question callbacks now receive application IDs at acquisition, independently of
 provider-native item IDs. Duplicate live events retain the same ID; replacement,
 release and acknowledgment revoke the mapping. Driver answers, cancellations and
@@ -197,13 +202,15 @@ uncertain failures without invoking the callback again. Close revokes delivery
 before waiting for native teardown. Committed plan receipts acknowledge only the
 exact application callback, releasing its delivery state while retaining bounded
 late-result correlation. Acknowledgements cannot retire a replacement callback.
-These results are process-local; they are not
-restart recovery evidence. Plan expiry,
-an indexed plan input projection, delivery intent/jobs, and recovery after provider
-acceptance but before receipt commit remain outstanding; these preflights are not
-an atomic provider/SQLite commit.
-Durable input requests, step ownership, context handoffs, detached desktop runtime,
-and server-owned liveness remain targets.
+Plan deliveries now record intent before crossing the provider boundary and record
+acknowledgement before constructing the transcript receipt. Startup reconstructs
+acknowledged receipts on their original turns; unacknowledged sends become uncertain
+and cannot authorize another callback. Native plans use the shared indexed input
+projection, bounded expiry scans and transactional ownership rechecks. Desktop/mobile
+remove expired and uncertain decisions from actionable plans and show recovery notices.
+The provider/SQLite boundary remains non-atomic: a crash before acknowledgement is
+explicit uncertainty, never a fabricated success or an automatic resend.
+Step ownership, context handoffs and detached desktop runtime remain targets.
 SQL turn rows retain the active attempt pointer, while `session_attempts` records
 each initial, retry and recovery attempt with its outcome and timestamps. Migration
 and live projection share the same lifecycle projector; sequence guards preserve

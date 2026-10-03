@@ -715,5 +715,9 @@
 	"selection_menu_label": "選択範囲の操作",
 	"selection_menu_annotate": "注釈",
 	"selection_menu_copy": "コピー",
-	"selection_menu_copied": "コピーしました"
+	"selection_menu_copied": "コピーしました",
+	"plan_expired": "このプランの承認リクエストは期限切れです。続行するには新しいメッセージを送信してください。",
+	"plan_delivery_uncertain": "プランへの回答の送信を確認できませんでした。次のターンを開始する前に会話を確認してください。",
+	"provider_quiet": "プロバイダーから最近の応答がありません。待機するか、このターンを停止できます。",
+	"execution_unavailable": "実行の所有権を確認できませんでした。復旧を待機しています。"
 }

@@ -58,6 +58,7 @@ import {
 import { messageFromRecord } from "../conversation/core/conversation-records.ts";
 import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
 import { handoffToServiceScope } from "../conversation/core/service-scope.ts";
+import { observeSessionRuntime } from "../conversation/core/session-liveness.ts";
 import {
 	ChatService,
 	MessageService,
@@ -1904,13 +1905,20 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterVersion, streamEpoch, hasProjection, historyMode }) =>
+	({
+		sessionId,
+		afterVersion,
+		streamEpoch,
+		hasProjection,
+		historyMode,
+		includeRuntime,
+	}) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
 				yield* sessions.getSession(sessionId);
 				const domain = yield* SessionDomain;
-				return domain
+				const events = domain
 					.synchronizedEvents({
 						streamId: sessionId,
 						afterVersion,
@@ -1987,6 +1995,29 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 						}),
 						Stream.orDie,
 					);
+				if (!includeRuntime) return events;
+				const sql = yield* SqlClient.SqlClient;
+				const observation = sql
+					.withTransaction(
+						Effect.gen(function* () {
+							const runtime = yield* observeSessionRuntime(sql, sessionId);
+							const version = yield* domain.currentStreamVersion(sessionId);
+							return {
+								kind: "runtime" as const,
+								sessionId,
+								cursor: { epoch: domain.streamEpoch, version },
+								observation: runtime,
+							};
+						}),
+					)
+					.pipe(Effect.orDie);
+				return Stream.merge(
+					events,
+					Stream.fromEffect(observation).pipe(
+						Stream.repeat(Schedule.spaced("5 seconds")),
+					),
+					{ haltStrategy: "left" },
+				);
 			}),
 		),
 );

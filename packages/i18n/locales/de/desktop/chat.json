@@ -715,5 +715,9 @@
 	"selection_menu_label": "Aktionen für Auswahl",
 	"selection_menu_annotate": "Kommentieren",
 	"selection_menu_copy": "Kopieren",
-	"selection_menu_copied": "Kopiert"
+	"selection_menu_copied": "Kopiert",
+	"plan_expired": "Diese Plananfrage ist abgelaufen. Sende eine neue Nachricht, um fortzufahren.",
+	"plan_delivery_uncertain": "Die Übermittlung der Planentscheidung konnte nicht bestätigt werden. Prüfe die Unterhaltung, bevor du einen weiteren Durchlauf startest.",
+	"provider_quiet": "Keine kürzliche Anbieteraktivität. Du kannst warten oder diesen Durchlauf stoppen.",
+	"execution_unavailable": "Die Zuständigkeit für die Ausführung konnte nicht bestätigt werden. Wiederherstellung wird abgewartet."
 }

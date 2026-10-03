@@ -598,12 +598,15 @@ const ConversationRuntimeLive = Layer.effect(
 		// The production persistence layer already holds exclusive ownership.
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
 		yield* reconcileSessionRuntime(sql, sessionDomain);
+		yield* sessionOperations.recoverPlanResponses;
+		yield* sessionOperations.reconcilePlanInputs;
 		const expireQuestions = makeQuestionExpiry(sql, sessionDomain, provider);
 		yield* expireQuestions;
 		yield* Effect.forkIn(
 			Effect.forever(
 				Effect.sleep("1 second").pipe(
 					Effect.andThen(expireQuestions),
+					Effect.andThen(sessionOperations.reconcilePlanInputs),
 					Effect.catchCause(() =>
 						Effect.logError("[ConversationServices] question expiry failed"),
 					),

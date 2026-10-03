@@ -715,5 +715,9 @@
 	"selection_menu_label": "选区操作",
 	"selection_menu_annotate": "批注",
 	"selection_menu_copy": "复制",
-	"selection_menu_copied": "已复制"
+	"selection_menu_copied": "已复制",
+	"plan_expired": "此计划请求已过期。请发送新消息以继续。",
+	"plan_delivery_uncertain": "无法确认计划回复是否已送达。开始下一轮前，请检查对话。",
+	"provider_quiet": "提供商近期无活动。你可以等待或停止此轮。",
+	"execution_unavailable": "无法确认执行归属。正在等待恢复。"
 }

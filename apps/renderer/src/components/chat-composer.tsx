@@ -454,9 +454,17 @@ export function ChatComposer({
 	const pendingNativePlanApproval = useMemo(
 		() =>
 			pendingPlanApprovalRequest === null
-				? findPendingNativePlanApproval(sessionMessages ?? [])
+				? findPendingNativePlanApproval(
+						sessionMessages ?? [],
+						timeline.presentation.interactions.map((i) => i.interaction),
+					)
 				: null,
-		[pendingPlanApprovalRequest, sessionMessages, uiMessage],
+		[
+			pendingPlanApprovalRequest,
+			sessionMessages,
+			timeline.presentation.interactions,
+			uiMessage,
+		],
 	);
 	const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
 	const sendPlanFeedbackNow = useMemo(
@@ -1543,6 +1551,16 @@ export function ChatComposer({
 
 	return (
 		<TooltipProvider delay={0}>
+			{timeline.presentation.health === "stalled" ||
+			timeline.presentation.health === "unavailable" ? (
+				<div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+					{uiMessage(
+						timeline.presentation.health === "stalled"
+							? "chat:provider_quiet"
+							: "chat:execution_unavailable",
+					)}
+				</div>
+			) : null}
 			{showCard ? (
 				<div
 					className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}

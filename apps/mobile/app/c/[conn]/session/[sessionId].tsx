@@ -10,6 +10,7 @@ import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import {
 	findPendingPlanInteraction,
 	isPlanApprovalRequest,
+	nativePlanRecoveryState,
 } from "@zuse/client-runtime/plan-interactions";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import {
@@ -130,6 +131,7 @@ import {
 	resumeQueue,
 	runQueuedMessageNext,
 	sessionDeliveryAtom,
+	sessionHealthAtom,
 	sessionInteractionsAtom,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
@@ -252,6 +254,7 @@ function ThreadScreen() {
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
 	const interactions = useAtomValue(sessionInteractionsAtom(stateKey));
+	const executionHealth = useAtomValue(sessionHealthAtom(stateKey));
 	const transcriptReady = useAtomValue(sessionTranscriptReadyAtom(stateKey));
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
@@ -491,10 +494,12 @@ function ThreadScreen() {
 	const permissionRequests = pending.filter(
 		(request) => !isPlanApprovalRequest(request, normalizedSessionId),
 	);
+	const planRecovery = nativePlanRecoveryState(messages, interactions);
 	const pendingPlanInteraction =
 		detail === null
 			? null
 			: findPendingPlanInteraction({
+					interactions,
 					messages,
 					requests: pending,
 					sessionId: normalizedSessionId,
@@ -1395,6 +1400,17 @@ function ThreadScreen() {
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
 				>
+					{executionHealth === "stalled" ||
+					executionHealth === "unavailable" ? (
+						<Text
+							accessibilityRole="alert"
+							className="px-3 py-2 text-xs text-muted-foreground"
+						>
+							{executionHealth === "stalled"
+								? "No recent provider activity. You can wait or stop this turn."
+								: "Execution ownership could not be confirmed. Waiting for recovery."}
+						</Text>
+					) : null}
 					{options === null ? null : bottomState.blocking?.kind ===
 						"permission" ? (
 						renderPermissionAccessory(bottomState.blocking.requests)
@@ -1419,6 +1435,12 @@ function ThreadScreen() {
 							bottomInset={composerBottomInset}
 							onAction={runPlanAction}
 						/>
+					) : planRecovery !== null ? (
+						<Text className="px-3 py-2 text-xs text-muted-foreground">
+							{planRecovery === "uncertain"
+								? "Plan delivery could not be confirmed. Review the conversation before starting another turn."
+								: "This plan request has expired. Send a new message to continue."}
+						</Text>
 					) : null}
 					{options === null ? null : (
 						<View

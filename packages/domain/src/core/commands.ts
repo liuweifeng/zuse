@@ -229,6 +229,11 @@ export const SessionCommand = Schema.Union([
 		requestId: Schema.String,
 		expiredAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ExpirePlan", {
+		itemId: Schema.String,
+		reason: Schema.Literals(["expired", "uncertain"]),
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ExpireQuestion", {
 		itemId: Schema.String,
 		expiredAt: Schema.Number,

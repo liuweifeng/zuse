@@ -18,7 +18,11 @@ export const sessionFrameMessages = (
 };
 
 export const sessionFrameVersion = (frame: SessionTimelineFrame): number =>
-	frame.kind === "event" ? frame.streamVersion : frame.throughVersion;
+	frame.kind === "event"
+		? frame.streamVersion
+		: frame.kind === "runtime"
+			? frame.cursor.version
+			: frame.throughVersion;
 
 export const waitForSessionMessages = (
 	client: SystemRpcClient,

@@ -914,6 +914,10 @@ export const decide = (
 				: Result.fail(
 						new PermissionNotPending({ requestId: command.requestId }),
 					);
+		case "ExpirePlan":
+			return state.expiredPlanIds.has(command.itemId)
+				? success([])
+				: success([{ ...command, _tag: "PlanExpired" }]);
 		case "ExpireQuestion":
 			// Imported transcript questions may predate their aggregate event history.
 			return state.resolvedQuestionIds.has(command.itemId) ||

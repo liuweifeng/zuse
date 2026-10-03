@@ -58,7 +58,15 @@ export const deriveChatAttentionState = (
 		if (content._tag !== "tool_use") continue;
 		if (content.tool !== "ExitPlanMode") continue;
 		const itemId = itemIdOf(content.itemId);
-		if (itemId !== null && !completedTools.has(itemId)) return "planReady";
+		if (
+			itemId !== null &&
+			!completedTools.has(itemId) &&
+			!interactions.some(
+				(i) =>
+					i._tag === "Plan" && i.id === itemId && i.recoveryState !== undefined,
+			)
+		)
+			return "planReady";
 	}
 
 	return running ? "running" : "idle";

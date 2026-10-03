@@ -715,5 +715,9 @@
 	"selection_menu_label": "⟦Sëëlëëctïïôôn ààctïïôôns⟧",
 	"selection_menu_annotate": "⟦ÀÀnnôôtààtëë⟧",
 	"selection_menu_copy": "⟦Côôpy⟧",
-	"selection_menu_copied": "⟦Côôpïïëëd⟧"
+	"selection_menu_copied": "⟦Côôpïïëëd⟧",
+	"plan_expired": "⟦Thïïs plààn rëëqüüëëst hààs ëëxpïïrëëd. Sëënd àà nëëw mëëssààgëë tôô côôntïïnüüëë.⟧",
+	"plan_delivery_uncertain": "⟦Plààn dëëlïïvëëry côôüüld nôôt bëë côônfïïrmëëd. Rëëvïïëëw thëë côônvëërsààtïïôôn bëëfôôrëë stààrtïïng àànôôthëër tüürn.⟧",
+	"provider_quiet": "⟦Nôô rëëcëënt prôôvïïdëër ààctïïvïïty. Yôôüü cààn wààïït ôôr stôôp thïïs tüürn.⟧",
+	"execution_unavailable": "⟦ËËxëëcüütïïôôn ôôwnëërshïïp côôüüld nôôt bëë côônfïïrmëëd. Wààïïtïïng fôôr rëëcôôvëëry.⟧"
 }

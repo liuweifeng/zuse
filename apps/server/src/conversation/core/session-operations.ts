@@ -41,7 +41,9 @@ import type {
 } from "../services/conversation-services.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
-import { planResponseMessageId, readPlanResponse } from "./plan-response.ts";
+import { makePlanDelivery } from "./plan-delivery.ts";
+import { makePlanExpiry } from "./plan-expiry.ts";
+import { PlanResponse, readPlanResponse } from "./plan-response.ts";
 import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
@@ -872,6 +874,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			}),
 		);
 
+	const planDelivery = makePlanDelivery(sql, options);
 	const respondToPlan: ConversationOperations["respondToPlan"] = (
 		sessionId,
 		toolCallId,
@@ -904,6 +907,27 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						Effect.void;
 					return;
 				}
+				const delivery = yield* planDelivery.read(sessionId, toolCallId);
+				if (delivery !== undefined) {
+					const response = yield* Schema.decodeUnknownEffect(
+						Schema.fromJsonString(PlanResponse),
+					)(delivery.response_json).pipe(Effect.mapError(unavailable));
+					if (
+						response.outcome !== outcome ||
+						response.feedback !== feedback ||
+						delivery.status === "uncertain"
+					)
+						return yield* unavailable();
+					if (
+						delivery.status === "accepted" ||
+						delivery.status === "committed"
+					) {
+						yield* planDelivery.commit(delivery);
+						yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+							Effect.void;
+						return;
+					}
+				}
 				if (
 					existing._tag !== "pending" ||
 					!(yield* ownsInputRequest(sql, sessionId, existing.owner).pipe(
@@ -913,26 +937,23 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					return yield* unavailable();
 				const respond = provider.respondToPlan;
 				if (respond === undefined) return yield* unavailable();
+				yield* planDelivery.begin(
+					sessionId,
+					toolCallId,
+					existing.turnId,
+					existing.owner,
+					{ outcome, ...(feedback === undefined ? {} : { feedback }) },
+				);
 				yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
+					Effect.tapError(() => planDelivery.uncertain(sessionId, toolCallId)),
 					Effect.mapError(unavailable),
 				);
-				const persisted = yield* persistMessage(
-					sessionId,
-					{
-						_tag: "tool_result",
-						itemId: toolCallId,
-						output: {
-							outcome,
-							...(feedback === undefined ? {} : { feedback }),
-						},
-						isError: false,
-					},
-					planResponseMessageId(sessionId, toolCallId),
-					existing.turnId,
-				);
+				yield* planDelivery.accepted(sessionId, toolCallId);
+				const accepted = yield* planDelivery.read(sessionId, toolCallId);
+				if (accepted === undefined) return yield* unavailable();
+				yield* planDelivery.commit(accepted);
 				yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
 					Effect.void;
-				if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
 			}),
 		);
 
@@ -1089,6 +1110,18 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	return {
+		recoverPlanResponses: planDelivery.recover,
+		reconcilePlanInputs: makePlanExpiry(
+			sql,
+			sessionDomain,
+			provider,
+			planDelivery,
+			(sessionId, itemId, work) =>
+				inputResolutionWorker.run(
+					structuralTupleKey("plan", sessionId, itemId),
+					work,
+				),
+		),
 		listSessions,
 		ensureForTurn,
 		createSession,

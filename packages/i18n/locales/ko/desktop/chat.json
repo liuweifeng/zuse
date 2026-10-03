@@ -715,5 +715,9 @@
 	"selection_menu_label": "선택 작업",
 	"selection_menu_annotate": "주석",
 	"selection_menu_copy": "복사",
-	"selection_menu_copied": "복사됨"
+	"selection_menu_copied": "복사됨",
+	"plan_expired": "이 계획 승인 요청이 만료되었습니다. 계속하려면 새 메시지를 보내세요.",
+	"plan_delivery_uncertain": "계획 응답이 전달되었는지 확인할 수 없습니다. 다음 턴을 시작하기 전에 대화를 확인하세요.",
+	"provider_quiet": "최근 공급자 활동이 없습니다. 기다리거나 이 턴을 중지할 수 있습니다.",
+	"execution_unavailable": "실행 소유권을 확인할 수 없습니다. 복구를 기다리는 중입니다."
 }

@@ -542,6 +542,11 @@ export type SessionTurn = typeof SessionTurn.Type;
  * transient submission state belongs to the client command overlay.
  */
 export const SessionInteraction = Schema.Union([
+	Schema.TaggedStruct("Plan", {
+		id: AgentItemId,
+		requestedAt: Schema.DateFromString,
+		recoveryState: Schema.optional(Schema.Literals(["expired", "uncertain"])),
+	}),
 	Schema.TaggedStruct("Question", {
 		id: AgentItemId,
 		recoveryState: Schema.optional(Schema.Literal("expired")),
@@ -555,10 +560,26 @@ export const SessionInteraction = Schema.Union([
 ]);
 export type SessionInteraction = typeof SessionInteraction.Type;
 
+export const SessionRuntimeObservation = Schema.Struct({
+	state: Schema.Literals([
+		"idle",
+		"starting",
+		"running",
+		"blocked",
+		"stalled",
+		"unavailable",
+	]),
+	observedAt: Schema.Number,
+	attemptId: Schema.NullOr(Schema.String),
+	lastProviderActivityAt: Schema.NullOr(Schema.Number),
+});
+export type SessionRuntimeObservation = typeof SessionRuntimeObservation.Type;
+
 export class SessionTimelineProjection extends Schema.Class<SessionTimelineProjection>(
 	"SessionTimelineProjection",
 )({
 	messages: Schema.Array(Message),
+	runtimeObservation: Schema.optional(SessionRuntimeObservation),
 	/** Sequence immediately before the oldest materialized message, if any. */
 	olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 	status: SessionStatus,
@@ -608,6 +629,10 @@ export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("PermissionResolved", { requestId: Schema.String }),
 	Schema.TaggedStruct("PermissionExpired", { requestId: Schema.String }),
 	Schema.TaggedStruct("QuestionExpired", { itemId: AgentItemId }),
+	Schema.TaggedStruct("PlanExpired", {
+		itemId: AgentItemId,
+		reason: Schema.Literals(["expired", "uncertain"]),
+	}),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: AgentItemId,
 		resolution: Schema.Literal("cancelled"),
@@ -635,6 +660,12 @@ export const SessionStreamCursor = Schema.Struct({
 export type SessionStreamCursor = typeof SessionStreamCursor.Type;
 
 export const SessionTimelineFrame = Schema.Union([
+	Schema.Struct({
+		kind: Schema.Literal("runtime"),
+		sessionId: SessionId,
+		cursor: SessionStreamCursor,
+		observation: SessionRuntimeObservation,
+	}),
 	Schema.Struct({
 		kind: Schema.Literal("snapshot"),
 		sessionId: SessionId,
@@ -1683,6 +1714,7 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 		afterVersion: Schema.optional(Schema.Number),
 		streamEpoch: Schema.optional(Schema.String),
 		hasProjection: Schema.optional(Schema.Boolean),
+		includeRuntime: Schema.optional(Schema.Boolean),
 		historyMode: Schema.optional(Schema.Literal("background")),
 	}),
 	success: SessionTimelineFrame,

@@ -48,7 +48,7 @@ it("upgrades main while preserving harness executions and encrypted model record
 					).toEqual([{ envelope: "encrypted" }]);
 					expect(
 						yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
-					).toHaveLength(13);
+					).toHaveLength(14);
 					expect(yield* sql`SELECT * FROM jobs`).toEqual([]);
 				}),
 			);
@@ -73,6 +73,8 @@ it.each([
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;
 				// Reproduce the pre-rebase schema: engine tables existed without main's two tables.
+				yield* sql`DROP TABLE plan_response_deliveries`;
+				yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id = 74`;
 				yield* sql`DROP TABLE harness_executions`;
 				yield* sql`DROP TABLE model_connection_secrets`;
 				yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id IN (61,62)`;
