@@ -435,9 +435,10 @@ export const persistQueuedMessage = async (
 	options?: {
 		readonly ready?: boolean;
 		readonly flush?: boolean;
+		readonly rejectIfBlocked?: boolean;
 		readonly providerId?: ProviderId;
 	},
-): Promise<void> => {
+): Promise<boolean> => {
 	const commandId = CommandId.make(
 		`queue-add:${ref.sessionId}:${queueId}:${crypto.randomUUID()}`,
 	);
@@ -448,6 +449,9 @@ export const persistQueuedMessage = async (
 		input,
 		...(options?.ready === undefined ? {} : { ready: options.ready }),
 		...(options?.flush === undefined ? {} : { flush: options.flush }),
+		...(options?.rejectIfBlocked === undefined
+			? {}
+			: { rejectIfBlocked: options.rejectIfBlocked }),
 	};
 	try {
 		const item = await trackRendererRpc(
@@ -467,12 +471,14 @@ export const persistQueuedMessage = async (
 		);
 		markRendererInteraction(ref.sessionId, "queue-persisted");
 		setSessionError(ref, null);
+		return true;
 	} catch (cause) {
-		if (retryableFailure(ref, commandId)) return;
+		if (retryableFailure(ref, commandId)) return true;
 		// The optimistic item never became durable. Leaving it disabled implies it
 		// will eventually run even after an authoritative domain rejection.
 		updateQueue(ref, (items) => items.filter((item) => item.id !== queueId));
 		setSessionError(ref, classifyError(cause, options?.providerId));
+		return false;
 	}
 };
 
@@ -484,6 +490,7 @@ export const queueSessionMessage = (
 		readonly persist?: boolean;
 		readonly ready?: boolean;
 		readonly flush?: boolean;
+		readonly rejectIfBlocked?: boolean;
 		readonly providerId?: ProviderId;
 	},
 ): string => {

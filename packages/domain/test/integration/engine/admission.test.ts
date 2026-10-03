@@ -183,3 +183,62 @@ test("unfinished file restore fences execution across sessions until recovery co
 		}),
 	);
 });
+
+test("live operation lease blocks shutdown without holding the database transaction", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, domain } = yield* setup;
+			const entered = yield* Deferred.make<void>();
+			const release = yield* Deferred.make<void>();
+			const operation = yield* domain.admission
+				.withOperation(
+					Effect.gen(function* () {
+						yield* Deferred.succeed(entered, undefined);
+						yield* Deferred.await(release);
+					}),
+				)
+				.pipe(Effect.forkScoped);
+			yield* Deferred.await(entered);
+			expect(yield* domain.admission.activeOperations).toBe(1);
+			// A real unrelated transaction can commit while the native operation waits.
+			yield* sql.withTransaction(sql`SELECT 1`);
+			expect(yield* domain.admission.closeIf(Effect.succeed(true))).toBe(false);
+			yield* Deferred.succeed(release, undefined);
+			yield* Fiber.join(operation);
+			expect(yield* domain.admission.activeOperations).toBe(0);
+			expect(yield* domain.admission.closeIf(Effect.succeed(true))).toBe(true);
+			let called = false;
+			const rejected = yield* domain.admission
+				.withOperation(
+					Effect.sync(() => {
+						called = true;
+					}),
+				)
+				.pipe(Effect.exit);
+			expect(rejected._tag).toBe("Failure");
+			expect(called).toBe(false);
+			expect(yield* domain.admission.activeOperations).toBe(0);
+		}),
+	);
+});
+
+test("releases a live-operation lease if transaction commit fails after acquisition", async () => {
+	await run(
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			const failing = new Proxy(sql, {
+				get(target, key, receiver) {
+					if (key === "withTransaction")
+						return <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+							effect.pipe(Effect.andThen(Effect.die("commit failed")));
+					return Reflect.get(target, key, receiver);
+				},
+			});
+			const admission = makeSqlAdmission(failing);
+			expect(
+				(yield* admission.withOperation(Effect.void).pipe(Effect.exit))._tag,
+			).toBe("Failure");
+			expect(yield* admission.activeOperations).toBe(0);
+		}),
+	);
+});

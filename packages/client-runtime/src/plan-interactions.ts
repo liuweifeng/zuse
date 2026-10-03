@@ -331,3 +331,9 @@ export const nativePlanRecoveryState = (
 		? (interaction.recoveryState ?? null)
 		: null;
 };
+
+/** Answering a native plan is an input response; all other ordinary sends wait. */
+export const composerSendBlocked = (
+	health: string,
+	answeringPlan = false,
+): boolean => health === "blocked" && !answeringPlan;

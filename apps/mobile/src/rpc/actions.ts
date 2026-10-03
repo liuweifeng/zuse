@@ -213,6 +213,7 @@ export const forkSessionFromMessage = (options: {
 	connection: WsProtocolOptions;
 	sourceSessionId: SessionId;
 	fromMessageId: MessageId;
+	nativeChildStepId?: string;
 	destination: "tab" | "chat";
 	worktreeId?: WorktreeId | null;
 	commandId?: string;
@@ -224,6 +225,7 @@ export const forkSessionFromMessage = (options: {
 			commandId,
 			sourceSessionId: options.sourceSessionId,
 			fromMessageId: options.fromMessageId,
+			nativeChildStepId: options.nativeChildStepId,
 			destination: options.destination,
 			worktreeId: options.worktreeId,
 		});
@@ -504,6 +506,7 @@ export const queueMessage = (options: {
 	sessionId: SessionId;
 	input: ComposerInputType;
 	queueId?: string;
+	rejectIfBlocked?: boolean;
 }) => {
 	const commandId = CommandId.make(
 		options.queueId ?? nextMobileCommandId("queue-add"),
@@ -516,6 +519,7 @@ export const queueMessage = (options: {
 			commandId,
 			input: options.input,
 			queueId: options.queueId,
+			rejectIfBlocked: options.rejectIfBlocked,
 		},
 		commandId,
 	);

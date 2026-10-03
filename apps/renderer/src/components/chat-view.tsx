@@ -16,6 +16,7 @@ import {
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
+import { SessionAttemptHistory } from "./session-attempt-history.tsx";
 import { SessionCheckpoints } from "./session-checkpoints.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
 import { SessionMergeBack } from "./session-merge-back.tsx";
@@ -859,6 +860,7 @@ export function ChatView({
 				pendingCommands={timeline.view.pendingCommands}
 				row={item}
 				runtimeState={timeline.runtime}
+				finalizing={timeline.projection?.activeTurn?.status === "finalizing"}
 				sessionId={sessionId}
 			/>
 		),
@@ -869,6 +871,7 @@ export function ChatView({
 			sessionId,
 			timeline.ref.environmentId,
 			timeline.runtime,
+			timeline.projection?.activeTurn?.status,
 			timeline.view.pendingCommands,
 		],
 	);
@@ -896,6 +899,26 @@ export function ChatView({
 			<h1 className="sr-only">
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
+			<SessionForkRecovery
+				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+				sessionRef={sessionRef}
+			/>
+			<div className="flex justify-end">
+				<SessionAttemptHistory
+					key={`attempts:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+					sessionRef={sessionRef}
+				/>
+				<SessionCheckpoints
+					key={`${sessionRef.environmentId}:${sessionRef.sessionId}`}
+					sessionRef={sessionRef}
+				/>
+				{session.forkedFromSessionId !== null ? (
+					<SessionMergeBack
+						key={`merge:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+						sessionRef={sessionRef}
+					/>
+				) : null}
+			</div>
 			<div
 				ref={viewportRef}
 				data-chat-viewport
@@ -1072,6 +1095,7 @@ function TimelineRow({
 	providerId,
 	pendingCommands,
 	runtimeState,
+	finalizing,
 }: {
 	readonly interactions: readonly SessionInteraction[];
 	readonly chatId: import("@zuse/contracts").ChatId | null;
@@ -1081,6 +1105,7 @@ function TimelineRow({
 	readonly providerId: import("@zuse/contracts").ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
+	readonly finalizing: boolean;
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
@@ -1142,6 +1167,7 @@ function TimelineRow({
 						pendingCommands={pendingCommands}
 						providerId={providerId}
 						runtimeState={runtimeState}
+						finalizing={finalizing}
 						sessionId={sessionId}
 					/>
 				</Suspense>
@@ -1155,4 +1181,3 @@ function TimelineRow({
 		</div>
 	);
 }
-

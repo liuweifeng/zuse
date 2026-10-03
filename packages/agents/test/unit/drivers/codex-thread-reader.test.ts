@@ -123,3 +123,50 @@ describe("native transcript evidence", () => {
 		).rejects.toMatchObject({ reason: "invalid_response" });
 	});
 });
+
+it.each([
+	{
+		type: "collabAgentToolCall",
+		id: "spawn",
+		tool: "spawnAgent",
+		status: "completed",
+		receiverThreadIds: ["child"],
+		agentsStates: { child: { status: "running", message: null } },
+	},
+	{
+		type: "collabAgentToolCall",
+		id: "wait",
+		tool: "wait",
+		status: "completed",
+		receiverThreadIds: ["child"],
+		agentsStates: {
+			child: {
+				status: "completed",
+				message: "Child summary without exact execution output",
+			},
+		},
+	},
+	{
+		type: "subAgentActivity",
+		id: "child-start",
+		kind: "started",
+		agentThreadId: "child",
+		agentPath: "/child",
+	},
+	{
+		type: "subAgentActivity",
+		id: "child-interrupted",
+		kind: "interrupted",
+		agentThreadId: "child",
+		agentPath: "/child",
+	},
+])("does not infer child completion from a terminal parent containing $type", async (child) => {
+	const client = clientFor(
+		responseFor([{ ...turn, items: [...turn.items, child] }]),
+	);
+	expect(await readCodexTurnEvidence(client, reference)).toEqual({
+		kind: "incomplete",
+		reason: "native_children",
+	});
+	expect(client.calls).toHaveBeenCalledTimes(1);
+});

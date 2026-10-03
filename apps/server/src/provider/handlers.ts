@@ -67,6 +67,7 @@ import {
 	SessionService,
 	TranscriptService,
 } from "../conversation/services/conversation-services.ts";
+import { SessionWaitHandlers } from "../conversation/session-wait-handlers.ts";
 import { connectionWorkspaceActor } from "../lan-auth/services/connection-identity.ts";
 import {
 	observeUsageAccounts,
@@ -1812,6 +1813,7 @@ const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
 			commandId: input.commandId,
 			sourceSessionId: input.sourceSessionId,
 			fromMessageId: input.fromMessageId,
+			nativeChildStepId: input.nativeChildStepId,
 			destination: input.destination,
 			providerId: input.providerId,
 			model: input.model,
@@ -2170,7 +2172,7 @@ const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 	"messages.queue.add",
-	({ commandId, sessionId, queueId, input, ready, flush }) =>
+	({ commandId, sessionId, queueId, input, ready, flush, rejectIfBlocked }) =>
 		Effect.gen(function* () {
 			const svc = yield* QueueService;
 			const analytics = yield* AnalyticsService;
@@ -2183,6 +2185,7 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 				ready,
 				flush,
 				actor,
+				rejectIfBlocked,
 			);
 			yield* analytics.capture("queue action performed", { action: "add" });
 			return result;
@@ -2439,6 +2442,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionGoalClear,
 	SessionGoalStream,
 	MessagesList,
+	SessionWaitHandlers,
 	MessagesSend,
 	MessagesInterrupt,
 	MessagesQueueList,

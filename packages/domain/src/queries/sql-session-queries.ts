@@ -1,4 +1,10 @@
-import { ProviderTurnReference } from "@zuse/contracts";
+import {
+	AgentTurnId,
+	AttemptId,
+	ProviderTurnReference,
+	type SessionAttemptCursor,
+	type SessionAttemptHistoryPage,
+} from "@zuse/contracts";
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
@@ -278,21 +284,7 @@ export const makeSqlSessionQueries = (
 			}>`SELECT id, ordinal, reason, status, started_at, completed_at FROM session_attempts
 			WHERE session_id = ${input.sessionId} AND turn_id = ${input.turnId} AND ordinal > ${after}
 			ORDER BY ordinal LIMIT ${limit + 1}`;
-			const items = yield* Effect.forEach(rows.slice(0, limit), (row) =>
-				Effect.gen(function* () {
-					return {
-						id: row.id,
-						ordinal: row.ordinal,
-						reason: row.reason,
-						status: row.status,
-						startedAt: yield* timestamp(row.started_at, "attempt"),
-						completedAt:
-							row.completed_at === null
-								? null
-								: yield* timestamp(row.completed_at, "attempt"),
-					};
-				}),
-			);
+			const items = yield* Effect.forEach(rows.slice(0, limit), attemptRecord);
 			return {
 				items,
 				nextOrdinal:
@@ -384,3 +376,80 @@ export class SqlSessionQueries extends Context.Service<
 		Effect.map(SqlClient.SqlClient, makeSqlSessionQueries),
 	);
 }
+
+interface AttemptHistoryRow {
+	readonly id: string;
+	readonly ordinal: number;
+	readonly reason: AttemptState["reason"];
+	readonly status: AttemptState["status"];
+	readonly started_at: string;
+	readonly completed_at: string | null;
+}
+const attemptRecord = (row: AttemptHistoryRow) =>
+	Effect.gen(function* () {
+		return {
+			id: row.id,
+			ordinal: row.ordinal,
+			reason: row.reason,
+			status: row.status,
+			startedAt: yield* timestamp(row.started_at, "attempt"),
+			completedAt:
+				row.completed_at === null
+					? null
+					: yield* timestamp(row.completed_at, "attempt"),
+		};
+	});
+
+/** Descending keyset pagination keeps concurrent newer attempts out of older pages. */
+export const readSessionAttemptHistory = (
+	sql: SqlClient.SqlClient,
+	sessionId: string,
+	before?: SessionAttemptCursor,
+): Effect.Effect<SessionAttemptHistoryPage, SqlSessionQueryError> =>
+	sql.withTransaction(
+		Effect.gen(function* () {
+			yield* makeSqlSessionQueries(sql).get(sessionId);
+			if (
+				before !== undefined &&
+				![before.turnOrdinal, before.attemptOrdinal].every(
+					(value) => Number.isSafeInteger(value) && value > 0,
+				)
+			)
+				return yield* new SessionQueryDecodeError({
+					recordKind: "attempt",
+					reason: "Invalid attempt history cursor",
+				});
+			const beforeTurn = before?.turnOrdinal ?? Number.MAX_SAFE_INTEGER;
+			const beforeAttempt = before?.attemptOrdinal ?? Number.MAX_SAFE_INTEGER;
+			const rows = yield* sql<
+				AttemptHistoryRow & {
+					turn_id: string;
+					turn_ordinal: number;
+					turn_status: string;
+				}
+			>`
+		SELECT a.id,a.ordinal,a.reason,a.status,a.started_at,a.completed_at,a.turn_id,t.ordinal AS turn_ordinal,t.status AS turn_status
+		FROM session_attempts a JOIN session_turns t ON t.session_id=a.session_id AND t.id=a.turn_id
+		WHERE a.session_id=${sessionId} AND (t.ordinal < ${beforeTurn} OR (t.ordinal = ${beforeTurn} AND a.ordinal < ${beforeAttempt}))
+		ORDER BY t.ordinal DESC,a.ordinal DESC LIMIT 51`;
+			const items = yield* Effect.forEach(rows.slice(0, 50), (row) =>
+				attemptRecord(row).pipe(
+					Effect.map((attempt) => ({
+						...attempt,
+						id: AttemptId.make(attempt.id),
+						turnId: AgentTurnId.make(row.turn_id),
+						turnOrdinal: row.turn_ordinal,
+						rolledBack: row.turn_status === "rolled_back",
+					})),
+				),
+			);
+			const last = items.at(-1);
+			return {
+				items,
+				nextCursor:
+					rows.length > 50 && last !== undefined
+						? { turnOrdinal: last.turnOrdinal, attemptOrdinal: last.ordinal }
+						: null,
+			};
+		}),
+	);

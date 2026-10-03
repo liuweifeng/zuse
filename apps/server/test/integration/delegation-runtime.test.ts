@@ -300,3 +300,43 @@ it.each([
 		}),
 	);
 });
+
+it("wakes a retried parent attempt despite cancelled children from its earlier attempt", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, domain, runtime } = yield* fixture;
+			yield* sql`INSERT INTO session_delegations(child_session_id,child_turn_id,parent_session_id,parent_turn_id,parent_attempt_id,provider_session_id,cancelled_at,created_at) VALUES('previous-child','previous-child-turn','parent','turn:parent','previous-attempt','old-native',1,1)`;
+			yield* domain.dispatch({
+				streamId: "child",
+				commandId: "child-done-retry",
+				command: {
+					_tag: "SettleTurn",
+					turnId: "turn:child",
+					outcome: "completed",
+					settledAt: 3,
+				},
+			});
+			yield* domain.dispatch({
+				streamId: "parent",
+				commandId: "parent-done-retry",
+				command: {
+					_tag: "SettleTurn",
+					turnId: "turn:parent",
+					outcome: "completed",
+					settledAt: 4,
+				},
+			});
+			yield* runtime.sweep;
+			expect(
+				(yield* sql`SELECT * FROM session_turns WHERE id='delegation-wake:turn:parent:attempt:parent'`)
+					.length,
+			).toBe(1);
+			expect(
+				(yield* sql<{
+					wake_turn_id: string | null;
+				}>`SELECT wake_turn_id FROM session_delegations WHERE child_session_id='previous-child'`)[0]
+					?.wake_turn_id,
+			).toBeNull();
+		}),
+	);
+});

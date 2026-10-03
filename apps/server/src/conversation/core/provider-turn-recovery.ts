@@ -2,6 +2,7 @@ import { translateCodexItem } from "@zuse/agents/drivers/codex";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
 import {
 	type CodexTurnEvidence,
+	codexTurnRequiresChildRecovery,
 	readCodexTurnEvidence,
 } from "@zuse/agents/drivers/codex-thread-reader";
 import {
@@ -135,9 +136,16 @@ export const recoverProviderTurn = (
 		const active = yield* options.sessionDomain.activeAttempt(sessionId);
 		if (active?.turnId !== turnId || active.attemptId !== ownership.attemptId)
 			return;
-		const evidence = yield* inspect(request.reference).pipe(
+		const inspected = yield* inspect(request.reference).pipe(
 			Effect.catch(() => Effect.succeed(null)),
 		);
+		// Keep this guard at the write boundary too: injected readers and future transports
+		// must not silently drop child items while translating a terminal root.
+		const evidence: CodexTurnEvidence | null =
+			inspected?.kind === "terminal" &&
+			codexTurnRequiresChildRecovery(inspected.turn)
+				? { kind: "incomplete", reason: "native_children" }
+				: inspected;
 		const prepared =
 			evidence?.kind === "terminal"
 				? yield* Effect.try({
@@ -147,9 +155,11 @@ export const recoverProviderTurn = (
 				: null;
 		if (evidence?.kind !== "terminal" || prepared === null) {
 			const message =
-				evidence?.kind === "running"
-					? "The provider still reports this execution as running. Recovery did not resend the prompt. Review its native session before retrying."
-					: "Recovery could not verify a complete native result. The prompt was not resent. Review the provider session before retrying.";
+				evidence?.kind === "incomplete" && evidence.reason === "native_children"
+					? "Recovery could not reconstruct exact native child execution output. Parent completion does not prove child completion. The prompt was not resent; review the provider's child sessions before retrying."
+					: evidence?.kind === "running"
+						? "The provider still reports this execution as running. Recovery did not resend the prompt. Review its native session before retrying."
+						: "Recovery could not verify a complete native result. The prompt was not resent. Review the provider session before retrying.";
 			const persisted = yield* options.persistMessage(
 				sessionId,
 				{ _tag: "error", message },

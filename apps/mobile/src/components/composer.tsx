@@ -1,7 +1,11 @@
+import "@zuse/i18n/english/chat";
 import { useAtomValue } from "@effect/atom-react";
 import type { ComposerTrigger } from "@zuse/client-runtime/composer-trigger";
 import { retainComposerReferences } from "@zuse/client-runtime/composer-trigger";
-import { chooseComposerSubmitRoute } from "@zuse/client-runtime/plan-interactions";
+import {
+	chooseComposerSubmitRoute,
+	composerSendBlocked,
+} from "@zuse/client-runtime/plan-interactions";
 import {
 	type FileRef,
 	Message,
@@ -14,6 +18,7 @@ import {
 	type SessionStatus,
 	type SkillRef,
 } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import { Effect } from "effect";
 import * as Crypto from "expo-crypto";
 import { router } from "expo-router";
@@ -63,6 +68,7 @@ import {
 import {
 	addOptimisticMessage,
 	removeOptimisticMessage,
+	sessionHealthAtom,
 } from "~/store/messages";
 import {
 	activeModelCatalogAtom,
@@ -132,6 +138,8 @@ export const Composer = ({
 	voiceEnabled?: boolean;
 }) => {
 	const stateKey = connectionSessionKey(connKey, sessionId);
+	const { message } = useMessages(["chat"]);
+	const health = useAtomValue(sessionHealthAtom(stateKey));
 	// Lazy state (not a ref): reading a ref during render violates the React
 	// Compiler's rules; the initializer runs once per mount (keyed by stateKey).
 	const [initialDraft] = useState(() => composerDraft(stateKey));
@@ -276,6 +284,11 @@ export const Composer = ({
 	};
 
 	const performSubmit = async () => {
+		if (composerSendBlocked(health)) {
+			setComposerError(message("chat:send_blocked"));
+			return;
+		}
+
 		if (!canSend) return;
 		if (session === null) {
 			setComposerError("Wait for this chat to load before sending.");
@@ -317,6 +330,7 @@ export const Composer = ({
 			if (route === "queue") {
 				await Effect.runPromise(
 					queueMessage({
+						rejectIfBlocked: true,
 						connection,
 						sessionId,
 						input,

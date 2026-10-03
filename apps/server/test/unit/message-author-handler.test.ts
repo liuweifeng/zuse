@@ -38,6 +38,8 @@ it.each([
 		Layer.succeed(ConnectionIdentity, identity),
 		Layer.succeed(MessageService, {
 			sendMessage,
+			waitSession: () => Effect.die("not expected"),
+			sendMessageAndWait: () => Effect.die("not expected"),
 			listMessages: () => Effect.succeed([]),
 			sendMessageWithInput: () => Effect.succeed({ accepted: true }),
 			interruptSession: () => Effect.die("not expected"),

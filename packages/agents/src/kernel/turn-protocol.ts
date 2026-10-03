@@ -4,9 +4,11 @@ import type {
 	AttemptId,
 	ProviderAttemptOwnership,
 	ProviderEventEnvelope,
+	ThreadGoalSetInput,
 } from "@zuse/contracts";
 import { Deferred, Effect, Queue, Ref, Schema, Stream } from "effect";
 import type {
+	GoalCapableSessionHandle,
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 	QuestionCallbackReleased,
@@ -21,10 +23,8 @@ export type TurnScopedProviderEventEnvelope =
 	  };
 
 type NativeChild = Extract<AgentEvent, { _tag: "ToolUse" }> & {
-	readonly subagent: {
-		readonly childSessionId: string;
-		readonly presentation: "inline" | "detached";
-	};
+	readonly nativeChildId: string;
+	readonly childKind: "subagent" | "background";
 };
 
 type ActiveTurn = {
@@ -67,6 +67,11 @@ export interface TurnScopedProviderSessionHandle
 		turnId: AgentTurnId,
 		...args: Parameters<ProviderSessionHandle["send"]>
 	) => Effect.Effect<void, ProviderHandleUnavailable>;
+	readonly sendGoal: (
+		turnId: AgentTurnId,
+		goal: ThreadGoalSetInput,
+		fallbackObjective?: string,
+	) => Effect.Effect<void, ProviderHandleUnavailable>;
 	readonly interrupt: (turnId: AgentTurnId) => Effect.Effect<void>;
 }
 
@@ -97,6 +102,35 @@ const turnEnvelope = (
 	event: AgentEvent,
 ): ProviderEventEnvelope => ({ scope: "turn", turnId, event });
 
+/** Emitted only after close confirms native child processes have stopped. */
+const stoppedChildren = (
+	active: ActiveTurn,
+): ReadonlyArray<ProviderEventEnvelope> =>
+	[...active.children.values()].map((child) =>
+		turnEnvelope(
+			active.turnId,
+			child.childKind === "background"
+				? {
+						_tag: "ToolResult",
+						itemId: child.itemId,
+						output: "Background task stopped when its parent execution ended.",
+						isError: true,
+					}
+				: {
+						_tag: "SubagentSummary",
+						itemId: child.itemId,
+						childSessionId: child.nativeChildId,
+						presentation: child.subagent?.presentation ?? "detached",
+						agentName: "Delegated work",
+						model: "unknown",
+						turns: 0,
+						durationMs: 0,
+						summary: "Child stopped when its parent execution ended.",
+						isError: true,
+					},
+		),
+	);
+
 /**
  * Converts every legacy provider handle at one kernel boundary. This is the
  * only place allowed to correlate native events with an application turn.
@@ -121,6 +155,7 @@ export const makeTurnScopedSessionHandle = (
 		const finished = yield* Ref.make(false);
 		const ended = yield* Ref.make(false);
 		const initialReleased = yield* Deferred.make<void>();
+		let goalOwned = false;
 		const activeTurn = yield* Ref.make<ActiveTurn | null>(
 			initialTurnId === undefined || ownership !== undefined
 				? null
@@ -172,6 +207,11 @@ export const makeTurnScopedSessionHandle = (
 		const normalize = (
 			event: ProviderDriverEvent,
 		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> => {
+			// A native goal can span many native turns. Until the provider exposes a
+			// recoverable goal-level execution reference, no single native turn may
+			// stand in for this application attempt during crash recovery.
+			if (goalOwned && event._tag === "NativeTurnStarted")
+				return Effect.succeed([]);
 			if (event._tag === "QuestionCallbackReleased") {
 				return releaseBatch({ events: [sessionEnvelope(event)] });
 			}
@@ -200,8 +240,10 @@ export const makeTurnScopedSessionHandle = (
 				const active = yield* Ref.get(activeTurn);
 				if (
 					active !== null &&
-					active.children.size > 0 &&
-					(event._tag === "Interrupted" ||
+					(active.children.size > 0 || goalOwned) &&
+					((event._tag === "Status" &&
+						(event.status === "closed" || event.status === "error")) ||
+						event._tag === "Interrupted" ||
 						event._tag === "Error" ||
 						(event._tag === "Completed" &&
 							(event.reason === "error" || event.reason === "interrupted")))
@@ -237,13 +279,15 @@ export const makeTurnScopedSessionHandle = (
 								event._tag !== "Status"
 							) {
 								const known =
-									event._tag === "SubagentSummary"
+									event._tag === "SubagentSummary" ||
+									(event._tag === "ToolResult" &&
+										active.children.get(event.itemId)?.childKind ===
+											"background")
 										? active.children.has(event.itemId)
 										: event._tag === "SubagentProgress"
 											? [...active.children.values()].some(
 													(child) =>
-														child.subagent.childSessionId ===
-														event.childSessionId,
+														child.nativeChildId === event.childSessionId,
 												)
 											: "parentItemId" in event &&
 												event.parentItemId !== undefined &&
@@ -253,7 +297,8 @@ export const makeTurnScopedSessionHandle = (
 							if (
 								active !== null &&
 								event._tag === "ToolUse" &&
-								event.subagent !== undefined
+								(event.subagent !== undefined ||
+									event.backgroundTask !== undefined)
 							) {
 								if (active.completedChildren.has(event.itemId))
 									return [{ events: [] }, active];
@@ -261,14 +306,25 @@ export const makeTurnScopedSessionHandle = (
 								const children = new Map(active.children);
 								children.set(event.itemId, {
 									...event,
-									subagent: event.subagent,
+									nativeChildId:
+										event.subagent?.childSessionId ??
+										event.backgroundTask?.taskId ??
+										event.itemId,
+									childKind:
+										event.subagent === undefined ? "background" : "subagent",
 								});
 								return [
 									{ events: [turnEnvelope(active.turnId, event)] },
 									{ ...active, children },
 								];
 							}
-							if (active !== null && event._tag === "SubagentSummary") {
+							if (
+								active !== null &&
+								(event._tag === "SubagentSummary" ||
+									(event._tag === "ToolResult" &&
+										active.children.get(event.itemId)?.childKind ===
+											"background"))
+							) {
 								const children = new Map(active.children);
 								children.delete(event.itemId);
 								const completedChildren = new Set(active.completedChildren);
@@ -304,7 +360,7 @@ export const makeTurnScopedSessionHandle = (
 										_tag: "SubagentProgress",
 										childId: child.itemId,
 										parentId: child.itemId,
-										childSessionId: child.subagent.childSessionId,
+										childSessionId: child.nativeChildId,
 										status: "running",
 										rootCompleted: true,
 										durationMs: 0,
@@ -326,6 +382,7 @@ export const makeTurnScopedSessionHandle = (
 									return [
 										{
 											events: [
+												...stoppedChildren(active),
 												turnEnvelope(active.turnId, {
 													_tag: "Completed",
 													reason: "ended",
@@ -344,6 +401,7 @@ export const makeTurnScopedSessionHandle = (
 									return [
 										{
 											events: [
+												...stoppedChildren(active),
 												turnEnvelope(active.turnId, {
 													_tag: "Error",
 													message: `Provider entered ${event.status} state`,
@@ -376,7 +434,10 @@ export const makeTurnScopedSessionHandle = (
 							if (event._tag === "Completed") {
 								return [
 									{
-										events: [turnEnvelope(active.turnId, event)],
+										events: [
+											...stoppedChildren(active),
+											turnEnvelope(active.turnId, event),
+										],
 										released: active.released,
 									},
 									null,
@@ -386,6 +447,7 @@ export const makeTurnScopedSessionHandle = (
 								return [
 									{
 										events: [
+											...stoppedChildren(active),
 											turnEnvelope(active.turnId, event),
 											turnEnvelope(active.turnId, {
 												_tag: "Completed",
@@ -401,6 +463,7 @@ export const makeTurnScopedSessionHandle = (
 								return [
 									{
 										events: [
+											...stoppedChildren(active),
 											turnEnvelope(active.turnId, event),
 											turnEnvelope(active.turnId, {
 												_tag: "Completed",
@@ -426,7 +489,8 @@ export const makeTurnScopedSessionHandle = (
 
 		const finalizeUnexpectedExit = Effect.gen(function* () {
 			const active = yield* Ref.get(activeTurn);
-			if (active !== null && active.children.size > 0) yield* handle.close();
+			if (active !== null && (active.children.size > 0 || goalOwned))
+				yield* handle.close();
 		}).pipe(
 			Effect.andThen(
 				Ref.modify(
@@ -436,6 +500,7 @@ export const makeTurnScopedSessionHandle = (
 						return [
 							{
 								events: [
+									...stoppedChildren(active),
 									turnEnvelope(active.turnId, {
 										_tag: "Error",
 										message:
@@ -478,90 +543,122 @@ export const makeTurnScopedSessionHandle = (
 			),
 		);
 
+		const admitSend = (turnId: AgentTurnId, operation: Effect.Effect<void>) =>
+			Effect.gen(function* () {
+				if (ownership !== undefined) {
+					if (turnId !== ownership.turnId)
+						return yield* Effect.die(
+							new Error("A provider attempt requires its own handle"),
+						);
+					if (yield* Ref.get(finished)) return;
+				}
+				if (yield* Ref.get(ended))
+					return yield* new ProviderHandleUnavailable({
+						reason: "Provider event stream ended before send",
+					});
+				const released = yield* Deferred.make<void>();
+				const send = yield* Ref.modify(activeTurn, (active) => {
+					if (active !== null) {
+						if (active.turnId === turnId) {
+							return active.sent
+								? ([Effect.void, active] as const)
+								: ([operation, { ...active, sent: true }] as const);
+						}
+						if (active.origin === "provider") {
+							// The provider opened its own turn while the application was
+							// admitting this one. The server resolves that provider turn
+							// onto this application turn, so adopt it: the provider queues
+							// this input behind its current work, and everything it emits
+							// from here belongs to the application turn.
+							return [
+								Deferred.succeed(active.released, undefined).pipe(
+									Effect.andThen(operation),
+								),
+								{
+									...active,
+									turnId,
+									released,
+									sent: true,
+									origin: "application",
+								},
+							] as const;
+						}
+						return [
+							Effect.die(
+								new Error(
+									`Cannot start turn ${turnId}; turn ${active.turnId} is still active`,
+								),
+							),
+							active,
+						] as const;
+					}
+					return [
+						operation,
+						{
+							turnId,
+							released,
+							sent: true,
+							origin: "application",
+							children: new Map<string, NativeChild>(),
+							completedChildren: new Set<string>(),
+						},
+					] as const;
+				});
+				yield* send.pipe(
+					Effect.catchCause((cause) =>
+						Ref.modify(activeTurn, (active) =>
+							active?.turnId === turnId
+								? [active.released, null]
+								: [undefined, active],
+						).pipe(
+							Effect.flatMap((currentReleased) =>
+								currentReleased === undefined
+									? Effect.void
+									: Deferred.succeed(currentReleased, undefined),
+							),
+							Effect.andThen(Effect.failCause(cause)),
+						),
+					),
+				);
+			});
 		return {
 			...handle,
 			events: normalizedEvents,
 			send: (turnId, ...args) =>
-				Effect.gen(function* () {
-					if (ownership !== undefined) {
-						if (turnId !== ownership.turnId)
-							return yield* Effect.die(
-								new Error("A provider attempt requires its own handle"),
-							);
-						if (yield* Ref.get(finished)) return;
-					}
-					if (yield* Ref.get(ended))
-						return yield* new ProviderHandleUnavailable({
-							reason: "Provider event stream ended before send",
-						});
-					const released = yield* Deferred.make<void>();
-					const send = yield* Ref.modify(activeTurn, (active) => {
-						if (active !== null) {
-							if (active.turnId === turnId) {
-								return active.sent
-									? ([Effect.void, active] as const)
-									: ([
-											handle.send(...args),
-											{ ...active, sent: true },
-										] as const);
-							}
-							if (active.origin === "provider") {
-								// The provider opened its own turn while the application was
-								// admitting this one. The server resolves that provider turn
-								// onto this application turn, so adopt it: the provider queues
-								// this input behind its current work, and everything it emits
-								// from here belongs to the application turn.
-								return [
-									Deferred.succeed(active.released, undefined).pipe(
-										Effect.andThen(handle.send(...args)),
-									),
-									{
-										...active,
-										turnId,
-										released,
-										sent: true,
-										origin: "application",
-									},
-								] as const;
-							}
-							return [
-								Effect.die(
-									new Error(
-										`Cannot start turn ${turnId}; turn ${active.turnId} is still active`,
-									),
-								),
-								active,
-							] as const;
-						}
-						return [
-							handle.send(...args),
-							{
-								turnId,
-								released,
-								sent: true,
-								origin: "application",
-								children: new Map<string, NativeChild>(),
-								completedChildren: new Set<string>(),
-							},
-						] as const;
-					});
-					yield* send.pipe(
-						Effect.catchCause((cause) =>
-							Ref.modify(activeTurn, (active) =>
-								active?.turnId === turnId
-									? [active.released, null]
-									: [undefined, active],
-							).pipe(
-								Effect.flatMap((currentReleased) =>
-									currentReleased === undefined
-										? Effect.void
-										: Deferred.succeed(currentReleased, undefined),
-								),
-								Effect.andThen(Effect.failCause(cause)),
-							),
-						),
-					);
-				}),
+				admitSend(
+					turnId,
+					Effect.suspend(() => handle.send(...args)),
+				),
+			sendGoal: (turnId, goal, fallbackObjective) =>
+				admitSend(
+					turnId,
+					Effect.suspend(() => {
+						goalOwned = true;
+						const capable = handle as ProviderSessionHandle &
+							Partial<GoalCapableSessionHandle>;
+						const setGoal = capable.setGoal;
+						return setGoal === undefined
+							? Effect.die(new Error("Provider does not support goals"))
+							: Effect.gen(function* () {
+									let input = goal;
+									if (goal.objective === undefined) {
+										const current = yield* capable.getGoal?.() ??
+											Effect.succeed(null);
+										if (current === null) {
+											if (
+												fallbackObjective === undefined ||
+												fallbackObjective === "Resume goal"
+											)
+												return yield* Effect.die(
+													new Error("The provider has no goal to resume."),
+												);
+											input = { ...goal, objective: fallbackObjective };
+										}
+									}
+									yield* setGoal(input, { execute: true });
+								});
+					}),
+				),
 			interrupt: (turnId) =>
 				Effect.gen(function* () {
 					const active = yield* Ref.get(activeTurn);
@@ -572,7 +669,7 @@ export const makeTurnScopedSessionHandle = (
 							),
 						);
 					}
-					if (active.pendingCompletion !== undefined) {
+					if (active.pendingCompletion !== undefined || goalOwned) {
 						yield* Queue.offer(injected, { _tag: "Interrupted" });
 					} else {
 						yield* handle.interrupt();

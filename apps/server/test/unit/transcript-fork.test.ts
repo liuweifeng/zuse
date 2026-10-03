@@ -16,6 +16,7 @@ import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test, vi } from "vitest";
 import { makeTranscriptOperations } from "../../src/conversation/core/transcript-operations.ts";
+import { nativeChildThread } from "../support/native-child-thread.ts";
 
 const projectId = FolderId.make("new-project");
 const now = new Date(0);
@@ -201,4 +202,96 @@ describe.each([
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+});
+
+test("completed native child fork freezes full context and retries without re-reading mutable provider history", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const sql = yield* SqlClient.SqlClient;
+			yield* sql`CREATE TABLE session_fork_constructions (session_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,created_at INTEGER NOT NULL,error TEXT,cancelled_at INTEGER,completed_at INTEGER)`;
+			yield* sql`CREATE TABLE session_context_handoffs (id TEXT PRIMARY KEY,session_id TEXT,provider_id TEXT,context_text TEXT,first_turn_id TEXT,active INTEGER DEFAULT 1,created_at INTEGER,resume_thread_id TEXT,fallback_context_text TEXT,fallback_at INTEGER)`;
+			yield* sql`CREATE TABLE session_context_links (target_message_id TEXT,target_session_id TEXT,first_turn_id TEXT,invalidated_at INTEGER)`;
+			yield* sql`CREATE TABLE chats (id TEXT PRIMARY KEY)`;
+			yield* sql`CREATE TABLE sessions (id TEXT PRIMARY KEY)`;
+			yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY,session_id TEXT,content_json TEXT,role TEXT,kind TEXT,parent_item_id TEXT,created_at TEXT,sequence INTEGER,turn_id TEXT)`;
+			yield* sql`CREATE TABLE session_execution_steps(id TEXT,session_id TEXT,attempt_id TEXT,turn_id TEXT,native_child_id TEXT,status TEXT,kind TEXT)`;
+			yield* sql`CREATE TABLE session_attempts(id TEXT,session_id TEXT,turn_id TEXT,provider_turn_json TEXT)`;
+			yield* sql`INSERT INTO sessions VALUES('source')`;
+			yield* sql`INSERT INTO chats VALUES(${chat.id})`;
+			yield* sql`INSERT INTO messages VALUES('summary','source','{"_tag":"assistant","text":"only parent summary"}','assistant','assistant',NULL,'2026-01-01',1,NULL)`;
+			yield* sql`INSERT INTO session_execution_steps VALUES('exact-step','source','attempt','turn','child','completed','subagent')`;
+			yield* sql`INSERT INTO session_attempts VALUES('attempt','source','turn',${JSON.stringify({ provider: "codex", nativeThreadId: "parent", nativeTurnId: "root-turn" })})`;
+			let reads = 0;
+			let invalidateDuringRead = false;
+			const source = Session.make({ ...session, id: SessionId.make("source") });
+			const ops = makeTranscriptOperations({
+				sql,
+				lookupSession: (id) =>
+					Effect.succeed(id === source.id ? source : session),
+				lookupChat: () => Effect.succeed(chat),
+				createChat: () => Effect.die("tab only"),
+				createSession: () =>
+					sql`INSERT INTO sessions VALUES(${session.id})`.pipe(
+						Effect.orDie,
+						Effect.as(session),
+					),
+				inspectNativeChildThread: () =>
+					Effect.gen(function* () {
+						if (invalidateDuringRead)
+							yield* sql`UPDATE session_execution_steps SET status='cancelled'`.pipe(
+								Effect.orDie,
+							);
+						reads++;
+						return nativeChildThread();
+					}),
+				persistMessage: (id, content, messageId) =>
+					sql`INSERT OR IGNORE INTO messages VALUES(${messageId},${id},${JSON.stringify(content)},${content._tag === "user" ? "user" : "assistant"},${content._tag},NULL,'2026-01-01',(SELECT COUNT(*)+1 FROM messages),NULL)`.pipe(
+						Effect.orDie,
+						Effect.as({ message: {} as never, sequence: 1 }),
+					),
+			});
+			const input = {
+				sourceSessionId: source.id,
+				fromMessageId: MessageId.make("summary"),
+				nativeChildStepId: "exact-step",
+				destination: "tab" as const,
+				initialSessionId: session.id,
+				commandId: "native-child-fork",
+			};
+			const result = yield* ops.forkSession(input);
+			expect(result.forkMode).toBe("copy");
+			yield* sql`UPDATE session_execution_steps SET status='running'`;
+			yield* ops.forkSession(input);
+			expect(reads).toBe(1);
+			const imported = yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages WHERE session_id=${session.id} ORDER BY sequence`;
+			expect(imported.map((row) => JSON.parse(row.content_json).text)).toEqual([
+				"child assignment",
+				"child actual output",
+			]);
+			const handoffs = yield* sql<{
+				context_text: string;
+			}>`SELECT context_text FROM session_context_handoffs WHERE session_id=${session.id}`;
+			expect(handoffs[0]?.context_text).toContain("child assignment");
+			expect(handoffs[0]?.context_text).toContain("child actual output");
+			expect(handoffs[0]?.context_text).not.toContain("only parent summary");
+			yield* sql`UPDATE session_execution_steps SET status='completed'`;
+			invalidateDuringRead = true;
+			const invalidated = yield* ops
+				.forkSession({
+					...input,
+					commandId: "race-fork",
+					initialSessionId: SessionId.make("racing-destination"),
+				})
+				.pipe(Effect.result);
+			expect(invalidated).toMatchObject({
+				_tag: "Failure",
+				failure: { _tag: "SessionStartError" },
+			});
+			expect(
+				(yield* sql`SELECT session_id FROM session_fork_constructions`).length,
+			).toBe(1);
+		}).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
 });

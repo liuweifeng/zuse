@@ -50,7 +50,6 @@ import {
 	type ProviderEventEnvelope,
 	type ProviderId,
 	providerCapabilities,
-	type ThreadGoalSetInput,
 	type UserQuestion,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
@@ -86,7 +85,15 @@ import { WorkspaceService } from "../../workspace/services/workspace-service.ts"
 import { AcpAgentService } from "../acp/service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
 import { probeProvidersWithPaths, resolveCliPath, withOpencodeInventoryAccount } from "../availability.ts";
-import { bindProviderEventDelivery, type ProviderEventDelivery } from "../provider-event-delivery.ts";
+import {
+	bindProviderEventDelivery,
+	type ProviderEventDelivery,
+} from "../provider-event-delivery.ts";
+import {
+	type GoalCurrentCheck,
+	type GoalPublication,
+	runProviderGoal,
+} from "../provider-goal.ts";
 import { closeProviderHandle } from "../provider-handle-cleanup.ts";
 import { ownProviderInputs } from "../provider-input-identity.ts";
 import { sendProviderSession } from "../provider-send.ts";
@@ -443,6 +450,26 @@ export const ProviderServiceLive = Layer.effect(
 					? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					: Effect.succeed(entry);
 			});
+
+		const goalOperation = <A>(
+			sessionId: AgentSessionId,
+			operation: (handle: GoalCapableHandle) => Effect.Effect<A>,
+			publish?: GoalPublication<A>,
+			notificationDriven = false,
+			verify?: GoalCurrentCheck,
+		) =>
+			Effect.flatMap(lookup(sessionId), (entry) =>
+				runProviderGoal({
+					registry,
+					lifecycle: lifecycleWorker,
+					sessionId,
+					entry,
+					operation,
+					publish,
+					notificationDriven,
+					verify,
+				}),
+			);
 
 		return {
 			availability,
@@ -1334,6 +1361,7 @@ export const ProviderServiceLive = Layer.effect(
 				fileRefs,
 				skillRefs,
 				attemptId,
+				goal,
 			) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					Effect.gen(function* () {
@@ -1376,13 +1404,15 @@ export const ProviderServiceLive = Layer.effect(
 								});
 							}),
 							send: () =>
-								entry.handle.send(
-									turnId,
-									text,
-									attachments,
-									fileRefs,
-									skillRefs,
-								),
+								goal !== undefined
+									? entry.handle.sendGoal(turnId, goal, text)
+									: entry.handle.send(
+											turnId,
+											text,
+											attachments,
+											fileRefs,
+											skillRefs,
+										),
 						});
 					}).pipe(
 						Effect.withSpan("provider.send", {
@@ -1712,23 +1742,29 @@ export const ProviderServiceLive = Layer.effect(
 						),
 					),
 				),
-			getGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).getGoal()
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			getGoal: (sessionId, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.getGoal(),
+					publish,
+					false,
+					verify,
 				),
-			setGoal: (sessionId, goal: ThreadGoalSetInput) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).setGoal(goal)
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			setGoal: (sessionId, goal, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.setGoal(goal),
+					publish,
+					true,
+					verify,
 				),
-			clearGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).clearGoal()
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			clearGoal: (sessionId, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.clearGoal(),
+					publish,
+					true,
+					verify,
 				),
 		};
 	}),

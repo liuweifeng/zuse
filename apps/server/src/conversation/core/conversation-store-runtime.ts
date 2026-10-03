@@ -40,6 +40,7 @@ import {
 import { parseAgents, sessionFromRecord } from "./conversation-records.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { makeCurrentGoalPublisher } from "./current-goal-publisher.ts";
 import {
 	acquireIngestionLease,
 	type IngestionLeaseIdentity,
@@ -412,6 +413,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 				tool: content.tool,
 				input: canonicalizeToolInput(content.input),
 				parentItemId: content.parentItemId ?? null,
+				subagent: content.subagent ?? null,
+				backgroundTask: content.backgroundTask ?? null,
 			});
 		} catch {
 			return `${content.itemId}:${content.tool}:${String(content.input)}:${content.parentItemId ?? ""}`;
@@ -814,11 +817,12 @@ export const makeConversationStoreRuntime = Effect.fn(
 					expectedProviderSessionId,
 				);
 			}),
-		publishGoal: (sessionId, goal) =>
-			goalState.publish(
+		publishGoal: (sessionId, goal, providerSessionId, providerId) =>
+			makeCurrentGoalPublisher(sql, goalState.publish)(
 				sessionId,
+				{ providerSessionId, providerId },
 				goal === null ? null : ThreadGoal.make(goal),
-			),
+			).pipe(Effect.asVoid),
 		publishApiActivity,
 		reconcileQuestionResolution: (sessionId, itemId) =>
 			Effect.gen(function* () {

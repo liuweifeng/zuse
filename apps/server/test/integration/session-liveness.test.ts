@@ -31,6 +31,20 @@ it("distinguishes provider silence, pending input, expired ownership and provide
 				expect((yield* observeSessionRuntime(sql, "session-1", 1)).state).toBe(
 					"idle",
 				);
+				yield* sql`INSERT INTO queued_messages VALUES('queued','session-1',1,'{}','now','now',0)`;
+				expect((yield* observeSessionRuntime(sql, "session-1", 1)).state).toBe(
+					"idle",
+				);
+				yield* sql`UPDATE queued_messages SET ready=1`;
+				expect((yield* observeSessionRuntime(sql, "session-1", 1)).state).toBe(
+					"starting",
+				);
+				yield* sql`UPDATE sessions SET queue_paused=1`;
+				expect((yield* observeSessionRuntime(sql, "session-1", 1)).state).toBe(
+					"idle",
+				);
+				yield* sql`UPDATE sessions SET queue_paused=0`;
+				yield* sql`DELETE FROM queued_messages`;
 				yield* domain.dispatch({
 					streamId: "session-1",
 					commandId: "start",

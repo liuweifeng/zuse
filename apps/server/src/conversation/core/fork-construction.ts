@@ -39,6 +39,7 @@ export const ForkConstruction = Schema.Struct({
 	worktreeId: Schema.NullOr(WorktreeId),
 	forkedFromSessionId: Schema.NullOr(SessionId),
 	forkedFromMessageId: MessageId,
+	nativeChildStepId: Schema.optional(Schema.String),
 	forkMode: Schema.Literals(["resume", "copy"]),
 	providerThread: Schema.optional(
 		Schema.Struct({
@@ -177,6 +178,7 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 			if (rows[0] !== undefined) {
 				const original = decode(JSON.parse(rows[0].payload_json));
 				if (
+					original.nativeChildStepId !== plan.nativeChildStepId ||
 					original.commandId !== plan.commandId ||
 					original.sourceSessionId !== plan.sourceSessionId ||
 					original.providerId !== plan.providerId ||
@@ -190,6 +192,11 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 					);
 				return original;
 			}
+			if (plan.nativeChildStepId !== undefined) {
+				const valid =
+					yield* sql`SELECT id FROM session_execution_steps WHERE id=${plan.nativeChildStepId} AND session_id=${plan.sourceSessionId} AND kind='subagent' AND status='completed'`;
+				if (valid.length === 0) return null;
+			}
 			const existing =
 				yield* sql`SELECT id FROM sessions WHERE id=${plan.sessionId}`;
 			if (existing.length > 0)
@@ -202,9 +209,23 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 			yield* sql`INSERT INTO session_fork_constructions(session_id,payload_json,created_at) VALUES (${plan.sessionId},${JSON.stringify(plan)},${Date.now()})`;
 			return plan;
 		}).pipe(Effect.orDie);
-		return options.admitConstruction === undefined
-			? sql.withTransaction(work).pipe(Effect.orDie)
-			: options.admitConstruction(work);
+		const admitted =
+			options.admitConstruction === undefined
+				? sql.withTransaction(work).pipe(Effect.orDie)
+				: options.admitConstruction(work);
+		return admitted.pipe(
+			Effect.flatMap((frozen) =>
+				frozen === null
+					? Effect.fail(
+							new SessionStartError({
+								providerId: plan.providerId,
+								reason:
+									"The native child changed before its fork snapshot could be admitted.",
+							}),
+						)
+					: Effect.succeed(frozen),
+			),
+		);
 	};
 	return {
 		list: (sessionId: SessionId) =>
@@ -299,6 +320,7 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 					if (rows[0] === undefined) return null;
 					const plan = decode(JSON.parse(rows[0].payload_json));
 					if (
+						plan.nativeChildStepId !== input.nativeChildStepId ||
 						plan.commandId !== input.commandId ||
 						plan.sourceSessionId !== input.sourceSessionId ||
 						plan.forkedFromMessageId !== input.fromMessageId ||

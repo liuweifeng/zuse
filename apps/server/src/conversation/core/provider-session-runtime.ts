@@ -41,6 +41,7 @@ export interface OpenProviderSessionOptions {
 	readonly forkSourceThreadId?: string;
 	readonly postBootStatus?: Session["status"];
 	readonly sendAfterOpen?: {
+		readonly goal?: import("@zuse/contracts").ThreadGoalSetInput;
 		readonly turnId: AgentTurnId;
 		readonly onNativeResumeFallback?: () => Effect.Effect<
 			import("@zuse/contracts").ComposerInput
@@ -81,6 +82,8 @@ export interface ProviderSessionRuntimeOptions {
 	readonly getChat: ConversationOperations["getChat"];
 	readonly getSession: ConversationOperations["getSession"];
 	readonly sendMessage: ConversationOperations["sendMessage"];
+	readonly waitSession?: ConversationOperations["waitSession"];
+	readonly sendMessageAndWait?: ConversationOperations["sendMessageAndWait"];
 	readonly listMessages: ConversationOperations["listMessages"];
 	readonly listChats: ConversationOperations["listChats"];
 	readonly listSessions: ConversationOperations["listSessions"];
@@ -122,6 +125,8 @@ export const makeProviderSessionRuntime = (
 		getChat: lookupChat,
 		getSession: lookupSession,
 		sendMessage,
+		waitSession,
+		sendMessageAndWait,
 		listMessages,
 		listChats,
 		listSessions,
@@ -258,22 +263,39 @@ export const makeProviderSessionRuntime = (
 						createSession: (input) => createSession({ ...input, ...author }),
 						getChat: lookupChat,
 						getSession: lookupSession,
-						sendToSession: (sessionId, text, origin) =>
-							sendMessage(
-								`orchestration-send:${sessionId}:${crypto.randomUUID()}`,
-								sessionId,
-								text,
-								undefined,
-								undefined,
-								undefined,
-								undefined,
-								undefined,
-								undefined,
-								origin,
-								undefined,
-								author.actor,
-								author.githubSlackMessageId,
-							),
+						waitForSession: waitSession,
+						sendToSession: (sessionId, text, origin, wait, commandId) =>
+							wait !== undefined
+								? sendMessageAndWait === undefined
+									? Effect.fail(new Error("Semantic waits are unavailable."))
+									: sendMessageAndWait(
+											{
+												sessionId,
+												...author,
+												text,
+												origin,
+												commandId:
+													commandId ??
+													`orchestration-send:${sessionId}:${crypto.randomUUID()}`,
+											},
+											wait,
+										)
+								: sendMessage(
+										commandId ??
+											`orchestration-send:${sessionId}:${crypto.randomUUID()}`,
+										sessionId,
+										text,
+										undefined,
+										undefined,
+										undefined,
+										undefined,
+										undefined,
+										undefined,
+										origin,
+										undefined,
+										author.actor,
+										author.githubSlackMessageId,
+									),
 						listMessages,
 						listChats,
 						listSessions,
@@ -456,6 +478,7 @@ export const makeProviderSessionRuntime = (
 								options.sendAfterOpen.fileRefs,
 								options.sendAfterOpen.skillRefs,
 								options.sendAfterOpen.attemptId,
+								options.sendAfterOpen.goal,
 							)
 							.pipe(
 								Effect.catchTag("AgentSessionNotFoundError", () =>

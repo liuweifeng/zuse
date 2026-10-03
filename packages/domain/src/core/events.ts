@@ -120,6 +120,7 @@ export const SessionEvent = Schema.Union([
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("TurnsRolledBack", {
+		rolledBackTurnIds: Schema.optional(Schema.Array(Schema.String)),
 		throughOrdinal: Schema.Number,
 		messageSequence: Schema.Number,
 		removedMessageIds: Schema.Array(Schema.String),

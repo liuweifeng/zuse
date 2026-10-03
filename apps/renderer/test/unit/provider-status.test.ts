@@ -168,6 +168,7 @@ describe("provider availability loading", () => {
 		await Promise.all([store.load(), store.load()]);
 		await useProvidersStore.getState().load();
 
+		expect(useProvidersStore.getState().error).toBe(null);
 		expect(rpc.availability).toHaveBeenCalledTimes(1);
 		expect(rpc.availability).toHaveBeenCalledWith({ refresh: false });
 		expect(useProvidersStore.getState().availability).toEqual(result);

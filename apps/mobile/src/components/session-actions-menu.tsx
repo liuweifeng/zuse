@@ -1,6 +1,9 @@
-// Non-iOS stub: the native UIMenu header action lives in the `.ios.tsx` twin.
-// This app is iOS-first; on other platforms the header omits the "…" menu.
-export function SessionActionsMenu(_props: {
+import "@zuse/i18n/english/chat";
+import { useMessages } from "@zuse/i18n/react";
+import { View } from "react-native";
+import { Button } from "~/components/ui/button";
+// iOS owns the full native menu; expose history on other mobile platforms too.
+export function SessionActionsMenu(props: {
 	isPinned: boolean;
 	onNewChat: () => void;
 	onPin?: () => void;
@@ -10,10 +13,26 @@ export function SessionActionsMenu(_props: {
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
+	onAttempts?: () => void;
+	onCheckpoints?: () => void;
 	onTerminal?: () => void;
 	onOpenOnDesktop?: () => void;
 	onMergeBack?: () => void;
 	onArchive: () => void;
 }) {
-	return null;
+	const { message } = useMessages(["chat"]);
+	return (
+		<View className="flex-row gap-1">
+			{props.onAttempts === undefined ? null : (
+				<Button variant="ghost" className="h-7" onPress={props.onAttempts}>
+					{message("chat:attempts_title")}
+				</Button>
+			)}
+			{props.onCheckpoints === undefined ? null : (
+				<Button variant="ghost" className="h-7" onPress={props.onCheckpoints}>
+					{message("chat:checkpoints_title")}
+				</Button>
+			)}
+		</View>
+	);
 }

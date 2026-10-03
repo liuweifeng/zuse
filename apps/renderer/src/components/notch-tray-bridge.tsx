@@ -65,6 +65,16 @@ export function NotchTrayBridge(): null {
 			),
 		[timelines],
 	);
+	const healthBySession = useMemo(
+		() =>
+			Object.fromEntries(
+				timelines.map((timeline) => [
+					timeline.ref.sessionId,
+					timeline.presentation.health,
+				]),
+			),
+		[timelines],
+	);
 	const reconciledRunningBySession = useMemo(
 		() => deriveRunningSessions(sessionsByProject, runtimeBySession),
 		[sessionsByProject, runtimeBySession],
@@ -122,6 +132,7 @@ export function NotchTrayBridge(): null {
 				sessionsByProject,
 				messagesBySession,
 				runtimeBySession,
+				healthBySession,
 				interactionsBySession,
 				permissionRequests,
 				questionAttachmentsByKey,
@@ -134,6 +145,7 @@ export function NotchTrayBridge(): null {
 			sessionsByProject,
 			messagesBySession,
 			runtimeBySession,
+			healthBySession,
 			interactionsBySession,
 			permissionRequests,
 			questionAttachmentsByKey,

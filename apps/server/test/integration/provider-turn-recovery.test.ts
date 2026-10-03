@@ -384,3 +384,60 @@ test("committed Stop interrupts an in-flight recovery worker without waiting for
 		}),
 	);
 });
+
+test.each([
+	"running",
+	"completed",
+] as const)("terminal root with %s native child snapshot remains explicitly uncertain", async (childStatus) => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, job, options, originalMessageId } = yield* fixture;
+			if (terminal.kind !== "terminal")
+				throw new Error("Missing terminal fixture");
+			const evidence: CodexTurnEvidence = {
+				...terminal,
+				turn: {
+					...terminal.turn,
+					items: [
+						...terminal.turn.items,
+						{
+							type: "collabAgentToolCall",
+							id: "spawn",
+							tool: "spawnAgent",
+							status: "completed",
+							senderThreadId: "native-thread",
+							receiverThreadIds: ["child"],
+							prompt: "task",
+							model: null,
+							reasoningEffort: null,
+							agentsStates: {
+								child: {
+									status: childStatus,
+									message: "Not an exact child execution transcript",
+								},
+							},
+						},
+					],
+				},
+			};
+			yield* recoverProviderTurn(job, options, () => Effect.succeed(evidence));
+			const attempts = yield* sql<{
+				status: string;
+			}>`SELECT status FROM session_attempts WHERE reason='provider_recovery'`;
+			expect(attempts[0]?.status).toBe("failed");
+			const original = yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages WHERE id=${originalMessageId}`;
+			expect(JSON.parse(original[0]?.content_json ?? "null").text).toBe(
+				"Partial",
+			);
+			const errors = yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages WHERE kind='error'`;
+			expect(errors[0]?.content_json).toContain("native child");
+			expect(
+				yield* sql`SELECT 1 FROM jobs WHERE kind='provider.turn.send'`,
+			).toHaveLength(0);
+		}),
+	);
+});

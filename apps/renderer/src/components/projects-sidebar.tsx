@@ -82,6 +82,8 @@ import {
 	chatAttentionLabel,
 	deriveChatAttentionState,
 	derivePermissionAttention,
+	executionAttentionLabel,
+	executionAttentionState,
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
 import { displayPath } from "~/lib/display-path";
@@ -2317,7 +2319,10 @@ function ProjectGroup({
 		() =>
 			mergeChatAttentionStates(
 				liveTimelines.map((timeline) =>
-					isSessionRuntimeBusy(timeline.runtime) ? "running" : "idle",
+					executionAttentionState(
+						isSessionRuntimeBusy(timeline.runtime),
+						timeline.presentation.health,
+					),
 				),
 			),
 		[liveTimelines, uiMessage],
@@ -2612,6 +2617,7 @@ function CloudChatRow({
 			timeline.presentation.interactions.map((item) => item.interaction),
 			questionAttachmentsByKey,
 		),
+		timeline.presentation.health,
 	);
 
 	const selected = selectedChatId === summary.chatId;
@@ -3584,6 +3590,27 @@ function ChatAttentionIcon({
 		color,
 		className,
 	);
+
+	const executionLabel = executionAttentionLabel(state);
+	if (executionLabel !== null) {
+		return (
+			<span
+				className={classes}
+				role="img"
+				aria-label={executionLabel}
+				title={executionLabel}
+			>
+				<span
+					className={cn(
+						"size-2 rounded-full",
+						state === "quiet" || state === "unavailable"
+							? "bg-warning"
+							: "bg-muted-foreground",
+					)}
+				/>
+			</span>
+		);
+	}
 
 	if (state === "running") {
 		return (

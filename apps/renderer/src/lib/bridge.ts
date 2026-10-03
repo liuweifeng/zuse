@@ -9,6 +9,7 @@ import type {
 	LagSample,
 	NearbyPairingRequest,
 	NetworkAccessState,
+	NotchTrayItem,
 	PerformanceHistory,
 	PowerExportResult,
 	PowerInteractionMeasurement,
@@ -473,24 +474,7 @@ export interface TailnetBridge {
 	) => Promise<TailnetEnvironmentProfile>;
 }
 
-export type NotchTrayItemState =
-	| "running"
-	| "completed"
-	| "failed"
-	| "planReady"
-	| "question"
-	| "permission";
-
-export interface NotchTrayItem {
-	readonly id: string;
-	readonly chatId: string;
-	readonly sessionId: string;
-	readonly title: string;
-	readonly subtitle: string;
-	readonly state: NotchTrayItemState;
-	readonly label: string;
-	readonly updatedAt: number;
-}
+export type { NotchTrayItem, NotchTrayItemState } from "@zuse/contracts";
 
 export interface NotchDisplaySupport {
 	readonly supported: boolean;

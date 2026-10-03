@@ -75,6 +75,9 @@ export interface ProviderSessionHandle {
 /** Optional goal-mode extension currently implemented by two providers. */
 export interface GoalCapableSessionHandle extends ProviderSessionHandle {
 	readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
-	readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+	readonly setGoal: (
+		goal: ThreadGoalSetInput,
+		options?: { readonly execute?: boolean },
+	) => Effect.Effect<ThreadGoal>;
 	readonly clearGoal: () => Effect.Effect<void>;
 }

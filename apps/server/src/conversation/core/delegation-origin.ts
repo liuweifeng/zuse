@@ -26,7 +26,7 @@ export const validateDelegationOrigin = (
 			});
 		const siblings = yield* sql<{
 			count: number;
-		}>`SELECT COUNT(*) AS count FROM session_delegations WHERE parent_session_id=${origin.parentSessionId} AND parent_turn_id=${origin.parentTurnId}`;
+		}>`SELECT COUNT(*) AS count FROM session_delegations WHERE parent_session_id=${origin.parentSessionId} AND parent_turn_id=${origin.parentTurnId} AND parent_attempt_id=${origin.parentAttemptId}`;
 		const ancestry = yield* sql<{
 			depth: number;
 		}>`WITH RECURSIVE ancestors(session_id,depth) AS (

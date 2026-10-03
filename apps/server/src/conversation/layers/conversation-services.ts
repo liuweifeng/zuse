@@ -1,9 +1,11 @@
 import {
+	AgentTurnId,
 	type ChatId,
 	type FolderId,
 	SessionCheckpointError,
 	SessionId,
 	SessionNotFoundError,
+	SessionStartError,
 	type WorktreeId,
 } from "@zuse/contracts";
 import { makeJobWorker } from "@zuse/domain/agent-engine/job-worker";
@@ -14,15 +16,7 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import {
-	DateTime,
-	Effect,
-	FileSystem,
-	Layer,
-	Option,
-	PubSub,
-	Scope,
-} from "effect";
+import { DateTime, Effect, FileSystem, Layer, PubSub, Scope } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { CheckpointService } from "../../checkpoint/service.ts";
@@ -50,6 +44,10 @@ import {
 	type ConversationStoreRuntime,
 	makeConversationStoreRuntime,
 } from "../core/conversation-store-runtime.ts";
+import {
+	isCurrentGoalResidency,
+	makeCurrentGoalPublisher,
+} from "../core/current-goal-publisher.ts";
 import { makeDelegationRuntime } from "../core/delegation-runtime.ts";
 import { INGESTION_HEARTBEAT_MS } from "../core/ingestion-lease.ts";
 import { sweepIngestionLeases } from "../core/ingestion-sweeper.ts";
@@ -64,6 +62,7 @@ import {
 	makeSessionCheckpoints,
 } from "../core/session-checkpoints.ts";
 import { makeSessionOperations } from "../core/session-operations.ts";
+import { makeSessionWaitOperations } from "../core/session-wait.ts";
 import {
 	hasRecoverableProviderSend,
 	reconcileSessionRuntime,
@@ -252,6 +251,9 @@ const ConversationRuntimeLive = Layer.effect(
 			getChat: (chatId) => Effect.suspend(() => lookupChat(chatId)),
 			getSession: lookupSession,
 			sendMessage: (...args) => Effect.suspend(() => sendMessage(...args)),
+			waitSession: (...args) => Effect.suspend(() => waitSession(...args)),
+			sendMessageAndWait: (...args) =>
+				Effect.suspend(() => sendMessageAndWait(...args)),
 			listMessages: (sessionId) =>
 				Effect.suspend(() => listMessages(sessionId)),
 			listChats: (...args) => Effect.suspend(() => listChats(...args)),
@@ -523,8 +525,51 @@ const ConversationRuntimeLive = Layer.effect(
 		const goalOperations = makeConversationGoalOperations({
 			provider,
 			state: goalState,
+			publishCurrent: makeCurrentGoalPublisher(sql, goalState.publish),
+			isCurrent: (sessionId, residency) =>
+				isCurrentGoalResidency(sql, sessionId, residency),
 			lookupSession,
-			ensureForTurn,
+			admission: sessionDomain.admission,
+			lastGoalObjective: (sessionId) =>
+				sql<{
+					objective: string;
+				}>`SELECT json_extract(content_json, '$.text') AS objective FROM messages WHERE session_id=${sessionId} AND json_extract(content_json, '$.goal')=1 AND role='user' ORDER BY sequence DESC LIMIT 1`.pipe(
+					Effect.map((rows) => rows[0]?.objective ?? null),
+					Effect.orDie,
+				),
+			hasActiveTurn: (sessionId) =>
+				sessionDomain.activeAttempt(sessionId).pipe(
+					Effect.map((value) => value !== null),
+					Effect.orDie,
+				),
+			submitGoal: (session, goal, displayObjective) =>
+				Effect.gen(function* () {
+					const text = displayObjective;
+					yield* submitTurn(
+						session.id,
+						AgentTurnId.make(crypto.randomUUID()),
+						{ _tag: "user", text, goal: true },
+						JSON.stringify({
+							text,
+							attachments: [],
+							fileRefs: [],
+							skillRefs: [],
+							annotations: [],
+							goal,
+						}),
+					);
+					yield* reactorRuntime.runSession(session.id);
+				}).pipe(
+					Effect.catchCause(() =>
+						Effect.fail(
+							new SessionStartError({
+								providerId: session.providerId,
+								reason:
+									"Goal could not be admitted. The session may already be running or shutting down.",
+							}),
+						),
+					),
+				),
 		});
 		const { getGoal, setGoal, clearGoal, streamGoal } = goalOperations;
 
@@ -583,6 +628,12 @@ const ConversationRuntimeLive = Layer.effect(
 			queueRuntime,
 		} = messageOperations;
 
+		const { waitSession, sendMessageAndWait } = makeSessionWaitOperations({
+			sql,
+			domain: sessionDomain,
+			scope: serviceScope,
+			send: sendMessageWithInput,
+		});
 		const getSession = lookupSession;
 
 		const sessionService = {
@@ -643,6 +694,8 @@ const ConversationRuntimeLive = Layer.effect(
 			sendMessage,
 			sendMessageWithInput,
 			interruptSession,
+			waitSession,
+			sendMessageAndWait,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;
 		// Construct every command handler before a recovered job can call back

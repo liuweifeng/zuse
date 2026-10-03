@@ -46,9 +46,14 @@ import type {
 	SessionContextLink,
 	SessionForkConstruction,
 	SessionId,
+	SessionInputBlockedError,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
 	SessionStartError,
+	SessionWaitError,
+	SessionWaitInput,
+	SessionWaitOptions,
+	SessionWaitResult,
 	SkillRef,
 	ThreadGoal,
 	ThreadGoalSetInput,
@@ -213,6 +218,7 @@ export interface ForkSessionInput {
 	readonly commandId?: string;
 	readonly sourceSessionId: SessionId;
 	readonly fromMessageId: MessageId;
+	readonly nativeChildStepId?: string;
 	readonly destination: ForkDestination;
 	readonly providerId?: ProviderId;
 	readonly model?: string;
@@ -584,11 +590,18 @@ export interface ConversationOperations {
 	>;
 
 	/** Internal named-input path for durable transports and other services. */
+	readonly waitSession: (
+		input: SessionWaitInput,
+	) => Effect.Effect<SessionWaitResult, SessionWaitError>;
+	readonly sendMessageAndWait: (
+		input: MessageSendInput,
+		wait: SessionWaitOptions,
+	) => Effect.Effect<SessionWaitResult, SessionWaitError>;
 	readonly sendMessageWithInput: (
 		input: MessageSendInput,
 	) => Effect.Effect<
 		MessageSendResult,
-		SessionNotFoundError | DirectoryUnavailableError
+		SessionNotFoundError | DirectoryUnavailableError | SessionInputBlockedError
 	>;
 
 	readonly sendMessage: (
@@ -605,7 +618,10 @@ export interface ConversationOperations {
 		receiptIdentity?: CommandReceiptIdentity,
 		actor?: WorkspaceActor,
 		githubSlackMessageId?: string,
-	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
+	) => Effect.Effect<
+		void,
+		SessionNotFoundError | DirectoryUnavailableError | SessionInputBlockedError
+	>;
 
 	readonly interruptSession: (
 		commandId: string,
@@ -625,9 +641,10 @@ export interface ConversationOperations {
 		ready?: boolean,
 		flush?: boolean,
 		actor?: WorkspaceActor,
+		rejectIfBlocked?: boolean,
 	) => Effect.Effect<
 		QueuedMessage,
-		SessionNotFoundError | QueuedMessageCapacityError
+		SessionNotFoundError | QueuedMessageCapacityError | SessionInputBlockedError
 	>;
 
 	readonly updateQueuedMessage: (
@@ -732,7 +749,12 @@ export type TranscriptServiceShape = Pick<
 
 export type MessageServiceShape = Pick<
 	ConversationOperations,
-	"listMessages" | "sendMessage" | "sendMessageWithInput" | "interruptSession"
+	| "listMessages"
+	| "sendMessage"
+	| "sendMessageWithInput"
+	| "interruptSession"
+	| "waitSession"
+	| "sendMessageAndWait"
 >;
 
 export type QueueServiceShape = Pick<

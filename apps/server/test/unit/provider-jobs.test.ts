@@ -612,3 +612,41 @@ it("routes uncertain delivery to a separate recovery attempt when native identit
 	]);
 	expect(marked).toBe(1);
 });
+
+it("delivers a frozen native goal payload through the same durable turn job", async () => {
+	const seen: unknown[] = [];
+	const defaults = makeOptions({});
+	const execute = makeProviderJobExecutor(
+		makeOptions({
+			provider: {
+				...defaults.provider,
+				send: (...args) =>
+					Effect.sync(() => {
+						seen.push(args.at(-1));
+					}),
+			},
+		}),
+	);
+	await Effect.runPromise(
+		execute(
+			job({
+				_tag: "provider.turn.send",
+				turnId: "turn-active",
+				providerInputJson: JSON.stringify({
+					text: "context plus objective",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+					goal: {
+						objective: "original objective",
+						status: "active",
+						tokenBudget: 3000,
+					},
+				}),
+			}),
+		),
+	);
+	expect(seen).toEqual([
+		{ objective: "original objective", status: "active", tokenBudget: 3000 },
+	]);
+});

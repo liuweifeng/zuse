@@ -13,6 +13,7 @@ export const isEngineIdle = (options: {
 	readonly hasSession: ProviderServiceShape["hasSession"];
 }) =>
 	Effect.gen(function* () {
+		if ((yield* options.domain.admission.activeOperations) > 0) return false;
 		if ((yield* options.activeTurnCount) > 0) return false;
 		if ((yield* options.domain.jobs.unsettledCount) > 0) return false;
 		const constructions = yield* options.sql<{

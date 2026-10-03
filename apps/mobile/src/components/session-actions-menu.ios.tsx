@@ -1,6 +1,8 @@
+import "@zuse/i18n/english/chat";
 import { Host } from "@expo/ui";
 import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
 import { accessibilityLabel, frame } from "@expo/ui/swift-ui/modifiers";
+import { useMessages } from "@zuse/i18n/react";
 import { SquarePen } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 
@@ -19,6 +21,8 @@ export function SessionActionsMenu({
 	onThreads,
 	onChanges,
 	onFiles,
+	onAttempts,
+	onCheckpoints,
 	onTerminal,
 	onOpenOnDesktop,
 	onMergeBack,
@@ -33,11 +37,14 @@ export function SessionActionsMenu({
 	onThreads: () => void;
 	onChanges: () => void;
 	onFiles: () => void;
+	onAttempts?: () => void;
+	onCheckpoints?: () => void;
 	onTerminal?: () => void;
 	onOpenOnDesktop?: () => void;
 	onMergeBack?: () => void;
 	onArchive: () => void;
 }) {
+	const { message } = useMessages(["chat"]);
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
 			<Pressable
@@ -113,6 +120,20 @@ export function SessionActionsMenu({
 						systemImage={sf("folder")}
 						onPress={onFiles}
 					/>
+					{onCheckpoints !== undefined ? (
+						<NativeButton
+							label={message("chat:checkpoints_title")}
+							systemImage={sf("clock.arrow.circlepath")}
+							onPress={onCheckpoints}
+						/>
+					) : null}
+					{onAttempts !== undefined ? (
+						<NativeButton
+							label={message("chat:attempts_title")}
+							systemImage={sf("clock.arrow.circlepath")}
+							onPress={onAttempts}
+						/>
+					) : null}
 					{onTerminal !== undefined ? (
 						<NativeButton
 							label="Terminal"

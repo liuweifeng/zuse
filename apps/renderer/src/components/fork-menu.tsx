@@ -68,12 +68,14 @@ export function ForkButton({
 	label = "response",
 	fixedDestination,
 	sourceProjectId,
+	nativeChildStepId,
 }: {
 	readonly sourceSessionId: SessionId;
 	readonly fromMessageId: MessageId;
 	readonly label?: "message" | "response";
 	readonly fixedDestination?: ForkDestination;
 	readonly sourceProjectId?: FolderId;
+	readonly nativeChildStepId?: string;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
@@ -126,6 +128,7 @@ export function ForkButton({
 			const result = await fork({
 				sourceSessionId,
 				fromMessageId,
+				nativeChildStepId,
 				destination,
 				worktreeId: createdWorktree?.id,
 			});

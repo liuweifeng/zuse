@@ -9,6 +9,7 @@ import {
 	QueuedMessageNotFoundError,
 	QueueState,
 	SessionId,
+	SessionInputBlockedError,
 	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -425,7 +426,10 @@ describe("session actions", () => {
 		retained.lease.release();
 	});
 
-	it("removes an optimistic queue row after an authoritative add rejection", async () => {
+	it.each([
+		"missing",
+		"blocked",
+	])("removes refused auto-queue without accepting the composer draft (%s)", async (reason) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let streamStarts = 0;
 		const input = ComposerInput.make({
@@ -442,8 +446,19 @@ describe("session actions", () => {
 						streamStarts += 1;
 						return Stream.fromQueue(frames);
 					},
-					"messages.queue.add": () =>
-						Effect.fail(new SessionNotFoundError({ sessionId })),
+					"messages.queue.add": (payload: { rejectIfBlocked?: boolean }) => {
+						expect(payload.rejectIfBlocked).toBe(true);
+						return Effect.fail(
+							reason === "missing"
+								? new SessionNotFoundError({ sessionId })
+								: new SessionInputBlockedError({
+										sessionId,
+										requestId: "question",
+										kind: "question",
+										message: "Answer the pending request",
+									}),
+						);
+					},
 				}) as never,
 		);
 
@@ -474,17 +489,23 @@ describe("session actions", () => {
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toHaveLength(1);
 
-		await persistQueuedMessage(ref, queueId, input);
+		expect(
+			await persistQueuedMessage(ref, queueId, input, {
+				rejectIfBlocked: true,
+			}),
+		).toBe(false);
 
 		expect(
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toEqual([]);
-		expect(pendingSessionCommandError(ref)).toMatchObject({
-			kind: "terminal",
-			category: "session-unavailable",
-			headline: "Session unavailable",
-			message: "This chat session is no longer available in the agent runtime.",
-		});
+		if (reason === "missing")
+			expect(pendingSessionCommandError(ref)).toMatchObject({
+				kind: "terminal",
+				category: "session-unavailable",
+				headline: "Session unavailable",
+				message:
+					"This chat session is no longer available in the agent runtime.",
+			});
 		retained.lease.release();
 	});
 });

@@ -114,6 +114,8 @@ export interface ConversationEventRuntimeOptions {
 	readonly publishGoal: (
 		sessionId: SessionId,
 		goal: ThreadGoal | null,
+		providerSessionId: string,
+		providerId: ProviderId,
 	) => Effect.Effect<void>;
 	readonly publishApiActivity: (
 		sessionId: SessionId,
@@ -415,11 +417,21 @@ export const makeConversationEventRuntime = Effect.fn(
 										return;
 									}
 									if (event._tag === "GoalUpdated") {
-										yield* options.publishGoal(sessionId, event.goal);
+										yield* options.publishGoal(
+											sessionId,
+											event.goal,
+											providerSessionId,
+											providerId,
+										);
 										return;
 									}
 									if (event._tag === "GoalCleared") {
-										yield* options.publishGoal(sessionId, null);
+										yield* options.publishGoal(
+											sessionId,
+											null,
+											providerSessionId,
+											providerId,
+										);
 										return;
 									}
 									if (

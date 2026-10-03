@@ -41,7 +41,7 @@ export const readCodexThread = async (
 
 export type CodexTurnEvidence =
 	| { readonly kind: "missing" }
-	| { readonly kind: "incomplete" }
+	| { readonly kind: "incomplete"; readonly reason?: "native_children" }
 	| { readonly kind: "running" }
 	| {
 			readonly kind: "terminal";
@@ -49,6 +49,20 @@ export type CodexTurnEvidence =
 				readonly status: "completed" | "interrupted" | "failed";
 			};
 	  };
+
+/** Parent activity/status snapshots do not identify a complete exact child turn.
+ * Until those child transcripts are reconstructed, they cannot prove root completion.
+ */
+export const codexTurnRequiresChildRecovery = (turn: {
+	readonly items: ReadonlyArray<unknown>;
+}): boolean =>
+	turn.items.some(
+		(item) =>
+			item !== null &&
+			typeof item === "object" &&
+			"type" in item &&
+			(item.type === "collabAgentToolCall" || item.type === "subAgentActivity"),
+	);
 
 /** Only an exact native identity with full terminal output can prove completion. */
 export const readCodexTurnEvidence = async (
@@ -72,6 +86,8 @@ export const readCodexTurnEvidence = async (
 		case "completed":
 		case "interrupted":
 		case "failed":
+			if (codexTurnRequiresChildRecovery(turn))
+				return { kind: "incomplete", reason: "native_children" };
 			return { kind: "terminal", turn: { ...turn, status: turn.status } };
 		default:
 			throw new CodexThreadReadError("invalid_response");

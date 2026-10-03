@@ -4,6 +4,8 @@ import type {
 	PermissionKind,
 	PermissionMode,
 	RuntimeMode,
+	SessionWaitOptions,
+	SessionWaitResult,
 } from "@zuse/contracts";
 import { generativeUiComponentLines } from "@zuse/utils/generative-ui";
 import { z } from "zod";
@@ -74,7 +76,12 @@ export type CreateSessionResult =
 	| { readonly ok: false; readonly error: string };
 
 export type SendToThreadResult =
-	| { readonly ok: true; readonly queued: boolean; readonly chatId: string }
+	| {
+			readonly ok: true;
+			readonly queued: boolean;
+			readonly chatId: string;
+			readonly wait?: SessionWaitResult;
+	  }
 	| { readonly ok: false; readonly error: string };
 
 export interface ThreadMessage {
@@ -161,7 +168,19 @@ export interface OrchestrationToolDeps {
 	readonly sendToThread: (input: {
 		readonly sessionId: string;
 		readonly text: string;
+		readonly commandId?: string;
+		readonly wait?: SessionWaitOptions;
 	}) => Promise<SendToThreadResult>;
+	readonly waitForThread?: (input: {
+		readonly sessionId: string;
+		readonly turnId?: string;
+		readonly attemptId?: string;
+		readonly target: "idle" | "blocked" | "done";
+		readonly timeoutMs?: number;
+	}) => Promise<
+		| { readonly ok: true; readonly wait: SessionWaitResult }
+		| { readonly ok: false; readonly error: string }
+	>;
 	readonly readThread: (input: {
 		readonly sessionId: string;
 		readonly limit?: number;
@@ -207,6 +226,7 @@ export type OrchestrationToolName =
 	| "create_thread"
 	| "create_session"
 	| "send_to_thread"
+	| "wait_for_thread"
 	| "read_thread"
 	| "list_threads"
 	| "list_models"
@@ -228,7 +248,33 @@ const CREATE_SESSION_DESCRIPTION =
 	"Open a NEW SESSION TAB inside an EXISTING sidebar chat; this never creates a worktree and never creates a new sidebar chat. Omit chatId to add the tab to YOUR OWN current chat, or pass a chatId from list_threads. The new session inherits that chat's workspace/worktree. Use this for another tab/conversation sharing the same sidebar chat and checkout. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId }. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
 
 const SEND_TO_THREAD_DESCRIPTION =
-	"Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is handed to the target session immediately and the receiving agent sees it attributed to you; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued is always false today (delivery is immediate).";
+	"Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is handed to the target session immediately and the receiving agent sees it attributed to you; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued is always false today (delivery is immediate). Provide wait:{target:idle|blocked|done,timeoutMs} to atomically submit then observe that exact execution. Reuse commandId to retry a send safely; a wait timeout does not cancel execution.";
+
+const WAIT_DESCRIPTION =
+	"Wait for a pinned execution to become idle, blocked on input, or done. Timeout or cancelling this observation never stops execution. Returns the exact turn and attempt plus outcome; a newer execution cannot satisfy this wait.";
+const waitFields = {
+	target: z.enum(["idle", "blocked", "done"]),
+	timeoutMs: z.number().optional(),
+};
+const waitInputSchema = z.object({
+	sessionId: z.string().min(1),
+	turnId: z.string().optional(),
+	attemptId: z.string().optional(),
+	...waitFields,
+});
+const sendInputSchema = z.object({
+	sessionId: z.string().min(1),
+	text: z.string().min(1),
+	commandId: z.string().optional(),
+	wait: z.object(waitFields).optional(),
+});
+const waitProperties = {
+	target: { type: "string", enum: ["idle", "blocked", "done"] },
+	timeoutMs: {
+		type: "number",
+		description: "Deadline in milliseconds, default 30000, maximum 300000.",
+	},
+};
 
 const READ_THREAD_DESCRIPTION =
 	"Read a thread's recent messages and current status (idle / running / closed / error). Use to check what a spawned thread has done — e.g. read a review thread's findings before deciding to merge. Returns { status, messages: [{ role, text }] }. Read-only.";
@@ -331,8 +377,25 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 			{
 				sessionId: stringProp("Target session id from create_thread."),
 				text: stringProp("Message to send to the target thread."),
+				commandId: stringProp(
+					"Stable idempotency key when retrying this send.",
+				),
+				wait: objectSchema(waitProperties, ["target"]),
 			},
 			["sessionId", "text"],
+		),
+	},
+	{
+		name: "wait_for_thread",
+		description: WAIT_DESCRIPTION,
+		inputSchema: objectSchema(
+			{
+				sessionId: stringProp("Target session id."),
+				turnId: stringProp("Pin this turn."),
+				attemptId: stringProp("Pin this attempt."),
+				...waitProperties,
+			},
+			["sessionId", "target"],
 		),
 	},
 	{
@@ -385,6 +448,7 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 ];
 
 export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
+	"wait_for_thread",
 	"read_thread",
 	"list_threads",
 	"list_models",
@@ -546,7 +610,20 @@ export const callOrchestrationTool = async (
 					isError: true,
 				};
 			}
-			return settle(await deps.sendToThread({ sessionId, text }));
+			const parsed = sendInputSchema.safeParse(args);
+			if (!parsed.success)
+				return settle({ ok: false, error: "Invalid send_to_thread options." });
+			return settle(await deps.sendToThread(parsed.data));
+		}
+		case "wait_for_thread": {
+			const parsed = waitInputSchema.safeParse(args);
+			if (!parsed.success)
+				return settle({ ok: false, error: "Invalid wait_for_thread options." });
+			return settle(
+				deps.waitForThread
+					? await deps.waitForThread(parsed.data)
+					: { ok: false, error: "Semantic waits are unavailable." },
+			);
 		}
 		case "read_thread": {
 			const sessionId = asString(args, "sessionId");
@@ -711,13 +788,18 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
 	tool(
 		"send_to_thread",
 		SEND_TO_THREAD_DESCRIPTION,
-		{
-			sessionId: z.string().min(1),
-			text: z.string().min(1),
-		},
+		sendInputSchema.shape,
+		async (args) => settle(await deps.sendToThread(args)),
+	),
+	tool(
+		"wait_for_thread",
+		WAIT_DESCRIPTION,
+		waitInputSchema.shape,
 		async (args) =>
 			settle(
-				await deps.sendToThread({ sessionId: args.sessionId, text: args.text }),
+				deps.waitForThread
+					? await deps.waitForThread(args)
+					: { ok: false, error: "Semantic waits are unavailable." },
 			),
 	),
 

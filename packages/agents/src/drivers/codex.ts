@@ -45,6 +45,7 @@ import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
+import { makeCodexGoalLifecycle } from "./codex/goal-lifecycle.ts";
 import {
 	CodexAppServerClient,
 	CodexAppServerRequestError,
@@ -1404,6 +1405,7 @@ export const startCodexSession = (
 		let activeThreadId = resumeCursor;
 		const cursorLifecycle = new CodexCursorLifecycle(resumeCursor);
 		let currentTurnId: string | null = null;
+		const goalLifecycle = makeCodexGoalLifecycle();
 		let latestDiff = "";
 		let closed = false;
 		startup.add(() => {
@@ -2264,6 +2266,7 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = notification.params.turn.id;
+					goalLifecycle.turnStarted();
 					return [
 						...cursorLifecycle.turnStarted(notification.params.threadId),
 						{
@@ -2292,7 +2295,19 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = null;
-					return [{ _tag: "Status", status: "idle" }];
+					if (
+						!goalLifecycle.turnCompleted(
+							notification.params.turn.status === "failed",
+						)
+					)
+						return [];
+					return [
+						{
+							_tag: "Status",
+							status:
+								notification.params.turn.status === "failed" ? "error" : "idle",
+						},
+					];
 				case "turn/diff/updated":
 					if (notification.params.threadId === activeThreadId) {
 						latestDiff = notification.params.diff;
@@ -2305,10 +2320,20 @@ export const startCodexSession = (
 							_tag: "GoalUpdated",
 							goal: normalizeThreadGoal(notification.params.goal),
 						},
+						...(goalLifecycle.updated(
+							normalizeThreadGoal(notification.params.goal).status,
+						)
+							? [{ _tag: "Status" as const, status: "idle" as const }]
+							: []),
 					];
 				case "thread/goal/cleared":
 					if (notification.params.threadId !== activeThreadId) return [];
-					return [{ _tag: "GoalCleared" }];
+					return [
+						{ _tag: "GoalCleared" },
+						...(goalLifecycle.cleared()
+							? [{ _tag: "Status" as const, status: "idle" as const }]
+							: []),
+					];
 				case "item/started":
 					{
 						const child = detachedAgentsByThread.get(
@@ -2764,6 +2789,12 @@ export const startCodexSession = (
 					if (activeThreadId === null) {
 						throw new Error("Codex thread is not ready for goals.");
 					}
+					if (
+						goalInput.status === "active" ||
+						(goalInput.objective !== undefined &&
+							goalInput.status === undefined)
+					)
+						goalLifecycle.start();
 					const response = await app.request<unknown>("thread/goal/set", {
 						threadId: activeThreadId,
 						...(goalInput.objective !== undefined
@@ -2782,6 +2813,8 @@ export const startCodexSession = (
 					}
 					const normalized = normalizeThreadGoal(responseGoal);
 					emit({ _tag: "GoalUpdated", goal: normalized });
+					if (goalLifecycle.updated(normalized.status))
+						emit({ _tag: "Status", status: "idle" });
 					return normalized;
 				}),
 			clearGoal: () =>
@@ -2789,6 +2822,7 @@ export const startCodexSession = (
 					if (activeThreadId === null) return;
 					await app.request("thread/goal/clear", { threadId: activeThreadId });
 					emit({ _tag: "GoalCleared" });
+					if (goalLifecycle.cleared()) emit({ _tag: "Status", status: "idle" });
 				}),
 		};
 	});
