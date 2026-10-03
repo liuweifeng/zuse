@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
 import { connect } from "node:net";
+import { ComputerAwakeStatus } from "@zuse/contracts";
 import { afterEach, expect, it } from "vitest";
 import {
 	type EngineChannel,
@@ -45,6 +46,64 @@ const fixture = async (timeout = 1000) => {
 const hostInfo = {
 	authRedirectUri: "http://localhost:8976/callback",
 };
+
+it("restores the current engine power state after native reattachment without replaying actions", async () => {
+	const f = await fixture();
+	const state = (
+		count: number,
+	): Extract<EngineFrame, { _tag: "HostState" }> => ({
+		_tag: "HostState",
+		computerAwake: new ComputerAwakeStatus({
+			supported: true,
+			mode: "auto",
+			active: count > 0,
+			activeAgents: count,
+			remoteClients: 0,
+			electronBlockerActive: false,
+			caffeinateActive: count > 0,
+			warning: null,
+		}),
+	});
+	f.host.setState(state(1));
+	const frames: EngineFrame[] = [];
+	const first = await connectLocalEngine(f.endpoint, {
+		host: hostInfo,
+		receive: (frame) => {
+			frames.push(frame);
+		},
+	});
+	await expect.poll(() => frames.length).toBe(1);
+	expect(frames[0]).toEqual(state(1));
+	f.host.setState(state(2));
+	await expect.poll(() => frames.length).toBe(2);
+	expect(frames[1]).toEqual(state(2));
+	first.close();
+	await first.closed;
+	await expect.poll(() => f.clients.size).toBe(0);
+	f.host.setState(state(0));
+	f.host.notify("openSession", { sessionId: "old-session" });
+	frames.length = 0;
+	const second = await connectLocalEngine(f.endpoint, {
+		host: hostInfo,
+		receive: (frame) => {
+			frames.push(frame);
+		},
+	});
+	await expect.poll(() => frames.length).toBe(1);
+	expect(frames).toEqual([state(0)]);
+	const readerFrames: EngineFrame[] = [];
+	const reader = await connectLocalEngine(f.endpoint, {
+		receive: (frame) => {
+			readerFrames.push(frame);
+		},
+	});
+	f.host.setState(state(3));
+	await expect.poll(() => frames.length).toBe(2);
+	expect(readerFrames).toEqual([]);
+	reader.close();
+	second.close();
+	await Promise.all([reader.closed, second.closed]);
+});
 
 it("authenticates attachments and fences callbacks from non-host clients", async () => {
 	const f = await fixture();

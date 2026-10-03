@@ -30,11 +30,16 @@ requests are bound to one desktop attachment; timeout, cancellation, and attachm
 loss revoke their responses. Reconnection never repeats native actions.
 
 The desktop still launches its embedded runtime. Switching it to the standalone
-engine requires preserving nearby discovery, wiring the native and renderer
-attachments, and coordinating updates with engine admission. The standalone worker
+engine requires wiring the native and renderer attachments and coordinating
+updates with engine admission. Nearby discovery has a shared lifecycle owned by
+the standalone worker's TLS listener; it does not depend on a desktop attachment.
+The standalone worker
 already derives sleep prevention from durable active turns and authenticated remote
 clients. Its macOS sleep assertion follows the worker PID; the native connectivity
-helper exits when its owner's input pipe closes. These lifetime checks do not yet
+helper exits when its owner's input pipe closes. Linux discovery uses an owner-pipe
+guard with bounded process-group cleanup after normal exit or owner death. Current
+sleep status is retained and delivered after native reattachment; native actions
+are not replayed. These lifetime checks do not yet
 establish end-to-end desktop quit/reopen behavior.
 
 Full execution trees and checkpoint rollback also remain future work.

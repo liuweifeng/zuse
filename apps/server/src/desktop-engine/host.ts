@@ -8,6 +8,7 @@ type Notification = Extract<EngineFrame, { _tag: "HostEvent" }>;
 /** Native requests belong to one desktop attachment; replacement cannot settle an old request. */
 export class EngineHost {
 	private owner: { channel: EngineChannel; hello: Hello } | null = null;
+	private state: Extract<EngineFrame, { _tag: "HostState" }> | null = null;
 	private readonly pending = new Map<
 		string,
 		{ owner: EngineChannel; finish: (value: unknown, error?: Error) => void }
@@ -33,6 +34,15 @@ export class EngineHost {
 	}
 	onCallback(flow: "account", handler: (url: string) => void): void {
 		this.callbacks.set(flow, handler);
+	}
+	/** Publish the latest snapshot after Welcome; transient events are never replayed. */
+	synchronize(channel: EngineChannel): void {
+		if (this.owner?.channel === channel && this.state !== null)
+			channel.send(this.state);
+	}
+	setState(state: Extract<EngineFrame, { _tag: "HostState" }>): void {
+		this.state = state;
+		this.owner?.channel.send(state);
 	}
 	receive(channel: EngineChannel, frame: EngineFrame): boolean {
 		if (this.owner?.channel !== channel) return false;

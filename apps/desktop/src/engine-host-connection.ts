@@ -18,6 +18,7 @@ export const connectEngineHost = (options: {
 		signal: AbortSignal,
 	) => Promise<unknown>;
 	readonly event: (event: HostEvent) => void;
+	readonly state?: (state: Extract<EngineFrame, { _tag: "HostState" }>) => void;
 	readonly attached?: () => void;
 	readonly connect?: typeof connectLocalEngine;
 	readonly retryMs?: number;
@@ -39,6 +40,10 @@ export const connectEngineHost = (options: {
 					signal: attachment.signal,
 					receive: (frame) => {
 						if (attachment.signal.aborted) return;
+						if (frame._tag === "HostState") {
+							options.state?.(frame);
+							return;
+						}
 						if (frame._tag === "HostCancel") {
 							requests.get(frame.id)?.abort();
 							return;

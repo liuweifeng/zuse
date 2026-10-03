@@ -51,6 +51,7 @@ export const listenLocalEngine = async (options: {
 				channel.authenticated();
 				options.clients.set(id, channel);
 				channel.send({ _tag: "Welcome", version: LOCAL_ENGINE_PROTOCOL });
+				options.host.synchronize(channel);
 				return;
 			}
 			if (frame._tag === "Ping") {

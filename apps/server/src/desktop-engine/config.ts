@@ -14,6 +14,7 @@ export const DesktopEngineConfig = Schema.Struct({
 	staticDir: Schema.optional(Schema.String),
 	devServerUrl: Schema.optional(Schema.String),
 	cliAccessPath: Schema.optional(Schema.String),
+	nearbyHelperPath: Schema.optional(Schema.String),
 	nearbyTls: Schema.optional(
 		Schema.Struct({
 			key: Schema.String,

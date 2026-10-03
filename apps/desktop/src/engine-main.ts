@@ -1,3 +1,5 @@
+import { hostname } from "node:os";
+import { dirname, join } from "node:path";
 import { NodeRuntime } from "@effect/platform-node";
 import { CredentialsServiceLive } from "@zusehq/server";
 import {
@@ -11,6 +13,7 @@ import {
 	readComputerAwakePreference,
 	watchComputerAwakePreference,
 } from "./computer-awake-preference.ts";
+import { createLocalConnectivity } from "./local-connectivity.ts";
 
 const boot = Effect.gen(function* () {
 	const path = process.argv[2];
@@ -19,6 +22,21 @@ const boot = Effect.gen(function* () {
 			new Error("Missing private engine configuration path."),
 		);
 	const config = yield* Effect.tryPromise(() => readDesktopEngineConfig(path));
+	const connectivity = yield* Effect.acquireRelease(
+		Effect.sync(() =>
+			createLocalConnectivity({
+				helperPath: config.nearbyHelperPath,
+				supervisorPath: join(
+					dirname(process.argv[1] ?? path),
+					"engine-supervisor.cjs",
+				),
+				serviceName: hostname(),
+				log: (event, fields) =>
+					console.info(JSON.stringify({ event, ...fields })),
+			}),
+		),
+		(value) => Effect.promise(() => value.close()),
+	);
 	process.env.ZUSE_APP_VERSION = config.appVersion;
 	const initialMode = yield* Effect.promise(() =>
 		readComputerAwakePreference(config.userData),
@@ -40,6 +58,8 @@ const boot = Effect.gen(function* () {
 	yield* runDesktopEngine(config, {
 		credentialsLayer: CredentialsServiceLive,
 		modelConnectionMasterKey: secureStorageMasterKey,
+		onNearbyListening: (port, pin) => connectivity.start(port, pin),
+		subscribeComputerAwakeStatus: (listener) => awake.subscribe(listener),
 		onActiveTurns: (count) => awake.setActiveAgents(count),
 		onRemoteConnection: () => {
 			awake.setRemoteClients(++remoteClients);
