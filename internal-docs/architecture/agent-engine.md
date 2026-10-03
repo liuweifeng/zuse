@@ -32,7 +32,8 @@ Production persistence now acquires a process-lifetime SQLite lock before databa
 migration and runtime construction. A second engine for the same data directory
 fails before reconciliation; process death releases ownership without stale-file
 stealing. Linux process tests cover contention, suspension and forced termination.
-Native macOS and Windows validation is still outstanding.
+Native macOS ownership tests now cover contention, suspension and forced termination;
+Windows validation is still outstanding.
 Conversation construction now completes local durable reconciliation before workers
 start. It revokes prior residency metadata, preserves intentionally held initial
 turns and exact pending sends, and records explicit failure for orphaned execution
@@ -98,9 +99,10 @@ server readiness, HTTP event connections and Pi initialization. Cancellation
 cannot turn a failed resume into a new SDK agent. Direct child-process drivers
 share bounded shutdown: a grace period followed by forced termination, with
 Unix process-group cleanup even when the original parent exits first. Handle
-close waits for shutdown; exit watchers also retire leftover descendants. Linux
-process tests cover children that ignore termination. Windows tree termination
-and macOS behavior still require native verification, along with SDK-internal
+close waits for shutdown; exit watchers also retire leftover descendants. Linux and macOS
+process tests cover children that ignore termination and descendants remaining after
+the parent exits. Native macOS startup-cancellation fixtures also pass. Windows tree
+termination still requires native verification, along with SDK-internal
 process teardown and legacy unowned lifecycle paths. Uncorrelated drivers currently require
 a fresh handle per attempt, adding resume latency; reuse requires native event
 correlation.
