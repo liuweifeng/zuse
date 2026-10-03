@@ -21,6 +21,7 @@ const Frame = Schema.Union([
 		value: Schema.Unknown,
 		error: Schema.optional(Schema.String),
 	}),
+	Schema.TaggedStruct("HostCancel", { id: Schema.String }),
 	Schema.TaggedStruct("HostEvent", {
 		name: Schema.Literals(["openSession", "pairingRequest", "diagnostic"]),
 		payload: Schema.Unknown,

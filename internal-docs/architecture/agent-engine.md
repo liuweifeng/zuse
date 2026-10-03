@@ -21,11 +21,26 @@ harness permission requests retain the acquiring provider's ownership checks.
 Migrations preserve main's harness/model records and upgrade the earlier engine
 ledger transactionally. Unknown development migration histories fail before writes.
 
-This is not completion of all delivery slices below. Detached desktop execution,
-full execution trees, and checkpoint rollback remain future work.
+The standalone desktop engine is bundled with an independently locked supervisor,
+private authenticated local transport, native credential storage, and scoped RPC
+attachments. A process test verifies client detach/reattach, worker crash recovery,
+durable workspace preservation, capability rotation, and supervised shutdown.
+Renderer disconnect fails pending RPC calls without replaying mutations. Native
+requests are bound to one desktop attachment; timeout, cancellation, and attachment
+loss revoke their responses. Reconnection never repeats native actions.
+
+The desktop still launches its embedded runtime. Switching it to the standalone
+engine requires preserving nearby discovery, wiring the native and renderer
+attachments, and coordinating updates with engine admission. The standalone worker
+already derives sleep prevention from durable active turns and authenticated remote
+clients. Its macOS sleep assertion follows the worker PID; the native connectivity
+helper exits when its owner's input pipe closes. These lifetime checks do not yet
+establish end-to-end desktop quit/reopen behavior.
+
+Full execution trees and checkpoint rollback also remain future work.
 Plan responses now retain durable intent and acknowledgement separately: restart
 repairs acknowledged receipts and expires uncertain deliveries without replay.
-Live-provider crash injection and native macOS/Windows lifecycle validation remain release checks;
+Live-provider crash injection and native Windows lifecycle validation remain release checks;
 automated Linux tests do not establish zero reliability issues.
 
 Production persistence now acquires a process-lifetime SQLite lock before database

@@ -118,15 +118,31 @@ it("drops lost native requests and permits a new owner without replay", async ()
 
 it("times out and cancels native work without detaching a healthy client", async () => {
 	const f = await fixture(25);
+	const frames: EngineFrame[] = [];
 	const client = await connectLocalEngine(f.endpoint, {
 		host: hostInfo,
-		receive: () => {},
+		receive: (frame) => {
+			frames.push(frame);
+		},
 	});
 	await expect(f.host.request("pickFolder", null)).rejects.toThrow("in time");
 	const abort = new AbortController();
 	const work = f.host.request("pickFolder", null, abort.signal);
 	abort.abort();
 	await expect(work).rejects.toThrow("cancelled");
+	await expect.poll(() => frames.length).toBe(4);
+	expect(frames.map((frame) => frame._tag)).toEqual([
+		"HostRequest",
+		"HostCancel",
+		"HostRequest",
+		"HostCancel",
+	]);
+	const first = frames[0],
+		second = frames[2];
+	if (first?._tag !== "HostRequest" || second?._tag !== "HostRequest")
+		throw new Error("missing requests");
+	expect(frames[1]).toEqual({ _tag: "HostCancel", id: first.id });
+	expect(frames[3]).toEqual({ _tag: "HostCancel", id: second.id });
 	client.send({ _tag: "Rpc", payload: "still-connected" });
 	await expect.poll(() => f.received.length).toBe(1);
 	client.close();
