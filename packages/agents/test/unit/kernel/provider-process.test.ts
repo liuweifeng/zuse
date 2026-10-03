@@ -1,11 +1,49 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
 	stopProviderProcess,
 	watchProviderProcess,
 } from "../../../src/kernel/provider-process.ts";
+
+const processHasExited = async (pid: number): Promise<boolean> => {
+	if (process.platform === "darwin") {
+		try {
+			const { stdout } = await promisify(execFile)("ps", [
+				"-o",
+				"stat=",
+				"-p",
+				String(pid),
+			]);
+			return stdout.trim() === "" || stdout.trim().startsWith("Z");
+		} catch (error) {
+			if (
+				typeof error === "object" &&
+				error !== null &&
+				"code" in error &&
+				error.code === 1
+			)
+				return true;
+			throw error;
+		}
+	}
+	try {
+		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+		// Orphan zombies are dead and may wait for the VM's init to reap them.
+		return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ");
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			error.code === "ENOENT"
+		)
+			return true;
+		throw error;
+	}
+};
 
 const launch = async (source: string) => {
 	const child = spawn(process.execPath, ["-e", source], {
@@ -57,7 +95,9 @@ describe("provider process shutdown", () => {
 		}
 	});
 
-	it.skipIf(process.platform !== "linux").each([false, true])(
+	it
+		.skipIf(process.platform !== "linux" && process.platform !== "darwin")
+		.each([false, true])(
 		"kills descendants after parent exit (automatic=%s)",
 		async (automatic) => {
 			const child = spawn(
@@ -87,18 +127,7 @@ setInterval(() => {}, 1000);
 				}
 				expect(child.exitCode).toBe(0);
 				await expect
-					.poll(
-						async () => {
-							try {
-								const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-								// Orphan zombies are dead and may wait for the VM's init to reap them.
-								return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ");
-							} catch {
-								return true;
-							}
-						},
-						{ timeout: 4_000 },
-					)
+					.poll(() => processHasExited(pid), { timeout: 4_000 })
 					.toBe(true);
 			} finally {
 				forceCleanup(child);
