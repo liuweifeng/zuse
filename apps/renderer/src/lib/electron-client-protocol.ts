@@ -1,4 +1,4 @@
-import { type Cause, Effect, Layer, Queue, Stream } from "effect";
+import { type Cause, Deferred, Effect, Layer, Queue, Stream } from "effect";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import {
 	RpcClientDefect,
@@ -95,12 +95,66 @@ export const makeElectronResponseRouter = (
  * for response frames coming back, hands each decoded response to
  * `writeResponse` so the framework can route it to the awaiting RPC.
  */
-export const makeElectronClientProtocol = (bridge: RpcBridge) =>
+export const makeElectronClientProtocol = (
+	bridge: RpcBridge,
+	onClose: () => void = () => {},
+) =>
 	RpcClient.Protocol.make(
 		Effect.fnUntraced(function* (writeResponse, clientIds) {
+			const requestClientMap = new Map<string | number, number>();
+			const connect = bridge.connect;
+			const connectionId =
+				connect === undefined ? undefined : crypto.randomUUID();
+			let closed = false;
+			const disconnected = yield* Deferred.make<void>();
+			const disconnectError = new RpcClientError({
+				reason: new RpcClientDefect({
+					message: "The local engine disconnected.",
+					cause: undefined,
+				}),
+			});
+			const unsubscribeDisconnect = bridge.onDisconnect?.((id) => {
+				if (id !== connectionId || closed) return;
+				closed = true;
+				Effect.runSync(Deferred.succeed(disconnected, undefined));
+			});
+			yield* Effect.addFinalizer(() =>
+				Effect.sync(() => {
+					unsubscribeDisconnect?.();
+					if (connectionId !== undefined) bridge.disconnect?.(connectionId);
+				}),
+			);
+			yield* Deferred.await(disconnected).pipe(
+				Effect.andThen(() =>
+					// A request may be sent before RpcClient installs its receive loop.
+					// Include those clients so Protocol buffers their failure until run starts.
+					Effect.forEach(
+						new Set([...clientIds, ...requestClientMap.values()]),
+						(clientId) =>
+							writeResponse(clientId, {
+								_tag: "ClientProtocolError",
+								error: disconnectError,
+							}),
+					),
+				),
+				Effect.andThen(() => Effect.sync(onClose)),
+				Effect.forkScoped,
+			);
+			if (connectionId !== undefined && connect !== undefined) {
+				yield* Effect.tryPromise({
+					try: () => connect(connectionId),
+					catch: (cause) =>
+						new RpcClientError({
+							reason: new RpcClientDefect({
+								message: "Could not attach to the local engine.",
+								cause,
+							}),
+						}),
+				});
+				if (closed) return yield* Effect.fail(disconnectError);
+			}
 			const serialization = yield* RpcSerialization.RpcSerialization;
 			const parser = serialization.makeUnsafe();
-			const requestClientMap = new Map<string | number, number>();
 			const responseRouter = yield* makeElectronResponseRouter(writeResponse);
 
 			const broadcast = (response: FromServerEncoded) =>
@@ -110,8 +164,8 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
 
 			const inbound = yield* Queue.make<unknown, Cause.Done>();
 			const unsubscribe = bridge.onMessage((frame) => {
-				Queue.offerUnsafe(inbound, frame);
-			});
+				if (!closed) Queue.offerUnsafe(inbound, frame);
+			}, connectionId);
 			yield* Effect.addFinalizer(() =>
 				Effect.sync(() => {
 					unsubscribe();
@@ -152,6 +206,7 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
 				send: (clientId, request) =>
 					Effect.try({
 						try: () => {
+							if (closed) throw disconnectError;
 							if (request._tag === "Request") {
 								requestClientMap.set(request.id, clientId);
 							} else if (request._tag === "Interrupt") {
@@ -166,7 +221,7 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
 							}
 							const encoded = parser.encode(request);
 							if (encoded === undefined) return;
-							bridge.send(encoded);
+							bridge.send(encoded, connectionId);
 						},
 						catch: (cause) =>
 							new RpcClientError({
@@ -182,5 +237,8 @@ export const makeElectronClientProtocol = (bridge: RpcBridge) =>
 		}),
 	);
 
-export const electronClientProtocolLayer = (bridge: RpcBridge) =>
-	Layer.effect(RpcClient.Protocol, makeElectronClientProtocol(bridge));
+export const electronClientProtocolLayer = (
+	bridge: RpcBridge,
+	onClose?: () => void,
+) =>
+	Layer.effect(RpcClient.Protocol, makeElectronClientProtocol(bridge, onClose));
