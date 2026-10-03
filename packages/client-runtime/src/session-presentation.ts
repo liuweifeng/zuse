@@ -29,6 +29,13 @@ export type SessionAttentionState =
 
 export type SessionPresentation = Readonly<{
 	runtime: SessionRuntimeState;
+	health:
+		| "unknown"
+		| "disconnected"
+		| "stalled"
+		| "blocked"
+		| "healthy"
+		| "unavailable";
 	busy: boolean;
 	turnActive: boolean;
 	/** A durable turn is active or a still-applicable start command bridges to it. */
@@ -113,7 +120,9 @@ const submissionKindsFor = (
 ): ReadonlyArray<string> =>
 	interaction._tag === "Question"
 		? ["session.answerQuestion", "session.cancelQuestion"]
-		: ["permission.decide"];
+		: interaction._tag === "Plan"
+			? ["session.respondToPlan"]
+			: ["permission.decide"];
 
 const presentInteractions = (
 	projection: SessionTimelineProjection | null,
@@ -206,7 +215,21 @@ export const deriveSessionPresentation = ({
 				? "running"
 				: "idle";
 
+	const observation = view.data?.runtimeObservation;
+	const health: SessionPresentation["health"] =
+		view.connection !== "connected"
+			? "disconnected"
+			: view.sync !== "live" || observation === undefined
+				? "unknown"
+				: observation.state === "stalled"
+					? "stalled"
+					: observation.state === "unavailable"
+						? "unavailable"
+						: observation.state === "blocked"
+							? "blocked"
+							: "healthy";
 	return {
+		health,
 		runtime,
 		busy: isSessionRuntimeBusy(runtime),
 		turnActive: isSessionTurnActive(runtime),

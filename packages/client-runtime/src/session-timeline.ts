@@ -52,7 +52,10 @@ export const restoreSessionTimelineState = (
 		? emptySessionTimelineState()
 		: {
 				...emptySessionTimelineState(),
-				projection,
+				projection: SessionTimelineProjection.make({
+					...projection,
+					runtimeObservation: undefined,
+				}),
 				cursor,
 				appliedVersion: cursor.version,
 				phase: "cached",
@@ -87,7 +90,10 @@ export const observeOptimisticTimelineProjection = (
 	}
 	return {
 		...state,
-		projection,
+		projection: SessionTimelineProjection.make({
+			...projection,
+			runtimeObservation: state.projection?.runtimeObservation,
+		}),
 		optimistic: { messages: optimistic },
 	};
 };
@@ -178,6 +184,26 @@ export const reduceSessionTimelineFrame = (
 	frame: SessionTimelineFrame,
 ): SessionTimelineState => {
 	if (state.phase === "deleted") return state;
+	if (frame.kind === "runtime") {
+		if (
+			state.phase !== "live" ||
+			state.projection === null ||
+			state.cursor?.epoch !== frame.cursor.epoch ||
+			state.cursor.version !== frame.cursor.version ||
+			(state.projection.activeTurn?.attempt.id ?? null) !==
+				frame.observation.attemptId ||
+			(state.projection.runtimeObservation?.observedAt ?? -1) >
+				frame.observation.observedAt
+		)
+			return state;
+		return {
+			...state,
+			projection: SessionTimelineProjection.make({
+				...state.projection,
+				runtimeObservation: frame.observation,
+			}),
+		};
+	}
 	if (frame.kind === "snapshot") {
 		const cursor = cursorForFrame(state, frame.throughVersion, frame.cursor);
 		if (cursor.version !== frame.throughVersion) {
@@ -332,7 +358,13 @@ export const reduceSessionTimelineFrame = (
 			`Expected version ${expectedVersion}, received ${frame.streamVersion}`,
 		);
 	}
-	const projection = applyTimelineEvent(state.projection, frame.event);
+	const projection = applyTimelineEvent(
+		SessionTimelineProjection.make({
+			...state.projection,
+			runtimeObservation: undefined,
+		}),
+		frame.event,
+	);
 	const persistedMessageId =
 		frame.event._tag === "MessagePersisted" ? frame.event.message.id : null;
 	const optimistic =

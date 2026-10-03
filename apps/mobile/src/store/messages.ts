@@ -5,6 +5,10 @@ import type {
 	FailedCommand,
 	PendingCommand,
 } from "@zuse/client-runtime/resource-state";
+import {
+	deriveSessionPresentation,
+	type SessionPresentation,
+} from "@zuse/client-runtime/session-presentation";
 import type {
 	ComposerInput,
 	EnvironmentId,
@@ -37,6 +41,13 @@ import {
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
+
+const healthBySessionAtom = Atom.make<
+	Record<string, SessionPresentation["health"]>
+>({}).pipe(Atom.keepAlive);
+export const sessionHealthAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(healthBySessionAtom)[key] ?? "unknown"),
+);
 
 const interactionsBySessionAtom = Atom.make<
 	Record<string, readonly SessionInteraction[]>
@@ -188,15 +199,13 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		...state,
 		[liveKey]: projection?.olderMessageSequence != null,
 	}));
-	// A cloud message the mailbox accepted but no runtime has claimed yet is
-	// "Waiting for agent", not a running turn (desktop shares this rule).
-	const running =
-		projection?.activeTurn != null ||
-		view.pendingCommands.some(
-			(command) =>
-				command.kind === "messages.send" &&
-				!(retained.cloud && isWaitingCloudSend(command)),
-		);
+	const presentation = deriveSessionPresentation({ view });
+	appAtomRegistry.update(healthBySessionAtom, (state) =>
+		state[liveKey] === presentation.health
+			? state
+			: { ...state, [liveKey]: presentation.health },
+	);
+	const running = presentation.turnInFlight;
 	if (!running && view.failedCommands.length > 0)
 		markSessionTurnStartFailed(liveKey);
 	else if (
@@ -227,6 +236,12 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 					(message) =>
 						optimisticIds.has(message.id) && !durableIds.has(message.id),
 				);
+				if (
+					pending.length === 0 &&
+					current.length === durable.length &&
+					current.every((message, index) => message === durable[index])
+				)
+					return state;
 				return {
 					...state,
 					[liveKey]: [...durable, ...pending],
@@ -277,6 +292,7 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
 		appAtomRegistry.set(interactionsBySessionAtom, {});
+		appAtomRegistry.set(healthBySessionAtom, {});
 		appAtomRegistry.set(transcriptReadyBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
 		appAtomRegistry.set(queuePausedBySessionAtom, {});

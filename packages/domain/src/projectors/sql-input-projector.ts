@@ -9,7 +9,7 @@ export const createSessionInputProjection = (sql: SqlClient.SqlClient) =>
 	Effect.gen(function* () {
 		yield* sql`CREATE TABLE IF NOT EXISTS session_inputs (
 			session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-			kind TEXT NOT NULL CHECK (kind IN ('question', 'permission')),
+			kind TEXT NOT NULL CHECK (kind IN ('question', 'permission', 'plan')),
 			request_id TEXT NOT NULL,
 			status TEXT NOT NULL CHECK (status IN ('pending', 'answered', 'cancelled', 'expired')),
 			request_json TEXT,
@@ -41,7 +41,7 @@ export const projectSessionInput = (
 	Effect.gen(function* () {
 		const { event, streamId, sequence } = record;
 		const request = (
-			kind: "question" | "permission",
+			kind: "question" | "permission" | "plan",
 			id: string,
 			json: string,
 			at: number,
@@ -70,7 +70,7 @@ export const projectSessionInput = (
 		`;
 		};
 		const resolve = (
-			kind: "question" | "permission",
+			kind: "question" | "permission" | "plan",
 			id: string,
 			status: "answered" | "cancelled" | "expired",
 		) => sql`
@@ -106,6 +106,10 @@ export const projectSessionInput = (
 			case "PermissionResolved":
 				yield* resolve("permission", event.requestId, "answered");
 				return;
+			case "PlanExpired":
+				yield* resolve("plan", event.itemId, "expired");
+				yield* sql`UPDATE session_inputs SET awaiting_dismissal = ${event.reason === "uncertain" ? 2 : 1} WHERE session_id=${streamId} AND kind='plan' AND request_id=${event.itemId} AND status='expired' AND updated_sequence=${sequence}`;
+				return;
 			case "QuestionExpired":
 				yield* resolve("question", event.itemId, "expired");
 				yield* sql`UPDATE session_inputs SET awaiting_dismissal = 1 WHERE session_id = ${streamId}
@@ -118,13 +122,28 @@ export const projectSessionInput = (
 			case "MessagePersisted": {
 				if (
 					event.kind !== "user_question" &&
-					event.kind !== "user_question_answer"
+					event.kind !== "user_question_answer" &&
+					event.kind !== "tool_use" &&
+					event.kind !== "tool_result"
 				)
 					return;
 				const decoded = decodeContent(event.contentJson);
 				if (Result.isFailure(decoded)) return;
 				const content = decoded.success;
-				if (content._tag === "user_question") {
+				if (content._tag === "tool_use" && content.tool === "ExitPlanMode") {
+					yield* request(
+						"plan",
+						content.itemId,
+						event.contentJson,
+						event.createdAt,
+						event.turnId,
+						event.inputOwner,
+					);
+					// A tool result may have arrived before its request or been imported out of order.
+					yield* sql`UPDATE session_inputs SET status='answered',awaiting_dismissal=0 WHERE session_id=${streamId} AND kind='plan' AND request_id=${content.itemId} AND EXISTS (SELECT 1 FROM messages WHERE session_id=${streamId} AND kind='tool_result' AND json_valid(content_json) AND json_extract(content_json,'$.itemId')=${content.itemId})`;
+				} else if (content._tag === "tool_result") {
+					yield* sql`UPDATE session_inputs SET status='answered',awaiting_dismissal=0,updated_sequence=MAX(updated_sequence,${sequence}) WHERE session_id=${streamId} AND kind='plan' AND request_id=${content.itemId}`;
+				} else if (content._tag === "user_question") {
 					yield* request(
 						"question",
 						content.itemId,
@@ -160,7 +179,10 @@ export const projectCommittedMessageInput = (
 		const event = record.event;
 		if (
 			event._tag !== "MessagePersisted" ||
-			(event.kind !== "user_question" && event.kind !== "user_question_answer")
+			(event.kind !== "user_question" &&
+				event.kind !== "user_question_answer" &&
+				event.kind !== "tool_use" &&
+				event.kind !== "tool_result")
 		)
 			return;
 		const rows = yield* sql<{

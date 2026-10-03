@@ -127,7 +127,25 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 			),
 		);
 	}
-	const interactions: SessionInteraction[] = [];
+	const planRows = yield* sql<{
+		request_id: string;
+		requested_at: string;
+		status: string;
+		awaiting_dismissal: number;
+	}>`SELECT request_id,requested_at,status,awaiting_dismissal FROM session_inputs WHERE session_id=${sessionId} AND kind='plan' AND request_json IS NOT NULL AND status IN ('pending','expired') ORDER BY requested_sequence DESC LIMIT 100`;
+	const interactions: SessionInteraction[] = planRows.map((row) => ({
+		_tag: "Plan",
+		id: row.request_id as import("@zuse/contracts").AgentItemId,
+		requestedAt: new Date(row.requested_at),
+		...(row.status === "expired"
+			? {
+					recoveryState:
+						row.awaiting_dismissal === 2
+							? ("uncertain" as const)
+							: ("expired" as const),
+				}
+			: {}),
+	}));
 	for (const row of questionRows) {
 		const content = decodeContent(row.content_json);
 		const requestedAt = decodeDate(row.created_at);
@@ -163,11 +181,11 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 	}
 	interactions.sort((left, right) => {
 		const leftAt =
-			left._tag === "Question"
+			left._tag !== "Permission"
 				? left.requestedAt.getTime()
 				: left.request.requestedAt.getTime();
 		const rightAt =
-			right._tag === "Question"
+			right._tag !== "Permission"
 				? right.requestedAt.getTime()
 				: right.request.requestedAt.getTime();
 		return leftAt - rightAt || left.id.localeCompare(right.id);

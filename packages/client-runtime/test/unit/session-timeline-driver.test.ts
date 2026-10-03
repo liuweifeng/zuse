@@ -334,6 +334,7 @@ describe("shared session timeline resource driver", () => {
 				sessionId,
 				afterVersion: undefined,
 				streamEpoch: undefined,
+				includeRuntime: true,
 				hasProjection: false,
 			},
 		]);
@@ -581,4 +582,71 @@ describe("shared session timeline resource driver", () => {
 		});
 		driver.stop();
 	});
+});
+
+it.each([
+	false,
+	true,
+])("repairs a missing committed frame without mistaking a racing observation for loss (caught up: %s)", async (caughtUp) => {
+	const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+	const test = harness({
+		key,
+		client: { "session.events": () => Stream.fromQueue(frames) },
+		data: null,
+		cursor: null,
+	});
+	const failures: unknown[] = [];
+	const timers: Array<{ delay: number; task: () => void }> = [];
+	const driver = makeSessionTimelineResourceDriver({
+		reportFailure: (_e, _g, error) => failures.push(error),
+		schedule: (delay, task) => {
+			timers.push({ delay, task });
+			return () => {};
+		},
+	});
+	driver.start(test.context);
+	try {
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "live", version: 1 },
+			projection,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "live", version: 1 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		Queue.offerUnsafe(frames, {
+			kind: "runtime",
+			sessionId,
+			cursor: { epoch: "live", version: 2 },
+			observation: {
+				state: "idle",
+				attemptId: null,
+				lastProviderActivityAt: null,
+				observedAt: 10,
+			},
+		});
+		await waitUntil(() => timers.some((t) => t.delay === 10_000));
+		if (caughtUp) {
+			Queue.offerUnsafe(frames, {
+				kind: "event",
+				sessionId,
+				streamVersion: 2,
+				eventId: "noop",
+				cursor: { epoch: "live", version: 2 },
+				event: { _tag: "Noop" },
+			});
+			await waitUntil(() => test.view().cursor?.version === 2);
+		}
+		timers.find((t) => t.delay === 10_000)?.task();
+		expect(failures).toHaveLength(caughtUp ? 0 : 1);
+		expect(test.view().sync).toBe(caughtUp ? "live" : "failed");
+	} finally {
+		driver.stop();
+	}
 });

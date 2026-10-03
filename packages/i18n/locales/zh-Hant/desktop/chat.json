@@ -715,5 +715,9 @@
 	"selection_menu_label": "選取範圍操作",
 	"selection_menu_annotate": "註解",
 	"selection_menu_copy": "複製",
-	"selection_menu_copied": "已複製"
+	"selection_menu_copied": "已複製",
+	"plan_expired": "此計畫請求已過期。請傳送新訊息以繼續。",
+	"plan_delivery_uncertain": "無法確認計畫回覆是否已送達。開始下一輪前，請檢查對話。",
+	"provider_quiet": "提供者近期無活動。你可以等待或停止此輪。",
+	"execution_unavailable": "無法確認執行歸屬。正在等待復原。"
 }

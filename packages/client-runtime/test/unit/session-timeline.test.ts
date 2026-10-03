@@ -649,3 +649,57 @@ it("accepts a cloud head before history completes without weakening legacy count
 		expect(live.phase).toBe(background ? "live" : "stale");
 	}
 });
+
+it("accepts only live runtime evidence for the same cursor and attempt, without advancing the durable cursor", () => {
+	let state = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+		kind: "snapshot",
+		sessionId,
+		throughVersion: 1,
+		cursor: cursor("engine", 1),
+		projection,
+	});
+	state = reduceSessionTimelineFrame(state, {
+		kind: "synchronized",
+		sessionId,
+		throughVersion: 1,
+		cursor: cursor("engine", 1),
+	});
+	const frame = {
+		kind: "runtime" as const,
+		sessionId,
+		cursor: cursor("engine", 1),
+		observation: {
+			state: "stalled" as const,
+			observedAt: 120000,
+			attemptId: "attempt-1",
+			lastProviderActivityAt: 0,
+		},
+	};
+	const next = reduceSessionTimelineFrame(state, frame);
+	expect(next.projection?.runtimeObservation?.state).toBe("stalled");
+	expect(next.cursor).toBe(state.cursor);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			cursor: cursor("old-engine", 1),
+		}),
+	).toBe(state);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			cursor: cursor("engine", 2),
+		}),
+	).toBe(state);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			observation: { ...frame.observation, attemptId: "old-attempt" },
+		}),
+	).toBe(state);
+	const cached = makeSessionTimelineCacheEntry({
+		ref: { environmentId: "local" as never, sessionId },
+		cursor: cursor("engine", 1),
+		projection: next.projection!,
+	});
+	expect(cached.projection.runtimeObservation).toBeUndefined();
+});

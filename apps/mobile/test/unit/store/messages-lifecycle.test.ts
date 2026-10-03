@@ -100,6 +100,10 @@ describe("message stream lifecycle", () => {
 			cursor: { epoch: "test", version: 1 },
 			savedAt: Date.now(),
 			projection: {
+				status: "idle",
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+				interactions: [],
 				messages: [],
 				activeTurn: null,
 				turnCount: 0,

@@ -64,6 +64,31 @@ export const applyTimelineEvent = (
 			else messages[index] = event.message;
 			const content = event.message.content;
 			const interactions = (() => {
+				if (content._tag === "tool_use" && content.tool === "ExitPlanMode") {
+					if (
+						index !== -1 ||
+						projection.interactions.some(
+							(i) => i._tag === "Plan" && i.id === content.itemId,
+						) ||
+						messages.some(
+							(m) =>
+								m.content._tag === "tool_result" &&
+								m.content.itemId === content.itemId,
+						)
+					)
+						return projection.interactions;
+					return upsertInteraction(projection.interactions, {
+						_tag: "Plan",
+						id: content.itemId,
+						requestedAt: event.message.createdAt,
+					});
+				}
+				if (content._tag === "tool_result")
+					return removeInteraction(
+						projection.interactions,
+						"Plan",
+						content.itemId,
+					);
 				if (content._tag === "user_question") {
 					if (index !== -1) return projection.interactions;
 					if (
@@ -179,6 +204,15 @@ export const applyTimelineEvent = (
 					projection.interactions,
 					"Permission",
 					event.requestId,
+				),
+			});
+		case "PlanExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((i) =>
+					i._tag === "Plan" && i.id === event.itemId
+						? { ...i, recoveryState: event.reason }
+						: i,
 				),
 			});
 		case "QuestionExpired":

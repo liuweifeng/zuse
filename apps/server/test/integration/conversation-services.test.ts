@@ -120,6 +120,7 @@ import { Migration0070IngestionLeases } from "../../src/persistence/migrations/0
 import { Migration0071SessionInputs } from "../../src/persistence/migrations/0071_session_inputs.ts";
 import { Migration0072InputOwnership } from "../../src/persistence/migrations/0072_input_ownership.ts";
 import { Migration0073QuestionExpiry } from "../../src/persistence/migrations/0073_question_expiry.ts";
+import { Migration0074PlanDeliveries } from "../../src/persistence/migrations/0074_plan_deliveries.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -800,6 +801,7 @@ const runAllMigrations = Effect.all(
 		Migration0071SessionInputs,
 		Migration0072InputOwnership,
 		Migration0073QuestionExpiry,
+		Migration0074PlanDeliveries,
 	],
 	{ discard: true },
 );

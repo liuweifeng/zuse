@@ -715,5 +715,9 @@
 	"selection_menu_label": "Selection actions",
 	"selection_menu_annotate": "Annotate",
 	"selection_menu_copy": "Copy",
-	"selection_menu_copied": "Copied"
+	"selection_menu_copied": "Copied",
+	"plan_expired": "This plan request has expired. Send a new message to continue.",
+	"plan_delivery_uncertain": "Plan delivery could not be confirmed. Review the conversation before starting another turn.",
+	"provider_quiet": "No recent provider activity. You can wait or stop this turn.",
+	"execution_unavailable": "Execution ownership could not be confirmed. Waiting for recovery."
 }

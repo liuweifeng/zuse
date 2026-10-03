@@ -17,12 +17,12 @@ const decodeContent = Schema.decodeUnknownResult(
 const decodeOwner = Schema.decodeUnknownResult(
 	Schema.fromJsonString(InputRequestOwner),
 );
-const decodeResponse = Schema.decodeUnknownResult(
-	Schema.Struct({
-		outcome: PlanApprovalOutcome,
-		feedback: Schema.optional(Schema.String),
-	}),
-);
+export const PlanResponse = Schema.Struct({
+	outcome: PlanApprovalOutcome,
+	feedback: Schema.optional(Schema.String),
+});
+export type PlanResponse = typeof PlanResponse.Type;
+const decodeResponse = Schema.decodeUnknownResult(PlanResponse);
 export const planResponseMessageId = (
 	sessionId: SessionId,
 	itemId: AgentItemId,

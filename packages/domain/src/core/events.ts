@@ -219,6 +219,11 @@ export const SessionEvent = Schema.Union([
 		requestId: Schema.String,
 		expiredAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("PlanExpired", {
+		itemId: Schema.String,
+		reason: Schema.Literals(["expired", "uncertain"]),
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("QuestionExpired", {
 		itemId: Schema.String,
 		expiredAt: Schema.Number,
