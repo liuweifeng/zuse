@@ -6,8 +6,16 @@ import {
 	superviseEngine,
 } from "@zusehq/server/desktop-engine/supervisor";
 import { makeBatchedLogWriter } from "./batched-log-writer.ts";
+import { runOwnedHelper } from "./owned-helper.ts";
 
 const main = async () => {
+	if (process.argv[2] === "--owned-helper") {
+		const command = process.argv[3];
+		if (command === undefined)
+			throw new Error("Missing native helper command.");
+		process.exitCode = await runOwnedHelper(command, process.argv.slice(4));
+		return;
+	}
 	const path = process.argv[2],
 		entry = process.argv[1];
 	if (path === undefined || entry === undefined)

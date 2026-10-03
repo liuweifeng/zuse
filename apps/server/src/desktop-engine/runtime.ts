@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
-import { AuthFlowError } from "@zuse/contracts";
+import { AuthFlowError, type ComputerAwakeStatus } from "@zuse/contracts";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import { type MainLayerDeps, makeMainLayer } from "../runtime.ts";
 import { wsServerProtocolLayer } from "../transports/ws.ts";
@@ -16,12 +16,25 @@ export const runDesktopEngine = (
 		"credentialsLayer" | "modelConnectionMasterKey" | "onActiveTurns"
 	> & {
 		readonly onRemoteConnection?: () => () => void;
+		readonly onNearbyListening?: (port: number, pin: string) => void;
+		readonly subscribeComputerAwakeStatus?: (
+			listener: (status: ComputerAwakeStatus) => void,
+		) => () => void;
 	},
 ) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const token = randomBytes(32).toString("hex");
 			const host = new EngineHost();
+			if (native.subscribeComputerAwakeStatus !== undefined)
+				yield* Effect.acquireRelease(
+					Effect.sync(() =>
+						native.subscribeComputerAwakeStatus?.((computerAwake) =>
+							host.setState({ _tag: "HostState", computerAwake }),
+						),
+					),
+					(stop) => Effect.sync(() => stop?.()),
+				);
 			const listening = yield* Deferred.make<number>();
 			const ready = yield* Deferred.make<void>();
 			const diagnostic = (event: string, fields?: Record<string, unknown>) =>
@@ -82,14 +95,20 @@ export const runDesktopEngine = (
 											: "127.0.0.1",
 									tls: config.nearbyTls,
 									onAuthenticatedConnection: native.onRemoteConnection,
-									onListening: (address) =>
+									onListening: (address) => {
+										if (config.nearbyTls !== undefined)
+											native.onNearbyListening?.(
+												address.port,
+												config.nearbyTls.pin,
+											);
 										host.notify("diagnostic", {
 											event: "engine.nearby.listening",
 											fields: {
 												port: address.port,
 												pin: config.nearbyTls?.pin,
 											},
-										}),
+										});
+									},
 								}),
 							]),
 				],

@@ -4,14 +4,11 @@ import {
 	installHtmlVisualNetwork,
 	VISUAL_ASSET_SCHEMES,
 } from "./html-visual-network.ts";
+import { createLocalConnectivity } from "./local-connectivity.ts";
 import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import { installTerminalShortcutRouting } from "./terminal-shortcuts.ts";
 import "@zuse/i18n/english/desktop";
-import {
-	type ChildProcessWithoutNullStreams,
-	execFile,
-	spawn,
-} from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID, X509Certificate } from "node:crypto";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
@@ -729,10 +726,7 @@ let optionalDesktopReadiness: OptionalDesktopReadiness | null = null;
 let stopBrowserCookieWatch: (() => void) | null = null;
 let runtimeFiber: Fiber.Fiber<void, never> | null = null;
 let notchTray: NotchTrayController | null = null;
-let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
-let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
-let localConnectivityRestartAttempt = 0;
-let localConnectivityStopping = false;
+let localConnectivity: ReturnType<typeof createLocalConnectivity> | null = null;
 let computerAwakeController: ComputerAwakeController | null = null;
 let remoteComputerAwakeConnections = 0;
 const computerAwakeSubscribers = new Set<number>();
@@ -1509,79 +1503,13 @@ const startLocalConnectivityHelper = (
 	serviceName: string,
 	tlsCertificatePin?: string,
 ): void => {
-	if (
-		(process.platform !== "darwin" && process.platform !== "linux") ||
-		localConnectivityHelper !== null
-	)
-		return;
-	const executable =
-		process.platform === "linux"
-			? "avahi-publish-service"
-			: localConnectivityHelperPath();
-	if (process.platform === "darwin" && !fsSync.existsSync(executable)) {
-		appendRemoteConnectionLog("local.helper.unavailable", { executable });
-		return;
-	}
-	const args =
-		process.platform === "linux"
-			? [
-					serviceName,
-					"_zuse._tcp",
-					String(targetPort),
-					...(tlsCertificatePin === undefined
-						? []
-						: [`tls=${tlsCertificatePin}`]),
-				]
-			: [
-					String(targetPort),
-					serviceName,
-					...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
-				];
-	const child = spawn(executable, args, {
-		stdio: ["pipe", "pipe", "pipe"],
+	localConnectivity ??= createLocalConnectivity({
+		helperPath: localConnectivityHelperPath(),
+		supervisorPath: Path.join(__dirname, "engine-supervisor.cjs"),
+		serviceName,
+		log: appendRemoteConnectionLog,
 	});
-	localConnectivityHelper = child;
-	child.once("spawn", () => {
-		localConnectivityRestartAttempt = 0;
-	});
-	child.once("error", (cause) => {
-		if (localConnectivityHelper === child) localConnectivityHelper = null;
-		appendRemoteConnectionLog("local.helper.unavailable", {
-			executable,
-			cause,
-		});
-	});
-	child.stdout.setEncoding("utf8");
-	child.stderr.setEncoding("utf8");
-	child.stdout.on("data", (chunk: string) => {
-		for (const line of chunk.trim().split("\n")) {
-			if (line.includes('"event":"listener.ready"')) {
-				localConnectivityRestartAttempt = 0;
-			}
-			if (line.length > 0)
-				appendRemoteConnectionLog("local.helper.event", { line });
-		}
-	});
-	child.stderr.on("data", (chunk: string) => {
-		appendRemoteConnectionLog("local.helper.stderr", { message: chunk.trim() });
-	});
-	child.once("exit", (code, signal) => {
-		if (localConnectivityHelper === child) localConnectivityHelper = null;
-		appendRemoteConnectionLog("local.helper.exit", { code, signal });
-		if (localConnectivityStopping) return;
-		localConnectivityRestartAttempt += 1;
-		const delayMs = Math.min(
-			16_000,
-			1_000 * 2 ** Math.max(0, localConnectivityRestartAttempt - 1),
-		);
-		localConnectivityRestartTimer = setTimeout(() => {
-			localConnectivityRestartTimer = null;
-			startLocalConnectivityHelper(targetPort, serviceName, tlsCertificatePin);
-		}, delayMs);
-	});
-	child.once("error", (cause) => {
-		appendRemoteConnectionLog("local.helper.spawn_failed", { cause });
-	});
+	localConnectivity.start(targetPort, tlsCertificatePin);
 };
 
 type NearbyTlsIdentity = {
@@ -4174,6 +4102,7 @@ const finishQuitAfterSshCleanup = (event: {
 	stopBrowserCookieWatch = null;
 	void Promise.allSettled([
 		cloudSyncManager.dispose(),
+		localConnectivity?.close() ?? Promise.resolve(),
 		portForwardManager.closeAll(),
 		manager?.close() ?? Promise.resolve(),
 		runtime === null
@@ -4273,13 +4202,8 @@ app.on("will-quit", () => {
 	}
 	eventLoopDelay.disable();
 	void performanceHistoryStore.flush();
-	localConnectivityStopping = true;
-	if (localConnectivityRestartTimer !== null) {
-		clearTimeout(localConnectivityRestartTimer);
-		localConnectivityRestartTimer = null;
-	}
-	localConnectivityHelper?.kill("SIGTERM");
-	localConnectivityHelper = null;
+	void localConnectivity?.close();
+	localConnectivity = null;
 	notchTray?.destroy();
 	notchTray = null;
 });

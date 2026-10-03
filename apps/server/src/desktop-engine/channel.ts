@@ -1,4 +1,5 @@
 import type { Socket } from "node:net";
+import { ComputerAwakeStatus } from "@zuse/contracts";
 import { Schema } from "effect";
 
 export const LOCAL_ENGINE_PROTOCOL = 1;
@@ -22,6 +23,7 @@ const Frame = Schema.Union([
 		error: Schema.optional(Schema.String),
 	}),
 	Schema.TaggedStruct("HostCancel", { id: Schema.String }),
+	Schema.TaggedStruct("HostState", { computerAwake: ComputerAwakeStatus }),
 	Schema.TaggedStruct("HostEvent", {
 		name: Schema.Literals(["openSession", "pairingRequest", "diagnostic"]),
 		payload: Schema.Unknown,
