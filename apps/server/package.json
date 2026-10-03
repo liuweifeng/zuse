@@ -35,7 +35,22 @@
 			"import": "./src/secure-storage-master-key.ts",
 			"require": "./src/secure-storage-master-key.ts"
 		},
-		"./package.json": "./package.json"
+		"./package.json": "./package.json",
+		"./desktop-engine": {
+			"types": "./src/desktop-engine/index.ts",
+			"import": "./src/desktop-engine/index.ts",
+			"require": "./src/desktop-engine/index.ts"
+		},
+		"./desktop-engine/runtime": {
+			"types": "./src/desktop-engine/runtime.ts",
+			"import": "./src/desktop-engine/runtime.ts",
+			"require": "./src/desktop-engine/runtime.ts"
+		},
+		"./desktop-engine/supervisor": {
+			"types": "./src/desktop-engine/supervisor.ts",
+			"import": "./src/desktop-engine/supervisor.ts",
+			"require": "./src/desktop-engine/supervisor.ts"
+		}
 	},
 	"scripts": {
 		"serve": "tsx src/bin.ts",

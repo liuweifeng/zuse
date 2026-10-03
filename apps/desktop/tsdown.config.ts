@@ -95,6 +95,12 @@ const bridgeDependencies: UserConfig["deps"] = {
 // These filenames are the runtime entry points used by Electron and our child launchers.
 const targets = [
 	{ name: "main", source: "src/main.ts", bridge: false },
+	{ name: "engine-main", source: "src/engine-main.ts", bridge: false },
+	{
+		name: "engine-supervisor",
+		source: "src/engine-supervisor.ts",
+		bridge: false,
+	},
 	{ name: "preload", source: "src/preload.ts", bridge: false },
 	{
 		name: "app-mcp-proxy-child",
