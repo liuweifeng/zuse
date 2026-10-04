@@ -38,6 +38,7 @@
 		"./resource-ref": "./src/resource-ref.ts",
 		"./resource-state": "./src/resource-state.ts",
 		"./session-timeline": "./src/session-timeline.ts",
+		"./session-activity": "./src/session-activity.ts",
 		"./session-presentation": "./src/session-presentation.ts",
 		"./session-timeline-driver": "./src/session-timeline-driver.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
