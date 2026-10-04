@@ -666,7 +666,15 @@ describe("WorktreeServiceLive", () => {
 		).toThrow();
 	});
 
-	test("moves context files and attachment paths out of the checkout and back", async () => {
+	test.each([
+		true,
+		false,
+	])("moves context files and attachment paths out and back (ignored: %s)", async (ignored) => {
+		if (!ignored) {
+			writeFileSync(join(repositoryRoot, ".gitignore"), "");
+			git(repositoryRoot, "add", ".gitignore");
+			git(repositoryRoot, "commit", "-m", "context is not ignored");
+		}
 		const created = await run((service) => service.create(projectId));
 		await run((service) =>
 			service.setupStream(created.id).pipe(Stream.runCollect),
@@ -708,7 +716,7 @@ describe("WorktreeServiceLive", () => {
 				createdAt: created.createdAt,
 			}),
 		);
-		expect(restored.checkpoint).toBe("none");
+		expect(restored.checkpoint).toBe(ignored ? "none" : "applied");
 		expect(readFileSync(contextFile, "utf8")).toBe("context survives\n");
 		const restoredRows = await runSql(
 			(sql) =>
@@ -717,6 +725,53 @@ describe("WorktreeServiceLive", () => {
 				}>`SELECT abs_path FROM attachments WHERE id = 'attachment-1'`,
 		);
 		expect(restoredRows[0]?.abs_path).toBe(contextFile);
+	});
+
+	test("keeps archived context and attachment paths when restore SQL fails after copying", async () => {
+		const created = await run((service) => service.create(projectId));
+		await run((service) =>
+			service.setupStream(created.id).pipe(Stream.runCollect),
+		);
+		const contextFile = join(created.path, ".context", "note.txt");
+		mkdirSync(join(created.path, ".context"), { recursive: true });
+		writeFileSync(contextFile, "only durable copy\n");
+		await runSql(
+			(sql) =>
+				sql`INSERT INTO attachments (id, abs_path) VALUES ('restore-failure', ${contextFile})`,
+		);
+		const outcome = await run((service) => service.archive(created.id));
+		if (outcome.archivedContextPath === null)
+			throw new Error("missing archive");
+		await runSql(
+			(sql) =>
+				sql`CREATE TRIGGER reject_restore BEFORE INSERT ON worktrees BEGIN SELECT RAISE(ABORT, 'injected restore failure'); END`,
+		);
+		await expect(
+			run((service) =>
+				service.restore({
+					...outcome,
+					id: created.id,
+					projectId: created.projectId,
+					path: created.path,
+					name: created.name,
+					baseBranch: created.baseBranch,
+					createdAt: created.createdAt,
+				}),
+			),
+		).rejects.toMatchObject({
+			_tag: "WorktreeRestoreError",
+			reason: expect.stringContaining("worktree row restore failed"),
+		});
+		expect(existsSync(created.path)).toBe(false);
+		const archivedFile = join(outcome.archivedContextPath, "note.txt");
+		expect(readFileSync(archivedFile, "utf8")).toBe("only durable copy\n");
+		const rows = await runSql(
+			(sql) =>
+				sql<{
+					readonly abs_path: string;
+				}>`SELECT abs_path FROM attachments WHERE id = 'restore-failure'`,
+		);
+		expect(rows[0]?.abs_path).toBe(archivedFile);
 	});
 
 	test("restores relocated context when archive removal is cancelled", async () => {

@@ -63,6 +63,7 @@ import {
 	WorktreeDecoration,
 	WorktreeNameAllocator,
 } from "./ports.ts";
+import { mergeArchivedContext } from "./restore-context.ts";
 import {
 	type WorktreeArchiveOutcome,
 	type WorktreeRestoreSnapshot,
@@ -1871,10 +1872,12 @@ export const WorktreeServiceLive = Layer.effect(
 				const restoredContextPath = Path.join(snapshot.path, ".context");
 				let contextRestored = false;
 				if (archivedContextPath !== null) {
-					const contextMove = yield* moveDirectory(
-						archivedContextPath,
-						restoredContextPath,
-					).pipe(Effect.result);
+					const contextMove = yield* Effect.tryPromise({
+						try: () =>
+							mergeArchivedContext(archivedContextPath, restoredContextPath),
+						catch: (error) =>
+							error instanceof Error ? error.message : String(error),
+					}).pipe(Effect.result);
 					if (contextMove._tag === "Failure") {
 						yield* rollbackCheckout;
 						return yield* Effect.fail(failRestore(contextMove.failure));
@@ -1887,9 +1890,6 @@ export const WorktreeServiceLive = Layer.effect(
               AND abs_path LIKE ${`${archivedContextPath}/%`}
 					`.pipe(Effect.result);
 					if (attachmentRestore._tag === "Failure") {
-						yield* moveDirectory(restoredContextPath, archivedContextPath).pipe(
-							Effect.ignore,
-						);
 						yield* rollbackCheckout;
 						return yield* Effect.fail(
 							failRestore(
@@ -1909,9 +1909,6 @@ export const WorktreeServiceLive = Layer.effect(
               WHERE abs_path IS NOT NULL
                 AND abs_path LIKE ${`${restoredContextPath}/%`}
             `.pipe(Effect.ignore);
-						yield* moveDirectory(restoredContextPath, archivedContextPath).pipe(
-							Effect.ignore,
-						);
 					}
 					yield* rollbackCheckout;
 				});
@@ -1952,6 +1949,13 @@ export const WorktreeServiceLive = Layer.effect(
 					return yield* Effect.fail(
 						failRestore("restored worktree row could not be loaded"),
 					);
+				}
+				// The archive remains the rollback source until SQL and checkpoint-ref
+				// changes succeed. Cleanup failure must never discard the restored copy.
+				if (contextRestored && archivedContextPath !== null) {
+					yield* Effect.tryPromise(() =>
+						removePath(archivedContextPath, { recursive: true }),
+					).pipe(Effect.ignore);
 				}
 				yield* Effect.forkDetach(runSetupSafely(snapshot.id));
 				return { worktree: restored, checkpoint };
