@@ -1,7 +1,11 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 
 import {
 	cloudflaredAsset,
+	ensurePinnedCloudflared,
 	verifySha256,
 } from "../../src/api/cloudflared-install.ts";
 
@@ -34,4 +38,39 @@ describe("cloudflared installer", () => {
 			/checksum mismatch/i,
 		);
 	});
+});
+
+test("cancels a pending installer download when its owner closes", async () => {
+	const userData = await mkdtemp(join(tmpdir(), "zuse-installer-cancel-"));
+	const owner = new AbortController();
+	let requestSignal: AbortSignal | null | undefined;
+	let started!: () => void;
+	const pending = new Promise<void>((resolve) => {
+		started = resolve;
+	});
+	const download = ensurePinnedCloudflared({
+		userData,
+		platform: "linux",
+		architecture: "x64",
+		signal: owner.signal,
+		fetcher: (async (_url, options) => {
+			requestSignal = options?.signal;
+			started();
+			return new Promise<Response>((_resolve, reject) =>
+				requestSignal?.addEventListener("abort", () =>
+					reject(requestSignal?.reason),
+				),
+			);
+		}) as typeof fetch,
+	});
+	// Attach immediately so the abort rejection is never unhandled.
+	const result = download.catch((cause) => cause);
+	try {
+		await pending;
+		owner.abort(new Error("runtime closed"));
+		expect(requestSignal?.aborted).toBe(true);
+		expect(await result).toMatchObject({ message: "runtime closed" });
+	} finally {
+		await rm(userData, { recursive: true, force: true });
+	}
 });
