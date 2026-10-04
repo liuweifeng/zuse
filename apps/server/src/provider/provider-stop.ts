@@ -69,3 +69,53 @@ export const stopProviderSession = <
 				? closeProviderHandle(retired.entry.handle)
 				: Effect.void,
 	);
+
+/** Strict checkpoint barrier: failed or replaced handles retain their ownership. */
+export const quiesceProviderSession = <
+	Id,
+	Entry extends {
+		readonly providerSessionId?: string;
+		readonly handle: { readonly close: () => Effect.Effect<void> };
+	},
+>(input: {
+	readonly registry: ProviderSessionRegistry<Id, Entry>;
+	readonly sessionId: Id;
+	readonly expectedProviderSessionId?: string | null;
+	readonly detachQuestions: Effect.Effect<void>;
+}) =>
+	Effect.gen(function* () {
+		const entry = input.registry.lookup(input.sessionId);
+		const generation = input.registry.currentGeneration(input.sessionId);
+		const current =
+			entry?.providerSessionId ??
+			input.registry.currentProviderSessionId(input.sessionId);
+		if (
+			input.expectedProviderSessionId !== undefined &&
+			current !== undefined &&
+			current !== input.expectedProviderSessionId
+		)
+			return yield* Effect.fail(
+				new Error("Provider ownership changed before quiescence."),
+			);
+		if (entry === undefined) {
+			if (current !== undefined)
+				return yield* Effect.fail(
+					new Error("Provider startup has not reached quiescence."),
+				);
+			return;
+		}
+		yield* entry.handle.close().pipe(
+			Effect.timeout("15 seconds"),
+			Effect.catchCause(() =>
+				Effect.fail(
+					new Error("Provider process quiescence could not be verified."),
+				),
+			),
+		);
+		if (input.registry.currentGeneration(input.sessionId) !== generation)
+			return yield* Effect.fail(
+				new Error("Provider ownership changed during quiescence."),
+			);
+		input.registry.invalidate(input.sessionId);
+		yield* input.detachQuestions;
+	});

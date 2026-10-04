@@ -56,6 +56,7 @@ import {
 	makeMessageOperations,
 } from "../core/message-operations.ts";
 import { makeProviderJobExecutor } from "../core/provider-jobs.ts";
+import { quiesceAndDetachProvider } from "../core/provider-quiescence.ts";
 import { makeQuestionExpiry } from "../core/question-expiry.ts";
 import {
 	CheckpointFiles,
@@ -381,7 +382,11 @@ const ConversationRuntimeLive = Layer.effect(
 						return;
 					const session = yield* lookupSession(sessionId).pipe(Effect.orDie);
 					if (outcome !== "completed" && provider.quiesce !== undefined)
-						yield* provider.quiesce(sessionId).pipe(
+						yield* quiesceAndDetachProvider(
+							sessionDomain,
+							provider,
+							sessionId,
+						).pipe(
 							Effect.mapError(
 								() =>
 									new SessionCheckpointError({
