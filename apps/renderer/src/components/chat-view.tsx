@@ -16,8 +16,6 @@ import {
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
-import { SessionAttemptHistory } from "./session-attempt-history.tsx";
-import { SessionCheckpoints } from "./session-checkpoints.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
 import { SessionMergeBack } from "./session-merge-back.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
@@ -901,22 +899,14 @@ export function ChatView({
 				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
 				sessionRef={sessionRef}
 			/>
-			<div className="flex justify-end">
-				<SessionAttemptHistory
-					key={`attempts:${sessionRef.environmentId}:${sessionRef.sessionId}`}
-					sessionRef={sessionRef}
-				/>
-				<SessionCheckpoints
-					key={`${sessionRef.environmentId}:${sessionRef.sessionId}`}
-					sessionRef={sessionRef}
-				/>
-				{session.forkedFromSessionId !== null ? (
+			{session.forkedFromSessionId !== null ? (
+				<div className="flex justify-end">
 					<SessionMergeBack
 						key={`merge:${sessionRef.environmentId}:${sessionRef.sessionId}`}
 						sessionRef={sessionRef}
 					/>
-				) : null}
-			</div>
+				</div>
+			) : null}
 			<div
 				ref={viewportRef}
 				data-chat-viewport
