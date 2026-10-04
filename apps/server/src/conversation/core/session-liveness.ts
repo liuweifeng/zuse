@@ -43,8 +43,9 @@ export const observeSessionRuntime = (
 							? "starting"
 							: "idle"
 						: row.expires_at === null || row.expires_at <= now
-							? row.turn_status === "starting" &&
-								now - (requestedAt ?? now) < 30_000
+							? // Admission marks running before acquiring the response listener.
+								// A missing first lease is startup; an expired lease is real loss.
+								row.expires_at === null && now - (requestedAt ?? now) < 30_000
 								? "starting"
 								: "unavailable"
 							: age >= PROVIDER_QUIET_MS

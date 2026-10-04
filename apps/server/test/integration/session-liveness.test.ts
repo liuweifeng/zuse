@@ -50,6 +50,18 @@ it("distinguishes provider silence, pending input, expired ownership and provide
 					commandId: "start",
 					command: { _tag: "StartTurn", turnId: "turn-1", startedAt: 1 },
 				});
+				// Delivery publishes running before provider startup and listener acquisition.
+				yield* domain.dispatch({
+					streamId: "session-1",
+					commandId: "sending",
+					command: { _tag: "SetStatus", status: "running", updatedAt: 2 },
+				});
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 2_001)).state,
+				).toBe("starting");
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 30_001)).state,
+				).toBe("unavailable");
 				yield* sql`UPDATE sessions SET provider_reservation_id='owner' WHERE id='session-1'`;
 				let now = 2;
 				const lease = yield* acquireIngestionLease(
