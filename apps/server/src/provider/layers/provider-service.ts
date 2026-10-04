@@ -94,7 +94,10 @@ import {
 	type GoalPublication,
 	runProviderGoal,
 } from "../provider-goal.ts";
-import { closeProviderHandle } from "../provider-handle-cleanup.ts";
+import {
+	closeProviderHandle,
+	ownProviderRegistry,
+} from "../provider-handle-cleanup.ts";
 import { ownProviderInputs } from "../provider-input-identity.ts";
 import { sendProviderSession } from "../provider-send.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
@@ -178,6 +181,7 @@ export const ProviderServiceLive = Layer.effect(
 			AgentSessionId,
 			SessionEntry
 		>();
+		yield* ownProviderRegistry(registry);
 		// Identical startup requests serialize and reuse the published handle;
 		// different provider/model generations may start concurrently so a slow,
 		// stale process can never head-of-line block the user's latest selection.
