@@ -306,9 +306,10 @@ const postJson = <A>(
 	opts: { readonly bearer: string; readonly body?: unknown },
 ): Effect.Effect<A, ApiLinkError> =>
 	Effect.tryPromise({
-		try: async () => {
+		try: async (signal) => {
 			const response = await fetch(url, {
 				method: "POST",
+				signal,
 				headers: {
 					authorization: `Bearer ${opts.bearer}`,
 					...(opts.body === undefined
@@ -369,6 +370,7 @@ const makeApiLinkService = (options: {
 		const accountAccess = yield* AccountAccessService;
 		const tunnel = yield* ManagedTunnelRuntime;
 		const telemetry = yield* TelemetryStore;
+		const serviceScope = yield* Effect.scope;
 		const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
 		let apiAccess: {
 			readonly token: string;
@@ -575,7 +577,7 @@ const makeApiLinkService = (options: {
 			}) {
 				const existing = yield* Ref.get(heartbeatRef);
 				if (existing !== null) yield* Fiber.interrupt(existing);
-				const fiber = yield* Effect.forkDetach(heartbeatLoop(input));
+				const fiber = yield* Effect.forkIn(heartbeatLoop(input), serviceScope);
 				yield* Ref.set(heartbeatRef, fiber);
 			},
 		);
