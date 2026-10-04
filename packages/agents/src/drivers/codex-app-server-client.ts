@@ -174,6 +174,7 @@ export class CodexAppServerClient {
 	private readonly child: ChildProcessWithoutNullStreams;
 	private readonly rl: readline.Interface;
 	private closed = false;
+	private eofTimer: ReturnType<typeof setTimeout> | undefined;
 	private stderrTail = Buffer.alloc(0);
 
 	initializeResponse: InitializeResponse;
@@ -285,6 +286,23 @@ export class CodexAppServerClient {
 			options.onUnexpectedTermination,
 		);
 		rl.on("line", (line) => bootstrap.handleLine(line));
+		rl.once("close", () => {
+			if (bootstrap.closed) return;
+			// Let a normal process exit drain stderr and report its exit code first.
+			// EOF itself is terminal even when the process remains alive.
+			bootstrap.eofTimer = setTimeout(() => {
+				bootstrap.handleUnexpectedTermination(
+					new Error("Codex app-server output closed unexpectedly"),
+				);
+			}, 50);
+			bootstrap.eofTimer.unref();
+		});
+		child.stdin.on("error", (error) =>
+			bootstrap.handleUnexpectedTermination(error),
+		);
+		child.stdout.on("error", (error) =>
+			bootstrap.handleUnexpectedTermination(error),
+		);
 		child.stderr.on("data", (chunk) => {
 			bootstrap.appendStderr(String(chunk));
 			const text = String(chunk).trim();
@@ -306,7 +324,9 @@ export class CodexAppServerClient {
 			);
 		});
 
+		let rejectStartup: ((cause: unknown) => void) | undefined;
 		const abortStartup = () => {
+			rejectStartup?.(options.startupSignal?.reason);
 			void bootstrap.close();
 		};
 		options.startupSignal?.addEventListener("abort", abortStartup, {
@@ -315,57 +335,61 @@ export class CodexAppServerClient {
 		let timer: NodeJS.Timeout | undefined;
 		try {
 			options.startupSignal?.throwIfAborted();
-			const initialize = bootstrap.request<InitializeResponse>("initialize", {
-				clientInfo: { name: "zuse", version: "0.0.0" },
-				capabilities: {
-					experimentalApi: true,
-				},
-			});
-			const init =
-				options.startupTimeoutMs === undefined
-					? await initialize
-					: await Promise.race([
-							initialize,
-							new Promise<never>((_resolve, reject) => {
-								timer = setTimeout(
-									() => reject(new Error("Codex app-server startup timed out")),
-									options.startupTimeoutMs,
-								);
-							}),
-						]);
-			bootstrap.initializeResponse = init;
-			if (externalAuthProvider !== null) {
-				let tokens: CodexChatgptAuthTokens;
-				try {
-					tokens = await beforeCodexExternalAuthDeadline(
-						externalAuthProvider.getTokens({ reason: "initial" }),
-					);
-				} catch (cause) {
-					externalAuthProvider.onDeliveryFailure?.({
-						...(options.externalAuthConsumerId === undefined
-							? {}
-							: { consumerId: options.externalAuthConsumerId }),
-						reason:
-							cause instanceof Error
-								? cause.message
-								: "codex-auth-reconnecting",
+			const handshake = async () => {
+				const init = await bootstrap.request<InitializeResponse>("initialize", {
+					clientInfo: { name: "zuse", version: "0.0.0" },
+					capabilities: { experimentalApi: true },
+				});
+				bootstrap.initializeResponse = init;
+				if (externalAuthProvider !== null) {
+					let tokens: CodexChatgptAuthTokens;
+					try {
+						tokens = await beforeCodexExternalAuthDeadline(
+							externalAuthProvider.getTokens({ reason: "initial" }),
+						);
+					} catch (cause) {
+						externalAuthProvider.onDeliveryFailure?.({
+							...(options.externalAuthConsumerId === undefined
+								? {}
+								: { consumerId: options.externalAuthConsumerId }),
+							reason:
+								cause instanceof Error
+									? cause.message
+									: "codex-auth-reconnecting",
+						});
+						throw cause;
+					}
+					await bootstrap.request("account/login/start", {
+						type: "chatgptAuthTokens",
+						accessToken: tokens.accessToken,
+						chatgptAccountId: tokens.chatgptAccountId,
+						chatgptPlanType: tokens.chatgptPlanType,
 					});
-					throw cause;
 				}
-				await bootstrap.request("account/login/start", {
-					type: "chatgptAuthTokens",
-					accessToken: tokens.accessToken,
-					chatgptAccountId: tokens.chatgptAccountId,
-					chatgptPlanType: tokens.chatgptPlanType,
-				});
-			}
-			if (hasApiKey) {
-				await bootstrap.request("account/login/start", {
-					type: "apiKey",
-					apiKey,
-				});
-			}
-			return bootstrap;
+				if (hasApiKey) {
+					await bootstrap.request("account/login/start", {
+						type: "apiKey",
+						apiKey,
+					});
+				}
+				return bootstrap;
+			};
+			return await Promise.race([
+				handshake(),
+				new Promise<never>((_resolve, reject) => {
+					rejectStartup = reject;
+					if (options.startupSignal?.aborted) {
+						reject(options.startupSignal.reason);
+						return;
+					}
+					if (options.startupTimeoutMs !== undefined) {
+						timer = setTimeout(
+							() => reject(new Error("Codex app-server startup timed out")),
+							options.startupTimeoutMs,
+						);
+					}
+				}),
+			]);
 		} catch (cause) {
 			await bootstrap.close();
 			throw cause;
@@ -429,6 +453,7 @@ export class CodexAppServerClient {
 	close(): Promise<void> {
 		if (!this.closed) {
 			this.closed = true;
+			clearTimeout(this.eofTimer);
 			this.rl.close();
 			this.rejectPending(new Error("Codex app-server is closed"));
 		}
@@ -458,7 +483,9 @@ export class CodexAppServerClient {
 		// and therefore remains intentionally quiet.
 		if (this.closed) return;
 		this.closed = true;
+		clearTimeout(this.eofTimer);
 		this.rl.close();
+		void stopProviderProcess(this.child, { processGroup: true });
 		const stderr = this.stderrTail.toString("utf8").trim();
 		const reason =
 			stderr.length === 0

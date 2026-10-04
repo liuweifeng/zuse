@@ -364,6 +364,9 @@ const modelAdvertisesFastTier = (model: Model): boolean =>
 		...model.additionalSpeedTiers,
 	].some((label) => label.toLowerCase().includes("fast"));
 
+const CODEX_STARTUP_RPC_TIMEOUT_MS = 30_000;
+const CODEX_CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
+
 /**
  * Whether the model a session resolved to advertises a fast service tier,
  * from the live `model/list`. Returns `null` when the model isn't in the
@@ -375,9 +378,13 @@ const probeModelFastTier = async (
 	app: CodexAppServerClient,
 	activeModel: string | null,
 ): Promise<boolean | null> => {
-	const response = await app.request<ModelListResponse>("model/list", {
-		includeHidden: true,
-	});
+	const response = await app.request<ModelListResponse>(
+		"model/list",
+		{
+			includeHidden: true,
+		},
+		{ timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS },
+	);
 	const model =
 		response.data.find(
 			(entry) => entry.id === activeModel || entry.model === activeModel,
@@ -405,7 +412,11 @@ const probeNativePlanMode = async (
 	app: CodexAppServerClient,
 ): Promise<boolean> => {
 	try {
-		const response = await app.request<unknown>("collaborationMode/list", {});
+		const response = await app.request<unknown>(
+			"collaborationMode/list",
+			{},
+			{ timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS },
+		);
 		return supportsCodexNativePlanMode(response);
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);
@@ -1562,6 +1573,7 @@ export const startCodexSession = (
 					() =>
 						CodexAppServerClient.start({
 							startupSignal: startup.signal,
+							startupTimeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
 							codexPath,
 							apiKey,
 							...(input.providerAccountHome
@@ -1615,8 +1627,16 @@ export const startCodexSession = (
 		const expectCodexMcpServer = async (
 			candidate: CodexAppServerClient,
 		): Promise<void> => {
-			await candidate.request("config/mcpServer/reload", undefined);
-			const deadline = Date.now() + 5_000;
+			const deadline = Date.now() + CODEX_CAPABILITY_PROBE_TIMEOUT_MS;
+			const requestOptions = () => ({
+				timeoutMs: Math.max(1, deadline - Date.now()),
+				signal: startup.signal,
+			});
+			await candidate.request(
+				"config/mcpServer/reload",
+				undefined,
+				requestOptions(),
+			);
 			let missing: readonly string[] = [];
 			do {
 				const status = await candidate.request<{
@@ -1625,7 +1645,11 @@ export const startCodexSession = (
 						tools?: Readonly<Record<string, unknown>>;
 						authStatus?: string;
 					}>;
-				}>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
+				}>(
+					"mcpServerStatus/list",
+					{ detail: "toolsAndAuthOnly" },
+					requestOptions(),
+				);
 				const found = Array.isArray(status.data)
 					? status.data.find((server) => server.name === "zuse")
 					: undefined;
@@ -1665,6 +1689,7 @@ export const startCodexSession = (
 						() =>
 							CodexAppServerClient.start({
 								startupSignal: startup.signal,
+								startupTimeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
 								codexPath,
 								apiKey,
 								...(input.providerAccountHome
@@ -1742,6 +1767,7 @@ export const startCodexSession = (
 			const started = await app.request<ThreadResponse>(
 				"thread/start",
 				commonThreadParams,
+				{ timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal },
 			);
 			activeThreadId = started.thread.id;
 			if (started.model !== undefined) activeModel = started.model;
@@ -1754,14 +1780,14 @@ export const startCodexSession = (
 		): Promise<ThreadResponse> => {
 			const params = { threadId, ...commonThreadParams };
 			try {
-				return await app.request<ThreadResponse>(method, params);
+				return await app.request<ThreadResponse>(method, params, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
 			} catch (cause) {
 				if (!isArchivedCodexThread(cause)) throw cause;
 				console.warn(
 					"[codex] thread was archived outside Zuse; unarchiving it",
 				);
-				await app.request("thread/unarchive", { threadId });
-				return app.request<ThreadResponse>(method, params);
+				await app.request("thread/unarchive", { threadId }, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
+				return app.request<ThreadResponse>(method, params, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
 			}
 		};
 
@@ -1804,9 +1830,16 @@ export const startCodexSession = (
 				await startFreshThread();
 			}
 			try {
-				const currentGoal = await app.request<unknown>("thread/goal/get", {
-					threadId: activeThreadId,
-				});
+				const currentGoal = await app.request<unknown>(
+					"thread/goal/get",
+					{
+						threadId: activeThreadId,
+					},
+					{
+						timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS,
+						signal: startup.signal,
+					},
+				);
 				const goal = goalFromResponse(currentGoal);
 				if (goal !== null) {
 					emit({ _tag: "GoalUpdated", goal: normalizeThreadGoal(goal) });

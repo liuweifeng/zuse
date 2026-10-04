@@ -254,3 +254,54 @@ server.listen(0, "127.0.0.1", () => {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+it.each([
+	"collaborationMode/list",
+	"thread/goal/get",
+	"model/list",
+])("starts Codex with fallback capabilities when %s never responds", async (ignoredMethod) => {
+	const root = await mkdtemp(join(tmpdir(), "zuse-codex-probe-hang-"));
+	const executable = join(root, "codex-cli");
+	await writeFile(
+		executable,
+		`#!/usr/bin/env node
+import readline from "node:readline";
+readline.createInterface({ input: process.stdin }).on("line", line => {
+ const { id, method } = JSON.parse(line);
+ if (method === ${JSON.stringify(ignoredMethod)}) return;
+ const result = method === "mcpServerStatus/list" ? { data: [{ name: "zuse", tools: { ask_user_question: {}, browser_status: {}, view_image: {} } }] }
+  : method === "thread/start" ? { thread: { id: "test-thread" } }
+  : method === "model/list" ? { data: [] } : {};
+ process.stdout.write(JSON.stringify({ id, result }) + "\\n");
+});
+`,
+	);
+	await chmod(executable, 0o755);
+	const baseline = mcpGatewayDiagnostics().activeSessionCount;
+	try {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const handle = yield* startCodexSession(
+					{
+						folderId: "probe-folder" as FolderId,
+						providerId: "codex",
+						mode: "sdk",
+						permissionMode: "default",
+					},
+					root,
+					null,
+					executable,
+					"probe-session" as AgentSessionId,
+					async () => ({ _tag: "AllowOnce" }),
+					() => "approval-required",
+					async () => ({ id: "unused", ok: false, error: "unused" }),
+					"node",
+				);
+				yield* handle.close();
+			}).pipe(Effect.provide(attachments), Effect.timeout("7 seconds")),
+		);
+		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(baseline);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+}, 10000);
