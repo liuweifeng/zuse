@@ -102,7 +102,10 @@ import {
 	acquireStartupHandle,
 	reserveProviderStartup,
 } from "../provider-startup.ts";
-import { stopProviderSession } from "../provider-stop.ts";
+import {
+	quiesceProviderSession,
+	stopProviderSession,
+} from "../provider-stop.ts";
 import { makeQuestionAttachmentAuthority } from "../question-attachment-authority.ts";
 import { makeQuestionAttachmentSnapshotFeed } from "../question-attachment-feed.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -482,24 +485,14 @@ export const ProviderServiceLive = Layer.effect(
 							entry.providerSessionId === expectedProviderSessionId)
 					);
 				}),
-			quiesce: (sessionId) =>
+			quiesce: (sessionId, expectedProviderSessionId) =>
 				lifecycleWorker.run(
 					sessionId,
-					Effect.gen(function* () {
-						const entry = registry.lookup(sessionId);
-						if (entry === undefined) return;
-						yield* entry.handle.close().pipe(
-							Effect.timeout("15 seconds"),
-							Effect.catchCause(() =>
-								Effect.fail(
-									new Error(
-										"Provider process quiescence could not be verified.",
-									),
-								),
-							),
-						);
-						registry.invalidate(sessionId);
-						yield* detachSessionQuestions(sessionId);
+					quiesceProviderSession({
+						registry,
+						sessionId,
+						expectedProviderSessionId,
+						detachQuestions: detachSessionQuestions(sessionId),
 					}),
 				),
 			captureHistoryCheckpoint: (sessionId) =>

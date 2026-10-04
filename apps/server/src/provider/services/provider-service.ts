@@ -79,7 +79,10 @@ export interface ProviderServiceShape {
 		expectedProviderSessionId?: string,
 	) => Effect.Effect<boolean>;
 	/** Stop and verify quiescence before filesystem rollback; failed handles remain owned. */
-	readonly quiesce?: (sessionId: AgentSessionId) => Effect.Effect<void, Error>;
+	readonly quiesce?: (
+		sessionId: AgentSessionId,
+		expectedProviderSessionId?: string | null,
+	) => Effect.Effect<void, Error>;
 	readonly captureHistoryCheckpoint?: (
 		sessionId: AgentSessionId,
 	) => Effect.Effect<NativeHistoryCheckpoint | null, Error>;
