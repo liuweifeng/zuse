@@ -770,5 +770,6 @@
 	"attention_quiet": "Quiet",
 	"attention_unavailable": "Execution unavailable",
 	"attention_disconnected": "Disconnected",
-	"attention_checking": "Checking execution"
+	"attention_checking": "Checking execution",
+	"message_row_send_again": "Send again"
 }

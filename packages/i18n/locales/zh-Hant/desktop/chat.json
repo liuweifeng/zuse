@@ -770,5 +770,6 @@
 	"attention_quiet": "暫無活動",
 	"attention_unavailable": "執行無法使用",
 	"attention_disconnected": "已中斷連線",
-	"attention_checking": "正在檢查執行狀態"
+	"attention_checking": "正在檢查執行狀態",
+	"message_row_send_again": "重新傳送"
 }

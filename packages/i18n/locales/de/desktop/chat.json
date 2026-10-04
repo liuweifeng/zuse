@@ -770,5 +770,6 @@
 	"attention_quiet": "Still",
 	"attention_unavailable": "Ausführung nicht verfügbar",
 	"attention_disconnected": "Getrennt",
-	"attention_checking": "Ausführung wird geprüft"
+	"attention_checking": "Ausführung wird geprüft",
+	"message_row_send_again": "Erneut senden"
 }
