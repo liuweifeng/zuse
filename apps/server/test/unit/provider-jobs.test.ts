@@ -12,7 +12,7 @@ import {
 } from "@zuse/domain/core/decider";
 import { AttemptOwnershipConflict } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	makeProviderJobExecutor,
@@ -348,6 +348,136 @@ describe("provider job executor", () => {
 		);
 		expect(settled).toBe(0);
 		expect(closed).toBe(0);
+	});
+
+	it("settles interrupted provider startup instead of leaving the turn running", async () => {
+		const settled: unknown[] = [];
+		const execute = makeProviderJobExecutor(
+			makeOptions({
+				provider: {
+					send: () =>
+						Effect.fail(
+							new AgentSessionNotFoundError({
+								sessionId: AgentSessionId.make("session-1"),
+							}),
+						),
+				} as unknown as ProviderJobExecutorOptions["provider"],
+				ensureForTurn: () => Effect.interrupt,
+				persistMessage: () => Effect.succeed({} as never),
+				settleTurn: (_session, turn, outcome, expected) =>
+					Effect.sync(() => {
+						settled.push({ turn, outcome, expected });
+					}),
+			}),
+		);
+		await Effect.runPromise(
+			execute(
+				job({
+					_tag: "provider.turn.send",
+					turnId: "turn-active",
+					providerInputJson:
+						'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+				}),
+			).pipe(Effect.exit),
+		);
+		expect(settled).toEqual([
+			{
+				turn: "turn-active",
+				outcome: "error",
+				expected: {
+					requireUninterrupted: true,
+					turnId: "turn-active",
+					attemptId: "attempt:turn:turn-active:ordinal:1",
+				},
+			},
+		]);
+	});
+
+	it.each([
+		"native",
+		"superseded",
+	] as const)("fences externally interrupted startup recovery (%s)", async (owner) => {
+		const writes: string[] = [];
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const starting = yield* Deferred.make<void>();
+				const defaults = makeOptions({});
+				const execute = makeProviderJobExecutor(
+					makeOptions({
+						provider: {
+							...defaults.provider,
+							send: () =>
+								Effect.fail(
+									new AgentSessionNotFoundError({
+										sessionId: AgentSessionId.make("session-1"),
+									}),
+								),
+						},
+						ensureForTurn: () =>
+							Deferred.succeed(starting, undefined).pipe(
+								Effect.andThen(Effect.never),
+							),
+						sessionDomain: {
+							...defaults.sessionDomain,
+							dispatch: (input) => {
+								expect(input.command._tag).toBe("RecoverTurn");
+								expect(input.expectedAttempt).toEqual({
+									requireUninterrupted: true,
+									turnId: "turn-active",
+									attemptId: "attempt:turn:turn-active:ordinal:1",
+								});
+								writes.push("fenced-recovery");
+								return owner === "superseded"
+									? Effect.fail(
+											new AttemptOwnershipConflict({
+												turnId: "turn-active",
+												expectedAttemptId: "attempt:turn:turn-active:ordinal:1",
+												actualAttemptId: "replacement",
+											}),
+										)
+									: Effect.succeed({
+											commandId: input.commandId,
+											streamId: input.streamId,
+											streamVersion: 1,
+											eventIds: [],
+										});
+							},
+						},
+						delivery: {
+							...defaults.delivery,
+							markOutcomeUnknown: () =>
+								Effect.sync(() => {
+									writes.push("outcome-unknown");
+								}),
+						},
+						persistMessage: () =>
+							Effect.sync(() => {
+								writes.push("persist-error");
+								return {} as never;
+							}),
+						settleTurn: () =>
+							Effect.sync(() => {
+								writes.push("settle");
+							}),
+					}),
+				);
+				const fiber = yield* execute(
+					job({
+						_tag: "provider.turn.send",
+						turnId: "turn-active",
+						providerInputJson:
+							'{"text":"hello","attachments":[],"fileRefs":[],"skillRefs":[]}',
+					}),
+				).pipe(Effect.forkChild);
+				yield* Deferred.await(starting);
+				yield* Fiber.interrupt(fiber);
+			}),
+		);
+		expect(writes).toEqual(
+			owner === "native"
+				? ["fenced-recovery", "outcome-unknown"]
+				: ["fenced-recovery"],
+		);
 	});
 
 	it.each([

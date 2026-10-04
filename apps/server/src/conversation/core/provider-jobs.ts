@@ -218,7 +218,8 @@ export const makeProviderJobExecutor = (
 		job: Job,
 		request: RequestOf<"provider.turn.send">,
 	) =>
-		Effect.gen(function* () {
+		Effect.suspend(() => {
+			let deliveryStarted = false;
 			const sessionId = SessionId.make(job.sessionId);
 			const turnId = AgentTurnId.make(request.turnId);
 			const expectedAttempt = {
@@ -226,150 +227,186 @@ export const makeProviderJobExecutor = (
 				turnId,
 				attemptId: request.attemptId ?? attemptIdFor(turnId, 1),
 			};
-			const session = yield* lookupSession(sessionId).pipe(
-				Effect.catch(() => Effect.succeed(null)),
-			);
-			const activeAttempt = yield* sessionDomain
-				.activeAttempt(sessionId)
-				.pipe(Effect.orDie);
-			// The turn settled, was superseded, or its session was archived or
-			// deleted while this job waited. Nothing to send.
-			if (
-				session === null ||
-				session.archivedAt !== null ||
-				activeAttempt?.turnId !== turnId ||
-				activeAttempt.attemptId !== expectedAttempt.attemptId
-			) {
-				return;
-			}
-			if (options.captureBaseline !== undefined)
-				yield* options
-					.captureBaseline(session, turnId, expectedAttempt.attemptId)
-					.pipe(
-						Effect.mapError((error) =>
-							failure(error.message, { retry: "on_demand", cause: error }),
-						),
-					);
-			const rawInput = yield* decodeProviderTurnInput(
-				request.providerInputJson,
-			).pipe(Effect.orDie);
-			const input =
-				options.prepareContext === undefined
-					? rawInput
-					: yield* options.prepareContext(session, turnId, rawInput);
-			const providerStartJson =
-				request.providerStartJson ?? (yield* getProviderStartJson(sessionId));
-			const startupRequest =
-				providerStartJson === null
-					? null
-					: yield* decodeProviderStartRequest(providerStartJson).pipe(
-							Effect.orDie,
+			return Effect.gen(function* () {
+				const session = yield* lookupSession(sessionId).pipe(
+					Effect.catch(() => Effect.succeed(null)),
+				);
+				const activeAttempt = yield* sessionDomain
+					.activeAttempt(sessionId)
+					.pipe(Effect.orDie);
+				// The turn settled, was superseded, or its session was archived or
+				// deleted while this job waited. Nothing to send.
+				if (
+					session === null ||
+					session.archivedAt !== null ||
+					activeAttempt?.turnId !== turnId ||
+					activeAttempt.attemptId !== expectedAttempt.attemptId
+				) {
+					return;
+				}
+				if (options.captureBaseline !== undefined)
+					yield* options
+						.captureBaseline(session, turnId, expectedAttempt.attemptId)
+						.pipe(
+							Effect.mapError((error) =>
+								failure(error.message, { retry: "on_demand", cause: error }),
+							),
 						);
-			const startupModelOptions =
-				startupRequest?.modelOptionsJson == null
-					? undefined
-					: yield* decodeProviderModelOptions(
-							startupRequest.modelOptionsJson,
-						).pipe(Effect.orDie);
-			const deliveryState = yield* delivery.begin(job.id);
-			if (deliveryState === "completed" || deliveryState === "outcome-unknown")
-				return;
-			if (deliveryState === "already-started") {
-				yield* recoverUnknownDelivery(job, sessionId, turnId, expectedAttempt);
-				return;
-			}
-			// A provider may finish before send returns. Publish running before sending.
-			yield* setStatus(sessionId, "running", expectedAttempt);
-
-			const sent = yield* provider
-				.send(
-					sessionId,
-					turnId,
-					input.text,
-					input.attachments,
-					input.fileRefs,
-					input.skillRefs,
-					AttemptId.make(expectedAttempt.attemptId),
-					rawInput.goal ??
-						(rawInput.asGoal === true
-							? { objective: rawInput.text, status: "active" as const }
-							: undefined),
+				const rawInput = yield* decodeProviderTurnInput(
+					request.providerInputJson,
+				).pipe(Effect.orDie);
+				const input =
+					options.prepareContext === undefined
+						? rawInput
+						: yield* options.prepareContext(session, turnId, rawInput);
+				const providerStartJson =
+					request.providerStartJson ?? (yield* getProviderStartJson(sessionId));
+				const startupRequest =
+					providerStartJson === null
+						? null
+						: yield* decodeProviderStartRequest(providerStartJson).pipe(
+								Effect.orDie,
+							);
+				const startupModelOptions =
+					startupRequest?.modelOptionsJson == null
+						? undefined
+						: yield* decodeProviderModelOptions(
+								startupRequest.modelOptionsJson,
+							).pipe(Effect.orDie);
+				const deliveryState = yield* delivery.begin(job.id);
+				if (
+					deliveryState === "completed" ||
+					deliveryState === "outcome-unknown"
 				)
-				.pipe(Effect.exit);
-			if (sent._tag === "Success") {
-				yield* delivery.complete(job.id);
-				return;
-			}
-			if (!isProvenUndeliveredProviderSend(sent.cause)) {
-				yield* recoverUnknownDelivery(job, sessionId, turnId, expectedAttempt);
-				return;
-			}
-			const prepareFallbackContext = options.prepareFallbackContext;
-			const restarted = yield* ensureForTurn(sessionId, {
-				initialTurnId: turnId,
-				initialAttemptId: AttemptId.make(expectedAttempt.attemptId),
-				modelOptions: startupModelOptions,
-				enableSubagents: startupRequest?.enableSubagents,
-				forkFromResume: startupRequest?.forkFromResume,
-				forkSourceThreadId: startupRequest?.forkSourceThreadId,
-				postBootStatus: "running",
-				sendAfterOpen: {
-					goal:
+					return;
+				deliveryStarted = true;
+				if (deliveryState === "already-started") {
+					yield* recoverUnknownDelivery(
+						job,
+						sessionId,
+						turnId,
+						expectedAttempt,
+					);
+					return;
+				}
+				// A provider may finish before send returns. Publish running before sending.
+				yield* setStatus(sessionId, "running", expectedAttempt);
+
+				const sent = yield* provider
+					.send(
+						sessionId,
+						turnId,
+						input.text,
+						input.attachments,
+						input.fileRefs,
+						input.skillRefs,
+						AttemptId.make(expectedAttempt.attemptId),
 						rawInput.goal ??
-						(rawInput.asGoal === true
-							? { objective: rawInput.text, status: "active" as const }
-							: undefined),
-					onNativeResumeFallback:
-						prepareFallbackContext === undefined
-							? undefined
-							: () => prepareFallbackContext(session, turnId, rawInput),
+							(rawInput.asGoal === true
+								? { objective: rawInput.text, status: "active" as const }
+								: undefined),
+					)
+					.pipe(Effect.exit);
+				if (sent._tag === "Success") {
+					yield* delivery.complete(job.id);
+					return;
+				}
+				if (!isProvenUndeliveredProviderSend(sent.cause)) {
+					yield* recoverUnknownDelivery(
+						job,
+						sessionId,
+						turnId,
+						expectedAttempt,
+					);
+					return;
+				}
+				const prepareFallbackContext = options.prepareFallbackContext;
+				const restarted = yield* ensureForTurn(sessionId, {
+					initialTurnId: turnId,
+					initialAttemptId: AttemptId.make(expectedAttempt.attemptId),
+					modelOptions: startupModelOptions,
+					enableSubagents: startupRequest?.enableSubagents,
+					forkFromResume: startupRequest?.forkFromResume,
+					forkSourceThreadId: startupRequest?.forkSourceThreadId,
+					postBootStatus: "running",
+					sendAfterOpen: {
+						goal:
+							rawInput.goal ??
+							(rawInput.asGoal === true
+								? { objective: rawInput.text, status: "active" as const }
+								: undefined),
+						onNativeResumeFallback:
+							prepareFallbackContext === undefined
+								? undefined
+								: () => prepareFallbackContext(session, turnId, rawInput),
+						turnId,
+						attemptId: AttemptId.make(expectedAttempt.attemptId),
+						text: input.text,
+						attachments: input.attachments,
+						fileRefs: input.fileRefs,
+						skillRefs: input.skillRefs,
+					},
+				}).pipe(
+					Effect.match({
+						onFailure: (error) => ({ ok: false as const, error }),
+						onSuccess: (started) => ({ ok: started, error: null }),
+					}),
+				);
+				if (restarted.ok) {
+					yield* delivery.complete(job.id);
+					return;
+				}
+				// A close or switch invalidated this startup while it awaited the
+				// provider. The newer lifecycle owner is responsible for settlement.
+				if (restarted.error === null) return;
+				const persistedError = yield* persistMessage(
+					sessionId,
+					{
+						_tag: "error",
+						message: restarted.error.reason,
+					},
+					undefined,
 					turnId,
-					attemptId: AttemptId.make(expectedAttempt.attemptId),
-					text: input.text,
-					attachments: input.attachments,
-					fileRefs: input.fileRefs,
-					skillRefs: input.skillRefs,
-				},
+					expectedAttempt,
+				);
+				yield* ndjsonAppend(sessionId, persistedError);
+				// Keep the durable turn active. Explicit Retry and boot recovery replay
+				// this exact provider request without reconstructing user input.
+				yield* setStatus(sessionId, "error", expectedAttempt);
+				// Authentication is recoverable only through explicit resume, which
+				// replays this same durable turn; the job is done. Other failures park
+				// the job so the user's next action or boot recovery tries again.
+				if (isProviderAuthenticationRequired(restarted.error.reason)) {
+					yield* delivery.complete(job.id);
+					return;
+				}
+				yield* delivery.releaseUndelivered(job.id);
+				return yield* Effect.fail(
+					failure(
+						`Provider turn could not be started after durable intent: ${restarted.error.reason}`,
+						{ retry: "on_demand", cause: restarted.error },
+					),
+				);
 			}).pipe(
-				Effect.match({
-					onFailure: (error) => ({ ok: false as const, error }),
-					onSuccess: (started) => ({ ok: started, error: null }),
+				Effect.onExit((exit) => {
+					if (
+						!deliveryStarted ||
+						exit._tag === "Success" ||
+						!Cause.hasInterrupts(exit.cause)
+					)
+						return Effect.void;
+					// Cancellation can bypass ordinary startup/send error handling. Record
+					// recovery or terminal failure before the worker retires this job;
+					// never leave its durable turn running without executable work.
+					return recoverUnknownDelivery(
+						job,
+						sessionId,
+						turnId,
+						expectedAttempt,
+					).pipe(
+						Effect.catchTag("AttemptOwnershipConflict", () => Effect.void),
+					);
 				}),
-			);
-			if (restarted.ok) {
-				yield* delivery.complete(job.id);
-				return;
-			}
-			// A close or switch invalidated this startup while it awaited the
-			// provider. The newer lifecycle owner is responsible for settlement.
-			if (restarted.error === null) return;
-			const persistedError = yield* persistMessage(
-				sessionId,
-				{
-					_tag: "error",
-					message: restarted.error.reason,
-				},
-				undefined,
-				turnId,
-				expectedAttempt,
-			);
-			yield* ndjsonAppend(sessionId, persistedError);
-			// Keep the durable turn active. Explicit Retry and boot recovery replay
-			// this exact provider request without reconstructing user input.
-			yield* setStatus(sessionId, "error", expectedAttempt);
-			// Authentication is recoverable only through explicit resume, which
-			// replays this same durable turn; the job is done. Other failures park
-			// the job so the user's next action or boot recovery tries again.
-			if (isProviderAuthenticationRequired(restarted.error.reason)) {
-				yield* delivery.complete(job.id);
-				return;
-			}
-			yield* delivery.releaseUndelivered(job.id);
-			return yield* Effect.fail(
-				failure(
-					`Provider turn could not be started after durable intent: ${restarted.error.reason}`,
-					{ retry: "on_demand", cause: restarted.error },
-				),
 			);
 		});
 
