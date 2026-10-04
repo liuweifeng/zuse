@@ -790,7 +790,7 @@ export const ProviderServiceLive = Layer.effect(
 									cwd,
 									launch,
 									sessionId,
-									buildRequestPermission(input.folderId),
+									buildRequestPermission(input.folderId, permissionAuthority),
 									runtimeModeGetter,
 									(command) =>
 										Effect.runPromiseWith(runtime)(
