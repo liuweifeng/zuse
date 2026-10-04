@@ -533,6 +533,9 @@ const ensureServer = async (): Promise<{
 				reject(new Error("Could not bind MCP gateway."));
 				return;
 			}
+			// Provider handles and active requests own execution lifetime. The shared
+			// listener must not keep an otherwise fully shut-down engine alive.
+			server.unref();
 			console.info(`[mcp-gateway] listening on 127.0.0.1:${address.port}`);
 			resolve({ server, port: address.port });
 		});
