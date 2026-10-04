@@ -1,3 +1,4 @@
+import { EnvironmentId } from "@zuse/contracts";
 import { Deferred, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { afterEach, expect, it, vi } from "vitest";
@@ -16,14 +17,26 @@ const linkedLayer = ApiLinkServiceLive.pipe(
 	Layer.provide(
 		Layer.mergeAll(
 			Layer.succeed(LanAuthService, {
-				getApiConfig: () =>
+				getApiConfig: (): ReturnType<
+					LanAuthService["Service"]["getApiConfig"]
+				> =>
 					Effect.succeed({
 						apiUrl: "https://example.invalid",
-						environmentId: "lifetime-test",
+						environmentId: EnvironmentId.make("lifetime-test"),
+						apiIssuer: "test",
+						label: undefined,
+						connectorToken: undefined,
+						tunnelHostname: undefined,
+						mintPublicKey: undefined,
 						environmentCredential: "test-credential",
 					}),
 			} as LanAuthService["Service"]),
-			Layer.succeed(LanAuthConfig, { policy: "protected" }),
+			Layer.succeed(LanAuthConfig, {
+				policy: "protected",
+				advertisedHost: null,
+				port: null,
+				pairingBootstrap: false,
+			}),
 			Layer.succeed(AuthService, {} as AuthService["Service"]),
 			Layer.succeed(
 				AccountAccessService,
@@ -34,7 +47,9 @@ const linkedLayer = ApiLinkServiceLive.pipe(
 				{} as ManagedTunnelRuntime["Service"],
 			),
 			Layer.succeed(TelemetryStore, {
-				record: () => {},
+				record: (
+					_event: Parameters<TelemetryStore["Service"]["record"]>[0],
+				): void => {},
 				runId: "lifetime-test",
 			} as TelemetryStore["Service"]),
 		),
