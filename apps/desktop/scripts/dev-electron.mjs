@@ -2,7 +2,7 @@
 // Electron pointing at them. Restarts Electron on rebuilds. Slimmed down:
 // no cross-app server checks, no macOS app-bundle renaming.
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -14,6 +14,8 @@ import { fileURLToPath } from "node:url";
 import deploymentProfiles from "../../../packages/contracts/src/deployment-profiles.json" with {
 	type: "json",
 };
+
+import { signalDevApp, spawnDevApp } from "./dev-app-process.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const desktopDir = resolve(__dirname, "..");
@@ -128,11 +130,6 @@ async function waitForResources({
 	}
 }
 
-function killChildTreeByPid(pid, signal) {
-	if (process.platform === "win32" || typeof pid !== "number") return;
-	spawnSync("pkill", [`-${signal}`, "-P", String(pid)], { stdio: "ignore" });
-}
-
 function startApp() {
 	if (shuttingDown || currentApp !== null) return;
 
@@ -143,7 +140,7 @@ function startApp() {
 	// those permissions during packaging; development must disable Chromium's
 	// SUID sandbox or Electron aborts before main.cjs is evaluated.
 	const platformArgs = process.platform === "linux" ? ["--no-sandbox"] : [];
-	const app = spawn(
+	const app = spawnDevApp(
 		electronPath,
 		[...platformArgs, join(desktopOutDir, "main.cjs"), "--memoize-dev"],
 		{
@@ -196,12 +193,10 @@ async function stopApp() {
 			resolveStop();
 		};
 		app.once("exit", finish);
-		app.kill("SIGTERM");
-		killChildTreeByPid(app.pid, "TERM");
+		signalDevApp(app, "SIGTERM");
 		setTimeout(() => {
 			if (settled) return;
-			app.kill("SIGKILL");
-			killChildTreeByPid(app.pid, "KILL");
+			signalDevApp(app, "SIGKILL");
 			finish();
 		}, forcedShutdownTimeoutMs).unref();
 	});
