@@ -3592,30 +3592,18 @@ function ChatAttentionIcon({
 	);
 
 	const executionLabel = executionAttentionLabel(state);
-	if (executionLabel !== null) {
+	if (executionLabel !== null || state === "running") {
 		return (
-			<span
-				className={classes}
-				role="img"
-				aria-label={executionLabel}
-				title={executionLabel}
-			>
-				<Spinner
-					className={cn(
-						"size-3.5",
+			<span className={classes} title={executionLabel ?? label}>
+				<AgentActivityOrb
+					state="working"
+					label={executionLabel ?? label}
+					className={
 						state === "quiet" || state === "unavailable"
 							? "text-warning"
-							: "text-muted-foreground",
-					)}
+							: "text-muted-foreground"
+					}
 				/>
-			</span>
-		);
-	}
-
-	if (state === "running") {
-		return (
-			<span className={classes} title={label}>
-				<AgentActivityOrb state="working" label={label} />
 			</span>
 		);
 	}

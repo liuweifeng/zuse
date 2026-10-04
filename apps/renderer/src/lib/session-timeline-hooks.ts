@@ -2,6 +2,7 @@ import type { ResourceActivation } from "@zuse/client-runtime/environment-runtim
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import { retainSessionActivity } from "@zuse/client-runtime/session-activity";
 import {
 	deriveSessionPresentation,
 	type SessionPresentation,
@@ -72,6 +73,20 @@ const EMPTY_TIMELINE_VIEW: ResourceView<SessionTimelineProjection> = {
 	failedCommands: [],
 };
 
+const retainRendererSessionActivity = (
+	bus: ReturnType<typeof getRendererClientBus>,
+	ref: SessionRef,
+): (() => void) =>
+	retainSessionActivity({
+		bus,
+		ref,
+		catalogRuntime: () =>
+			effectiveSessionRuntimeState(
+				useSessionRuntimeStore.getState().bySession[ref.sessionId],
+			),
+		subscribeCatalog: (listener) => useSessionRuntimeStore.subscribe(listener),
+	});
+
 /** One qualified timeline selector shared by chat, composer, queue, and dock. */
 export const useRendererSessionTimeline = (
 	sessionId: SessionId,
@@ -102,6 +117,16 @@ export const useOptionalRendererSessionTimeline = (
 		[environmentId, sessionId],
 	);
 	const view = useSessionTimelineResource(ref, activation);
+	const bus = getRendererClientBus();
+	useEffect(() => {
+		if (
+			activation !== "cache-only" ||
+			ref === null ||
+			ref.sessionId === "draft-session"
+		)
+			return;
+		return retainRendererSessionActivity(bus, ref);
+	}, [activation, bus, ref]);
 	const pending = usePendingSessionMessages((state) =>
 		ref === null
 			? EMPTY_MESSAGES
@@ -139,6 +164,8 @@ export const useOptionalRendererSessionTimeline = (
  * Qualified aggregate selector for surfaces such as the sidebar and tab strip.
  * It retains each keyed resource once and publishes a stable array snapshot, so
  * those surfaces do not subscribe to the legacy whole-store projection maps.
+ * Cache-only surfaces keep active sessions connected until their terminal frame,
+ * without loading the full transcript of every idle session.
  */
 export const useRendererSessionTimelines = (
 	refs: readonly SessionRef[],
@@ -161,11 +188,13 @@ export const useRendererSessionTimelines = (
 	const bus = getRendererClientBus();
 
 	useEffect(() => {
-		const leases = stableRefs.map((ref) =>
-			bus.retain(sessionTimelineResourceKey(ref), { activation }),
+		const releases = stableRefs.map((ref) =>
+			activation === "cache-only"
+				? retainRendererSessionActivity(bus, ref)
+				: bus.retain(sessionTimelineResourceKey(ref), { activation }).release,
 		);
 		return () => {
-			for (const lease of leases) lease.release();
+			for (const release of releases) release();
 		};
 	}, [activation, bus, stableRefs]);
 
