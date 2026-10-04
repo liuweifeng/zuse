@@ -2,6 +2,7 @@ import {
 	AgentItemId,
 	AgentTurnId,
 	AttemptId,
+	EnvironmentId,
 	type ProviderEventEnvelope,
 	SessionId,
 } from "@zuse/contracts";
@@ -9,9 +10,14 @@ import {
 	AttemptOwnershipConflict,
 	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
-import { Deferred, Effect, Exit, Ref, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, Ref, Stream } from "effect";
 import { describe, expect, test, vi } from "vitest";
+import {
+	ApiActivityPublisher,
+	ApiActivityPublisherLive,
+} from "../../src/api/activity-publisher.ts";
 import { makeConversationEventRuntime } from "../../src/conversation/core/conversation-event-runtime.ts";
+import { LanAuthService } from "../../src/lan-auth/services/lan-auth-service.ts";
 import {
 	bindProviderEventDelivery,
 	type ProviderEventDelivery,
@@ -52,6 +58,82 @@ describe("ConversationEventRuntime", () => {
 		ignoreError: () => false,
 		isDuplicateToolUse: () => Effect.succeed(false),
 		persist: () => Effect.void,
+	});
+
+	test("a stalled account activity request does not stall provider completion", async () => {
+		let requestSignal: AbortSignal | undefined;
+		const started = Deferred.makeUnsafe<void>();
+		vi.stubGlobal(
+			"fetch",
+			vi.fn((_url: string, init: RequestInit) => {
+				requestSignal = init.signal ?? undefined;
+				Effect.runSync(Deferred.succeed(started, undefined));
+				return new Promise<Response>((_resolve, reject) => {
+					requestSignal?.addEventListener("abort", () =>
+						reject(requestSignal?.reason),
+					);
+				});
+			}),
+		);
+		try {
+			await Effect.runPromise(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const activity = yield* ApiActivityPublisher;
+						const settled = yield* Deferred.make<void>();
+						const runtime = yield* makeConversationEventRuntime({
+							...options(
+								yield* Effect.scope,
+								() =>
+									Stream.fromIterable([
+										{
+											scope: "turn",
+											turnId: AgentTurnId.make("turn-1"),
+											event: { _tag: "Status", status: "running" },
+										},
+										{
+											scope: "turn",
+											turnId: AgentTurnId.make("turn-1"),
+											event: { _tag: "Completed", reason: "ended" },
+										},
+									]),
+								() => Deferred.succeed(settled, undefined).pipe(Effect.asVoid),
+							),
+							publishApiActivity: (sessionId, kind) =>
+								activity.publish({ sessionId, kind }).pipe(Effect.orDie),
+						});
+						yield* runtime.start(SessionId.make("session-1"));
+						yield* Deferred.await(started);
+						yield* Deferred.await(settled).pipe(Effect.timeout("250 millis"));
+					}),
+				).pipe(
+					Effect.provide(
+						ApiActivityPublisherLive.pipe(
+							Layer.provide(
+								Layer.succeed(LanAuthService, {
+									getApiConfig: (): ReturnType<
+										LanAuthService["Service"]["getApiConfig"]
+									> =>
+										Effect.succeed({
+											apiUrl: "https://example.invalid",
+											environmentId: EnvironmentId.make("test"),
+											apiIssuer: "test",
+											label: undefined,
+											connectorToken: undefined,
+											tunnelHostname: undefined,
+											mintPublicKey: undefined,
+											environmentCredential: "test",
+										}),
+								} as LanAuthService["Service"]),
+							),
+						),
+					),
+				),
+			);
+			expect(requestSignal?.aborted).toBe(true);
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	test("rejected ingestion ownership interrupts startup before delivery can continue", async () => {
