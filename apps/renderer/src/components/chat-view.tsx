@@ -113,7 +113,6 @@ import { DelegationGroup } from "./delegation-group.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { NextUnreadButton } from "./next-unread-button.tsx";
 import {
 	ChatCreationFailureActions,
 	ChatCreationPromptBubble,
@@ -1060,9 +1059,6 @@ export function ChatView({
 									});
 								}}
 							/>
-							<div className="ml-auto">
-								<NextUnreadButton />
-							</div>
 						</div>
 					</div>
 					<p className="sr-only" aria-live="polite" aria-atomic="true">
