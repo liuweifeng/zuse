@@ -1,4 +1,5 @@
 import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
+import { deriveSessionPresentation } from "@zuse/client-runtime/session-presentation";
 import {
 	AgentTurnId,
 	ComposerInput,
@@ -353,6 +354,37 @@ describe("session actions", () => {
 		});
 		expect(view.failedCommands).toHaveLength(1);
 		expect(view.failedCommands[0]?.retryable).toBe(true);
+		retained.lease.release();
+	});
+
+	it("clears the optimistic working state when send fails schema validation", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		let streamStarts = 0;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => {
+						streamStarts += 1;
+						return Stream.fromQueue(frames);
+					},
+					"messages.send": () =>
+						Effect.fail(
+							new Error('Expected providerId, got "acp-custom-provider"'),
+						),
+				}) as never,
+		);
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(() => streamStarts === 1);
+		await expect(
+			sendSessionMessage(ref, "keep this rejected draft"),
+		).resolves.toBe(false);
+		const view = getRendererClientBus().snapshot(retained.key);
+		expect(view.pendingCommands).toEqual([]);
+		expect(view.data?.messages).toEqual([]);
+		expect(pendingSessionMessages(ref)).toEqual([]);
+		expect(view.failedCommands).toHaveLength(1);
+		expect(view.failedCommands[0]?.retryable).toBe(false);
+		expect(deriveSessionPresentation({ view }).busy).toBe(false);
 		retained.lease.release();
 	});
 
