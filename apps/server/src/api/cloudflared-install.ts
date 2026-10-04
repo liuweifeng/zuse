@@ -81,10 +81,12 @@ const exists = async (path: string): Promise<boolean> => {
 
 export const ensurePinnedCloudflared = async (input: {
 	readonly userData: string;
+	readonly signal?: AbortSignal;
 	readonly fetcher?: typeof fetch;
 	readonly platform?: NodeJS.Platform;
 	readonly architecture?: string;
 }): Promise<string> => {
+	input.signal?.throwIfAborted();
 	const asset = cloudflaredAsset(
 		input.platform ?? process.platform,
 		input.architecture ?? process.arch,
@@ -114,7 +116,10 @@ export const ensurePinnedCloudflared = async (input: {
 	await mkdir(installDir, { recursive: true, mode: 0o700 });
 	const fetcher = input.fetcher ?? fetch;
 	const response = await fetcher(`${RELEASE_BASE}/${asset.name}`, {
-		signal: AbortSignal.timeout(120_000),
+		signal:
+			input.signal === undefined
+				? AbortSignal.timeout(120_000)
+				: AbortSignal.any([input.signal, AbortSignal.timeout(120_000)]),
 	});
 	if (!response.ok) {
 		throw new Error(
@@ -123,6 +128,7 @@ export const ensurePinnedCloudflared = async (input: {
 	}
 	const contents = Buffer.from(await response.arrayBuffer());
 	verifySha256(contents, asset.sha256);
+	input.signal?.throwIfAborted();
 
 	const download = join(installDir, `${asset.name}.download`);
 	await writeFile(download, contents, { mode: 0o600 });

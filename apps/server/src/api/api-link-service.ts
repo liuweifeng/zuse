@@ -93,6 +93,7 @@ export const heartbeatUntilInterrupted = <E>(
 			);
 		}
 	});
+const API_REQUEST_TIMEOUT_MS = 10_000;
 export const apiRuntimeMetadata = () =>
 	({
 		runtimeVersion: hostRuntimeVersion(),
@@ -325,15 +326,21 @@ const postJson = <A>(
 		},
 		catch: (cause) =>
 			failApi(cause instanceof Error ? cause.message : String(cause)),
-	});
+	}).pipe(
+		Effect.timeout(API_REQUEST_TIMEOUT_MS),
+		Effect.catchTag("TimeoutError", () =>
+			Effect.fail(failApi("api_request_timeout")),
+		),
+	);
 
 const accountJson = <A>(
 	url: string,
 	opts: { readonly bearer: string; readonly method?: "GET" | "DELETE" },
 ): Effect.Effect<A, ApiLinkError> =>
 	Effect.tryPromise({
-		try: async () => {
+		try: async (signal) => {
 			const response = await fetch(url, {
+				signal,
 				method: opts.method ?? "GET",
 				headers: { authorization: `Bearer ${opts.bearer}` },
 			});
@@ -344,7 +351,12 @@ const accountJson = <A>(
 		},
 		catch: (cause) =>
 			failApi(cause instanceof Error ? cause.message : String(cause)),
-	});
+	}).pipe(
+		Effect.timeout(API_REQUEST_TIMEOUT_MS),
+		Effect.catchTag("TimeoutError", () =>
+			Effect.fail(failApi("api_request_timeout")),
+		),
+	);
 
 const computeEndpoint = (config: LanAuthConfigShape) => {
 	const host = config.advertisedHost ?? "127.0.0.1";
@@ -371,7 +383,25 @@ const makeApiLinkService = (options: {
 		const tunnel = yield* ManagedTunnelRuntime;
 		const telemetry = yield* TelemetryStore;
 		const serviceScope = yield* Effect.scope;
+		// Shared DPoP refresh/registration can outlive an individual RPC, but never
+		// this service. Each operation also has a deadline so a hung cache heals.
+		let accountLifetime = new AbortController();
+		yield* Effect.addFinalizer(() =>
+			Effect.sync(() => accountLifetime.abort()),
+		);
+		const accountRequestSignal = (caller?: AbortSignal) =>
+			AbortSignal.any([
+				accountLifetime.signal,
+				AbortSignal.timeout(API_REQUEST_TIMEOUT_MS),
+				...(caller === undefined ? [] : [caller]),
+			]);
 		const heartbeatRef = yield* Ref.make<Fiber.Fiber<void> | null>(null);
+		let restoreTunnel: Fiber.Fiber<void> | undefined;
+		const stopTunnelRestore = Effect.suspend(() =>
+			restoreTunnel === undefined
+				? Effect.void
+				: Fiber.interrupt(restoreTunnel),
+		);
 		let apiAccess: {
 			readonly token: string;
 			readonly expiresAt: number;
@@ -381,6 +411,13 @@ const makeApiLinkService = (options: {
 			readonly key: string;
 			readonly promise: Promise<void>;
 		} | null = null;
+		const resetAccountAccess = Effect.sync(() => {
+			accountLifetime.abort();
+			accountLifetime = new AbortController();
+			apiAccessRefresh = null;
+			apiAccess = null;
+			apiClientRegistration = null;
+		});
 		const createDpopKey = async () => {
 			const generated = await crypto.subtle.generateKey(
 				{ name: "ECDSA", namedCurve: "P-256" },
@@ -440,11 +477,15 @@ const makeApiLinkService = (options: {
 			}
 			if (apiAccessRefresh !== null) return apiAccessRefresh;
 			const refresh = (async () => {
+				const signal = accountRequestSignal();
 				const workosToken = await Effect.runPromise(
 					authService.getAccessToken(),
+					{ signal },
 				);
 				const target = `${apiUrl}${ApiPaths.dpopToken}`;
+				signal.throwIfAborted();
 				const response = await fetch(target, {
+					signal,
 					method: "POST",
 					headers: {
 						authorization: `Bearer ${workosToken}`,
@@ -453,6 +494,7 @@ const makeApiLinkService = (options: {
 				});
 				if (!response.ok) throw new Error(await apiHttpErrorReason(response));
 				const grant = (await response.json()) as ApiAccessToken;
+				signal.throwIfAborted();
 				apiAccess = {
 					token: grant.accessToken,
 					expiresAt: Date.now() + grant.expiresIn,
@@ -469,12 +511,16 @@ const makeApiLinkService = (options: {
 		const dpopRequest = async (
 			apiUrl: string,
 			path: string,
-			body?: unknown,
+			body: unknown,
+			signal: AbortSignal,
 		): Promise<Response> => {
 			const target = `${apiUrl}${path}`;
 			for (let attempt = 0; attempt < 2; attempt += 1) {
+				signal.throwIfAborted();
 				const token = await ensureApiAccess(apiUrl);
+				signal.throwIfAborted();
 				const response = await fetch(target, {
+					signal,
 					method: "POST",
 					headers: {
 						authorization: `DPoP ${token}`,
@@ -486,7 +532,9 @@ const makeApiLinkService = (options: {
 					body: body === undefined ? undefined : JSON.stringify(body),
 				});
 				if (response.status !== 401 || attempt > 0) return response;
-				apiAccess = null;
+				await response.body?.cancel();
+				signal.throwIfAborted();
+				if (apiAccess?.token === token) apiAccess = null;
 			}
 			throw new Error("api_access_refresh_failed");
 		};
@@ -499,13 +547,21 @@ const makeApiLinkService = (options: {
 				return apiClientRegistration.promise;
 			}
 			const registration = (async () => {
+				const signal = accountRequestSignal();
 				const key = await dpopKey();
-				const response = await dpopRequest(apiUrl, ApiPaths.devices, {
-					deviceId: `desktop-${environmentId}`,
-					platform: "desktop",
-					dpopJwk: key.publicJwk,
-				});
+				const response = await dpopRequest(
+					apiUrl,
+					ApiPaths.devices,
+					{
+						deviceId: `desktop-${environmentId}`,
+						platform: "desktop",
+						dpopJwk: key.publicJwk,
+					},
+					signal,
+				);
 				if (!response.ok) throw new Error(await apiHttpErrorReason(response));
+				await response.body?.cancel();
+				signal.throwIfAborted();
 			})();
 			apiClientRegistration = {
 				key: registrationKey,
@@ -616,38 +672,48 @@ const makeApiLinkService = (options: {
 				tunnelHostname: existing.tunnelHostname ?? null,
 			});
 			if (existing.connectorToken !== undefined) {
-				// The desktop's HTTP port can change between app versions or dev
-				// launches. Repair the existing tunnel ingress before starting its
-				// connector so a successful WebSocket upgrade always reaches this
-				// runtime rather than whatever now owns the old port.
-				yield* log("service.existing_tunnel_reconcile", {
-					environmentId: existing.environmentId,
-					origin: computeOrigin(config),
-				});
-				yield* reconcileTunnelOrigin({
-					apiUrl: existing.apiUrl,
-					environmentId: existing.environmentId,
-					credential: existing.environmentCredential,
-				}).pipe(
-					Effect.tap(() => log("service.existing_tunnel_reconcile.ok")),
-					Effect.tapError((error) =>
-						log("service.existing_tunnel_reconcile.fail", {
-							reason: error.reason,
-						}),
-					),
-					// Non-fatal on boot: presence and LAN access must still work while
-					// the api or tunnel control plane is temporarily unavailable.
-					Effect.ignore,
-				);
-				// Non-fatal on boot: if cloudflared is missing the desktop still works
-				// on LAN; the tunnel just won't come up until relinked.
-				yield* log("service.existing_tunnel_start");
-				yield* tunnel.start(existing.connectorToken).pipe(
-					Effect.tap(() => log("service.existing_tunnel_start.ok")),
-					Effect.tapError((error) =>
-						log("service.existing_tunnel_start.fail", { reason: error.reason }),
-					),
-					Effect.ignore,
+				const connectorToken = existing.connectorToken;
+				// Remote tunnel repair must not hold up the local engine. Keep it
+				// scoped, and cancel it before a user relinks or unlinks.
+				restoreTunnel = yield* Effect.forkIn(
+					Effect.gen(function* () {
+						// The desktop's HTTP port can change between app versions or dev
+						// launches. Repair the existing tunnel ingress before starting its
+						// connector so a successful WebSocket upgrade always reaches this
+						// runtime rather than whatever now owns the old port.
+						yield* log("service.existing_tunnel_reconcile", {
+							environmentId: existing.environmentId,
+							origin: computeOrigin(config),
+						});
+						yield* reconcileTunnelOrigin({
+							apiUrl: existing.apiUrl,
+							environmentId: existing.environmentId,
+							credential: existing.environmentCredential,
+						}).pipe(
+							Effect.tap(() => log("service.existing_tunnel_reconcile.ok")),
+							Effect.tapError((error) =>
+								log("service.existing_tunnel_reconcile.fail", {
+									reason: error.reason,
+								}),
+							),
+							// Non-fatal on boot: presence and LAN access must still work while
+							// the api or tunnel control plane is temporarily unavailable.
+							Effect.ignore,
+						);
+						// Non-fatal on boot: if cloudflared is missing the desktop still works
+						// on LAN; the tunnel just won't come up until relinked.
+						yield* log("service.existing_tunnel_start");
+						yield* tunnel.start(connectorToken).pipe(
+							Effect.tap(() => log("service.existing_tunnel_start.ok")),
+							Effect.tapError((error) =>
+								log("service.existing_tunnel_start.fail", {
+									reason: error.reason,
+								}),
+							),
+							Effect.ignore,
+						);
+					}),
+					serviceScope,
 				);
 			}
 			yield* startHeartbeat({
@@ -660,8 +726,8 @@ const makeApiLinkService = (options: {
 		return ApiLinkService.of({
 			link: (input) =>
 				Effect.gen(function* () {
-					apiAccess = null;
-					apiClientRegistration = null;
+					yield* stopTunnelRestore;
+					yield* resetAccountAccess;
 					yield* log("link.start", {
 						apiUrl: input.apiUrl,
 						hasLabel: input.label !== undefined && input.label.length > 0,
@@ -889,9 +955,13 @@ const makeApiLinkService = (options: {
 				}),
 			connectEnvironment: (environmentId) =>
 				Effect.tryPromise({
-					try: async () => {
-						const cfg = await Effect.runPromise(auth.getApiConfig());
+					try: async (callerSignal) => {
+						const signal = accountRequestSignal(callerSignal);
+						const cfg = await Effect.runPromise(auth.getApiConfig(), {
+							signal,
+						});
 						if (cfg === null) throw new Error("not_linked");
+						signal.throwIfAborted();
 						await ensureApiClient(cfg.apiUrl, cfg.environmentId);
 						const response = await dpopRequest(
 							cfg.apiUrl,
@@ -900,10 +970,13 @@ const makeApiLinkService = (options: {
 								wireProtocolVersion: WIRE_PROTOCOL_VERSION,
 								requireManaged: true,
 							},
+							signal,
 						);
 						if (!response.ok)
 							throw new Error(await apiHttpErrorReason(response));
-						return (await response.json()) as ApiConnectGrant;
+						const grant = (await response.json()) as ApiConnectGrant;
+						signal.throwIfAborted();
+						return grant;
 					},
 					catch: (cause) =>
 						failApi(cause instanceof Error ? cause.message : String(cause)),
@@ -938,8 +1011,8 @@ const makeApiLinkService = (options: {
 				}),
 			unlink: () =>
 				Effect.gen(function* () {
-					apiAccess = null;
-					apiClientRegistration = null;
+					yield* stopTunnelRestore;
+					yield* resetAccountAccess;
 					yield* log("unlink.start");
 					const cfg = yield* auth
 						.getApiConfig()

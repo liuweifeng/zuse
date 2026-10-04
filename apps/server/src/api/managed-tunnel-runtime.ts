@@ -280,7 +280,8 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 
 			yield* log("cloudflared.resolve.download_pinned");
 			const installed = yield* Effect.tryPromise({
-				try: () => ensurePinnedCloudflared({ userData: paths.userData }),
+				try: (signal) =>
+					ensurePinnedCloudflared({ userData: paths.userData, signal }),
 				catch: (cause) =>
 					new ManagedTunnelError({
 						reason:
