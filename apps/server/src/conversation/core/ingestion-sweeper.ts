@@ -26,41 +26,63 @@ export const sweepIngestionLeases = (
 		FROM session_ingestion_leases WHERE expires_at <= ${now} ORDER BY expires_at, session_id LIMIT 100`.pipe(
 				Effect.orDie,
 			);
-		for (const row of rows) {
-			const discard =
-				sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now}`.pipe(
-					Effect.asVoid,
-					Effect.orDie,
-				);
-			yield* domain
-				.dispatchTransactionally(
-					{
-						commandId: `ingestion-expired:${row.owner_id}`,
-						streamId: row.session_id,
-						expectedAttempt: { turnId: row.turn_id, attemptId: row.attempt_id },
-						expectedProviderSessionId: row.provider_session_id,
-						command: {
-							_tag: "ExpireAttempt",
-							turnId: row.turn_id,
-							expectedAttemptId: row.attempt_id,
-							expiredAt: now,
-						},
-					},
-					() =>
-						Effect.gen(function* () {
-							const removed =
-								yield* sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now} RETURNING owner_id`;
-							if (removed.length !== 1)
-								return yield* new IngestionLeaseRenewed({});
-						}),
-				)
-				.pipe(
-					Effect.catchTag("IngestionLeaseRenewed", () => Effect.void),
-					Effect.catchTag(
-						["AttemptOwnershipConflict", "ProviderSessionOwnershipConflict"],
-						() => discard,
+		yield* Effect.forEach(
+			rows,
+			(row) =>
+				Effect.gen(function* () {
+					const discard =
+						sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now}`.pipe(
+							Effect.asVoid,
+							Effect.orDie,
+						);
+					yield* domain
+						.dispatchTransactionally(
+							{
+								commandId: `ingestion-expired:${row.owner_id}`,
+								streamId: row.session_id,
+								expectedAttempt: {
+									turnId: row.turn_id,
+									attemptId: row.attempt_id,
+								},
+								expectedProviderSessionId: row.provider_session_id,
+								command: {
+									_tag: "ExpireAttempt",
+									turnId: row.turn_id,
+									expectedAttemptId: row.attempt_id,
+									expiredAt: now,
+								},
+							},
+							() =>
+								Effect.gen(function* () {
+									const removed =
+										yield* sql`DELETE FROM session_ingestion_leases WHERE session_id = ${row.session_id} AND owner_id = ${row.owner_id} AND expires_at <= ${now} RETURNING owner_id`;
+									if (removed.length !== 1)
+										return yield* new IngestionLeaseRenewed({});
+								}),
+						)
+						.pipe(
+							Effect.catchTag("IngestionLeaseRenewed", () => Effect.void),
+							Effect.catchTag(
+								[
+									"AttemptOwnershipConflict",
+									"ProviderSessionOwnershipConflict",
+								],
+								() => discard,
+							),
+							Effect.orDie,
+						);
+				}).pipe(
+					// A blocked or invalid session must not disable recovery for every chat.
+					// Uncommitted lease deletions roll back for retry; committed expiry
+					// already queued recovery durably. Neither path resends provider input.
+					Effect.timeout("5 seconds"),
+					Effect.catchCause(() =>
+						Effect.logWarning(
+							"[ConversationServices] ingestion lease recovery deferred",
+							{ sessionId: row.session_id },
+						),
 					),
-					Effect.orDie,
-				);
-		}
+				),
+			{ concurrency: 8, discard: true },
+		);
 	});
