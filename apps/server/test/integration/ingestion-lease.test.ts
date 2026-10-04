@@ -1,7 +1,8 @@
 import { attemptIdFor } from "@zuse/domain/core/state";
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect } from "effect";
+import { Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, test } from "vitest";
 import { createSessionCommand } from "../../../../packages/domain/src/test/session.ts";
@@ -207,5 +208,94 @@ test.each([
 				}
 			}),
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});
+
+test.each([
+	"blocked",
+	"failed",
+] as const)("a %s session does not prevent other expired leases from settling", async (mode) => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				yield* Migration0070IngestionLeases;
+				const sql = yield* SqlClient.SqlClient;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(crypto.randomUUID()),
+				);
+				for (const sessionId of ["blocked-session", "healthy-session"]) {
+					const dispatch = (
+						command: Parameters<typeof domain.dispatch>[0]["command"],
+					) =>
+						domain.dispatch({
+							streamId: sessionId,
+							commandId: crypto.randomUUID(),
+							command,
+						});
+					yield* dispatch({
+						...createSessionCommand,
+						sessionId,
+						chatId: `${sessionId}-chat`,
+						providerId: "codex",
+					});
+					yield* dispatch({
+						_tag: "StartTurn",
+						turnId: `${sessionId}-turn`,
+						startedAt: 1,
+					});
+					const identity = {
+						turnId: `${sessionId}-turn`,
+						attemptId: attemptIdFor(`${sessionId}-turn`, 1),
+						providerSessionId: `${sessionId}-provider`,
+					};
+					yield* dispatch({
+						_tag: "ReserveProviderSession",
+						ownerAttempt: identity,
+						providerId: "codex",
+						providerSessionId: identity.providerSessionId,
+						reservedAt: 2,
+					});
+					yield* acquireIngestionLease(sql, sessionId, identity, {
+						now: () => 100,
+						leaseMs: 30,
+					});
+				}
+				const isolatedDomain: typeof domain = {
+					...domain,
+					dispatchTransactionally: (input, committed) =>
+						input.streamId === "blocked-session"
+							? mode === "blocked"
+								? Effect.never
+								: Effect.die("injected session dispatch failure")
+							: domain.dispatchTransactionally(input, committed),
+				};
+				const sweep = yield* Effect.forkChild(
+					sweepIngestionLeases(sql, isolatedDomain, 130),
+				);
+				yield* TestClock.adjust("6 seconds");
+				yield* Fiber.join(sweep);
+				expect(yield* domain.activeAttempt("healthy-session")).toBeNull();
+				expect(yield* domain.activeAttempt("blocked-session")).not.toBeNull();
+				expect(
+					yield* sql`SELECT 1 FROM session_ingestion_leases WHERE session_id = 'blocked-session'`,
+				).toHaveLength(1);
+				expect(
+					yield* sql`SELECT 1 FROM jobs WHERE kind = 'provider.turn.send'`,
+				).toHaveLength(0);
+				// A later pass recovers the retained lease without resending input.
+				yield* sweepIngestionLeases(sql, domain, 130);
+				expect(yield* domain.activeAttempt("blocked-session")).toBeNull();
+				expect(yield* sql`SELECT 1 FROM session_ingestion_leases`).toHaveLength(
+					0,
+				);
+				expect(
+					yield* sql`SELECT 1 FROM jobs WHERE kind = 'provider.turn.send'`,
+				).toHaveLength(0);
+			}),
+		).pipe(
+			Effect.provide(sqliteLayer({ filename: ":memory:" })),
+			Effect.provide(TestClock.layer()),
+		),
 	);
 });
