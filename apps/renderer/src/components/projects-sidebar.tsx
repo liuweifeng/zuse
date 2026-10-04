@@ -3600,12 +3600,12 @@ function ChatAttentionIcon({
 				aria-label={executionLabel}
 				title={executionLabel}
 			>
-				<span
+				<Spinner
 					className={cn(
-						"size-2 rounded-full",
+						"size-3.5",
 						state === "quiet" || state === "unavailable"
-							? "bg-warning"
-							: "bg-muted-foreground",
+							? "text-warning"
+							: "text-muted-foreground",
 					)}
 				/>
 			</span>
