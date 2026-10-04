@@ -16,6 +16,7 @@ import {
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
 import { readEngineBuildId } from "../src/engine-launcher.ts";
+import { startEngineAccountOutage } from "./engine-account-fixture.ts";
 import {
 	ENGINE_TOOL_COMMAND,
 	startEngineProviderFixture,
@@ -31,6 +32,9 @@ let providerFixture:
 	| Awaited<ReturnType<typeof startEngineProviderFixture>>
 	| undefined;
 let supervisor: ChildProcess | undefined;
+let accountOutage:
+	| Awaited<ReturnType<typeof startEngineAccountOutage>>
+	| undefined;
 let exited: Promise<void> = Promise.resolve();
 const within = async <T>(work: Promise<T>, ms: number): Promise<T> => {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -129,6 +133,8 @@ const waitReady = async (previousPid?: number) =>
 	);
 
 try {
+	if (process.argv.includes("--account-outage"))
+		accountOutage = await startEngineAccountOutage();
 	if (
 		process.env.ZUSE_ENGINE_CODEX_FIXTURE === "1" ||
 		process.argv.includes("--provider-fixture")
@@ -175,6 +181,20 @@ try {
 	const project = join(directory, "project");
 	await mkdir(project);
 	const folder = await first.call("workspace.add", { path: project });
+	if (accountOutage !== undefined) {
+		const descriptor = await first.call("connect.describe", null);
+		assert(
+			descriptor !== null &&
+				typeof descriptor === "object" &&
+				"environmentId" in descriptor,
+		);
+		await first.call("connect.apiConfig", {
+			apiUrl: accountOutage.url,
+			apiIssuer: "engine-outage-fixture",
+			environmentId: descriptor.environmentId,
+			environmentCredential: "fixture-only-credential",
+		});
+	}
 	first.channel.close();
 	await first.channel.closed;
 	const second = await connect(initial);
@@ -248,6 +268,33 @@ try {
 		);
 		if (providerFixture !== undefined)
 			assert(providerFixture.requestCount() > 0);
+		if (accountOutage !== undefined) {
+			await within(
+				(async () => {
+					while (true) {
+						const database = new DatabaseSync(join(directory, "zuse.sqlite"), {
+							readOnly: true,
+						});
+						try {
+							const lease = database
+								.prepare(
+									"SELECT provider_activity_at FROM session_ingestion_leases WHERE session_id=?",
+								)
+								.get(String(session.id));
+							if (typeof lease?.provider_activity_at === "number") break;
+						} finally {
+							database.close();
+						}
+						await delay(100);
+					}
+				})(),
+				10_000,
+			);
+			assert(accountOutage.requests.some((path) => path.includes("activity")));
+			console.log(
+				"PASS: linked-account HTTP outage does not block provider ingestion or lease renewal",
+			);
+		}
 		const toolPid = Number(
 			await readFile(join(project, "tool-pid.txt"), "utf8"),
 		);
@@ -424,5 +471,6 @@ try {
 		});
 	}
 	await providerFixture?.close();
+	await accountOutage?.close();
 	await rm(directory, { recursive: true, force: true });
 }

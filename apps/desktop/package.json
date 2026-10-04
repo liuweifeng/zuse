@@ -25,6 +25,7 @@
 		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs && node --test scripts/*.test.mjs",
 		"test:unit": "vp test run test/unit && node --test scripts/*.test.mjs",
 		"test:engine": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts",
+		"test:engine-reliability": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture --account-outage",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
 		"icon": "node scripts/make-icon.mjs",
