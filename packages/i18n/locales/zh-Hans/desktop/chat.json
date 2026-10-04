@@ -770,5 +770,6 @@
 	"attention_quiet": "暂无活动",
 	"attention_unavailable": "执行不可用",
 	"attention_disconnected": "已断开连接",
-	"attention_checking": "正在检查执行状态"
+	"attention_checking": "正在检查执行状态",
+	"message_row_send_again": "重新发送"
 }

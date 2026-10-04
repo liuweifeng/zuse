@@ -770,5 +770,6 @@
 	"attention_quiet": "⟦Qüüïïëët⟧",
 	"attention_unavailable": "⟦ËËxëëcüütïïôôn üünààvààïïlààblëë⟧",
 	"attention_disconnected": "⟦Dïïscôônnëëctëëd⟧",
-	"attention_checking": "⟦Chëëckïïng ëëxëëcüütïïôôn⟧"
+	"attention_checking": "⟦Chëëckïïng ëëxëëcüütïïôôn⟧",
+	"message_row_send_again": "⟦Sëënd ààgààïïn⟧"
 }

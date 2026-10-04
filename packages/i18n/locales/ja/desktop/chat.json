@@ -770,5 +770,6 @@
 	"attention_quiet": "応答待ち",
 	"attention_unavailable": "実行を確認できません",
 	"attention_disconnected": "切断されています",
-	"attention_checking": "実行を確認中"
+	"attention_checking": "実行を確認中",
+	"message_row_send_again": "もう一度送信"
 }

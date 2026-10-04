@@ -770,5 +770,6 @@
 	"attention_quiet": "응답 없음",
 	"attention_unavailable": "실행 확인 불가",
 	"attention_disconnected": "연결 끊김",
-	"attention_checking": "실행 확인 중"
+	"attention_checking": "실행 확인 중",
+	"message_row_send_again": "다시 보내기"
 }

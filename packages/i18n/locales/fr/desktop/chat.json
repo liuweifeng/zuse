@@ -773,5 +773,6 @@
 	"attention_quiet": "Silencieux",
 	"attention_unavailable": "Exécution indisponible",
 	"attention_disconnected": "Déconnecté",
-	"attention_checking": "Vérification de l’exécution"
+	"attention_checking": "Vérification de l’exécution",
+	"message_row_send_again": "Renvoyer"
 }
