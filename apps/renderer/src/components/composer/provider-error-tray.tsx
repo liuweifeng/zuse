@@ -273,10 +273,10 @@ function ProviderErrorActions({
 }
 
 function RetryAction({ onRetry }: { onRetry: () => void }) {
-	const { message: uiMessage } = useUiMessages(["common"]);
+	const { message: uiMessage } = useUiMessages(["chat"]);
 	return (
 		<button type="button" className={trayPillTextActionClass} onClick={onRetry}>
-			{uiMessage("common:retry")}
+			{uiMessage("chat:message_row_send_again")}
 		</button>
 	);
 }
