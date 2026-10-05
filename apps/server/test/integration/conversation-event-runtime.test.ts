@@ -10,7 +10,7 @@ import {
 	AttemptOwnershipConflict,
 	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
-import { Deferred, Effect, Exit, Layer, Ref, Stream } from "effect";
+import { Deferred, Effect, Exit, Layer, Queue, Ref, Stream } from "effect";
 import { describe, expect, test, vi } from "vitest";
 import {
 	ApiActivityPublisher,
@@ -46,7 +46,7 @@ describe("ConversationEventRuntime", () => {
 		providerId: () => Effect.succeed("claude" as const),
 		setStatus: () => Effect.void,
 		beginProviderTurn: (_sessionId: SessionId, turnId: AgentTurnId) =>
-			Effect.succeed(turnId),
+			Effect.succeed({ turnId, attemptId: AttemptId.make("provider-attempt") }),
 		settleTurn: (...args: Parameters<typeof settleTurn>) =>
 			settleTurn(...args).pipe(Effect.as(true)),
 		bindProviderThread: () => Effect.void,
@@ -747,6 +747,121 @@ describe("ConversationEventRuntime", () => {
 		expect(outcome).toEqual({ persisted: 0, activities: 0 });
 	});
 
+	test("defers late tool-output ownership to transactional persistence", async () => {
+		const ownership = {
+			turnId: AgentTurnId.make("finished-turn"),
+			attemptId: AttemptId.make("finished-attempt"),
+		};
+		let writes = 0;
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () =>
+							Stream.succeed<ProviderEventEnvelope>({
+								scope: "turn",
+								turnId: ownership.turnId,
+								ownership,
+								event: {
+									_tag: "ToolResult",
+									itemId: AgentItemId.make("tool"),
+									output: "done",
+									isError: false,
+								},
+							}).pipe(Stream.ensuring(Deferred.succeed(done, undefined))),
+						),
+						ownsAttempt: () => Effect.succeed(false),
+						persist: (
+							_session,
+							turnId,
+							content,
+							_identity,
+							expected,
+							residency,
+						) =>
+							Effect.sync(() => {
+								expect(turnId).toBe(ownership.turnId);
+								expect(content._tag).toBe("tool_result");
+								expect(expected).toEqual(ownership);
+								expect(residency).toBe("test-residency");
+								writes++;
+							}),
+					});
+					yield* runtime.start(SessionId.make("session"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(writes).toBe(1);
+	});
+
+	test("renews a provider-started turn after the original ingestion lease stopped", async () => {
+		const original = {
+			turnId: "original",
+			attemptId: "original-attempt",
+			providerSessionId: "test-residency",
+		};
+		const autonomous = {
+			turnId: AgentTurnId.make("autonomous"),
+			attemptId: AttemptId.make("autonomous-attempt"),
+		};
+		const acquired: string[] = [];
+		const expired: string[] = [];
+		let renewed = 0;
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const queue = yield* Queue.unbounded<ProviderEventEnvelope>();
+					const oldStopped = yield* Deferred.make<void>();
+					const alive = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						...options(yield* Effect.scope, () => Stream.fromQueue(queue)),
+						ingestionHeartbeatMs: 5,
+						ownsAttempt: (_session, expected) =>
+							Effect.succeed(expected.attemptId === autonomous.attemptId),
+						beginProviderTurn: () => Effect.succeed(autonomous),
+						acquireIngestionLease: (_session, identity) =>
+							Effect.sync(() => {
+								acquired.push(identity.attemptId);
+								return {
+									renew: () =>
+										identity.attemptId === original.attemptId
+											? Deferred.succeed(oldStopped, undefined).pipe(
+													Effect.as(false),
+												)
+											: Effect.gen(function* () {
+													renewed++;
+													if (renewed >= 3)
+														yield* Deferred.succeed(alive, undefined);
+													return true;
+												}),
+									release: Effect.void,
+									expire: Effect.sync(() => {
+										expired.push(identity.attemptId);
+									}),
+								};
+							}),
+					});
+					const sessionId = SessionId.make("session");
+					yield* runtime.start(sessionId, original);
+					yield* Deferred.await(oldStopped);
+					yield* Effect.sleep(25);
+					yield* Queue.offer(queue, {
+						scope: "turn",
+						turnId: autonomous.turnId,
+						event: { _tag: "ProviderTurnStarted" },
+					});
+					yield* Deferred.await(alive).pipe(Effect.timeout("2 seconds"));
+					yield* runtime.interrupt(sessionId);
+				}),
+			),
+		);
+		expect(acquired).toEqual([original.attemptId, autonomous.attemptId]);
+		expect(expired).toEqual([original.attemptId, autonomous.attemptId]);
+		expect(renewed).toBeGreaterThanOrEqual(3);
+	});
+
 	const runProviderTurn = (
 		resolveStart: (turnId: AgentTurnId) => AgentTurnId,
 	) =>
@@ -792,7 +907,10 @@ describe("ConversationEventRuntime", () => {
 						),
 						beginProviderTurn: (_sessionId, turnId) =>
 							Ref.update(started, (turns) => [...turns, turnId]).pipe(
-								Effect.as(resolveStart(turnId)),
+								Effect.as({
+									turnId: resolveStart(turnId),
+									attemptId: AttemptId.make("provider-attempt"),
+								}),
 							),
 						persist: (_sessionId, turnId) =>
 							Ref.update(persisted, (turns) =>
@@ -913,5 +1031,104 @@ describe("ConversationEventRuntime", () => {
 				? ["user_question", "question-needed", "user_question_answer"]
 				: [],
 		);
+	});
+});
+
+describe("provider-started attempt ownership", () => {
+	test.each([
+		"current",
+		"replaced-attempt",
+		"replaced-residency",
+	] as const)("fences autonomous turn content and settlement (%s)", async (mode) => {
+		const persisted: unknown[] = [];
+		const settled: unknown[] = [];
+		const turnId = AgentTurnId.make("autonomous");
+		const ownership = {
+			turnId,
+			attemptId: AttemptId.make("autonomous-attempt"),
+		};
+		await Effect.runPromise(
+			Effect.scoped(
+				Effect.gen(function* () {
+					const done = yield* Deferred.make<void>();
+					const runtime = yield* makeConversationEventRuntime({
+						scope: yield* Effect.scope,
+						events: () =>
+							Stream.fromIterable<ProviderEventDelivery>([
+								{
+									providerSessionId: "current",
+									scope: "turn",
+									turnId,
+									event: { _tag: "ProviderTurnStarted" },
+								},
+								{
+									providerSessionId: "current",
+									scope: "turn",
+									turnId,
+									event: {
+										_tag: "AssistantMessage",
+										itemId: AgentItemId.make("answer"),
+										text: "done",
+									},
+								},
+								{
+									providerSessionId: "current",
+									scope: "turn",
+									turnId,
+									event: { _tag: "Completed", reason: "ended" },
+								},
+							]).pipe(Stream.ensuring(Deferred.succeed(done, undefined))),
+						ownsProviderSession: () => Effect.succeed(true),
+						ownsAttempt: (_session, expected) => {
+							expect(expected).toEqual(ownership);
+							return Effect.succeed(mode !== "replaced-attempt");
+						},
+						providerId: () => Effect.succeed("claude"),
+						beginProviderTurn: (_session, requested, residency) => {
+							expect(requested).toBe(turnId);
+							expect(residency).toBe("current");
+							return mode === "replaced-residency"
+								? Effect.fail(
+										new ProviderSessionOwnershipConflict({
+											expectedProviderSessionId: residency,
+											actualProviderSessionId: "new",
+										}),
+									)
+								: Effect.succeed(ownership);
+						},
+						settleTurn: (_session, _turn, _outcome, expected, residency) =>
+							Effect.sync(() => {
+								settled.push([expected, residency]);
+								return true;
+							}),
+						persist: (
+							_session,
+							_turn,
+							_content,
+							_identity,
+							expected,
+							residency,
+						) =>
+							Effect.sync(() => {
+								persisted.push([expected, residency]);
+							}),
+						bindProviderThread: () => Effect.void,
+						bindAttemptProviderTurn: () => Effect.void,
+						setPermissionMode: () => Effect.void,
+						publishGoal: () => Effect.void,
+						publishApiActivity: () => Effect.void,
+						reconcileQuestionResolution: () => Effect.succeed(false),
+						ignoreError: () => false,
+						isDuplicateToolUse: () => Effect.succeed(false),
+					});
+					yield* runtime.start(SessionId.make("session"));
+					yield* Deferred.await(done);
+				}),
+			),
+		);
+		expect(persisted).toEqual(
+			mode === "current" ? [[ownership, "current"]] : [],
+		);
+		expect(settled).toEqual(mode === "current" ? [[ownership, "current"]] : []);
 	});
 });

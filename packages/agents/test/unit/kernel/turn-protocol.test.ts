@@ -1011,3 +1011,72 @@ it("interrupts an autonomous goal between native turns only after process quiesc
 		),
 	);
 });
+
+it("does not attach a completed application's attempt to a provider-started turn", async () => {
+	const attemptId = "attempt-background" as AttemptId;
+	const scoped = await Effect.runPromise(
+		makeTurnScopedSessionHandle(
+			handleWithEvents([
+				{ _tag: "Completed", reason: "ended" },
+				{ _tag: "ProviderTurnStarted" },
+				{ _tag: "AssistantMessage", itemId, text: "background continuation" },
+				{ _tag: "Completed", reason: "ended" },
+			]),
+			turnId,
+			attemptId,
+		),
+	);
+	await Effect.runPromise(scoped.send(turnId, "run"));
+	const events = await Effect.runPromise(Stream.runCollect(scoped.events));
+	expect(events[0]?.ownership).toEqual({ turnId, attemptId });
+	const continuation = events.slice(1);
+	expect(continuation.map((value) => value.event._tag)).toEqual([
+		"ProviderTurnStarted",
+		"AssistantMessage",
+		"Completed",
+	]);
+	expect(
+		continuation.every(
+			(value) =>
+				value.scope === "turn" &&
+				value.turnId !== turnId &&
+				value.ownership === undefined,
+		),
+	).toBe(true);
+});
+
+it("still sends an admitted attempt when a provider-only turn finishes before delivery", async () => {
+	let sends = 0;
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				const queue = yield* Queue.unbounded<ProviderDriverEvent>();
+				const completed = yield* Deferred.make<void>();
+				const scoped = yield* makeTurnScopedSessionHandle(
+					{
+						...handleWithEvents([]),
+						events: Stream.fromQueue(queue),
+						send: () =>
+							Effect.sync(() => {
+								sends++;
+							}),
+					},
+					turnId,
+					"attempt-before-send" as AttemptId,
+				);
+				yield* Effect.forkScoped(
+					Stream.runForEach(scoped.events, (value) =>
+						value.event._tag === "Completed"
+							? Deferred.succeed(completed, undefined)
+							: Effect.void,
+					),
+				);
+				yield* Queue.offer(queue, { _tag: "ProviderTurnStarted" });
+				yield* Queue.offer(queue, { _tag: "Completed", reason: "ended" });
+				yield* Deferred.await(completed);
+				yield* scoped.send(turnId, "run");
+			}),
+		),
+	);
+	expect(sends).toBe(1);
+});

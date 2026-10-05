@@ -1377,7 +1377,7 @@ export const ProviderServiceLive = Layer.effect(
 										: undefined,
 								),
 							);
-							yield* entry.handle.close().pipe(Effect.ignore);
+							yield* closeProviderHandle(entry.handle);
 							return yield* new AgentSessionNotFoundError({ sessionId });
 						}
 						yield* sendProviderSession({

@@ -195,12 +195,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 		state.rememberActiveTurn(sessionId, turnId);
 		return turnId;
 	});
-	const beginTurn = (
+	const startTurn = (
 		sessionId: SessionId,
 		turnIdOverride?: AgentTurnId,
-	): Effect.Effect<AgentTurnId> => {
+		expectedProviderSessionId?: string,
+	): Effect.Effect<AgentTurnId, ProviderSessionOwnershipConflict> => {
 		const existing = state.activeTurn(sessionId);
-		if (existing !== undefined) return Effect.succeed(existing as AgentTurnId);
+		if (existing !== undefined && expectedProviderSessionId === undefined)
+			return Effect.succeed(existing as AgentTurnId);
 		const turnId =
 			turnIdOverride ?? (`turn_${crypto.randomUUID()}` as AgentTurnId);
 		return Effect.gen(function* () {
@@ -212,6 +214,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				.dispatch({
 					commandId: crypto.randomUUID(),
 					streamId: sessionId,
+					expectedProviderSessionId,
 					command: { _tag: "StartTurn", turnId, startedAt },
 				})
 				.pipe(
@@ -219,13 +222,22 @@ export const makeConversationStoreRuntime = Effect.fn(
 					Effect.catchTag("TurnAlreadyRunning", (error) =>
 						Effect.succeed(error.turnId),
 					),
-					Effect.orDie,
+					Effect.catch((error) =>
+						error._tag === "ProviderSessionOwnershipConflict"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
 				)) as AgentTurnId;
 			if (resolvedTurnId === turnId) yield* runSessionReactors(sessionId);
 			state.rememberActiveTurn(sessionId, resolvedTurnId);
 			return resolvedTurnId;
 		});
 	};
+
+	const beginTurn: ConversationStoreRuntime["beginTurn"] = (
+		sessionId,
+		turnId,
+	) => startTurn(sessionId, turnId).pipe(Effect.orDie);
 
 	const persistTurnSettlement = (
 		sessionId: SessionId,
@@ -758,7 +770,26 @@ export const makeConversationStoreRuntime = Effect.fn(
 				Effect.orDie,
 				Effect.map((session) => session.providerId),
 			),
-		beginProviderTurn: beginTurn,
+		beginProviderTurn: (sessionId, turnId, providerSessionId) =>
+			Effect.gen(function* () {
+				const resolved = yield* startTurn(sessionId, turnId, providerSessionId);
+				const attempt = yield* sessionDomain
+					.activeAttempt(sessionId)
+					.pipe(Effect.orDie);
+				if (attempt?.turnId !== resolved) return null;
+				if (resolved === turnId)
+					yield* dispatchProviderCommand(
+						sessionId,
+						{
+							_tag: "SetStatus",
+							status: "running",
+							updatedAt: yield* currentTimestamp,
+						},
+						attempt,
+						providerSessionId,
+					);
+				return attempt;
+			}),
 		settleTurn: settleTurnWithResult,
 		bindAttemptProviderTurn: (
 			sessionId,

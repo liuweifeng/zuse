@@ -1643,3 +1643,116 @@ describe("SessionDomain", () => {
 		expect(result.interruptRows).toEqual([{ turn_id: "turn-2" }]);
 	});
 });
+
+test.each([
+	"current",
+	"unrelated",
+	"replaced-residency",
+	"wrong-attempt",
+	"newer-turn",
+	"no-residency",
+	"old-anchor",
+	"terminal",
+] as const)("fences late completed tool output (%s)", async (mode) => {
+	await run(
+		Effect.gen(function* () {
+			yield* createDomainTestSchema();
+			const sql = yield* SqlClient.SqlClient;
+			let sequence = 0;
+			const domain = yield* makeSessionDomain(sql, () =>
+				Effect.succeed(`tail-${++sequence}`),
+			);
+			const dispatch = (command: SessionCommand) =>
+				domain.dispatch({
+					commandId: `command-${++sequence}`,
+					streamId: "session-1",
+					command,
+				});
+			yield* dispatch(createSessionCommand);
+			yield* dispatch({
+				_tag: "ReserveProviderSession",
+				providerId: "provider-1",
+				providerSessionId: "resident",
+				reservedAt: 1,
+			});
+			yield* dispatch({ _tag: "StartTurn", turnId: "turn-1", startedAt: 2 });
+			yield* dispatch({
+				_tag: "PersistMessage",
+				turnId: "turn-1",
+				messageId: "tool",
+				role: "assistant",
+				kind: "tool_use",
+				contentJson: JSON.stringify({
+					_tag: "tool_use",
+					itemId: "tool-1",
+					tool: "Bash",
+					input: {},
+				}),
+				parentItemId: null,
+				createdAt: 3,
+			});
+			if (mode === "old-anchor")
+				yield* dispatch({
+					_tag: "RetryTurn",
+					turnId: "turn-1",
+					reason: "retry",
+					providerInputJson: "{}",
+					requestedAt: 3,
+				});
+			yield* dispatch({
+				_tag: "SettleTurn",
+				turnId: "turn-1",
+				outcome: "completed",
+				settledAt: 4,
+			});
+			if (mode === "replaced-residency")
+				yield* dispatch({
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: "replacement",
+					reservedAt: 5,
+				});
+			if (mode === "newer-turn")
+				yield* dispatch({ _tag: "StartTurn", turnId: "turn-2", startedAt: 5 });
+			const result = yield* domain
+				.dispatch({
+					commandId: "late",
+					streamId: "session-1",
+					expectedProviderSessionId:
+						mode === "no-residency" ? undefined : "resident",
+					expectedAttempt: {
+						turnId: "turn-1",
+						attemptId: attemptIdFor(
+							"turn-1",
+							mode === "wrong-attempt" || mode === "old-anchor" ? 2 : 1,
+						),
+					},
+					command:
+						mode === "terminal"
+							? {
+									_tag: "SettleTurn",
+									turnId: "turn-1",
+									outcome: "error",
+									settledAt: 6,
+								}
+							: {
+									_tag: "PersistMessage",
+									turnId: "turn-1",
+									messageId: "result",
+									role: "tool",
+									kind: "tool_result",
+									contentJson: JSON.stringify({
+										_tag: "tool_result",
+										itemId: mode === "unrelated" ? "unknown" : "tool-1",
+										output: "done",
+										isError: false,
+									}),
+									parentItemId: null,
+									createdAt: 6,
+								},
+				})
+				.pipe(Effect.result);
+			expect(result._tag === "Success").toBe(mode === "current");
+		}),
+	);
+});
