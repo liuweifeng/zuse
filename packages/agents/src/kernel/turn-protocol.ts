@@ -1,5 +1,6 @@
 import type {
 	AgentEvent,
+	AgentItemId,
 	AgentTurnId,
 	AttemptId,
 	ProviderAttemptOwnership,
@@ -102,6 +103,19 @@ const turnEnvelope = (
 	event: AgentEvent,
 ): ProviderEventEnvelope => ({ scope: "turn", turnId, event });
 
+const parentItemIdOf = (event: AgentEvent): string | undefined =>
+	"parentItemId" in event && typeof event.parentItemId === "string"
+		? event.parentItemId
+		: undefined;
+
+/** Events whose own `itemId` refers back to an earlier `ToolUse`. */
+const referencesToolUse = (
+	event: AgentEvent,
+): event is Extract<AgentEvent, { readonly itemId: AgentItemId }> =>
+	event._tag === "ToolUse" ||
+	event._tag === "ToolResult" ||
+	event._tag === "SubagentSummary";
+
 /** Emitted only after close confirms native child processes have stopped. */
 const stoppedChildren = (
 	active: ActiveTurn,
@@ -194,12 +208,25 @@ export const makeTurnScopedSessionHandle = (
 			(batch.released === undefined
 				? Effect.void
 				: Deferred.succeed(batch.released, undefined).pipe(
-						Effect.andThen(Ref.set(finished, true)),
+						Effect.andThen(
+							ownership === undefined ||
+								batch.events.some(
+									(event) =>
+										event.scope === "turn" &&
+										event.turnId === ownership.turnId &&
+										event.event._tag === "Completed",
+								)
+								? Ref.set(finished, true)
+								: Effect.void,
+						),
 					)
 			).pipe(
 				Effect.as(
 					batch.events.map((envelope) =>
-						ownership === undefined ? envelope : { ...envelope, ownership },
+						ownership === undefined ||
+						(envelope.scope === "turn" && envelope.turnId !== ownership.turnId)
+							? envelope
+							: { ...envelope, ownership },
 					),
 				),
 			);

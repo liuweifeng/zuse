@@ -1,4 +1,5 @@
 import {
+	MessageContent,
 	type TurnInterruptReceipt,
 	TurnInterruptReceipt as TurnInterruptReceiptSchema,
 } from "@zuse/contracts";
@@ -13,6 +14,28 @@ import {
 } from "../core/decider.js";
 import type { SessionEvent } from "../core/events.js";
 import { evolveAll, initialSessionState } from "../core/state.js";
+
+/** Only existing tool work may append content after its application turn settles. */
+export const providerToolReference = (
+	content: MessageContent,
+): string | undefined => {
+	switch (content._tag) {
+		case "tool_result":
+		case "subagent_summary":
+			return content.itemId;
+		case "assistant":
+		case "thinking":
+		case "tool_use":
+			return content.parentItemId;
+		case "subagent_progress":
+			return content.parentId;
+		default:
+			return undefined;
+	}
+};
+const decodeMessageContent = Schema.decodeUnknownResult(
+	Schema.fromJsonString(MessageContent),
+);
 
 export type StoredEvent<Event = SessionEvent> = {
 	readonly eventId: string;
@@ -235,8 +258,47 @@ export class DispatchEngine<
 			const ownsTail =
 				input.command._tag === "BindProviderThread" &&
 				turn?.ordinal === state.turnCount;
+			let ownsToolTail = false;
+			// Residency is checked above; never let an unfenced caller revive old work.
+			if (
+				input.expectedProviderSessionId !== undefined &&
+				turn?.status === "completed" &&
+				turn.ordinal === state.turnCount &&
+				input.command._tag === "PersistMessage" &&
+				input.command.turnId === expected.turnId
+			) {
+				const content = decodeMessageContent(input.command.contentJson);
+				const reference = Result.isSuccess(content)
+					? providerToolReference(content.success)
+					: undefined;
+				if (reference !== undefined) {
+					// A retry can reuse native item ids: anchors before the latest attempt do not qualify.
+					for (let index = stored.length - 1; index >= 0; index--) {
+						const event = stored[index]?.event;
+						if (
+							event === undefined ||
+							!("turnId" in event) ||
+							event.turnId !== expected.turnId
+						)
+							continue;
+						if (event._tag === "TurnStarted" || event._tag === "AttemptStarted")
+							break;
+						if (event._tag !== "MessagePersisted" || event.kind !== "tool_use")
+							continue;
+						const anchor = decodeMessageContent(event.contentJson);
+						if (
+							Result.isSuccess(anchor) &&
+							anchor.success._tag === "tool_use" &&
+							anchor.success.itemId === reference
+						) {
+							ownsToolTail = true;
+							break;
+						}
+					}
+				}
+			}
 			const actual =
-				(state.currentTurnId === expected.turnId || ownsTail) &&
+				(state.currentTurnId === expected.turnId || ownsTail || ownsToolTail) &&
 				!state.deleted &&
 				!state.archived &&
 				(!expected.requireUninterrupted || turn?.phase === "running")

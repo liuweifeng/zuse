@@ -14,6 +14,7 @@ import type {
 	AttemptOwnershipConflict,
 	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
+import { providerToolReference } from "@zuse/domain/engine/dispatch";
 import {
 	Deferred,
 	Effect,
@@ -74,13 +75,17 @@ export interface ConversationEventRuntimeOptions {
 	>;
 	/**
 	 * Durably starts a turn the provider opened on its own. Resolves to the
-	 * proposed id, or to the application turn that is already running when the
+	 * attempt, or to the application turn that is already running when the
 	 * two raced (the kernel then adopts the provider turn into it).
 	 */
 	readonly beginProviderTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
+		providerSessionId: string,
+	) => Effect.Effect<
+		AttemptOwnership | null,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	/** Bind the native execution reported by the owning provider process. */
 	readonly bindAttemptProviderTurn: (
 		sessionId: SessionId,
@@ -216,7 +221,8 @@ export const makeConversationEventRuntime = Effect.fn(
 				if (existing !== undefined) yield* Fiber.interrupt(existing.fiber);
 				const providerId = yield* options.providerId(sessionId);
 				const token = {};
-				const lease =
+				let ingestionIdentity = identity;
+				let lease =
 					identity === undefined || options.acquireIngestionLease === undefined
 						? null
 						: yield* options.acquireIngestionLease(sessionId, identity);
@@ -245,11 +251,11 @@ export const makeConversationEventRuntime = Effect.fn(
 						}
 						renewLease = false;
 						if (
-							identity !== undefined &&
-							(yield* options.ownsAttempt(sessionId, identity)) &&
+							ingestionIdentity !== undefined &&
+							(yield* options.ownsAttempt(sessionId, ingestionIdentity)) &&
 							(yield* options.ownsProviderSession(
 								sessionId,
-								identity.providerSessionId,
+								ingestionIdentity.providerSessionId,
 							))
 						)
 							return yield* Effect.interrupt;
@@ -257,14 +263,14 @@ export const makeConversationEventRuntime = Effect.fn(
 				);
 
 				const events =
-					lease === null
+					options.acquireIngestionLease === undefined
 						? options.events(sessionId)
 						: Stream.merge(
 								options.events(sessionId),
 								Stream.tick(
 									options.ingestionHeartbeatMs ?? INGESTION_HEARTBEAT_MS,
 								).pipe(
-									Stream.takeWhile(() => renewLease),
+									Stream.filter(() => renewLease),
 									Stream.map(() => null),
 								),
 								{ haltStrategy: "left" },
@@ -273,6 +279,7 @@ export const makeConversationEventRuntime = Effect.fn(
 				// Provider-opened turns that lost the race to an application turn,
 				// mapped onto the application turn that absorbed their events.
 				const absorbedProviderTurns = new Map<AgentTurnId, AgentTurnId>();
+				const providerTurns = new Map<AgentTurnId, AttemptOwnership | null>();
 				const ready = yield* Deferred.make<void>();
 				const fiber = yield* Effect.forkIn(
 					Deferred.await(ready).pipe(
@@ -287,7 +294,17 @@ export const makeConversationEventRuntime = Effect.fn(
 										),
 									);
 									if (envelope === null) return;
-									const ownership = envelope.ownership;
+									if (
+										envelope.scope === "turn" &&
+										providerTurns.get(envelope.turnId) === null
+									)
+										return;
+									const content = eventToContent(envelope.event);
+									const ownership =
+										envelope.ownership ??
+										(envelope.scope === "turn"
+											? (providerTurns.get(envelope.turnId) ?? undefined)
+											: undefined);
 									const providerSessionId = envelope.providerSessionId;
 									if (
 										!(yield* options.ownsProviderSession(
@@ -301,6 +318,8 @@ export const makeConversationEventRuntime = Effect.fn(
 									if (
 										ownership !== undefined &&
 										envelope.event._tag !== "SessionCursor" &&
+										(content === null ||
+											providerToolReference(content) === undefined) &&
 										!(yield* options.ownsAttempt(sessionId, ownership))
 									) {
 										yield* envelope.cursorReceipt?.release ?? Effect.void;
@@ -310,20 +329,45 @@ export const makeConversationEventRuntime = Effect.fn(
 									const event = envelope.event;
 									if (event._tag === "ProviderTurnStarted") {
 										if (envelope.scope !== "turn") return;
+										providerTurns.set(envelope.turnId, null);
 										const started = yield* options.beginProviderTurn(
 											sessionId,
 											envelope.turnId,
+											providerSessionId,
 										);
-										if (started !== envelope.turnId) {
-											absorbedProviderTurns.set(envelope.turnId, started);
+										if (started === null) return;
+										if (
+											options.acquireIngestionLease !== undefined &&
+											(ingestionIdentity?.attemptId !== started.attemptId ||
+												ingestionIdentity?.providerSessionId !==
+													providerSessionId)
+										) {
+											const nextIdentity = { ...started, providerSessionId };
+											const nextLease = yield* options.acquireIngestionLease(
+												sessionId,
+												nextIdentity,
+											);
+											if (nextLease === null) return yield* Effect.interrupt;
+											yield* lease?.expire ?? Effect.void;
+											lease = nextLease;
+											ingestionIdentity = nextIdentity;
+											renewLease = true;
+											lastRenewedAt = Date.now();
+										}
+										providerTurns.set(envelope.turnId, started);
+										if (started.turnId !== envelope.turnId) {
+											absorbedProviderTurns.set(
+												envelope.turnId,
+												started.turnId as AgentTurnId,
+											);
 										}
 										yield* options.publishApiActivity(sessionId, "running");
 										return;
 									}
 									const turnId =
 										envelope.scope === "turn"
-											? (absorbedProviderTurns.get(envelope.turnId) ??
-												envelope.turnId)
+											? ((providerTurns.get(envelope.turnId)?.turnId ??
+													envelope.turnId) as AgentTurnId)
 											: undefined;
 									if (event._tag === "ProviderNotificationMetadata") {
 										pendingReceipt = envelope.cursorReceipt;
@@ -461,7 +505,6 @@ export const makeConversationEventRuntime = Effect.fn(
 											"approval-needed",
 										);
 									}
-									const content = eventToContent(event);
 									if (content === null) return;
 									if (
 										content._tag === "tool_use" &&
@@ -507,7 +550,7 @@ export const makeConversationEventRuntime = Effect.fn(
 								yield* Effect.logDebug(cause);
 							}),
 						),
-						Effect.ensuring(lease?.expire ?? Effect.void),
+						Effect.ensuring(Effect.suspend(() => lease?.expire ?? Effect.void)),
 						Effect.ensuring(
 							Effect.suspend(() => pendingReceipt?.release ?? Effect.void),
 						),
