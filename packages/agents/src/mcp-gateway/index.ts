@@ -602,11 +602,6 @@ export const revokeMcpGatewaySession = async (
 	sessionId: string,
 ): Promise<void> => revokeMcpGatewaySessionRecord(sessionId);
 
-export const revokeAllMcpGatewaySessions = async (): Promise<void> => {
-	recordsBySession.clear();
-	recordsByHash.clear();
-};
-
 /** Reports registered provider sessions, including live sessions idle between turns. */
 export const mcpGatewayDiagnostics = (): {
 	readonly activeSessionCount: number;

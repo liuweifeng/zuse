@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
 	derive,
 	joinId,
-	makeIdAllocator,
 	scopeProviderThreadId,
 } from "../../../src/agent-engine/ids.js";
 
@@ -40,69 +39,39 @@ describe("agent engine ids", () => {
 
 	test("the same native id under a different provider derives a different app id", () => {
 		expect(
-			derive.timelineItemFromProviderItem({
+			derive.providerThread({
+				sessionId: "session-1",
 				provider: "claude",
-				nativeItemId: "tool_1",
+				nativeThreadId: "tool_1",
 			}),
 		).not.toBe(
-			derive.timelineItemFromProviderItem({
+			derive.providerThread({
+				sessionId: "session-1",
 				provider: "codex",
-				nativeItemId: "tool_1",
+				nativeThreadId: "tool_1",
 			}),
 		);
 	});
 
 	test("id parts are percent-encoded so separators inside native ids cannot collide", () => {
 		expect(joinId("a:b", "c")).toBe("a%3Ab:c");
-		const a = derive.providerTurn({ provider: "codex", nativeTurnId: "x:y" });
-		const b = derive.providerTurn({ provider: "codex", nativeTurnId: "x" });
+		const a = derive.providerThread({
+			sessionId: "session-1",
+			provider: "codex",
+			nativeThreadId: "x:y",
+		});
+		const b = derive.providerThread({
+			sessionId: "session-1",
+			provider: "codex",
+			nativeThreadId: "x",
+		});
 		expect(a).not.toBe(b);
 	});
 
-	test("turn signal items pair by turn id", () => {
-		const turnId = derive.turn({ sessionId: "s_1", ordinal: 3 });
-		expect(
-			derive.turnSignalTimelineItem({ turnId, signal: "interrupt-requested" }),
-		).toBe(
-			"timeline:turn:turn%3Asession%3As_1%3Aordinal%3A3:interrupt-requested",
-		);
-		expect(
-			derive.turnSignalTimelineItem({ turnId, signal: "interrupt-result" }),
-		).not.toBe(
-			derive.turnSignalTimelineItem({ turnId, signal: "interrupt-requested" }),
-		);
-	});
-
 	test("each attempt has its own root step", () => {
-		const turnId = derive.turn({ sessionId: "s_1", ordinal: 1 });
+		const turnId = "turn_1";
 		expect(derive.rootStep({ turnId, attemptOrdinal: 1 })).not.toBe(
 			derive.rootStep({ turnId, attemptOrdinal: 2 }),
-		);
-	});
-
-	test("jobs derive from the requesting command so retries collapse", () => {
-		const job = derive.job({
-			commandId: "cmd_1",
-			kind: "provider.turn.start",
-			target: "turn_1",
-		});
-		expect(job).toBe("job:cmd_1:provider.turn.start:turn_1");
-		expect(
-			derive.job({
-				commandId: "cmd_1",
-				kind: "provider.turn.start",
-				target: "turn_1",
-			}),
-		).toBe(job);
-	});
-
-	test("allocated ids use the injected id source", () => {
-		let counter = 0;
-		const allocator = makeIdAllocator(() => `uuid-${++counter}`);
-		expect(allocator.turn("s_1")).toBe("turn:session:s_1:uuid-1");
-		expect(allocator.turn("s_1")).toBe("turn:session:s_1:uuid-2");
-		expect(allocator.providerThread("claude")).toBe(
-			"provider-thread:provider:claude:uuid-3",
 		);
 	});
 });

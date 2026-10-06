@@ -1,705 +1,158 @@
 # Agent Engine
 
-The Agent Engine is the server subsystem that owns agent sessions. It keeps a
-durable graph of what the user asked for and what each provider did about it,
-treats every provider as a replaceable backend, and admits provider execution through durable jobs. Live control operations
-share its ownership and maintenance fences. Clients render projections of that graph and
-never infer state from a live process.
-
-## Implementation status
-
-This document describes both the current foundation and longer-term targets.
-The merge baseline includes transactional provider jobs, renewable claims,
-session-owned provider threads, turns and attempt history, guarded provider
-startup and event ingestion, restart reconciliation, and durable input ownership.
-Clients consume the `activeTurn` projection. Uncertain provider deliveries are
-reported explicitly rather than automatically resent.
-
-The baseline integrates main's organization execution policy and experimental
-Zuse harness. Queued work retains its author and rechecks access before execution;
-harness permission requests retain the acquiring provider's ownership checks.
-Migrations preserve main's harness/model records and upgrade the earlier engine
-ledger transactionally. Unknown development migration histories fail before writes.
-
-The desktop launches a standalone engine with an independently locked supervisor,
-private authenticated local transport, native credential storage, and scoped RPC
-attachments. Desktop quit detaches its clients; execution and nearby discovery remain
-owned by the engine. Reopening uses the live API port and reconstructs projections.
-Multiple renderer RPC scopes coexist without sharing request identities. Navigation
-revokes all scopes belonging to the previous document.
-
-Desktop reattachment verifies both engine executables, the native runtime ABI, and
-release version. An incompatible idle engine can stop cleanly before replacement;
-an active owner remains running. Updates and network-listener changes use one
-maintenance coordinator. The engine checks durable turns, jobs, fork construction,
-file restores, unresolved delegation results, and exact provider residency while
-atomically closing admission.
-Installation waits for both worker and supervisor exit. A competing maintenance
-action cannot reopen another action's admission barrier.
-
-Renderer disconnect fails pending RPC calls without replaying mutations. Native
-requests are bound to one desktop attachment; timeout, cancellation, and attachment
-loss revoke their responses. Reconnection never repeats native actions. The worker
-derives sleep prevention from durable active turns and authenticated remote clients.
-Its macOS sleep assertion follows the worker PID; nearby helpers stop on owner pipe
-closure. Linux discovery uses bounded process-group cleanup after owner loss. Sleep
-status is retained and delivered after native reattachment.
-
-Counted turns now capture Git baselines before provider execution and remain
-`finalizing` until their durable final capture succeeds. A failed capture is visible
-and retryable. Rollback previews changes, fences execution, restores files, truncates
-the conversation, and freezes retained context for a replacement provider thread.
-The restore journal supports retry across process loss. Codex can preserve a
-verified native turn prefix during rollback; a missing or unsupported native
-boundary uses retained transcript context in a replacement thread. Checkpoint
-scopes belong to root execution steps. Nested native tool and subagent steps
-explicitly report unsupported independent rollback: their notifications do not
-provide a barrier against concurrent filesystem writes.
-
-Linux validation includes real Electron quit/reopen, renderer reload, automatic
-worker-crash reattachment, and persisted settings. A bundled process test runs the
-real Codex executable and shell tool against local scripted inference: work survives
-client detach, busy updates are refused, and worker loss cleans the tool process
-without repeating its command. These tests do not establish behavior on every
-operating system or eliminate all possible reliability failures.
-
-Plan responses retain durable intent and acknowledgement separately: restart repairs
-acknowledged receipts and expires uncertain deliveries without replay.
-
-Production persistence now acquires a process-lifetime SQLite lock before database
-migration and runtime construction. A second engine for the same data directory
-fails before reconciliation; process death releases ownership without stale-file
-stealing. Linux process tests cover contention, suspension and forced termination.
-Native macOS ownership tests now cover contention, suspension and forced termination;
-Windows validation is still outstanding.
-Conversation construction now completes local durable reconciliation before workers
-start. It revokes prior residency metadata, preserves intentionally held initial
-turns and exact pending sends, and records explicit failure for orphaned execution
-without resending. Pending sends still pass the delivery journal before execution.
-Services become available after this local pass; provider interaction, naming and
-chat cleanup continue independently in the background. When a proven native
-execution identity exists, local reconciliation enqueues a
-read-only recovery attempt. The worker inspects that exact execution, backfills
-redacted output and settles from a complete terminal result. Uncorrelated or
-unverifiable executions still expose explicit uncertainty without automatic resend.
-Jobs now use renewable claims with unique acquisition owners, expiry recovery,
-post-commit cancellation, and session-scoped command drains. Provider sends retain
-a durable delivery fence: an uncertain outcome is surfaced instead of resending.
-Provider-thread identity is scoped to its owning session; forks sharing a native
-handle keep separate heads, including through historical replay and migration.
-Provider send and interrupt jobs now carry attempt identity. Obsolete jobs are
-skipped, retry cancels earlier sends and interrupts, and job settlement uses a
-transactional ownership guard. A migration recovers historical job ownership
-from the causing event. Attempt-aware provider handles now have immutable ownership
-and are replaced when a new attempt resumes the native thread. Their event envelopes
-carry ownership through message persistence, settlement, permission changes and
-thread binding. Final resume cursors may update the newest completed attempt until
-a later turn starts. Cursor deliveries carry process-local acknowledgment and
-release authority bound to the emitting handle. Persistence acknowledges that
-handle only after commit; rejected or interrupted persistence and unfinished
-streams release its pending delivery. Replaced handles cannot attach new question
-callbacks.
-Provider attachments and stop jobs now carry a unique live provider-session
-identity. Delayed stops retire only that identity and cannot detach a replacement,
-including a newer process for the same provider. Historical stops without an
-identity cannot target newly identified handles. Stop cleanup retains the retired
-handle through cancellation. The domain now supports durable startup reservations
-and transactional reservation guards, including rejection of receipt replay after
-revocation. Stop requests target both the attached handle and a distinct pending
-reservation. A session-row projection now supports ownership checks by primary key,
-and migration rebuilds it from lifecycle history. Runtime startup reserves its
-identity before workspace resolution or driver acquisition. Pending registry
-entries carry that identity; admission and attachment/status publication check
-both durable ownership and physical generation. Failed or cancelled startup
-revokes and closes only its own identity. Maintenance startup cannot replace an
-active attempt. Provider deliveries carry the emitting residency identity; event
-admission and transactional message, permission, cursor and settlement writes
-reject revoked identities even while the same attempt remains active.
-Stop cancels pending or running delivery and recovery jobs after commit; delivery
-status/error writes require an uninterrupted attempt. Send admission checks exact
-provider residency both before and after asynchronous preparation. Cancellation
-closes only that sending handle, including while driver preparation is pending.
-Provider acquisition, physical send cancellation, and question/plan callbacks
-retain the same ownership boundary. Goal execution uses the same durable submission path as other turns. Live goal
-controls hold a scoped admission lease and retain exact provider ownership;
-provider calls run outside the database transaction.
-Autonomous goals may span several native turns. The goal remains active until its
-native goal status and physical execution both finish; interruption joins the
-exact process before releasing ownership. An individual native turn is not a
-recovery identity for the whole goal. Unverifiable goal execution after process
-loss is explicitly uncertain and is never automatically resent.
-Job status and failure-message writes now carry transactional attempt guards,
-and interrupt cleanup closes only the matching provider handle. Handles whose
-event stream ended before the first send reject work as undelivered and are
-retired for recovery. Startup admission checks durable ownership under lifecycle
-serialization before replacing a handle, and owned attach/status publication checks
-ownership inside the transaction. Startup scopes retain displaced and acquired
-handles until successful publication and return; cancellation closes only those
-handles, with bounded cleanup and generation-aware invalidation. Driver startup now owns MCP credentials, ACP child processes, and app-server
-connections before returning a handle. Failed or interrupted acquisition releases
-those resources, including Promise allocations that finish after cancellation.
-Successful startup transfers ownership to the handle. All nine structured provider
-drivers use this startup ownership guard, including SDK resume/fallback, local
-server readiness, HTTP event connections and Pi initialization. Cancellation
-cannot turn a failed resume into a new SDK agent. Direct child-process drivers
-share bounded shutdown: a grace period followed by forced termination, with
-Unix process-group cleanup even when the original parent exits first. Handle
-close waits for shutdown; exit watchers also retire leftover descendants. Linux and macOS
-process tests cover children that ignore termination and descendants remaining after
-the parent exits. Native macOS startup-cancellation fixtures also pass. Windows tree
-termination still requires native verification, along with SDK-internal
-process teardown and legacy unowned lifecycle paths. Uncorrelated drivers currently require
-a fresh handle per attempt, adding resume latency; reuse requires native event
-correlation.
-Native execution correlation is now durable per attempt. The Codex driver reports
-its root native thread and turn IDs only while the application attempt is active;
-transactional attempt and residency guards fence persistence. A reference cannot
-change or be reused by a later attempt in the same session. Migration leaves
-historical attempts uncorrelated rather than guessing from prompt text. This is
-the evidence needed for recovery. A shared read-only native reader now verifies
-exact thread and turn identity and distinguishes missing, partial, running and
-terminal evidence. Reads time out without closing concurrent control-client
-requests; transport errors are not interpreted as absence. Transcript import
-uses the same thread reader. Recovery has a distinct durable job, retaining the
-original execution attempt as its source across retries and restarts. It revokes
-prior provider ownership, cancels superseded delivery/recovery jobs, and guards
-backfill and settlement with the recovery attempt. Stop revokes recovery write
-authority transactionally, including receipt replay, and cancels the recovery
-worker after commit without waiting for provider inspection. The interrupt worker
-retains authority to settle cancellation. Live ingestion and recovery
-share message identity; final recovered checkpoints replace partial snapshots.
-Credential patterns are shared with diagnostics, while recovered transcript text
-is preserved without diagnostic truncation. Missing, incomplete, running or
-unreadable evidence produces an explicit uncertain outcome. Other drivers have
-not yet reported strong native turn identity. A completed native root with child
-activity is insufficient evidence of completion: recovery preserves available
-output and reports uncertainty unless child completion can be proven. Independent
-native child transcript reconstruction remains capability-dependent.
-Owned event consumers now acquire a durable ingestion lease for their exact attempt
-and provider residency. Heartbeats run in the consumer, so blocked persistence
-stops renewal; a quiet provider can remain healthy without inventing provider
-activity. Expired owners cannot renew or release replacement leases. A bounded
-sweep revalidates expiry in the command transaction, then either requests
-read-only recovery from proven native evidence or records an explicit uncertain
-failure without resending. Stream termination expires its lease immediately.
-Opt-in runtime observation frames now report execution health on the session feed
-without changing its durable cursor. A server sample distinguishes a quiet provider
-(two minutes without activity), blocking input, startup and missing execution ownership.
-Clients accept samples only for the current epoch, stream version and attempt; cached
-observations do not establish health after reconnect. If an observation reports a
-newer committed cursor and the corresponding event has not arrived within ten seconds,
-the client reconnects to repair the gap. Desktop and mobile show quiet or
-unavailable execution separately from transport disconnection. Linux process tests cover these failure paths; other platforms still need
-native verification.
-Approval callbacks now capture their original provider residency and attempt.
-Request admission and decisions enforce that ownership inside the domain
-transaction; saved grants cannot authorize a stale callback. Revocation records
-`PermissionExpired`, denies the waiting callback, and updates both live timeline
-projections and restored snapshots. Expired approvals remain auditable and can
-be dismissed, but cannot become allow decisions. A background pass detects
-physical handle release even without client activity. This extends the existing
-approval ledger. Questions and plans share its indexed input lifecycle; their
-provider delivery protocols retain separate acknowledgement semantics.
-Question callbacks now receive application IDs at acquisition, independently of
-provider-native item IDs. Duplicate live events retain the same ID; replacement,
-release and acknowledgment revoke the mapping. Driver answers, cancellations and
-acknowledgments cross only that exact mapping. Existing receipts and legacy native
-IDs cannot authorize a replacement callback, including after restart. Provider
-resolution also removes live attachment authority. Question rejection has its own
-RPC error instead of claiming that an existing session is missing. Question intent
-and receipt storage use the existing fenced delivery path. Indexed input records
-unify lifecycle state while provider-specific delivery retains its acknowledgement
-protocol. Detaching live question authority now
-interrupts its in-flight delivery and rejects waiting callers without altering a
-replacement callback. Client disconnection alone does not cancel delivery. Question
-delivery does not hold the provider lifecycle lane, so close can revoke a hung
-callback. This cannot undo an answer already accepted by the external provider;
-driver-native side effects still require their own cancellation guarantees.
-Session-scoped provider questions and their resolutions are persisted even when no
-turn is attached. They retain an explicit null turn instead of inheriting whichever
-turn happens to be active at commit time. Provider residency still fences those
-writes, repeated events without attempt ownership use stable residency-scoped
-message IDs, and question notifications follow the durable commit. Other uncorrelated transcript events do
-not acquire turn authority through this input path.
-Question and permission lifecycle events now update one indexed `session_inputs`
-read model in the event transaction. Timeline snapshots read this projection instead
-of rescanning transcript and event history. Migration 0069 backfills imported
-message rows and permission/cancellation events in bounded pages; resolved inputs
-cannot reopen during replay, and deleted sessions remove their input rows. This
-projection records durable status but does not grant live callback authority or
-replace the existing answer delivery mechanisms. Question and approval events now
-capture their original provider residency and optional attempt; the projection
-retains that owner and the first request's turn attribution. Migration 0070 restores
-recorded ownership and original turn IDs without assigning current owners to legacy
-requests. Unreceipted question answers/cancellations require known durable ownership
-and recheck it before callback delivery, using the same ownership predicate as
-approvals. Answer receipts retain the request's original turn, including null for
-session inputs. A bounded question sweep now expires requests whose recorded owner
-or callback is gone, with ownership rechecked inside the expiry transaction.
-Startup checks the first 100 pending requests; subsequent pages run in the background.
-Imported requests with unknown ownership also become explicitly expired. Desktop
-and mobile render a disabled, dismissible card from the durable interaction projection;
-provider-native timeout receipts remain resolved rather than reappearing as cards.
-Native plan callback IDs are now scoped to a provider acquisition using the same
-application identity boundary as questions; a replacement cannot accept an older
-plan ID. Requests and tool results retain application correlation. Plan requests
-record their original owner in the accepted message event. Responses validate that
-owner, persist a stable receipt on the original turn after provider acceptance,
-and serialize identical retries without delivering twice after commit. Missing
-callbacks return a plan-specific error without fabricating a result. Questions and
-plans share one callback delivery primitive: matching callers join in-flight work,
-a client disconnect does not cancel it, and revoked ownership interrupts it. Native
-plan handles retain successful delivery results for receipt retries and retain
-uncertain failures without invoking the callback again. Close revokes delivery
-before waiting for native teardown. Committed plan receipts acknowledge only the
-exact application callback, releasing its delivery state while retaining bounded
-late-result correlation. Acknowledgements cannot retire a replacement callback.
-Plan deliveries now record intent before crossing the provider boundary and record
-acknowledgement before constructing the transcript receipt. Startup reconstructs
-acknowledged receipts on their original turns; unacknowledged sends become uncertain
-and cannot authorize another callback. Native plans use the shared indexed input
-projection, bounded expiry scans and transactional ownership rechecks. Desktop/mobile
-remove expired and uncertain decisions from actionable plans and show recovery notices.
-The provider/SQLite boundary remains non-atomic: a crash before acknowledgement is
-explicit uncertainty, never a fabricated success or an automatic resend.
-Idle conversations now switch providers in place. Configuration changes reject active
-turns and queued messages transactionally, and durable stop jobs retire only the old
-provider residencies. A provider switch freezes a redacted text handoff in the same
-transaction; failed capture rolls back the switch. The first destination turn receives
-up to 200 recent transcript messages and 60,000 characters, with an explicit omission
-notice. Visible user messages remain unchanged. Returning to a supported provider
-reuses its saved native thread with only the missed canonical context. Coverage
-accounts for pending context-link messages and incomplete turns. If native history
-is unavailable, the handoff durably records a full-context replacement before
-delivery. Attachments are retained in the application transcript, while these
-handoffs carry bounded text rather than earlier image or file payloads. The frozen handoff survives
-restart and is reused for retries of its first turn. Model changes retain native
-continuation while retiring the previous live process.
-Execution steps have a durable SQL projection and a shared live timeline reducer.
-Native subagents and explicit background shell tasks keep the root active after its
-own response finishes. Interruption closes their visible state before settling the
-root. Snapshots bound the tree and report truncation; rollback cancels affected
-steps in both snapshots and live deltas. App-owned delegations bind child sessions
-to the exact parent attempt, persist results and context links, and schedule one
-stable completion wake. Cancelled children from an earlier attempt cannot block
-results from a later attempt.
-
-SQL turn rows retain the active attempt pointer, while `session_attempts` records
-each initial, retry and recovery attempt with its outcome and timestamps. Migration
-and live projection share the same lifecycle projector; sequence guards preserve
-history during replay. Desktop and mobile expose a read-only attempt-history view
-through a session-scoped RPC, with bounded keyset pagination and rollback markers.
-Their shared paging controller fences late responses and deduplicates overlapping
-pages. Desktop and mobile both expose checkpoint review, retry, restore and
-interrupted-restore resumption using the same server policy.
-
-Completed Codex native children can be copied into a new session from verified
-full transcripts. The engine checks the exact completed execution step and native
-parent lineage, then freezes the child transcript in the durable fork construction.
-Retries reuse that snapshot; source rollback during capture prevents publication.
-Unknown lineage, partial history, non-text native inputs and unverified nested
-work are explicitly unsupported. Other providers require a verified native child
-reader before this action can succeed; an app-owned child is already a canonical
-session and uses ordinary session forking.
-
-Semantic waits pin a turn and attempt with the durable event cursor in one
-transaction. They replay and tail that session's events, and report replacement,
-deletion, timeout or terminal-before-target explicitly. Send-and-wait derives
-execution identities from the submission command before admission. Observer
-cancellation never cancels admitted work. Ready, unpaused queued work is starting,
-not idle. Ordinary composer submission preserves the draft when a blocking input
-appears; intentional queueing remains a separate policy.
-
-Cross-session sidebar and tray attention use the same server-observation health
-as the conversation. Quiet execution, missing ownership, disconnected transport
-and unconfirmed state are distinct from healthy running work. Live user input
-requests retain higher attention priority. A quiet observation does not declare
-failure or completion.
-
-Delivery should follow the outcome groups below. The numbered slices remain a
-mechanism inventory, not an instruction to defer recovery until slice 9.
-
-The pipeline in `realtime-runtime.md` stays. What changes is what flows through
-it: turns, attempts, steps, provider threads, input requests, and jobs instead
-of a single current turn and a resume cursor. Decisions are recorded in ADR
-0005.
-
-## The graph
-
-```text
-Session                            user-visible conversation, app id
-  Turn (ordinal 1..N)              one counted user turn
-    Attempt (1..M)                 one provider execution of that turn
-      root Step                    kind=root, completesTurn=true
-        tool_call step
-        approval step ------------ InputRequest {answerability}
-        subagent step ------------ child Session (lineage=subagent) or child ProviderThread
-  ProviderThread handles           provider-native conversations, several over time
-  ProviderSession                  live process residency, never resurrected
-  ContextLink / ContextHandoff     fork, provider switch, merge-back, subagent result
-  CheckpointScope / Checkpoint     git refs per turn ordinal
-  Jobs                             durable provider work with leases and retries
-```
-
-The graph is the durable truth. A provider process is a cache of live state
-that may be released, crash, or be replaced at any time without the session
-losing anything.
-
-## Rules
-
-1. App ids are primary. Provider ids are refs (`ProviderRef {provider,
-   nativeId, strength}`) and never keys.
-2. Only the root step of the active attempt completes a turn. A child step
-   finishing never closes its parent. An interrupt acknowledgement is never
-   the terminal event; the provider's terminal is.
-3. Every provider interaction is a job committed in the same transaction as
-   the events that requested it.
-4. Missing provider capability is an explicit, typed policy outcome. Nothing
-   outside a driver branches on `ProviderId`.
-5. Provider switches, forks, merge-backs, and subagent results are
-   `ContextLink`s. Expensive handoff text is materialised lazily when the
-   consuming turn starts and is stored as an auditable `ContextHandoff`.
-6. Ids that can be observed twice are derived from their scope and native id,
-   so a second observation is an upsert.
-7. Liveness is derived from the graph (active turn, open background steps,
-   pending live requests), never from a status column or an in-memory handle.
-
-## Entities
-
-Schemas live in `packages/contracts/src/agent-engine.ts`.
-
-| Entity | Carries | Status |
-| --- | --- | --- |
-| `Turn` | `ordinal`, `provider`, `providerThreadId`, `activeAttemptId`, `queuePosition`, `checkpointId`, `contextHandoffId` | `preparing, queued, starting, running, finalizing, completed, interrupted, failed, cancelled, rolled_back` |
-| `Attempt` | `ordinal`, `rootStepId`, `providerTurnId`, `reason: initial, steering_restart, retry, provider_recovery`, lease | `pending, running, completed, interrupted, failed, cancelled, superseded` |
-| `Step` | `parentStepId`, `rootStepId`, `kind`, `completesTurn`, `nativeItemRef`, `inputRequestId`, `checkpointScopeId` | as turn, minus `queued` |
-| `ProviderSession` | `provider`, `cwd`, `model`, `capabilities` | `starting, ready, running, waiting, stopped, error` |
-| `ProviderThread` | `nativeThreadRef`, `nativeHeadRef`, `firstTurnOrdinal..lastTurnOrdinal`, `handoffIds`, `ownerStepId`, `backgroundTasks` | `not_loaded, idle, active, archived, closed, error` |
-| `ProviderTurn` | `nativeTurnRef`, `ordinal`, `attemptId`, `tokenUsage` | `pending, running, completed, interrupted, failed, cancelled` |
-| `InputRequest` | `kind` (permission, question, plan_approval, tool_callback, auth_refresh), `answerability: live \| expired` | `pending, answered, expired, cancelled` |
-| `Subagent` (id is a `StepId`) | `origin: provider_native \| app_owned`, `childSessionId`, `nativeTaskRef`, `completionWake` | `pending, running, waiting, completed, failed, cancelled, interrupted` |
-| `ContextLink` | `type`, `sourcePoint`, `basePoint`, `resolution` | `pending, resolved_native, resolved_portable, failed, consumed, superseded` |
-| `ContextHandoff` | `coveredTurnOrdinals`, `strategy`, `summaryText` | `pending, ready, failed, superseded` |
-| `CheckpointScope`, `Checkpoint` | `kind`, `advancesTurnCount`, `cwd`; `ordinalWithinScope`, `turnOrdinal`, git `ref`, `files` | `ready, missing, error, stale` |
-| `TimelineItem` | ordered row with refs back into the graph; `ordinal` is banded per turn | `pending, running, waiting, completed, failed, cancelled, interrupted` |
-
-Messages and timeline items are projections. Turns, attempts, steps, provider
-threads, and input requests are the canonical graph.
-
-## Command pipeline
-
-```text
-dispatch(command)
-  per-session serial lock
-  receipt lookup by commandId          -> replay the stored result, run nothing
-  decide(command, state)               -> events
-  one SQLite transaction:
-    append events (global sequence)
-    apply projections
-    enqueue jobs implied by the events (no notification yet)
-    finalise receipt
-    cancel unsettled jobs if requested
-  after commit: signal cancellations, notify the job worker, publish to subscribers
-  return {sequence}                    -> the client's reconnect cursor
-```
-
-Entity events are snapshots (`TurnUpdated` carries the whole turn). The reducer
-is a set of upserts, replay is idempotent, and superseded snapshots can be
-compacted keep-latest.
-
-Provider-originated updates use compare-and-swap writes instead of locks: an
-update from an attempt that lost ownership, or a late provider thread snapshot
-from a superseded attempt, is rejected inside the transaction.
-
-## Jobs
-
-Job kinds are partitioned exhaustively into those that are safe to replay
-after process loss and those that are not. Replayable jobs that were running
-when the process died are requeued at startup; non-replayable ones are
-cancelled with a reason.
-
-Rows carry `status pending|waiting|running|succeeded|failed|cancelled`,
-`attemptCount`, `availableAt`, and a lease. A failure chooses its retry:
-automatic with backoff, on demand (the job is parked as `waiting` until a user
-action or boot recovery drains it), or never. Job ids derive from the requesting command so
-retries collapse on insert. Claiming is one atomic update. Jobs for one
-session run in order; jobs for different sessions run in parallel. Workers
-race execution against a per-job cancellation signal armed before the row is
-re-read; retries back off from 100 ms to a 30 s cap. Notifications are a
-latency hint; the row is authoritative and a liveness poll covers missed
-notifications and other processes.
-
-## Provider threads instead of provider processes
-
-| Level | Lifetime | Persisted | Identity |
-| --- | --- | --- | --- |
-| `Session` | forever | events | app |
-| `ProviderThread` | one native conversation; a session accumulates several | events, with `nativeThreadRef` | derived from native id |
-| `ProviderSession` | one live process; released on idle, crash, shutdown | metadata only; never resurrected | app |
-
-The provider session manager owns residency: open lazily under a per-session
-lock, release on idle with background-work pinning, flip pending requests to
-expired on release. It never restores processes at boot.
-
-Each provider thread records which turn ordinals it saw natively and which
-handoffs it received. Returning to a provider resumes its earlier thread and
-injects a delta handoff for the turns it missed.
-
-Transition policy, in order: target unavailable → reject; no current provider
-session → create with handoff; provider or continuation key mismatch → create
-with handoff; same provider with changed model → the driver's own plan;
-runtime mode or workspace changed → restart and resume; otherwise reuse.
-
-A failed native resume never silently starts a fresh transcript. It creates a
-replacement provider thread, a `provider_resume_fallback` link, and a
-full-session handoff, all recorded.
-
-## Turn lifecycle
-
-`message.dispatch` carries an intent: `defer_start`, `steer_active`,
-`restart_active`, `queue_after_active`, or `start_immediately`. Policy turns
-it plus capabilities into start, steer, restart, queue, or provider switch.
-
-- Start: turn `starting`, attempt `initial`, root step, message, user
-  timeline item, checkpoint scope, job `provider.turn.send`. The job captures
-  the baseline checkpoint, opens or resumes the provider thread, and flips
-  turn/attempt/step to `running` with a compare-and-swap.
-- Queue: turn `queued` with a position; the user timeline item materialises
-  only when the turn starts so it maps onto the provider turn. Promotion runs
-  under the session lock after any terminal turn.
-- Steer: native steer appends a message bound to the current attempt;
-  otherwise a new `steering_restart` attempt supersedes the old one under the
-  same turn.
-- Interrupt: before a provider turn exists, terminalise locally and cancel the
-  pending send job atomically. Otherwise emit an `interrupt_requested` item
-  and the job; the turn stays active until the provider reports terminal.
-- Finalising: provider `completed` persists the turn as `finalizing` and
-  enqueues the replayable `checkpoint.capture`; only after capture is the turn
-  `completed`.
-
-Ingestion accepts only events the turn owns and keeps running after the root
-terminal while child provider turns, subagents, or background steps are open,
-but only for completed roots. Interrupted or failed roots cascade terminal
-status to everything they own.
-
-## Requests, forks, subagents, checkpoints
-
-- One native approval yields a step, an `InputRequest` with live
-  answerability, and a timeline item, all with derived ids. Answering commits
-  `answered` then runs the `input.answer` job. Provider release or restart
-  turns pending requests into `expired`.
-- `session.fork` clones the session row with lineage and a pending fork link.
-  The fork's first message resolves native fork or a portable handoff.
-  Merge-back records base and source points and injects a delta handoff into
-  the source's next turn.
-- Provider-native subagents become a `subagent` step plus a child session with
-  lineage. App-owned delegation creates a child session and turn with a
-  `subagent_spawn` link; child terminal records `subagent_result` and offers
-  the parent a bounded completion wake.
-- Checkpoints are git refs per (scope, ordinal) with a baseline before each
-  turn and a capture after. Rollback restores files, rolls back the provider
-  conversation when the capability exists, marks later turns `rolled_back` and
-  later checkpoints `stale`.
-
-## Recovery
-
-Startup: verify projection watermark against the log → rebuild if invalid →
-reconcile → start the job worker → ready. Reconcile cancels every
-non-terminal turn (except `finalizing` turns with a pending capture), expires
-pending requests, cancels attempts, steps, provider turns, orphaned background
-steps and their subagents, sets provider threads idle and provider sessions
-stopped, then reconciles the job ledger and drains it. The same reconcile
-runs as a shutdown finaliser.
-
-Attempts carry leases renewed by the ingestion fibre. A sweeper terminalises
-expired leases and reclaims their jobs, so a dead fibre in a live process or a
-second server process cannot strand work.
-
-Turns that were running at restart get a `provider_recovery` attempt: resume
-the native thread, inspect it, and finalise from the transcript, re-issue the
-message once, or cancel with a reason. Output produced while the server was
-down is backfilled from native transcripts through the external-thread reader.
-
-## Target liveness guarantees
-
-These are acceptance criteria for the completed engine. They require fault
-tests and bounded detection budgets; a schema or durable status alone does not
-establish them. During a network partition a client can only show its last
-confirmed state and that it is disconnected. A suspended host cannot execute
-agents or run its watchdog until it wakes.
-
-1. **A stuck agent cannot look healthy.** Every running attempt holds a lease
-   renewed by the fibre that ingests its provider events. Liveness is derived
-   from the lease, the provider process, and the last event time, never from a
-   status column. An attempt whose lease expires, whose process exits, or whose
-   provider stream ends is terminalised by the sweeper with a reason. An
-   attempt that is alive but has produced nothing for longer than its
-   inactivity budget is shown as `stalled` with the time of its last event and
-   actions to interrupt or retry. Liveness carries an `authority`: `driver`
-   when the provider speaks a structured protocol (SDK, JSON-RPC, ACP), and
-   `heuristic` for plain terminal sessions where state is inferred from the
-   screen. Heuristic states are labelled as such in the UI and never trigger
-   automatic input.
-2. **The UI identifies stale state and converges with the engine.** Clients render server-owned
-   projections keyed by a global sequence. Running, blocked, stalled, and idle
-   come from the graph: an active attempt, a pending `InputRequest` with live
-   answerability, an expired lease, or nothing. There is no client-derived
-   status. A reconnect resumes by delta when the gap is small and by snapshot
-   otherwise, and duplicates are dropped by sequence, so a client is never
-   ahead of or behind the log without knowing it.
-3. **Nothing waits on an in-memory handle.** Every pending thing has a durable
-   row with an expiry: jobs have leases and retry policy, input requests have
-   answerability, attempts have leases. A restart or crash turns each of them
-   into an explicit state with a reason instead of a spinner. The server runs
-   detached from any window, so closing the app or dropping the network does
-   not touch provider processes; the client reattaches like any other client.
-
-"Blocked" is deliberately strict: a session is blocked only when a pending
-`InputRequest` exists. Sending a message to a blocked session returns
-`blocked` with the request instead of queueing input behind it.
-
-## Semantic waits
-
-Agents and clients coordinate on graph state, never on process completion.
-`session.wait` takes a session, an optional turn or attempt id, and a target
-state (`idle`, `blocked`, `done`) and resolves when the durable state reaches
-it. The wait is pinned to the attempt it started against, so a restart or a
-replacement attempt cannot satisfy it by accident. `session.sendAndWait` binds
-a prompt and its wait to one durable submission identity. The
-orchestration tools that let an agent delegate to other agents are built on
-these primitives, so a parent never polls output text or fires keystrokes
-into a child that is not ready.
-
-## Streaming
-
-The existing epoch and version cursor protocol in `realtime-runtime.md`
-remains. Additions: snapshot and sequence are read in one transaction; a
-reconnect replays by delta when the gap is under 128 events and 1 MiB and
-otherwise sends a fresh snapshot; clients drop any event at or below their
-last sequence; large snapshots and history pages go over HTTP; per-item wire
-truncation at 32 KiB; sidebar deltas coalesce to the newest event per session
-per window. A reconnect during a running turn resumes by delta; the client no
-longer forces a full snapshot because it distrusts its cached turn.
-
-## Delivery slices
-
-Each slice fully replaces one working mechanism, migrates existing data,
-keeps the app working end to end, and ships as its own pull request.
-
-| Slice | Replaces | With |
-| --- | --- | --- |
-| 1 | Provider reactors over event cursors, the effect receipt journal, and the startup suppression set | Durable job ledger and worker enqueued in the command transaction; jobs reconciled at boot |
-| 2 | `sessions.cursor`, `resume_strategy`, `provider_event_cursor` | `ProviderThread` rows with native refs (`session_provider_threads`); switching provider or worktree retires the active thread |
-| 3 | The single `currentTurnId` and ad hoc provider retries | Turns with ordinals and attempts (`session_turns`); retries and boot recovery are new attempts that supersede the earlier send job; the timeline carries `activeTurn` and `turnCount` |
-| 3b | Client-side turn state | Steps, timeline items with banded ordinals, and the finalising barrier follow with checkpoints |
-| 4 | The permission side channel and quarantine | `InputRequest` steps in the timeline with answerability; questions and plan approvals unified |
-| 5 | Bespoke driver start functions and the provider-service if/else | Capability-declaring driver contract, registry, and provider session manager |
-| 6 | New tab per provider | Provider switching in place with context links and handoffs |
-| 7 | Archive-scoped checkpoints as the unit of rollback | Turn checkpoints and rollback with provider reconcile |
-| 8 | `parentItemId` flattening and `origin_session_id` lineage | Subagents as child sessions with steps and completion wakes; `session.wait` and atomic send-and-wait for the delegation tools |
-| 9 | `recoverStaleSessions` | Total reconcile, attempt leases with a sweeper, `stalled` detection, `provider_recovery` attempts, transcript backfill with credential redaction |
-| 10 | Server hosted in the window process | Detached local server the shell attaches to |
-| 11 | Client-derived liveness and forced snapshots on reconnect | Server-owned timeline and liveness with a cross-session attention rollup (blocked, stalled, idle counts); delta resume mid-turn |
-
-## Outcome groups and release gates
-
-Implement larger groups that each deliver a complete user outcome. Finish the
-replacement and its migration before adding another parallel state model.
-
-### A. Correct execution and recovery
-
-Complete and harden slices 1–3 together with the ownership and recovery parts
-of slice 9. Carry the active attempt identity through jobs, provider events,
-and transactional settlement. Deliver cancellation after commit, verify
-ownership after registering cancellation, and reject superseded work at the
-provider boundary. Scope command outcome waits to the requesting work; keep
-the global drain for explicit maintenance only.
-
-Establish exclusive runtime ownership before reconciliation, finish local
-reconciliation before workers claim jobs, and expose readiness without
-waiting indefinitely for provider interaction. Add renewable claims with
-generation fencing and an expiry sweep. Distinguish runtime heartbeat,
-provider activity, and client connection freshness.
-
-A durable outbox ensures committed intent survives. It does not establish
-exactly-once external execution. If the provider accepted a message before
-the acknowledgement was persisted, recovery must inspect provider evidence
-or use supported idempotency. Without either, show an explicit uncertain
-outcome and require an intentional retry instead of silently resending.
-
-Gate: inject failure before send, after provider acceptance, before local
-acknowledgement, and during settlement. Test cancellation at every claim
-boundary, late events after retry, stream failure without a terminal event,
-expired owners, and two sessions where only one fails. Verify that forked
-sessions seeded from the same native thread cannot modify or delete one
-another's thread metadata.
-
-### B. Durable interaction and truthful clients
-
-Combine slices 4, the minimum driver capability work in 5, and 11. Deliver
-one durable input-request lifecycle and one server liveness projection used
-by desktop, mobile, sidebar, and timeline. Transport disconnection is distinct
-from execution failure. Optimistic submission stays separate from confirmed
-execution state. A quiet provider is not automatically a failed provider.
-
-Gate: disconnect during an approval, restart before and after an answer,
-submit the same answer twice, replay duplicate and reordered events, and
-reconnect with a stale epoch. Requests must either be answerable against the
-current runtime or visibly expired. Snapshot content and cursor must describe
-the same committed state. Measure reconnect bytes and latency on large history.
-
-### C. Agents outlive the desktop app
-
-Deliver slice 10 and the remaining recovery/backfill work in 9. Reuse the
-existing server composition and Serve CLI in a supervised process with one
-owner per data directory. The desktop attaches as a client. Separate window
-close, application quit, explicit engine shutdown, host sleep, and host loss.
-Closing a laptop does not keep local CPU work running; uninterrupted execution
-requires an awake host or a remote workspace.
-
-Gate: quit and reopen the desktop during a tool call; detach every client;
-kill the server; suspend and resume the host; attempt a second server start;
-upgrade while work is active. Verify history, ownership, approval expiry,
-recovery outcome, and redacted backfill. Run native lifecycle tests on each
-supported desktop platform before claiming this outcome.
-
-### D. Portable sessions and delegated work
-
-Complete slices 5–8 and 3b: provider switching with recorded context coverage,
-forks and merge-back, steps, subagents, semantic waits, and turn checkpoints.
-Use the capability policy and fenced attempts from earlier groups.
-
-Gate: switch A → B → A without missing or duplicating context; fork from an
-earlier turn; complete a child while its parent is running; interrupt a parent
-with live children; fail checkpoint capture; and roll back files plus provider
-context. A failed handoff or checkpoint must remain explicit and recoverable.
-
-## Testing
-
-Replay-backed integration tests: real domain, drivers, persistence,
-projections, and checkpoint policy; only the provider transport is a recorded
-transcript. `TestClock` for time and a deterministic id source for ids. The
-invariant set: simple, multi_turn, steering, interrupt,
-steering_restart_fallback, subagent, subagent_checkpoint, rollback, approval,
-provider_switch_return, restart, and lease sweep.
-
-
-### Reproducible process checks
-
-Run `bun run --cwd apps/desktop test:engine` for the bundled ownership and crash
-checks. `bun run --cwd apps/desktop test:engine-provider` also runs the installed
-Codex CLI against a loopback scripted model endpoint and real temporary shell tools.
-It needs no provider credentials; inference is simulated, while the driver, tool
-processes, engine, supervisor, and database are real. All fixture data is temporary.
-The ordinary authenticated provider suite is `bun run test:live-agents`; disabled
-providers report skipped tests. Explicit model overrides use variables such as
-`ZUSE_LIVE_CODEX_MODEL` without changing user configuration.
-
-For large-history synchronization, run `bunx vitest run
-test/integration/engine/cloud-history-benchmark.test.ts` from `packages/domain`.
-Set `ZUSE_BENCHMARK_OUTPUT` to a JSON output path to save timings and UTF-8 sizes.
-The fixture uses 10, 1,000, and 10,000 persisted messages and measures full history,
-bounded background history, and a five-event cursor resume. It measures domain
-frame production; network transport and rendering costs are excluded. Message
-replay shares the ordinary reducer while privately batching consecutive message
-collections to avoid copying an expanding message set for every historical event.
+The Agent Engine owns provider execution independently of desktop windows. The
+session event log is authoritative; SQL projections serve clients and durable jobs
+schedule provider work. [ADR 0005](../adr/0005-agent-engine.md) records the design
+direction. This document describes the implemented runtime rather than proposed
+entities or a history of implementation steps.
+
+## Ownership and execution
+
+A session contains counted turns, attempts, execution steps and provider threads.
+A provider thread is durable native conversation identity. A provider session is
+one live process residency; its identity is never reused after replacement.
+
+| Responsibility | Implementation |
+| --- | --- |
+| Commands, receipts and transactional ownership guards | `packages/domain/src/engine/dispatch.ts` |
+| Session decisions and replay | `packages/domain/src/core/` |
+| Durable job claims, cancellation and retry | `packages/domain/src/agent-engine/` |
+| Provider job execution and recovery | `apps/server/src/conversation/core/provider-jobs.ts` |
+| Driver acquisition and live callback ownership | `apps/server/src/provider/` |
+| Provider-specific protocols and process cleanup | `packages/agents/src/drivers/` and `kernel/` |
+| Event ingestion and attempt leases | `apps/server/src/conversation/core/conversation-event-runtime.ts` |
+| Client projections and subscriptions | `packages/client-runtime/` |
+
+Command admission serializes work per session. A single transaction appends events,
+applies projections, records the command receipt and enqueues jobs. Notifications
+and cancellation happen after commit. Repeating a command ID returns its receipt;
+it does not repeat the provider operation.
+
+Jobs use renewable claims with distinct acquisition owners. Provider start, send,
+interrupt and stop operations carry attempt and provider-session identity. Both
+in-memory admission and transactional writes reject superseded ownership. Startup
+and shutdown release only resources acquired by that operation. Uncorrelated
+providers use a fresh handle for each attempt instead of assigning late events to
+a later request.
+
+The job ledger and delivery journal have different responsibilities. The ledger
+tracks work to perform; the journal records whether a non-idempotent provider send
+crossed its delivery boundary. A crash after acceptance cannot be resolved by
+blindly retrying the job. Exact native execution evidence permits read-only
+recovery and backfill; missing or incomplete evidence yields an explicit uncertain
+outcome. Recovery never automatically resends uncertain input.
+
+Provider-started turns acquire a durable attempt and their own ingestion lease.
+If a provider turn races an application send, its events are adopted without
+allowing its terminal event to finish the application turn prematurely. Late tool
+output can append to the latest completed attempt only when the provider residency,
+attempt and original tool anchor still match. New turns, replacement residencies
+and retries revoke that authority.
+
+## Inputs and liveness
+
+`session_inputs` projects permission, question and plan lifecycle in the same
+transaction as transcript events. Durable input state is distinct from the live
+callback that can answer it. Callback IDs belong to an acquisition; replacement
+cannot accept an old answer. Expired inputs remain visible and dismissible.
+Questions and plans share callback delivery coordination but retain their native
+acknowledgement protocols. Plan intent and acknowledgement are stored separately,
+so restart can repair acknowledged receipts without repeating uncertain delivery.
+
+An ingestion lease identifies the exact consumer, attempt and provider residency.
+The consumer renews it; blocked ingestion therefore stops renewal. A bounded
+sweeper rechecks ownership before recovery or terminal settlement. One blocked
+session cannot stop recovery of other sessions.
+
+Server observations distinguish startup, running, quiet, blocked and missing
+execution ownership from client transport disconnection. Clients accept only
+observations for their current epoch, version and attempt. Sidebar subscriptions
+retain active sessions while the conversation view is unmounted, and release them
+when live state settles. Quiet execution is not itself failure.
+
+## Desktop lifetime
+
+The Electron shell attaches to the standalone engine through an authenticated
+local transport. A supervisor owns worker restart; a process-lifetime database
+lock prevents concurrent engines using the same profile. Reattachment checks
+engine executable identity, native ABI and release version.
+
+Desktop quit detaches clients without stopping provider work. Pending RPC calls
+fail on disconnect without replaying mutations. Native actions belong to an exact
+attachment; cancellation or attachment loss revokes their response authority.
+Discovery and sleep prevention belong to the engine, with helper lifetime tied to
+its owner process. A sleeping host cannot continue local execution.
+
+Updates and listener changes share one maintenance coordinator. It checks durable
+turns, jobs, file restores, forks and delegations before closing admission. Active
+work refuses replacement; idle shutdown waits for both worker and supervisor exit.
+Account notifications use a bounded background queue. Account HTTP requests,
+provider startup and process teardown have bounded lifetimes; human approval waits
+and ordinary long-running turns do not inherit those startup deadlines.
+
+## Context, checkpoints and delegation
+
+Idle sessions can switch providers in place. A switch freezes a redacted text
+handoff transactionally and retires the previous live residency. Returning to a
+supported native thread adds only missed context. Unavailable native history uses
+a recorded full-context replacement. Handoffs are bounded text; prior attachment
+payloads remain in the application transcript rather than being replayed wholesale.
+
+Counted turns capture Git baselines before execution and remain finalizing until
+final capture succeeds. Failed capture is visible and retryable. Restore previews
+changes, fences execution and journals file restoration before truncating context.
+Verified native checkpoint boundaries can preserve provider history; otherwise
+restoration uses retained transcript context in a replacement thread. Nested
+native tasks do not offer independent rollback without a filesystem write barrier.
+
+Execution steps represent native children and explicit background shell tasks.
+They can keep a root active after its response finishes. App-owned delegation binds
+a child session to its parent attempt, persists results and schedules a stable
+completion wake. Verified completed Codex children can be copied into canonical
+sessions; unverified lineage or incomplete child history is unsupported.
+
+Semantic waits pin a turn and attempt with an event cursor. They report replacement,
+deletion, timeout and terminal-before-target explicitly. Canceling an observer does
+not cancel admitted execution. Intentional queueing remains separate from a normal
+composer send blocked by a pending input.
+
+## Retired paths and retained compatibility
+
+Provider cursor reactors were replaced by durable jobs. Cursor reactors remain
+for naming, archive and delete work, which consume committed events rather than
+send provider prompts. The old desktop in-process RPC protocol is replaced by the
+engine bridge; there is no second desktop execution host.
+
+Persisted event schemas, migrations, imported-session fields and delivery receipts
+are compatibility requirements, not alternate runtime implementations. Existing
+profiles and earlier branch databases must upgrade without discarding history.
+Do not remove these because current writers no longer produce an old event.
+Read [runtime data recovery](../cloud/runtime-data-recovery.md) before changing
+storage paths or recovery of existing sandbox data.
+
+Archive snapshots and turn checkpoints serve different operations: restoring an
+archived worktree and rolling back a conversation turn. Mobile still consumes
+attempt-history and checkpoint RPCs even when desktop header controls are absent.
+Only contracts used by the actual projections and RPCs belong in the codebase;
+unimplemented graph schemas and identifier allocators are not runtime foundations.
+
+## Verification and limits
+
+Run applicable package types, Biome and behavior suites for the changed paths.
+Important regression boundaries are superseded attempts, canceled startup,
+late callbacks, failed sends, interrupted recovery, provider switching, checkpoint
+restore, client reconnect and desktop detach.
+
+- `bun run --cwd apps/desktop test:engine` exercises ownership and crash recovery.
+- `bun run --cwd apps/desktop test:engine-provider` also uses the installed Codex
+  executable and real shell tools against scripted local inference.
+- `bun run --filter desktop test:engine-reliability` adds an unresponsive linked
+  account endpoint. See [failure verification](agent-engine-reliability.md).
+- `bun run test:live-agents` exercises configured authenticated providers;
+  disabled providers are skipped.
+
+Fixtures use temporary profiles. Scripted inference tests exercise the real driver,
+engine, supervisor, database and tool processes, but do not establish every external
+provider's behavior. Strong native execution correlation is currently
+provider-dependent; unknown outcomes stay explicit. Windows process-tree cleanup
+and each deployed cloud runtime still require their own end-to-end verification.
