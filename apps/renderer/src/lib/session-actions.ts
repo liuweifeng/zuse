@@ -607,23 +607,6 @@ export const reorderSessionQueue = (
 	});
 };
 
-export const flushSessionQueue = (
-	ref: SessionRef,
-	providerId?: ProviderId,
-): void => {
-	const commandId = CommandId.make(
-		`queue-flush:${ref.sessionId}:${crypto.randomUUID()}`,
-	);
-	void dispatch(ref, "messages.queue.flush", commandId, {
-		commandId,
-		sessionId: ref.sessionId,
-	}).catch((cause) => {
-		if (!retryableFailure(ref, commandId)) {
-			setSessionError(ref, classifyError(cause, providerId));
-		}
-	});
-};
-
 export const resumeSessionQueue = async (
 	ref: SessionRef,
 	providerId?: ProviderId,

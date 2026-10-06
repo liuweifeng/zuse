@@ -25,11 +25,3 @@ export const dispatchReservedRuntimeCommand = (
 					: Effect.die(error),
 			),
 		);
-
-export const dispatchRuntimeCommand = (
-	domain: Pick<SessionDomainApi, "dispatch">,
-	input: DispatchInput,
-): Effect.Effect<CommandReceipt, AttemptOwnershipConflict> =>
-	dispatchReservedRuntimeCommand(domain, input).pipe(
-		Effect.catchTag("ProviderSessionOwnershipConflict", Effect.die),
-	);

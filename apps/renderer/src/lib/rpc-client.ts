@@ -795,13 +795,6 @@ export const reportRendererRpcFailure = (
 	getRendererEntry(environmentId).reportFailure(cause);
 };
 
-/** Report a long-lived stream failure once for the connection that owned it. */
-export const reportRendererRpcStreamFailure = (
-	generation: number,
-	cause: unknown,
-	environmentId = activeEnvironmentId,
-): boolean => getRendererEntry(environmentId).reportFailure(cause, generation);
-
 /**
  * Observe the shared renderer connection lifecycle. Long-lived RPC streams use
  * the generation edge to resubscribe without implementing their own retry loop
@@ -829,13 +822,6 @@ export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(
 		typeof environmentId === "string" ? environmentId : activeEnvironmentId,
 	).retryNow();
-
-export const dispatchRetryableRpcCommand = <A>(
-	commandId: string,
-	operation: () => Promise<A>,
-	environmentId = activeEnvironmentId,
-): Promise<A> =>
-	getRendererEntry(environmentId).dispatchCommand(commandId, () => operation());
 
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();

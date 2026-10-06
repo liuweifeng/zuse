@@ -1,7 +1,6 @@
 import {
 	type AgentItemId,
 	AgentTurnId,
-	type AttachmentRef,
 	type Chat,
 	type ChatId,
 	DEFAULT_PERMISSION_MODE,
@@ -111,22 +110,6 @@ export interface SessionOperationsOptions
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
 	readonly teardownSubscription: (sessionId: SessionId) => Effect.Effect<void>;
-}
-
-export interface OpenProviderSessionOptions {
-	readonly initialPrompt?: string;
-	readonly modelOptions?: Readonly<Record<string, string>>;
-	readonly enableSubagents?: boolean;
-	readonly forkFromResume?: boolean;
-	readonly postBootStatus?: Session["status"];
-	readonly sendAfterOpen?: {
-		readonly goal?: import("@zuse/contracts").ThreadGoalSetInput;
-		readonly turnId: AgentTurnId;
-		readonly text: string;
-		readonly attachments: ReadonlyArray<AttachmentRef>;
-		readonly fileRefs?: ReadonlyArray<import("@zuse/contracts").FileRef>;
-		readonly skillRefs?: ReadonlyArray<import("@zuse/contracts").SkillRef>;
-	};
 }
 
 export const makeSessionOperations = (options: SessionOperationsOptions) => {

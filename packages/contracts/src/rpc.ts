@@ -816,13 +816,3 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionSetWorktreeRpc,
 ).middleware(RpcAuthorization);
 export type MemoizeRpcs = typeof MemoizeRpcs;
-
-/**
- * The Electron IPC channel name used to transport RPC frames in both
- * directions. The frame body is the bytes/string emitted by the configured
- * `RpcSerialization` (we use NDJSON in v1 — see `apps/desktop/src/runtime.ts`).
- *
- * Renderer → main: `ipcRenderer.send(IPC_CHANNEL, frame)`
- * Main → renderer: `webContents.send(IPC_CHANNEL, frame)`
- */
-export const IPC_CHANNEL = "zuse:rpc" as const;

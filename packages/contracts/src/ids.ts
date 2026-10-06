@@ -44,8 +44,7 @@ export type CommandId = typeof CommandId.Type;
 export const EventId = makeEntityId("EventId");
 export type EventId = typeof EventId.Type;
 
-// Agent Engine ids. App ids are identity; provider-native ids are carried only
-// as `ProviderRef` values on the entities in `agent-engine.ts`.
+// App-owned execution and checkpoint identities.
 
 export const AttemptId = makeEntityId("AttemptId");
 export type AttemptId = typeof AttemptId.Type;
@@ -53,37 +52,11 @@ export type AttemptId = typeof AttemptId.Type;
 export const StepId = makeEntityId("StepId");
 export type StepId = typeof StepId.Type;
 
-/**
- * A live provider process/runtime. Distinct from `AgentSessionId`, which names
- * the app-side session: one app session can be backed by many provider
- * sessions over its lifetime.
- */
-export const ProviderSessionId = makeEntityId("ProviderSessionId");
-export type ProviderSessionId = typeof ProviderSessionId.Type;
-
 export const ProviderThreadId = makeEntityId("ProviderThreadId");
 export type ProviderThreadId = typeof ProviderThreadId.Type;
 
-export const ProviderTurnId = makeEntityId("ProviderTurnId");
-export type ProviderTurnId = typeof ProviderTurnId.Type;
-
-export const InputRequestId = makeEntityId("InputRequestId");
-export type InputRequestId = typeof InputRequestId.Type;
-
-export const TimelineItemId = makeEntityId("TimelineItemId");
-export type TimelineItemId = typeof TimelineItemId.Type;
-
-export const ContextLinkId = makeEntityId("ContextLinkId");
-export type ContextLinkId = typeof ContextLinkId.Type;
-
-export const ContextHandoffId = makeEntityId("ContextHandoffId");
-export type ContextHandoffId = typeof ContextHandoffId.Type;
-
 export const CheckpointScopeId = makeEntityId("CheckpointScopeId");
 export type CheckpointScopeId = typeof CheckpointScopeId.Type;
-
-export const CheckpointId = makeEntityId("CheckpointId");
-export type CheckpointId = typeof CheckpointId.Type;
 
 export const JobId = makeEntityId("JobId");
 export type JobId = typeof JobId.Type;

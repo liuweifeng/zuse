@@ -61,8 +61,6 @@ export const restoreSessionTimelineState = (
 				phase: "cached",
 			};
 
-export const applySessionTimelineEvent = applyTimelineEvent;
-
 /**
  * Records message changes made directly to the canonical cell by optimistic
  * command intent. The driver folds these back into its serialized reducer lane

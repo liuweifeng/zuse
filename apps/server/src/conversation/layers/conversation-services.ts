@@ -503,7 +503,7 @@ const ConversationRuntimeLive = Layer.effect(
 					chatArchive: handleChatArchive,
 					chatDelete: handleChatDelete,
 				},
-				{ ledger: sessionDomain.jobs, worker: jobWorker },
+				jobWorker,
 				serviceScope,
 			);
 		const archiveChat: ConversationOperations["archiveChat"] = (

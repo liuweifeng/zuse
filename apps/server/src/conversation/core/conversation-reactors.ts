@@ -13,7 +13,6 @@ import type {
 	ChatArchiveWorktreeError,
 	ChatNotFoundError,
 } from "@zuse/contracts";
-import type { JobLedger } from "@zuse/domain/agent-engine/job-ledger";
 import type {
 	JobFailure,
 	JobWorker,
@@ -109,7 +108,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 	"ConversationReactors.make",
 )(function* (
 	handlers: ConversationReactorHandlers,
-	jobs: { readonly ledger: JobLedger; readonly worker: JobWorker },
+	worker: JobWorker,
 	serviceScope: Scope.Scope,
 ): Effect.fn.Return<ConversationReactorRuntime, never, SqlClient.SqlClient> {
 	const sql = yield* SqlClient.SqlClient;
@@ -143,7 +142,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 	const runAutoName = yield* serialize(autoName.catchUp().pipe(Effect.orDie));
 	const runSession = (sessionId: string) =>
 		Effect.gen(function* () {
-			yield* drainProviderJobs(jobs.worker, sessionId);
+			yield* drainProviderJobs(worker, sessionId);
 			// Generated chat and branch names can take tens of seconds. They are
 			// durable, but they must not hold the provider lane and delay the
 			// user's next message. Keep their own serialized worker in the service
@@ -151,7 +150,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 			yield* Effect.forkIn(runAutoName, serviceScope);
 		});
 	const runProviderStop = (sessionId: string) =>
-		drainProviderJobs(jobs.worker, sessionId);
+		drainProviderJobs(worker, sessionId);
 	const runChatArchive = yield* serialize(
 		chatArchive.catchUp().pipe(
 			Effect.asVoid,
@@ -184,7 +183,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 		catchUpAll: Effect.all(
 			(
 				[
-					["providers", jobs.worker.drain.pipe(Effect.orDie)],
+					["providers", worker.drain.pipe(Effect.orDie)],
 					["naming", runAutoName],
 					[
 						"chat lifecycle",

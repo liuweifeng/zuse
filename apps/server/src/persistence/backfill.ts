@@ -112,11 +112,6 @@ interface ChatBackfillEvent {
 	readonly event: ChatEvent;
 }
 
-export type LifecycleBackfillResult = {
-	readonly status: "completed" | "already-completed";
-	readonly eventCount: number;
-};
-
 const timestamp = (value: string | null, field: string): number | null => {
 	if (value === null) return null;
 	const parsed = Date.parse(value);
