@@ -8,6 +8,7 @@ import {
 	SessionStartError,
 } from "@zuse/contracts";
 import { joinId } from "@zuse/domain/agent-engine/ids";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -20,7 +21,7 @@ import {
 	shouldIncludeInTranscript,
 	transcriptToMarkdown,
 } from "./conversation-message-mapping.ts";
-import { type MessageRow, messageFromRow } from "./conversation-records.ts";
+import { messageFromRecord } from "./conversation-records.ts";
 import { makeForkConstruction } from "./fork-construction.ts";
 import { readForkSnapshot } from "./fork-snapshot.ts";
 import {
@@ -59,6 +60,7 @@ export const makeTranscriptOperations = (
 } => {
 	const { sql, createChat, lookupSession, persistMessage } = options;
 	const construction = makeForkConstruction(options);
+	const queries = makeSqlSessionQueries(sql);
 
 	const continueExternalThread: ConversationOperations["continueExternalThread"] =
 		(input) =>
@@ -91,30 +93,30 @@ export const makeTranscriptOperations = (
 	) =>
 		Effect.gen(function* () {
 			const session = yield* lookupSession(sessionId);
-			const rows = yield* sql<MessageRow>`
-				SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-				FROM messages WHERE session_id = ${sessionId}
-				ORDER BY created_at ASC, sequence ASC
-			`.pipe(Effect.orDie);
+			const rows = yield* queries
+				.messageList({ sessionId, order: "createdAt" })
+				.pipe(Effect.orDie);
 			let slice = rows;
 			if (uptoMessageId !== undefined) {
-				const index = rows.findIndex((row) => row.id === uptoMessageId);
+				const index = rows.findIndex((row) => row.messageId === uptoMessageId);
 				if (index !== -1) slice = rows.slice(0, index + 1);
 			}
-			return transcriptToMarkdown(session.title, slice.map(messageFromRow));
+			return transcriptToMarkdown(session.title, slice.map(messageFromRecord));
 		});
 
 	const latestPlan: ConversationOperations["latestPlan"] = (sessionId) =>
 		Effect.gen(function* () {
 			const session = yield* lookupSession(sessionId);
-			const rows = yield* sql<MessageRow>`
-				SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-				FROM messages
-				WHERE session_id = ${sessionId} AND kind IN ('tool_use', 'assistant')
-				ORDER BY created_at DESC, sequence DESC
-			`.pipe(Effect.orDie);
+			const rows = yield* queries
+				.messageList({
+					sessionId,
+					order: "createdAt",
+					direction: "desc",
+					kinds: ["tool_use", "assistant"],
+				})
+				.pipe(Effect.orDie);
 			for (const row of rows) {
-				const content = messageFromRow(row).content;
+				const content = messageFromRecord(row).content;
 				const markdown = proposedPlanMarkdownFromContent(content);
 				if (markdown !== null) return markdown;
 				// Compatibility for plan items persisted before providers preserved
@@ -168,16 +170,19 @@ export const makeTranscriptOperations = (
 					.withTransaction(
 						Effect.gen(function* () {
 							const source = yield* lookupSession(input.sourceSessionId);
-							const rows = yield* sql<MessageRow>`
-					SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-					FROM messages WHERE session_id=${input.sourceSessionId}
-					ORDER BY created_at ASC, sequence ASC
-				`.pipe(Effect.orDie);
+							const rows = yield* queries
+								.messageList({
+									sessionId: input.sourceSessionId,
+									order: "createdAt",
+								})
+								.pipe(Effect.orDie);
 							return { source, rows };
 						}),
 					)
 					.pipe(Effect.catchTag("SqlError", Effect.die)));
-			const forkIndex = rows.findIndex((row) => row.id === input.fromMessageId);
+			const forkIndex = rows.findIndex(
+				(row) => row.messageId === input.fromMessageId,
+			);
 			if (forkIndex === -1) {
 				return yield* Effect.fail(
 					new SessionStartError({
@@ -196,7 +201,7 @@ export const makeTranscriptOperations = (
 				providerId === "claude" &&
 				matchesClaudeForkPoint(
 					source.providerThread?.nativeHeadRef?.nativeId ?? null,
-					messageFromRow(rows[forkIndex]!).content,
+					messageFromRecord(rows[forkIndex]!).content,
 				);
 			const forkMode: "resume" | "copy" =
 				input.nativeChildStepId === undefined &&
@@ -219,7 +224,7 @@ export const makeTranscriptOperations = (
 				input.title?.trim() || `Fork of ${source.title}`.slice(0, 120);
 			const transcript = rows
 				.slice(0, forkIndex + 1)
-				.map(messageFromRow)
+				.map(messageFromRecord)
 				.filter((message) => shouldIncludeInTranscript(message.content));
 			const providerThread =
 				forkMode === "resume" && source.providerThread !== null

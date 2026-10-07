@@ -123,6 +123,15 @@ for naming, archive and delete work, which consume committed events rather than
 send provider prompts. The old desktop in-process RPC protocol is replaced by the
 engine bridge; there is no second desktop execution host.
 
+Session and message reads use the domain SQL query layer and its shared record
+decoders. Archive previews, transcript exports, forks and context handoffs consume
+those records instead of maintaining separate row adapters. Context queries retain
+SQL-side limits and exclusions. The unused in-memory query service is removed;
+in-memory aggregate/projector fixtures still support domain tests. Retained machine
+snapshots use the same decoders after read-only normalization of older columns.
+Live session writes already go through domain commands and transactional projectors;
+SQL projections and specialized transactional checks remain part of the engine.
+
 Persisted event schemas, migrations, imported-session fields and delivery receipts
 are compatibility requirements, not alternate runtime implementations. Existing
 profiles and earlier branch databases must upgrade without discarding history.

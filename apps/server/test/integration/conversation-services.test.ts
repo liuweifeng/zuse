@@ -1627,12 +1627,25 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const first = await run(
 				Effect.flatMap(store, (service) => service.createChat(input)),
 			);
+			// Imported timestamps can precede the original prompt; delivery order is
+			// defined by the durable sequence for both replay validation and preview.
+			await run(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					yield* sql`INSERT INTO messages (id, session_id, role, kind, content_json, created_at, sequence)
+					SELECT 'later-backdated-message', ${retrySessionId}, 'user', 'user',
+					'{"_tag":"user","text":"later prompt","goal":false}', '2000-01-01T00:00:00.000Z', COALESCE(MAX(sequence), 0) + 1
+					FROM messages WHERE session_id = ${retrySessionId}`;
+				}),
+			);
+
 			const retried = await run(
 				Effect.flatMap(store, (service) => service.createChat(input)),
 			);
 
 			expect(retried.chat.id).toBe(first.chat.id);
 			expect(retried.initialSession.id).toBe(first.initialSession.id);
+			expect(retried.initialMessage?.id).toBe(input.initialMessageId);
 			expect(providerStartInputs).toHaveLength(1);
 		});
 	});

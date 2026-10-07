@@ -5,11 +5,12 @@ import {
 	SessionId,
 } from "@zuse/contracts";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import { renderHandoffContext } from "./context-handoff.ts";
 import { makeContextLinks } from "./context-links.ts";
-import { type MessageRow, messageFromRow } from "./conversation-records.ts";
+import { messageFromRecord } from "./conversation-records.ts";
 
 interface DelegationRow {
 	readonly child_session_id: string;
@@ -29,6 +30,7 @@ export const makeDelegationRuntime = (
 	domain: SessionDomainApi,
 ) => {
 	const links = makeContextLinks(sql);
+	const queries = makeSqlSessionQueries(sql);
 	const state = (row: DelegationRow) =>
 		sql<{
 			parent_exists: number;
@@ -107,11 +109,15 @@ export const makeDelegationRuntime = (
 				(current.child_exists === 1 && !ended.has(current.child_status ?? ""))
 			)
 				return;
-			const rows = yield* sql<
-				MessageRow & { sequence: number }
-			>`SELECT id,session_id,role,kind,content_json,parent_item_id,created_at,sequence FROM messages WHERE session_id=${row.child_session_id} AND turn_id=${row.child_turn_id} AND kind IN ('assistant','tool_use','tool_result','subagent_summary') ORDER BY sequence DESC LIMIT 201`;
+			const rows = yield* queries.messageList({
+				sessionId: row.child_session_id,
+				turnId: row.child_turn_id,
+				kinds: ["assistant", "tool_use", "tool_result", "subagent_summary"],
+				direction: "desc",
+				limit: 201,
+			});
 			const context = renderHandoffContext(
-				rows.slice(0, 200).reverse().map(messageFromRow),
+				rows.slice(0, 200).reverse().map(messageFromRecord),
 				rows.length > 200,
 			);
 			const resultId = MessageId.make(
@@ -160,7 +166,9 @@ export const makeDelegationRuntime = (
 							targetMessageId: resultId,
 							baseMessageId: null,
 							sourceMessageId:
-								rows[0] === undefined ? null : MessageId.make(rows[0].id),
+								rows[0] === undefined
+									? null
+									: MessageId.make(rows[0].messageId),
 							sourceSequence: rows[0]?.sequence ?? 0,
 							contextText: content.summary,
 							originTurnId: row.parent_turn_id,

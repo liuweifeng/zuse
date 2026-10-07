@@ -123,7 +123,7 @@ describe.each([
 					yield* sql`CREATE TABLE session_context_links (target_message_id TEXT,target_session_id TEXT,first_turn_id TEXT,invalidated_at INTEGER)`;
 					yield* sql`CREATE TABLE chats (id TEXT PRIMARY KEY)`;
 					yield* sql`CREATE TABLE sessions (id TEXT PRIMARY KEY, forked_from_session_id TEXT REFERENCES sessions(id))`;
-					yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, content_json TEXT, role TEXT, kind TEXT, parent_item_id TEXT, created_at TEXT, sequence INTEGER,turn_id TEXT)`;
+					yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT, content_json TEXT, role TEXT, kind TEXT, parent_item_id TEXT, created_at TEXT, sequence INTEGER,turn_id TEXT,checkpoint_revision INTEGER,checkpoint_final INTEGER)`;
 					const createChat = vi.fn(
 						(input: { forkedFromSessionId?: SessionId | null }) =>
 							sql`INSERT OR IGNORE INTO sessions VALUES (${session.id}, ${input.forkedFromSessionId ?? null})`.pipe(
@@ -213,12 +213,12 @@ test("completed native child fork freezes full context and retries without re-re
 			yield* sql`CREATE TABLE session_context_links (target_message_id TEXT,target_session_id TEXT,first_turn_id TEXT,invalidated_at INTEGER)`;
 			yield* sql`CREATE TABLE chats (id TEXT PRIMARY KEY)`;
 			yield* sql`CREATE TABLE sessions (id TEXT PRIMARY KEY)`;
-			yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY,session_id TEXT,content_json TEXT,role TEXT,kind TEXT,parent_item_id TEXT,created_at TEXT,sequence INTEGER,turn_id TEXT)`;
+			yield* sql`CREATE TABLE messages (id TEXT PRIMARY KEY,session_id TEXT,content_json TEXT,role TEXT,kind TEXT,parent_item_id TEXT,created_at TEXT,sequence INTEGER,turn_id TEXT,checkpoint_revision INTEGER,checkpoint_final INTEGER)`;
 			yield* sql`CREATE TABLE session_execution_steps(id TEXT,session_id TEXT,attempt_id TEXT,turn_id TEXT,native_child_id TEXT,status TEXT,kind TEXT)`;
 			yield* sql`CREATE TABLE session_attempts(id TEXT,session_id TEXT,turn_id TEXT,provider_turn_json TEXT)`;
 			yield* sql`INSERT INTO sessions VALUES('source')`;
 			yield* sql`INSERT INTO chats VALUES(${chat.id})`;
-			yield* sql`INSERT INTO messages VALUES('summary','source','{"_tag":"assistant","text":"only parent summary"}','assistant','assistant',NULL,'2026-01-01',1,NULL)`;
+			yield* sql`INSERT INTO messages VALUES('summary','source','{"_tag":"assistant","text":"only parent summary"}','assistant','assistant',NULL,'2026-01-01',1,NULL,NULL,NULL)`;
 			yield* sql`INSERT INTO session_execution_steps VALUES('exact-step','source','attempt','turn','child','completed','subagent')`;
 			yield* sql`INSERT INTO session_attempts VALUES('attempt','source','turn',${JSON.stringify({ provider: "codex", nativeThreadId: "parent", nativeTurnId: "root-turn" })})`;
 			let reads = 0;
@@ -245,7 +245,7 @@ test("completed native child fork freezes full context and retries without re-re
 						return nativeChildThread();
 					}),
 				persistMessage: (id, content, messageId) =>
-					sql`INSERT OR IGNORE INTO messages VALUES(${messageId},${id},${JSON.stringify(content)},${content._tag === "user" ? "user" : "assistant"},${content._tag},NULL,'2026-01-01',(SELECT COUNT(*)+1 FROM messages),NULL)`.pipe(
+					sql`INSERT OR IGNORE INTO messages VALUES(${messageId},${id},${JSON.stringify(content)},${content._tag === "user" ? "user" : "assistant"},${content._tag},NULL,'2026-01-01',(SELECT COUNT(*)+1 FROM messages),NULL,NULL,NULL)`.pipe(
 						Effect.orDie,
 						Effect.as({ message: {} as never, sequence: 1 }),
 					),
