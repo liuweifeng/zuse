@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import {
 	connectLocalEngine,
 	type DesktopEngineConfig,
@@ -9,6 +10,7 @@ import {
 	requestIdleEngineShutdown,
 	writeDesktopEngineConfig,
 } from "@zusehq/server/desktop-engine";
+import { Schema } from "effect";
 
 import { readEngineBuildId } from "./engine-build-id.ts";
 
@@ -26,6 +28,38 @@ const desktopBuildId = (path: string): Promise<string> => {
 		builds.set(path, build);
 	}
 	return build;
+};
+
+const retainedEngines = new Set<string>();
+const decodeProtocol = Schema.decodeUnknownSync(
+	Schema.Struct({ protocolVersion: Schema.Number }),
+);
+
+// Existing engines already expose this endpoint, including on authenticated
+// installations (401 includes the protocol). No credential is sent over HTTP.
+const canAttachRebuiltDesktop = async (
+	endpoint: DesktopEngineEndpoint,
+	signal?: AbortSignal,
+): Promise<boolean> => {
+	const timeout = AbortSignal.timeout(2_000);
+	try {
+		const response = await fetch(
+			`http://127.0.0.1:${endpoint.apiPort}/auth/cli-session`,
+			{
+				signal:
+					signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
+				redirect: "error",
+			},
+		);
+		if (response.status !== 200 && response.status !== 401) return false;
+		return (
+			decodeProtocol(await response.json()).protocolVersion ===
+			WIRE_PROTOCOL_VERSION
+		);
+	} catch {
+		signal?.throwIfAborted();
+		return false;
+	}
 };
 
 /** Start once or attach to the existing owner. Closing the desktop never stops this process. */
@@ -63,11 +97,23 @@ export const ensureDesktopEngine = async (options: {
 			endpoint.appVersion !== config.appVersion ||
 			endpoint.buildId !== config.buildId
 		) {
+			const retainedKey = `${endpoint.token}:${config.appVersion}:${config.buildId}`;
+			if (retainedEngines.has(retainedKey)) return endpoint;
 			const stopped = await requestIdleEngineShutdown(endpoint, {
 				userData: config.userData,
 				signal,
 			});
 			if (stopped === "stopped") return null;
+			// A build hash identifies executable contents, not RPC compatibility.
+			// Keep active work reachable across same-release rebuilds. Once adopted,
+			// reconnects keep this owner until the desktop itself restarts.
+			if (
+				endpoint.appVersion === config.appVersion &&
+				(await canAttachRebuiltDesktop(endpoint, signal))
+			) {
+				retainedEngines.add(retainedKey);
+				return endpoint;
+			}
 			throw new Error(
 				"A different engine version is still running. Finish its active work before restarting the engine.",
 			);
