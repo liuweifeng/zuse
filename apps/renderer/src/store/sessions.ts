@@ -1,3 +1,4 @@
+import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type {
 	AgentItemId,
 	ChatId,
@@ -25,17 +26,24 @@ import {
 import {
 	activeSessionById,
 	activeSessionsByProject,
+	environmentShellData,
 	overlayActiveEnvironmentShell,
 	overlayEnvironmentShell,
 } from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
+import {
+	createPendingModelChanges,
+	isBusyModelChange,
+	type ModelSelection,
+} from "../lib/pending-model-change.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { sessionForkDestinations } from "../lib/session-fork.ts";
 import {
 	dispatchSessionCommand,
 	getRendererClientBus,
+	retainSessionTimeline,
 	sessionTimelineResourceKey,
 } from "../lib/session-timeline-client-bus.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
@@ -82,6 +90,15 @@ type SessionsState = {
 	readonly draftSession: Session | null;
 	readonly draftRevision: number;
 	readonly error: string | null;
+	readonly pendingModelChanges: Readonly<Record<string, ModelSelection>>;
+	readonly selectModel: (
+		sessionId: SessionId,
+		providerId: ProviderId,
+		model: string,
+		environmentId: EnvironmentId,
+	) => Promise<
+		{ readonly ok: true } | { readonly ok: false; readonly reason: string }
+	>;
 	readonly draftSkills: ReadonlyArray<import("@zuse/contracts").Skill>;
 	readonly loadDraftSkills: (
 		projectId: FolderId,
@@ -744,29 +761,35 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			throw err;
 		}
 	},
+	pendingModelChanges: {},
+	selectModel: async (sessionId, providerId, model, environmentId) => {
+		const draft = get().draftSession;
+		if (draft?.id === sessionId) {
+			set({
+				draftSession: Session.make({ ...draft, providerId, model }),
+				error: null,
+			});
+			return { ok: true };
+		}
+		set({ error: null });
+		return pendingModelChanges.request(
+			{ sessionId, environmentId },
+			{ providerId, model },
+		);
+	},
 	setModel: async (sessionId, model, environmentId) => {
 		const draft = get().draftSession;
 		if (draft !== null && draft.id === sessionId) {
 			set({ draftSession: Session.make({ ...draft, model }) });
 			return;
 		}
-		set({ error: null });
-		try {
-			const commandId = nextCommandId("session-model");
-			await dispatchTimelineCommand(
-				sessionId,
-				"session.setModel",
-				commandId,
-				{ sessionId, model },
-				"never",
-				environmentId,
-			);
-			patchActiveSession(sessionId, (session) =>
-				Session.make({ ...session, model }),
-			);
-		} catch (err) {
-			set({ error: formatError(err) });
+		const owner = environmentForSessionCommand(sessionId, environmentId);
+		const session = configurationSession({ environmentId: owner, sessionId });
+		if (session === null) {
+			set({ error: "This session is no longer available." });
+			return;
 		}
+		await get().selectModel(sessionId, session.providerId, model, owner);
 	},
 	setRuntimeMode: async (sessionId, runtimeMode, environmentId) => {
 		const draft = get().draftSession;
@@ -895,30 +918,12 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ draftSession: Session.make({ ...draft, providerId, model }) });
 			return { ok: true } as const;
 		}
-		set({ error: null });
-		try {
-			const commandId = nextCommandId("session-provider");
-			await dispatchTimelineCommand(
-				sessionId,
-				"session.setProvider",
-				commandId,
-				{ sessionId, providerId, model },
-				"never",
-				environmentId,
-			);
-			patchActiveSession(sessionId, (session) =>
-				Session.make({ ...session, providerId, model }),
-			);
-			return { ok: true } as const;
-		} catch (err) {
-			const raw = formatError(err);
-			const reason =
-				raw === "SessionAlreadyStartedError"
-					? "Start a new chat to switch provider."
-					: raw;
-			set({ error: reason });
-			return { ok: false, reason } as const;
-		}
+		return get().selectModel(
+			sessionId,
+			providerId,
+			model,
+			environmentForSessionCommand(sessionId, environmentId),
+		);
 	},
 	archive: async (sessionId, explicitEnvironmentId) => {
 		set({ error: null });
@@ -1110,3 +1115,89 @@ useWorkspaceStore.subscribe((ws, prev) => {
 		useSessionsStore.setState({ selectedSessionId: slot });
 	}
 });
+
+// Retaining the timeline keeps pending picks alive across navigation. Its
+// authoritative active turn and queue, not a rendered spinner, gate dispatch.
+const configurationSession = (ref: {
+	environmentId: EnvironmentId;
+	sessionId: SessionId;
+}) =>
+	Object.values(
+		environmentShellData(ref.environmentId)?.sessionsByProject ?? {},
+	)
+		.flat()
+		.find((session) => session.id === ref.sessionId) ?? null;
+const pendingModelChanges = createPendingModelChanges({
+	current: configurationSession,
+	snapshot: (ref) =>
+		getRendererClientBus().snapshot(sessionTimelineResourceKey(ref)),
+	retain: (ref, listener) => {
+		const { key, lease } = retainSessionTimeline(ref, "connect");
+		const unsubscribe = getRendererClientBus().subscribe(key, listener);
+		return () => {
+			unsubscribe();
+			lease.release();
+		};
+	},
+	apply: async (ref, selection) => {
+		const sameProvider =
+			configurationSession(ref)?.providerId === selection.providerId;
+		const commandId = nextCommandId(
+			sameProvider ? "session-model" : "session-provider",
+		);
+		try {
+			await dispatchTimelineCommand(
+				ref.sessionId,
+				sameProvider ? "session.setModel" : "session.setProvider",
+				commandId,
+				sameProvider
+					? { sessionId: ref.sessionId, model: selection.model }
+					: { sessionId: ref.sessionId, ...selection },
+				"never",
+				ref.environmentId,
+			);
+		} catch (error) {
+			if (isBusyModelChange(error))
+				getRendererClientBus().dismissFailedCommand(
+					sessionTimelineResourceKey(ref),
+					commandId,
+				);
+			throw error;
+		}
+		overlayEnvironmentShell(ref.environmentId, (shell) => {
+			const projectId = findSessionProject(
+				shell.sessionsByProject,
+				ref.sessionId,
+			);
+			if (projectId === null) return undefined;
+			return {
+				...shell,
+				sessionsByProject: {
+					...shell.sessionsByProject,
+					[projectId]: (shell.sessionsByProject[projectId] ?? []).map(
+						(session) =>
+							session.id === ref.sessionId
+								? Session.make({ ...session, ...selection })
+								: session,
+					),
+				},
+			};
+		});
+	},
+	changed: (ref, selection) =>
+		useSessionsStore.setState((state) => {
+			const pendingModelChanges = { ...state.pendingModelChanges };
+			const key = resourceRefKey(ref);
+			if (selection === null) delete pendingModelChanges[key];
+			else pendingModelChanges[key] = selection;
+			return { pendingModelChanges };
+		}),
+	failed: (error) => {
+		const reason = formatError(error);
+		useSessionsStore.setState({ error: reason });
+		return reason;
+	},
+});
+
+if (import.meta.hot)
+	import.meta.hot.dispose(() => pendingModelChanges.dispose());

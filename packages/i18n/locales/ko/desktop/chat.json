@@ -772,7 +772,7 @@
 	"attention_disconnected": "연결 끊김",
 	"attention_checking": "실행 확인 중",
 	"message_row_send_again": "다시 보내기",
-	"message_row_model_switched": "모델이 {{from}}에서 {{to}}(으)로 변경되었습니다.",
+	"message_row_model_switched": "모델이 <from>{{from}}</from>에서 <to>{{to}}</to>(으)로 변경되었습니다.",
 	"message_row_context_handed_off": "컨텍스트가 전달되었습니다.",
 	"message_row_context_preserved": "컨텍스트가 유지되었습니다."
 }

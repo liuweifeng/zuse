@@ -151,5 +151,6 @@
 	"accounts_waiting": "Terminez la connexion dans votre navigateur.",
 	"accounts_open_browser": "Ouvrir le navigateur",
 	"accounts_signed_in": "Connecté",
-	"accounts_remove_description": "Supprime ce compte des paramètres. Les conversations utilisant ce compte ne pourront plus reprendre. Les fichiers de connexion et les transcriptions sont conservés."
+	"accounts_remove_description": "Supprime ce compte des paramètres. Les conversations utilisant ce compte ne pourront plus reprendre. Les fichiers de connexion et les transcriptions sont conservés.",
+	"model_picker_switch_pending": "Changement après la fin du travail en cours"
 }

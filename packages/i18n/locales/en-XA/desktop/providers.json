@@ -151,5 +151,6 @@
 	"accounts_waiting": "⟦Côômplëëtëë sïïgn-ïïn ïïn yôôüür brôôwsëër.⟧",
 	"accounts_open_browser": "⟦ÔÔpëën brôôwsëër⟧",
 	"accounts_signed_in": "⟦Sïïgnëëd ïïn⟧",
-	"accounts_remove_description": "⟦Rëëmôôvëës thïïs ààccôôüünt frôôm Sëëttïïngs. Chààts üüsïïng ïït càànnôôt rëësüümëë. Lôôgïïn fïïlëës àànd tràànscrïïpts ààrëë këëpt.⟧"
+	"accounts_remove_description": "⟦Rëëmôôvëës thïïs ààccôôüünt frôôm Sëëttïïngs. Chààts üüsïïng ïït càànnôôt rëësüümëë. Lôôgïïn fïïlëës àànd tràànscrïïpts ààrëë këëpt.⟧",
+	"model_picker_switch_pending": "⟦Swïïtchëës whëën cüürrëënt wôôrk fïïnïïshëës⟧"
 }

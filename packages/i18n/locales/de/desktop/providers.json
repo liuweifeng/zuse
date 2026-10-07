@@ -151,5 +151,6 @@
 	"accounts_waiting": "Schließen Sie die Anmeldung im Browser ab.",
 	"accounts_open_browser": "Browser öffnen",
 	"accounts_signed_in": "Angemeldet",
-	"accounts_remove_description": "Entfernt dieses Konto aus den Einstellungen. Chats mit diesem Konto können nicht fortgesetzt werden. Anmeldedateien und Chatverläufe bleiben erhalten."
+	"accounts_remove_description": "Entfernt dieses Konto aus den Einstellungen. Chats mit diesem Konto können nicht fortgesetzt werden. Anmeldedateien und Chatverläufe bleiben erhalten.",
+	"model_picker_switch_pending": "Wechselt, sobald die laufende Arbeit abgeschlossen ist"
 }

@@ -151,5 +151,6 @@
 	"accounts_waiting": "請在瀏覽器中完成登入。",
 	"accounts_open_browser": "開啟瀏覽器",
 	"accounts_signed_in": "已登入",
-	"accounts_remove_description": "將此帳號從設定中移除。使用此帳號的聊天將無法恢復。登入檔案和聊天記錄會保留。"
+	"accounts_remove_description": "將此帳號從設定中移除。使用此帳號的聊天將無法恢復。登入檔案和聊天記錄會保留。",
+	"model_picker_switch_pending": "目前工作完成後切換"
 }

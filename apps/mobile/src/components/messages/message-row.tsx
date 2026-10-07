@@ -15,7 +15,7 @@ import type {
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
-import { useMessages } from "@zuse/i18n/react";
+import { RichMessage, useMessages } from "@zuse/i18n/react";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
@@ -728,14 +728,18 @@ const ModelSwitchRow = ({
 	return (
 		<View className="items-center px-4 py-2">
 			<Text className="text-center font-sans text-[11px] leading-5 text-muted-foreground">
-				{message("chat:message_row_model_switched", {
-					from: modelLabelFor(
-						catalog,
-						content.fromProviderId,
-						content.fromModel,
-					),
-					to: modelLabelFor(catalog, content.toProviderId, content.toModel),
-				})}
+				<RichMessage
+					id="chat:message_row_model_switched"
+					values={{
+						from: modelLabelFor(
+							catalog,
+							content.fromProviderId,
+							content.fromModel,
+						),
+						to: modelLabelFor(catalog, content.toProviderId, content.toModel),
+					}}
+					components={{ from: <Text />, to: <Text /> }}
+				/>
 				{" · "}
 				{message(
 					content.context === "handoff"
