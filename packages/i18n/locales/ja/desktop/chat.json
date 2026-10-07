@@ -771,5 +771,8 @@
 	"attention_unavailable": "実行を確認できません",
 	"attention_disconnected": "切断されています",
 	"attention_checking": "実行を確認中",
-	"message_row_send_again": "もう一度送信"
+	"message_row_send_again": "もう一度送信",
+	"message_row_model_switched": "モデルを {{from}} から {{to}} に切り替えました。",
+	"message_row_context_handed_off": "コンテキストを引き継ぎました。",
+	"message_row_context_preserved": "コンテキストを保持しました。"
 }

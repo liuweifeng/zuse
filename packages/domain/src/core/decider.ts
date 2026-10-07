@@ -287,8 +287,37 @@ export const decide = (
 							"Provider history changed while switching. Retry the provider selection.",
 					}),
 				);
+			const toProviderId =
+				command._tag === "SetProvider" ? command.providerId : state.providerId;
+			const marker: readonly SessionEvent[] =
+				state.messageIds.size > 0 &&
+				state.providerId !== null &&
+				state.model !== null &&
+				toProviderId !== null
+					? [
+							{
+								_tag: "MessagePersisted",
+								messageId: `model-switch:${state.sessionId}:${state.version}`,
+								turnId: null,
+								role: "system",
+								kind: "model_switch",
+								contentJson: JSON.stringify({
+									_tag: "model_switch",
+									fromProviderId: state.providerId,
+									fromModel: state.model,
+									toProviderId,
+									toModel: command.model,
+									context:
+										state.providerId === toProviderId ? "preserved" : "handoff",
+								}),
+								parentItemId: null,
+								createdAt: command.updatedAt,
+							},
+						]
+					: [];
 			return success([
 				...providerStops(state, command.updatedAt),
+				...marker,
 				command._tag === "SetModel"
 					? { ...command, _tag: "SessionModelSet" }
 					: { ...command, _tag: "SessionProviderSet" },

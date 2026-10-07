@@ -25,9 +25,11 @@ import type {
 	SessionId,
 	SkillRef,
 } from "@zuse/contracts";
+import { findModelDescriptor } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertCircleIcon, DashboardSpeedIcon } from "@zuse/icons/solid-rounded";
 import {
+	ArrowRightLeft,
 	ChevronDown,
 	ChevronRight,
 	RefreshCw as RefreshIcon,
@@ -68,6 +70,7 @@ import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useUiStore } from "~/store/ui";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import { ChatAnnotationChip } from "./annotation/chat-annotation-chip.tsx";
@@ -343,6 +346,8 @@ function MessageRowImpl({
 				/>
 			);
 		}
+		case "model_switch":
+			return <ModelSwitchRow content={message.content} />;
 		case "interrupted":
 			// The user stopped the turn — a normal action, so render a small muted
 			// badge rather than an error bubble.
@@ -376,6 +381,37 @@ function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
 
 export const MessageRow = memo(SelectableMessageRow);
 MessageRow.displayName = "MessageRow";
+
+function ModelSwitchRow({
+	content,
+}: {
+	content: MessageContent<"model_switch">;
+}) {
+	const { message } = useUiMessages(["chat"]);
+	const catalog = useModelCatalogStore((state) => state.catalog);
+	const from =
+		findModelDescriptor(catalog, content.fromProviderId, content.fromModel)
+			?.label ?? content.fromModel;
+	const to =
+		findModelDescriptor(catalog, content.toProviderId, content.toModel)
+			?.label ?? content.toModel;
+	return (
+		<div className="flex items-start justify-center gap-1.5 px-4 py-2 text-[11px] leading-5 text-muted-foreground">
+			<ArrowRightLeft aria-hidden="true" className="mt-1 size-3 shrink-0" />
+			<p className="min-w-0 text-center [overflow-wrap:anywhere]">
+				{message("chat:message_row_model_switched", { from, to })}
+				<span className="px-1.5" aria-hidden="true">
+					·
+				</span>
+				{message(
+					content.context === "handoff"
+						? "chat:message_row_context_handed_off"
+						: "chat:message_row_context_preserved",
+				)}
+			</p>
+		</div>
+	);
+}
 
 function ThinkingMessageRow({
 	messageId,

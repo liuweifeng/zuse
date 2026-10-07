@@ -31,6 +31,53 @@ function message(
 }
 
 describe("chat timeline rows", () => {
+	it.each([
+		false,
+		true,
+	])("keeps model switches visible outside collapsed tool replies (cloud: %s)", (cloud) => {
+		const marker = message("switch", {
+			_tag: "model_switch",
+			fromProviderId: "codex",
+			fromModel: "gpt-5",
+			toProviderId: "claude",
+			toModel: "sonnet",
+			context: "handoff",
+		});
+		const derive = cloud ? createCloudTimelineRows() : deriveChatTimelineRows;
+		const rows = derive({
+			messages: [
+				message("user", { _tag: "user", text: "Inspect this" }),
+				message("tool", {
+					_tag: "tool_use",
+					itemId: "tool-1" as import("@zuse/contracts").AgentItemId,
+					tool: "Read",
+					input: {},
+				}),
+				message("reply", { _tag: "assistant", text: "Done" }),
+				marker,
+				message("next", { _tag: "user", text: "Continue" }),
+			],
+			inFlight: false,
+			awaitingPlanApproval: false,
+		});
+		expect(rows.map((row) => row.kind)).toEqual([
+			"message",
+			"turn-summary",
+			"message",
+			"message",
+		]);
+		expect(rows[2]).toMatchObject({
+			kind: "message",
+			message: marker,
+			showAssistantCommands: false,
+		});
+		const summary = rows[1];
+		expect(
+			summary?.kind === "turn-summary" &&
+				summary.body.some((row) => row.content._tag === "model_switch"),
+		).toBe(false);
+	});
+
 	it("returns no anchor for an empty timeline", () => {
 		expect(resolveLatestUserMessageId([])).toBe(null);
 	});

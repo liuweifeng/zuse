@@ -771,5 +771,8 @@
 	"attention_unavailable": "Execution unavailable",
 	"attention_disconnected": "Disconnected",
 	"attention_checking": "Checking execution",
-	"message_row_send_again": "Send again"
+	"message_row_send_again": "Send again",
+	"message_row_model_switched": "Model switched from {{from}} to {{to}}.",
+	"message_row_context_handed_off": "Context handed off.",
+	"message_row_context_preserved": "Context preserved."
 }

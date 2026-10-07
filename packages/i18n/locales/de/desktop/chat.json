@@ -771,5 +771,8 @@
 	"attention_unavailable": "Ausführung nicht verfügbar",
 	"attention_disconnected": "Getrennt",
 	"attention_checking": "Ausführung wird geprüft",
-	"message_row_send_again": "Erneut senden"
+	"message_row_send_again": "Erneut senden",
+	"message_row_model_switched": "Modell von {{from}} zu {{to}} gewechselt.",
+	"message_row_context_handed_off": "Kontext übergeben.",
+	"message_row_context_preserved": "Kontext beibehalten."
 }
