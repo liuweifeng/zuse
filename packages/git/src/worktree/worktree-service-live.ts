@@ -86,15 +86,14 @@ interface WorktreeRow {
 	readonly pokemon_number: number | null;
 }
 
-// Time-box the base-branch `git fetch` so a hung remote can't stall worktree
-// creation forever, but generous enough that a normal (even first-time) fetch
-// over a slow link completes well within it. On timeout we fail loudly rather
-// than basing the worktree off a stale local ref.
-const FETCH_TIMEOUT = "60 seconds" as const;
+// Refresh the remote base without making local workspace creation depend on a
+// responsive network. A failed refresh may use only the exact verified cached
+// remote-tracking branch, never the main checkout's unrelated local HEAD.
+const FETCH_TIMEOUT = "5 seconds" as const;
 
-// Chats are often created in bursts. A base fetched this recently is as fresh
-// as a new round trip would be on a slow link, so later creates reuse it
-// instead of each blocking on the network again.
+// Chats are often created in bursts. Reuse a recently resolved remote base
+// instead of repeating the same network refresh (or offline timeout) for each
+// new workspace.
 const REMOTE_BASE_REUSE_MS = 60_000;
 
 const isSetupStatus = (value: string): value is WorktreeSetupStatus =>
@@ -445,8 +444,10 @@ export const WorktreeServiceLive = Layer.effect(
 						extendEnv: true,
 					});
 					const proc = yield* executor.spawn(cmd);
-					const stdout = yield* collectText(proc.stdout);
-					const stderr = yield* collectText(proc.stderr);
+					const [stdout, stderr] = yield* Effect.all(
+						[collectText(proc.stdout), collectText(proc.stderr)],
+						{ concurrency: 2 },
+					);
 					const exitCode = yield* proc.exitCode;
 					if (exitCode === 0) return stdout;
 					return yield* Effect.fail(
@@ -780,11 +781,10 @@ export const WorktreeServiceLive = Layer.effect(
 				// worktrees and push from there, so the main checkout's local base
 				// branch (e.g. `main`) is rarely pulled and goes stale — branching off
 				// it would start every agent behind the remote. So:
-				//   • If an `origin` remote is configured, branch off the freshly
-				//     fetched `origin/<default-branch>` and FAIL LOUDLY if the remote
-				//     is unreachable/unresolvable rather than silently using a stale
-				//     local ref. `git fetch` only writes the remote-tracking ref — the
-				//     main checkout is left exactly as-is.
+				//   • If an `origin` remote is configured, try refreshing its default
+				//     branch within a short budget. Offline, use that exact cached
+				//     remote branch if it exists. Never fall back to local HEAD.
+				//     The main checkout is left exactly as-is.
 				//   • If there is no `origin` at all, this is a legitimate local-only
 				//     repo (nothing to be "behind"), so we base off local `HEAD`.
 				const fail = (reason: string) =>
@@ -812,8 +812,8 @@ export const WorktreeServiceLive = Layer.effect(
 					baseRef = "HEAD";
 				} else {
 					// Concurrent creates for one repository share this authoritative
-					// remote discovery + fetch. Each checkout still branches only after
-					// that fresh fetch has completed.
+					// remote discovery + bounded fetch, including a verified cached
+					// remote base when the network is unavailable.
 					const remoteStartedAt = Date.now();
 					const remoteBase = yield* refreshRemoteBase(projectId, repoPath);
 					yield* Effect.logInfo(
@@ -1165,7 +1165,7 @@ export const WorktreeServiceLive = Layer.effect(
 		>();
 		const recentRemoteBases = new Map<
 			string,
-			{ readonly base: RemoteBase; readonly fetchedAt: number }
+			{ readonly base: RemoteBase; readonly refreshedAt: number }
 		>();
 		const remoteRefreshLock = yield* Semaphore.make(1);
 		const refreshRemoteBase = (
@@ -1178,7 +1178,7 @@ export const WorktreeServiceLive = Layer.effect(
 						const recent = recentRemoteBases.get(repoPath);
 						if (
 							recent !== undefined &&
-							Date.now() - recent.fetchedAt < REMOTE_BASE_REUSE_MS
+							Date.now() - recent.refreshedAt < REMOTE_BASE_REUSE_MS
 						) {
 							return { recent: recent.base } as const;
 						}
@@ -1227,7 +1227,7 @@ export const WorktreeServiceLive = Layer.effect(
 										"--symref",
 										"origin",
 										"HEAD",
-									]).pipe(Effect.result),
+									]).pipe(Effect.timeout(FETCH_TIMEOUT), Effect.result),
 									recordedDefault === null
 										? Effect.succeed(null)
 										: fetchBranch(recordedDefault),
@@ -1267,15 +1267,6 @@ export const WorktreeServiceLive = Layer.effect(
 								defaultBranch === recordedDefault && recordedFetch !== null
 									? recordedFetch
 									: yield* fetchBranch(defaultBranch);
-							if (fetched._tag === "Failure") {
-								const reason =
-									typeof fetched.failure === "string"
-										? fetched.failure
-										: `timed out after ${FETCH_TIMEOUT}`;
-								return yield* Effect.fail(
-									fail(`failed to fetch origin/${defaultBranch}: ${reason}`),
-								);
-							}
 							const remoteRefExists = yield* runGit(repoPath, [
 								"rev-parse",
 								"--verify",
@@ -1292,11 +1283,23 @@ export const WorktreeServiceLive = Layer.effect(
 									),
 								);
 							}
+							if (fetched._tag === "Failure") {
+								const reason =
+									typeof fetched.failure === "string"
+										? fetched.failure
+										: `timed out after ${FETCH_TIMEOUT}`;
+								yield* Effect.logWarning(
+									`Could not refresh origin/${defaultBranch}; creating workspace from its cached remote-tracking branch: ${reason}`,
+								);
+							}
 							const base = {
 								baseBranch: defaultBranch,
 								baseRef: `origin/${defaultBranch}`,
 							};
-							recentRemoteBases.set(repoPath, { base, fetchedAt: Date.now() });
+							recentRemoteBases.set(repoPath, {
+								base,
+								refreshedAt: Date.now(),
+							});
 							return base;
 						});
 					yield* refresh.pipe(

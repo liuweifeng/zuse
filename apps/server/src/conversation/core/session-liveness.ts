@@ -1,4 +1,7 @@
-import type { SessionRuntimeObservation } from "@zuse/contracts";
+import type {
+	ChatCreationPhase,
+	SessionRuntimeObservation,
+} from "@zuse/contracts";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 
@@ -12,6 +15,9 @@ export const observeSessionRuntime = (
 	Effect.gen(function* () {
 		const rows = yield* sql<{
 			session_status: string;
+			queue_paused: number;
+			turn_id: string | null;
+			attempt_ordinal: number | null;
 			attempt_id: string | null;
 			started_at: string | null;
 			turn_status: string | null;
@@ -27,6 +33,7 @@ export const observeSessionRuntime = (
  AND json_valid(j.request_json) AND json_extract(j.request_json,'$.turnId')=t.id
  AND (json_extract(j.request_json,'$.attemptId')=t.active_attempt_id
  OR (json_type(j.request_json,'$.attemptId') IS NULL AND a.ordinal=1))) AS starting,
+ s.queue_paused,t.id AS turn_id,a.ordinal AS attempt_ordinal,
  s.status AS session_status,t.active_attempt_id AS attempt_id,COALESCE(a.started_at,t.requested_at) AS started_at,t.status AS turn_status,l.expires_at,l.provider_activity_at,
  EXISTS(SELECT 1 FROM session_inputs i WHERE i.session_id=s.id AND i.status='pending'
  AND json_valid(i.owner_json) AND json_extract(i.owner_json,'$.providerSessionId')=s.provider_reservation_id
@@ -36,11 +43,40 @@ export const observeSessionRuntime = (
  LEFT JOIN session_ingestion_leases l ON l.session_id=s.id AND l.attempt_id=t.active_attempt_id AND l.provider_session_id=s.provider_reservation_id
  WHERE s.id=${sessionId} LIMIT 1`;
 		const row = rows[0];
+		// The initial turn is admitted before workspace/setup work. It is held by
+		// chat creation, not a provider listener, until startup releases the queue.
+		// Fence to that exact first attempt so an old creation receipt can never
+		// conceal lost ownership of a later response (or an expired listener).
+		let preparation: SessionRuntimeObservation["state"] | null = null;
+		if (
+			row?.queue_paused === 1 &&
+			row.turn_status === "starting" &&
+			row.attempt_ordinal === 1 &&
+			row.expires_at === null
+		) {
+			const operations = yield* sql<{ phase: ChatCreationPhase }>`
+ SELECT phase FROM chat_creation_operations
+ WHERE initial_session_id=${sessionId} AND 'turn_' || operation_id=${row.turn_id}
+ LIMIT 1`;
+			switch (operations[0]?.phase) {
+				case "persisted":
+				case "creating_workspace":
+				case "running_setup":
+				case "starting_agent":
+					preparation = "starting";
+					break;
+				case "failed":
+				case "cancelling":
+				case "cancelled":
+					preparation = "idle";
+			}
+		}
 		const startedAt =
 			row?.started_at == null ? null : Date.parse(row.started_at);
 		const age = now - (row?.provider_activity_at ?? startedAt ?? now);
 		const state: SessionRuntimeObservation["state"] =
-			row?.turn_status === "finalizing"
+			preparation ??
+			(row?.turn_status === "finalizing"
 				? "finalizing"
 				: // A failed startup keeps its durable turn for explicit retry, but has
 					// no response listener to recover. Preserve evidence of a live listener.
@@ -65,7 +101,7 @@ export const observeSessionRuntime = (
 									: "unavailable"
 								: age >= PROVIDER_QUIET_MS
 									? "stalled"
-									: "running";
+									: "running");
 		return {
 			state,
 			observedAt: now,
