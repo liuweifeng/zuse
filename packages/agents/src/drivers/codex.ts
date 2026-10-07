@@ -1648,7 +1648,9 @@ export const startCodexSession = (
 					}>;
 				}>(
 					"mcpServerStatus/list",
-					{ detail: "toolsAndAuthOnly" },
+					// Global discovery also waits for unrelated user/plugin servers.
+					// Only verify the app server whose readiness is required here.
+					{ detail: "toolsAndAuthOnly", serverName: "zuse" },
 					requestOptions(),
 				);
 				const found = Array.isArray(status.data)
