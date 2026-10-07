@@ -427,3 +427,34 @@ describe("background agent activity between parent turns", () => {
 		).toBe(1);
 	});
 });
+
+it("shows the known provider failure without a recovery banner or spinner after fresh idle evidence", () => {
+	const failed = { ...projection("running", true), status: "error" as const };
+	const stale = deriveSessionPresentation({
+		view: view({
+			...failed,
+			runtimeObservation: {
+				state: "unavailable",
+				observedAt: 30_000,
+				attemptId: "attempt-presentation",
+				lastProviderActivityAt: null,
+			},
+		}),
+	});
+	expect(stale.health).toBe("unavailable");
+	const current = deriveSessionPresentation({
+		view: view({
+			...failed,
+			runtimeObservation: {
+				state: "idle",
+				observedAt: 31_000,
+				attemptId: "attempt-presentation",
+				lastProviderActivityAt: null,
+			},
+		}),
+	});
+	expect(current.runtime).toBe("failed");
+	expect(current.health).toBe("healthy");
+	expect(current.busy).toBe(false);
+	expect(current.turnInFlight).toBe(false);
+});

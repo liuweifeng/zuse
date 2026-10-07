@@ -65,7 +65,10 @@ sweeper rechecks ownership before recovery or terminal settlement. One blocked
 session cannot stop recovery of other sessions.
 
 Server observations distinguish startup, running, quiet, blocked and missing
-execution ownership from client transport disconnection. Clients accept only
+execution ownership from client transport disconnection. A known failed startup
+retains its durable retry intent but reports no running execution. A fresh retry
+uses its own attempt start time, and a matching live send-job lease proves startup
+is still owned before the response listener is acquired. Clients accept only
 observations for their current epoch, version and attempt. Sidebar subscriptions
 retain active sessions while the conversation view is unmounted, and release them
 when live state settles. Quiet execution is not itself failure.
