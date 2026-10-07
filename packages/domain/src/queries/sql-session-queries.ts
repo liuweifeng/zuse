@@ -23,20 +23,22 @@ import type {
 } from "./session-queries.js";
 import { SessionQueryNotFound } from "./session-queries.js";
 
-export class SessionQueryDecodeError extends Schema.TaggedErrorClass<SessionQueryDecodeError>()(
-	"SessionQueryDecodeError",
-	{
-		recordKind: Schema.Literals(["session", "message", "attempt"]),
-		reason: Schema.String,
-	},
-) {}
+import {
+	MESSAGE_ROW_COLUMNS,
+	type MessageRow,
+	makeSqlMessageQueries,
+	messageRecord,
+	SessionQueryDecodeError,
+} from "./sql-message-queries.js";
+
+export { SessionQueryDecodeError } from "./sql-message-queries.js";
 
 export type SqlSessionQueryError =
 	| SqlError
 	| SessionQueryNotFound
 	| SessionQueryDecodeError;
 
-interface SessionRow {
+export interface SessionRow {
 	readonly id: string;
 	readonly chat_id: string;
 	readonly project_id: string;
@@ -99,19 +101,6 @@ const providerThreadFromRow = (
 				updatedAt: Date.parse(row.pt_updated_at ?? ""),
 			};
 
-interface MessageRow {
-	readonly id: string;
-	readonly session_id: string;
-	readonly role: string;
-	readonly kind: string;
-	readonly content_json: string;
-	readonly parent_item_id: string | null;
-	readonly created_at: string;
-	readonly sequence: number;
-	readonly checkpoint_revision: number | null;
-	readonly checkpoint_final: number | null;
-}
-
 export type SqlSessionReadRecord = SessionReadRecord & {
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly title: string;
@@ -137,55 +126,36 @@ const timestamp = (
 			);
 };
 
-const sessionRecord = Effect.fn("SqlSessionQueries.sessionRecord")(function* (
-	row: SessionRow,
-) {
-	return {
-		sessionId: row.id,
-		chatId: row.chat_id,
-		projectId: row.project_id,
-		title: row.title,
-		titleProvenance: row.title_provenance,
-		status: row.status,
-		providerId: row.provider_id,
-		model: row.model,
-		activeProviderThread: providerThreadFromRow(row),
-		runtimeMode: row.runtime_mode,
-		agentsJson: row.agents_json,
-		worktreeId: row.worktree_id,
-		forkedFromSessionId: row.forked_from_session_id,
-		forkedFromMessageId: row.forked_from_message_id,
-		permissionMode: row.permission_mode,
-		toolSearch: row.tool_search !== 0,
-		archivedAt:
-			row.archived_at === null
-				? null
-				: yield* timestamp(row.archived_at, "session"),
-		deletedAt: null,
-		lastMessageAt: null,
-		createdAt: yield* timestamp(row.created_at, "session"),
-		updatedAt: yield* timestamp(row.updated_at, "session"),
-	} satisfies SqlSessionReadRecord;
-});
-
-const messageRecord = Effect.fn("SqlSessionQueries.messageRecord")(function* (
-	row: MessageRow,
-) {
-	return {
-		messageId: row.id,
-		sessionId: row.session_id,
-		turnId: null,
-		role: row.role,
-		kind: row.kind,
-		contentJson: row.content_json,
-		parentItemId: row.parent_item_id,
-		createdAt: yield* timestamp(row.created_at, "message"),
-		sequence: row.sequence,
-		checkpointRevision: row.checkpoint_revision,
-		checkpointFinal:
-			row.checkpoint_final === null ? null : row.checkpoint_final === 1,
-	} satisfies MessageReadRecord;
-});
+export const decodeSessionRow = Effect.fn("SqlSessionQueries.decodeSessionRow")(
+	function* (row: SessionRow) {
+		return {
+			sessionId: row.id,
+			chatId: row.chat_id,
+			projectId: row.project_id,
+			title: row.title,
+			titleProvenance: row.title_provenance,
+			status: row.status,
+			providerId: row.provider_id,
+			model: row.model,
+			activeProviderThread: providerThreadFromRow(row),
+			runtimeMode: row.runtime_mode,
+			agentsJson: row.agents_json,
+			worktreeId: row.worktree_id,
+			forkedFromSessionId: row.forked_from_session_id,
+			forkedFromMessageId: row.forked_from_message_id,
+			permissionMode: row.permission_mode,
+			toolSearch: row.tool_search !== 0,
+			archivedAt:
+				row.archived_at === null
+					? null
+					: yield* timestamp(row.archived_at, "session"),
+			deletedAt: null,
+			lastMessageAt: null,
+			createdAt: yield* timestamp(row.created_at, "session"),
+			updatedAt: yield* timestamp(row.updated_at, "session"),
+		} satisfies SqlSessionReadRecord;
+	},
+);
 
 export interface AttemptHistoryInput {
 	readonly sessionId: string;
@@ -198,7 +168,17 @@ export interface AttemptHistoryPage {
 	readonly nextOrdinal: number | null;
 }
 
-export interface SqlSessionQueriesApi {
+export interface ChatSessionListInput {
+	readonly chatId: string;
+	readonly includeArchived?: boolean;
+	readonly order?: "created" | "updated";
+}
+
+export interface SqlSessionQueriesApi
+	extends ReturnType<typeof makeSqlMessageQueries> {
+	readonly listByChat: (
+		input: ChatSessionListInput,
+	) => Effect.Effect<readonly SqlSessionReadRecord[], SqlSessionQueryError>;
 	readonly activeTurnCount: Effect.Effect<number, SqlSessionQueryError>;
 	readonly attemptProviderTurn: (
 		sessionId: string,
@@ -227,6 +207,7 @@ export interface SqlSessionQueriesApi {
 export const makeSqlSessionQueries = (
 	sql: SqlClient.SqlClient,
 ): SqlSessionQueriesApi => {
+	const messageQueries = makeSqlMessageQueries(sql);
 	const get = Effect.fn("SqlSessionQueries.get")(function* (sessionId: string) {
 		const rows = yield* sql.unsafe<SessionRow>(
 			`${SESSION_WITH_PROVIDER_THREAD_SELECT} WHERE s.id = ? LIMIT 1`,
@@ -235,7 +216,7 @@ export const makeSqlSessionQueries = (
 		const row = rows[0];
 		if (row === undefined)
 			return yield* new SessionQueryNotFound({ sessionId });
-		return yield* sessionRecord(row);
+		return yield* decodeSessionRow(row);
 	});
 
 	const attemptProviderTurn: SqlSessionQueriesApi["attemptProviderTurn"] = (
@@ -296,13 +277,7 @@ export const makeSqlSessionQueries = (
 		sessionId: string,
 	) {
 		yield* get(sessionId);
-		const rows = yield* sql<MessageRow>`
-			SELECT id, session_id, role, kind, content_json, parent_item_id,
-				created_at, sequence, checkpoint_revision, checkpoint_final
-			FROM messages WHERE session_id = ${sessionId}
-			ORDER BY sequence ASC
-		`;
-		return yield* Effect.forEach(rows, messageRecord);
+		return yield* messageQueries.messageList({ sessionId });
 	});
 
 	const list = Effect.fn("SqlSessionQueries.list")(function* (
@@ -315,7 +290,21 @@ export const makeSqlSessionQueries = (
 			 ORDER BY s.updated_at DESC, s.id ASC`,
 			[input.projectId, archived ? 1 : 0],
 		);
-		return yield* Effect.forEach(rows, sessionRecord);
+		return yield* Effect.forEach(rows, decodeSessionRow);
+	});
+
+	const listByChat = Effect.fn("SqlSessionQueries.listByChat")(function* (
+		input: ChatSessionListInput,
+	) {
+		const order =
+			input.order === "created" ? "s.created_at ASC" : "s.updated_at DESC";
+		const rows = yield* sql.unsafe<SessionRow>(
+			`${SESSION_WITH_PROVIDER_THREAD_SELECT}
+			 WHERE s.chat_id = ? AND (? = 1 OR s.archived_at IS NULL)
+			 ORDER BY ${order}, s.id ASC`,
+			[input.chatId, input.includeArchived === true ? 1 : 0],
+		);
+		return yield* Effect.forEach(rows, decodeSessionRow);
 	});
 
 	const messagePage = Effect.fn("SqlSessionQueries.messagePage")(function* (
@@ -324,8 +313,7 @@ export const makeSqlSessionQueries = (
 		yield* get(input.sessionId);
 		const before = input.beforeSequence ?? Number.MAX_SAFE_INTEGER;
 		const rows = yield* sql<MessageRow>`
-			SELECT id, session_id, role, kind, content_json, parent_item_id,
-				created_at, sequence, checkpoint_revision, checkpoint_final
+			SELECT ${sql.literal(MESSAGE_ROW_COLUMNS)}
 			FROM messages
 			WHERE session_id = ${input.sessionId} AND sequence < ${before}
 			ORDER BY sequence DESC
@@ -348,12 +336,14 @@ export const makeSqlSessionQueries = (
 	});
 
 	return {
+		...messageQueries,
 		activeTurnCount: sql<{
 			count: number;
 		}>`SELECT COUNT(*) AS count FROM session_turns WHERE status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])}`.pipe(
 			Effect.map((rows) => rows[0]?.count ?? 0),
 		),
 		list,
+		listByChat,
 		get,
 		messages,
 		messagePage,

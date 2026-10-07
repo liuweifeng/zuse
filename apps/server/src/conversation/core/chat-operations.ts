@@ -6,6 +6,7 @@ import {
 	type FolderId,
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { Effect, PubSub, Stream } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type {
@@ -16,12 +17,8 @@ import type { ChatChangeEvent } from "./chat-change-event.ts";
 import {
 	type ChatRow,
 	chatFromRow,
-	type MessageRow,
-	messageFromRow,
-	SESSION_ROW_COLUMNS,
-	SESSION_ROW_FROM,
-	type SessionRow,
-	sessionFromRow,
+	messageFromRecord,
+	sessionFromRecord,
 } from "./conversation-records.ts";
 
 export interface ChatOperationsOptions {
@@ -98,6 +95,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		currentChatRevision,
 		dispatchChatCommand,
 	} = options;
+	const sessionQueries = makeSqlSessionQueries(sql);
 	const lookupChat = (chatId: ChatId): Effect.Effect<Chat, ChatNotFoundError> =>
 		Effect.gen(function* () {
 			const rows = yield* sql<ChatRow>`
@@ -163,28 +161,18 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			if (chat.archivedAt === null) {
 				return yield* new ChatNotArchivedError({ chatId });
 			}
-			const rows = yield* sql<SessionRow>`
-        SELECT ${sql.literal(SESSION_ROW_COLUMNS)}
-        ${sql.literal(SESSION_ROW_FROM)}
-        WHERE s.chat_id = ${chatId}
-        ORDER BY s.created_at ASC
-      `.pipe(Effect.orDie);
-			return { chat, sessions: rows.map(sessionFromRow) };
+			const sessions = yield* sessionQueries
+				.listByChat({ chatId, includeArchived: true, order: "created" })
+				.pipe(Effect.orDie);
+			return { chat, sessions: sessions.map(sessionFromRecord) };
 		});
 
 	const lookupInitialMessage = (sessionId: string) =>
-		sql<MessageRow>`
-			SELECT id, session_id, role, kind, content_json, parent_item_id, created_at
-			FROM messages
-			WHERE session_id = ${sessionId} AND role = 'user'
-			ORDER BY created_at ASC
-			LIMIT 1
-		`.pipe(
+		sessionQueries.firstUserMessage(sessionId).pipe(
 			Effect.orDie,
-			Effect.map((rows) => {
-				const [row] = rows;
-				return row === undefined ? null : messageFromRow(row);
-			}),
+			Effect.map((message) =>
+				message === null ? null : messageFromRecord(message),
+			),
 		);
 
 	const streamChatChanges: ConversationOperations["streamChatChanges"] = (
@@ -280,14 +268,16 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			const createdAt = yield* currentTimestamp;
 			const chatId = input.chatId ?? (crypto.randomUUID() as unknown as ChatId);
 			if (input.chatId !== undefined && input.initialSessionId !== undefined) {
-				const existingSessions = yield* sql<SessionRow>`
-					SELECT ${sql.literal(SESSION_ROW_COLUMNS)}
-					${sql.literal(SESSION_ROW_FROM)}
-					WHERE s.id = ${input.initialSessionId} AND s.chat_id = ${input.chatId}
-					LIMIT 1
-				`.pipe(Effect.orDie);
-				const [existingSessionRow] = existingSessions;
-				if (existingSessionRow !== undefined) {
+				const existingSession = yield* sessionQueries
+					.get(input.initialSessionId)
+					.pipe(
+						Effect.catchTag("SessionQueryNotFound", () => Effect.succeed(null)),
+						Effect.orDie,
+					);
+				if (
+					existingSession !== null &&
+					existingSession.chatId === input.chatId
+				) {
 					if (input.commandId !== undefined) {
 						const receipts = yield* sql<BootstrapReceiptRow>`
 							SELECT receipt.stream_id, event.payload_json
@@ -305,9 +295,9 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 						// remains authoritative and must match in full.
 						let receiptMatches =
 							receipt === undefined &&
-							existingSessionRow.project_id === input.projectId &&
-							existingSessionRow.provider_id === input.providerId &&
-							existingSessionRow.model === input.model;
+							existingSession.projectId === input.projectId &&
+							existingSession.providerId === input.providerId &&
+							existingSession.model === input.model;
 						if (receipt !== undefined) {
 							try {
 								const created = JSON.parse(receipt.payload_json) as Record<
@@ -336,26 +326,20 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 							input.initialPrompt !== undefined &&
 							input.initialPrompt.trim().length > 0
 						) {
-							const messages = yield* sql<{
-								readonly id: string;
-								readonly content_json: string;
-							}>`
-								SELECT id, content_json FROM messages
-								WHERE session_id = ${input.initialSessionId} AND role = 'user'
-								ORDER BY sequence ASC LIMIT 1
-							`.pipe(Effect.orDie);
-							const message = messages[0];
+							const message = yield* sessionQueries
+								.firstUserMessage(input.initialSessionId)
+								.pipe(Effect.orDie);
 							let messageMatches = false;
-							if (message !== undefined) {
+							if (message !== null) {
 								try {
-									const content = JSON.parse(message.content_json) as Record<
+									const content = JSON.parse(message.contentJson) as Record<
 										string,
 										unknown
 									>;
 									messageMatches =
 										(input.initialMessageId === undefined ||
 											!hasDurableReceipt ||
-											message.id === input.initialMessageId) &&
+											message.messageId === input.initialMessageId) &&
 										content.text === input.initialPrompt;
 								} catch {
 									messageMatches = false;
@@ -378,7 +362,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 					);
 					return {
 						chat: existingChat,
-						initialSession: sessionFromRow(existingSessionRow),
+						initialSession: sessionFromRecord(existingSession),
 						initialMessage,
 					};
 				}

@@ -4,11 +4,12 @@ import {
 	type SessionId,
 } from "@zuse/contracts";
 import { joinId } from "@zuse/domain/agent-engine/ids";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { Effect } from "effect";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { renderHandoffContext } from "./context-handoff.ts";
 import { makeContextLinks } from "./context-links.ts";
-import { type MessageRow, messageFromRow } from "./conversation-records.ts";
+import { messageFromRecord } from "./conversation-records.ts";
 import type { TranscriptOperationsOptions } from "./transcript-operations.ts";
 
 export const makeContextLinkOperations = (
@@ -16,6 +17,7 @@ export const makeContextLinkOperations = (
 ) => {
 	const { sql } = options;
 	const links = makeContextLinks(sql);
+	const queries = makeSqlSessionQueries(sql);
 	const failure = (message: string) => new SessionContextError({ message });
 	const mergeBack: ConversationOperations["mergeBack"] = (input) =>
 		Effect.gen(function* () {
@@ -46,25 +48,33 @@ export const makeContextLinkOperations = (
 			}>`SELECT COALESCE(MAX(source_sequence),0) AS sequence FROM session_context_links WHERE kind='merge_back' AND source_session_id=${source.id} AND target_session_id=${parent.id}`;
 			const previousSequence = previousPoints[0]?.sequence ?? 0;
 			const prefix = `fork:${source.id}:`;
-			const boundaries =
-				input.throughMessageId === undefined
-					? yield* sql<{
-							id: MessageId;
-							sequence: number;
-						}>`SELECT id,sequence FROM messages WHERE session_id=${source.id} AND substr(id,1,length(${prefix}))<>${prefix} ORDER BY sequence DESC LIMIT 1`
-					: yield* sql<{
-							id: MessageId;
-							sequence: number;
-						}>`SELECT id,sequence FROM messages WHERE session_id=${source.id} AND id=${input.throughMessageId} AND substr(id,1,length(${prefix}))<>${prefix}`;
-			const point = boundaries[0];
-			if (point === undefined || point.sequence <= previousSequence)
+			const point = yield* queries.messageBoundary(
+				source.id,
+				input.throughMessageId,
+				prefix,
+			);
+			if (point === null || point.sequence <= previousSequence)
 				return yield* failure("There is no new fork context to merge.");
-			const rows =
-				yield* sql<MessageRow>`SELECT id,session_id,role,kind,content_json,parent_item_id,created_at FROM messages WHERE session_id=${source.id} AND sequence>${previousSequence} AND sequence<=${point.sequence} AND substr(id,1,length(${prefix}))<>${prefix} AND kind IN ('user','user_rich','assistant','tool_use','tool_result','subagent_summary') ORDER BY sequence DESC LIMIT 201`;
+			const rows = yield* queries.messageList({
+				sessionId: source.id,
+				afterSequence: previousSequence,
+				throughSequence: point.sequence,
+				excludeIdPrefix: prefix,
+				kinds: [
+					"user",
+					"user_rich",
+					"assistant",
+					"tool_use",
+					"tool_result",
+					"subagent_summary",
+				],
+				direction: "desc",
+				limit: 201,
+			});
 			if (rows.length === 0)
 				return yield* failure("There is no new fork context to merge.");
 			const contextText = renderHandoffContext(
-				rows.slice(0, 200).reverse().map(messageFromRow),
+				rows.slice(0, 200).reverse().map(messageFromRecord),
 				rows.length > 200,
 			);
 			const targetMessageId = MessageId.make(
@@ -113,9 +123,11 @@ export const makeContextLinkOperations = (
 							return yield* failure(
 								"Another merge completed first. Retry to merge the remaining context.",
 							);
-						const pointStillExists =
-							yield* sql`SELECT id FROM messages WHERE session_id=${source.id} AND id=${point.id} AND sequence=${point.sequence}`;
-						if (pointStillExists.length === 0)
+						const currentPoint = yield* queries.messageBoundary(
+							source.id,
+							point.messageId,
+						);
+						if (currentPoint?.sequence !== point.sequence)
 							return yield* failure(
 								"The fork changed before the merge completed. Retry from its current history.",
 							);
@@ -126,7 +138,7 @@ export const makeContextLinkOperations = (
 							targetSessionId: parent.id,
 							targetMessageId,
 							baseMessageId: source.forkedFromMessageId,
-							sourceMessageId: point.id,
+							sourceMessageId: MessageId.make(point.messageId),
 							sourceSequence: point.sequence,
 							contextText,
 						});

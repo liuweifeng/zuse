@@ -41,6 +41,7 @@
 		"./queries/session-queries": "./src/queries/session-queries.ts",
 		"./queries/session-timeline-snapshot": "./src/queries/session-timeline-snapshot.ts",
 		"./queries/sql-session-queries": "./src/queries/sql-session-queries.ts",
+		"./queries/sql-message-queries": "./src/queries/sql-message-queries.ts",
 		"./conversation/transcript": "./src/conversation/transcript.ts"
 	},
 	"scripts": {

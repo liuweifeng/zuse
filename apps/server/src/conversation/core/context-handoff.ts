@@ -6,11 +6,12 @@ import type {
 	Session,
 	SessionId,
 } from "@zuse/contracts";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import { makeContextLinks } from "./context-links.ts";
 import { transcriptToMarkdown } from "./conversation-message-mapping.ts";
-import { type MessageRow, messageFromRow } from "./conversation-records.ts";
+import { messageFromRecord } from "./conversation-records.ts";
 import { redactRecoveryContent } from "./provider-turn-recovery.ts";
 
 export const renderHandoffContext = (
@@ -29,6 +30,7 @@ export const renderHandoffContext = (
 
 /** Frozen context belongs to the application session, independently of native handles. */
 export const makeContextHandoff = (sql: SqlClient.SqlClient) => {
+	const queries = makeSqlSessionQueries(sql);
 	// Keep provider prompts bounded; the complete transcript stays in the session.
 	const capture = (
 		sessionId: SessionId,
@@ -42,11 +44,25 @@ export const makeContextHandoff = (sql: SqlClient.SqlClient) => {
 		excludedTurnId?: AgentTurnId,
 	) =>
 		Effect.gen(function* () {
-			const rows = yield* sql<
-				MessageRow & { sequence: number }
-			>`SELECT id,session_id,role,kind,content_json,parent_item_id,created_at,sequence FROM messages WHERE session_id=${sessionId} AND (${excludedTurnId ?? null} IS NULL OR turn_id IS NULL OR turn_id<>${excludedTurnId ?? null}) AND kind IN ('user','user_rich','assistant','tool_use','tool_result','subagent_summary') AND NOT EXISTS (SELECT 1 FROM session_context_links l WHERE l.target_message_id=messages.id AND l.target_session_id=${sessionId} AND (l.first_turn_id IS NULL OR l.first_turn_id=${excludedTurnId ?? null}) AND l.invalidated_at IS NULL) ORDER BY sequence DESC LIMIT 201`;
+			const rows = yield* queries
+				.messageList({
+					sessionId,
+					excludedTurnId,
+					excludePendingContextLinks: true,
+					kinds: [
+						"user",
+						"user_rich",
+						"assistant",
+						"tool_use",
+						"tool_result",
+						"subagent_summary",
+					],
+					direction: "desc",
+					limit: 201,
+				})
+				.pipe(Effect.catchTag("SessionQueryDecodeError", Effect.die));
 			const fullContext = renderHandoffContext(
-				rows.slice(0, 200).reverse().map(messageFromRow),
+				rows.slice(0, 200).reverse().map(messageFromRecord),
 				rows.length > 200,
 			);
 			const delta =
@@ -55,10 +71,10 @@ export const makeContextHandoff = (sql: SqlClient.SqlClient) => {
 					: rows.filter(
 							(row) =>
 								row.sequence > resume.throughSequence ||
-								resume.pendingMessageIds.includes(row.id),
+								resume.pendingMessageIds.includes(row.messageId),
 						);
 			const context = renderHandoffContext(
-				delta.slice(0, 200).reverse().map(messageFromRow),
+				delta.slice(0, 200).reverse().map(messageFromRecord),
 				delta.length > 200,
 			);
 			yield* sql`UPDATE session_context_handoffs SET active=0 WHERE session_id=${sessionId} AND active=1`;
