@@ -75,7 +75,11 @@ when live state settles. Quiet execution is not itself failure.
 The Electron shell attaches to the standalone engine through an authenticated
 local transport. A supervisor owns worker restart; a process-lifetime database
 lock prevents concurrent engines using the same profile. Reattachment checks
-engine executable identity, native ABI and release version.
+engine executable identity, native ABI and release version. A different idle build
+is replaced through guarded shutdown. A busy build from the same release can stay
+attached when its local transport and advertised RPC protocol match; reconnects
+retain that owner until the desktop restarts. File hashes identify builds rather
+than serving as the sole compatibility check.
 
 Desktop quit detaches clients without stopping provider work. Pending RPC calls
 fail on disconnect without replaying mutations. Native actions belong to an exact

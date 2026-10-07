@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import type {
 	DesktopEngineConfig,
 	EngineChannel,
@@ -116,6 +118,84 @@ it("does not create launch state for an already-cancelled desktop startup", asyn
 			readFile(join(userData, "engine", "launch.json")),
 		).rejects.toMatchObject({ code: "ENOENT" });
 	} finally {
+		await rm(userData, { recursive: true, force: true });
+	}
+});
+
+it.each([
+	[401, WIRE_PROTOCOL_VERSION, true],
+	[200, WIRE_PROTOCOL_VERSION, true],
+	[200, WIRE_PROTOCOL_VERSION + 1, false],
+	[200, null, false],
+	[500, WIRE_PROTOCOL_VERSION, false],
+] as const)("reattaches a rebuilt desktop only with verified compatibility (HTTP %s, protocol %s)", async (status, protocolVersion, compatible) => {
+	const userData = await mkdtemp(join(tmpdir(), "zuse-engine-rebuild-"));
+	const token = randomBytes(32).toString("hex");
+	let shutdownChecks = 0;
+	const listener = await listenLocalEngine({
+		token,
+		host: new EngineHost(),
+		clients: new Map<number, EngineChannel>(),
+		onRpc: () => true,
+		onDisconnect: () => {},
+		prepareShutdown: async () => {
+			shutdownChecks++;
+			return false;
+		},
+		shutdown: () => {
+			throw new Error("must not stop active work");
+		},
+	});
+	const api = createServer((request, response) => {
+		expect(request.url).toBe("/auth/cli-session");
+		response.writeHead(status, { "content-type": "application/json" });
+		response.end(
+			JSON.stringify({
+				error: "unauthorized",
+				protocolVersion,
+			}),
+		);
+	});
+	await new Promise<void>((resolve) => api.listen(0, "127.0.0.1", resolve));
+	const address = api.address();
+	if (address === null || typeof address === "string")
+		throw new Error("missing port");
+	const config: DesktopEngineConfig = {
+		userData,
+		appVersion: "same",
+		buildId: "new-build",
+		apiPort: address.port,
+		bindHost: "127.0.0.1",
+		advertisedHost: null,
+		apiUrl: "http://127.0.0.1:9",
+	};
+	try {
+		await publishEngineEndpoint(userData, {
+			token,
+			port: listener.port,
+			apiPort: address.port,
+			pid: process.pid,
+			appVersion: "same",
+			buildId: "old-build",
+		});
+		const attach = () =>
+			ensureDesktopEngine({ config, supervisorPath: "must-not-spawn" });
+		if (compatible) {
+			const endpoint = await attach();
+			expect(endpoint.buildId).toBe("old-build");
+			expect((await attach()).token).toBe(endpoint.token);
+		} else {
+			await expect(attach()).rejects.toThrow("different engine version");
+		}
+		expect(shutdownChecks).toBe(1);
+		await expect(
+			readFile(join(userData, "engine", "launch.json")),
+		).rejects.toMatchObject({ code: "ENOENT" });
+	} finally {
+		await listener.close();
+		await new Promise<void>((resolve, reject) =>
+			api.close((error) => (error ? reject(error) : resolve())),
+		);
 		await rm(userData, { recursive: true, force: true });
 	}
 });
