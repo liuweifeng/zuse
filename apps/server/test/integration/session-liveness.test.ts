@@ -274,3 +274,100 @@ it("uses only a live startup job for the current attempt to extend the listener 
 		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 });
+
+it("observes held initial turns as preparation, not lost provider responses", async () => {
+	await Effect.runPromise(
+		Effect.scoped(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				yield* Migration0070IngestionLeases;
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`CREATE TABLE chat_creation_operations (operation_id TEXT PRIMARY KEY, initial_session_id TEXT, phase TEXT)`;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(crypto.randomUUID()),
+				);
+				yield* domain.dispatch({
+					streamId: "session-1",
+					commandId: "create",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					streamId: "session-1",
+					commandId: "start",
+					command: {
+						_tag: "StartTurn",
+						turnId: "turn_creation-1",
+						startedAt: 1,
+					},
+				});
+				yield* sql`UPDATE sessions SET status='booting', queue_paused=1 WHERE id='session-1'`;
+				yield* sql`INSERT INTO chat_creation_operations VALUES ('creation-1','session-1','creating_workspace')`;
+				// Slow worktree fetch exceeds admission grace before any provider job exists.
+				for (const phase of [
+					"persisted",
+					"creating_workspace",
+					"running_setup",
+					"starting_agent",
+				]) {
+					yield* sql`UPDATE chat_creation_operations SET phase=${phase}`;
+					expect(
+						(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+					).toBe("starting");
+				}
+				for (const phase of ["failed", "cancelling", "cancelled"]) {
+					yield* sql`UPDATE chat_creation_operations SET phase=${phase}`;
+					expect(
+						(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+					).toBe("idle");
+				}
+				yield* sql`UPDATE chat_creation_operations SET phase='running'`;
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+				).toBe("unavailable");
+				yield* sql`UPDATE chat_creation_operations SET phase='creating_workspace'`;
+				yield* sql`UPDATE sessions SET queue_paused=0`;
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+				).toBe("unavailable");
+				yield* sql`UPDATE sessions SET queue_paused=1`;
+				yield* sql`UPDATE chat_creation_operations SET operation_id='unrelated'`;
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+				).toBe("unavailable");
+				yield* sql`UPDATE chat_creation_operations SET operation_id='creation-1'`;
+				yield* sql`UPDATE sessions SET provider_reservation_id='owner'`;
+				const lease = yield* acquireIngestionLease(
+					sql,
+					"session-1",
+					{
+						turnId: "turn_creation-1",
+						attemptId: attemptIdFor("turn_creation-1", 1),
+						providerSessionId: "owner",
+					},
+					{ now: () => 1, leaseMs: 1_000 },
+				);
+				if (lease === null) throw new Error("missing lease");
+				// A stale preparation receipt must not conceal a lost real listener.
+				yield* lease.expire;
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+				).toBe("unavailable");
+				yield* sql`DELETE FROM session_ingestion_leases`;
+				yield* domain.dispatch({
+					streamId: "session-1",
+					commandId: "retry-after-creation",
+					command: {
+						_tag: "RetryTurn",
+						turnId: "turn_creation-1",
+						reason: "retry",
+						providerInputJson: "{}",
+						requestedAt: 2,
+					},
+				});
+				expect(
+					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,
+				).toBe("unavailable");
+			}),
+		).pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
+	);
+});

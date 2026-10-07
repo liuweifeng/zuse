@@ -275,6 +275,14 @@ describe("WorktreeServiceLive", () => {
 		};
 
 		const remoteTip = pushToOrigin("first.txt");
+		// A noisy Git transport must not block stderr behind stdout EOF.
+		const uploadPack = join(temporaryRoot, "noisy-upload-pack");
+		writeFileSync(
+			uploadPack,
+			'#!/bin/sh\nhead -c 262144 /dev/zero >&2\nexec git-upload-pack "$@"\n',
+			{ mode: 0o755 },
+		);
+		git(repositoryRoot, "config", "remote.origin.uploadpack", uploadPack);
 		const first = await run((service) => service.create(projectId));
 		expect(first.baseBranch).toBe("main");
 		expect(git(first.path, "rev-parse", "HEAD")).toBe(remoteTip);
@@ -283,6 +291,84 @@ describe("WorktreeServiceLive", () => {
 		const second = await run((service) => service.create(projectId));
 		expect(git(second.path, "rev-parse", "HEAD")).toBe(remoteTip);
 	});
+
+	test("uses the exact cached remote base when origin is unavailable", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(repositoryRoot, "fetch", "origin");
+		git(repositoryRoot, "remote", "set-head", "origin", "main");
+		const cachedTip = git(repositoryRoot, "rev-parse", "origin/main");
+		writeFileSync(join(repositoryRoot, "local-only.txt"), "not the base\n");
+		git(repositoryRoot, "add", "local-only.txt");
+		git(repositoryRoot, "commit", "-m", "unpublished local change");
+		rmSync(originRoot, { recursive: true, force: true });
+
+		const created = await run((service) => service.create(projectId));
+		expect(created.baseBranch).toBe("main");
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(cachedTip);
+		expect(existsSync(join(created.path, "local-only.txt"))).toBe(false);
+	});
+
+	test("fails instead of substituting local HEAD for a missing remote base", async () => {
+		git(
+			repositoryRoot,
+			"remote",
+			"add",
+			"origin",
+			join(temporaryRoot, "missing.git"),
+		);
+		git(
+			repositoryRoot,
+			"symbolic-ref",
+			"refs/remotes/origin/HEAD",
+			"refs/remotes/origin/trunk",
+		);
+		await expect(
+			run((service) => service.create(projectId)),
+		).rejects.toMatchObject({
+			_tag: "WorktreeCreateError",
+			reason: expect.stringContaining("origin/trunk not found"),
+		});
+		expect(
+			git(repositoryRoot, "worktree", "list", "--porcelain").match(
+				/^worktree /gm,
+			),
+		).toHaveLength(1);
+	});
+
+	test("bounds a hung origin and terminates its fetch and discovery processes", async () => {
+		const originRoot = join(temporaryRoot, "origin.git");
+		git(temporaryRoot, "clone", "--bare", repositoryRoot, originRoot);
+		git(repositoryRoot, "remote", "add", "origin", originRoot);
+		git(repositoryRoot, "fetch", "origin");
+		git(repositoryRoot, "remote", "set-head", "origin", "main");
+		const cachedTip = git(repositoryRoot, "rev-parse", "origin/main");
+		const pidFile = join(temporaryRoot, "ssh-pids");
+		const ssh = join(temporaryRoot, "hung-ssh");
+		writeFileSync(ssh, `#!/bin/sh\necho $$ >> '${pidFile}'\nexec sleep 30\n`, {
+			mode: 0o755,
+		});
+		git(repositoryRoot, "config", "core.sshCommand", ssh);
+		git(repositoryRoot, "config", "ssh.variant", "ssh");
+		git(
+			repositoryRoot,
+			"remote",
+			"set-url",
+			"origin",
+			"ssh://example.invalid/repo",
+		);
+
+		const startedAt = Date.now();
+		const created = await run((service) => service.create(projectId));
+		expect(Date.now() - startedAt).toBeLessThan(10_000);
+		expect(git(created.path, "rev-parse", "HEAD")).toBe(cachedTip);
+		const pids = readFileSync(pidFile, "utf8").trim().split("\n").map(Number);
+		expect(pids).toHaveLength(2);
+		for (const pid of pids) {
+			expect(() => process.kill(pid, 0)).toThrow();
+		}
+	}, 15_000);
 
 	test("follows origin's advertised default over a stale local origin/HEAD", async () => {
 		const originRoot = join(temporaryRoot, "origin.git");
