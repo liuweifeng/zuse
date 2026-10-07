@@ -1627,7 +1627,8 @@ export const startCodexSession = (
 		const expectCodexMcpServer = async (
 			candidate: CodexAppServerClient,
 		): Promise<void> => {
-			const deadline = Date.now() + CODEX_CAPABILITY_PROBE_TIMEOUT_MS;
+			// Loading required tools is startup work, not an optional capability probe.
+			const deadline = Date.now() + CODEX_STARTUP_RPC_TIMEOUT_MS;
 			const requestOptions = () => ({
 				timeoutMs: Math.max(1, deadline - Date.now()),
 				signal: startup.signal,
