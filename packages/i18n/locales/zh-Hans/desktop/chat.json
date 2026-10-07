@@ -771,5 +771,8 @@
 	"attention_unavailable": "执行不可用",
 	"attention_disconnected": "已断开连接",
 	"attention_checking": "正在检查执行状态",
-	"message_row_send_again": "重新发送"
+	"message_row_send_again": "重新发送",
+	"message_row_model_switched": "模型已从 {{from}} 切换为 {{to}}。",
+	"message_row_context_handed_off": "上下文已移交。",
+	"message_row_context_preserved": "上下文已保留。"
 }

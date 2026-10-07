@@ -21,6 +21,56 @@ const created = () =>
 
 describe("session decider", () => {
 	test.each([
+		"SetModel",
+		"SetProvider",
+	] as const)("%s records a durable switch only for an existing conversation", (tag) => {
+		const command =
+			tag === "SetModel"
+				? { _tag: tag, model: "new-model", updatedAt: 10 }
+				: { _tag: tag, providerId: "codex", model: "new-model", updatedAt: 10 };
+		expect(
+			Result.getOrThrow(decide(created(), command)).some(
+				(event) => event._tag === "MessagePersisted",
+			),
+		).toBe(false);
+		const state = evolveAll(created(), [
+			{
+				_tag: "MessagePersisted",
+				messageId: "user-1",
+				turnId: null,
+				role: "user",
+				kind: "user",
+				contentJson: JSON.stringify({ _tag: "user", text: "Hello" }),
+				parentItemId: null,
+				createdAt: 2,
+			},
+		]);
+		const events = Result.getOrThrow(decide(state, command));
+		const marker = events.find((event) => event._tag === "MessagePersisted");
+		expect(marker).toMatchObject({
+			role: "system",
+			kind: "model_switch",
+			turnId: null,
+			createdAt: 10,
+		});
+		expect(JSON.parse(marker?.contentJson ?? "null")).toEqual({
+			_tag: "model_switch",
+			fromProviderId: "provider-1",
+			fromModel: "model-1",
+			toProviderId: tag === "SetModel" ? "provider-1" : "codex",
+			toModel: "new-model",
+			context: tag === "SetModel" ? "preserved" : "handoff",
+		});
+		expect(
+			Result.getOrThrow(decide(evolveAll(state, events), command)),
+		).toEqual([]);
+		const second = Result.getOrThrow(
+			decide(evolveAll(state, events), { ...command, model: "another-model" }),
+		).find((event) => event._tag === "MessagePersisted");
+		expect(second?.messageId).not.toBe(marker?.messageId);
+	});
+
+	test.each([
 		"SetProvider",
 		"SetModel",
 	] as const)("%s preserves a running attempt and rejects queued work", (tag) => {

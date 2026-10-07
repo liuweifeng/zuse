@@ -276,6 +276,15 @@ const ErrorContent = Schema.TaggedStruct("error", {
  */
 const InterruptedContent = Schema.TaggedStruct("interrupted", {});
 
+/** A committed configuration change, retained in the conversation timeline. */
+const ModelSwitchContent = Schema.TaggedStruct("model_switch", {
+	fromProviderId: ProviderId,
+	fromModel: Schema.String,
+	toProviderId: ProviderId,
+	toModel: Schema.String,
+	context: Schema.Literals(["preserved", "handoff"]),
+});
+
 /**
  * Closing summary persisted for a sub-agent run. Mirrors the streaming
  * `SubagentSummaryEvent` so resume parity holds: the wrapper-row footer
@@ -420,6 +429,7 @@ export const MessageContent = Schema.Union([
 	ToolResultContent,
 	ErrorContent,
 	InterruptedContent,
+	ModelSwitchContent,
 	SubagentSummaryContent,
 	SubagentProgressContent,
 	UsageContent,

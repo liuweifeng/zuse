@@ -1789,6 +1789,20 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					]);
 					yield* service.setProvider(id, "codex", "gpt-5.4");
 					yield* service.setProvider(id, "codex", "gpt-5.4");
+					const timeline = yield* service.listMessages(id);
+					expect(timeline.map((message) => message.content._tag)).toEqual([
+						"user",
+						"assistant",
+						"model_switch",
+					]);
+					expect(timeline.at(-1)?.content).toEqual({
+						_tag: "model_switch",
+						fromProviderId: "claude",
+						fromModel: "claude-opus-4-8",
+						toProviderId: "codex",
+						toModel: "gpt-5.4",
+						context: "handoff",
+					});
 					const sql = yield* SqlClient.SqlClient;
 					expect(
 						yield* sql`SELECT id FROM sessions WHERE chat_id=${created.chat.id}`,
@@ -1812,6 +1826,8 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				"We chose SQLite for the queue.",
 			);
 			expect(providerSentTexts.at(-1)).toContain("Use a durable job ledger.");
+			expect(providerSentTexts.at(-1)).not.toContain("model_switch");
+			expect(providerSentTexts.at(-1)).not.toContain("Model switched");
 			expect(providerSentTexts.at(-1)).toContain(
 				"Current user request:\nImplement the queue",
 			);
@@ -1945,6 +1961,11 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					expect(
 						yield* sql`SELECT sequence FROM events WHERE stream_id=${sessionId} AND type='SessionProviderSet'`,
 					).toHaveLength(0);
+					expect(
+						(yield* service.listMessages(sessionId)).map(
+							(message) => message.content._tag,
+						),
+					).toEqual(["user"]);
 				}),
 			);
 		});

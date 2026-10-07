@@ -1,3 +1,4 @@
+import { useAtomValue } from "@effect/atom-react";
 import { completedNativeChildStep } from "@zuse/client-runtime/native-subagent-fork";
 import { Button } from "~/components/ui/button";
 import "@zuse/i18n/english/chat";
@@ -49,12 +50,14 @@ import {
 	summarizeValue,
 	type ToolResultRecord,
 } from "~/lib/message-presentation";
+import { modelLabelFor } from "~/lib/model-options";
 import {
 	buildToolPresentation,
 	type MobileToolIcon,
 } from "~/lib/tool-presentation";
 import { workspaceDisplayPath } from "~/lib/workspace-path";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { connectionModelCatalogAtom } from "~/store/model-catalog";
 import { colors } from "~/theme";
 import { AttachmentMedia } from "./attachment-media";
 import { ForkFromMessageMenu } from "./fork-from-message-menu";
@@ -211,6 +214,10 @@ const MessageRowContent = ({
 			return <ErrorRow message={content.message} />;
 		case "usage_limit":
 			return <UsageLimitRow content={content} />;
+		case "model_switch":
+			return (
+				<ModelSwitchRow content={content} connectionKey={ctx.connectionKey} />
+			);
 		case "interrupted":
 			return <InlineSystemRow label="Interrupted by user" />;
 		case "context_compaction":
@@ -705,6 +712,37 @@ const UsageLimitRow = ({
 					{detail}
 				</Text>
 			</View>
+		</View>
+	);
+};
+
+const ModelSwitchRow = ({
+	content,
+	connectionKey,
+}: {
+	content: Extract<MessageContent, { _tag: "model_switch" }>;
+	connectionKey: string;
+}) => {
+	const { message } = useMessages(["chat"]);
+	const catalog = useAtomValue(connectionModelCatalogAtom(connectionKey));
+	return (
+		<View className="items-center px-4 py-2">
+			<Text className="text-center font-sans text-[11px] leading-5 text-muted-foreground">
+				{message("chat:message_row_model_switched", {
+					from: modelLabelFor(
+						catalog,
+						content.fromProviderId,
+						content.fromModel,
+					),
+					to: modelLabelFor(catalog, content.toProviderId, content.toModel),
+				})}
+				{" · "}
+				{message(
+					content.context === "handoff"
+						? "chat:message_row_context_handed_off"
+						: "chat:message_row_context_preserved",
+				)}
+			</Text>
 		</View>
 	);
 };
