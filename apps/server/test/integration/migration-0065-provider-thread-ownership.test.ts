@@ -18,7 +18,7 @@ const run = <A, E>(effect: Effect.Effect<A, E, SqlClient.SqlClient>) =>
 		effect.pipe(Effect.provide(sqliteLayer({ filename: ":memory:" }))),
 	);
 
-describe("migration 0063 provider thread ownership", () => {
+describe("migration 0065 provider thread ownership", () => {
 	it.each([
 		true,
 		false,
