@@ -23,9 +23,9 @@ const migratedRuntime = (
 const at = (offsetMinutes: number) =>
 	new Date(Date.UTC(2026, 0, 1, 0, offsetMinutes)).toISOString();
 
-describe("migration 0054 session graph", () => {
+describe("migration 0064 session graph", () => {
 	it("turns resume tokens into provider threads and turn events into turns", async () => {
-		const directory = mkdtempSync(join(tmpdir(), "zuse-migration-0054-"));
+		const directory = mkdtempSync(join(tmpdir(), "zuse-migration-0064-"));
 		const filename = join(directory, "zuse.sqlite");
 		const legacyRuntime = migratedRuntime(filename, MigrationsThrough0045Live);
 		try {
