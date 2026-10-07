@@ -261,6 +261,7 @@ it.each([
 	{ method: "model/list", delayMs: null },
 	{ method: "config/mcpServer/reload", delayMs: 5_500 },
 	{ method: "mcpServerStatus/list", delayMs: 5_500 },
+	{ method: "unrelated MCP server", delayMs: null },
 ])("starts Codex when $method is slow (delay: $delayMs)", async ({
 	method: delayedMethod,
 	delayMs,
@@ -275,7 +276,9 @@ import readline from "node:readline";
 import { appendFileSync } from "node:fs";
 appendFileSync(${JSON.stringify(startsFile)}, "started\\n");
 readline.createInterface({ input: process.stdin }).on("line", line => {
- const { id, method } = JSON.parse(line);
+ const { id, method, params } = JSON.parse(line);
+ // Codex waits for every configured server unless discovery is scoped.
+ if (${JSON.stringify(delayedMethod)} === "unrelated MCP server" && method === "mcpServerStatus/list" && params?.serverName !== "zuse") return;
  if (method === ${JSON.stringify(delayedMethod)} && ${JSON.stringify(delayMs)} === null) return;
  const result = method === "mcpServerStatus/list" ? { data: [{ name: "zuse", tools: { ask_user_question: {}, browser_status: {}, view_image: {} } }] }
   : method === "thread/start" ? { thread: { id: "test-thread" } }
