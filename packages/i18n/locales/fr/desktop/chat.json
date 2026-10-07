@@ -775,7 +775,7 @@
 	"attention_disconnected": "Déconnecté",
 	"attention_checking": "Vérification de l’exécution",
 	"message_row_send_again": "Renvoyer",
-	"message_row_model_switched": "Modèle changé de {{from}} à {{to}}.",
+	"message_row_model_switched": "Modèle changé de <from>{{from}}</from> à <to>{{to}}</to>.",
 	"message_row_context_handed_off": "Contexte transféré.",
 	"message_row_context_preserved": "Contexte conservé."
 }

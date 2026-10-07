@@ -772,7 +772,7 @@
 	"attention_disconnected": "⟦Dïïscôônnëëctëëd⟧",
 	"attention_checking": "⟦Chëëckïïng ëëxëëcüütïïôôn⟧",
 	"message_row_send_again": "⟦Sëënd ààgààïïn⟧",
-	"message_row_model_switched": "⟦Môôdëël swïïtchëëd frôôm {{from}} tôô {{to}}.⟧",
+	"message_row_model_switched": "⟦Môôdëël swïïtchëëd frôôm <from>{{from}}</from> tôô <to>{{to}}</to>.⟧",
 	"message_row_context_handed_off": "⟦Côôntëëxt hààndëëd ôôff.⟧",
 	"message_row_context_preserved": "⟦Côôntëëxt prëësëërvëëd.⟧"
 }

@@ -26,10 +26,9 @@ import type {
 	SkillRef,
 } from "@zuse/contracts";
 import { findModelDescriptor } from "@zuse/contracts";
-import { useMessages as useUiMessages } from "@zuse/i18n/react";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertCircleIcon, DashboardSpeedIcon } from "@zuse/icons/solid-rounded";
 import {
-	ArrowRightLeft,
 	ChevronDown,
 	ChevronRight,
 	RefreshCw as RefreshIcon,
@@ -382,6 +381,25 @@ function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
 export const MessageRow = memo(SelectableMessageRow);
 MessageRow.displayName = "MessageRow";
 
+function ModelSwitchLabel({
+	providerId,
+	children,
+}: {
+	providerId: ProviderId;
+	children?: ReactNode;
+}) {
+	return (
+		<span className="inline-flex items-center gap-1 align-middle">
+			<ProviderIcon
+				providerId={providerId}
+				className="size-3 shrink-0"
+				aria-hidden="true"
+			/>
+			<span>{children}</span>
+		</span>
+	);
+}
+
 function ModelSwitchRow({
 	content,
 }: {
@@ -397,9 +415,15 @@ function ModelSwitchRow({
 			?.label ?? content.toModel;
 	return (
 		<div className="flex items-start justify-center gap-1.5 px-4 py-2 text-[11px] leading-5 text-muted-foreground">
-			<ArrowRightLeft aria-hidden="true" className="mt-1 size-3 shrink-0" />
 			<p className="min-w-0 text-center [overflow-wrap:anywhere]">
-				{message("chat:message_row_model_switched", { from, to })}
+				<RichMessage
+					id="chat:message_row_model_switched"
+					values={{ from, to }}
+					components={{
+						from: <ModelSwitchLabel providerId={content.fromProviderId} />,
+						to: <ModelSwitchLabel providerId={content.toProviderId} />,
+					}}
+				/>
 				<span className="px-1.5" aria-hidden="true">
 					·
 				</span>

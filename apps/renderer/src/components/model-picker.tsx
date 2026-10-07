@@ -1,3 +1,4 @@
+import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import { canUseExperimentalHarness } from "@zuse/utils/feature-access";
 import {
 	PROVIDER_SHORT_LABEL,
@@ -26,7 +27,7 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Search01Icon, StarIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Clock3 } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
@@ -105,7 +106,6 @@ export function ModelPicker(props: ModelPickerProps) {
 		props.mode === "session" ? props.triggerDetail : undefined;
 	const optionsPanel =
 		props.mode === "session" ? props.optionsPanel : undefined;
-	const sessionId = props.mode === "session" ? props.sessionId : null;
 	const providerEnvironmentId =
 		props.mode === "session" ? props.environmentId : null;
 
@@ -134,14 +134,27 @@ export function ModelPicker(props: ModelPickerProps) {
 		(s) => s.opencode2ModelVisibleByProvider,
 	);
 
-	const providerId = isDefault ? defaultProviderId : props.providerId;
-	const currentModel = isDefault
-		? (defaultModelByProvider[providerId] ?? "default")
-		: props.currentModel;
+	const pendingSelection = useSessionsStore((state) =>
+		props.mode === "session"
+			? state.pendingModelChanges[
+					resourceRefKey({
+						sessionId: props.sessionId,
+						environmentId: props.environmentId,
+					})
+				]
+			: undefined,
+	);
+	const providerId =
+		pendingSelection?.providerId ??
+		(isDefault ? defaultProviderId : props.providerId);
+	const currentModel =
+		pendingSelection?.model ??
+		(isDefault
+			? (defaultModelByProvider[providerId] ?? "default")
+			: props.currentModel);
 
 	// Setters
-	const setSessionModel = useSessionsStore((s) => s.setModel);
-	const setSessionProvider = useSessionsStore((s) => s.setProvider);
+	const selectSessionModel = useSessionsStore((s) => s.selectModel);
 	const setDefaultProviderAndModel = useSettingsStore(
 		(s) => s.setDefaultProviderAndModel,
 	);
@@ -422,33 +435,20 @@ export function ModelPicker(props: ModelPickerProps) {
 		if (props.mode !== "session") return;
 		const { environmentId, sessionId } = props;
 
-		const isCross = pid !== providerId;
-		// Await whatever store call we kick off so we can keep the popover
-		// open + show the reason if it fails. Previously these were `void`-d
-		// and the popover always closed, swallowing SessionStartError from
-		// a missing/broken CLI behind a silent close.
 		setPickError(null);
 		setPicking(true);
 		try {
-			if (isCross) {
-				const result = await setSessionProvider(
-					sessionId,
-					pid,
-					modelId,
-					environmentId,
-				);
-				if (!result.ok) {
-					setPickError(result.reason);
-					return;
-				}
-			} else if (modelId !== currentModel) {
-				await setSessionModel(sessionId, modelId, environmentId);
-				const reason = useSessionsStore.getState().error;
-				if (reason !== null) {
-					setPickError(reason);
-					return;
-				}
+			const result = await selectSessionModel(
+				sessionId,
+				pid,
+				modelId,
+				environmentId,
+			);
+			if (!result.ok) {
+				setPickError(result.reason);
+				return;
 			}
+
 			setOpen(false);
 		} finally {
 			setPicking(false);
@@ -538,7 +538,17 @@ export function ModelPicker(props: ModelPickerProps) {
 					{triggerDetail}
 				</span>
 			) : null}
-			<ChevronDown className="size-3 shrink-0 opacity-60" />
+			{pendingSelection !== undefined ? (
+				<span
+					role="img"
+					title={uiMessage("providers:model_picker_switch_pending")}
+					aria-label={uiMessage("providers:model_picker_switch_pending")}
+				>
+					<Clock3 className="size-3 shrink-0 text-muted-foreground" />
+				</span>
+			) : (
+				<ChevronDown className="size-3 shrink-0 opacity-60" />
+			)}
 		</PopoverTrigger>
 	);
 
