@@ -256,23 +256,33 @@ server.listen(0, "127.0.0.1", () => {
 });
 
 it.each([
-	"collaborationMode/list",
-	"thread/goal/get",
-	"model/list",
-])("starts Codex with fallback capabilities when %s never responds", async (ignoredMethod) => {
+	{ method: "collaborationMode/list", delayMs: null },
+	{ method: "thread/goal/get", delayMs: null },
+	{ method: "model/list", delayMs: null },
+	{ method: "config/mcpServer/reload", delayMs: 5_500 },
+	{ method: "mcpServerStatus/list", delayMs: 5_500 },
+])("starts Codex when $method is slow (delay: $delayMs)", async ({
+	method: delayedMethod,
+	delayMs,
+}) => {
 	const root = await mkdtemp(join(tmpdir(), "zuse-codex-probe-hang-"));
 	const executable = join(root, "codex-cli");
+	const startsFile = join(root, "starts");
 	await writeFile(
 		executable,
 		`#!/usr/bin/env node
 import readline from "node:readline";
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(startsFile)}, "started\\n");
 readline.createInterface({ input: process.stdin }).on("line", line => {
  const { id, method } = JSON.parse(line);
- if (method === ${JSON.stringify(ignoredMethod)}) return;
+ if (method === ${JSON.stringify(delayedMethod)} && ${JSON.stringify(delayMs)} === null) return;
  const result = method === "mcpServerStatus/list" ? { data: [{ name: "zuse", tools: { ask_user_question: {}, browser_status: {}, view_image: {} } }] }
   : method === "thread/start" ? { thread: { id: "test-thread" } }
   : method === "model/list" ? { data: [] } : {};
- process.stdout.write(JSON.stringify({ id, result }) + "\\n");
+ const respond = () => process.stdout.write(JSON.stringify({ id, result }) + "\\n");
+ if (method === ${JSON.stringify(delayedMethod)}) setTimeout(respond, ${JSON.stringify(delayMs)});
+ else respond();
 });
 `,
 	);
@@ -298,10 +308,11 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
 					"node",
 				);
 				yield* handle.close();
-			}).pipe(Effect.provide(attachments), Effect.timeout("7 seconds")),
+			}).pipe(Effect.provide(attachments), Effect.timeout("15 seconds")),
 		);
 		expect(mcpGatewayDiagnostics().activeSessionCount).toBe(baseline);
+		expect(await readFile(startsFile, "utf8")).toBe("started\n");
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
-}, 10000);
+}, 20000);
