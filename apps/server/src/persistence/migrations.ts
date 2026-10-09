@@ -63,9 +63,9 @@ import { Migration0059EventSequenceIndex } from "./migrations/0059_event_sequenc
 import { Migration0060ChatUserMessageTime } from "./migrations/0060_chat_user_message_time.ts";
 import { Migration0061HarnessExecutions } from "./migrations/0061_harness_executions.ts";
 import { Migration0062ModelConnections } from "./migrations/0062_model_connections.ts";
+import { Migration0063Jobs } from "./migrations/0063_jobs.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
-import { Migration0063Jobs } from "./migrations/0063_jobs.ts";
 import { Migration0064SessionGraph } from "./migrations/0064_session_graph.ts";
 import { Migration0065ProviderThreadOwnership } from "./migrations/0065_provider_thread_ownership.ts";
 import { Migration0066JobAttemptOwnership } from "./migrations/0066_job_attempt_ownership.ts";
@@ -182,8 +182,6 @@ const MigrationDefinitionsThrough0062 = {
 	...MigrationDefinitionsThrough0060,
 	"0061_harness_executions": Migration0061HarnessExecutions,
 	"0062_model_connections": Migration0062ModelConnections,
-	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
-	"0064_provider_accounts": Migration0064ProviderAccounts,
 } as const;
 
 const MigrationDefinitionsThrough0073 = {
@@ -201,7 +199,7 @@ const MigrationDefinitionsThrough0073 = {
 	"0073_question_expiry": Migration0073QuestionExpiry,
 } as const;
 
-const MigrationDefinitions = {
+const LegacyMigrationDefinitionsThrough0083 = {
 	"0083_native_checkpoint_history": Migration0083NativeCheckpointHistory,
 	...MigrationDefinitionsThrough0073,
 	"0074_plan_deliveries": Migration0074PlanDeliveries,
@@ -213,6 +211,39 @@ const MigrationDefinitions = {
 	"0081_provider_contexts": Migration0081ProviderContexts,
 	"0082_execution_steps": Migration0082ExecutionSteps,
 	"0078_session_checkpoints": Migration0078SessionCheckpoints,
+} as const;
+
+const MigrationDefinitionsThrough0064 = {
+	...MigrationDefinitionsThrough0062,
+	"0063_project_workspace_key": Migration0063ProjectWorkspaceKey,
+	"0064_provider_accounts": Migration0064ProviderAccounts,
+} as const;
+
+// Keep historical module names for development database fixtures; only these
+// registry IDs identify the current migration ledger. Main owns slots 63 and 64.
+const MigrationDefinitions = {
+	...MigrationDefinitionsThrough0064,
+	"0065_jobs": Migration0063Jobs,
+	"0066_session_graph": Migration0064SessionGraph,
+	"0067_provider_thread_ownership": Migration0065ProviderThreadOwnership,
+	"0068_job_attempt_ownership": Migration0066JobAttemptOwnership,
+	"0069_provider_reservations": Migration0067ProviderReservations,
+	"0070_attempt_history": Migration0068AttemptHistory,
+	"0071_attempt_provider_turn": Migration0069AttemptProviderTurn,
+	"0072_ingestion_leases": Migration0070IngestionLeases,
+	"0073_session_inputs": Migration0071SessionInputs,
+	"0074_input_ownership": Migration0072InputOwnership,
+	"0075_question_expiry": Migration0073QuestionExpiry,
+	"0076_plan_deliveries": Migration0074PlanDeliveries,
+	"0077_context_handoffs": Migration0075ContextHandoffs,
+	"0078_turn_activity_index": Migration0076TurnActivityIndex,
+	"0079_fork_constructions": Migration0077ForkConstructions,
+	"0080_session_checkpoints": Migration0078SessionCheckpoints,
+	"0081_context_links": Migration0079ContextLinks,
+	"0082_session_delegations": Migration0080SessionDelegations,
+	"0083_provider_contexts": Migration0081ProviderContexts,
+	"0084_execution_steps": Migration0082ExecutionSteps,
+	"0085_native_checkpoint_history": Migration0083NativeCheckpointHistory,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
@@ -235,17 +266,20 @@ export const MigrationsLive = Layer.effectDiscard(
 		const tables =
 			yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
 		if (tables.length > 0) {
-			// Unpublished engine builds used slots now occupied by main's harness.
-			// Move only the recognized engine ledger, preserving all application data.
+			// Recognize both unpublished engine ledgers before occupying main's slots.
+			// Schema additions and ledger relocation commit together; unknown history
+			// fails without touching application data or recording partial repairs.
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
-					const legacy =
-						yield* sql`SELECT 1 FROM effect_sql_migrations WHERE migration_id = 61 AND name = 'jobs'`;
-					if (legacy.length === 0) return;
+					const legacy = yield* sql<{
+						migration_id: number;
+					}>`SELECT migration_id FROM effect_sql_migrations WHERE migration_id IN (61, 63) AND name = 'jobs'`;
+					const boundary = legacy[0]?.migration_id;
+					if (boundary === undefined) return;
 					const rows = yield* sql<{
 						migration_id: number;
 						name: string;
-					}>`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id DESC`;
+					}>`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id >= ${boundary} ORDER BY migration_id DESC`;
 					const names = [
 						"jobs",
 						"session_graph",
@@ -258,20 +292,39 @@ export const MigrationsLive = Layer.effectDiscard(
 						"session_inputs",
 						"input_ownership",
 						"question_expiry",
+						"plan_deliveries",
+						"context_handoffs",
+						"turn_activity_index",
+						"fork_constructions",
+						"session_checkpoints",
+						"context_links",
+						"session_delegations",
+						"provider_contexts",
+						"execution_steps",
+						"native_checkpoint_history",
 					];
-					for (const row of rows) {
-						if (names[row.migration_id - 61] !== row.name)
+					for (const [index, row] of rows.entries()) {
+						if (
+							row.migration_id !== boundary + rows.length - 1 - index ||
+							names[row.migration_id - boundary] !== row.name
+						)
 							return yield* Effect.die(
 								new Error(
 									"Unrecognized migration history after the legacy engine boundary",
 								),
 							);
 					}
-					yield* Migration0061HarnessExecutions;
-					yield* Migration0062ModelConnections;
+					if (boundary === 61) {
+						yield* Migration0061HarnessExecutions;
+						yield* Migration0062ModelConnections;
+					}
+					yield* Migration0063ProjectWorkspaceKey;
+					yield* Migration0064ProviderAccounts;
 					for (const row of rows)
-						yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id + 2} WHERE migration_id = ${row.migration_id}`;
-					yield* sql`INSERT INTO effect_sql_migrations (migration_id,name) VALUES (61,'harness_executions'),(62,'model_connections')`;
+						yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id + 65 - boundary} WHERE migration_id = ${row.migration_id}`;
+					if (boundary === 61)
+						yield* sql`INSERT INTO effect_sql_migrations (migration_id,name) VALUES (61,'harness_executions'),(62,'model_connections')`;
+					yield* sql`INSERT INTO effect_sql_migrations (migration_id,name) VALUES (63,'project_workspace_key'),(64,'provider_accounts')`;
 				}),
 			);
 
@@ -331,7 +384,7 @@ export const MigrationsThrough0059Live = Layer.effectDiscard(
 	}),
 );
 
-/** Current main schema, before Agent Engine tables. */
+/** Historical main schema before the first engine rebase. */
 export const MigrationsThrough0062Live = Layer.effectDiscard(
 	Migrator.make({})({
 		loader: Migrator.fromRecord(MigrationDefinitionsThrough0062),
@@ -349,5 +402,19 @@ export const MigrationsThrough0060Live = Layer.effectDiscard(
 export const MigrationsThrough0073Live = Layer.effectDiscard(
 	Migrator.make({})({
 		loader: Migrator.fromRecord(MigrationDefinitionsThrough0073),
+	}),
+);
+
+/** Main's published schema before the rebased engine migrations. */
+export const MigrationsThrough0064Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0064),
+	}),
+);
+
+/** Last unpublished engine ledger, retained to verify upgrades from real builds. */
+export const LegacyMigrationsThrough0083Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(LegacyMigrationDefinitionsThrough0083),
 	}),
 );

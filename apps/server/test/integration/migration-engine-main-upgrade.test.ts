@@ -6,8 +6,9 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import {
+	LegacyMigrationsThrough0083Live,
 	MigrationsLive,
-	MigrationsThrough0062Live,
+	MigrationsThrough0064Live,
 	MigrationsThrough0073Live,
 } from "../../src/persistence/migrations.ts";
 
@@ -18,14 +19,45 @@ const runtime = (filename: string, migrations = MigrationsLive) => {
 	);
 };
 
+const seedConversation = Effect.gen(function* () {
+	const sql = yield* SqlClient.SqlClient;
+	yield* sql`INSERT INTO projects (id,path,name,created_at,updated_at) VALUES ('project-1','/tmp/retained','Retained','2026-10-01','2026-10-01')`;
+	yield* sql`INSERT INTO chats (id,project_id,title,created_at,updated_at) VALUES ('chat-1','project-1','Chat','2026-10-01','2026-10-01')`;
+	yield* sql`INSERT INTO sessions (id,project_id,title,provider_id,model,status,chat_id,queue_paused,created_at,updated_at) VALUES ('session-1','project-1','Chat','codex','gpt','idle','chat-1',1,'2026-10-01','2026-10-01')`;
+	yield* sql`INSERT INTO messages (id,session_id,role,kind,content_json,created_at) VALUES ('message-1','session-1','user','text','{"text":"preserved"}','2026-10-01')`;
+	yield* sql`INSERT INTO queued_messages (id,session_id,queue_order,input_json,created_at,updated_at) VALUES ('queue-1','session-1',0,'{"text":"do not resend"}','2026-10-01','2026-10-01')`;
+});
+
+const verifyConversation = Effect.gen(function* () {
+	const sql = yield* SqlClient.SqlClient;
+	expect(yield* sql`SELECT id,queue_paused FROM sessions`).toEqual([
+		{ id: "session-1", queue_paused: 1 },
+	]);
+	expect(yield* sql`SELECT id FROM chats`).toEqual([{ id: "chat-1" }]);
+	expect(yield* sql`SELECT id,content_json FROM messages`).toEqual([
+		{ id: "message-1", content_json: '{"text":"preserved"}' },
+	]);
+	expect(yield* sql`SELECT id,input_json FROM queued_messages`).toEqual([
+		{ id: "queue-1", input_json: '{"text":"do not resend"}' },
+	]);
+	expect(yield* sql`PRAGMA integrity_check`).toEqual([
+		{ integrity_check: "ok" },
+	]);
+	expect(yield* sql`PRAGMA foreign_key_check`).toEqual([]);
+});
+
 it("upgrades main while preserving harness executions and encrypted model records", async () => {
 	const directory = mkdtempSync(join(tmpdir(), "zuse-main-upgrade-"));
 	const filename = join(directory, "db.sqlite");
-	const previous = runtime(filename, MigrationsThrough0062Live);
+	const previous = runtime(filename, MigrationsThrough0064Live);
 	try {
 		await previous.runPromise(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;
+				yield* seedConversation;
+				yield* sql`UPDATE projects SET workspace_key = 'organization:retained' WHERE id = 'project-1'`;
+				yield* sql`INSERT INTO provider_accounts VALUES ('account-1', 'codex', 'Work', 1, 42)`;
+				yield* sql`INSERT INTO session_provider_accounts VALUES ('session-1', 'codex', 'account-1')`;
 				yield* sql`INSERT INTO harness_executions VALUES ('root', 7, '{"state":"waiting"}', '2026-10-01')`;
 				yield* sql`INSERT INTO model_connection_secrets VALUES ('local', 'connection', 'encrypted', 42)`;
 			}),
@@ -49,8 +81,18 @@ it("upgrades main while preserving harness executions and encrypted model record
 					).toEqual([{ envelope: "encrypted" }]);
 					expect(
 						yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
-					).toHaveLength(23);
+					).toHaveLength(25);
 					expect(yield* sql`SELECT * FROM jobs`).toEqual([]);
+					expect(yield* sql`SELECT workspace_key FROM projects`).toEqual([
+						{ workspace_key: "organization:retained" },
+					]);
+					expect(
+						yield* sql`SELECT account_id FROM session_provider_accounts`,
+					).toEqual([{ account_id: "account-1" }]);
+					expect(yield* sql`SELECT name FROM provider_accounts`).toEqual([
+						{ name: "Work" },
+					]);
+					yield* verifyConversation;
 					const plan = yield* sql<{
 						detail: string;
 					}>`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM session_turns WHERE status IN ('starting', 'running')`;
@@ -69,36 +111,55 @@ it("upgrades main while preserving harness executions and encrypted model record
 });
 
 it.each([
-	false,
-	true,
-])("repairs the unpublished engine ledger atomically (unknown migration: %s)", async (unknown) => {
+	{ boundary: 63, full: true, unknown: false, interrupted: true },
+	{ boundary: 61, full: false, unknown: false, interrupted: false },
+	{ boundary: 61, full: false, unknown: true, interrupted: false },
+	{ boundary: 63, full: false, unknown: false, interrupted: false },
+	{ boundary: 63, full: true, unknown: false, interrupted: false },
+	{ boundary: 63, full: true, unknown: true, interrupted: false },
+])("repairs unpublished engine ledger $boundary (full: $full, unknown: $unknown, interrupted: $interrupted)", async ({
+	boundary,
+	full,
+	unknown,
+	interrupted,
+}) => {
 	const directory = mkdtempSync(join(tmpdir(), "zuse-engine-upgrade-"));
 	const filename = join(directory, "db.sqlite");
-	const previous = runtime(filename, MigrationsThrough0073Live);
+	const previous = runtime(
+		filename,
+		full ? LegacyMigrationsThrough0083Live : MigrationsThrough0073Live,
+	);
 	try {
 		await previous.runPromise(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;
-				// Reproduce the pre-rebase schema: engine tables existed without main's two tables.
-				yield* sql`DROP TABLE harness_executions`;
-				yield* sql`DROP TABLE model_connection_secrets`;
-				yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id IN (61,62)`;
-				const rows = yield* sql<{
-					migration_id: number;
-				}>`SELECT migration_id FROM effect_sql_migrations WHERE migration_id >= 63 ORDER BY migration_id`;
-				for (const row of rows)
-					yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id - 2} WHERE migration_id = ${row.migration_id}`;
-				yield* sql`INSERT INTO jobs (id, session_id, kind, request_json, status, available_at, created_at, updated_at) VALUES ('retained', 'session', 'stop-session', '{}', 'pending', '2026-10-01', '2026-10-01', '2026-10-01')`;
+				// The earliest preview lacked main's harness/model tables too.
+				if (boundary === 61) {
+					yield* sql`DROP TABLE harness_executions`;
+					yield* sql`DROP TABLE model_connection_secrets`;
+					yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id IN (61,62)`;
+					const rows = yield* sql<{
+						migration_id: number;
+					}>`SELECT migration_id FROM effect_sql_migrations WHERE migration_id >= 63 ORDER BY migration_id`;
+					for (const row of rows)
+						yield* sql`UPDATE effect_sql_migrations SET migration_id = ${row.migration_id - 2} WHERE migration_id = ${row.migration_id}`;
+				}
+				yield* seedConversation;
+				yield* sql`INSERT INTO jobs (id, session_id, kind, request_json, status, available_at, created_at, updated_at) VALUES ('retained', 'session-1', 'stop-session', '{}', 'pending', '2026-10-01', '2026-10-01', '2026-10-01')`;
 				if (unknown)
-					yield* sql`UPDATE effect_sql_migrations SET name = 'unknown' WHERE migration_id = 71`;
+					yield* sql`UPDATE effect_sql_migrations SET name = 'unknown' WHERE migration_id = ${boundary + 8}`;
+				if (interrupted)
+					yield* sql`CREATE TRIGGER fail_repair BEFORE UPDATE OF migration_id ON effect_sql_migrations BEGIN SELECT RAISE(ABORT, 'injected repair failure'); END`;
 			}),
 		);
 		await previous.dispose();
 		const upgraded = runtime(filename);
 		try {
-			if (unknown) {
+			if (unknown || interrupted) {
 				await expect(upgraded.runPromise(Effect.void)).rejects.toThrow(
-					"Unrecognized migration history",
+					unknown
+						? "Unrecognized migration history"
+						: "injected repair failure",
 				);
 			} else {
 				await upgraded.runPromise(
@@ -109,7 +170,20 @@ it.each([
 						]);
 						expect(
 							yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE name = 'jobs'`,
-						).toEqual([{ migration_id: 63 }]);
+						).toEqual([{ migration_id: 65 }]);
+						yield* verifyConversation;
+						expect(yield* sql`SELECT workspace_key FROM projects`).toEqual([
+							{ workspace_key: "personal" },
+						]);
+						expect(
+							yield* sql`SELECT session_id,provider_id,account_id FROM session_provider_accounts`,
+						).toEqual([
+							{
+								session_id: "session-1",
+								provider_id: "codex",
+								account_id: null,
+							},
+						]);
 						expect(yield* sql`SELECT * FROM harness_executions`).toEqual([]);
 						expect(yield* sql`SELECT * FROM model_connection_secrets`).toEqual(
 							[],
@@ -120,7 +194,15 @@ it.each([
 		} finally {
 			await upgraded.dispose();
 		}
-		if (unknown) {
+		if (!unknown && !interrupted) {
+			const reopened = runtime(filename);
+			try {
+				await reopened.runPromise(verifyConversation);
+			} finally {
+				await reopened.dispose();
+			}
+		}
+		if (unknown || interrupted) {
 			const raw = ManagedRuntime.make(
 				sqliteLayer({ filename, disableWAL: true }),
 			);
@@ -130,17 +212,37 @@ it.each([
 						const sql = yield* SqlClient.SqlClient;
 						expect(
 							yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE name = 'jobs'`,
-						).toEqual([{ migration_id: 61 }]);
+						).toEqual([{ migration_id: boundary }]);
+						if (boundary === 61)
+							expect(
+								yield* sql`SELECT name FROM sqlite_master WHERE name IN ('harness_executions','model_connection_secrets')`,
+							).toEqual([]);
 						expect(
-							yield* sql`SELECT name FROM sqlite_master WHERE name IN ('harness_executions','model_connection_secrets')`,
+							yield* sql`SELECT name FROM sqlite_master WHERE name = 'provider_accounts'`,
 						).toEqual([]);
+						const columns = yield* sql<{
+							name: string;
+						}>`PRAGMA table_info(projects)`;
+						expect(
+							columns.some((column) => column.name === "workspace_key"),
+						).toBe(false);
 						expect(yield* sql`SELECT id FROM jobs`).toEqual([
 							{ id: "retained" },
 						]);
+						yield* verifyConversation;
+						if (interrupted) yield* sql`DROP TRIGGER fail_repair`;
 					}),
 				);
 			} finally {
 				await raw.dispose();
+			}
+		}
+		if (interrupted) {
+			const retry = runtime(filename);
+			try {
+				await retry.runPromise(verifyConversation);
+			} finally {
+				await retry.dispose();
 			}
 		}
 	} finally {

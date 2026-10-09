@@ -67,6 +67,7 @@ import { makeSessionWaitOperations } from "../core/session-wait.ts";
 import {
 	hasRecoverableProviderSend,
 	reconcileSessionRuntime,
+	retireLegacyStartupRetries,
 } from "../core/startup-recovery.ts";
 import { makeTranscriptOperations } from "../core/transcript-operations.ts";
 import { ConversationRuntime } from "../services/conversation-runtime.ts";
@@ -725,6 +726,7 @@ const ConversationRuntimeLive = Layer.effect(
 			serviceScope,
 		);
 		// The production persistence layer already holds exclusive ownership.
+		yield* retireLegacyStartupRetries(sql);
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
 		const checkpointService = yield* makeCheckpointRestore({
 			sql,

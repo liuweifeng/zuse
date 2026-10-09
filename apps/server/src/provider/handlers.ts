@@ -193,7 +193,7 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 						});
 					const accounts = yield* ProviderAccounts;
 					const account = yield* accounts
-						.resolve(providerId, sessionId, session.cursor !== null)
+						.resolve(providerId, sessionId, session.providerThread !== null)
 						.pipe(
 							Effect.mapError(
 								(error) =>

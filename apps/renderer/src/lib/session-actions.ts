@@ -743,7 +743,7 @@ export const retryLastSessionMessage = async (
 	providerId?: ProviderId,
 ): Promise<boolean> => {
 	const projection = projectionFor(ref);
-	if (projection?.status === "error" && projection.currentTurn !== null) {
+	if (projection?.status === "error" && projection.activeTurn !== null) {
 		// The runtime owns the persisted failed request. Resume replays that turn;
 		// submitting a new message would hit TurnAlreadyRunning or duplicate it.
 		const commandId = CommandId.make(`session-resume:${crypto.randomUUID()}`);

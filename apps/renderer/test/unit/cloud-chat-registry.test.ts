@@ -108,7 +108,21 @@ it.each([
 		data: SessionTimelineProjection.make({
 			messages: [],
 			status,
-			currentTurn: { turnId: AgentTurnId.make("slack-turn"), phase: "running" },
+			turnCount: 1,
+			activeTurn: {
+				id: AgentTurnId.make("slack-turn"),
+				ordinal: 1,
+				status: "running",
+				phase: "running",
+				attempt: {
+					id: AttemptId.make("attempt-1"),
+					ordinal: 1,
+					reason: "initial",
+				},
+				providerThreadId: null,
+				requestedAt: new Date(0),
+				completedAt: null,
+			},
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "approval-required",

@@ -2,6 +2,7 @@ import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persisten
 import { deriveSessionPresentation } from "@zuse/client-runtime/session-presentation";
 import {
 	AgentTurnId,
+	AttemptId,
 	ComposerInput,
 	EnvironmentId,
 	Message,
@@ -111,9 +112,20 @@ describe("session actions", () => {
 					}),
 				],
 				status: "error",
-				currentTurn: {
-					turnId: AgentTurnId.make("failed-turn"),
+				turnCount: 1,
+				activeTurn: {
+					id: AgentTurnId.make("failed-turn"),
+					ordinal: 1,
+					status: "running",
 					phase: "running",
+					attempt: {
+						id: AttemptId.make("attempt-1"),
+						ordinal: 1,
+						reason: "initial",
+					},
+					providerThreadId: null,
+					requestedAt: new Date(0),
+					completedAt: null,
 				},
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",

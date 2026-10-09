@@ -635,7 +635,7 @@ describe("provider job executor", () => {
 		expect(sent).toBe(0);
 	});
 
-	it("reports a retryable failure when the provider cannot start for an active turn", async () => {
+	it("requires explicit retry when the provider cannot start for an active turn", async () => {
 		const statuses: string[] = [];
 		const execute = makeProviderJobExecutor(
 			makeOptions({
@@ -663,7 +663,7 @@ describe("provider job executor", () => {
 					}),
 			}),
 		);
-		const exit = await Effect.runPromiseExit(
+		const result = await Effect.runPromise(
 			execute(
 				job({
 					_tag: "provider.turn.send",
@@ -671,12 +671,10 @@ describe("provider job executor", () => {
 					providerInputJson:
 						'{"text":"go","attachments":[],"fileRefs":[],"skillRefs":[]}',
 				}),
-			),
+			).pipe(Effect.flip),
 		);
-		expect(exit._tag).toBe("Failure");
-		if (exit._tag === "Failure") {
-			expect(String(exit.cause)).toContain("scripted start failure");
-		}
+		expect(result.retry).toBe("never");
+		expect(result.message).toContain("scripted start failure");
 		expect(statuses).toEqual(["running", "error"]);
 		expect(SessionId.make("session-1")).toBe("session-1");
 	});

@@ -370,12 +370,11 @@ export const makeProviderJobExecutor = (
 					expectedAttempt,
 				);
 				yield* ndjsonAppend(sessionId, persistedError);
-				// Keep the durable turn active. Explicit Retry and boot recovery replay
-				// this exact provider request without reconstructing user input.
+				// Keep the durable turn active for explicit Retry, which creates a new
+				// attempt with this exact request without reconstructing user input.
 				yield* setStatus(sessionId, "error", expectedAttempt);
-				// Authentication is recoverable only through explicit resume, which
-				// replays this same durable turn; the job is done. Other failures park
-				// the job so the user's next action or boot recovery tries again.
+				// Known startup failures must not run again on boot or unrelated drains.
+				// Explicit resume creates a separate attempt and send job.
 				if (isProviderAuthenticationRequired(restarted.error.reason)) {
 					yield* delivery.complete(job.id);
 					return;
@@ -384,7 +383,7 @@ export const makeProviderJobExecutor = (
 				return yield* Effect.fail(
 					failure(
 						`Provider turn could not be started after durable intent: ${restarted.error.reason}`,
-						{ retry: "on_demand", cause: restarted.error },
+						{ retry: "never", cause: restarted.error },
 					),
 				);
 			}).pipe(

@@ -21,6 +21,15 @@ export const hasRecoverableProviderSend = (
 		Effect.orDie,
 	);
 
+/** Older engines parked known startup failures for boot retry. Keep them user-driven. */
+export const retireLegacyStartupRetries = (sql: SqlClient.SqlClient) =>
+	sql`UPDATE jobs SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
+		completed_at = COALESCE(completed_at, updated_at)
+		WHERE kind = 'provider.turn.send' AND status = 'waiting'
+		AND last_error LIKE 'Provider turn could not be started after durable intent:%'
+		AND EXISTS (SELECT 1 FROM sessions WHERE sessions.id = jobs.session_id AND sessions.status = 'error')
+	`.pipe(Effect.asVoid, Effect.orDie);
+
 interface RuntimeRecoveryRow {
 	id: string;
 	status: string;
@@ -112,6 +121,17 @@ export const reconcileSessionRuntime = (
 							attempt,
 						);
 						continue;
+					}
+					// A known startup failure has already been reported. Preserve its
+					// request for explicit Retry instead of treating it as process loss.
+					if (row.status === "error") {
+						const failedSend = yield* sql`SELECT 1 FROM jobs
+							WHERE session_id = ${row.id} AND kind = 'provider.turn.send'
+							AND status = 'failed' AND json_valid(request_json)
+							AND json_extract(request_json, '$.turnId') = ${row.turn_id}
+							AND json_extract(request_json, '$.attemptId') = ${row.attempt_id}
+							LIMIT 1`.pipe(Effect.orDie);
+						if (failedSend.length > 0) continue;
 					}
 					const interrupted =
 						row.phase === "interrupt-requested" ||
