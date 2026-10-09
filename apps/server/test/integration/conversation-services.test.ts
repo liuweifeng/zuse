@@ -875,6 +875,10 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 				Effect.suspend(
 					() => beforeProviderWrite?.(domain, input) ?? Effect.void,
 				).pipe(Effect.andThen(domain.dispatch(input))),
+			dispatchTransactionally: (input, effect) =>
+				Effect.suspend(
+					() => beforeProviderWrite?.(domain, input) ?? Effect.void,
+				).pipe(Effect.andThen(domain.dispatchTransactionally(input, effect))),
 		})),
 	).pipe(Layer.provide(BaseDomainLive));
 	const ChatDomainLive = ChatDomain.layer.pipe(
@@ -3897,11 +3901,10 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				evidence.messages.some((message) => message.content._tag === "user"),
 			).toBe(true);
 			expect(evidence.currentChat.title).toBe("New chat");
-			// The durable send stays retryable: the job is parked as waiting with
-			// the failure recorded, for the user's next action or boot recovery.
+			// Failed startup needs an explicit retry, which creates a fresh job.
 			expect(evidence.sendJobs).toHaveLength(1);
 			expect(evidence.sendJobs[0]).toMatchObject({
-				status: "waiting",
+				status: "failed",
 				attemptCount: 1,
 			});
 			expect(evidence.sendJobs[0]?.lastError).toContain(
@@ -3913,15 +3916,21 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await run(
 				Effect.flatMap(store, (s) => s.resumeSession(initialSession.id)),
 			);
-			expect(
-				providerSentTexts.filter(
-					(text) => text === "trigger provider recovery",
-				),
-			).toHaveLength(1);
+			await expect
+				.poll(() =>
+					providerSentTexts.filter(
+						(text) => text === "trigger provider recovery",
+					),
+				)
+				.toHaveLength(1);
 		});
 	});
 
-	it("does not replay a durable provider turn after its session is archived", async () => {
+	it.each([
+		[false, false],
+		[true, false],
+		[false, true],
+	])("does not replay failed startup after restart (archived=%s, legacyWaiting=%s)", async (archived, legacyWaiting) => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-archived-turn-"));
 		const dbPath = join(directory, "test.sqlite");
 		const first = makeRuntime(dbPath);
@@ -3973,18 +3982,19 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			failProviderSend = false;
 			failProviderStart = false;
 
-			await runFirst(
-				Effect.flatMap(SessionDomain, (domain) =>
-					domain.dispatch({
-						commandId: "test:archive-failed-turn",
-						streamId: initialSession.id,
-						command: {
-							_tag: "ArchiveSession",
-							archivedAt: Date.now(),
-						},
-					}),
-				),
-			);
+			if (archived)
+				await runFirst(
+					Effect.flatMap(SessionDomain, (domain) =>
+						domain.dispatch({
+							commandId: "test:archive-failed-turn",
+							streamId: initialSession.id,
+							command: {
+								_tag: "ArchiveSession",
+								archivedAt: Date.now(),
+							},
+						}),
+					),
+				);
 			const pendingBeforeRestart = await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
 					domain.jobs.listBySession(initialSession.id),
@@ -3994,7 +4004,16 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				pendingBeforeRestart.filter(
 					(job) => job.request._tag === "provider.turn.send",
 				),
-			).toMatchObject([{ status: "waiting" }]);
+			).toMatchObject([{ status: "failed" }]);
+			if (legacyWaiting) {
+				await runFirst(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						yield* sql`UPDATE jobs SET status = 'waiting', completed_at = NULL
+						WHERE session_id = ${initialSession.id} AND kind = 'provider.turn.send'`;
+					}),
+				);
+			}
 			await first.dispose();
 
 			const startsBeforeRestart = providerStartInputs.length;
@@ -4014,9 +4033,22 @@ describe("ConversationServices — chat & session lifecycle", () => {
 								.map((job) => job.status),
 						),
 					)
-					.toEqual(["succeeded"]);
-				// The archived session's turn was retired as a no-op, not replayed.
+					.toEqual(["failed"]);
 				expect(providerStartInputs).toHaveLength(startsBeforeRestart);
+				if (!archived) {
+					await runRestarted(
+						Effect.flatMap(store, (service) =>
+							service.resumeSession(initialSession.id),
+						),
+					);
+					await expect
+						.poll(() =>
+							providerSentTexts.filter(
+								(text) => text === "archive failed turn",
+							),
+						)
+						.toHaveLength(1);
+				}
 			} finally {
 				await restarted.dispose();
 			}
@@ -5151,7 +5183,9 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(
 				messages.filter((message) => message.content._tag === "user"),
 			).toHaveLength(1);
-			expect(providerSentTexts).toEqual(["restore after failure"]);
+			await expect
+				.poll(() => providerSentTexts)
+				.toEqual(["restore after failure"]);
 		});
 	});
 
