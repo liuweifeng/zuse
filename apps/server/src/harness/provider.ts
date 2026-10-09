@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { OrchestrationSessionTools } from "@zuse/agents/drivers/orchestration-tools";
 import { AccountBroker } from "@zuse/agents/harness/account-broker";
 import { digest } from "@zuse/agents/harness/cache";
 import { requestModel } from "@zuse/agents/harness/model";
@@ -31,6 +32,7 @@ import { SkillDiscoveryService } from "../skill/services/skill-discovery.ts";
 import { ModelConnections } from "./connections-service.ts";
 import { makeHarnessJournal } from "./journal.ts";
 import { createNativeHarness } from "./native-runtime.ts";
+import { makeHarnessOrchestrationTools } from "./orchestration-tools.ts";
 import { makeHarnessSession } from "./provider-session.ts";
 import { resolveHarnessRipgrep } from "./ripgrep.ts";
 
@@ -75,6 +77,7 @@ export class HarnessProvider extends Context.Service<
 			resumeCursor: string | null,
 			runtimeMode: () => RuntimeMode,
 			permissionAuthority?: Pick<RequestOptions, "owner" | "isCurrent">,
+			orchestrationTools?: OrchestrationSessionTools | null,
 		) => Effect.Effect<ProviderSessionHandle, AgentSessionStartError>;
 	}
 >()("zuse/HarnessProvider") {}
@@ -337,6 +340,7 @@ export const HarnessProviderLive = Layer.effect(
 				resumeCursor,
 				runtimeMode,
 				permissionAuthority,
+				orchestrationTools,
 			) =>
 				Effect.gen(function* () {
 					const settings = yield* config.getSettings();
@@ -441,6 +445,20 @@ export const HarnessProviderLive = Layer.effect(
 								rootId,
 								model: input.model ?? "",
 								dataDirectory: paths.userData,
+								appTools: orchestrationTools
+									? makeHarnessOrchestrationTools(orchestrationTools.deps, {
+											getRuntimeMode: runtimeMode,
+											requestPermission: (context) => (kind, options) =>
+												Effect.runPromise(
+													permissions.request(sessionId, kind, {
+														...permissionAuthority,
+														...options,
+														projectId: input.folderId,
+													}),
+													{ signal: context.signal },
+												),
+										})
+									: undefined,
 								host: {
 									...journal,
 									load: async () => {
@@ -495,6 +513,7 @@ export const HarnessProviderLive = Layer.effect(
 								},
 								tools: {
 									cwd,
+									env: { ...process.env, ...input.executionEnv },
 									runtimeMode,
 									ripgrep: resolveHarnessRipgrep(),
 									question: callbacks.question,

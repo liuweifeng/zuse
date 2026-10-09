@@ -57,3 +57,13 @@ describe("orchestration tool helpers", () => {
 		expect(parseOrchestrationResult("not json")).toBeNull();
 	});
 });
+
+it("recognizes unified gateway delegation and thread names", () => {
+	expect(orchestrationToolName("mcp__zuse__delegate_task")).toBe(
+		"delegate_task",
+	);
+	expect(orchestrationToolName("mcp__zuse__create_session")).toBe(
+		"create_session",
+	);
+	expect(orchestrationToolName("mcp__zuse__task_status")).toBe("task_status");
+});

@@ -774,5 +774,7 @@
 	"message_row_send_again": "もう一度送信",
 	"message_row_model_switched": "モデルを <from>{{from}}</from> から <to>{{to}}</to> に切り替えました。",
 	"message_row_context_handed_off": "コンテキストを引き継ぎました。",
-	"message_row_context_preserved": "コンテキストを保持しました。"
+	"message_row_context_preserved": "コンテキストを保持しました。",
+	"secret_request_availability": "{{name}} として非公開で保存されます。このセッションのプロバイダーを再起動すると利用できます。値はチャットに追加されません。",
+	"secret_request_save_failed": "この応答を保存できませんでした。もう一度お試しください。"
 }

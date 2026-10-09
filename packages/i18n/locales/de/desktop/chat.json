@@ -774,5 +774,7 @@
 	"message_row_send_again": "Erneut senden",
 	"message_row_model_switched": "Modell von <from>{{from}}</from> zu <to>{{to}}</to> gewechselt.",
 	"message_row_context_handed_off": "Kontext übergeben.",
-	"message_row_context_preserved": "Kontext beibehalten."
+	"message_row_context_preserved": "Kontext beibehalten.",
+	"secret_request_availability": "Privat als {{name}} gespeichert. Nach dem Neustart des Anbieters dieser Sitzung verfügbar. Der Wert wird nicht zum Chat hinzugefügt.",
+	"secret_request_save_failed": "Diese Antwort konnte nicht gespeichert werden. Bitte erneut versuchen."
 }

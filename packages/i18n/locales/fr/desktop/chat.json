@@ -777,5 +777,7 @@
 	"message_row_send_again": "Renvoyer",
 	"message_row_model_switched": "Modèle changé de <from>{{from}}</from> à <to>{{to}}</to>.",
 	"message_row_context_handed_off": "Contexte transféré.",
-	"message_row_context_preserved": "Contexte conservé."
+	"message_row_context_preserved": "Contexte conservé.",
+	"secret_request_availability": "Enregistré de manière privée sous {{name}}. Disponible après le redémarrage du fournisseur de cette session. La valeur n’est pas ajoutée à la conversation.",
+	"secret_request_save_failed": "Impossible d’enregistrer cette réponse. Veuillez réessayer."
 }

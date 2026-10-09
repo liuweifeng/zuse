@@ -35,7 +35,11 @@ register("handshake", false, ["connect.handshake", "ping.ping"]);
 register("catalog", false, ["machine.resources.watch"]);
 register("catalog", false, ["permission.requests"]);
 register("catalog", true, ["permission.decide"]);
-register("session", false, ["permission.listPending"]);
+register("session", false, [
+	"schedule.list",
+	"secrets.list",
+	"permission.listPending",
+]);
 register("terminal", false, ["pty.list", "pty.output"]);
 register("terminal", true, [
 	"pty.open",
@@ -80,6 +84,12 @@ register("session", false, [
 	"attachments.read",
 ]);
 register("session", true, [
+	"schedule.create",
+	"schedule.update",
+	"schedule.delete",
+	"schedule.trigger",
+	"secrets.request",
+	"secrets.respond",
 	"session.rename",
 	"session.mergeBack",
 	"session.sendAndWait",

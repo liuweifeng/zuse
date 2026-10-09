@@ -50,6 +50,7 @@ import {
 	type ProviderEventEnvelope,
 	type ProviderId,
 	providerCapabilities,
+	SessionId,
 	type UserQuestion,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
@@ -64,6 +65,7 @@ import {
 } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
+import { AutomationService } from "../../automation/service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
 import { createHtmlTools } from "../../html-render/service.ts";
@@ -84,7 +86,11 @@ import {
 import { WorkspaceService } from "../../workspace/services/workspace-service.ts";
 import { AcpAgentService } from "../acp/service.ts";
 import { validateApiKey } from "../api-key-validation.ts";
-import { probeProvidersWithPaths, resolveCliPath, withOpencodeInventoryAccount } from "../availability.ts";
+import {
+	probeProvidersWithPaths,
+	resolveCliPath,
+	withOpencodeInventoryAccount,
+} from "../availability.ts";
 import {
 	bindProviderEventDelivery,
 	type ProviderEventDelivery,
@@ -160,6 +166,7 @@ export const ProviderServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const harness = yield* Effect.serviceOption(HarnessProvider);
 		const credentials = yield* CredentialsService;
+		const automation = yield* Effect.serviceOption(AutomationService);
 		const accounts = yield* Effect.serviceOption(ProviderAccounts);
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
 		const gitExecution = yield* RuntimeGitExecution;
@@ -655,15 +662,31 @@ export const ProviderServiceLive = Layer.effect(
 										),
 									)
 							: null;
+					const secretEnvironment =
+						automation._tag === "Some"
+							? yield* automation.value
+									.secretBindings(SessionId.make(sessionId))
+									.pipe(
+										Effect.mapError(
+											() =>
+												new AgentSessionStartError({
+													providerId: input.providerId,
+													reason:
+														"Could not load this session’s private credentials.",
+												}),
+										),
+									)
+							: {};
 					const driverInput = {
 						...input,
-						executionEnv: execution?.env,
+						executionEnv: { ...execution?.env, ...secretEnvironment },
 						providerAccountHome: account?.home,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
 							projectPath: folder.path,
 							includeAppTools: providerCapabilities(input.providerId).appTools,
+							includeOrchestration: orchestrationTools !== null,
 							cwd,
 						}),
 					};
@@ -714,12 +737,27 @@ export const ProviderServiceLive = Layer.effect(
 										sessionId,
 										scopes: {
 											browser: false,
-											orchestration: false,
+											orchestration: orchestrationTools !== null,
 											plugins: client !== undefined,
 											html: true,
 										},
 										ctx: {
 											html: { client: htmlTools.client, cwd },
+											...(orchestrationTools === null
+												? {}
+												: {
+														orchestration: {
+															deps: orchestrationTools.deps,
+															requestPermission: (kind, options) =>
+																buildRequestPermission(
+																	input.folderId,
+																	permissionAuthority,
+																)(sessionId, kind, options),
+															getRuntimeMode: () =>
+																getRuntimeMode?.() ?? "approval-required",
+															getPermissionMode: () => managedPermissionMode,
+														},
+													}),
 											plugins: client
 												? {
 														client,
@@ -815,6 +853,7 @@ export const ProviderServiceLive = Layer.effect(
 									resumeCursor,
 									runtimeModeGetter,
 									permissionAuthority,
+									orchestrationTools,
 								);
 							} else if (input.providerId === "gemini") {
 								// Same story as Grok: hand the driver the user's installed

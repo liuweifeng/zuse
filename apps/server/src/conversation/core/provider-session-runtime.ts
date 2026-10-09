@@ -3,6 +3,7 @@ import {
 	type AttachmentRef,
 	type MessageContent,
 	type MessageId,
+	ComposerInput,
 	type Session,
 	type SessionId,
 	SessionStartError,
@@ -12,8 +13,10 @@ import type {
 	AttemptOwnershipConflict,
 	ProviderSessionOwnershipConflict,
 } from "@zuse/domain/engine/dispatch";
+import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
 import type { WorktreeServiceShape } from "@zuse/git/worktree-service";
 import { Effect, Exit, Option } from "effect";
+import { AutomationService } from "../../automation/service.ts";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
 import type { ModelCatalogServiceShape } from "../../model-catalog/services/model-catalog-service.ts";
 import type { ProviderServiceShape } from "../../provider/services/provider-service.ts";
@@ -29,6 +32,7 @@ import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import type { IngestionLeaseIdentity } from "./ingestion-lease.ts";
+import { makeOrchestrationReader } from "./orchestration-reader.ts";
 import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface OpenProviderSessionOptions {
@@ -56,6 +60,7 @@ export interface OpenProviderSessionOptions {
 
 export interface ProviderSessionRuntimeOptions {
 	readonly awaitWorkspaceReady?: Effect.Effect<void>;
+	readonly sessionQueries?: SqlSessionQueriesApi;
 	readonly state: ConversationStateApi;
 	readonly sessionDomain: Pick<
 		import("@zuse/domain/engine/session-domain").SessionDomainApi,
@@ -83,6 +88,10 @@ export interface ProviderSessionRuntimeOptions {
 	readonly getSession: ConversationOperations["getSession"];
 	readonly sendMessage: ConversationOperations["sendMessage"];
 	readonly waitSession?: ConversationOperations["waitSession"];
+	readonly tasks?: import("./orchestration-task-runtime.ts").OrchestrationTaskRuntime;
+	readonly interruptSession?: ConversationOperations["interruptSession"];
+	readonly addQueuedMessage?: ConversationOperations["addQueuedMessage"];
+	readonly runQueuedMessageNext?: ConversationOperations["runQueuedMessageNext"];
 	readonly sendMessageAndWait?: ConversationOperations["sendMessageAndWait"];
 	readonly listMessages: ConversationOperations["listMessages"];
 	readonly listChats: ConversationOperations["listChats"];
@@ -111,6 +120,8 @@ export const makeProviderSessionRuntime = (
 	const awaitWorkspaceReady =
 		options.awaitWorkspaceReady ??
 		Effect.flatMap(WorkspaceExecutionPolicy, (policy) => policy.awaitReady);
+	const runtimeOptions = options;
+	const { interruptSession, addQueuedMessage, runQueuedMessageNext } = options;
 	const {
 		state,
 		sessionDomain: optionsState,
@@ -235,10 +246,48 @@ export const makeProviderSessionRuntime = (
 					actor: execution?.context.actor,
 					githubSlackMessageId: execution?.context.slackMessageId,
 				};
+				const orchestrationQueries = runtimeOptions.sessionQueries;
+				const automation = yield* Effect.serviceOption(AutomationService);
 				const orchestrationTools = yield* makeConversationOrchestration(
 					{
 						runtime,
 
+						tasks: runtimeOptions.tasks,
+						automation: Option.getOrUndefined(automation),
+						automationActor: author.actor,
+						interruptSession: interruptSession
+							? (sessionId, commandId) => interruptSession(commandId, sessionId)
+							: undefined,
+						controlSend:
+							addQueuedMessage && runQueuedMessageNext
+								? (input) =>
+										Effect.gen(function* () {
+											const queueId = `q_orchestration_${input.commandId}`;
+											yield* addQueuedMessage(
+												input.commandId,
+												input.sessionId,
+												new ComposerInput({
+													text: input.text,
+													attachments: [],
+													fileRefs: [],
+													skillRefs: [],
+													annotations: [],
+												}),
+												queueId,
+												true,
+												input.mode === "auto" || input.mode === "queue",
+												author.actor,
+												true,
+											);
+											if (input.mode === "steer" || input.mode === "restart")
+												yield* runQueuedMessageNext(
+													`${input.commandId}:run`,
+													input.sessionId,
+													queueId,
+												);
+											return true;
+										})
+								: undefined,
 						captureDelegation: () =>
 							Effect.gen(function* () {
 								const attempt = yield* optionsState.activeAttempt(session.id);
@@ -255,12 +304,35 @@ export const makeProviderSessionRuntime = (
 									providerSessionId,
 								};
 							}),
+						readThreadPage: orchestrationQueries
+							? makeOrchestrationReader(orchestrationQueries, session.projectId)
+							: undefined,
 						getSettings: configStore.getSettings,
 						getModelCatalog: modelCatalog.current,
 						createWorktree: (projectId, source) =>
 							worktrees.create(projectId, source),
-						createChat: (input) => createChat({ ...input, ...author }),
-						createSession: (input) => createSession({ ...input, ...author }),
+						createChat: (input) =>
+							lookupSession(session.id).pipe(
+								Effect.flatMap((parent) =>
+									createChat({
+										...input,
+										...author,
+										runtimeMode: parent.runtimeMode,
+										permissionMode: parent.permissionMode,
+									}),
+								),
+							),
+						createSession: (input) =>
+							lookupSession(session.id).pipe(
+								Effect.flatMap((parent) =>
+									createSession({
+										...input,
+										...author,
+										runtimeMode: parent.runtimeMode,
+										permissionMode: parent.permissionMode,
+									}),
+								),
+							),
 						getChat: lookupChat,
 						getSession: lookupSession,
 						waitForSession: waitSession,

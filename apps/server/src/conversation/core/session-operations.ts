@@ -33,6 +33,7 @@ import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
 import { Effect, Schema, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import { cancelSessionAutomation } from "../../automation/service.ts";
 import type {
 	ConversationOperations,
 	CreateSessionInput,
@@ -41,6 +42,7 @@ import { makeContextHandoff } from "./context-handoff.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
 import { validateDelegationOrigin } from "./delegation-origin.ts";
+import { makeOrchestrationTaskRuntime } from "./orchestration-task-runtime.ts";
 import { makePlanDelivery } from "./plan-delivery.ts";
 import { makePlanExpiry } from "./plan-expiry.ts";
 import { PlanResponse, readPlanResponse } from "./plan-response.ts";
@@ -192,6 +194,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 
 	const { ensureForTurn } = makeProviderSessionRuntime({
 		awaitWorkspaceReady: options.awaitWorkspaceReady,
+		sessionQueries,
+		tasks: makeOrchestrationTaskRuntime(sql, sessionDomain, (id) =>
+			cancelSessionAutomation(sql, SessionId.make(id)),
+		),
+		interruptSession: options.interruptSession,
+		addQueuedMessage: options.addQueuedMessage,
+		runQueuedMessageNext: options.runQueuedMessageNext,
 		state,
 		sessionDomain,
 		agentsFor,

@@ -18,6 +18,7 @@ import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
 import { SessionMergeBack } from "./session-merge-back.tsx";
+import { SessionSecretRequests } from "./session-secret-requests.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -894,6 +895,7 @@ export function ChatView({
 			<h1 className="sr-only">
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
+			<SessionSecretRequests sessionRef={sessionRef} />
 			<SessionForkRecovery
 				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
 				sessionRef={sessionRef}

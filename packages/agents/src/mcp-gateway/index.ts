@@ -456,7 +456,11 @@ const handleMcpRequest = async (
 const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 	void (async () => {
 		const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-		if (path !== APP_MCP_PATH && path !== "/plugins") {
+		if (
+			path !== APP_MCP_PATH &&
+			path !== "/plugins" &&
+			path !== "/orchestration"
+		) {
 			writeText(res, 404, "not found");
 			return;
 		}
@@ -471,6 +475,48 @@ const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 			return;
 		}
 		try {
+			if (path === "/orchestration") {
+				if (
+					req.method !== "POST" ||
+					!record.scopes.orchestration ||
+					!record.ctx.orchestration
+				) {
+					writeText(res, 403, "unavailable");
+					return;
+				}
+				let body = "";
+				for await (const chunk of req) {
+					body += chunk;
+					if (body.length > 128_000) {
+						writeText(res, 413, "too large");
+						return;
+					}
+				}
+				const request = asJsonObject(JSON.parse(body));
+				const name = request.name;
+				let result: unknown;
+				if (name === "tools/list") {
+					result = { tools: ORCHESTRATION_MCP_TOOLS };
+				} else if (typeof name === "string" && isOrchestrationToolName(name)) {
+					const args = asJsonObject(request.args ?? {});
+					await ensureOrchestrationPermission(
+						name,
+						args,
+						record.ctx.orchestration,
+					);
+					result = await callOrchestrationTool(
+						record.ctx.orchestration.deps,
+						name,
+						args,
+					);
+				} else {
+					writeText(res, 400, "Unknown orchestration tool");
+					return;
+				}
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(JSON.stringify(result));
+				return;
+			}
 			if (path === "/plugins") {
 				if (
 					req.method !== "POST" ||

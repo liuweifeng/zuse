@@ -517,3 +517,182 @@ describe("plugin CLI", () => {
 		}
 	});
 });
+
+describe("session-scoped orchestration CLI", () => {
+	test("requires current session credentials and rejects remote overrides", async () => {
+		await expect(
+			__testing.execute(["orchestration", "list"], {}),
+		).rejects.toMatchObject({ code: "orchestration_session_required" });
+		await expect(
+			__testing.execute(
+				["orchestration", "list", "--cloud-workspace", "other"],
+				{},
+			),
+		).rejects.toMatchObject({ code: "invalid_input" });
+	});
+	test("uses the session endpoint for live schemas and tool calls", async () => {
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				Response.json({ tools: [{ name: "delegate_task" }] }),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ ok: true, taskId: "child" }),
+						},
+					],
+				}),
+			);
+		const env = {
+			ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:1234/orchestration",
+			ZUSE_ORCHESTRATION_AUTH: "session-auth",
+		};
+		try {
+			await expect(
+				__testing.execute(["orchestration", "list"], env),
+			).resolves.toEqual({ tools: [{ name: "delegate_task" }] });
+			await expect(
+				__testing.execute(
+					[
+						"orchestration",
+						"call",
+						"--tool",
+						"delegate_task",
+						"--arguments-json",
+						'{"task":"review","clientRequestId":"one"}',
+					],
+					env,
+				),
+			).resolves.toEqual({ ok: true, taskId: "child" });
+			expect(fetcher.mock.calls[1]?.[0]).toBe(env.ZUSE_ORCHESTRATION_URL);
+			expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+				name: "delegate_task",
+				args: { task: "review", clientRequestId: "one" },
+			});
+		} finally {
+			fetcher.mockRestore();
+		}
+	});
+});
+
+test("task aliases preserve request identity and the current cloud runtime endpoint", async () => {
+	const fetcher = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async () =>
+			Response.json({ content: [{ type: "text", text: '{"ok":true}' }] }),
+		);
+	const env = {
+		ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:4422/orchestration",
+		ZUSE_ORCHESTRATION_AUTH: "cloud-session",
+		ZUSE_CLOUD_WORKSPACE_ID: "cloud-123",
+	};
+	try {
+		await __testing.execute(
+			[
+				"task",
+				"delegate",
+				"--task",
+				"review",
+				"--request-id",
+				"stable",
+				"--provider",
+				"codex",
+			],
+			env,
+		);
+		expect(fetcher.mock.calls[0]?.[0]).toBe(env.ZUSE_ORCHESTRATION_URL);
+		expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+			name: "delegate_task",
+			args: { task: "review", clientRequestId: "stable", providerId: "codex" },
+		});
+		await __testing.execute(["task", "status", "child"], env);
+		expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+			name: "task_status",
+			args: { taskId: "child" },
+		});
+		await __testing.execute(["schedule", "list"], env);
+		expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual({
+			name: "list_scheduled_tasks",
+			args: {},
+		});
+	} finally {
+		fetcher.mockRestore();
+	}
+});
+
+test("secret provide reads only stdin and forwards a redacted value", async () => {
+	const { Redacted } = await import("effect");
+	const respond = vi.fn((input: { value?: unknown }) => {
+		expect(Redacted.isRedacted(input.value)).toBe(true);
+		expect(JSON.stringify(input)).not.toContain("private-test-value");
+		return Effect.succeed({ status: "provided", reference: "private:request" });
+	});
+	const client = {
+		"secrets.respond": respond,
+		"secrets.list": vi.fn(() => Effect.succeed([])),
+	} as never;
+	const result = await __testing.executeSecretCommand(
+		client,
+		__testing.parse([
+			"secret",
+			"provide",
+			"--session",
+			"session",
+			"--request",
+			"request",
+			"--value-file",
+			"-",
+		]),
+		async () => "private-test-value",
+	);
+	expect(result).toEqual({ status: "provided", reference: "private:request" });
+	expect(respond.mock.calls[0]?.[0]).toMatchObject({
+		sessionId: "session",
+		requestId: "request",
+	});
+	await expect(
+		__testing.executeSecretCommand(
+			client,
+			__testing.parse([
+				"secret",
+				"provide",
+				"--session",
+				"session",
+				"--request",
+				"request",
+				"--value",
+				"do-not-echo",
+			]),
+		),
+	).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("secret submission errors never expose backend input or credentials", async () => {
+	const client = {
+		"secrets.respond": () => Effect.fail(new Error("private-test-value")),
+		"secrets.list": () => Effect.succeed([]),
+	} as never;
+	await expect(
+		__testing.executeSecretCommand(
+			client,
+			__testing.parse([
+				"secret",
+				"provide",
+				"--session",
+				"session",
+				"--request",
+				"request",
+				"--value-file",
+				"-",
+			]),
+			async () => "private-test-value",
+		),
+	).rejects.toMatchObject({
+		code: "secret_request_failed",
+		message:
+			"The private secret request could not be completed. Check the session and request, then retry.",
+	});
+});

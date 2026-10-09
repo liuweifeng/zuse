@@ -34,23 +34,25 @@ export const makeDelegationRuntime = (
 	const state = (row: DelegationRow) =>
 		sql<{
 			parent_exists: number;
+			delegation_cancelled_at: number | null;
 			archived_at: string | null;
 			parent_status: string | null;
 			parent_phase: string | null;
 			parent_attempt: string | null;
 			child_exists: number;
 			child_status: string | null;
+			child_turn_id: string | null;
 			child_title: string | null;
 			child_model: string | null;
-		}>`SELECT EXISTS(SELECT 1 FROM sessions WHERE id=${row.parent_session_id}) AS parent_exists,
+		}>`SELECT d.cancelled_at AS delegation_cancelled_at,EXISTS(SELECT 1 FROM sessions WHERE id=${row.parent_session_id}) AS parent_exists,
   parent.archived_at,pt.status AS parent_status,pt.phase AS parent_phase,pt.active_attempt_id AS parent_attempt,
   EXISTS(SELECT 1 FROM sessions WHERE id=${row.child_session_id}) AS child_exists,
-  ct.status AS child_status,child.title AS child_title,child.model AS child_model
+  ct.status AS child_status,ct.id AS child_turn_id,child.title AS child_title,child.model AS child_model
   FROM session_delegations d
   LEFT JOIN sessions parent ON parent.id=d.parent_session_id
   LEFT JOIN session_turns pt ON pt.id=d.parent_turn_id AND pt.session_id=d.parent_session_id
   LEFT JOIN sessions child ON child.id=d.child_session_id
-  LEFT JOIN session_turns ct ON ct.id=d.child_turn_id AND ct.session_id=d.child_session_id
+  LEFT JOIN session_turns ct ON ct.id=(SELECT latest.id FROM session_turns latest WHERE latest.session_id=d.child_session_id ORDER BY latest.ordinal DESC LIMIT 1)
   WHERE d.child_session_id=${row.child_session_id}`.pipe(
 			Effect.map((rows) => rows[0]),
 		);
@@ -68,7 +70,15 @@ export const makeDelegationRuntime = (
 	const revoked = (
 		row: DelegationRow,
 		current: NonNullable<Effect.Success<ReturnType<typeof state>>>,
-	) => cancelled(current) || current.parent_attempt !== row.parent_attempt_id;
+	) =>
+		current.delegation_cancelled_at !== null ||
+		cancelled(current) ||
+		current.parent_attempt !== row.parent_attempt_id;
+	const pendingDescendants = (
+		row: DelegationRow,
+	) => sql`WITH RECURSIVE tree(id) AS (SELECT ${row.child_session_id} UNION SELECT d.child_session_id FROM session_delegations d JOIN tree ON d.parent_session_id=tree.id WHERE d.cancelled_at IS NULL)
+ SELECT 1 FROM session_delegations d JOIN tree ON d.parent_session_id=tree.id LEFT JOIN session_turns wake ON wake.id=d.wake_turn_id
+ WHERE d.cancelled_at IS NULL AND (d.wake_turn_id IS NULL OR wake.status IN ('starting','running','finalizing')) LIMIT 1`;
 	const reconcile = (row: DelegationRow) =>
 		Effect.gen(function* () {
 			const current = yield* state(row);
@@ -86,7 +96,7 @@ export const makeDelegationRuntime = (
 							commandId: `delegation:cancel:${row.child_session_id}`,
 							command: {
 								_tag: "RequestTurnInterrupt",
-								expectedTurnId: row.child_turn_id,
+								expectedTurnId: current.child_turn_id ?? row.child_turn_id,
 								requestedAt: Date.now(),
 							},
 						},
@@ -109,9 +119,11 @@ export const makeDelegationRuntime = (
 				(current.child_exists === 1 && !ended.has(current.child_status ?? ""))
 			)
 				return;
+			// A child response is not its final result while nested work or its completion continuation is pending.
+			const descendants = yield* pendingDescendants(row);
+			if (descendants.length > 0) return;
 			const rows = yield* queries.messageList({
 				sessionId: row.child_session_id,
-				turnId: row.child_turn_id,
 				kinds: ["assistant", "tool_use", "tool_result", "subagent_summary"],
 				direction: "desc",
 				limit: 201,
@@ -154,7 +166,13 @@ export const makeDelegationRuntime = (
 				() =>
 					Effect.gen(function* () {
 						const latest = yield* state(row);
-						if (latest === undefined || revoked(row, latest))
+						if (
+							latest === undefined ||
+							revoked(row, latest) ||
+							latest.child_turn_id !== current.child_turn_id ||
+							latest.child_status !== current.child_status ||
+							(yield* pendingDescendants(row)).length > 0
+						)
 							return yield* Effect.fail(
 								new Error("Delegation parent changed before result capture."),
 							);
@@ -188,7 +206,7 @@ export const makeDelegationRuntime = (
 			)
 				return;
 			const ready =
-				yield* sql`SELECT 1 FROM session_delegations WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id} AND (result_message_id IS NULL OR cancelled_at IS NOT NULL OR wake_turn_id IS NOT NULL) LIMIT 1`;
+				yield* sql`SELECT 1 FROM session_delegations WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id} AND cancelled_at IS NULL AND (result_message_id IS NULL OR wake_turn_id IS NOT NULL) LIMIT 1`;
 			if (ready.length > 0) return;
 			const delivery = yield* sql<{
 				invalidated: number;
@@ -199,13 +217,13 @@ export const makeDelegationRuntime = (
              SUM(CASE WHEN l.first_turn_id IS NULL THEN 1 ELSE 0 END) AS pending,
              MAX(l.first_turn_id) AS delivered_turn
              FROM session_delegations d JOIN session_context_links l ON l.id='delegation:' || d.child_session_id
-             WHERE d.parent_session_id=${row.parent_session_id} AND d.parent_turn_id=${row.parent_turn_id} AND d.parent_attempt_id=${row.parent_attempt_id}`;
+             WHERE d.parent_session_id=${row.parent_session_id} AND d.parent_turn_id=${row.parent_turn_id} AND d.parent_attempt_id=${row.parent_attempt_id} AND d.cancelled_at IS NULL`;
 			if ((delivery[0]?.invalidated ?? 0) > 0) {
-				yield* sql`UPDATE session_delegations SET cancelled_at=${Date.now()} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id}`;
+				yield* sql`UPDATE session_delegations SET cancelled_at=${Date.now()} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id} AND cancelled_at IS NULL`;
 				return;
 			}
 			if (delivery[0]?.pending === 0 && delivery[0].delivered_turn !== null) {
-				yield* sql`UPDATE session_delegations SET wake_turn_id=${delivery[0].delivered_turn} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id}`;
+				yield* sql`UPDATE session_delegations SET wake_turn_id=${delivery[0].delivered_turn} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id} AND cancelled_at IS NULL`;
 				return;
 			}
 			const busy =
@@ -255,7 +273,7 @@ export const makeDelegationRuntime = (
 							return yield* Effect.fail(
 								new Error("Delegated completion delivery changed before wake."),
 							);
-						yield* sql`UPDATE session_delegations SET wake_turn_id=${turnId} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id}`;
+						yield* sql`UPDATE session_delegations SET wake_turn_id=${turnId} WHERE parent_session_id=${row.parent_session_id} AND parent_turn_id=${row.parent_turn_id} AND parent_attempt_id=${row.parent_attempt_id} AND cancelled_at IS NULL`;
 					}),
 			);
 		});
@@ -265,7 +283,7 @@ export const makeDelegationRuntime = (
    LEFT JOIN sessions parent ON parent.id=d.parent_session_id
    LEFT JOIN session_turns pt ON pt.id=d.parent_turn_id AND pt.session_id=d.parent_session_id
    LEFT JOIN sessions child ON child.id=d.child_session_id
-   LEFT JOIN session_turns ct ON ct.id=d.child_turn_id AND ct.session_id=d.child_session_id
+   LEFT JOIN session_turns ct ON ct.id=(SELECT latest.id FROM session_turns latest WHERE latest.session_id=d.child_session_id ORDER BY latest.ordinal DESC LIMIT 1)
    WHERE d.cancelled_at IS NULL AND d.wake_turn_id IS NULL AND (
     parent.id IS NULL OR parent.archived_at IS NOT NULL OR pt.id IS NULL OR pt.active_attempt_id<>d.parent_attempt_id OR pt.status IN ('interrupted','failed','rolled_back') OR pt.phase IN ('interrupt-requested','interrupt-acknowledged') OR
     (d.result_message_id IS NULL AND (child.id IS NULL OR ct.status IN ('completed','interrupted','failed','rolled_back'))))
@@ -279,7 +297,7 @@ export const makeDelegationRuntime = (
 		const groups =
 			yield* sql<DelegationRow>`SELECT d.* FROM session_delegations d JOIN session_turns pt ON pt.id=d.parent_turn_id AND pt.session_id=d.parent_session_id
    WHERE d.cancelled_at IS NULL AND d.wake_turn_id IS NULL AND d.result_message_id IS NOT NULL AND pt.status='completed'
-   AND NOT EXISTS(SELECT 1 FROM session_delegations sibling WHERE sibling.parent_session_id=d.parent_session_id AND sibling.parent_turn_id=d.parent_turn_id AND sibling.parent_attempt_id=d.parent_attempt_id AND (sibling.result_message_id IS NULL OR sibling.cancelled_at IS NOT NULL OR sibling.wake_turn_id IS NOT NULL))
+   AND NOT EXISTS(SELECT 1 FROM session_delegations sibling WHERE sibling.parent_session_id=d.parent_session_id AND sibling.parent_turn_id=d.parent_turn_id AND sibling.parent_attempt_id=d.parent_attempt_id AND sibling.cancelled_at IS NULL AND (sibling.result_message_id IS NULL OR sibling.wake_turn_id IS NOT NULL))
    GROUP BY d.parent_session_id,d.parent_turn_id,d.parent_attempt_id
    ORDER BY EXISTS(SELECT 1 FROM sessions s WHERE s.id=d.parent_session_id AND (s.queue_paused=1 OR EXISTS(SELECT 1 FROM session_turns t WHERE t.session_id=s.id AND t.status IN ('starting','running','finalizing')))),d.created_at LIMIT 100`;
 		for (const row of groups)

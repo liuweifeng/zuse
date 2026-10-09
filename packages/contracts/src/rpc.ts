@@ -49,6 +49,16 @@ import {
 	AuthSignOutRpc,
 } from "./auth.ts";
 import {
+	ScheduleCreateRpc,
+	ScheduleDeleteRpc,
+	ScheduleListRpc,
+	ScheduleTriggerRpc,
+	ScheduleUpdateRpc,
+	SecretListRpc,
+	SecretRequestRpc,
+	SecretRespondRpc,
+} from "./automation.ts";
+import {
 	BrowserCommandsRpc,
 	BrowserListCredentialsRpc,
 	BrowserRemoveCredentialRpc,
@@ -443,6 +453,14 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	ScheduleCreateRpc,
+	ScheduleListRpc,
+	ScheduleUpdateRpc,
+	ScheduleDeleteRpc,
+	ScheduleTriggerRpc,
+	SecretRequestRpc,
+	SecretListRpc,
+	SecretRespondRpc,
 	AcpDuplicateRpc,
 	AcpListRpc,
 	AcpCatalogRpc,

@@ -2,6 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
+import {
+	buildOrchestrationTools,
+	type OrchestrationSessionTools,
+	type OrchestrationToolDeps,
+} from "@zuse/agents/drivers/orchestration-tools";
 import { requestModel } from "@zuse/agents/harness/model";
 import type { HarnessModelOutput } from "@zuse/agents/harness/types";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
@@ -144,15 +149,18 @@ async function setup(contextWindow?: number, autoCompactTokenLimit?: number) {
 	const start = (
 		cursor: string | null = null,
 		authority?: Pick<RequestOptions, "owner" | "isCurrent">,
+		orchestration?: OrchestrationSessionTools,
+		executionEnv?: Readonly<Record<string, string>>,
 	) =>
 		runtime.runPromise(
 			provider.start(
-				input,
+				{ ...input, executionEnv },
 				dir,
 				input.sessionId,
 				cursor,
 				() => "approval-required",
 				authority,
+				orchestration,
 			),
 		);
 	return {
@@ -537,6 +545,87 @@ it("denies new and resumed harness execution despite saved enablement when accou
 			});
 		}
 		expect(env.fetcher).not.toHaveBeenCalled();
+	} finally {
+		await env.close();
+	}
+});
+
+it("own harness exposes app orchestration alongside native tools with shared approvals", async () => {
+	const env = await setup();
+	try {
+		await env.enable(true);
+		const delegated = vi.fn(async () => ({ ok: true, taskId: "child" }));
+		const deps = {
+			delegateTask: delegated,
+		} as unknown as OrchestrationToolDeps;
+		vi.mocked(requestModel)
+			.mockImplementationOnce(async (input) => {
+				expect(input.tools).toHaveProperty("delegate_task");
+				expect(input.tools).toHaveProperty("schedule_task");
+				expect(input.tools).toHaveProperty("request_secret");
+				expect(input.tools).toHaveProperty("spawn_agent");
+				expect(input.tools).toHaveProperty("exec_command");
+				return tool("delegate_task", "delegate-one", {
+					task: "review",
+					clientRequestId: "stable",
+				});
+			})
+			.mockResolvedValue(output("done"));
+		const handle = await env.start(null, undefined, {
+			deps,
+			claudeTools: buildOrchestrationTools(deps),
+		});
+		try {
+			await env.runtime.runPromise(handle.send("delegate a review"));
+			await expect
+				.poll(() => delegated.mock.calls.length, { timeout: 3000 })
+				.toBe(1);
+			expect(env.requestPermission).toHaveBeenCalledWith(
+				AgentSessionId.make("test-session"),
+				expect.objectContaining({ tool: "delegate_task" }),
+				expect.anything(),
+			);
+		} finally {
+			await env.runtime.runPromise(handle.close());
+		}
+	} finally {
+		await env.close();
+	}
+});
+
+it("passes session environment bindings to native shell without changing process environment", async () => {
+	const env = await setup();
+	const original = process.env.ZUSE_TEST_PRIVATE_BINDING;
+	try {
+		await env.enable(true);
+		const model = vi.mocked(requestModel);
+		model
+			.mockImplementationOnce(async () =>
+				tool("exec_command", "private-env", {
+					command:
+						'test "$ZUSE_TEST_PRIVATE_BINDING" = "session-only" && printf binding-present',
+					yield_time_ms: 1000,
+				}),
+			)
+			.mockImplementation(async (input) => {
+				expect(JSON.stringify(input.messages)).toContain("binding-present");
+				expect(JSON.stringify(input.messages)).not.toContain(
+					'"ZUSE_TEST_PRIVATE_BINDING":"session-only"',
+				);
+				return output("done");
+			});
+		const handle = await env.start(null, undefined, undefined, {
+			ZUSE_TEST_PRIVATE_BINDING: "session-only",
+		});
+		try {
+			await env.runtime.runPromise(handle.send("check the binding"));
+			await expect
+				.poll(() => model.mock.calls.length, { timeout: 3000 })
+				.toBe(2);
+			expect(process.env.ZUSE_TEST_PRIVATE_BINDING).toBe(original);
+		} finally {
+			await env.runtime.runPromise(handle.close());
+		}
 	} finally {
 		await env.close();
 	}

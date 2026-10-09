@@ -777,6 +777,7 @@ export interface QueueTransactionServiceShape {
 		queueId: string,
 		ready: boolean,
 		onCommitted: (item: QueuedMessage) => Effect.Effect<void>,
+		actor?: WorkspaceActor,
 	) => Effect.Effect<void, SessionNotFoundError | QueuedMessageCapacityError>;
 }
 

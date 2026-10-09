@@ -320,7 +320,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 										createdAt: now.getTime(),
 										ready,
 									},
-									(receipt) =>
+									() =>
 										sql<QueuedMessageRow>`
                 SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
                 FROM queued_messages
@@ -334,11 +334,6 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 														new Error(
 															`queue id ${id} belongs to another session`,
 														),
-													);
-												}
-												if (row === undefined && receipt.eventIds.length > 0) {
-													return Effect.die(
-														new Error(`queue id ${id} was not projected`),
 													);
 												}
 												// An idempotent replay can arrive after the ready item was
@@ -373,7 +368,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			);
 
 		const addQueuedMessageTransactionally: QueueTransactionServiceShape["addQueuedMessageTransactionally"] =
-			(commandId, sessionId, input, queueId, ready, onCommitted) =>
+			(commandId, sessionId, input, queueId, ready, onCommitted, actor) =>
 				capacityLock(sessionId).withPermits(1)(
 					Effect.gen(function* () {
 						yield* lookupSession(sessionId);
@@ -390,6 +385,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 							id: queueId,
 							sessionId,
 							input,
+							actor,
 							position,
 							createdAt: now,
 							updatedAt: now,
@@ -403,7 +399,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 								{
 									_tag: "EnqueueTurn",
 									queueId,
-									inputJson: JSON.stringify(input),
+									inputJson: JSON.stringify({ ...input, actor }),
 									position,
 									createdAt: now.getTime(),
 									ready,

@@ -32,6 +32,18 @@ describe("orchestration MCP tools", () => {
 	test("exposes the stable provider-neutral tool set", () => {
 		expect(ORCHESTRATION_MCP_SERVER_NAME).toBe("zuse-orchestration");
 		expect(ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name)).toEqual([
+			"schedule_task",
+			"list_scheduled_tasks",
+			"update_scheduled_task",
+			"delete_scheduled_task",
+			"trigger_scheduled_task",
+			"request_secret",
+			"list_secret_requests",
+			"orchestrator_capabilities",
+			"delegate_task",
+			"task_status",
+			"task_cancel",
+			"interrupt_thread",
 			"create_thread",
 			"create_session",
 			"send_to_thread",
@@ -48,15 +60,27 @@ describe("orchestration MCP tools", () => {
 		expect([...READ_ONLY_ORCHESTRATION_TOOLS].sort()).toEqual([
 			"emit_ui",
 			"list_models",
+			"list_scheduled_tasks",
+			"list_secret_requests",
 			"list_threads",
+			"orchestrator_capabilities",
 			"read_thread",
+			"task_status",
 			"wait_for_thread",
 			"whoami",
 		]);
 		expect([...MUTATING_ORCHESTRATION_TOOLS].sort()).toEqual([
 			"create_session",
 			"create_thread",
+			"delegate_task",
+			"delete_scheduled_task",
+			"interrupt_thread",
+			"request_secret",
+			"schedule_task",
 			"send_to_thread",
+			"task_cancel",
+			"trigger_scheduled_task",
+			"update_scheduled_task",
 		]);
 	});
 
@@ -160,13 +184,11 @@ describe("orchestration MCP tools", () => {
 		expect(sendToThread?.inputSchema.required).toEqual(["sessionId", "text"]);
 	});
 
-	test("prompt hint tells models not to substitute provider subagents", () => {
+	test("prompt hint explains managed delegation and provider-native subagents", () => {
 		const hint = orchestrationMcpPromptHint();
-		expect(hint).toContain("zuse-orchestration");
-		expect(hint).toContain("whoami -> list_threads");
-		expect(hint).toContain("list_models");
-		expect(hint).toContain("Do not substitute");
-		expect(hint).toContain("worker/explorer/default");
+		expect(hint).toContain("delegate_task");
+		expect(hint).toContain("task_status");
+		expect(hint).not.toContain("Smoke flow");
 	});
 
 	test("descriptions teach workspace-vs-thread semantics", () => {
@@ -191,7 +213,9 @@ describe("orchestration MCP tools", () => {
 		expect(createSession?.description).toContain(
 			"never creates a new sidebar chat",
 		);
-		expect(sendToThread?.description).toContain("queued is always false");
+		expect(sendToThread?.description).toContain(
+			"queued reports durable queued delivery",
+		);
 		expect(listModels?.description).toContain("providerId/model");
 		expect(sendToThread?.description).not.toContain(
 			"delivered when it goes idle",
