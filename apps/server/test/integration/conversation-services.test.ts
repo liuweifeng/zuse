@@ -130,6 +130,7 @@ import { Migration0080SessionDelegations } from "../../src/persistence/migration
 import { Migration0081ProviderContexts } from "../../src/persistence/migrations/0081_provider_contexts.ts";
 import { Migration0082ExecutionSteps } from "../../src/persistence/migrations/0082_execution_steps.ts";
 import { Migration0083NativeCheckpointHistory } from "../../src/persistence/migrations/0083_native_checkpoint_history.ts";
+import { Migration0086Automation } from "../../src/persistence/migrations/0086_automation.ts";
 import { NdjsonLogger } from "../../src/persistence/ndjson-logger.ts";
 import { ProviderService } from "../../src/provider/services/provider-service.ts";
 import { TitleGenerator } from "../../src/provider/title-generator.ts";
@@ -702,6 +703,10 @@ const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
 	getSettings: () =>
 		Effect.succeed({
 			defaultAutonomyLevel: testAutonomyLevel,
+			customModelIdsByProvider: {},
+			modelEnabledByProvider: {},
+			providerEnabled: {},
+			acpProviders: [],
 			defaultModelByProvider: {
 				claude: defaultModelFor(BUNDLED_MODEL_CATALOG, "claude"),
 				codex: defaultModelFor(BUNDLED_MODEL_CATALOG, "codex"),
@@ -850,6 +855,7 @@ const runAllMigrations = Effect.all(
 		Migration0081ProviderContexts,
 		Migration0078SessionCheckpoints,
 		Migration0083NativeCheckpointHistory,
+		Migration0086Automation,
 	],
 	{ discard: true },
 );
@@ -2899,6 +2905,108 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				.toContain("do the spawned task");
 		});
 	});
+
+	for (const mode of ["queue", "steer", "restart"] as const)
+		it(`managed orchestration ${mode} preserves durable delivery and task cancellation`, async () => {
+			await withRuntime(async (run) => {
+				const parent = await run(
+					Effect.flatMap(store, (s) =>
+						s.createChat({
+							projectId: PROJECT_ID,
+							providerId: "claude",
+							model: "claude-opus-4-8",
+							initialPrompt: "Delegate review",
+						}),
+					),
+				);
+				const tools = providerStartOrchestrationTools.at(-1)?.deps;
+				if (!tools?.delegateTask || !tools.taskCancel || !tools.taskStatus)
+					throw new Error("Missing managed tools");
+				const input = { task: "Review parser", clientRequestId: "review" };
+				const [created, concurrent] = await Promise.all([
+					tools.delegateTask(input),
+					tools.delegateTask(input),
+				]);
+				expect(
+					concurrent.ok && created.ok && concurrent.taskId === created.taskId,
+				).toBe(true);
+				expect(created.ok).toBe(true);
+				if (!created.ok) return;
+				const retry = await tools.delegateTask(input);
+				expect(retry.ok && retry.taskId).toBe(created.taskId);
+				await expect
+					.poll(() =>
+						providerStartInputs.some(
+							(input) => input.sessionId === created.sessionId,
+						),
+					)
+					.toBe(true);
+				const sent = await tools.sendToThread({
+					sessionId: created.sessionId,
+					text: "Check cancellation",
+					commandId: `send-${mode}`,
+					mode,
+				});
+				expect(sent).toMatchObject({ ok: true, queued: true });
+				expect(
+					await tools.sendToThread({
+						sessionId: created.sessionId,
+						text: "Check cancellation",
+						commandId: `send-${mode}`,
+						mode,
+					}),
+				).toMatchObject({ ok: true });
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						expect(
+							(yield* sql`SELECT 1 FROM events WHERE stream_id=${created.sessionId} AND type='SessionCreated'`)
+								.length,
+						).toBe(1);
+						yield* sql`INSERT INTO scheduled_tasks(id,session_id,client_request_id,title,prompt,schedule_json,created_at) VALUES('child-schedule',${created.sessionId},'schedule','Follow-up','Do work','{"kind":"webhook"}',1)`;
+						yield* sql`INSERT INTO scheduled_task_deliveries(task_id,event_id,command_id,prompt,created_at) VALUES('child-schedule','hook:1','schedule-command','Do work',1)`;
+
+						const rows =
+							yield* sql`SELECT 1 FROM events WHERE stream_id=${created.sessionId} AND type='QueuedTurnEnqueued'`;
+						expect(rows.length).toBe(1);
+						if (mode !== "queue")
+							expect(
+								(yield* sql`SELECT 1 FROM events WHERE stream_id=${created.sessionId} AND type='SuccessorTurnScheduled'`)
+									.length,
+							).toBe(1);
+					}),
+				);
+				expect(
+					await tools.taskStatus({ taskId: created.taskId }),
+				).toMatchObject({ ok: true });
+				expect(
+					await tools.taskCancel({ taskId: created.taskId }),
+				).toMatchObject({ ok: true, workState: "cancelled" });
+				await run(
+					Effect.gen(function* () {
+						const sql = yield* SqlClient.SqlClient;
+						expect(
+							(yield* sql<{
+								enabled: number;
+							}>`SELECT enabled FROM scheduled_tasks WHERE id='child-schedule'`)[0]
+								?.enabled,
+						).toBe(0);
+						expect(
+							(yield* sql`SELECT 1 FROM scheduled_task_deliveries WHERE task_id='child-schedule'`)
+								.length,
+						).toBe(0);
+					}),
+				);
+
+				expect(
+					await tools.sendToThread({
+						sessionId: created.sessionId,
+						text: "Must not restart",
+					}),
+				).toMatchObject({ ok: false });
+				expect(parent.initialSession.id).not.toBe(created.sessionId);
+			});
+		});
 
 	it("create_session without chatId opens a new tab in the caller's chat", async () => {
 		await withRuntime(async (run) => {

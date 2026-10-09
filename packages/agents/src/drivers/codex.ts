@@ -1783,14 +1783,24 @@ export const startCodexSession = (
 		): Promise<ThreadResponse> => {
 			const params = { threadId, ...commonThreadParams };
 			try {
-				return await app.request<ThreadResponse>(method, params, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
+				return await app.request<ThreadResponse>(method, params, {
+					timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+					signal: startup.signal,
+				});
 			} catch (cause) {
 				if (!isArchivedCodexThread(cause)) throw cause;
 				console.warn(
 					"[codex] thread was archived outside Zuse; unarchiving it",
 				);
-				await app.request("thread/unarchive", { threadId }, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
-				return app.request<ThreadResponse>(method, params, { timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal });
+				await app.request(
+					"thread/unarchive",
+					{ threadId },
+					{ timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal },
+				);
+				return app.request<ThreadResponse>(method, params, {
+					timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+					signal: startup.signal,
+				});
 			}
 		};
 

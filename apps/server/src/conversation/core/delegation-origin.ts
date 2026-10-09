@@ -24,6 +24,13 @@ export const validateDelegationOrigin = (
 				providerId,
 				reason: "The parent execution no longer owns this delegation.",
 			});
+		const cancelledAncestor =
+			yield* sql`WITH RECURSIVE ancestors(id) AS (SELECT ${origin.parentSessionId} UNION SELECT d.parent_session_id FROM session_delegations d JOIN ancestors a ON d.child_session_id=a.id) SELECT 1 FROM session_delegations d JOIN ancestors a ON d.child_session_id=a.id WHERE d.cancelled_at IS NOT NULL LIMIT 1`;
+		if (cancelledAncestor.length > 0)
+			return yield* new SessionStartError({
+				providerId,
+				reason: "This delegated task tree was cancelled.",
+			});
 		const siblings = yield* sql<{
 			count: number;
 		}>`SELECT COUNT(*) AS count FROM session_delegations WHERE parent_session_id=${origin.parentSessionId} AND parent_turn_id=${origin.parentTurnId} AND parent_attempt_id=${origin.parentAttemptId}`;

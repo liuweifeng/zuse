@@ -39,6 +39,8 @@ import { AttachmentServiceLive } from "./attachment/layers/attachment-service.ts
 import { AuthServiceLive } from "./auth/layers/auth-service.ts";
 import { SessionStoreLive } from "./auth/layers/session-store.ts";
 import { AuthShell } from "./auth/services/auth-shell.ts";
+import { AutomationService } from "./automation/service.ts";
+import { AutomationWorkerLive } from "./automation/worker.ts";
 import { ConfigStoreServiceLive } from "./config-store/layers/config-store-service.ts";
 import { ConversationState } from "./conversation/core/conversation-state.ts";
 import { ConversationServicesLive } from "./conversation/layers/conversation-services.ts";
@@ -443,6 +445,11 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(BackfilledSqlite),
 	);
 
+	const AutomationLayer = AutomationService.layer.pipe(
+		Layer.provide(MigratedSqlite),
+		Layer.provide(CredentialsLayer),
+	);
+
 	const ActivityLayer =
 		deps.onActiveTurns === undefined
 			? Layer.empty
@@ -569,6 +576,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const ProviderLayer = ProviderServiceLive.pipe(
+		Layer.provide(AutomationLayer),
 		Layer.provide(ProviderAccountsLayer),
 		Layer.provide(AcpAgentLayer),
 		Layer.provide(HarnessProviderLayer),
@@ -690,6 +698,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 			? Layer.empty
 			: PendingWorkspaceExecutionPolicy;
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
+		Layer.provide(AutomationLayer),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(ConversationState.layer),
 		Layer.provide(ProviderLayer),
@@ -822,6 +831,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const HandlerDomainLayer = Layer.mergeAll(
+		AutomationLayer,
 		ProviderAccountsLayer,
 		AcpAgentLayer,
 		DeviceBridgeLayer,
@@ -931,6 +941,10 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		CloudWorkspaceRuntimeLayer,
 		RuntimePerformanceLayer,
 		ActivityLayer,
+		AutomationWorkerLive.pipe(
+			Layer.provide(AutomationLayer),
+			Layer.provide(ConversationServicesLayer),
+		),
 		ShutdownLayer,
 		CliAccessLayer,
 	).pipe(Layer.provide(TelemetryLayer));

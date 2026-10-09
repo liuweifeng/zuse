@@ -29,3 +29,20 @@ describe("zuseWorkspaceInstructions", () => {
 		).toContain("plugins_search");
 	});
 });
+
+it("only advertises orchestration when enabled and preserves shared guidance", () => {
+	const options = { projectPath: "/repo", cwd: "/repo" };
+	expect(zuseWorkspaceInstructions(options)).not.toContain(
+		"<zuse-orchestration-tools>",
+	);
+	const enabled = zuseWorkspaceInstructions({
+		...options,
+		includeOrchestration: true,
+	});
+	expect(enabled).toContain("delegate_task");
+	expect(enabled).toContain("Provider-native subagents");
+	expect(enabled).toContain("do not run repeated status polls");
+	expect(enabled).toContain("inherited permissions");
+	expect(enabled).toContain("--cloud-workspace");
+	expect(enabled).not.toContain("Smoke flow");
+});

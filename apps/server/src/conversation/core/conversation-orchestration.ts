@@ -1,15 +1,25 @@
+import { createHash } from "node:crypto";
+import {
+	ORCHESTRATION_READ_LIMIT,
+	ORCHESTRATION_TEXT_LIMIT,
+	type OrchestrationReadInput,
+} from "@zuse/agents/drivers/orchestration-discovery";
 import type {
 	SessionWaitInput,
 	SessionWaitOptions,
 	SessionWaitResult,
 } from "@zuse/contracts";
 import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
+import { buildOrchestrationModelInventory } from "./orchestration-discovery.ts";
+import type { OrchestrationTaskRuntime } from "./orchestration-task-runtime.ts";
 /** Builds the session-bound orchestration tool surface. */
 
 import {
 	buildOrchestrationTools,
+	ORCHESTRATION_MCP_TOOLS,
 	type OrchestrationSessionTools,
 	type OrchestrationToolDeps,
+	type ReadThreadResult,
 } from "@zuse/agents/drivers/orchestration-tools";
 import {
 	type AutonomyLevel,
@@ -20,13 +30,11 @@ import {
 	type FolderId,
 	type Message,
 	type MessageContent,
-	PROVIDER_IDS,
 	type ProviderId,
 	type ResolvedModelCatalog,
 	type Session,
 	type SessionId,
 	type SettingsFile,
-	visibleModelsForProvider,
 	type Worktree,
 	type WorktreeCreateSource,
 	type WorktreeId,
@@ -52,7 +60,23 @@ export interface ConversationOrchestrationContext {
 }
 
 export interface ConversationOrchestrationDependencies {
+	readonly readThreadPage?: (
+		input: OrchestrationReadInput,
+	) => Effect.Effect<ReadThreadResult, unknown>;
 	readonly runtime: Context.Context<never>;
+	readonly tasks?: OrchestrationTaskRuntime;
+	readonly automationActor?: import("@zuse/contracts").WorkspaceActor;
+	readonly automation?: import("../../automation/service.ts").AutomationService["Service"];
+	readonly interruptSession?: (
+		sessionId: SessionId,
+		commandId: string,
+	) => Effect.Effect<unknown, unknown>;
+	readonly controlSend?: (input: {
+		sessionId: SessionId;
+		text: string;
+		mode: "auto" | "queue" | "steer" | "restart";
+		commandId: string;
+	}) => Effect.Effect<boolean, unknown>;
 	readonly captureDelegation: () => Effect.Effect<DelegationOrigin, unknown>;
 	readonly getSettings: () => Effect.Effect<SettingsFile, unknown>;
 	/** Resolved model catalog (curated + live); falls back to the bundled snapshot. */
@@ -83,6 +107,12 @@ export interface ConversationOrchestrationDependencies {
 		readonly originSessionId: SessionId;
 		readonly delegation: DelegationOrigin;
 		readonly background: true;
+		readonly sessionId?: SessionId;
+		readonly commandId?: string;
+		readonly initialTurnId?: import("@zuse/contracts").AgentTurnId;
+		readonly initialMessageId?: import("@zuse/contracts").MessageId;
+		readonly runtimeMode?: import("@zuse/contracts").RuntimeMode;
+		readonly permissionMode?: import("@zuse/contracts").PermissionMode;
 	}) => Effect.Effect<Session, unknown>;
 	readonly getChat: (chatId: ChatId) => Effect.Effect<Chat, unknown>;
 	readonly getSession: (
@@ -128,30 +158,42 @@ export const makeConversationOrchestration = (
 	context: ConversationOrchestrationContext,
 ): Effect.Effect<OrchestrationSessionTools> =>
 	Effect.gen(function* () {
-		const settings = yield* dependencies
-			.getSettings()
-			.pipe(Effect.catchCause(() => Effect.succeed(null)));
-		const modelCatalog = yield* dependencies
-			.getModelCatalog()
-			.pipe(
-				Effect.catchCause(() => Effect.succeed(bundledResolvedModelCatalog())),
-			);
 		const autonomyLevel: AutonomyLevel = "approval-gated";
 		const run = Effect.runPromiseWith(dependencies.runtime);
-		const providerModelFor = (input: {
-			readonly providerId?: string;
-			readonly model?: string;
-		}): { readonly providerId: ProviderId; readonly model: string } => {
-			const providerId =
-				(input.providerId as ProviderId | undefined) ?? context.providerId;
-			const model =
-				input.model ??
-				(providerId === context.providerId
-					? context.model
-					: (settings?.defaultModelByProvider[providerId] ??
-						defaultModelFor(modelCatalog, providerId)));
-			return { providerId, model };
-		};
+		const providerModelFor = Effect.fn("Orchestration.providerModelFor")(
+			function* (input: {
+				readonly providerId?: string;
+				readonly model?: string;
+			}) {
+				const settings = yield* dependencies
+					.getSettings()
+					.pipe(Effect.catchCause(() => Effect.succeed(null)));
+				const catalog = yield* dependencies
+					.getModelCatalog()
+					.pipe(
+						Effect.catchCause(() =>
+							Effect.succeed(bundledResolvedModelCatalog()),
+						),
+					);
+				const parent = yield* dependencies.getSession(context.sessionId);
+				const providerId =
+					(input.providerId as ProviderId | undefined) ?? parent.providerId;
+				const inventory = buildOrchestrationModelInventory(
+					catalog,
+					settings,
+					providerId,
+				);
+				const model =
+					input.model ??
+					(providerId === parent.providerId
+						? parent.model
+						: inventory.ok
+							? (inventory.providers[0]?.defaultModel ??
+								defaultModelFor(catalog, providerId))
+							: defaultModelFor(catalog, providerId));
+				return { providerId, model };
+			},
+		);
 		const sourceForBaseBranch = (
 			baseBranch: string | undefined,
 		): WorktreeCreateSource | undefined =>
@@ -169,73 +211,248 @@ export const makeConversationOrchestration = (
 			readonly worktreeId: WorktreeId | null;
 			readonly providerId?: string;
 			readonly model?: string;
-		}) => {
-			const { providerId, model } = providerModelFor(input);
-			return dependencies.captureDelegation().pipe(
-				Effect.flatMap((delegation) =>
-					dependencies
-						.createChat({
-							delegation,
-							projectId: context.projectId,
-							providerId,
-							model,
-							title: input.title,
-							initialPrompt: input.task,
-							worktreeId: input.worktreeId,
-							originSessionId: context.sessionId,
-						})
-						.pipe(
-							Effect.map((result) => ({
-								ok: true as const,
-								chatId: result.chat.id as string,
-								sessionId: result.initialSession.id as string,
-								title: result.chat.title,
-								worktreeId:
-									result.chat.worktreeId === null
-										? null
-										: (result.chat.worktreeId as string),
-							})),
-						),
-				),
-			);
-		};
+		}) =>
+			Effect.gen(function* () {
+				const { providerId, model } = yield* providerModelFor(input);
+				return yield* dependencies.captureDelegation().pipe(
+					Effect.flatMap((delegation) =>
+						dependencies
+							.createChat({
+								delegation,
+								projectId: context.projectId,
+								providerId,
+								model,
+								title: input.title,
+								initialPrompt: input.task,
+								worktreeId: input.worktreeId,
+								originSessionId: context.sessionId,
+							})
+							.pipe(
+								Effect.map((result) => ({
+									ok: true as const,
+									chatId: result.chat.id as string,
+									sessionId: result.initialSession.id as string,
+									title: result.chat.title,
+									worktreeId:
+										result.chat.worktreeId === null
+											? null
+											: (result.chat.worktreeId as string),
+								})),
+							),
+					),
+				);
+			});
 		const createSession = (input: {
 			readonly task: string;
 			readonly title?: string;
 			readonly chatId: ChatId;
 			readonly providerId?: string;
 			readonly model?: string;
-		}) => {
-			const { providerId, model } = providerModelFor(input);
-			return dependencies.captureDelegation().pipe(
-				Effect.flatMap((delegation) =>
-					dependencies
-						.createSession({
-							delegation,
-							chatId: input.chatId,
-							providerId,
-							model,
-							title: input.title,
-							initialPrompt: input.task,
-							originSessionId: context.sessionId,
-							background: true,
-						})
-						.pipe(
-							Effect.map((session) => ({
-								ok: true as const,
-								chatId: session.chatId as string,
-								sessionId: session.id as string,
-								title: session.title,
-								worktreeId:
-									session.worktreeId === null
-										? null
-										: (session.worktreeId as string),
-							})),
-						),
-				),
-			);
-		};
+		}) =>
+			Effect.gen(function* () {
+				const { providerId, model } = yield* providerModelFor(input);
+				return yield* dependencies.captureDelegation().pipe(
+					Effect.flatMap((delegation) =>
+						dependencies
+							.createSession({
+								delegation,
+								chatId: input.chatId,
+								providerId,
+								model,
+								title: input.title,
+								initialPrompt: input.task,
+								originSessionId: context.sessionId,
+								background: true,
+							})
+							.pipe(
+								Effect.map((session) => ({
+									ok: true as const,
+									chatId: session.chatId as string,
+									sessionId: session.id as string,
+									title: session.title,
+									worktreeId:
+										session.worktreeId === null
+											? null
+											: (session.worktreeId as string),
+								})),
+							),
+					),
+				);
+			});
+		const automation = dependencies.automation;
+		const mutateAutomation = <A, E>(effect: Effect.Effect<A, E>) =>
+			run(dependencies.captureDelegation().pipe(Effect.flatMap(() => effect)));
 		const toolDependencies: OrchestrationToolDeps = {
+			automation: automation
+				? {
+						create: (input) =>
+							mutateAutomation(
+								automation.create(
+									{ ...input, sessionId: context.sessionId },
+									dependencies.automationActor,
+								),
+							),
+						list: () => run(automation.list(context.sessionId)),
+						update: (input) =>
+							mutateAutomation(
+								automation.update(
+									{ ...input, sessionId: context.sessionId },
+									dependencies.automationActor,
+								),
+							),
+						remove: (taskId) =>
+							mutateAutomation(automation.remove(context.sessionId, taskId)),
+						trigger: (taskId, eventId) =>
+							mutateAutomation(
+								automation.trigger(context.sessionId, taskId, eventId),
+							),
+						requestSecret: (input) =>
+							mutateAutomation(
+								automation.requestSecret({
+									...input,
+									sessionId: context.sessionId,
+								}),
+							),
+						listSecrets: () => run(automation.listSecrets(context.sessionId)),
+					}
+				: undefined,
+			delegateTask: (input) =>
+				run(
+					Effect.gen(function* () {
+						const delegation = yield* dependencies.captureDelegation();
+						const identity = createHash("sha256")
+							.update(
+								JSON.stringify([context.sessionId, input.clientRequestId]),
+							)
+							.digest("hex");
+						const sessionId = `s_task_${identity}` as SessionId;
+						if (dependencies.tasks) {
+							const existing = yield* dependencies.tasks.status(
+								context.sessionId,
+								sessionId,
+							);
+							if (existing.ok) {
+								const previous = yield* dependencies.getSession(sessionId);
+								const messages = yield* dependencies.listMessages(sessionId);
+								const expected = input.role
+									? `${input.role}\n\n${input.task}`
+									: input.task;
+								if (
+									(input.providerId !== undefined &&
+										previous.providerId !== input.providerId) ||
+									(input.model !== undefined &&
+										previous.model !== input.model) ||
+									messageContentToText(
+										messages[0]?.content ?? { _tag: "user", text: "" },
+									) !== expected
+								)
+									return yield* Effect.fail({
+										reason:
+											"clientRequestId was already used for a different task.",
+									});
+								return existing;
+							}
+						}
+						const parent = yield* dependencies.getSession(context.sessionId);
+						const selection = yield* providerModelFor(input);
+						const child = yield* dependencies.createSession({
+							chatId: context.chatId,
+							...selection,
+							sessionId,
+							commandId: `task-create:${identity}`,
+							initialTurnId:
+								`turn_task_${identity}` as import("@zuse/contracts").AgentTurnId,
+							initialMessageId:
+								`message_task_${identity}` as import("@zuse/contracts").MessageId,
+							title: input.title,
+							initialPrompt: input.role
+								? `${input.role}\n\n${input.task}`
+								: input.task,
+							originSessionId: context.sessionId,
+							delegation,
+							background: true,
+							runtimeMode: parent.runtimeMode,
+							permissionMode: parent.permissionMode,
+						});
+						return {
+							ok: true as const,
+							taskId: child.id,
+							sessionId: child.id,
+							status: child.status,
+							workState: "working" as const,
+						};
+					}).pipe(
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
+			taskStatus: (input) =>
+				run(
+					(
+						dependencies.tasks?.status(context.sessionId, input.taskId) ??
+						Effect.fail({ reason: "Task status unavailable." })
+					).pipe(
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
+			taskCancel: (input) =>
+				run(
+					dependencies.captureDelegation().pipe(
+						Effect.flatMap(
+							(origin) =>
+								dependencies.tasks?.cancel(
+									context.sessionId,
+									input.taskId,
+									origin,
+								) ?? Effect.fail({ reason: "Task cancellation unavailable." }),
+						),
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
+			interruptThread: (input) =>
+				run(
+					Effect.gen(function* () {
+						yield* dependencies.captureDelegation();
+						const target = yield* dependencies.getSession(
+							input.sessionId as SessionId,
+						);
+						if (target.projectId !== context.projectId)
+							return yield* Effect.fail({
+								reason: "Target session belongs to a different project.",
+							});
+						if (!dependencies.interruptSession)
+							return yield* Effect.fail({
+								reason: "Interruption unavailable.",
+							});
+						yield* dependencies.interruptSession(
+							target.id,
+							input.commandId ??
+								`orchestration-interrupt:${crypto.randomUUID()}`,
+						);
+						return { ok: true as const };
+					}).pipe(
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
 			createWorktree: (input) =>
 				run(
 					createWorktree(input.baseBranch).pipe(
@@ -340,6 +557,37 @@ export const makeConversationOrchestration = (
 					Effect.gen(function* () {
 						const sessionId = input.sessionId as SessionId;
 						const target = yield* dependencies.getSession(sessionId);
+						if (dependencies.tasks)
+							yield* dependencies.tasks.assertSendable(sessionId);
+						if (target.projectId !== context.projectId)
+							return yield* Effect.fail({
+								reason: "Target session belongs to a different project.",
+							});
+						yield* dependencies.captureDelegation();
+						if (dependencies.controlSend && input.wait === undefined) {
+							const queued = yield* dependencies.controlSend({
+								sessionId,
+								text: input.text,
+								mode: input.mode ?? "auto",
+								commandId:
+									input.commandId ??
+									`orchestration-send:${crypto.randomUUID()}`,
+							});
+							return {
+								ok: true as const,
+								queued,
+								chatId: target.chatId as string,
+							};
+						}
+						if (
+							input.wait !== undefined &&
+							input.mode !== undefined &&
+							input.mode !== "auto"
+						)
+							return yield* Effect.fail({
+								reason:
+									"Use wait_for_thread after queued or interrupted delivery; combined waits currently require auto mode.",
+							});
 						const waited = yield* dependencies.sendToSession(
 							sessionId,
 							input.text,
@@ -395,6 +643,22 @@ export const makeConversationOrchestration = (
 					Effect.gen(function* () {
 						const sessionId = input.sessionId as SessionId;
 						const session = yield* dependencies.getSession(sessionId);
+						if (session.projectId !== context.projectId)
+							return {
+								ok: false as const,
+								error: "Session belongs to another project.",
+							};
+						if (dependencies.readThreadPage)
+							return yield* dependencies.readThreadPage(input);
+						if (
+							input.afterMessageId !== undefined ||
+							input.messageId !== undefined ||
+							input.textOffset !== undefined
+						)
+							return {
+								ok: false as const,
+								error: "Incremental reads unavailable.",
+							};
 						const messages = yield* dependencies.listMessages(sessionId);
 						const limit = input.limit ?? 20;
 						return {
@@ -455,50 +719,56 @@ export const makeConversationOrchestration = (
 						),
 					),
 				),
+			capabilities: async () => {
+				const inventory = await toolDependencies.listModels({});
+				if (!inventory.ok) return inventory;
+				return {
+					ok: true,
+					session: await toolDependencies.whoami(),
+					providers: inventory.providers,
+					tools: ORCHESTRATION_MCP_TOOLS.map((tool) => tool.name),
+					limits: {
+						readMessages: ORCHESTRATION_READ_LIMIT,
+						readTextChars: ORCHESTRATION_TEXT_LIMIT,
+					},
+					context: { automaticParentHistory: false },
+				};
+			},
 			listModels: (input) =>
-				Promise.resolve().then(() => {
-					const allProviderIds: ProviderId[] = [...PROVIDER_IDS];
-					const providerIds =
-						input.providerId !== undefined
-							? allProviderIds.includes(input.providerId as ProviderId)
-								? [input.providerId as ProviderId]
-								: []
-							: allProviderIds;
-					if (input.providerId !== undefined && providerIds.length === 0) {
-						return {
-							ok: false as const,
-							error: `Unknown providerId: ${input.providerId}`,
-						};
-					}
-					const providers = providerIds.map((providerId) => {
-						const defaultModel =
-							settings?.defaultModelByProvider[providerId] ??
-							defaultModelFor(modelCatalog, providerId);
-						const models = visibleModelsForProvider(
-							modelCatalog,
-							providerId,
-							settings?.modelEnabledByProvider,
-							{ includeModelId: defaultModel },
-						).map((model) => ({
-							id: model.id,
-							label: model.label,
-							defaultModel: model.id === defaultModel,
-						}));
-						return { providerId, defaultModel, models };
-					});
-					return { ok: true as const, providers };
-				}),
+				run(
+					Effect.gen(function* () {
+						const currentSettings = yield* dependencies.getSettings();
+						const currentCatalog = yield* dependencies.getModelCatalog();
+						return buildOrchestrationModelInventory(
+							currentCatalog,
+							currentSettings,
+							input.providerId,
+						);
+					}).pipe(
+						Effect.catch((error) =>
+							Effect.succeed({
+								ok: false as const,
+								error: orchestrationErrorText(error),
+							}),
+						),
+					),
+				),
 			whoami: () =>
-				Promise.resolve({
-					sessionId: context.sessionId as string,
-					chatId: context.chatId as string,
-					projectId: context.projectId as string,
-					worktreeId:
-						context.worktreeId === null ? null : (context.worktreeId as string),
-					providerId: context.providerId as string,
-					model: context.model,
-					autonomyLevel,
-				}),
+				run(
+					dependencies.getSession(context.sessionId).pipe(
+						Effect.map((session) => ({
+							sessionId: session.id as string,
+							chatId: session.chatId as string,
+							projectId: session.projectId as string,
+							worktreeId: session.worktreeId,
+							providerId: session.providerId,
+							model: session.model,
+							autonomyLevel,
+							permissionMode: session.permissionMode,
+							runtimeMode: session.runtimeMode,
+						})),
+					),
+				),
 			emitUi: (input) => {
 				// Validate before touching the timeline so a bad spec comes back as
 				// a fixable tool error instead of a degraded transcript block.

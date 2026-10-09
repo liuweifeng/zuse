@@ -774,5 +774,7 @@
 	"message_row_send_again": "Send again",
 	"message_row_model_switched": "Model switched from <from>{{from}}</from> to <to>{{to}}</to>.",
 	"message_row_context_handed_off": "Context handed off.",
-	"message_row_context_preserved": "Context preserved."
+	"message_row_context_preserved": "Context preserved.",
+	"secret_request_availability": "Saved privately as {{name}}. Available after this session’s provider restarts. The value is not added to chat.",
+	"secret_request_save_failed": "Could not save this response. Please retry."
 }

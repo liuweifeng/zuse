@@ -59,5 +59,7 @@ test("session plugin credentials survive provider shell secret-name filtering", 
 	expect(shellEnv).toEqual({
 		ZUSE_PLUGIN_URL: "http://127.0.0.1:1234/plugins",
 		ZUSE_PLUGIN_AUTH: "session-auth",
+		ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:1234/orchestration",
+		ZUSE_ORCHESTRATION_AUTH: "session-auth",
 	});
 });

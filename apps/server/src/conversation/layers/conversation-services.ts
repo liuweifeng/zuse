@@ -236,6 +236,14 @@ const ConversationRuntimeLive = Layer.effect(
 
 		const sessionOperations = makeSessionOperations({
 			awaitWorkspaceReady: executionPolicy.awaitReady,
+			interruptSession: (...args) =>
+				Effect.suspend(() => interruptSession(...args)),
+			addQueuedMessage: (...args) =>
+				Effect.suspend(() => queueRuntime.service.addQueuedMessage(...args)),
+			runQueuedMessageNext: (...args) =>
+				Effect.suspend(() =>
+					queueRuntime.service.runQueuedMessageNext(...args),
+				),
 			serviceScope,
 			sql,
 			state,

@@ -774,5 +774,7 @@
 	"message_row_send_again": "重新发送",
 	"message_row_model_switched": "模型已从 <from>{{from}}</from> 切换为 <to>{{to}}</to>。",
 	"message_row_context_handed_off": "上下文已移交。",
-	"message_row_context_preserved": "上下文已保留。"
+	"message_row_context_preserved": "上下文已保留。",
+	"secret_request_availability": "已私密保存为 {{name}}。重启此会话的提供方后可用。该值不会添加到聊天中。",
+	"secret_request_save_failed": "无法保存此回复。请重试。"
 }

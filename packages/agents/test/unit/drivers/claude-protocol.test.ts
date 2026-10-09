@@ -339,3 +339,25 @@ it.each([
 		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "full-access").kind,
 	).toBe("auto-allow");
 });
+
+it.each([
+	"orchestrator_capabilities",
+	"task_status",
+	"list_scheduled_tasks",
+	"wait_for_thread",
+])("auto-allows shared orchestration read %s", (tool) => {
+	expect(
+		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "approval-required")
+			.kind,
+	).toBe("auto-allow");
+});
+it.each([
+	"delegate_task",
+	"task_cancel",
+	"schedule_task",
+])("keeps orchestration mutation %s permission-gated", (tool) => {
+	expect(
+		claudeToolPermissionPolicy(`mcp__zuse__${tool}`, {}, "approval-required")
+			.kind,
+	).toBe("prompt");
+});

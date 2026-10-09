@@ -95,4 +95,6 @@ export const createHttpPluginClient = (
 export const pluginCliEnv = (endpoint: string, token: string) => ({
 	ZUSE_PLUGIN_URL: new URL("/plugins", endpoint).href,
 	ZUSE_PLUGIN_AUTH: token,
+	ZUSE_ORCHESTRATION_URL: new URL("/orchestration", endpoint).href,
+	ZUSE_ORCHESTRATION_AUTH: token,
 });

@@ -774,5 +774,7 @@
 	"message_row_send_again": "⟦Sëënd ààgààïïn⟧",
 	"message_row_model_switched": "⟦Môôdëël swïïtchëëd frôôm <from>{{from}}</from> tôô <to>{{to}}</to>.⟧",
 	"message_row_context_handed_off": "⟦Côôntëëxt hààndëëd ôôff.⟧",
-	"message_row_context_preserved": "⟦Côôntëëxt prëësëërvëëd.⟧"
+	"message_row_context_preserved": "⟦Côôntëëxt prëësëërvëëd.⟧",
+	"secret_request_availability": "⟦Sààvëëd prïïvààtëëly ààs {{name}}. ÀÀvààïïlààblëë ààftëër thïïs sëëssïïôôn’s prôôvïïdëër rëëstààrts. Thëë vààlüüëë ïïs nôôt ààddëëd tôô chààt.⟧",
+	"secret_request_save_failed": "⟦Côôüüld nôôt sààvëë thïïs rëëspôônsëë. Plëëààsëë rëëtry.⟧"
 }

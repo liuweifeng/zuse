@@ -48,10 +48,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import {
-	type OrchestrationSessionTools,
-	orchestrationMcpPromptHint,
-} from "./orchestration-tools.ts";
+import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
@@ -669,13 +666,7 @@ export const startKiroSession = (
 						);
 			const finalPromptText =
 				mcpHintPending && compactSnapshot === null
-					? [
-							browserMcpPromptHint(),
-							...(orchestrationTools === null
-								? []
-								: [orchestrationMcpPromptHint()]),
-							promptText,
-						].join("\n\n")
+					? [browserMcpPromptHint(), promptText].join("\n\n")
 					: promptText;
 			mcpHintPending = false;
 			if (compactSnapshot === null) workspaceInstructionsPending = undefined;

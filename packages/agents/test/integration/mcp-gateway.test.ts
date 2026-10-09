@@ -613,3 +613,48 @@ test("exposes visuals only in scoped sessions and binds publication to the calle
 		await excluded.close();
 	}
 });
+
+test("orchestration CLI shares session authentication, scope, and permission checks", async () => {
+	const requestPermission = vi.fn(async () => ({ _tag: "Deny" as const }));
+	const createSession = vi.fn(baseDeps.createSession);
+	const issued = await issueMcpGatewaySession({
+		sessionId: "cli-orchestration",
+		scopes: { browser: false, orchestration: true },
+		ctx: {
+			orchestration: {
+				deps: { ...baseDeps, createSession },
+				requestPermission,
+				getRuntimeMode: () => "approval-required",
+				getPermissionMode: () => "default",
+			},
+		},
+	});
+	const post = (token: string, body: unknown) =>
+		fetch(new URL("/orchestration", issued.endpoint), {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+	try {
+		expect((await post("wrong", { name: "tools/list" })).status).toBe(401);
+		const listed = await post(issued.token, { name: "tools/list" });
+		expect(listed.status).toBe(200);
+		expect(await listed.json()).toMatchObject({
+			tools: expect.arrayContaining([
+				expect.objectContaining({ name: "create_session" }),
+			]),
+		});
+		await post(issued.token, {
+			name: "create_session",
+			args: { prompt: "review", chatId: "chat_1" },
+		});
+		expect(requestPermission).toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	} finally {
+		await issued.close();
+	}
+	expect((await post(issued.token, { name: "tools/list" })).status).toBe(401);
+});

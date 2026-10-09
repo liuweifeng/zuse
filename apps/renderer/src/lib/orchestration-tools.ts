@@ -12,6 +12,9 @@ const LEGACY_LABELS: Record<string, string> = {
 
 export const orchestrationToolName = (tool: string): string | null =>
 	ORCHESTRATION_TOOL_RE.exec(tool)?.[1]?.toLowerCase() ??
+	/^(?:mcp__)?zuse__((?:create|read|interrupt)_thread|create_session|send_to_thread|wait_for_thread|list_threads|list_models|whoami|orchestrator_capabilities|delegate_task|task_status|task_cancel|(?:list|update|delete|trigger)_scheduled_tasks?|schedule_task|request_secret|list_secret_requests)$/i
+		.exec(tool)?.[1]
+		?.toLowerCase() ??
 	LEGACY_LABELS[tool] ??
 	null;
 

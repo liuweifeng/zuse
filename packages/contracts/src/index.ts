@@ -5,6 +5,7 @@ export * from "./analytics.ts";
 export * from "./api.ts";
 export * from "./attachment.ts";
 export * from "./auth.ts";
+export * from "./automation.ts";
 export * from "./autonomy.ts";
 export * from "./browser.ts";
 export * from "./cloud-api.ts";

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isOrchestrationToolName } from "@zuse/agents/drivers/orchestration-tools";
 import type { HarnessEngine } from "@zuse/agents/harness/engine";
 import type { HarnessEvent } from "@zuse/agents/harness/types";
 import type { ProviderSessionHandle } from "@zuse/agents/kernel/driver";
@@ -126,7 +127,9 @@ export const makeHarnessSession = (options: HarnessSessionOptions) =>
 					emit({
 						_tag: "ToolUse",
 						itemId: AgentItemId.make(event.call.id),
-						tool: normalizeNativeToolName(event.call.name),
+						tool: isOrchestrationToolName(event.call.name)
+							? `mcp__zuse__${event.call.name}`
+							: normalizeNativeToolName(event.call.name),
 						input: {
 							...args,
 							...(event.call.name === "spawn_agent"

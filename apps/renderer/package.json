@@ -17,7 +17,8 @@
 		"test:cloud-repository-state-browser": "node test/integration/cloud-repository-state.browser.mjs",
 		"test:plugins-browser": "node test/integration/plugins.browser.mjs",
 		"test:cloud-setup-browser": "node test/integration/cloud-setup.browser.mjs",
-		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs"
+		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs",
+		"test:secret-requests-browser": "node test/integration/session-secret-requests.browser.mjs"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.4.1",
