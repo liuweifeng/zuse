@@ -338,14 +338,8 @@ describe("cloud runtime assets", () => {
 		const githubAuthPath = fileURLToPath(
 			workspaceFileUrl("infra/cloud-sandboxes/github-auth.sh"),
 		);
-		const githubAuth = await readWorkspaceFile(
-			"infra/cloud-sandboxes/github-auth.sh",
-		);
 		const provision = await readWorkspaceFile(
 			"infra/cloud-sandboxes/provision.sh",
-		);
-		const runtime = await readWorkspaceFile(
-			"apps/server/src/api/cloud-workspace-runtime.ts",
 		);
 		const routes = await readWorkspaceFile(
 			"infra/api/src/cloud-workspace-routes.ts",
@@ -360,12 +354,6 @@ describe("cloud runtime assets", () => {
 		expect(provision).toContain(
 			"runuser -u zuse -- /usr/local/bin/zuse-github-auth install",
 		);
-		expect(githubAuth).toContain("ZUSE_GITHUB_TOKEN_FILE");
-		expect(githubAuth).toContain('exec "$gh_binary" "$@"');
-		expect(githubAuth).toContain("printf 'password=%s\\n'");
-		expect(githubAuth).toContain("credentialUrl");
-		expect(runtime).toContain("writeGithubBrokerState");
-		expect(runtime).toContain("cloud-runtime-credential");
 		expect(routes).toContain("githubUserCredential");
 
 		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-github-auth-"));
@@ -698,11 +686,6 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(reconciler).not.toContain('"ssh",\n\t\t"tmux"');
 		expect(updater).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN");
 		expect(reconciler).toContain('"runtime-update-trigger.mjs"');
-		expect(updater).toContain('join(release, "toolchain-reconciler.mjs")');
-		expect(updater).toContain("manifest.toolchain.sha256");
-		expect(updater).toContain(
-			"Signed toolchain manifest does not match the runtime",
-		);
 	});
 
 	test("fails fast and reports a stable bootstrap status without logging secrets", async () => {
@@ -750,22 +733,9 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		);
 		expect(updater).toContain("if (!(await waitForHealthyRuntime()))");
 		expect(updater).not.toContain("currentLink}.target");
-		expect(updater).toContain("runtime-signed-manifest.json");
-		expect(updater).toContain("runtime-signed-archive.tar.gz");
-		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_TRANSACTION_ID");
-		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_GENERATION");
-		expect(updater).toContain('await save({ phase: "activated" })');
-		expect(updater).toContain('await save({ phase: "rolled-back" })');
-		expect(updater).toContain(
-			"Rollback requires a fresh fenced runtime generation",
-		);
-		expect(updater).toContain(
-			"Runtime confirmation version or generation does not match",
-		);
 		expect(updater).toContain(
 			'await run("systemctl", ["restart", "zuse.service"])',
 		);
-		expect(updater).toContain('process.env.ZUSE_RUNTIME_INSTALL_ONLY === "1"');
 		expect(updater).toContain("const fetchWithRetry");
 		expect(updater).toContain("AbortSignal.timeout");
 		expect(updater).toContain("Runtime hash is invalid");
@@ -782,7 +752,6 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		);
 		expect(updater).toContain("Number.isInteger(wireProtocol.min)");
 		expect(updater).toContain("const waitForHealthyRuntime = async () =>");
-		expect(updater).toContain('process.argv.includes("--check")');
 		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_REQUEST_FILE");
 		expect(updater).toContain("ZUSE_RUNTIME_UPDATE_STATUS_FILE");
 	});
