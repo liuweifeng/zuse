@@ -142,6 +142,7 @@ export const DelegationGroup = memo(function DelegationGroup({
 		const sessionId = spawnTarget(member)?.sessionId ?? null;
 		const view = spawnDelegationView(member, {
 			fallbackProviderId: providerId,
+			fallbackChatId: chatRef?.chatId,
 			session: sessionId === null ? null : (spawned.get(sessionId) ?? null),
 		});
 		return { view, inline: null };

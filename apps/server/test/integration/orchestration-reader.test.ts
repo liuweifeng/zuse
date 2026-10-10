@@ -146,3 +146,21 @@ it("filters activity while retaining stable cursors", async () => {
 		}),
 	);
 });
+
+it("includes generated UI source in the messages view", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { read, sql } = yield* fixture;
+			const spec = 'root = Text("Result")';
+			const content = JSON.stringify({ _tag: "ui_spec", version: 1, spec });
+			yield* sql`INSERT INTO messages(id,session_id,role,kind,content_json,created_at,sequence) VALUES ('ui1','session-1','assistant','ui_spec',${content},'2026-01-01T00:00:00Z',6)`;
+			const result = yield* read({ sessionId: "session-1", view: "messages" });
+			expect(result.messages.at(-1)).toMatchObject({
+				id: "ui1",
+				kind: "ui_spec",
+				role: "assistant",
+				text: spec,
+			});
+		}),
+	);
+});

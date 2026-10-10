@@ -64,7 +64,12 @@ export interface DelegationView {
 	readonly open: DelegationOpenTarget | null;
 }
 
-const SPAWN_TOOLS = new Set(["create_thread", "create_chat", "create_session"]);
+const SPAWN_TOOLS = new Set([
+	"create_thread",
+	"create_chat",
+	"create_session",
+	"delegate_task",
+]);
 
 const isProviderId = Schema.is(ProviderId);
 
@@ -90,7 +95,10 @@ export const spawnDelegationMember = (
 	if (
 		result !== null &&
 		(result.isError ||
-			typeof parseOrchestrationResult(result.output)?.chatId !== "string")
+			(typeof parseOrchestrationResult(result.output)?.chatId !== "string" &&
+				(name !== "delegate_task" ||
+					typeof parseOrchestrationResult(result.output)?.sessionId !==
+						"string")))
 	) {
 		return null;
 	}
@@ -399,12 +407,19 @@ const inputRecord = (input: unknown): Record<string, unknown> =>
 /** The spawn's chat and session ids, once its result has landed. */
 export const spawnTarget = (
 	member: Extract<DelegationMember, { kind: "spawn" }>,
-): { readonly chatId: string; readonly sessionId: string | null } | null => {
+): {
+	readonly chatId: string | null;
+	readonly sessionId: string | null;
+} | null => {
 	if (member.result === null) return null;
 	const parsed = parseOrchestrationResult(member.result.output);
-	if (typeof parsed?.chatId !== "string") return null;
+	if (
+		typeof parsed?.chatId !== "string" &&
+		typeof parsed?.sessionId !== "string"
+	)
+		return null;
 	return {
-		chatId: parsed.chatId,
+		chatId: typeof parsed?.chatId === "string" ? parsed.chatId : null,
 		sessionId: typeof parsed.sessionId === "string" ? parsed.sessionId : null,
 	};
 };
@@ -414,6 +429,7 @@ export const spawnDelegationView = (
 	member: Extract<DelegationMember, { kind: "spawn" }>,
 	context: {
 		readonly fallbackProviderId: ProviderId | null;
+		readonly fallbackChatId?: string;
 		readonly session: SpawnedSessionState | null;
 	},
 ): DelegationView => {
@@ -424,6 +440,7 @@ export const spawnDelegationView = (
 			: parseOrchestrationResult(member.result.output);
 	const target = spawnTarget(member);
 	const session = context.session;
+	const chatId = target?.chatId ?? context.fallbackChatId ?? null;
 	const busy = session !== null && isSessionRuntimeBusy(session.runtime);
 	// The tool result can land before the session reaches the shell; until
 	// it does, the outcome is unknown, so the spawn keeps working.
@@ -456,8 +473,11 @@ export const spawnDelegationView = (
 				? null
 				: lastMessage.createdAt.getTime(),
 		open:
-			target !== null && target.sessionId !== null && session !== null
-				? { kind: "chat", chatId: target.chatId, sessionId: target.sessionId }
+			target !== null &&
+			target.sessionId !== null &&
+			session !== null &&
+			chatId !== null
+				? { kind: "chat", chatId, sessionId: target.sessionId }
 				: null,
 	};
 };

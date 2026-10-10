@@ -71,7 +71,14 @@ export const makeOrchestrationReader = (
 			limit: limit + 1,
 			kinds:
 				input.view === "messages"
-					? ["user", "user_rich", "assistant", "error", "subagent_summary"]
+					? [
+							"user",
+							"user_rich",
+							"assistant",
+							"ui_spec",
+							"error",
+							"subagent_summary",
+						]
 					: undefined,
 		});
 		const selected = rows.slice(0, limit);

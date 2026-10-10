@@ -718,6 +718,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(SessionQueriesLayer),
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NdjsonLoggerLayer),
+		Layer.provide(NodeServices.layer),
 	);
 	const CloudWorkspaceRuntimeLayer = makeCloudWorkspaceRuntimeLayer(
 		deps.cloudWorkspaceRuntime,

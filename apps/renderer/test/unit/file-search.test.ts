@@ -106,7 +106,7 @@ describe("project file search", () => {
 			name: "index.ts",
 		});
 	});
-	it("uses the shared shortcut registry and opens on dispatch without a mounted file tree", () => {
+	it("uses the shared shortcut registry and opens on dispatch without a mounted file tree", async () => {
 		expect(APPLICATION_COMMANDS.has("search-files")).toBe(true);
 		expect(DEFAULT_KEYBINDINGS).toContainEqual({
 			key: "mod+p",
@@ -114,6 +114,7 @@ describe("project file search", () => {
 		});
 		vi.stubGlobal("document", { body: { dataset: {} } });
 		dispatchCommand("search-files");
+		await vi.dynamicImportSettled();
 		expect(useUiStore.getState().fileSearchOpen).toBe(true);
 		useUiStore.getState().setFileSearchOpen(false);
 		expect(useUiStore.getState().fileSearchOpen).toBe(false);

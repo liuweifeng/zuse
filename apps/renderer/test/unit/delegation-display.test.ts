@@ -147,6 +147,43 @@ describe("delegation display", () => {
 		).toEqual(["spawn:one", "spawn:two", "subagent:agent"]);
 	});
 
+	it("groups delegated tasks and opens their session in the parent chat", () => {
+		const [group] = groupDelegations(
+			groupMessages([
+				message("task", {
+					_tag: "tool_use",
+					itemId: "task",
+					tool: "mcp__zuse-orchestration__delegate_task",
+					input: { task: "Review changes" },
+				} as Message["content"]),
+				spawnResult("task", {
+					ok: true,
+					taskId: "child",
+					sessionId: "child",
+					status: "running",
+					workState: "working",
+				}),
+			]),
+		);
+		if (group?.kind !== "delegation" || group.members[0]?.kind !== "spawn")
+			throw new Error("expected task delegation");
+		const view = spawnDelegationView(group.members[0], {
+			fallbackProviderId: "codex",
+			fallbackChatId: "parent-chat",
+			session: {
+				providerId: "codex",
+				status: "running",
+				runtime: "running",
+				messages: [],
+			},
+		});
+		expect(view).toMatchObject({
+			title: "Review changes",
+			status: "working",
+			open: { kind: "chat", chatId: "parent-chat", sessionId: "child" },
+		});
+	});
+
 	it("derives an orchestrated chat's state from its session", () => {
 		const [group] = groupDelegations(
 			groupMessages([
