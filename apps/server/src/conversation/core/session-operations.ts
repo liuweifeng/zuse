@@ -444,6 +444,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			}
 			return Session.make({
 				id: sessionId,
+				parentSessionId: input.delegation?.parentSessionId
+					? SessionId.make(input.delegation.parentSessionId)
+					: null,
 				projectId,
 				title,
 				providerId: input.providerId,

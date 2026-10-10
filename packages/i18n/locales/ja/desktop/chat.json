@@ -292,7 +292,6 @@
 	"environment_summary_github_actions": "GitHub アクション",
 	"environment_summary_merge_conflicts": "マージ競合",
 	"environment_summary_plan": "計画",
-	"environment_summary_subagents": "サブエージェント",
 	"environment_summary_loading_checks": "チェックを読み込んでいます…",
 	"environment_summary_check_details_unavailable": "詳細を確認できません。",
 	"environment_summary_no_check_details_available": "チェックの詳細はありません。",
@@ -595,7 +594,6 @@
 	"nearby_pairing_approval_device_sentence": "{{value}} · デバイス {{value2}}",
 	"fork_menu_fork_from_this_sentence": "フォークはこちらの{{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "人魚図をレンダリングできませんでした: {{value}}",
-	"message_row_sent_by_from_another_chat_sentence": "別のチャットから {{value}} によって送信されました",
 	"turn_summary_more_sentence": "+{{value}}もっと見る",
 	"archived_chats_page_archived_sentence": "アーカイブ済み {{value}}",
 	"permissions_inspector_permissions_sentence": "権限 — {{projectName}}",
@@ -620,8 +618,6 @@
 	"computer_switcher_this_computer": "このコンピュータ",
 	"computer_switcher_unnamed_computer": "名前のないコンピュータ",
 	"avatar_avatar": "{{name}} アバター",
-	"environment_summary_active_2": "{{activeSubagents}} アクティブ",
-	"environment_summary_done": "{{value1}} 完了しました",
 	"message_row_empty": "(空)",
 	"message_row_starting_sign_in": "{{label}} サインインを開始しています…",
 	"subagent_row_empty": "(空)",
@@ -770,5 +766,12 @@
 	"message_row_context_handed_off": "コンテキストを引き継ぎました。",
 	"message_row_context_preserved": "コンテキストを保持しました。",
 	"secret_request_availability": "{{name}} として非公開で保存されます。このセッションのプロバイダーを再起動すると利用できます。値はチャットに追加されません。",
-	"secret_request_save_failed": "この応答を保存できませんでした。もう一度お試しください。"
+	"secret_request_save_failed": "この応答を保存できませんでした。もう一度お試しください。",
+	"agents_summary_title": "エージェント",
+	"agents_summary_running": "{{count}} 件実行中",
+	"agents_summary_parent": "親",
+	"agents_summary_parent_chat": "親チャット",
+	"agents_summary_previous": "以前のエージェント（{{count}}）",
+	"agents_summary_unavailable": "このエージェントは利用できないか、アーカイブされています。",
+	"message_row_sent_by_sender": "{{value}} から送信"
 }

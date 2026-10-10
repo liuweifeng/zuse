@@ -127,6 +127,9 @@ export const providerThreadFromRecord = (
 export const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
 	Session.make({
 		id: SessionId.make(record.sessionId),
+		parentSessionId: record.parentSessionId
+			? SessionId.make(record.parentSessionId)
+			: null,
 		projectId: record.projectId as FolderId,
 		title: record.title,
 		titleProvenance: record.titleProvenance ?? "manual",

@@ -292,7 +292,6 @@
 	"environment_summary_github_actions": "Actions GitHub",
 	"environment_summary_merge_conflicts": "Fusionner les conflits",
 	"environment_summary_plan": "Planifier",
-	"environment_summary_subagents": "Sous-agents",
 	"environment_summary_loading_checks": "Chargement des chèques…",
 	"environment_summary_check_details_unavailable": "Vérifiez les détails indisponibles.",
 	"environment_summary_no_check_details_available": "Aucun détail de chèque disponible.",
@@ -596,7 +595,6 @@
 	"nearby_pairing_approval_device_sentence": "{{value}} · Appareil {{value2}}",
 	"fork_menu_fork_from_this_sentence": "Fourche de ce {{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "Impossible de restituer le diagramme Sirène : {{value}}",
-	"message_row_sent_by_from_another_chat_sentence": "Envoyé par {{value}} depuis un autre chat",
 	"turn_summary_more_sentence": "+{{value}} plus",
 	"archived_chats_page_archived_sentence": "Archivé {{value}}",
 	"permissions_inspector_permissions_sentence": "Autorisations — {{projectName}}",
@@ -620,8 +618,6 @@
 	"computer_switcher_this_computer": "Cet ordinateur",
 	"computer_switcher_unnamed_computer": "Ordinateur sans nom",
 	"avatar_avatar": "Avatar {{name}}",
-	"environment_summary_active_2": "{{activeSubagents}} actif",
-	"environment_summary_done": "{{value1}} terminé",
 	"message_row_empty": "(vide)",
 	"message_row_starting_sign_in": "Démarrage de la connexion {{label}}…",
 	"subagent_row_empty": "(vide)",
@@ -773,5 +769,12 @@
 	"message_row_context_handed_off": "Contexte transféré.",
 	"message_row_context_preserved": "Contexte conservé.",
 	"secret_request_availability": "Enregistré de manière privée sous {{name}}. Disponible après le redémarrage du fournisseur de cette session. La valeur n’est pas ajoutée à la conversation.",
-	"secret_request_save_failed": "Impossible d’enregistrer cette réponse. Veuillez réessayer."
+	"secret_request_save_failed": "Impossible d’enregistrer cette réponse. Veuillez réessayer.",
+	"agents_summary_title": "Agents",
+	"agents_summary_running": "{{count}} en cours",
+	"agents_summary_parent": "Parent",
+	"agents_summary_parent_chat": "Discussion parente",
+	"agents_summary_previous": "Agents précédents ({{count}})",
+	"agents_summary_unavailable": "Cet agent est indisponible ou archivé.",
+	"message_row_sent_by_sender": "Envoyé par {{value}}"
 }

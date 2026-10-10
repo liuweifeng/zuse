@@ -39,6 +39,7 @@ export type SqlSessionQueryError =
 	| SessionQueryDecodeError;
 
 export interface SessionRow {
+	readonly parent_session_id?: string | null;
 	readonly id: string;
 	readonly chat_id: string;
 	readonly project_id: string;
@@ -71,7 +72,7 @@ export interface SessionRow {
 
 /** Columns for a session row joined with its active provider thread. */
 export const SESSION_WITH_PROVIDER_THREAD_SELECT = `
-	SELECT s.*,
+	SELECT s.*, d.parent_session_id,
 		p.id AS pt_id, p.provider AS pt_provider,
 		p.native_thread_id AS pt_native_thread_id,
 		p.native_head_id AS pt_native_head_id, p.status AS pt_status,
@@ -79,6 +80,7 @@ export const SESSION_WITH_PROVIDER_THREAD_SELECT = `
 		p.last_turn_ordinal AS pt_last_turn_ordinal,
 		p.created_at AS pt_created_at, p.updated_at AS pt_updated_at
 	FROM sessions s
+	LEFT JOIN session_delegations d ON d.child_session_id = s.id
 	LEFT JOIN session_provider_threads p ON p.id = s.active_provider_thread_id`;
 
 const providerThreadFromRow = (
@@ -102,6 +104,7 @@ const providerThreadFromRow = (
 			};
 
 export type SqlSessionReadRecord = SessionReadRecord & {
+	readonly parentSessionId?: string | null;
 	readonly status: Exclude<SessionReadRecord["status"], "deleted">;
 	readonly title: string;
 	readonly titleProvenance: "pending" | "automatic" | "manual";
@@ -130,6 +133,7 @@ export const decodeSessionRow = Effect.fn("SqlSessionQueries.decodeSessionRow")(
 	function* (row: SessionRow) {
 		return {
 			sessionId: row.id,
+			parentSessionId: row.parent_session_id ?? null,
 			chatId: row.chat_id,
 			projectId: row.project_id,
 			title: row.title,
