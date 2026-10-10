@@ -28,6 +28,35 @@ const stored = (
 });
 
 describe("SqlSessionProjector", () => {
+	test("persists the startup reservation without changing conversation recency", async () => {
+		const sessions = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				const projector = makeSqlSessionProjector(sql);
+				yield* projector.apply(
+					stored(1, { _tag: "SessionCreated", ...sessionCreation }),
+				);
+				yield* projector.apply(
+					stored(2, {
+						_tag: "ProviderSessionReserved",
+						providerId: "provider-1",
+						providerSessionId: "starting",
+						reservedAt: 42,
+					}),
+				);
+				return yield* sql<{
+					readonly updated_at: string;
+					readonly provider_reservation_id: string;
+				}>`SELECT updated_at, provider_reservation_id FROM sessions WHERE id = 'session-1'`;
+			}),
+		);
+		expect(sessions[0]).toEqual({
+			updated_at: new Date(sessionCreation.createdAt).toISOString(),
+			provider_reservation_id: "starting",
+		});
+	});
+
 	test("repairs the active chat session when a thread is archived or deleted", async () => {
 		const activeSessionIds = await run(
 			Effect.gen(function* () {

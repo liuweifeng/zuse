@@ -5616,16 +5616,6 @@
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:cost_footer_saved": {
-		"source": "{{value1}} — saved ~{{value2}}",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/cost-footer.tsx",
-				"line": 113
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"chat:environment_summary_loading_pull_request": {
 		"source": "Loading pull request",
 		"locations": [],
@@ -6585,36 +6575,6 @@
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:device_command_card_local_computer": {
-		"source": "Local computer",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-command-card.tsx",
-				"line": 25
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_command_card_stop_command": {
-		"source": "Stop command",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-command-card.tsx",
-				"line": 61
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_command_card_output": {
-		"source": "Output",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-command-card.tsx",
-				"line": 67
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
 	"chat:device_permission_card_run_command_on": {
 		"source": "Run command on {{device}}?",
 		"locations": [
@@ -6705,26 +6665,6 @@
 			{
 				"path": "apps/renderer/src/components/device-command-permissions.tsx",
 				"line": 46
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_command_card_exit": {
-		"source": " · Exit {{value1}}",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-command-card.tsx",
-				"line": 69
-			}
-		],
-		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"chat:device_command_card_truncated": {
-		"source": " · Truncated",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/device-command-card.tsx",
-				"line": 74
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10474,100 +10414,6 @@
 			{
 				"path": "apps/renderer/src/components/cloud-workspace-info.tsx",
 				"line": 574
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_archive_failed": {
-		"source": "Archive failed",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 21
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_archiving": {
-		"source": "Archiving…",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 27
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_needs_attention": {
-		"source": "Needs attention",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 33
-			},
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 42
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_paused": {
-		"source": "Paused",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 48
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_resuming": {
-		"source": "Resuming",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 53
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_connecting": {
-		"source": "Connecting",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 58
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_working": {
-		"source": "Working",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 64
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_stopping": {
-		"source": "Stopping",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 69
-			}
-		],
-		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
-	},
-	"connections:cloud_chat_row_presentation_active": {
-		"source": "Active",
-		"locations": [
-			{
-				"path": "apps/renderer/src/lib/cloud-chat-row-presentation.ts",
-				"line": 74
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -461,7 +461,7 @@ export const probeCliVersion = (
 // ---------------------------------------------------------------------------
 
 // In-memory cache so we hit the registry at most once per package per hour.
-// `probeAllProviders` runs on every settings open + window focus; without this
+// `probeProvidersWithPaths` runs on every settings open + window focus; without this
 // every focus would fan out a burst of registry calls.
 const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
 const latestVersionCache = new Map<
@@ -1287,20 +1287,6 @@ const probeOne = (
 			lastCheckedAt,
 		});
 	});
-
-/**
- * Probe each known provider for CLI install status, version, and local-login
- * state. `ProviderService.availability()` calls this and overlays `hasApiKey`
- * from the keychain.
- */
-export const probeAllProviders: Effect.Effect<
-	ReadonlyArray<AgentAvailability>,
-	never,
-	CommandExecutor.ChildProcessSpawner | FileSystem.FileSystem
-> = Effect.all(
-	PROBES.map((probe) => probeOne(probe)),
-	{ concurrency: "unbounded" },
-);
 
 export const probeProvidersWithPaths = (
 	overrides: Readonly<Record<string, string>>,

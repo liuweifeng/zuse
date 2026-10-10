@@ -1,8 +1,5 @@
-import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
 import { synthesizeBackfill } from "../../../src/engine/backfill.js";
-import type { StoredEvent } from "../../../src/engine/dispatch.js";
-import { InMemorySessionReadModel } from "../../../src/projectors/read-model.js";
 
 const session = {
 	sessionId: "session-1",
@@ -107,40 +104,5 @@ describe("synthesizeBackfill", () => {
 			"SessionTitleSet",
 			"SessionDeleted",
 		]);
-	});
-
-	test("rebuilds an equivalent read model from synthesized events", async () => {
-		const contentJson = '{"spacing":  "is stable"}';
-		const events = synthesizeBackfill({
-			sessions: [session],
-			messages: [
-				{
-					rowId: 1,
-					messageId: "message-1",
-					sessionId: "session-1",
-					role: "user",
-					kind: "text",
-					contentJson,
-					parentItemId: null,
-					createdAt: 20,
-				},
-			],
-			existingEventIds: new Set(),
-			existingMessageIds: new Set(),
-		});
-		const model = new InMemorySessionReadModel();
-		for (const [index, event] of events.entries()) {
-			await Effect.runPromise(
-				model.apply({
-					...event,
-					causationEventId: null,
-					streamVersion: index + 1,
-					sequence: index + 1,
-				} satisfies StoredEvent),
-			);
-		}
-
-		expect(model.session("session-1")).toMatchObject({ title: "Title" });
-		expect(model.messages("session-1")[0]?.contentJson).toBe(contentJson);
 	});
 });

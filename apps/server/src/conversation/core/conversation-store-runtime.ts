@@ -53,7 +53,6 @@ import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface ConversationStoreRuntimeOptions {
 	readonly isWorkspaceReady?: () => boolean;
-	readonly checkpointFinalization?: boolean;
 	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly state: ConversationStateApi;
@@ -101,10 +100,6 @@ export interface ConversationStoreRuntime {
 		ownership: AttemptOwnership,
 	) => Effect.Effect<void, AttemptOwnershipConflict>;
 
-	readonly beginTurn: (
-		sessionId: SessionId,
-		turnIdOverride?: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
 	) => Effect.Effect<AgentTurnId | undefined>;
@@ -242,11 +237,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 		});
 	};
 
-	const beginTurn: ConversationStoreRuntime["beginTurn"] = (
-		sessionId,
-		turnId,
-	) => startTurn(sessionId, turnId).pipe(Effect.orDie);
-
 	const persistTurnSettlement = (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
@@ -258,15 +248,12 @@ export const makeConversationStoreRuntime = Effect.fn(
 		Effect.gen(function* () {
 			const settled = yield* sessionDomain
 				.dispatch({
-					commandId: `turn:${options.checkpointFinalization && !finalized ? "finalize" : "settle"}:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
+					commandId: `turn:${!finalized ? "finalize" : "settle"}:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
 					expectedAttempt,
 					expectedProviderSessionId,
 					streamId: sessionId,
 					command: {
-						_tag:
-							options.checkpointFinalization && !finalized
-								? "FinalizeTurn"
-								: "SettleTurn",
+						_tag: !finalized ? "FinalizeTurn" : "SettleTurn",
 						turnId,
 						outcome,
 						settledAt: yield* currentTimestamp,
@@ -281,10 +268,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					Effect.orDie,
 				);
 			if (!settled) return false;
-			if (
-				(!options.checkpointFinalization || finalized) &&
-				state.activeTurn(sessionId) === turnId
-			) {
+			if (finalized && state.activeTurn(sessionId) === turnId) {
 				state.clearActiveTurn(sessionId);
 			}
 			return true;
@@ -308,11 +292,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 	const settleTurnFromReactor: ConversationStoreRuntime["settleTurnFromReactor"] =
 		(sessionId, turnId, outcome, expectedAttempt) =>
 			persistTurnSettlement(sessionId, turnId, outcome, expectedAttempt).pipe(
-				Effect.flatMap((settled) =>
-					!settled || outcome === "error" || options.checkpointFinalization
-						? Effect.void
-						: Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope),
-				),
 				Effect.asVoid,
 			);
 
@@ -335,9 +314,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 			)
 				return false;
 			yield* runSessionReactors(sessionId);
-			if (outcome !== "error" && !options.checkpointFinalization) {
-				yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
-			}
 			return true;
 		});
 
@@ -1004,7 +980,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 	return {
 		persistAttemptMessage,
 		setAttemptStatus,
-		beginTurn,
 		resolveActiveTurn,
 		settleTurn,
 		settleTurnFromReactor,
