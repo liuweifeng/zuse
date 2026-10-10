@@ -292,7 +292,6 @@
 	"environment_summary_github_actions": "GitHub 行動",
 	"environment_summary_merge_conflicts": "合併衝突",
 	"environment_summary_plan": "計劃",
-	"environment_summary_subagents": "子代理",
 	"environment_summary_loading_checks": "正在加載支票...",
 	"environment_summary_check_details_unavailable": "檢查詳細資料不可用。",
 	"environment_summary_no_check_details_available": "沒有可用的支票詳細資料。",
@@ -596,7 +595,6 @@
 	"nearby_pairing_approval_device_sentence": "{{value}} · 設備 {{value2}}",
 	"fork_menu_fork_from_this_sentence": "叉子來自這個{{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "無法渲染美人魚圖：{{value}}",
-	"message_row_sent_by_from_another_chat_sentence": "由 {{value}} 從另一個聊天發送",
 	"turn_summary_more_sentence": "+{{value}} 更多",
 	"archived_chats_page_archived_sentence": "檔案 {{value}}",
 	"permissions_inspector_permissions_sentence": "權限 — {{projectName}}",
@@ -620,8 +618,6 @@
 	"computer_switcher_this_computer": "這台電腦",
 	"computer_switcher_unnamed_computer": "未命名的計算機",
 	"avatar_avatar": "{{name}}頭像",
-	"environment_summary_active_2": "{{activeSubagents}} 主動",
-	"environment_summary_done": "{{value1}} 完成",
 	"message_row_empty": "（空）",
 	"message_row_starting_sign_in": "開始 {{label}} 登入...",
 	"subagent_row_empty": "（空）",
@@ -770,5 +766,12 @@
 	"message_row_context_handed_off": "上下文已移交。",
 	"message_row_context_preserved": "上下文已保留。",
 	"secret_request_availability": "已私密儲存為 {{name}}。重新啟動此工作階段的提供者後即可使用。此值不會加入聊天中。",
-	"secret_request_save_failed": "無法儲存此回覆。請重試。"
+	"secret_request_save_failed": "無法儲存此回覆。請重試。",
+	"agents_summary_title": "智慧體",
+	"agents_summary_running": "{{count}} 個執行中",
+	"agents_summary_parent": "父級",
+	"agents_summary_parent_chat": "父級聊天",
+	"agents_summary_previous": "先前的智慧體（{{count}}）",
+	"agents_summary_unavailable": "此智慧體無法使用或已封存。",
+	"message_row_sent_by_sender": "由 {{value}} 傳送"
 }

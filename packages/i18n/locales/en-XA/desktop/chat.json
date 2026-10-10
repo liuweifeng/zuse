@@ -293,7 +293,6 @@
 	"environment_summary_github_actions": "⟦GïïtHüüb ÀÀctïïôôns⟧",
 	"environment_summary_merge_conflicts": "⟦Mëërgëë côônflïïcts⟧",
 	"environment_summary_plan": "⟦Plààn⟧",
-	"environment_summary_subagents": "⟦Süübààgëënts⟧",
 	"environment_summary_loading_checks": "⟦Lôôààdïïng chëëcks…⟧",
 	"environment_summary_check_details_unavailable": "⟦Chëëck dëëtààïïls üünààvààïïlààblëë.⟧",
 	"environment_summary_no_check_details_available": "⟦Nôô chëëck dëëtààïïls ààvààïïlààblëë.⟧",
@@ -605,7 +604,6 @@
 	"nearby_pairing_approval_device_sentence": "⟦{{value}} · Dëëvïïcëë {{value2}}⟧",
 	"fork_menu_fork_from_this_sentence": "⟦Fôôrk frôôm thïïs {{label}}⟧",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "⟦Côôüüld nôôt rëëndëër Mëërmààïïd dïïààgrààm: {{value}}⟧",
-	"message_row_sent_by_from_another_chat_sentence": "⟦Sëënt by {{value}} frôôm àànôôthëër chààt⟧",
 	"turn_summary_more_sentence": "⟦+{{value}} môôrëë⟧",
 	"archived_chats_page_archived_sentence": "⟦ÀÀrchïïvëëd {{value}}⟧",
 	"permissions_inspector_permissions_sentence": "⟦Pëërmïïssïïôôns — {{projectName}}⟧",
@@ -629,8 +627,6 @@
 	"computer_switcher_this_computer": "⟦Thïïs côômpüütëër⟧",
 	"computer_switcher_unnamed_computer": "⟦ÜÜnnààmëëd côômpüütëër⟧",
 	"avatar_avatar": "⟦{{name}} ààvààtààr⟧",
-	"environment_summary_active_2": "⟦{{activeSubagents}} ààctïïvëë⟧",
-	"environment_summary_done": "⟦{{value1}} dôônëë⟧",
 	"message_row_empty": "⟦(ëëmpty)⟧",
 	"message_row_starting_sign_in": "⟦Stààrtïïng {{label}} sïïgn-ïïn…⟧",
 	"subagent_row_empty": "⟦(ëëmpty)⟧",
@@ -770,5 +766,12 @@
 	"message_row_context_handed_off": "⟦Côôntëëxt hààndëëd ôôff.⟧",
 	"message_row_context_preserved": "⟦Côôntëëxt prëësëërvëëd.⟧",
 	"secret_request_availability": "⟦Sààvëëd prïïvààtëëly ààs {{name}}. ÀÀvààïïlààblëë ààftëër thïïs sëëssïïôôn’s prôôvïïdëër rëëstààrts. Thëë vààlüüëë ïïs nôôt ààddëëd tôô chààt.⟧",
-	"secret_request_save_failed": "⟦Côôüüld nôôt sààvëë thïïs rëëspôônsëë. Plëëààsëë rëëtry.⟧"
+	"secret_request_save_failed": "⟦Côôüüld nôôt sààvëë thïïs rëëspôônsëë. Plëëààsëë rëëtry.⟧",
+	"agents_summary_title": "⟦ÀÀgëënts⟧",
+	"agents_summary_running": "⟦{{count}} rüünnïïng⟧",
+	"agents_summary_parent": "⟦Pààrëënt⟧",
+	"agents_summary_parent_chat": "⟦Pààrëënt chààt⟧",
+	"agents_summary_previous": "⟦Prëëvïïôôüüs ààgëënts ({{count}})⟧",
+	"agents_summary_unavailable": "⟦Thïïs ààgëënt ïïs üünààvààïïlààblëë ôôr ààrchïïvëëd.⟧",
+	"message_row_sent_by_sender": "⟦Sëënt by {{value}}⟧"
 }

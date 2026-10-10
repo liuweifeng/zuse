@@ -230,6 +230,23 @@ export const makeDelegationRuntime = (
 				yield* sql`SELECT 1 FROM sessions s WHERE s.id=${row.parent_session_id} AND (s.queue_paused=1 OR EXISTS(SELECT 1 FROM session_turns t WHERE t.session_id=s.id AND t.status IN ('starting','running','finalizing'))) LIMIT 1`;
 			if (busy.length > 0) return;
 			const turnId = `delegation-wake:${row.parent_turn_id}:${row.parent_attempt_id}`;
+			const sources = yield* sql<{
+				session_id: string;
+				chat_id: string;
+				provider_id: string;
+				title: string;
+			}>`SELECT child.id AS session_id,child.chat_id,child.provider_id,child.title
+                FROM session_delegations d JOIN sessions child ON child.id=d.child_session_id
+                WHERE d.parent_session_id=${row.parent_session_id} AND d.parent_turn_id=${row.parent_turn_id}
+                AND d.parent_attempt_id=${row.parent_attempt_id} AND d.cancelled_at IS NULL
+                ORDER BY d.created_at,d.child_session_id`;
+			const origins = sources.map((source) => ({
+				sessionId: source.session_id,
+				chatId: source.chat_id,
+				providerId: source.provider_id,
+				title: source.title,
+			}));
+
 			const text =
 				"Your delegated work has finished. Review the attached child results and continue the parent task if needed.";
 			yield* domain.dispatchTransactionally(
@@ -242,7 +259,17 @@ export const makeDelegationRuntime = (
 						messageId: `delegation-wake-message:${row.parent_turn_id}:${row.parent_attempt_id}`,
 						role: "user",
 						kind: "user",
-						contentJson: JSON.stringify({ _tag: "user", text, goal: false }),
+						contentJson: JSON.stringify({
+							_tag: "user",
+							text,
+							goal: false,
+							...(origins.length
+								? {
+										origins,
+										...(origins.length === 1 ? { origin: origins[0] } : {}),
+									}
+								: {}),
+						}),
 						parentItemId: null,
 						providerInputJson: JSON.stringify({
 							text,

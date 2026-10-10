@@ -292,7 +292,6 @@
 	"environment_summary_github_actions": "GitHub-Aktionen",
 	"environment_summary_merge_conflicts": "Konflikte zusammenführen",
 	"environment_summary_plan": "Planen",
-	"environment_summary_subagents": "Subagenten",
 	"environment_summary_loading_checks": "Schecks werden geladen…",
 	"environment_summary_check_details_unavailable": "Überprüfen Sie die Details nicht verfügbar.",
 	"environment_summary_no_check_details_available": "Keine Scheckdetails verfügbar.",
@@ -596,7 +595,6 @@
 	"nearby_pairing_approval_device_sentence": "{{value}} · Gerät {{value2}}",
 	"fork_menu_fork_from_this_sentence": "Gabel von diesem {{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "Meerjungfrau-Diagramm konnte nicht gerendert werden: {{value}}",
-	"message_row_sent_by_from_another_chat_sentence": "Gesendet von {{value}} aus einem anderen Chat",
 	"turn_summary_more_sentence": "+{{value}} mehr",
 	"archived_chats_page_archived_sentence": "Archiviert {{value}}",
 	"permissions_inspector_permissions_sentence": "Berechtigungen – {{projectName}}",
@@ -620,8 +618,6 @@
 	"computer_switcher_this_computer": "Dieser Computer",
 	"computer_switcher_unnamed_computer": "Unbenannter Computer",
 	"avatar_avatar": "{{name}}-Avatar",
-	"environment_summary_active_2": "{{activeSubagents}} aktiv",
-	"environment_summary_done": "{{value1}} fertig",
 	"message_row_empty": "(leer)",
 	"message_row_starting_sign_in": "{{label}}-Anmeldung wird gestartet…",
 	"subagent_row_empty": "(leer)",
@@ -770,5 +766,12 @@
 	"message_row_context_handed_off": "Kontext übergeben.",
 	"message_row_context_preserved": "Kontext beibehalten.",
 	"secret_request_availability": "Privat als {{name}} gespeichert. Nach dem Neustart des Anbieters dieser Sitzung verfügbar. Der Wert wird nicht zum Chat hinzugefügt.",
-	"secret_request_save_failed": "Diese Antwort konnte nicht gespeichert werden. Bitte erneut versuchen."
+	"secret_request_save_failed": "Diese Antwort konnte nicht gespeichert werden. Bitte erneut versuchen.",
+	"agents_summary_title": "Agenten",
+	"agents_summary_running": "{{count}} aktiv",
+	"agents_summary_parent": "Übergeordnet",
+	"agents_summary_parent_chat": "Übergeordneter Chat",
+	"agents_summary_previous": "Frühere Agenten ({{count}})",
+	"agents_summary_unavailable": "Dieser Agent ist nicht verfügbar oder archiviert.",
+	"message_row_sent_by_sender": "Gesendet von {{value}}"
 }

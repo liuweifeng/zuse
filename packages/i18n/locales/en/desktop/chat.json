@@ -293,7 +293,6 @@
 	"environment_summary_github_actions": "GitHub Actions",
 	"environment_summary_merge_conflicts": "Merge conflicts",
 	"environment_summary_plan": "Plan",
-	"environment_summary_subagents": "Subagents",
 	"environment_summary_loading_checks": "Loading checks…",
 	"environment_summary_check_details_unavailable": "Check details unavailable.",
 	"environment_summary_no_check_details_available": "No check details available.",
@@ -605,7 +604,6 @@
 	"nearby_pairing_approval_device_sentence": "{{value}} · Device {{value2}}",
 	"fork_menu_fork_from_this_sentence": "Fork from this {{label}}",
 	"markdown_body_could_not_render_mermaid_diagram_sentence": "Could not render Mermaid diagram: {{value}}",
-	"message_row_sent_by_from_another_chat_sentence": "Sent by {{value}} from another chat",
 	"turn_summary_more_sentence": "+{{value}} more",
 	"archived_chats_page_archived_sentence": "Archived {{value}}",
 	"permissions_inspector_permissions_sentence": "Permissions — {{projectName}}",
@@ -629,8 +627,6 @@
 	"computer_switcher_this_computer": "This computer",
 	"computer_switcher_unnamed_computer": "Unnamed computer",
 	"avatar_avatar": "{{name}} avatar",
-	"environment_summary_active_2": "{{activeSubagents}} active",
-	"environment_summary_done": "{{value1}} done",
 	"message_row_empty": "(empty)",
 	"message_row_starting_sign_in": "Starting {{label}} sign-in…",
 	"subagent_row_empty": "(empty)",
@@ -770,5 +766,12 @@
 	"message_row_context_handed_off": "Context handed off.",
 	"message_row_context_preserved": "Context preserved.",
 	"secret_request_availability": "Saved privately as {{name}}. Available after this session’s provider restarts. The value is not added to chat.",
-	"secret_request_save_failed": "Could not save this response. Please retry."
+	"secret_request_save_failed": "Could not save this response. Please retry.",
+	"agents_summary_title": "Agents",
+	"agents_summary_running": "{{count}} running",
+	"agents_summary_parent": "Parent",
+	"agents_summary_parent_chat": "Parent chat",
+	"agents_summary_previous": "Previous agents ({{count}})",
+	"agents_summary_unavailable": "This agent is unavailable or archived.",
+	"message_row_sent_by_sender": "Sent by {{value}}"
 }

@@ -105,6 +105,8 @@ export type SessionProviderThread = typeof SessionProviderThread.Type;
 
 export class Session extends Schema.Class<Session>("Session")({
 	id: SessionId,
+	/** Durable app-managed delegation parent; absent on older runtimes. */
+	parentSessionId: Schema.optional(Schema.NullOr(SessionId)),
 	projectId: FolderId,
 	title: Schema.String,
 	titleProvenance: NameProvenanceField,
@@ -176,6 +178,8 @@ export type MessageRole = typeof MessageRole.Type;
  * by the human. Additive + optional: old rows decode without it.
  */
 export const MessageOrigin = Schema.Struct({
+	/** Sender name retained if its session is later renamed or removed. */
+	title: Schema.optional(Schema.String),
 	chatId: ChatId,
 	sessionId: SessionId,
 	providerId: ProviderId,
@@ -186,6 +190,7 @@ const UserContent = Schema.TaggedStruct("user", {
 	text: Schema.String,
 	actor: Schema.optional(WorkspaceActor),
 	origin: Schema.optional(MessageOrigin),
+	origins: Schema.optional(Schema.Array(MessageOrigin)),
 	goal: Schema.optional(Schema.Boolean),
 });
 
@@ -207,6 +212,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 		Schema.withDecodingDefaultType(Effect.succeed([])),
 	),
 	origin: Schema.optional(MessageOrigin),
+	origins: Schema.optional(Schema.Array(MessageOrigin)),
 	goal: Schema.optional(Schema.Boolean),
 });
 

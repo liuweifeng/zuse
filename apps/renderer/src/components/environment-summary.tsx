@@ -48,11 +48,11 @@ import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
+import { AgentsSummary } from "./agents-summary.tsx";
 import {
 	CloudWorkspaceInfo,
 	summaryRowClass as rowClass,
 } from "./cloud-workspace-info.tsx";
-import { SubagentAvatar } from "./subagent-identity.tsx";
 import { BranchMenuButton } from "./top-bar.tsx";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import {
@@ -137,7 +137,6 @@ export function EnvironmentSummary() {
 
 	const prDetailsLoading = prDetailsView.sync === "synchronizing";
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
-	const selectSubagent = useUiStore((s) => s.selectSubagent);
 	const sessionId = useSessionsStore((s) => s.selectedSessionId);
 	const { sessionsByProject } = useEnvironmentEntities(
 		environmentId ?? activeEnvironmentId,
@@ -176,12 +175,9 @@ export function EnvironmentSummary() {
 		],
 	);
 	const subagents = useMemo(
-		() => detachedSubagentGroups(messages),
-		[messages, uiMessage],
+		() => detachedSubagentGroups(messages, timeline.projection?.executionSteps),
+		[messages, timeline.projection?.executionSteps, uiMessage],
 	);
-	const activeSubagents = subagents.filter(
-		(group) => group.summary === null,
-	).length;
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -546,39 +542,14 @@ export function EnvironmentSummary() {
 					</button>
 				</>
 			) : null}
-			{subagents.length > 0 ? (
-				<section className="mx-2 mt-2 border-border/70 border-t px-0.5 pb-1 pt-3">
-					<h3 className="mb-2 text-xs font-medium text-muted-foreground">
-						{uiMessage("chat:environment_summary_subagents")}
-					</h3>
-					<button
-						type="button"
-						className="flex min-h-9 w-full items-center gap-2 rounded-lg px-1.5 text-left outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60"
-						onClick={() => {
-							if (chatRef !== null) selectSubagent(chatRef, null);
-							revealPanel("subagents");
-						}}
-					>
-						<span className="flex shrink-0 items-center gap-1">
-							{subagents.slice(0, 4).map((group) => (
-								<SubagentAvatar
-									key={group.childSessionId}
-									name={group.agentName}
-									size="sm"
-								/>
-							))}
-						</span>
-						<span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-							{activeSubagents > 0
-								? uiMessage("chat:environment_summary_active_2", {
-										activeSubagents: String(activeSubagents),
-									})
-								: uiMessage("chat:environment_summary_done", {
-										value1: String(subagents.length),
-									})}
-						</span>
-					</button>
-				</section>
+			{chatRef !== null && session !== null ? (
+				<AgentsSummary
+					key={`${chatRef.environmentId}:${session.id}`}
+					chatRef={chatRef}
+					session={session}
+					sessions={Object.values(sessionsByProject).flat()}
+					nativeAgents={subagents}
+				/>
 			) : null}
 		</aside>
 	);

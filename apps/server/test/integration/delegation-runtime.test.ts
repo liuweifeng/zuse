@@ -1,4 +1,5 @@
 import { makeSessionDomain } from "@zuse/domain/engine/session-domain";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, type Scope } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -105,6 +106,37 @@ it("captures child result once across restart and admits one parent completion w
 					wake_turn_id: string;
 				}>`SELECT wake_turn_id FROM session_delegations`)[0]?.wake_turn_id,
 			).toBe("delegation-wake:turn:parent:attempt:parent");
+			const wake = (yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages WHERE id='delegation-wake-message:turn:parent:attempt:parent'`)[0];
+			expect(JSON.parse(wake?.content_json ?? "null")).toMatchObject({
+				origin: {
+					sessionId: "child",
+					chatId: createSessionCommand.chatId,
+					providerId: createSessionCommand.providerId,
+					title: createSessionCommand.title,
+				},
+				origins: [{ sessionId: "child" }],
+			});
+			const queries = makeSqlSessionQueries(sql);
+			expect(yield* queries.get("child")).toMatchObject({
+				parentSessionId: "parent",
+			});
+			expect(
+				yield* queries.list({ projectId: createSessionCommand.projectId }),
+			).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						sessionId: "child",
+						parentSessionId: "parent",
+					}),
+					expect.objectContaining({
+						sessionId: "parent",
+						parentSessionId: null,
+					}),
+				]),
+			);
+
 			expect(
 				(yield* sql<{
 					context_text: string;
@@ -565,6 +597,63 @@ it("discovers nested task parents from the durable project-scoped lineage after 
 					"other-project",
 				),
 			).toEqual([]);
+		}),
+	);
+});
+
+it("attributes a grouped completion wake to every contributing child", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, domain, runtime } = yield* fixture;
+			yield* domain.dispatch({
+				streamId: "child-2",
+				commandId: "create:child-2",
+				command: {
+					...createSessionCommand,
+					sessionId: "child-2",
+					title: "Second agent",
+				},
+			});
+			yield* domain.dispatch({
+				streamId: "child-2",
+				commandId: "start:child-2",
+				command: { _tag: "StartTurn", turnId: "turn:child-2", startedAt: 2 },
+			});
+			yield* sql`INSERT INTO session_delegations(child_session_id,child_turn_id,parent_session_id,parent_turn_id,parent_attempt_id,provider_session_id,created_at) VALUES('child-2','turn:child-2','parent','turn:parent','attempt:parent','native:parent',3)`;
+			for (const id of ["child", "child-2", "parent"]) {
+				yield* domain.dispatch({
+					streamId: id,
+					commandId: `finish:${id}`,
+					command: {
+						_tag: "SettleTurn",
+						turnId: `turn:${id}`,
+						outcome: "completed",
+						settledAt: 4,
+					},
+				});
+			}
+			yield* runtime.sweep;
+			yield* makeDelegationRuntime(sql, domain).sweep;
+			const rows = yield* sql<{
+				content_json: string;
+			}>`SELECT content_json FROM messages WHERE id='delegation-wake-message:turn:parent:attempt:parent'`;
+			expect(rows).toHaveLength(1);
+			const content = JSON.parse(rows[0]?.content_json ?? "null");
+			expect(content.origin).toBeUndefined();
+			expect(content.origins).toEqual([
+				{
+					sessionId: "child",
+					chatId: createSessionCommand.chatId,
+					providerId: createSessionCommand.providerId,
+					title: createSessionCommand.title,
+				},
+				{
+					sessionId: "child-2",
+					chatId: createSessionCommand.chatId,
+					providerId: createSessionCommand.providerId,
+					title: "Second agent",
+				},
+			]);
 		}),
 	);
 });

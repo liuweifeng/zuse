@@ -3007,6 +3007,26 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				).toBe(true);
 				expect(created.ok).toBe(true);
 				if (!created.ok) return;
+				expect(
+					await run(
+						Effect.flatMap(store, (s) =>
+							s.getSession(SessionId.make(created.sessionId)),
+						),
+					),
+				).toMatchObject({ parentSessionId: parent.initialSession.id });
+				expect(
+					await run(
+						Effect.flatMap(store, (s) => s.listSessions(PROJECT_ID, false)),
+					),
+				).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							id: created.sessionId,
+							parentSessionId: parent.initialSession.id,
+						}),
+					]),
+				);
+
 				const retry = await tools.delegateTask(input);
 				expect(retry.ok && retry.taskId).toBe(created.taskId);
 				await expect
