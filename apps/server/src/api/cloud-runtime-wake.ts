@@ -69,9 +69,11 @@ export class CloudRuntimeWake {
 				this.signalController.signal,
 				...(init.signal ? [init.signal] : []),
 			]),
-			dispatcher: this.agent as unknown as RequestInit["dispatcher"],
+			dispatcher: this.agent,
 		};
-		return fetch(url, options);
+		// Node fetch accepts this Undici pool; its bundled dispatcher declarations
+		// differ from our package version and desktop DOM typings omit the field.
+		return fetch(url, options as unknown as RequestInit);
 	}
 
 	changed(since = this.revision): Effect.Effect<void> {

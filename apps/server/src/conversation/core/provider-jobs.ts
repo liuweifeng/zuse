@@ -71,6 +71,7 @@ const failure = (
 });
 
 export interface ProviderJobExecutorOptions {
+	readonly awaitWorkspaceReady?: Effect.Effect<void>;
 	readonly captureBaseline?: (
 		session: Session,
 		turnId: AgentTurnId,
@@ -228,6 +229,9 @@ export const makeProviderJobExecutor = (
 				attemptId: request.attemptId ?? attemptIdFor(turnId, 1),
 			};
 			return Effect.gen(function* () {
+				// Repository preparation is not an external delivery attempt. Wait before
+				// capturing files or fencing delivery, then re-read current ownership.
+				yield* options.awaitWorkspaceReady ?? Effect.void;
 				const session = yield* lookupSession(sessionId).pipe(
 					Effect.catch(() => Effect.succeed(null)),
 				);

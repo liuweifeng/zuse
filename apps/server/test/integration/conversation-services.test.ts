@@ -1457,7 +1457,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const attempts = await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
-					return yield* sql`SELECT effect_id FROM reactor_effect_receipts WHERE effect_id LIKE 'reactor:provider-turn:%'`;
+					return yield* sql`SELECT effect_id FROM reactor_effect_receipts WHERE effect_id IN (SELECT id FROM jobs WHERE session_id = ${created.initialSession.id})`;
 				}),
 			);
 			expect(attempts).toHaveLength(0);
@@ -1468,6 +1468,81 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				.poll(() => providerSentTexts)
 				.toEqual(["wait for the correct checkout"]);
 		});
+	});
+
+	it("retains an unclaimed prompt across runtime restart during repository preparation", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-preparation-restart-"));
+		const dbPath = join(directory, "test.sqlite");
+		testWorktree = Worktree.make({
+			...testWorktree,
+			path: join(directory, "pikachu"),
+		});
+		mkdirSync(testWorktree.path, { recursive: true });
+		const ready = await Effect.runPromise(Deferred.make<void>());
+		workspacePreparation = Deferred.await(ready);
+		const first = makeRuntime(dbPath);
+		const runFirst = <A>(effect: Effect.Effect<A, unknown, unknown>) =>
+			first.runPromise(effect as Effect.Effect<A, unknown, never>);
+		try {
+			await runFirst(
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const now = new Date().toISOString();
+					yield* sql`INSERT INTO projects (id, path, name, created_at, updated_at)
+					VALUES (${PROJECT_ID}, ${directory}, ${"Test"}, ${now}, ${now})`;
+				}),
+			);
+			const { initialSession } = await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await runFirst(
+				Effect.flatMap(store, (service) =>
+					service.sendMessageWithInput({
+						commandId: "restart-preparation-prompt",
+						sessionId: initialSession.id,
+						text: "retain this until the checkout is ready",
+					}),
+				),
+			);
+			const inspect = Effect.flatMap(
+				SqlClient.SqlClient,
+				(sql) =>
+					sql<{
+						status: string;
+						attempt_count: number;
+					}>`SELECT status, attempt_count FROM jobs
+					WHERE session_id = ${initialSession.id} AND kind = 'provider.turn.send'`,
+			);
+			expect(await runFirst(inspect)).toEqual([
+				{ status: "pending", attempt_count: 0 },
+			]);
+			await first.dispose();
+			const restarted = makeRuntime(dbPath, false);
+			try {
+				expect(await restarted.runPromise(inspect)).toEqual([
+					{ status: "pending", attempt_count: 0 },
+				]);
+				expect(providerStartInputs).toHaveLength(0);
+				expect(providerSentTexts).toEqual([]);
+				workspacePreparation = Effect.void;
+				await Effect.runPromise(Deferred.succeed(ready, undefined));
+				await expect
+					.poll(() => providerSentTexts)
+					.toEqual(["retain this until the checkout is ready"]);
+				expect(providerStartInputs).toHaveLength(1);
+			} finally {
+				await restarted.dispose();
+			}
+		} finally {
+			await first.dispose();
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	it("keeps an empty session dormant even when provider startup would fail", async () => {

@@ -1,7 +1,7 @@
 import {
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	type CloudTranscriptCheckpointAccess,
-	CloudTranscriptCheckpointPayload,
+	CloudTranscriptCheckpointReadPayload,
 	CloudTranscriptMessagePagePayload,
 	type CloudTranscriptMessagePageResult,
 	type SessionStreamCursor,
@@ -38,9 +38,9 @@ export const openCloudTranscriptCheckpoint = async (
 		}),
 		ciphertext: checkpoint.ciphertext,
 	});
-	const payload = Schema.decodeUnknownSync(CloudTranscriptCheckpointPayload)(
-		JSON.parse(new TextDecoder().decode(plaintext)),
-	);
+	const payload = Schema.decodeUnknownSync(
+		CloudTranscriptCheckpointReadPayload,
+	)(JSON.parse(new TextDecoder().decode(plaintext)));
 	if (
 		payload.workspaceId !== ref.environmentId ||
 		payload.sessionId !== ref.sessionId ||

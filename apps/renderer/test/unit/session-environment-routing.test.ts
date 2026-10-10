@@ -5,6 +5,7 @@ import {
 	MessageId,
 	SessionId,
 } from "@zuse/contracts";
+import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -39,6 +40,7 @@ vi.mock("../../src/lib/cloud-workspaces.ts", () => ({
 
 vi.mock("../../src/lib/environment-entities.ts", () => ({
 	activeSessionById: () => null,
+	environmentShellData: () => null,
 	activeSessionsByProject: () => ({}),
 	overlayActiveEnvironmentShell: mocks.patchActive,
 	overlayEnvironmentShell: () => false,
@@ -51,9 +53,20 @@ vi.mock("../../src/lib/rpc-client.ts", () => ({
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 	dispatchSessionCommand: mocks.dispatch,
 	getRendererClientBus: () => ({
-		snapshot: () => ({ failedCommands: [] }),
+		snapshot: () => ({
+			failedCommands: [],
+			connection: "connected",
+			sync: "live",
+			data: emptyTimelineProjection(),
+			cursor: { epoch: "test", version: 1 },
+		}),
+		subscribe: () => () => undefined,
 	}),
 	sessionTimelineResourceKey: vi.fn(),
+	retainSessionTimeline: () => ({
+		key: "test-key",
+		lease: { release: () => undefined },
+	}),
 }));
 
 vi.mock("../../src/store/workspace.ts", () => ({

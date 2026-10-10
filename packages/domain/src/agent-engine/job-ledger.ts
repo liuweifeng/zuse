@@ -109,6 +109,8 @@ export interface JobLedger {
 	 * session has no running job. Returns `null` when nothing is claimable.
 	 */
 	readonly claimNext: (input: {
+		/** Leave these job kinds pending until their execution prerequisites are ready. */
+		readonly excludedKinds?: ReadonlyArray<JobKind>;
 		readonly workerId: string;
 		readonly leaseMs: number;
 		/** Only claim jobs that became available at least this long ago. */
@@ -219,6 +221,7 @@ export const makeSqlJobLedger = (sql: SqlClient.SqlClient): JobLedger => {
 			minAgeMs = 0,
 			sessionId,
 			includeWaitingBefore = null,
+			excludedKinds = [],
 		}) {
 			const now = yield* nowIso;
 			const availableBefore = yield* isoAfter(-minAgeMs);
@@ -241,6 +244,7 @@ export const makeSqlJobLedger = (sql: SqlClient.SqlClient): JobLedger => {
 								AND candidate.updated_at < ${includeWaitingBefore ?? ""})
 						)
 						AND (${sessionId ?? null} IS NULL OR candidate.session_id = ${sessionId ?? null})
+						AND candidate.kind NOT IN (SELECT value FROM json_each(${JSON.stringify(excludedKinds)}))
 						AND NOT EXISTS (
 							SELECT 1 FROM jobs AS active
 							WHERE active.session_id = candidate.session_id

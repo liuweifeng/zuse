@@ -28,9 +28,10 @@ would instead turn an ordinary desktop or Relay release into a reconnect loop.
 3. **Gateway framing and runtime RPC compatibility are distinct.** Relay accepts
    `zuse-workspace-v2` plus legacy `zuse-workspace-v1` gateway envelopes, but it
    does not translate Effect RPC schemas. When a retained sandbox has an
-   incompatible runtime wire version, resume installs the signed compatible
-   runtime in place before attaching the desktop. Normal resumes read local
-   runtime metadata and skip the updater entirely.
+   incompatible runtime wire version, attachment reports update-required.
+   Startup validates the pinned installation; changing its release requires an
+   explicit update operation using a signed compatible artifact. Normal resumes
+   read local runtime metadata and skip the updater entirely.
 4. **Compatible runtime updates are transactional.** Before an in-place update,
    the runtime commits SQLite and attempts an encrypted transcript checkpoint.
    It downloads a signed, checksummed artifact into a versioned release
@@ -81,3 +82,35 @@ would instead turn an ordinary desktop or Relay release into a reconnect loop.
 - Downloading or installing a runtime on every resume.
 - Retrying an unavailable gateway indefinitely.
 - Removing a protocol bridge before existing sandboxes have a durable migration.
+
+## Agent Engine protocol boundary
+
+The Agent Engine uses RPC protocol 7. Its required provider-thread, turn, and
+attempt structures replace the protocol 5/6 session cursor and timeline shapes.
+The new client and runtime reject protocol 5/6 at the handshake rather than
+accepting a connection whose first session response cannot decode. Gateway
+framing support for `zuse-workspace-v1` and `zuse-workspace-v2` is unchanged;
+framing compatibility does not translate session contracts.
+
+A new desktop connected to the production control plane still uses the runtime
+installed in each workspace. It does not install the local development engine.
+Legacy production workspaces need a verified protocol-7 runtime rollout before
+this desktop can attach. The gateway accepts retained runtime metadata for
+protocols 5–7 at startup, independently of the new app's minimum of 7. Old desktop/runtime pairs can
+therefore still resume; a newer API does not silently update their binaries.
+Model selection on an older runtime follows that runtime's rules; mid-chat
+cross-provider context handoff requires the new engine.
+
+Cloud upgrades retain the authoritative `ZUSE_USER_DATA/zuse.sqlite` and apply
+versioned SQLite migrations in place. Migrations 65–86 add engine and automation
+state after main's migration 64, preserving chat/session IDs, messages, queued
+inputs, and provider-account records. No replacement database or sandbox is
+created. Follow the runtime data recovery runbook before any path change.
+
+The runtime updater rolls back release binaries, not SQLite history. Once the
+engine has written new event shapes, returning to a legacy runtime is not a
+verified database rollback. Before production promotion, verify a populated
+workspace upgrade, interrupted startup, pause/resume, provider continuation,
+and queued-message delivery without duplication. Preserve a SQLite-consistent
+backup and provider state for any planned storage rollback. Publishing an
+artifact or rebasing a branch does not establish these live checks.

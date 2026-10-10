@@ -382,6 +382,7 @@ const ConversationRuntimeLive = Layer.effect(
 			provider.captureHistoryCheckpoint,
 		);
 		const executeProviderJob = makeProviderJobExecutor({
+			awaitWorkspaceReady: executionPolicy.awaitReady,
 			captureBaseline: (session, turnId, attemptId) =>
 				checkpoints.capture(session, turnId, attemptId, "baseline"),
 			finalizeCheckpoint: (sessionId, turnId, attemptId, outcome) =>
@@ -447,6 +448,14 @@ const ConversationRuntimeLive = Layer.effect(
 			sessionDomain,
 		});
 		const jobWorker = yield* makeJobWorker({
+			excludedKinds: () =>
+				executionPolicy.isReady
+					? []
+					: [
+							"provider.turn.send",
+							"provider.turn.recover",
+							"provider.successor.start",
+						],
 			ledger: sessionDomain.jobs,
 			execute: executeProviderJob,
 			workerId: `server:${process.pid}`,
@@ -786,12 +795,21 @@ const ConversationRuntimeLive = Layer.effect(
 		yield* jobWorker.start.pipe(
 			Effect.provideService(Scope.Scope, serviceScope),
 		);
+		yield* Effect.forkIn(
+			executionPolicy.awaitReady.pipe(Effect.andThen(jobWorker.notify)),
+			serviceScope,
+		);
 		// Provider replay may wait for user input. Run all durable catch-up only
 		// after every service dependency exists, and keep it scoped to this layer
 		// without delaying RPC availability.
 		yield* Effect.forkIn(
 			Effect.all(
-				[reactorRuntime.catchUpAll, queueRuntime.reconcileReadyQueues],
+				[
+					executionPolicy.awaitReady.pipe(
+						Effect.andThen(reactorRuntime.catchUpAll),
+					),
+					queueRuntime.reconcileReadyQueues,
+				],
 				{ concurrency: "unbounded" },
 			).pipe(
 				Effect.catchCause((cause) =>

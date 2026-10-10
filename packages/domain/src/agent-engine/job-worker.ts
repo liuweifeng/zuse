@@ -14,7 +14,7 @@ import {
 } from "effect";
 
 import type { JobLedger, JobLedgerError } from "./job-ledger.js";
-import type { Job } from "./jobs.js";
+import type { Job, JobKind } from "./jobs.js";
 
 /**
  * Job worker.
@@ -56,6 +56,8 @@ export type JobExecutor = (
 ) => Effect.Effect<void, JobExecutionFailure>;
 
 export interface JobWorkerOptions {
+	/** Read immediately before claiming; blocked jobs retain their attempt budget. */
+	readonly excludedKinds?: () => ReadonlyArray<JobKind>;
 	readonly ledger: JobLedger;
 	readonly execute: JobExecutor;
 	readonly workerId: string;
@@ -202,6 +204,7 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 						workerId: owner,
 						leaseMs,
 						...claim,
+						excludedKinds: options.excludedKinds?.(),
 					});
 					if (job === null) return false;
 					const cancellation = yield* Deferred.make<void>();
@@ -299,7 +302,9 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 		if (next === null) return Math.min(pollIntervalMs, leaseMs);
 		const now = yield* DateTime.nowAsDate;
 		const untilAvailable = Date.parse(next) + backgroundGraceMs - now.getTime();
-		return Math.min(pollIntervalMs, Math.max(25, untilAvailable));
+		// Blocked pending jobs must not cause four background loops to poll at 25ms.
+		const minimumDelay = options.excludedKinds?.().length ? 1_000 : 25;
+		return Math.min(pollIntervalMs, Math.max(minimumDelay, untilAvailable));
 	});
 
 	const loop = Effect.gen(function* () {
