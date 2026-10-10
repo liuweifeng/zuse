@@ -690,25 +690,33 @@ export const makeConversationOrchestration = (
 							context.projectId,
 							includeArchived,
 						);
-						const statusBySession = new Map(
-							sessions.map((session) => [
-								session.id as string,
-								session.status as string,
+						const chatsById = new Map(chats.map((chat) => [chat.id, chat]));
+						const parents = dependencies.tasks
+							? yield* dependencies.tasks.listParents(context.projectId)
+							: [];
+						const parentBySession = new Map(
+							parents.map((parent) => [
+								parent.sessionId,
+								parent.parentSessionId,
 							]),
 						);
-						const threads = chats.map((chat) => ({
-							chatId: chat.id as string,
-							sessionId: (chat.activeSessionId ?? "") as string,
-							title: chat.title,
-							worktreeId:
-								chat.worktreeId === null ? null : (chat.worktreeId as string),
-							status:
-								chat.activeSessionId !== null
-									? (statusBySession.get(chat.activeSessionId as string) ??
-										"unknown")
-									: "unknown",
-							spawnedByMe: chat.originSessionId === context.sessionId,
-						}));
+						const threads = sessions.flatMap((session) => {
+							const chat = chatsById.get(session.chatId);
+							if (!chat) return [];
+							const parentSessionId = parentBySession.get(session.id) ?? null;
+							return [
+								{
+									chatId: chat.id as string,
+									sessionId: session.id as string,
+									title: session.title,
+									worktreeId: session.worktreeId,
+									status: session.status,
+									parentSessionId,
+									chatOriginSessionId: chat.originSessionId,
+									spawnedByMe: parentSessionId === context.sessionId,
+								},
+							];
+						});
 						return { ok: true as const, threads };
 					}).pipe(
 						Effect.catch((error) =>

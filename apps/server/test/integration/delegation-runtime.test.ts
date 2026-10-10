@@ -532,3 +532,39 @@ it("cancelling one sibling does not suppress another sibling's completion delive
 		}),
 	);
 });
+
+it("discovers nested task parents from the durable project-scoped lineage after restart", async () => {
+	await run(
+		Effect.gen(function* () {
+			const { sql, domain } = yield* fixture;
+			for (const [id, projectId] of [
+				["grandchild", "project-1"],
+				["foreign", "other-project"],
+			] as const) {
+				yield* domain.dispatch({
+					streamId: id,
+					commandId: `create:${id}`,
+					command: { ...createSessionCommand, sessionId: id, projectId },
+				});
+			}
+			yield* sql`INSERT INTO session_delegations(child_session_id,child_turn_id,parent_session_id,parent_turn_id,parent_attempt_id,provider_session_id,created_at) VALUES('grandchild','grandchild-turn','child','turn:child','child-attempt','native:child',3)`;
+			yield* sql`INSERT INTO session_delegations(child_session_id,child_turn_id,parent_session_id,parent_turn_id,parent_attempt_id,provider_session_id,created_at) VALUES('foreign','foreign-turn','parent','turn:parent','attempt:parent','native:parent',3)`;
+			const parents = yield* makeOrchestrationTaskRuntime(
+				sql,
+				domain,
+			).listParents("project-1");
+			expect(parents).toEqual(
+				expect.arrayContaining([
+					{ sessionId: "child", parentSessionId: "parent" },
+					{ sessionId: "grandchild", parentSessionId: "child" },
+				]),
+			);
+			expect(parents).toHaveLength(2);
+			expect(
+				yield* makeOrchestrationTaskRuntime(sql, domain).listParents(
+					"other-project",
+				),
+			).toEqual([]);
+		}),
+	);
+});

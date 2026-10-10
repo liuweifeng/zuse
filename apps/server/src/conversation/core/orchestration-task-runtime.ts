@@ -11,6 +11,23 @@ export const makeOrchestrationTaskRuntime = (
 	domain: SessionDomainApi,
 	cancelAutomation?: (sessionId: string) => Effect.Effect<void, unknown>,
 ) => {
+	const listParents = Effect.fn("OrchestrationTask.listParents")(function* (
+		projectId: string,
+	) {
+		const rows = yield* sql<{
+			child_session_id: string;
+			parent_session_id: string;
+		}>`
+            SELECT d.child_session_id, d.parent_session_id
+            FROM session_delegations d
+            JOIN sessions child ON child.id=d.child_session_id
+            JOIN sessions parent ON parent.id=d.parent_session_id
+            WHERE child.project_id=${projectId} AND parent.project_id=${projectId}`;
+		return rows.map((row) => ({
+			sessionId: row.child_session_id,
+			parentSessionId: row.parent_session_id,
+		}));
+	});
 	const owned = (parentSessionId: string, taskId: string) => sql<{
 		child_session_id: string;
 		cancelled_at: number | null;
@@ -110,7 +127,7 @@ export const makeOrchestrationTaskRuntime = (
 				});
 		},
 	);
-	return { status, cancel, assertSendable };
+	return { status, cancel, assertSendable, listParents };
 };
 export type OrchestrationTaskRuntime = ReturnType<
 	typeof makeOrchestrationTaskRuntime

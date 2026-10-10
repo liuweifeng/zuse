@@ -121,6 +121,10 @@ export interface ThreadSummary {
 	readonly worktreeId: string | null;
 	readonly status: string;
 	readonly spawnedByMe: boolean;
+	/** Durable managed-task lineage; native provider children are not session tabs. */
+	readonly parentSessionId?: string | null;
+	/** Chat-level lineage may exist without a managed task (for older chats). */
+	readonly chatOriginSessionId?: string | null;
 }
 
 export type ListThreadsResult =
@@ -358,7 +362,7 @@ const READ_THREAD_DESCRIPTION =
 	"Read bounded messages and current session status. Without a cursor returns recent messages; afterMessageId (empty string) starts from the beginning. Continue with nextMessageId while hasMore. view:messages filters conversation text; activity includes tools and other events. For a truncated item, call with its messageId and nextTextOffset until complete before advancing. Text may change during streaming; reread that messageId to refresh it. Read-only.";
 
 const LIST_THREADS_DESCRIPTION =
-	"List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, chatId, and whether you spawned them. Sessions that share a chatId are tabs in one sidebar chat; chats that share a worktreeId share one workspace. Use to see the topology before spawning isolated work with create_thread or adding a session tab with create_session. Read-only.";
+	"List every session tab in this project, including background managed children, with its workspace (worktreeId — null means the project's main checkout), status, chatId, parentSessionId, and whether you spawned it. Managed task IDs equal their sessionId; use task_status or task_cancel for your direct children. chatOriginSessionId describes chat-level provenance only; it does not make every tab a managed child. Sessions that share a chatId are tabs in one sidebar chat; chats that share a worktreeId share one workspace. Use to see the topology before spawning isolated work with create_thread or adding a session tab with create_session. Read-only.";
 
 const LIST_MODELS_DESCRIPTION =
 	"List providers and model slugs available for create_thread and create_session. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
