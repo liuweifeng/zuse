@@ -84,10 +84,6 @@ export interface MessageOperationsOptions {
 			receipt: import("@zuse/domain/engine/dispatch").CommandReceipt,
 		) => Effect.Effect<A, never, R>,
 	) => Effect.Effect<A, never, R>;
-	readonly beginTurn: (
-		sessionId: SessionId,
-		turnIdOverride?: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,

@@ -207,13 +207,6 @@ export const readCodexLiveMcpSnapshot = (
 		};
 	});
 
-export const listCodexMcpStatus = (
-	codexPath: string | null,
-): Effect.Effect<ReadonlyArray<CodexMcpServerStatus>, Error> =>
-	readCodexLiveMcpSnapshot(codexPath, null).pipe(
-		Effect.map((snapshot) => snapshot.statuses),
-	);
-
 /**
  * Writes the native `enabled` flag. This intentionally persists into the
  * user's `~/.codex/config.toml` — toggling a codex-source server in Zuse

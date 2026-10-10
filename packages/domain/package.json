@@ -18,7 +18,6 @@
 		"./agent-engine/job-ledger": "./src/agent-engine/job-ledger.ts",
 		"./agent-engine/job-worker": "./src/agent-engine/job-worker.ts",
 		"./agent-engine/jobs": "./src/agent-engine/jobs.ts",
-		"./core/ingestion": "./src/core/ingestion/ingestion.ts",
 		"./core/state": "./src/core/state.ts",
 		"./engine/admission": "./src/engine/admission.ts",
 		"./engine/backfill": "./src/engine/backfill.ts",

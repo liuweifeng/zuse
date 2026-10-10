@@ -194,7 +194,6 @@ const ConversationRuntimeLive = Layer.effect(
 		const storeRuntime: ConversationStoreRuntime =
 			yield* makeConversationStoreRuntime({
 				isWorkspaceReady: () => executionPolicy.isReady,
-				checkpointFinalization: true,
 				serviceScope,
 				sql,
 				state,
@@ -216,7 +215,6 @@ const ConversationRuntimeLive = Layer.effect(
 			persistAttemptMessage,
 			persistProviderMessage,
 			setAttemptStatus,
-			beginTurn,
 			resolveActiveTurn,
 			settleTurn,
 			settleTurnFromReactor,
@@ -626,7 +624,6 @@ const ConversationRuntimeLive = Layer.effect(
 						onCommitted,
 					)
 					.pipe(Effect.orDie),
-			beginTurn,
 			settleTurn,
 			resolveActiveTurn,
 			runSessionReactors: (sessionId) =>

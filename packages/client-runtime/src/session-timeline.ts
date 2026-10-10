@@ -24,8 +24,6 @@ export type SessionTimelineState = Readonly<{
 	cursor: SessionStreamCursor | null;
 	/** Epoch announced by reset-required while the prior projection stays visible. */
 	resetEpoch: string | null;
-	/** @deprecated Prefer cursor.version. Kept while renderer selectors migrate. */
-	appliedVersion: number;
 	phase: SessionTimelinePhase;
 	error: string | null;
 	optimistic: OptimisticOverlay;
@@ -37,7 +35,6 @@ export const emptySessionTimelineState = (): SessionTimelineState => ({
 	projection: null,
 	cursor: null,
 	resetEpoch: null,
-	appliedVersion: 0,
 	phase: "empty",
 	error: null,
 	optimistic: { messages: {} },
@@ -57,7 +54,6 @@ export const restoreSessionTimelineState = (
 					runtimeObservation: undefined,
 				}),
 				cursor,
-				appliedVersion: cursor.version,
 				phase: "cached",
 			};
 
@@ -249,7 +245,6 @@ export const reduceSessionTimelineFrame = (
 			optimistic: reconciled.optimistic,
 			cursor,
 			resetEpoch: null,
-			appliedVersion: cursor.version,
 			phase: "synchronizing",
 			error: null,
 			snapshotMessageCount:
@@ -380,7 +375,6 @@ export const reduceSessionTimelineFrame = (
 		projection,
 		optimistic,
 		cursor,
-		appliedVersion: cursor.version,
 		phase: state.phase === "live" ? "live" : "synchronizing",
 		error: null,
 	};

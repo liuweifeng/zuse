@@ -150,7 +150,7 @@ describe("session timeline reducer", () => {
 		expect(next.projection?.messages).toEqual([older, existing]);
 		expect(next.projection?.olderMessageSequence).toBeNull();
 		expect(next.cursor).toEqual(cursor("epoch-a", 9));
-		expect(next.appliedVersion).toBe(9);
+		expect(next.cursor?.version).toBe(9);
 	});
 
 	it("commits projection and cursor atomically before render notification", () => {
@@ -177,7 +177,7 @@ describe("session timeline reducer", () => {
 			event: { _tag: "MessagePersisted", message },
 		});
 
-		expect(next.appliedVersion).toBe(5);
+		expect(next.cursor?.version).toBe(5);
 		expect(next.cursor).toEqual(cursor("epoch-a", 5));
 		expect(next.projection?.messages).toEqual([message]);
 	});
@@ -298,7 +298,7 @@ describe("session timeline reducer", () => {
 			event: { _tag: "Noop" },
 		});
 
-		expect(next.appliedVersion).toBe(4);
+		expect(next.cursor?.version).toBe(4);
 		expect(next.phase).toBe("stale");
 		expect(next.error).toMatch(/expected version 5/i);
 	});
@@ -364,7 +364,6 @@ describe("session timeline reducer", () => {
 		expect(resetSnapshot).toMatchObject({
 			cursor: cursor("epoch-b", 12),
 			resetEpoch: null,
-			appliedVersion: 12,
 			phase: "synchronizing",
 			error: null,
 		});
