@@ -214,6 +214,7 @@ const ConversationRuntimeLive = Layer.effect(
 			});
 		const {
 			persistAttemptMessage,
+			persistProviderMessage,
 			setAttemptStatus,
 			beginTurn,
 			resolveActiveTurn,
@@ -271,6 +272,7 @@ const ConversationRuntimeLive = Layer.effect(
 			startSubscription,
 			broadcastChat,
 			persistMessage,
+			persistProviderMessage,
 			runSessionReactors: (sessionId) =>
 				Effect.suspend(() => reactorRuntime.runSession(sessionId)),
 			dispatchSessionCommand: appendSessionCommand,

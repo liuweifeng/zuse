@@ -28,6 +28,7 @@ const fixture = async () => {
 	> = [];
 	const deps: ConversationOrchestrationDependencies = {
 		runtime: Context.empty(),
+		persistMessage: () => Effect.die("Unexpected persistence"),
 		captureDelegation: () =>
 			Effect.succeed({
 				parentSessionId: parentId,

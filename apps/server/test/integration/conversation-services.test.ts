@@ -3008,6 +3008,72 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			});
 		});
 
+	it.each([
+		"current",
+		"residency-revoked",
+		"turn-settled",
+	] as const)("emit_ui fences %s ownership at persistence", async (mode) => {
+		await withRuntime(async (run) => {
+			const parent = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+						initialPrompt: "render a result",
+					}),
+				),
+			);
+			await expect
+				.poll(() => providerStartOrchestrationTools.at(-1))
+				.toBeDefined();
+			const tools = providerStartOrchestrationTools.at(-1);
+			if (!tools) throw new Error("Provider tools were not created");
+			let intercepted = false;
+			beforeProviderWrite = (domain, input) =>
+				Effect.gen(function* () {
+					if (
+						input.command._tag !== "PersistMessage" ||
+						input.command.kind !== "ui_spec"
+					)
+						return;
+					expect(input.expectedProviderSessionId).toBeDefined();
+					expect(input.expectedAttempt).toBeDefined();
+					if (!input.expectedAttempt)
+						return yield* Effect.die("Missing attempt fence");
+					intercepted = true;
+					if (mode === "current") return;
+					yield* domain
+						.dispatch({
+							commandId: `revoke-ui-${mode}`,
+							streamId: input.streamId,
+							command:
+								mode === "residency-revoked"
+									? { _tag: "RequestProviderStop", requestedAt: Date.now() }
+									: {
+											_tag: "SettleTurn",
+											turnId: input.expectedAttempt.turnId,
+											outcome: "completed",
+											settledAt: Date.now(),
+										},
+						})
+						.pipe(Effect.orDie);
+				});
+			const spec = 'root = Text("Result")';
+			const result = await tools.deps.emitUi({ spec });
+			expect(intercepted).toBe(true);
+			expect(result.ok).toBe(mode === "current");
+			const messages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(parent.initialSession.id),
+				),
+			);
+			expect(
+				messages.filter((message) => message.content._tag === "ui_spec"),
+			).toHaveLength(mode === "current" ? 1 : 0);
+		});
+	});
+
 	it("create_session without chatId opens a new tab in the caller's chat", async () => {
 		await withRuntime(async (run) => {
 			const parent = await run(

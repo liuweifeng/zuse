@@ -87,6 +87,7 @@ export interface SessionOperationsOptions
 	readonly sessionDomain: SessionDomainApi;
 	readonly currentTimestamp: Effect.Effect<number>;
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
+	readonly persistProviderMessage: import("./conversation-store-runtime.ts").ConversationStoreRuntime["persistProviderMessage"];
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
@@ -139,6 +140,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		startSubscription,
 		broadcastChat,
 		persistMessage,
+		persistProviderMessage,
 		runSessionReactors,
 		dispatchSessionCommand,
 		dispatchSessionCommandWithId,
@@ -219,7 +221,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		listMessages,
 		listChats,
 		listSessions,
-		persistMessage,
+		persistProviderMessage,
 		provider,
 		startSubscription,
 	});

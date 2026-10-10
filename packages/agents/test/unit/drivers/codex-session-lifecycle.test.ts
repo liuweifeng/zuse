@@ -707,11 +707,12 @@ describe("Codex session cursor persistence", () => {
 			{ resumeCursor: "archived-thread", archivedInCodex: true },
 			async (handle, appServer) => {
 				await Effect.runPromise(handle.send("continue"));
-				const events = await takeEvents(handle.events, 3);
+				const events = await takeEvents(handle.events, 4);
 
 				expect(events.map((event) => event._tag)).toEqual([
 					"Started",
 					"Status",
+					"NativeTurnStarted",
 					"Status",
 				]);
 				expect(

@@ -90,7 +90,7 @@ describe("Zuse Serve agent CLI", () => {
 			expect((await stat(accessFile)).mode & 0o777).toBe(0o600);
 
 			const connected = await runZusehq(["computer", "list"], env);
-			expect(connected.exitCode).toBe(0);
+			expect(connected.exitCode, JSON.stringify(connected)).toBe(0);
 			expect(connected.stderr).not.toContain("SocketOpenError");
 			expect(JSON.parse(connected.stdout)).toMatchObject({
 				schemaVersion: 1,
@@ -114,7 +114,7 @@ describe("Zuse Serve agent CLI", () => {
 			};
 
 			const restarted = await runZusehq(["computer", "list"], env);
-			expect(restarted.exitCode).toBe(0);
+			expect(restarted.exitCode, JSON.stringify(restarted)).toBe(0);
 			expect(JSON.parse(restarted.stdout)).toMatchObject({ ok: true });
 
 			await writeFile(

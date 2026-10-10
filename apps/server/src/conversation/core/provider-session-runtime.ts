@@ -1,8 +1,6 @@
 import {
 	type AgentTurnId,
 	type AttachmentRef,
-	type MessageContent,
-	type MessageId,
 	ComposerInput,
 	type Session,
 	type SessionId,
@@ -30,7 +28,7 @@ import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy
 import { formatProviderFailure } from "./conversation-input.ts";
 import { makeConversationOrchestration } from "./conversation-orchestration.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
-import type { PersistedMessage } from "./conversation-store-types.ts";
+import type { ConversationStoreRuntime } from "./conversation-store-runtime.ts";
 import type { IngestionLeaseIdentity } from "./ingestion-lease.ts";
 import { makeOrchestrationReader } from "./orchestration-reader.ts";
 import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
@@ -96,17 +94,7 @@ export interface ProviderSessionRuntimeOptions {
 	readonly listMessages: ConversationOperations["listMessages"];
 	readonly listChats: ConversationOperations["listChats"];
 	readonly listSessions: ConversationOperations["listSessions"];
-	/**
-	 * Timeline append used by display tools — `emit_ui` persists its
-	 * validated `ui_spec` block here so it streams to the transcript
-	 * like any other message.
-	 */
-	readonly persistMessage: (
-		sessionId: SessionId,
-		content: MessageContent,
-		idOverride?: MessageId,
-		turnIdOverride?: AgentTurnId,
-	) => Effect.Effect<PersistedMessage>;
+	readonly persistProviderMessage: ConversationStoreRuntime["persistProviderMessage"];
 	readonly provider: ProviderServiceShape;
 	readonly startSubscription: (
 		sessionId: SessionId,
@@ -141,7 +129,7 @@ export const makeProviderSessionRuntime = (
 		listMessages,
 		listChats,
 		listSessions,
-		persistMessage,
+		persistProviderMessage,
 		provider,
 		startSubscription,
 	} = options;
@@ -371,7 +359,20 @@ export const makeProviderSessionRuntime = (
 						listMessages,
 						listChats,
 						listSessions,
-						persistMessage,
+						persistMessage: (sessionId, content) =>
+							Effect.gen(function* () {
+								// Tools live for the provider residency and can span several turns.
+								// Capture this invocation's attempt, then fence both identities at commit.
+								const attempt = yield* optionsState.activeAttempt(sessionId);
+								if (attempt === null)
+									return yield* Effect.fail(
+										new Error("Generated UI requires an active turn."),
+									);
+								return yield* persistProviderMessage(sessionId, content, {
+									...attempt,
+									providerSessionId,
+								});
+							}),
 					},
 					{
 						sessionId: session.id,

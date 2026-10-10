@@ -73,6 +73,14 @@ export interface ConversationStoreRuntimeOptions {
 }
 
 export interface ConversationStoreRuntime {
+	readonly persistProviderMessage: (
+		sessionId: SessionId,
+		content: MessageContent,
+		identity: import("./ingestion-lease.ts").IngestionLeaseIdentity,
+	) => Effect.Effect<
+		PersistedMessage,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	readonly completeFinalization: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
@@ -509,7 +517,9 @@ export const makeConversationStoreRuntime = Effect.fn(
 					command: {
 						_tag: "PersistMessage",
 						inputOwner:
-							(content._tag === "user_question" || (content._tag === "tool_use" && content.tool === "ExitPlanMode")) &&
+							(content._tag === "user_question" ||
+								(content._tag === "tool_use" &&
+									content.tool === "ExitPlanMode")) &&
 							expectedProviderSessionId !== undefined
 								? {
 										providerSessionId: expectedProviderSessionId,
@@ -559,6 +569,24 @@ export const makeConversationStoreRuntime = Effect.fn(
 				changed: receipt.eventIds.length > 0,
 			};
 		});
+
+	const persistProviderMessage: ConversationStoreRuntime["persistProviderMessage"] =
+		(sessionId, content, identity) =>
+			persistOwnedMessage(
+				sessionId,
+				content,
+				undefined,
+				AgentTurnId.make(identity.turnId),
+				undefined,
+				identity,
+				identity.providerSessionId,
+			).pipe(
+				Effect.tap((persisted) =>
+					persisted.changed !== false
+						? ndjsonAppend(sessionId, persisted)
+						: Effect.void,
+				),
+			);
 
 	const persistMessage: ConversationStoreRuntime["persistMessage"] = (
 		...args
@@ -989,6 +1017,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		lookupSession,
 		agentsFor,
 		persistMessage,
+		persistProviderMessage,
 		submitTurn,
 		setStatus,
 		startSubscription,
