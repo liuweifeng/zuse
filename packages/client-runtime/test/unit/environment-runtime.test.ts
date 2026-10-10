@@ -1,10 +1,11 @@
-import { EnvironmentId } from "@zuse/contracts";
+import { EnvironmentId, WireProtocolRejected } from "@zuse/contracts";
 import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
 	type EnvironmentResolver,
 	EnvironmentRuntimeRegistry,
+	environmentFault,
 } from "../../src/environment-runtime.ts";
 
 const deferred = <Value>() => {
@@ -777,4 +778,37 @@ describe("EnvironmentRuntimeRegistry", () => {
 		lease.release();
 		await registry.dispose();
 	});
+});
+
+it("stops connection retries when the runtime requires another protocol", async () => {
+	let resolves = 0;
+	let retries = 0;
+	const registry = new EnvironmentRuntimeRegistry(
+		{
+			resolve: () => {
+				resolves += 1;
+				return Effect.fail(
+					environmentFault(
+						"failed",
+						new WireProtocolRejected({
+							expectedVersion: 6,
+							receivedVersion: 7,
+						}),
+					),
+				);
+			},
+		},
+		{
+			schedule: () => {
+				retries += 1;
+				return () => {};
+			},
+		},
+	);
+	const runtime = registry.get(EnvironmentId.make("legacy-cloud"));
+	const lease = runtime.retain("connect");
+	await waitUntil(() => runtime.snapshot().phase === "update-required");
+	expect(resolves).toBe(1);
+	expect(retries).toBe(0);
+	lease.release();
 });

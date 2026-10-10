@@ -1053,9 +1053,9 @@ describe("WS LAN auth", () => {
 				authRequired: false,
 			});
 			await expect(upgradeStatus(port, "/")).resolves.toBe(426);
-			await expect(upgradeStatus(port, "/?wireVersion=5")).resolves.toBe(101);
+			await expect(upgradeStatus(port, "/?wireVersion=5")).resolves.toBe(426);
 			await expect(upgradeStatus(port, "/?wireVersion=4")).resolves.toBe(426);
-			await expect(upgradeStatus(port, "/?wireVersion=7")).resolves.toBe(426);
+			await expect(upgradeStatus(port, "/?wireVersion=6")).resolves.toBe(426);
 			await expect(
 				upgradeStatus(port, `/?wireVersion=${WIRE_PROTOCOL_VERSION}`),
 			).resolves.toBe(101);

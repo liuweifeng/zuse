@@ -39,7 +39,11 @@ export class WireProtocolMismatchError extends Data.TaggedError(
 )<{
 	readonly expectedVersion: number;
 	readonly receivedVersion: number;
-}> {}
+}> {
+	override get message() {
+		return `Update required: this app uses protocol ${this.expectedVersion}, but this runtime uses ${this.receivedVersion}. Update Zuse or the workspace runtime before reconnecting.`;
+	}
+}
 
 export type VersionHandshake<Client, Error> = {
 	readonly protocolVersion: number;

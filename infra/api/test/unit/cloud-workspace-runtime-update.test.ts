@@ -23,8 +23,26 @@ vi.mock("../../../cloud-sandboxes/install-grok.sh", () => ({
 
 test.each([
 	{
-		name: "old image requires explicit update",
+		name: "retained protocol 5 stays pinned for its existing client",
 		version: 5,
+		updates: 0,
+		success: true,
+	},
+	{
+		name: "current engine stays pinned",
+		version: 7,
+		updates: 0,
+		success: true,
+	},
+	{
+		name: "unsupported old image requires explicit update",
+		version: 4,
+		updates: 0,
+		success: false,
+	},
+	{
+		name: "future image requires compatible control plane",
+		version: 8,
 		updates: 0,
 		success: false,
 	},
@@ -107,7 +125,7 @@ writeFileSync(${JSON.stringify(join(current, "runtime-metadata.json"))}, JSON.st
 					ZUSE_CURRENT_LINK: current,
 					ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.invalid/manifest.json",
 					ZUSE_RUNTIME_PUBLIC_KEY_FILE: key,
-					ZUSE_RUNTIME_WIRE_PROTOCOL: "6",
+					ZUSE_RUNTIME_WIRE_PROTOCOL: "7",
 				},
 			},
 		);

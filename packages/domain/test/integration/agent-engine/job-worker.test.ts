@@ -46,6 +46,50 @@ const sendJob = (id: string, sessionId: string): PendingJob => ({
 });
 
 describe("JobWorker", () => {
+	test("leaves blocked sends unclaimed while stop work runs, then resumes them when ready", async () => {
+		await run((ledger) =>
+			Effect.gen(function* () {
+				let ready = false;
+				const executed: string[] = [];
+				const worker = yield* makeJobWorker({
+					ledger,
+					workerId: "test",
+					excludedKinds: () => (ready ? [] : ["provider.turn.send"]),
+					execute: (job) =>
+						Effect.sync(() => {
+							executed.push(job.id);
+						}),
+				});
+				const sends = Array.from({ length: 8 }, (_, index) =>
+					sendJob(`send-${index}`, `session-${index}`),
+				);
+				yield* ledger.enqueue([
+					...sends,
+					{
+						...sendJob("stop", "session-0"),
+						request: { _tag: "provider.stop", requestedAt: 1 },
+					},
+				]);
+				expect(yield* worker.drain).toEqual([]);
+				expect(executed).toEqual(["stop"]);
+				const sql = yield* SqlClient.SqlClient;
+				const pending = yield* sql<{
+					status: string;
+					attempt_count: number;
+				}>`SELECT status, attempt_count FROM jobs WHERE kind = 'provider.turn.send'`;
+				expect(pending).toHaveLength(8);
+				expect(
+					pending.every(
+						(row) => row.status === "pending" && row.attempt_count === 0,
+					),
+				).toBe(true);
+				ready = true;
+				expect(yield* worker.drain).toEqual([]);
+				expect(executed).toEqual(["stop", ...sends.map((job) => job.id)]);
+			}),
+		);
+	});
+
 	test("reports every failure in a large explicit drain", async () => {
 		await run((ledger) =>
 			Effect.gen(function* () {
