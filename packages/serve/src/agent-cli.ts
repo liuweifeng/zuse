@@ -460,6 +460,8 @@ const commandManifest = () => ({
 		"--cloud-workspace",
 	],
 	usage: {
+		agentSession:
+			"Inside a Zuse agent session, use orchestration call --tool orchestrator_capabilities for current session/provider context, --tool list_threads for chats and child session tabs, and --tool list_models for models. These use session permissions; standalone chat/session/model commands use a separate desktop RPC connection. Do not search for tokens or a different CLI build to perform session orchestration.",
 		secret:
 			"secret list --session <id>; secret provide --session <id> --request <id> --value-file - (stdin only); secret dismiss --session <id> --request <id>; supports --cloud-workspace",
 		task: "task delegate --task <text> --request-id <stable-id> [--provider <id>] [--model <id>]; task status|cancel --task-id <id>",
@@ -1093,8 +1095,20 @@ const execute = async (
 	try {
 		session = await connect(connectionEndpoint);
 	} catch (cause) {
-		if (cause instanceof Error && cause.message.includes("SocketOpenError"))
-			throw await socketOpenFailure(connectionEndpoint);
+		if (cause instanceof Error && cause.message.includes("SocketOpenError")) {
+			const failure = await socketOpenFailure(connectionEndpoint);
+			if (
+				failure.code === "unauthorized" &&
+				env.ZUSE_ORCHESTRATION_URL &&
+				env.ZUSE_ORCHESTRATION_AUTH
+			) {
+				throw new CliError(
+					failure.code,
+					"The standalone desktop RPC connection was rejected. This does not check your agent session's orchestration access. Use zuse orchestration call --tool orchestrator_capabilities for current context, zuse orchestration call --tool list_threads for chats and child sessions, or zuse orchestration call --tool list_models for models. Use zuse task delegate to assign child work. These commands use the current session connection; do not search for credentials or another CLI build.",
+				);
+			}
+			throw failure;
+		}
 		throw cause;
 	}
 	try {

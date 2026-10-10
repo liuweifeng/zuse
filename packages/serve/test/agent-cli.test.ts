@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -519,6 +520,33 @@ describe("plugin CLI", () => {
 });
 
 describe("session-scoped orchestration CLI", () => {
+	test("directs an agent with rejected desktop RPC access to its session gateway", async () => {
+		vi.mocked(makeRpcClientSession).mockRejectedValueOnce(
+			new Error("SocketOpenError"),
+		);
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(null, { status: 401 }));
+		try {
+			await expect(
+				__testing.execute(["session", "list", "--project", "/repo"], {
+					ZUSE_WS_URL: "ws://127.0.0.1:47837/rpc",
+					ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:4422/orchestration",
+					ZUSE_ORCHESTRATION_AUTH: "session-only-secret",
+				}),
+			).rejects.toMatchObject({
+				code: "unauthorized",
+				message: expect.stringContaining(
+					"zuse orchestration call --tool list_threads",
+				),
+			});
+			expect(JSON.stringify(fetcher.mock.calls)).not.toContain(
+				"session-only-secret",
+			);
+		} finally {
+			fetcher.mockRestore();
+		}
+	});
 	test("requires current session credentials and rejects remote overrides", async () => {
 		await expect(
 			__testing.execute(["orchestration", "list"], {}),
