@@ -59,6 +59,11 @@ resolve_workspace_runtime_data() {
 
 acquire_workspace_runtime_lock() {
   resolve_workspace_runtime_data || return $?
+  if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 && -d /opt/zuse/toolchain-current/node_modules/.bin ]]; then
+    export ZUSE_MANAGED_TOOLCHAIN_BIN=/opt/zuse/toolchain-current/node_modules/.bin
+  else
+    unset ZUSE_MANAGED_TOOLCHAIN_BIN
+  fi
   phase=acquiring-runtime-lock
   mkdir -p "$ZUSE_USER_DATA"
   # Compile bytecode is reusable across fresh processes; workspace keys are not.

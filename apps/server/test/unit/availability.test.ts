@@ -7,7 +7,7 @@ import {
 	type ResolvedModelCatalogProvider,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	buildUpdateCommand,
 	claudeAuthTestHelpers,
@@ -547,6 +547,32 @@ describe("buildUpdateCommand — install-method detection", () => {
 		expect(buildUpdateCommand("grok", ["/Users/me/.local/bin/grok"])).toBe(
 			"curl -fsSL https://x.ai/cli/install.sh | bash",
 		);
+	});
+});
+
+describe("managed image CLI selection", () => {
+	it("uses the verified image CLI without version probes and preserves explicit overrides", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "zuse-pinned-cli-"));
+		const cli = join(directory, "codex");
+		await writeFile(cli, "#!/bin/sh\nexit 99\n", { mode: 0o755 });
+		vi.stubEnv("ZUSE_MANAGED_TOOLCHAIN_BIN", directory);
+		try {
+			expect(
+				await Effect.runPromise(
+					resolveCliPath("codex").pipe(Effect.provide(NodeServices.layer)),
+				),
+			).toBe(cli);
+			expect(
+				await Effect.runPromise(
+					resolveCliPath("codex", { codex: process.execPath }).pipe(
+						Effect.provide(NodeServices.layer),
+					),
+				),
+			).toBe(process.execPath);
+		} finally {
+			vi.unstubAllEnvs();
+			await rm(directory, { recursive: true, force: true });
+		}
 	});
 });
 
