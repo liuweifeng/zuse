@@ -659,18 +659,12 @@ const attachCloudWorkspace = async (
 	publish(workspace);
 	const startupError = cloudWorkspaceStartupError(workspace);
 	if (startupError !== null) throw startupError;
-	if (activation === "connect" && !isCloudWorkspaceAttachable(workspace)) {
-		throw new Error(
-			workspace.state === "paused"
-				? "Cloud workspace is paused."
-				: "Cloud workspace is not currently available for passive attachment.",
-		);
-	}
 	// Organization gateways require an enrolled runtime's authorization capabilities.
 	// A missing report during provisioning is not evidence of an old runtime.
 	if (
 		summary.workspaceScope?.kind === "organization" &&
-		!isCloudWorkspaceAttachable(workspace)
+		!isCloudWorkspaceAttachable(workspace) &&
+		!workspaceNeedsWake(workspace)
 	) {
 		workspace = await waitForCloudWorkspaceAttachable(
 			control["cloud.workspaces.watch"]({
@@ -680,6 +674,16 @@ const attachCloudWorkspace = async (
 			publish,
 		);
 		assertRendererAccountCurrent(account);
+	}
+	if (
+		activation === "connect" &&
+		(!isCloudWorkspaceAttachable(workspace) || workspaceNeedsWake(workspace))
+	) {
+		throw new Error(
+			workspace.state === "paused"
+				? "Cloud workspace is paused."
+				: "Cloud workspace is not currently available for passive attachment.",
+		);
 	}
 	// Socket loss only invalidates an attachment ticket. Runtime replacement is
 	// owned by the lifecycle reconciler, never inferred from gateway failures.

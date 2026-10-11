@@ -734,13 +734,15 @@ it("passively attaches the online runtime before repository setup finishes", asy
 });
 
 it.each([
-	"setup",
-	"failed",
-] as const)("waits for organization runtime enrollment before requesting a ticket (%s)", async (outcome) => {
+	["wake", "setup"],
+	["wake", "failed"],
+	["connect", "setup"],
+	["connect", "failed"],
+] as const)("waits for organization runtime enrollment before requesting a ticket (%s, %s)", async (activation, outcome) => {
 	observeRendererAccount("organization-startup-owner");
 	const starting = {
 		...summary,
-		workspaceId: `organization-startup-${outcome}`,
+		workspaceId: `organization-startup-${activation}-${outcome}`,
 		workspaceScope: {
 			kind: "organization" as const,
 			organizationId: "org-startup",
@@ -780,7 +782,7 @@ it.each([
 			expiresAt: Date.now() + 60_000,
 		});
 	});
-	const attached = ensureCloudWorkspaceAttached(starting, "wake");
+	const attached = ensureCloudWorkspaceAttached(starting, activation);
 	if (outcome === "failed") {
 		await expect(attached).rejects.toThrow(
 			"Cloud startup failed during provisioning-failed.",
@@ -795,4 +797,32 @@ it.each([
 		afterRevision: 1,
 	});
 	expect(mocks.resume).not.toHaveBeenCalled();
+});
+
+it.each([
+	["paused", "paused", "offline"],
+	["provisioning", "paused", "offline"],
+	["ready", "paused", "online"],
+] as const)("does not wait or wake a passive organization workspace (%s, %s, %s)", async (state, desiredState, runtimeState) => {
+	observeRendererAccount("passive-organization-owner");
+	const paused = {
+		...summary,
+		workspaceId: `passive-organization-${state}`,
+		workspaceScope: {
+			kind: "organization" as const,
+			organizationId: "org-startup",
+		},
+		state,
+		desiredState,
+		runtimeState,
+	};
+	mocks.get.mockReturnValue(Effect.succeed(paused));
+	await expect(ensureCloudWorkspaceAttached(paused, "connect")).rejects.toThrow(
+		state === "paused"
+			? "Cloud workspace is paused."
+			: "Cloud workspace is not currently available for passive attachment.",
+	);
+	expect(mocks.watch).not.toHaveBeenCalled();
+	expect(mocks.resume).not.toHaveBeenCalled();
+	expect(mocks.connect).not.toHaveBeenCalled();
 });
