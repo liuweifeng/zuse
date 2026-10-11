@@ -52,9 +52,6 @@ export interface ProviderSessionHandle {
 		cursor: string,
 	) => Effect.Effect<void>;
 	readonly releaseProviderEventCursor?: (cursor: string) => Effect.Effect<void>;
-	readonly updateMcpServers?: (
-		servers: ReadonlyArray<unknown>,
-	) => Effect.Effect<void>;
 }
 
 /** Optional goal-mode extension currently implemented by two providers. */

@@ -45,7 +45,7 @@ vi.mock("@zuse/agents/drivers/codex-control-client", () => ({
 	},
 }));
 
-vi.mock("../../src/mcp/codex-status.ts", async () => {
+vi.mock("../../src/skill/codex-app.ts", async () => {
 	const { Effect } = await import("effect");
 	return {
 		withCodexApp: (

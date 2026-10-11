@@ -23,7 +23,6 @@ it("reads acknowledged local settings through ClientBus rather than uploading a 
 	const base = SettingsFile.make({
 		...useSettingsStore.getState(),
 		schemaVersion: 1,
-		mcpDisabledServers: [],
 		subagents: { enableForNewSessions: false, presets: {} },
 		branchNamingPrefix: "old-stream",
 		providerBinaryPaths: { codex: "/private/bin" },

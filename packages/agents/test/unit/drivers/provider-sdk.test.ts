@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
 	type CursorSdkTranslationState,
 	flushCursorSdkMessages,
-	normalizeCursorMcpServers,
 	translateCursorSdkMessage,
 } from "../../../src/drivers/cursor.ts";
 
@@ -273,21 +272,5 @@ describe("bundled provider SDK translation", () => {
 				isError: false,
 			},
 		]);
-	});
-
-	it("normalizes stdio and remote MCP configurations", () => {
-		expect(
-			normalizeCursorMcpServers([
-				{ name: "local", command: "node", args: ["server.js"] },
-				{ id: "remote", url: "https://example.test/mcp", headers: { A: "B" } },
-			]),
-		).toEqual({
-			local: { type: "stdio", command: "node", args: ["server.js"] },
-			remote: {
-				type: "http",
-				url: "https://example.test/mcp",
-				headers: { A: "B" },
-			},
-		});
 	});
 });

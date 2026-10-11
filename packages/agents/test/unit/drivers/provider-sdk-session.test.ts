@@ -247,14 +247,11 @@ describe("bundled provider SDK sessions", () => {
 					"managed-key",
 					sessionId,
 					null,
-					[
-						{
-							name: "workspace-tools",
-							transport: "stdio",
-							command: "node",
-							args: ["server.mjs"],
-						},
-					],
+					{
+						name: "zuse",
+						url: "http://127.0.0.1:4100/mcp",
+						headers: { Authorization: "Bearer session-token" },
+					},
 				);
 				const fiber = yield* Stream.runForEach(handle.events, (event) =>
 					Effect.sync(() => events.push(event)),
@@ -286,10 +283,10 @@ describe("bundled provider SDK sessions", () => {
 			expect.objectContaining({
 				mode: "agent",
 				mcpServers: {
-					"workspace-tools": {
-						type: "stdio",
-						command: "node",
-						args: ["server.mjs"],
+					zuse: {
+						type: "http",
+						url: "http://127.0.0.1:4100/mcp",
+						headers: { Authorization: "Bearer session-token" },
 					},
 				},
 			}),
@@ -432,7 +429,7 @@ describe("bundled provider SDK sessions", () => {
 		expect(cancel).toHaveBeenCalledOnce();
 	});
 
-	it("passes image inputs, plan mode, and live MCP updates to new runs", async () => {
+	it("passes image inputs, plan mode, and only the Zuse gateway MCP to new runs", async () => {
 		const fake = makeAgent();
 		sdk.create.mockResolvedValue(fake.agent);
 		const image: AttachmentRef = {
@@ -448,16 +445,14 @@ describe("bundled provider SDK sessions", () => {
 					"/tmp/workspace",
 					"managed-key",
 					sessionId,
+					null,
+					{
+						name: "zuse",
+						url: "http://127.0.0.1:4100/mcp",
+						headers: { Authorization: "Bearer session-token" },
+					},
 				);
 				yield* handle.setPermissionMode("plan");
-				yield* handle.updateMcpServers([
-					{
-						name: "remote-tools",
-						transport: "http",
-						url: "https://mcp.example.test",
-						headers: { Authorization: "Bearer stored-token" },
-					},
-				]);
 				yield* handle.send("inspect this", [image]);
 				yield* Effect.sleep("20 millis");
 				yield* handle.close();
@@ -472,13 +467,37 @@ describe("bundled provider SDK sessions", () => {
 			expect.objectContaining({
 				mode: "plan",
 				mcpServers: {
-					"remote-tools": {
+					zuse: {
 						type: "http",
-						url: "https://mcp.example.test",
-						headers: { Authorization: "Bearer stored-token" },
+						url: "http://127.0.0.1:4100/mcp",
+						headers: { Authorization: "Bearer session-token" },
 					},
 				},
 			}),
+		);
+	});
+
+	it("always overrides native Cursor MCP config, even without a gateway", async () => {
+		const fake = makeAgent();
+		sdk.create.mockResolvedValue(fake.agent);
+
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const handle = yield* startCursorSession(
+					input,
+					"/tmp/workspace",
+					"managed-key",
+					sessionId,
+				);
+				yield* handle.send("hello", []);
+				yield* Effect.sleep("20 millis");
+				yield* handle.close();
+			}).pipe(Effect.provide(ImageAttachmentsTest)),
+		);
+
+		expect(fake.send).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ mcpServers: {} }),
 		);
 	});
 });

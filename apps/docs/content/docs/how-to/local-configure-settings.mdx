@@ -33,7 +33,7 @@ Settings provide defaults for new chats and worktrees. A running provider proces
 1. Open **Settings**.
 2. Select **General** to choose the defaults used when starting new chats.
 3. Select **Providers** to configure provider availability, models, sign-in, and provider-specific options.
-4. Review the other computer-wide surfaces when applicable: **MCP Servers**, **Integrations**, **Devices**, **Browser**, **Pokedex**, **Keyboard shortcuts**, and **Diagnostics**.
+4. Review the other computer-wide surfaces when applicable: **Integrations**, **Devices**, **Browser**, **Pokedex**, **Keyboard shortcuts**, and **Diagnostics**.
 5. Close Settings, start a new chat, and confirm that its provider, model, runtime mode, and workspace choice match the intended defaults.
 
 Zuse persists personal preferences in `~/.zuse/settings.json`. The settings UI is the safest editor because it validates values and synchronizes them through the running desktop service. If you must hand-edit the file, close Zuse first and validate it against:
@@ -70,8 +70,6 @@ file_include_globs = [
   ".env.local",
   ".env.*.local",
 ]
-
-mcp_disabled_servers = []
 
 [scripts]
 setup = "bun install"
@@ -112,4 +110,4 @@ Use a fresh worktree to verify setup scripts and file includes. Existing worktre
 - **A hand edit is not reflected in the app:** save valid syntax, then reopen the repository settings. If the state still differs, restart Zuse and inspect **Settings → Diagnostics** before changing more values.
 - **A secret was committed:** remove it from the repository, rotate the credential, and move the value to an ignored local file or the provider's credential store. Removing it only from the latest file does not erase it from Git history.
 
-Next, [configure provider-native MCP servers](/how-to/local-configure-mcp/). For every supported repository field, see [Repository settings](/projects/repository-settings/).
+Next, [add an MCP server](/how-to/local-configure-mcp/). For every supported repository field, see [Repository settings](/projects/repository-settings/).

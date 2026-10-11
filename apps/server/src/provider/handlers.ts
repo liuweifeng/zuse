@@ -1869,14 +1869,6 @@ const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
-	"session.mcp.update",
-	({ sessionId, servers }) =>
-		Effect.flatMap(SessionService, (svc) =>
-			svc.updateMcpServers(sessionId, servers),
-		),
-);
-
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
 	"session.setWorktree",
 	({ sessionId, worktreeId }) =>
@@ -2358,7 +2350,6 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionAnswerQuestion,
 	SessionCancelQuestion,
 	SessionPlanRespond,
-	SessionMcpUpdate,
 	SessionSetWorktree,
 	SessionEvents,
 	SessionEventsHead,

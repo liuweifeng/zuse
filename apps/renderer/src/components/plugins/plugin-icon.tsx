@@ -11,26 +11,32 @@ export function PluginIcon({
 	readonly domain: string;
 	readonly className?: string;
 }) {
-	const [failed, setFailed] = useState(false);
+	const [state, setState] = useState<"loading" | "loaded" | "failed">(
+		"loading",
+	);
 	return (
 		<span
 			aria-hidden="true"
 			className={cn(
-				"flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-muted text-[13px] font-medium text-muted-foreground ring-1 ring-inset ring-foreground/5",
+				"relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-[10px] bg-muted text-[13px] font-medium text-muted-foreground ring-1 ring-inset ring-foreground/5",
 				className,
 			)}
 		>
-			{failed || domain.length === 0 ? (
-				name.slice(0, 1).toUpperCase()
-			) : (
+			{/* The initial shows until the logo loads, so the slot is never blank. */}
+			{state !== "loaded" && name.slice(0, 1).toUpperCase()}
+			{state !== "failed" && domain.length > 0 && (
 				<img
 					src={pluginIconUrl(domain)}
 					alt=""
 					loading="lazy"
 					decoding="async"
 					referrerPolicy="no-referrer"
-					className="size-full object-cover"
-					onError={() => setFailed(true)}
+					className={cn(
+						"size-full object-cover",
+						state === "loading" && "absolute inset-0 opacity-0",
+					)}
+					onLoad={() => setState("loaded")}
+					onError={() => setState("failed")}
 				/>
 			)}
 		</span>

@@ -54,21 +54,26 @@ const PROBED = {
 	down: probedPlugin(4),
 };
 /** Fixture behavior per upstream host; unlisted hosts are public MCP servers. */
-const modes = new Map<string, "oauth" | "no-registration" | "missing" | "down">(
-	[
-		["mcp.linear.app", "oauth"],
-		[PROBED.oauth.host, "oauth"],
-		[PROBED.noRegistration.host, "no-registration"],
-		[PROBED.missing.host, "missing"],
-		[PROBED.down.host, "down"],
-	],
-);
+const modes = new Map<
+	string,
+	"oauth" | "no-registration" | "missing" | "down" | "key"
+>([
+	["mcp.linear.app", "oauth"],
+	["mcp.custom-oauth.test", "oauth"],
+	["mcp.keyed.test", "key"],
+	[PROBED.oauth.host, "oauth"],
+	[PROBED.noRegistration.host, "no-registration"],
+	[PROBED.missing.host, "missing"],
+	[PROBED.down.host, "down"],
+]);
 let probes = 0;
 const outboundService = async (request: Request): Promise<Response> => {
 	const url = new URL(request.url);
 	const mode = modes.get(url.host);
 	if (mode === "missing") return new Response(null, { status: 404 });
 	if (mode === "down") return new Response(null, { status: 503 });
+	if (mode === "key" && request.headers.get("x-api-key") !== "right-key")
+		return new Response(null, { status: 401 });
 	if (url.pathname.includes("oauth-protected-resource"))
 		return Response.json({
 			resource: `${url.origin}/mcp`,
@@ -115,6 +120,7 @@ const outboundService = async (request: Request): Promise<Response> => {
 	}
 	if (
 		mode !== undefined &&
+		mode !== "key" &&
 		request.headers.get("authorization") !== "Bearer private-upstream-token"
 	)
 		return new Response(null, {
@@ -725,7 +731,12 @@ test("fails unsupported providers cleanly with a readable code", async () => {
 			label: plugin.name,
 			requestId: crypto.randomUUID(),
 		});
-		expect(failed).toEqual({ status: 400, body: { error: code } });
+		expect(failed.status).toBe(200);
+		expect(failed.body).toMatchObject({
+			state: "failed",
+			error: code,
+			pluginId: plugin.id,
+		});
 	}
 	expect((await a.request({ action: "list" })).body.connections).toEqual([]);
 }, 60_000);
@@ -901,3 +912,240 @@ test("organization connections are shared with organization machines and members
 		[],
 	);
 });
+
+const addServer = (
+	a: Awaited<ReturnType<typeof client>>,
+	url: string,
+	extra: Record<string, unknown> = {},
+) =>
+	a.request({
+		action: "addServer",
+		requestId: crypto.randomUUID(),
+		name: "Team tools",
+		url,
+		...extra,
+	});
+
+test("adds, invokes and removes a public custom server, also after a restart", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "zuse-plugin-vault-"));
+	try {
+		let mf = create(directory);
+		let a = await client(mf);
+		const added = await addServer(
+			a,
+			"https://mcp.custom.test/mcp?token=secret",
+		);
+		expect(added.body).toMatchObject({ state: "connected", error: null });
+		const pluginId = String(added.body.pluginId);
+		const snapshot = (await a.request({ action: "list" })).body as {
+			catalog: { id: string; custom: boolean; url: string | null }[];
+			connections: { pluginId: string; label: string }[];
+		};
+		// Custom servers come first; their query string never reaches clients.
+		expect(snapshot.catalog[0]).toMatchObject({
+			id: pluginId,
+			name: "Team tools",
+			custom: true,
+			url: "https://mcp.custom.test/mcp",
+			apiKeyHeader: null,
+			domain: "custom.test",
+		});
+		expect(snapshot.connections).toMatchObject([
+			{ pluginId, label: "Team tools" },
+		]);
+		const search = await a.request(undefined, {
+			action: "search",
+			query: "team tools",
+		});
+		const address = firstAddress(search.body);
+		expect(address.startsWith(`tools.${pluginId}.user.`)).toBe(true);
+		await mf.dispose();
+		instances.delete(mf);
+		mf = create(directory);
+		a = await client(mf);
+		expect(
+			(
+				await a.request(undefined, {
+					action: "call",
+					address,
+					arguments: { text: "after restart" },
+				})
+			).status,
+		).toBe(200);
+		expect((await a.request({ action: "removeServer", pluginId })).status).toBe(
+			200,
+		);
+		const after = (await a.request({ action: "list" })).body as {
+			catalog: { id: string }[];
+			connections: unknown[];
+		};
+		expect(after.catalog.some((plugin) => plugin.id === pluginId)).toBe(false);
+		expect(after.connections).toEqual([]);
+		expect(
+			(await a.request(undefined, { action: "call", address, arguments: {} }))
+				.status,
+		).toBe(400);
+		await mf.dispose();
+		instances.delete(mf);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 60_000);
+
+test("custom servers check API keys before saving and send them on every call", async () => {
+	const directory = await mkdtemp(join(tmpdir(), "zuse-plugin-vault-"));
+	try {
+		const mf = create(directory);
+		const a = await client(mf);
+		const wrong = await addServer(a, "https://mcp.keyed.test/mcp", {
+			apiKey: { header: "x-api-key", value: "wrong-key" },
+		});
+		expect(wrong.body).toMatchObject({
+			state: "failed",
+			error: "plugin_credentials_rejected",
+		});
+		// A failed add keeps nothing, so the user can fix and retry.
+		const empty = (await a.request({ action: "list" })).body as {
+			catalog: { custom: boolean }[];
+			connections: unknown[];
+		};
+		expect(empty.catalog.some((plugin) => plugin.custom)).toBe(false);
+		expect(empty.connections).toEqual([]);
+		const added = await addServer(a, "https://mcp.keyed.test/mcp", {
+			apiKey: { header: "x-api-key", value: "right-key" },
+		});
+		expect(added.body).toMatchObject({ state: "connected" });
+		const pluginId = String(added.body.pluginId);
+		const snapshot = (await a.request({ action: "list" })).body as {
+			catalog: { id: string; apiKeyHeader: string | null }[];
+		};
+		expect(snapshot.catalog[0]).toMatchObject({
+			id: pluginId,
+			apiKeyHeader: "x-api-key",
+		});
+		const address = firstAddress(
+			(await a.request(undefined, { action: "search", query: "" })).body,
+		);
+		const before = calls;
+		expect(
+			(
+				await a.request(undefined, {
+					action: "call",
+					address,
+					arguments: { text: "keyed" },
+				})
+			).status,
+		).toBe(200);
+		expect(calls).toBe(before + 1);
+		// Another account of the same server needs its own key.
+		const missing = await a.request({
+			action: "connect",
+			pluginId,
+			label: "Second",
+			requestId: crypto.randomUUID(),
+		});
+		expect(missing.body).toMatchObject({
+			state: "failed",
+			error: "plugin_credentials_rejected",
+		});
+		const second = await a.request({
+			action: "connect",
+			pluginId,
+			label: "Second",
+			requestId: crypto.randomUUID(),
+			apiKey: "right-key",
+		});
+		expect(second.body).toMatchObject({ state: "connected" });
+		await mf.dispose();
+		instances.delete(mf);
+		// Saved keys and the server definition survive a restart.
+		const restarted = await client(create(directory));
+		expect(
+			(
+				await restarted.request(undefined, {
+					action: "call",
+					address,
+					arguments: { text: "after restart" },
+				})
+			).status,
+		).toBe(200);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+}, 60_000);
+
+test("custom servers use OAuth when the server asks for it", async () => {
+	const a = await client(create());
+	const started = await addServer(a, "https://mcp.custom-oauth.test/mcp");
+	expect(started.body).toMatchObject({ state: "pending", error: null });
+	expect(
+		new URL(String(started.body.authorizationUrl)).searchParams.get("state"),
+	).toBeTruthy();
+	expect(
+		(
+			await a.request({
+				action: "cancel",
+				attemptId: started.body.id,
+			})
+		).body,
+	).toMatchObject({ state: "cancelled" });
+}, 60_000);
+
+test("custom servers reject private URLs and unsafe headers", async () => {
+	const a = await client(create());
+	for (const url of [
+		"http://mcp.custom.test/mcp",
+		"https://localhost/mcp",
+		"https://10.0.0.1/mcp",
+		"https://mcp.custom.test:8443/mcp",
+		"not a url",
+	])
+		expect((await addServer(a, url)).body).toMatchObject({
+			state: "failed",
+			error: "plugin_url_rejected",
+		});
+	for (const header of ["Host", "bad header", "mcp-session-id"])
+		expect(
+			(
+				await addServer(a, "https://mcp.custom.test/mcp", {
+					apiKey: { header, value: "x" },
+				})
+			).status,
+		).toBe(400);
+	expect(
+		(
+			await addServer(a, "https://mcp.custom.test/mcp", {
+				apiKey: { header: "x-api-key", value: "line\nbreak" },
+			})
+		).body,
+	).toMatchObject({ error: "plugin_credentials_rejected" });
+	expect((await a.request({ action: "list" })).body.connections).toEqual([]);
+}, 60_000);
+
+test("organization custom servers are shared with members", async () => {
+	const mf = create();
+	const admin = await client(mf, "organization:acme", "alice");
+	const added = await addServer(admin, "https://mcp.custom.test/mcp");
+	expect(added.body).toMatchObject({ state: "connected" });
+	const member = await client(mf, "organization:acme", "bob");
+	const snapshot = (await member.request({ action: "list" })).body as {
+		catalog: { id: string; custom: boolean }[];
+		connections: { owner: string }[];
+	};
+	expect(snapshot.catalog[0]).toMatchObject({
+		id: added.body.pluginId,
+		custom: true,
+	});
+	expect(snapshot.connections).toMatchObject([{ owner: "organization" }]);
+	expect(
+		(await member.request(undefined, { action: "search", query: "" })).body,
+	).toHaveLength(1);
+	const personal = await client(mf, "personal:bob", "bob");
+	expect(
+		(
+			(await personal.request({ action: "list" })).body.catalog as {
+				custom: boolean;
+			}[]
+		).some((plugin) => plugin.custom),
+	).toBe(false);
+}, 60_000);

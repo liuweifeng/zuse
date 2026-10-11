@@ -633,19 +633,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["pokemon.ensureSpriteCached"](payload as never),
 				);
 				break;
-			case "mcp.list":
-				result = await Effect.runPromise(client["mcp.list"](payload as never));
-				break;
-			case "mcp.refresh":
-				result = await Effect.runPromise(
-					client["mcp.refresh"](payload as never),
-				);
-				break;
-			case "mcp.setEnabled":
-				result = await Effect.runPromise(
-					client["mcp.setEnabled"](payload as never),
-				);
-				break;
 			case "skill.listGlobal":
 				result = await Effect.runPromise(
 					client["skill.listGlobal"](payload as never),

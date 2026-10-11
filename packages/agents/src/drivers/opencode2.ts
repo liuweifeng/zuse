@@ -265,7 +265,7 @@ const spawnOpencode2Server = (
 	opencode2Path: string,
 	cwd: string,
 	timeoutMs = SERVE_TIMEOUT_MS,
-	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	managedMcp?: import("../mcp-gateway/index.ts").McpGatewayHttpServer,
 	executionEnv?: Readonly<Record<string, string>>,
 ): Promise<Opencode2ServerProcess> =>
 	findFreePort().then(
@@ -1188,7 +1188,7 @@ export const startOpencode2Session = (
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
 	requestPermission: RequestPermission | null = null,
-	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	managedMcp?: import("../mcp-gateway/index.ts").McpGatewayHttpServer,
 ): Effect.Effect<
 	Opencode2SessionHandle,
 	AgentSessionStartError,

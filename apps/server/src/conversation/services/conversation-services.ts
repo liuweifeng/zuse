@@ -323,11 +323,6 @@ export interface ConversationOperations {
 		feedback?: string,
 	) => Effect.Effect<void, SessionNotFoundError>;
 
-	readonly updateMcpServers: (
-		sessionId: SessionId,
-		servers: ReadonlyArray<unknown>,
-	) => Effect.Effect<void, SessionNotFoundError>;
-
 	/**
 	 * Switch the worktree this session runs in. Allowed only before the first
 	 * user message has been recorded — fails with `SessionAlreadyStartedError`
@@ -653,7 +648,6 @@ export type SessionServiceShape = Pick<
 	| "answerQuestion"
 	| "cancelQuestion"
 	| "respondToPlan"
-	| "updateMcpServers"
 	| "setWorktree"
 	| "archiveSession"
 	| "unarchiveSession"

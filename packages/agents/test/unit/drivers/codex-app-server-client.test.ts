@@ -33,6 +33,10 @@ describe("Codex app-server launch configuration", () => {
 			"--listen",
 			"stdio://",
 			"-c",
+			"features.apps=false",
+			"-c",
+			"features.skill_mcp_dependency_install=false",
+			"-c",
 			"mcp_servers.zuse.tool_timeout_sec=3600",
 			"-c",
 			'mcp_servers.zuse.url="http://127.0.0.1:4123/mcp"',
@@ -61,6 +65,22 @@ describe("Codex app-server launch configuration", () => {
 				env: { ZUSE_APP_MCP_TOKEN: "secret" },
 			}),
 		).toContain('mcp_servers.zuse.env.ZUSE_APP_MCP_TOKEN="secret"');
+	});
+
+	it("disables native servers in one table before the zuse overrides", () => {
+		const args = codexAppServerLaunchArgs({
+			transport: "http",
+			url: "http://127.0.0.1:4123/mcp",
+			bearerTokenEnvVar: "ZUSE_MCP_TOKEN",
+			disabledNativeServers: ["linear", "acme.tools"],
+		});
+		const table = args.indexOf(
+			'mcp_servers={"linear"={enabled=false},"acme.tools"={enabled=false}}',
+		);
+		expect(table).toBeGreaterThan(0);
+		expect(table).toBeLessThan(
+			args.indexOf('mcp_servers.zuse.url="http://127.0.0.1:4123/mcp"'),
+		);
 	});
 
 	it("does not add MCP overrides when no app server is configured", () => {

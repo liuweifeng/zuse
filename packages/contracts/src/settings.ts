@@ -161,13 +161,6 @@ export class SettingsFile extends Schema.Class<SettingsFile>("SettingsFile")({
 		Schema.withDecodingDefaultType(Effect.succeed([])),
 	),
 	/**
-	 * User MCP servers switched off globally, by descriptor key
-	 * (`claude:<name>` / `codex:<name>` — see `McpServerDescriptor.key`).
-	 * Server *definitions* never live here; the user's native Claude/Codex
-	 * config files are the source of truth and this stores only overrides.
-	 */
-	mcpDisabledServers: Schema.Array(Schema.String),
-	/**
 	 * Claude/Zuse skills switched off globally, keyed `<providerId>:<name>`
 	 * (e.g. `claude:pdf`, `claude:plugin:skill`). Scope is not part of the key:
 	 * a project skill shadows a same-named global one and providers enforce
@@ -251,7 +244,6 @@ export const SettingsPatch = Schema.Struct({
 	opencode2CustomProviders: Schema.optional(
 		Schema.Array(OpencodeCustomProvider),
 	),
-	mcpDisabledServers: Schema.optional(Schema.Array(Schema.String)),
 	disabledSkills: Schema.optional(Schema.Array(Schema.String)),
 	subagents: Schema.optional(
 		Schema.Struct({

@@ -103,6 +103,8 @@ export interface McpGatewaySession {
 	readonly endpoint: string;
 	readonly serverConfig: AcpHttpMcpServerConfig;
 	readonly codexServerConfig: CodexHttpMcpServerConfig;
+	/** Same gateway as a plain HTTP MCP entry for SDK-config drivers. */
+	readonly httpServer: McpGatewayHttpServer;
 	readonly close: () => Promise<void>;
 }
 
@@ -114,6 +116,12 @@ export interface AcpHttpMcpServerConfig {
 		readonly name: string;
 		readonly value: string;
 	}>;
+}
+
+export interface McpGatewayHttpServer {
+	readonly name: typeof APP_MCP_SERVER_NAME;
+	readonly url: string;
+	readonly headers: Readonly<Record<string, string>>;
 }
 
 export interface CodexHttpMcpServerConfig {
@@ -571,6 +579,11 @@ export const issueMcpGatewaySession = async (
 			url: endpoint,
 			bearer_token_env_var: "ZUSE_MCP_TOKEN",
 			enabled: true,
+		},
+		httpServer: {
+			name: APP_MCP_SERVER_NAME,
+			url: endpoint,
+			headers: { Authorization: authorizationHeader },
 		},
 		close: () => revokeMcpGatewaySessionRecord(input.sessionId, hash),
 	};

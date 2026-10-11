@@ -3,12 +3,15 @@ import {
 	PLUGIN_CALLBACK_PORTS,
 	type PluginAttempt,
 	type PluginConnection,
+	type PluginDefinition,
 	type PluginRequest,
 	type PluginReturnTo,
 	type PluginToolRequest,
 } from "@zuse/contracts";
 import type {
+	EngineAuth,
 	EngineConnection,
+	EnginePlugin,
 	PluginEngine,
 	PluginEngineErrorCode,
 } from "@zuse/executor-v2";
@@ -20,8 +23,10 @@ import {
 import { findCatalogPlugin, publicPluginCatalog } from "./plugin-catalog.ts";
 import {
 	assertPluginUrl,
+	isAllowedPluginUrl,
 	pluginFetch,
 	probePluginAuth,
+	probePluginKey,
 } from "./plugin-egress.ts";
 import {
 	type PluginErrorCode,
@@ -37,7 +42,6 @@ export interface PluginVaultEnv {
 interface Attempt extends PluginAttempt {
 	readonly subject: string;
 	readonly tenant: string;
-	readonly pluginId: string;
 	readonly label: string;
 	readonly returnTo?: PluginReturnTo;
 	readonly stateToken?: string;
@@ -48,6 +52,36 @@ interface Attempt extends PluginAttempt {
 	readonly code?: string;
 	readonly issuer?: string;
 }
+/** A remote MCP server the tenant added by URL. Sealed: URLs can carry tokens. */
+interface CustomServer {
+	readonly id: string;
+	readonly name: string;
+	readonly endpoint: string;
+	/** Set for servers that authenticate with a key in this header. */
+	readonly header?: string;
+	readonly createdAt: number;
+}
+/** Catalog entries and custom servers, as the vault connects them. */
+interface VaultPlugin extends EnginePlugin {
+	/** Fixed auth; otherwise probed when connecting. */
+	readonly auth?: EngineAuth;
+}
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** RFC 9110 token; transport headers stay owned by the MCP client. */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
+const RESERVED_HEADERS = new Set([
+	"accept",
+	"connection",
+	"content-length",
+	"content-type",
+	"host",
+	"mcp-protocol-version",
+	"mcp-session-id",
+	"transfer-encoding",
+]);
+const MAX_SERVERS = 25;
+const validKey = (value: string) =>
+	value.length > 0 && value.length <= 4096 && !/[\r\n\0]/.test(value);
 /** References written before lazy registration lack `plugin` and `auth`. */
 type StoredRef = Omit<EngineConnection, "plugin" | "auth"> &
 	Partial<Pick<EngineConnection, "plugin" | "auth">>;
@@ -72,14 +106,46 @@ const errorCode = (error: unknown): PluginErrorCode =>
 			: "plugin_operation_failed";
 const TTL = 10 * 60_000;
 const encoder = new TextEncoder();
-const publicAttempt = (a: Attempt): PluginAttempt => ({
+const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	kind: "attempt",
 	id: a.id,
 	connectionId: a.connectionId,
 	state: a.state,
 	authorizationUrl: a.state === "pending" ? a.authorizationUrl : null,
 	expiresAt: a.expiresAt,
+	error: a.state === "failed" ? (a.error ?? "plugin_operation_failed") : null,
+	pluginId: a.pluginId,
 });
+/** Rejected before anything is stored. */
+const rejected = (
+	id: string,
+	pluginId: string,
+	error: PluginErrorCode,
+): PluginAttempt => ({
+	kind: "attempt",
+	id,
+	connectionId: id,
+	state: "failed",
+	authorizationUrl: null,
+	expiresAt: Date.now(),
+	error,
+	pluginId,
+});
+/** Display data only: the query string may carry credentials. */
+const publicServer = (server: CustomServer): PluginDefinition => {
+	const url = new URL(server.endpoint);
+	return {
+		id: server.id,
+		name: server.name,
+		description: url.host,
+		domain: url.hostname.replace(/^(?:mcp|api)\./, ""),
+		category: null,
+		featured: false,
+		custom: true,
+		url: url.origin + url.pathname,
+		apiKeyHeader: server.header ?? null,
+	};
+};
 
 /** One serialized owner per tenant. SQLite and encrypted KV survive eviction.
  * Upstream mutations are never retried automatically: a timeout may have acted.
@@ -87,6 +153,8 @@ const publicAttempt = (a: Attempt): PluginAttempt => ({
 export class PluginVault {
 	private queue: Promise<unknown> = Promise.resolve();
 	private readonly ready: Promise<PluginEngine>;
+	/** Loaded before the engine so lazy registration can resolve custom ids. */
+	private readonly servers = new Map<string, CustomServer>();
 	constructor(
 		private readonly ctx: DurableObjectState,
 		private readonly env: PluginVaultEnv,
@@ -97,17 +165,35 @@ export class PluginVault {
 				throw new Error("Plugin storage requires an explicit v1 migration");
 			if (!env.PLUGIN_ENCRYPTION_KEY)
 				throw new Error("Plugins are not configured");
+			for (const key of (
+				await ctx.storage.list({ prefix: "server:" })
+			).keys()) {
+				const server = await this.read<CustomServer>(key);
+				if (server) this.servers.set(server.id, server);
+			}
 			const { createPluginEngine } = await loadEngineModule();
 			const engine = await createPluginEngine({
 				storage: ctx.storage,
 				encryptionKey: env.PLUGIN_ENCRYPTION_KEY,
 				credentialScope: ctx.id.toString(),
-				plugin: findCatalogPlugin,
+				plugin: (id) => this.plugin(id),
 				fetch: pluginFetch,
 			});
 			await ctx.storage.put("schema-version", 2);
 			return engine;
 		});
+	}
+	private plugin(id: string): VaultPlugin | undefined {
+		const catalog = findCatalogPlugin(id);
+		if (catalog) return catalog;
+		const server = this.servers.get(id);
+		if (!server) return undefined;
+		return {
+			id: server.id,
+			name: server.name,
+			endpoint: server.endpoint,
+			...(server.header ? { header: server.header, auth: "header" } : {}),
+		};
 	}
 	private owner(identity: PluginIdentity) {
 		return JSON.stringify([identity.tenant, identity.subject]);
@@ -217,7 +303,6 @@ export class PluginVault {
 		identity: PluginIdentity,
 		input: PluginRequest,
 	) {
-		const prefix = `connection:${identity.subject}:`;
 		if (input.action === "list") {
 			const rows = await this.connections(identity);
 			return {
@@ -225,7 +310,12 @@ export class PluginVault {
 				tenants: [],
 				tenantId: identity.tenant,
 				endpoint: `${this.env.API_PUBLIC_ORIGIN}/v1/plugins/${encodeURIComponent(identity.tenant)}/mcp`,
-				catalog: publicPluginCatalog(),
+				catalog: [
+					...[...this.servers.values()]
+						.sort((a, b) => a.createdAt - b.createdAt)
+						.map(publicServer),
+					...publicPluginCatalog(),
+				],
 				connections: rows.map(({ row }) => row),
 			};
 		}
@@ -239,111 +329,79 @@ export class PluginVault {
 				await this.ctx.storage.put(key, { ...row, enabled: input.enabled });
 				return { kind: "ok" };
 			}
-			// Fence invocation before SDK deletion, including partial failures.
-			await this.ctx.storage.put(key, { ...row, state: "error" });
-			await e.remove(
-				this.owner({ ...identity, subject }),
-				row.id,
-				await this.ctx.storage.get<StoredRef>(this.refKey(subject, row.id)),
-			);
-			await this.ctx.storage.delete(this.refKey(subject, row.id));
-			await this.ctx.storage.delete(key);
+			await this.removeConnection(e, identity, key, row, subject);
 			return { kind: "ok" };
 		}
-		if (input.action === "connect") {
-			const id = `c${input.requestId.replaceAll("-", "")}`;
+		if (input.action === "removeServer") {
+			if (!this.servers.has(input.pluginId)) throw new Error("Unknown server");
+			// Every tenant row, whoever connected it: the server is the tenant's.
+			const rows = await this.ctx.storage.list<PluginConnection>({
+				prefix: "connection:",
+			});
+			for (const [key, row] of rows)
+				if (row.pluginId === input.pluginId)
+					await this.removeConnection(
+						e,
+						identity,
+						key,
+						row,
+						key.slice("connection:".length, -`:${row.id}`.length),
+					);
+			await this.ctx.storage.delete(`server:${input.pluginId}`);
+			this.servers.delete(input.pluginId);
+			return { kind: "ok" };
+		}
+		if (input.action === "addServer") {
+			if (!UUID.test(input.requestId)) throw new Error("Invalid request");
+			const hex = input.requestId.replaceAll("-", "");
+			const id = `custom-${hex}`;
+			const old = await this.read<Attempt>(
+				`attempt:${identity.subject}:c${hex}`,
+			);
+			if (old) return publicAttempt(old);
+			const name = input.name.trim();
+			const url = input.url.trim();
+			const key = input.apiKey;
 			if (
-				!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(
-					input.requestId,
-				) ||
-				input.label.length > 80
+				name.length === 0 ||
+				name.length > 60 ||
+				(key &&
+					(!HEADER_NAME.test(key.header) ||
+						RESERVED_HEADERS.has(key.header.toLowerCase())))
 			)
 				throw new Error("Invalid request");
-			const old = await this.read<Attempt>(`attempt:${identity.subject}:${id}`);
-			if (old) return publicAttempt(old);
-			const plugin = findCatalogPlugin(input.pluginId);
-			if (!plugin) throw new Error("Unknown plugin");
-			if (input.returnTo) this.returnTarget(input.returnTo);
-			const a: Attempt = {
-				kind: "attempt",
+			if (url.length > 2048 || !isAllowedPluginUrl(url))
+				return rejected(`c${hex}`, id, "plugin_url_rejected");
+			if (key && !validKey(key.value))
+				return rejected(`c${hex}`, id, "plugin_credentials_rejected");
+			if (this.servers.size >= MAX_SERVERS)
+				return rejected(`c${hex}`, id, "plugin_limit_reached");
+			const server: CustomServer = {
 				id,
-				connectionId: id,
-				state: "pending",
-				authorizationUrl: null,
-				expiresAt: Date.now() + TTL,
-				...identity,
-				pluginId: plugin.id,
-				label: input.label.trim() || plugin.name,
-				...(input.returnTo ? { returnTo: input.returnTo } : {}),
-			};
-			const existing = await this.ctx.storage.list<PluginConnection>({
-				prefix: identity.tenant.startsWith("organization:")
-					? "connection:"
-					: prefix,
-			});
-			if ([...existing.values()].some((row) => row.id === id))
-				throw new Error("Connection id already exists");
-			if (existing.size >= 50) throw new Error("Connection limit reached");
-			await this.ctx.storage.setAlarm(Date.now() + TTL);
-			await this.write(`attempt:${identity.subject}:${id}`, a);
-			await this.ctx.storage.put(prefix + id, {
-				id,
-				pluginId: plugin.id,
-				label: a.label,
-				owner: identity.tenant.startsWith("organization:")
-					? "organization"
-					: "user",
-				state: "connecting",
-				enabled: true,
+				name,
+				endpoint: url,
+				...(key ? { header: key.header } : {}),
 				createdAt: Date.now(),
+			};
+			await this.write(`server:${id}`, server);
+			this.servers.set(id, server);
+			const attempt = await this.connect(e, identity, {
+				action: "connect",
+				tenantId: input.tenantId,
+				requestId: input.requestId,
+				pluginId: id,
+				label: name,
+				...(input.returnTo ? { returnTo: input.returnTo } : {}),
+				...(key ? { apiKey: key.value } : {}),
 			});
-			try {
-				// The resolved auth is persisted in the reference for later restarts.
-				const auth = plugin.auth ?? (await probePluginAuth(plugin.endpoint));
-				const ref = await e.prepare(
-					this.owner(identity),
-					identity.subject,
-					id,
-					plugin.id,
-					auth,
-				);
-				await this.ctx.storage.put(this.refKey(identity.subject, id), ref);
-				if (auth === "none") {
-					await this.finish(a);
-					return publicAttempt({ ...a, state: "connected" });
-				}
-				const redirectUri = `${this.env.API_PUBLIC_ORIGIN}/v1/plugins/callback/${this.ctx.id}`;
-				const authorizationUrl = await e.start(
-					this.owner(identity),
-					ref,
-					a.label,
-					redirectUri,
-				);
-				assertPluginUrl(authorizationUrl);
-				const state = new URL(authorizationUrl).searchParams.get("state");
-				if (!state) throw new Error("Missing OAuth state");
-
-				const next = {
-					...a,
-					authorizationUrl,
-					stateToken: state,
-				};
-				const attemptKey = `attempt:${identity.subject}:${id}`;
-				const stateKey = `state:${state}`;
-				await this.commit({
-					[attemptKey]: await this.seal(attemptKey, next),
-					[stateKey]: await this.seal(stateKey, {
-						subject: identity.subject,
-						id,
-					}),
-				});
-				await this.ctx.storage.setAlarm(Date.now() + TTL);
-				return publicAttempt(next);
-			} catch (error) {
-				await this.fail(a, "failed");
-				throw new PluginOperationError({ code: errorCode(error) });
+			// Nothing was connected: keep no server, so the user can fix and retry.
+			if (attempt.state === "failed") {
+				await this.ctx.storage.delete(`server:${id}`);
+				this.servers.delete(id);
 			}
+			return attempt;
 		}
+		if (input.action === "connect") return this.connect(e, identity, input);
 		let a: Attempt | undefined;
 		if (input.action === "complete") {
 			const pointer = await this.read<{ subject: string; id: string }>(
@@ -395,6 +453,137 @@ export class PluginVault {
 			throw new Error("OAuth completion failed");
 		}
 	}
+	/** Starts one connection. Failures come back as a failed attempt with a reason. */
+	private async connect(
+		e: PluginEngine,
+		identity: PluginIdentity,
+		input: Extract<PluginRequest, { action: "connect" }>,
+	): Promise<PluginAttempt> {
+		const prefix = `connection:${identity.subject}:`;
+		const id = `c${input.requestId.replaceAll("-", "")}`;
+		if (!UUID.test(input.requestId) || input.label.length > 80)
+			throw new Error("Invalid request");
+		const old = await this.read<Attempt>(`attempt:${identity.subject}:${id}`);
+		if (old) return publicAttempt(old);
+		const plugin = this.plugin(input.pluginId);
+		if (!plugin) throw new Error("Unknown plugin");
+		if (input.returnTo) this.returnTarget(input.returnTo);
+		if (plugin.auth === "header" && !validKey(input.apiKey ?? ""))
+			return rejected(id, plugin.id, "plugin_credentials_rejected");
+		const a: Attempt = {
+			kind: "attempt",
+			id,
+			connectionId: id,
+			state: "pending",
+			authorizationUrl: null,
+			expiresAt: Date.now() + TTL,
+			error: null,
+			...identity,
+			pluginId: plugin.id,
+			label: input.label.trim() || plugin.name,
+			...(input.returnTo ? { returnTo: input.returnTo } : {}),
+		};
+		const existing = await this.ctx.storage.list<PluginConnection>({
+			prefix: identity.tenant.startsWith("organization:")
+				? "connection:"
+				: prefix,
+		});
+		if ([...existing.values()].some((row) => row.id === id))
+			throw new Error("Connection id already exists");
+		if (existing.size >= 50)
+			return rejected(id, plugin.id, "plugin_limit_reached");
+		await this.ctx.storage.setAlarm(Date.now() + TTL);
+		await this.write(`attempt:${identity.subject}:${id}`, a);
+		await this.ctx.storage.put(prefix + id, {
+			id,
+			pluginId: plugin.id,
+			label: a.label,
+			owner: identity.tenant.startsWith("organization:")
+				? "organization"
+				: "user",
+			state: "connecting",
+			enabled: true,
+			createdAt: Date.now(),
+		});
+		try {
+			// The resolved auth is persisted in the reference for later restarts.
+			const auth = plugin.auth ?? (await probePluginAuth(plugin.endpoint));
+			// Check a key against the server before saving it.
+			if (auth === "header")
+				await probePluginKey(
+					plugin.endpoint,
+					plugin.header ?? "Authorization",
+					input.apiKey ?? "",
+				);
+			const ref = await e.prepare(
+				this.owner(identity),
+				identity.subject,
+				id,
+				plugin.id,
+				auth,
+			);
+			await this.ctx.storage.put(this.refKey(identity.subject, id), ref);
+			if (auth === "header") {
+				const saved = await e.submit(
+					this.owner(identity),
+					ref,
+					a.label,
+					input.apiKey ?? "",
+				);
+				await this.ctx.storage.put(this.refKey(identity.subject, id), saved);
+			}
+			if (auth !== "oauth") {
+				await this.finish(a);
+				return publicAttempt({ ...a, state: "connected" });
+			}
+			const redirectUri = `${this.env.API_PUBLIC_ORIGIN}/v1/plugins/callback/${this.ctx.id}`;
+			const authorizationUrl = await e.start(
+				this.owner(identity),
+				ref,
+				a.label,
+				redirectUri,
+			);
+			assertPluginUrl(authorizationUrl);
+			const state = new URL(authorizationUrl).searchParams.get("state");
+			if (!state) throw new Error("Missing OAuth state");
+
+			const next = {
+				...a,
+				authorizationUrl,
+				stateToken: state,
+			};
+			const attemptKey = `attempt:${identity.subject}:${id}`;
+			const stateKey = `state:${state}`;
+			await this.commit({
+				[attemptKey]: await this.seal(attemptKey, next),
+				[stateKey]: await this.seal(stateKey, {
+					subject: identity.subject,
+					id,
+				}),
+			});
+			await this.ctx.storage.setAlarm(Date.now() + TTL);
+			return publicAttempt(next);
+		} catch (error) {
+			return publicAttempt(await this.fail(a, "failed", errorCode(error)));
+		}
+	}
+	/** Fences invocation before SDK deletion, including partial failures. */
+	private async removeConnection(
+		e: PluginEngine,
+		identity: PluginIdentity,
+		key: string,
+		row: PluginConnection,
+		subject: string,
+	) {
+		await this.ctx.storage.put(key, { ...row, state: "error" });
+		await e.remove(
+			this.owner({ ...identity, subject }),
+			row.id,
+			await this.ctx.storage.get<StoredRef>(this.refKey(subject, row.id)),
+		);
+		await this.ctx.storage.delete(this.refKey(subject, row.id));
+		await this.ctx.storage.delete(key);
+	}
 	private async finish(a: Attempt) {
 		const key = `connection:${a.subject}:${a.connectionId}`;
 		const row = await this.ctx.storage.get<PluginConnection>(key);
@@ -420,10 +609,15 @@ export class PluginVault {
 		);
 	}
 
-	private async fail(a: Attempt, state: "failed" | "cancelled") {
+	private async fail(
+		a: Attempt,
+		state: "failed" | "cancelled",
+		error: PluginErrorCode | null = null,
+	) {
 		const next = {
 			...a,
 			state,
+			error: state === "failed" ? (error ?? "plugin_operation_failed") : null,
 			authorizationUrl: null,
 			query: undefined,
 			code: undefined,
@@ -502,7 +696,7 @@ export class PluginVault {
 			target.searchParams.set(key, value);
 		target.searchParams.set(
 			"plugin",
-			findCatalogPlugin(a.pluginId)?.name ?? a.pluginId,
+			this.plugin(a.pluginId)?.name ?? a.pluginId,
 		);
 		return new Response(null, {
 			status: 302,
@@ -518,8 +712,12 @@ export class PluginVault {
 		identity: PluginIdentity,
 		input: PluginToolRequest,
 	) {
+		// A removed custom server's rows are gone too; never resolve one anyway.
 		const connected = (await this.connections(identity)).filter(
-			({ row }) => row.state === "connected" && row.enabled !== false,
+			({ row }) =>
+				row.state === "connected" &&
+				row.enabled !== false &&
+				this.plugin(row.pluginId) !== undefined,
 		);
 		const prefix = (row: PluginConnection) =>
 			`tools.${row.pluginId}.user.${row.id}.`;
@@ -543,7 +741,7 @@ export class PluginVault {
 					await this.ref(subject, row.id, row.pluginId),
 				);
 				// Match the plugin's id and name too, so "linear" finds every Linear tool.
-				const catalog = findCatalogPlugin(row.pluginId);
+				const catalog = this.plugin(row.pluginId);
 				const plugin = `${row.pluginId} ${catalog?.name ?? ""} ${row.label}`;
 				const serviceNames = plugin.toLowerCase().replace(/[^a-z0-9]/g, "");
 				for (const tool of list) {

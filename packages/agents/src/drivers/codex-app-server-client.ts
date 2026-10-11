@@ -93,7 +93,7 @@ type CodexGoalRequestMethod =
 
 type CodexExperimentalRequestMethod = "collaborationMode/list";
 
-export type CodexAppMcpLaunchConfig =
+export type CodexAppMcpLaunchConfig = (
 	| {
 			readonly transport: "http";
 			readonly url: string;
@@ -104,7 +104,43 @@ export type CodexAppMcpLaunchConfig =
 			readonly command: string;
 			readonly args: ReadonlyArray<string>;
 			readonly env: Readonly<Record<string, string>>;
-	  };
+	  }
+) & {
+	/**
+	 * Native `[mcp_servers]` names to switch off for this process. Must only
+	 * list names Codex defines regardless of cwd (see `codex-native-mcp.ts`).
+	 */
+	readonly disabledNativeServers?: ReadonlyArray<string>;
+};
+
+/**
+ * Agents receive MCP only through the Zuse gateway: ChatGPT apps
+ * (`codex_apps`) are an MCP surface, and skill-driven MCP installs would add
+ * servers mid-session. Unknown feature keys only warn on older Codex.
+ */
+const CODEX_NATIVE_MCP_FEATURE_OVERRIDES = [
+	"-c",
+	"features.apps=false",
+	"-c",
+	"features.skill_mcp_dependency_install=false",
+] as const;
+
+/**
+ * One inline table so dotted server names stay addressable. It must precede
+ * the dotted `mcp_servers.zuse.*` overrides: a later whole-table override
+ * would replace them.
+ */
+const disabledNativeServersOverride = (
+	names: ReadonlyArray<string> | undefined,
+): ReadonlyArray<string> =>
+	names === undefined || names.length === 0
+		? []
+		: [
+				"-c",
+				`mcp_servers={${names
+					.map((name) => `${JSON.stringify(name)}={enabled=false}`)
+					.join(",")}}`,
+			];
 
 export const codexAppServerLaunchArgs = (
 	mcp?: CodexAppMcpLaunchConfig,
@@ -112,10 +148,12 @@ export const codexAppServerLaunchArgs = (
 	"app-server",
 	"--listen",
 	"stdio://",
-	// App tools can wait for a human approval before command execution.
 	...(mcp === undefined
 		? []
 		: [
+				...CODEX_NATIVE_MCP_FEATURE_OVERRIDES,
+				...disabledNativeServersOverride(mcp.disabledNativeServers),
+				// App tools can wait for a human approval before command execution.
 				"-c",
 				`mcp_servers.zuse.tool_timeout_sec=${DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS}`,
 			]),

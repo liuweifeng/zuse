@@ -24,8 +24,6 @@ file_include_globs = [
   ".env.*.local",
 ]
 
-mcp_disabled_servers = []
-
 [scripts]
 setup = "bun install"
 run = "bun run dev"
@@ -47,7 +45,6 @@ NODE_ENV = "development"
 | `autoCreateWorktree` | Whether new chats default to isolated worktrees |
 | `worktreeBaseDir` | Optional custom directory for worktree creation |
 | `file_include_globs` | Local files linked into new worktrees |
-| `mcp_disabled_servers` | Provider MCP servers disabled for this repository |
 | `scripts` | Setup, run, archive, and auto-run behavior |
 | `environment_variables` | String values passed to repository scripts |
 

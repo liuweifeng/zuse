@@ -239,12 +239,6 @@ import {
 	MachinesPrepaidCheckoutRpc,
 	MachinesRecoverRpc,
 } from "./machines.ts";
-import {
-	McpAuthenticateRpc,
-	McpListRpc,
-	McpRefreshRpc,
-	McpSetEnabledRpc,
-} from "./mcp.ts";
 import { ModelCatalogRpc, ModelCatalogStreamRpc } from "./model-catalog/rpc.ts";
 import {
 	ModelConnectionAcknowledgePlanRpc,
@@ -360,7 +354,6 @@ import {
 	SessionGoalStreamRpc,
 	SessionLatestPlanRpc,
 	SessionListRpc,
-	SessionMcpUpdateRpc,
 	SessionMessagesPageRpc,
 	SessionPlanRespondRpc,
 	SessionQuestionAttachmentsRpc,
@@ -669,10 +662,6 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderStartLoginRpc,
 	ProviderUpdateRpc,
 	ChatArchivePreviewRpc,
-	McpListRpc,
-	McpRefreshRpc,
-	McpSetEnabledRpc,
-	McpAuthenticateRpc,
 	ChatListRpc,
 	ChatGetRpc,
 	ChatCreateRpc,
@@ -693,7 +682,6 @@ export const MemoizeRpcs = RpcGroup.make(
 	ChatDeleteRpc,
 	SessionListRpc,
 	SessionStreamChangesRpc,
-	SessionMcpUpdateRpc,
 	SessionGetRpc,
 	SessionCreateRpc,
 	SessionRenameRpc,

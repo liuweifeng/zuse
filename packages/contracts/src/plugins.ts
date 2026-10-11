@@ -30,6 +30,21 @@ export const PluginDefinition = Schema.Struct({
 		Schema.withConstructorDefault(Effect.succeed(false)),
 		Schema.withDecodingDefaultType(Effect.succeed(false)),
 	),
+	/** A remote MCP server this workspace added by URL, not a catalog entry. */
+	custom: Schema.Boolean.pipe(
+		Schema.withConstructorDefault(Effect.succeed(false)),
+		Schema.withDecodingDefaultType(Effect.succeed(false)),
+	),
+	/** Custom servers only: the URL the workspace entered. */
+	url: Schema.NullOr(Schema.String).pipe(
+		Schema.withConstructorDefault(Effect.succeed(null)),
+		Schema.withDecodingDefaultType(Effect.succeed(null)),
+	),
+	/** Custom servers that authenticate with a key send it in this header. */
+	apiKeyHeader: Schema.NullOr(Schema.String).pipe(
+		Schema.withConstructorDefault(Effect.succeed(null)),
+		Schema.withDecodingDefaultType(Effect.succeed(null)),
+	),
 });
 export type PluginDefinition = typeof PluginDefinition.Type;
 
@@ -75,6 +90,23 @@ export const PluginReturnTo = Schema.Union([
 ]);
 export type PluginReturnTo = typeof PluginReturnTo.Type;
 
+/** Why connecting failed, so the app can say what to fix. */
+export const PluginConnectError = Schema.Literals([
+	"plugin_operation_failed",
+	/** The OAuth server needs a pre-registered client (no dynamic registration). */
+	"plugin_client_registration_unsupported",
+	/** Neither public nor OAuth, for example an API key is required. */
+	"plugin_auth_unsupported",
+	/** The MCP server did not answer, timed out, or is temporarily failing. */
+	"plugin_unreachable",
+	/** Not a public HTTPS URL on the default port. */
+	"plugin_url_rejected",
+	/** The server rejected the API key. */
+	"plugin_credentials_rejected",
+	"plugin_limit_reached",
+]);
+export type PluginConnectError = typeof PluginConnectError.Type;
+
 export const PluginAttempt = Schema.Struct({
 	kind: Schema.Literal("attempt"),
 	id: Schema.String,
@@ -82,6 +114,16 @@ export const PluginAttempt = Schema.Struct({
 	state: Schema.Literals(["pending", "connected", "failed", "cancelled"]),
 	authorizationUrl: Schema.NullOr(Schema.String),
 	expiresAt: Schema.Number,
+	/** Set on failed attempts. */
+	error: Schema.NullOr(PluginConnectError).pipe(
+		Schema.withConstructorDefault(Effect.succeed(null)),
+		Schema.withDecodingDefaultType(Effect.succeed(null)),
+	),
+	/** The plugin this attempt connects; custom servers are created with it. */
+	pluginId: Schema.String.pipe(
+		Schema.withConstructorDefault(Effect.succeed("")),
+		Schema.withDecodingDefaultType(Effect.succeed("")),
+	),
 });
 export type PluginAttempt = typeof PluginAttempt.Type;
 
@@ -97,6 +139,27 @@ export const PluginRequest = Schema.Union([
 		label: Schema.String,
 		requestId: Schema.String,
 		returnTo: Schema.optional(PluginReturnTo),
+		/** Required by custom servers that authenticate with a key. */
+		apiKey: Schema.optional(Schema.String),
+	}),
+	/** Adds a remote MCP server by URL and connects its first account. */
+	Schema.Struct({
+		action: Schema.Literal("addServer"),
+		tenantId: Schema.String,
+		requestId: Schema.String,
+		name: Schema.String,
+		url: Schema.String,
+		/** Omit to detect OAuth or public access. */
+		apiKey: Schema.optional(
+			Schema.Struct({ header: Schema.String, value: Schema.String }),
+		),
+		returnTo: Schema.optional(PluginReturnTo),
+	}),
+	/** Removes a custom server and every connection to it. */
+	Schema.Struct({
+		action: Schema.Literal("removeServer"),
+		tenantId: Schema.String,
+		pluginId: Schema.String,
 	}),
 	Schema.Struct({
 		action: Schema.Literal("poll"),

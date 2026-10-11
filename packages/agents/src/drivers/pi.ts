@@ -42,7 +42,7 @@ export const startPiSession = (
 	binary: string,
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
-	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	managedMcp?: import("../mcp-gateway/index.ts").McpGatewayHttpServer,
 ): Effect.Effect<
 	ProviderSessionHandle,
 	AgentSessionStartError,
@@ -385,6 +385,11 @@ export const startPiSession = (
 		const rpc = new PiRpcClient(
 			binary,
 			[
+				// Agents get Zuse plugins only through the gateway extension below;
+				// `--no-mcp` keeps Pi's built-in MCP extension from connecting the
+				// user's `mcp.json` servers. Keep it before a dash argument: older
+				// Pi treats unknown flags as extension flags that take a value.
+				"--no-mcp",
 				"--mode",
 				"rpc",
 				"--session",

@@ -773,7 +773,6 @@ const SETTINGS_FIXTURE: typeof SettingsFile.Encoded = {
 	opencode2ProviderVisible: {},
 	opencode2ModelVisibleByProvider: {},
 	opencode2CustomProviders: [],
-	mcpDisabledServers: ["claude:posthog"],
 	disabledSkills: ["claude:pdf", "claude:acme:deploy"],
 	subagents: { enableForNewSessions: true, presets: {} },
 	branchNamingStyle: "username-slug",
@@ -823,6 +822,16 @@ describe("Skill enablement schema", () => {
 describe("SettingsFile round-trip", () => {
 	it("round-trips completion sound settings", () => {
 		roundTrip(SettingsFile, SETTINGS_FIXTURE);
+	});
+
+	it("ignores the retired mcpDisabledServers key in older settings files", () => {
+		const decoded = Schema.decodeUnknownSync(SettingsFile)({
+			...SETTINGS_FIXTURE,
+			mcpDisabledServers: ["claude:posthog"],
+		});
+		expect(Schema.encodeSync(SettingsFile)(decoded)).not.toHaveProperty(
+			"mcpDisabledServers",
+		);
 	});
 
 	it("rejects an unknown completion sound preset", () => {
@@ -940,8 +949,28 @@ describe("RepositorySettingsFile round-trip", () => {
 			},
 			cloudEnvironmentVariables: {},
 			fileIncludeGlobs: ".env\n.env.local\n",
+		});
+	});
+});
+
+describe("RepositorySettingsFile legacy keys", () => {
+	it("ignores the retired mcpDisabledServers key", () => {
+		const decoded = Schema.decodeUnknownSync(RepositorySettingsFile)({
+			schemaVersion: 1,
+			defaultProviderId: null,
+			defaultModel: null,
+			defaultRuntimeMode: null,
+			autoCreateWorktree: false,
+			worktreeBaseDir: null,
+			archiveCleanupScript: null,
+			setupScript: null,
+			runScript: null,
+			autoRunAfterSetup: false,
+			environmentVariables: {},
+			fileIncludeGlobs: "",
 			mcpDisabledServers: ["codex:pencil"],
 		});
+		expect(decoded).not.toHaveProperty("mcpDisabledServers");
 	});
 });
 

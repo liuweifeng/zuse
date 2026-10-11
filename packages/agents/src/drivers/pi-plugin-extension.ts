@@ -1,11 +1,11 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ResolvedMcpServer } from "../user-mcp/types.ts";
+import type { McpGatewayHttpServer } from "../mcp-gateway/index.ts";
 import { PLUGIN_TOOLS } from "./plugin-tools.ts";
 
 /** Only a revocable loopback session credential is written, never upstream secrets. */
-export async function createPiPluginExtension(server: ResolvedMcpServer) {
+export async function createPiPluginExtension(server: McpGatewayHttpServer) {
 	const directory = await mkdtemp(join(tmpdir(), "zuse-pi-plugins-"));
 	const file = join(directory, "plugins.mjs");
 	try {

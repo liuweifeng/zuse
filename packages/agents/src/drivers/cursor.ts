@@ -33,7 +33,7 @@ import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
-import type { ResolvedMcpServer } from "../user-mcp/types.ts";
+import type { McpGatewayHttpServer } from "../mcp-gateway/index.ts";
 import {
 	type CursorRun,
 	startIsolatedCursorAgent,
@@ -45,9 +45,6 @@ const STORE_DIRECTORY = "zuse-jsonl";
 
 export interface CursorSessionHandle extends ProviderSessionHandle {
 	readonly events: Stream.Stream<AgentEvent>;
-	readonly updateMcpServers: NonNullable<
-		ProviderSessionHandle["updateMcpServers"]
-	>;
 }
 
 export interface CursorSdkTranslationState {
@@ -345,49 +342,6 @@ export const translateCursorSdkMessage = (
 const isRecord = (value: unknown): value is Record<string, unknown> =>
 	typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Convert the provider-neutral MCP wire array to the SDK's named map. */
-export const normalizeCursorMcpServers = (
-	servers: ReadonlyArray<unknown>,
-): Record<string, McpServerConfig> => {
-	const normalized: Record<string, McpServerConfig> = {};
-	for (const [index, value] of servers.entries()) {
-		if (!isRecord(value)) continue;
-		const nested = isRecord(value.config) ? value.config : value;
-		const nameCandidate = value.name ?? value.id;
-		const name =
-			typeof nameCandidate === "string" && nameCandidate.trim().length > 0
-				? nameCandidate
-				: `server-${index + 1}`;
-		if (typeof nested.command === "string") {
-			normalized[name] = {
-				type: "stdio",
-				command: nested.command,
-				...(Array.isArray(nested.args) &&
-				nested.args.every((arg) => typeof arg === "string")
-					? { args: nested.args as string[] }
-					: {}),
-				...(isRecord(nested.env) &&
-				Object.values(nested.env).every((entry) => typeof entry === "string")
-					? { env: nested.env as Record<string, string> }
-					: {}),
-				...(typeof nested.cwd === "string" ? { cwd: nested.cwd } : {}),
-			};
-		} else if (typeof nested.url === "string") {
-			normalized[name] = {
-				type: nested.type === "sse" ? "sse" : "http",
-				url: nested.url,
-				...(isRecord(nested.headers) &&
-				Object.values(nested.headers).every(
-					(entry) => typeof entry === "string",
-				)
-					? { headers: nested.headers as Record<string, string> }
-					: {}),
-			};
-		}
-	}
-	return normalized;
-};
-
 const buildSdkMessage = async (
 	text: string,
 	attachmentRefs: ReadonlyArray<AttachmentRef>,
@@ -440,8 +394,7 @@ export const startCursorSession = (
 	apiKey: string | null,
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
-	initialMcpServers: ReadonlyArray<ResolvedMcpServer> = [],
-	managedMcp?: ResolvedMcpServer,
+	managedMcp?: McpGatewayHttpServer,
 ): Effect.Effect<
 	CursorSessionHandle,
 	AgentSessionStartError,
@@ -562,11 +515,20 @@ export const startCursorSession = (
 		let activeRun: CursorRun | null = null;
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let workspaceInstructions = input.workspaceInstructions;
-		const managedPluginServers = managedMcp ? [managedMcp] : [];
-		let mcpServers = normalizeCursorMcpServers([
-			...initialMcpServers,
-			...managedPluginServers,
-		]);
+		// Agents receive MCP only through the Zuse gateway. A per-send
+		// `mcpServers` map (even an empty one) makes the SDK build the session
+		// MCP lease from those servers alone, skipping project/user
+		// `.cursor/mcp.json` and plugin MCP; `settingSources` keeps loading
+		// project rules.
+		const mcpServers: Record<string, McpServerConfig> = managedMcp
+			? {
+					[managedMcp.name]: {
+						type: "http",
+						url: managedMcp.url,
+						headers: { ...managedMcp.headers },
+					},
+				}
+			: {};
 		let inflight = Promise.resolve();
 		const emit = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -615,7 +577,7 @@ export const startCursorSession = (
 						agent.send(sdkMessage, {
 							model: selection,
 							mode: currentMode === "plan" ? "plan" : "agent",
-							...(Object.keys(mcpServers).length > 0 ? { mcpServers } : {}),
+							mcpServers,
 						}),
 						SDK_SEND_TIMEOUT_MS,
 						"Starting local agent run",
@@ -733,12 +695,5 @@ export const startCursorSession = (
 					Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
 				}),
 			answerQuestion: () => Effect.void,
-			updateMcpServers: (servers) =>
-				Effect.sync(() => {
-					mcpServers = normalizeCursorMcpServers([
-						...servers,
-						...managedPluginServers,
-					]);
-				}),
 		};
 	});

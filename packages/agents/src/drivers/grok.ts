@@ -70,6 +70,13 @@ import {
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
+const GROK_NATIVE_MCP_DISABLED_ENV = {
+	GROK_CURSOR_MCPS_ENABLED: "0",
+	GROK_CLAUDE_MCPS_ENABLED: "0",
+	GROK_CODEX_MCPS_ENABLED: "0",
+	GROK_MANAGED_MCPS_ENABLED: "0",
+} as const;
+
 class GrokProtocolError extends Error {
 	constructor(
 		readonly kind: ReturnType<typeof classifyGrokRpcError>,
@@ -111,9 +118,6 @@ export interface GrokSessionHandle extends GoalCapableSessionHandle {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void>;
-	readonly updateMcpServers: (
-		servers: ReadonlyArray<unknown>,
 	) => Effect.Effect<void>;
 	/**
 	 * Goal control is sent through native slash commands; state is sourced only
@@ -405,7 +409,11 @@ export const startGrokSession = (
 				env: {
 					...process.env,
 					...executionEnv,
-					GROK_CURSOR_MCPS_ENABLED: "0",
+					// Agents get MCP only through the Zuse gateway. These switch off
+					// Grok's vendor-compat MCP imports and managed MCPs; servers in
+					// `.grok/config.toml`, `.mcp.json`, and plugins have no
+					// documented switch and still load.
+					...GROK_NATIVE_MCP_DISABLED_ENV,
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},
 				stdio: ["pipe", "pipe", "pipe"],
@@ -1329,14 +1337,6 @@ export const startGrokSession = (
 				Effect.sync(() => eventCursor.commit(cursor)),
 			releaseProviderEventCursor: (cursor) =>
 				Effect.sync(() => eventCursor.release(cursor)),
-			updateMcpServers: (servers) =>
-				Effect.promise(async () => {
-					if (acpSessionId === null) return;
-					await request("x.ai/session/update_mcp_servers", {
-						sessionId: acpSessionId,
-						mcpServers: servers,
-					});
-				}),
 			getGoal: () => Effect.sync(() => currentGoal),
 			setGoal: (goalInput) =>
 				Effect.sync(() => {

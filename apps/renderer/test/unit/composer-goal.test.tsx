@@ -11,6 +11,10 @@ import { ChatComposer } from "../../src/components/chat-composer.tsx";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 
 // Provider/model inventory is independent of applied access and requires a live client.
+// Plugins need a signed-in account; the composer layout doesn't.
+vi.mock("../../src/components/plugins/plugins-popover.tsx", () => ({
+	PluginsPopover: () => null,
+}));
 vi.mock("../../src/components/model-picker.tsx", () => ({
 	ModelPicker: ({ runtimeMode }: { runtimeMode: string }) => (
 		<span data-runtime-mode={runtimeMode} />

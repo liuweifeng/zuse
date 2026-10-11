@@ -1,6 +1,7 @@
 import type { DurableObjectStorage } from "@cloudflare/workers-types";
 
-export type EngineAuth = "none" | "oauth";
+/** `header` sends a saved key in the plugin's header on every request. */
+export type EngineAuth = "none" | "oauth" | "header";
 
 /** Plain values only: the upstream Effect runtime stays inside the bundled adapter. */
 export interface EnginePlugin {
@@ -10,12 +11,14 @@ export interface EnginePlugin {
 	/** OAuth discovery URL when it differs from the endpoint. */
 	readonly oauthDiscovery?: string;
 	readonly scopes?: readonly string[];
+	/** Header carrying the key for `header` auth. */
+	readonly header?: string;
 }
 export interface EngineOptions {
 	readonly storage: DurableObjectStorage;
 	readonly encryptionKey: string;
 	readonly credentialScope: string;
-	/** Server-owned catalog lookup. Definitions are registered lazily per (plugin, auth). */
+	/** Server-owned catalog and workspace-added servers. Definitions are registered lazily per (plugin, auth). */
 	readonly plugin: (id: string) => EnginePlugin | undefined;
 	readonly fetch: typeof fetch;
 }
@@ -47,6 +50,13 @@ export interface PluginEngine {
 		label: string,
 		redirectUri: string,
 	): Promise<string>;
+	/** Saves a key for a `header` connection; the caller verifies it first. */
+	submit(
+		owner: string,
+		ref: EngineConnection,
+		label: string,
+		value: string,
+	): Promise<EngineConnection>;
 	complete(
 		owner: string,
 		ref: EngineConnection,

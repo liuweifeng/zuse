@@ -5,16 +5,18 @@ import type {
 	PluginConnection,
 	PluginDefinition,
 } from "@zuse/contracts";
-import { formatDate } from "@zuse/i18n";
+import { formatDate, type MessageKey } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowLeft01Icon,
-	ArrowRight01Icon,
+	Copy01Icon,
+	Delete02Icon,
 	Link04Icon,
+	MoreHorizontalIcon,
 	PlusSignIcon,
 	RefreshIcon,
 	Search01Icon,
 	Tick02Icon,
+	Unlink03Icon,
 } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -25,24 +27,55 @@ import {
 } from "react";
 import { useAuth } from "~/hooks/use-auth.ts";
 import {
+	type PluginConnectionToggle,
+	usePluginConnectionToggle,
+} from "~/hooks/use-plugin-connection-toggle.ts";
+import {
 	hasPluginConnectionLabel,
+	pluginConnectionName,
 	usePluginAccount,
 	usePluginTenant,
 } from "~/lib/connected-plugins.ts";
+import { copyText, openExternal } from "~/lib/platform-capabilities.ts";
 import {
-	openExternal,
-	rendererPlatformCapabilities,
-} from "~/lib/platform-capabilities.ts";
+	apiKeyValue,
+	customServerAuthOf,
+	pluginConnectErrorKey,
+	pluginDomain,
+} from "~/lib/plugin-servers.ts";
 import {
 	pluginRequest,
 	pluginReturnTo,
 	usePluginSnapshot,
 } from "~/lib/plugins-client.ts";
+import {
+	openPluginAuthorization,
+	subscribePluginsPageFocus,
+	takePluginsPageFocus,
+} from "~/lib/plugins-navigation.ts";
+import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui.ts";
+import {
+	AlertDialog,
+	AlertDialogClose,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogPopup,
+	AlertDialogTitle,
+} from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu.tsx";
 import { SegmentedTabs } from "../ui/segmented-tabs.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { toastManager } from "../ui/toast.tsx";
+import {
+	AddMcpServerAction,
+	AddMcpServerButton,
+	type McpServerAdded,
+} from "./add-mcp-server-dialog.tsx";
+import { CustomTag } from "./custom-tag.tsx";
+import { PluginConnectionSwitch } from "./plugin-connection-switch.tsx";
 import { PluginIcon } from "./plugin-icon.tsx";
 import { PluginsLoading } from "./plugins-loading.tsx";
 
@@ -50,19 +83,29 @@ type Tab = "browse" | "connected";
 const PAGE_SIZE = 40;
 const FEATURED_LIMIT = 12;
 
-/** Desktop opens the system browser; the web app hands its own tab over. */
-async function openAuthorization(url: string) {
-	if (rendererPlatformCapabilities().desktop) await openExternal(url);
-	else window.location.assign(url);
-}
+/** A sign-in in progress; `name` covers servers the snapshot doesn't list yet. */
+type PendingAttempt = PluginAttempt & { readonly name?: string };
+
+/** Connection failures say what to fix, for catalog plugins and custom servers alike. */
+const toastConnectFailed = (
+	m: (key: MessageKey, values?: Record<string, string>) => string,
+	plugin: Pick<PluginDefinition, "name" | "custom"> | undefined,
+	error: PluginAttempt["error"],
+) =>
+	toastManager.add({
+		title: m("plugins:plugins_connect_failed", {
+			name: plugin?.name || m("plugins:plugins_title"),
+		}),
+		description: m(pluginConnectErrorKey(error, plugin?.custom ?? false)),
+		type: "error",
+	});
 
 function usePlugins() {
+	const { message: m } = useUiMessages(["plugins"]);
 	const { user, isSignedIn } = useAuth();
 	const account = isSignedIn ? (user?.id ?? null) : null;
 	const tenant = usePluginTenant();
-	const [attempt, setAttempt] = useState<
-		(PluginAttempt & { pluginId: string }) | null
-	>(null);
+	const [attempt, setAttempt] = useState<PendingAttempt | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
 	// Shared, persisted snapshot: shown instantly, revalidated in the background.
 	const { snapshot, failed, refresh } = usePluginSnapshot(account, tenant);
@@ -92,7 +135,11 @@ function usePlugins() {
 					status.state === "pending"
 				)
 					setAttempt(
-						(current) => current ?? { ...status, pluginId: pendingId.pluginId },
+						(current) =>
+							current ?? {
+								...status,
+								pluginId: status.pluginId || pendingId.pluginId,
+							},
 					);
 			})
 			.catch(() => undefined);
@@ -117,6 +164,14 @@ function usePlugins() {
 				if (stopped) return;
 				if (result.kind === "attempt" && result.state !== "pending") {
 					setAttempt(null);
+					if (result.state === "failed")
+						toastConnectFailed(
+							m,
+							snapshot.catalog.find(
+								(plugin) => plugin.id === attempt.pluginId,
+							) ?? { name: attempt.name ?? "", custom: true },
+							result.error,
+						);
 					await load();
 					return;
 				}
@@ -130,7 +185,7 @@ function usePlugins() {
 			stopped = true;
 			clearTimeout(timer);
 		};
-	}, [attempt, snapshot, load]);
+	}, [attempt, snapshot, load, m]);
 
 	return {
 		snapshot,
@@ -160,12 +215,28 @@ function WorkspacePluginsPage() {
 			useUiStore.getState().setActiveMainTab("chat");
 	}, [isLoading, isSignedIn]);
 	const state = usePlugins();
-	const { snapshot, attempt, busy } = state;
+	const { snapshot, attempt, busy, setAttempt } = state;
 	const [tab, setTab] = useState<Tab>("browse");
 	const [query, setQuery] = useState("");
 	const deferredQuery = useDeferredValue(query.trim().toLowerCase());
 	const [selected, setSelected] = useState<string | null>(null);
 	const [limit, setLimit] = useState(PAGE_SIZE);
+	const toggle = usePluginConnectionToggle(snapshot);
+
+	// Other surfaces (settings, the composer) can land here on a plugin or a sign-in.
+	useEffect(() => {
+		const apply = () => {
+			const focus = takePluginsPageFocus();
+			if (focus === null) return;
+			if (focus.kind === "plugin") setSelected(focus.pluginId);
+			else {
+				setSelected(null);
+				setAttempt({ ...focus.attempt, name: focus.name });
+			}
+		};
+		apply();
+		return subscribePluginsPageFocus(apply);
+	}, [setAttempt]);
 
 	const connectedById = useMemo(() => {
 		const map = new Map<string, PluginConnection[]>();
@@ -185,17 +256,25 @@ function WorkspacePluginsPage() {
 				(plugin) =>
 					(tab === "browse" || connectedById.has(plugin.id)) &&
 					(deferredQuery.length === 0 ||
-						`${plugin.name} ${plugin.description} ${plugin.domain}`
+						`${plugin.name} ${plugin.description} ${plugin.domain} ${plugin.url ?? ""}`
 							.toLowerCase()
 							.includes(deferredQuery)),
 			),
 		[catalog, connectedById, deferredQuery, tab],
 	);
+	const catalogMatches = useMemo(
+		() => matches.filter((plugin) => !plugin.custom),
+		[matches],
+	);
 	useEffect(() => setLimit(PAGE_SIZE), [deferredQuery, tab]);
 
 	/** Validate account names before starting an independent connection attempt. */
-	const connect = async (plugin: PluginDefinition, label = plugin.name) => {
-		if (!snapshot || busy || attempt) return;
+	const connect = async (
+		plugin: PluginDefinition,
+		label = plugin.name,
+		apiKey?: string,
+	): Promise<boolean> => {
+		if (!snapshot || busy || attempt) return false;
 		const trimmedLabel = label.trim() || plugin.name;
 		if (
 			hasPluginConnectionLabel(snapshot.connections, plugin.id, trimmedLabel)
@@ -204,7 +283,7 @@ function WorkspacePluginsPage() {
 				title: m("plugins:plugins_connection_name_exists"),
 				type: "error",
 			});
-			return;
+			return false;
 		}
 		state.setBusy(plugin.id);
 		try {
@@ -215,27 +294,32 @@ function WorkspacePluginsPage() {
 				label: trimmedLabel,
 				requestId: crypto.randomUUID(),
 				returnTo: await pluginReturnTo(),
+				...(plugin.apiKeyHeader !== null && apiKey !== undefined
+					? { apiKey: apiKeyValue(plugin.apiKeyHeader, apiKey) }
+					: {}),
 			});
 			if (result.kind !== "attempt") throw new Error("Unexpected response");
-			if (result.state === "connected")
+			await state.load();
+			if (result.state === "connected") {
 				toastManager.add({
 					title: m("plugins:plugins_connected_toast", { name: plugin.name }),
 					description: m("plugins:plugins_connected_toast_detail"),
 					type: "success",
 				});
-			else if (result.state === "pending") {
-				state.setAttempt({ ...result, pluginId: plugin.id });
+				return true;
+			}
+			if (result.state === "pending") {
+				setAttempt({ ...result, pluginId: plugin.id });
 				if (result.authorizationUrl)
-					await openAuthorization(result.authorizationUrl);
-			} else throw new Error("Connection failed");
-			await state.load();
+					await openPluginAuthorization(result.authorizationUrl);
+				return true;
+			}
+			toastConnectFailed(m, plugin, result.error);
+			return false;
 		} catch {
-			toastManager.add({
-				title: m("plugins:plugins_connect_failed", { name: plugin.name }),
-				description: m("plugins:plugins_connect_failed_detail"),
-				type: "error",
-			});
+			toastConnectFailed(m, plugin, null);
 			await state.load();
+			return false;
 		} finally {
 			state.setBusy(null);
 		}
@@ -249,7 +333,7 @@ function WorkspacePluginsPage() {
 				tenantId: snapshot.tenantId,
 				attemptId: attempt.id,
 			});
-			state.setAttempt(null);
+			setAttempt(null);
 			await state.load();
 		} catch {
 			toastManager.add({
@@ -279,6 +363,41 @@ function WorkspacePluginsPage() {
 		}
 	};
 
+	/** Removes a custom server and every account connected to it. */
+	const removeServer = async (plugin: PluginDefinition): Promise<boolean> => {
+		if (!snapshot) return false;
+		state.setBusy(plugin.id);
+		try {
+			await pluginRequest({
+				action: "removeServer",
+				tenantId: snapshot.tenantId,
+				pluginId: plugin.id,
+			});
+			setSelected(null);
+			toastManager.add({
+				title: m("plugins:plugins_remove_server_done", { name: plugin.name }),
+				type: "success",
+			});
+			await state.load();
+			return true;
+		} catch {
+			toastManager.add({
+				title: m("plugins:plugins_remove_server_failed", { name: plugin.name }),
+				type: "error",
+			});
+			return false;
+		} finally {
+			state.setBusy(null);
+		}
+	};
+
+	const onServerAdded: McpServerAdded = (result, name) => {
+		if (result.state === "pending") {
+			setSelected(null);
+			setAttempt({ ...result, name });
+		} else setSelected(result.pluginId);
+	};
+
 	const statusOf = (plugin: PluginDefinition): PluginStatus =>
 		attempt?.pluginId === plugin.id || busy === plugin.id
 			? "connecting"
@@ -291,6 +410,7 @@ function WorkspacePluginsPage() {
 	const detail = selected
 		? catalog.find((plugin) => plugin.id === selected)
 		: undefined;
+	const canManage = snapshot?.canManage !== false;
 
 	const rowFor = (plugin: PluginDefinition) => (
 		<PluginRow
@@ -298,175 +418,226 @@ function WorkspacePluginsPage() {
 			plugin={plugin}
 			status={statusOf(plugin)}
 			locked={
-				snapshot?.canManage === false ||
-				attempt !== null ||
-				(busy !== null && busy !== plugin.id)
+				!canManage || attempt !== null || (busy !== null && busy !== plugin.id)
 			}
 			onOpen={() => setSelected(plugin.id)}
-			onConnect={() => void connect(plugin)}
+			onConnect={() => {
+				// Key-authenticated servers need a key per account: ask on the detail page.
+				if (plugin.apiKeyHeader !== null) setSelected(plugin.id);
+				else void connect(plugin);
+			}}
 		/>
 	);
+	const showMore = (total: number) =>
+		total > limit && (
+			<ShowMore
+				label={m("plugins:plugins_show_more")}
+				onClick={() => setLimit((value) => value + PAGE_SIZE)}
+			/>
+		);
 
 	return (
-		<section className="flex min-h-0 flex-1 flex-col bg-background">
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8 text-xs max-[800px]:px-4">
-					{attempt && (
-						<PendingBanner
-							name={pendingPlugin?.name ?? ""}
-							onReopen={
-								attempt.authorizationUrl
-									? () =>
-											attempt.authorizationUrl &&
-											void openAuthorization(attempt.authorizationUrl)
-									: undefined
-							}
-							onCancel={() => void cancel()}
-						/>
-					)}
-					{detail ? (
-						<PluginDetail
-							key={detail.id}
-							plugin={detail}
-							status={statusOf(detail)}
-							connections={connectedById.get(detail.id) ?? []}
-							allConnections={snapshot?.connections ?? []}
-							locked={
-								snapshot?.canManage === false ||
-								attempt !== null ||
-								busy !== null
-							}
-							onBack={() => setSelected(null)}
-							onConnect={(label) => void connect(detail, label)}
-							onDisconnect={(id) => void disconnect(detail, id)}
-						/>
-					) : (
-						<>
-							<header className="flex flex-wrap items-start justify-between gap-4">
-								<div className="min-w-0">
-									<h1 className="text-xl font-medium tracking-[-0.01em] text-foreground">
-										{m("plugins:plugins_title")}
-									</h1>
-									<p className="mt-1 text-muted-foreground">
-										{m("plugins:plugins_subtitle")}
-									</p>
-								</div>
-								<div className="flex items-center gap-1.5">
-									<label className="flex h-7 w-56 items-center gap-2 rounded-md bg-muted/55 px-2.5 focus-within:ring-2 focus-within:ring-ring/24">
-										<HugeiconsIcon
-											icon={Search01Icon}
-											className="size-3.5 shrink-0 text-muted-foreground"
-										/>
-										<input
-											aria-label={m("plugins:plugins_search")}
-											placeholder={m("plugins:plugins_search")}
-											value={query}
-											onChange={(event) => setQuery(event.target.value)}
-											className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
-										/>
-									</label>
-									<Button
-										variant="ghost"
-										size="icon"
-										aria-label={m("plugins:plugins_refresh")}
-										onClick={() => void state.load()}
-									>
-										<HugeiconsIcon icon={RefreshIcon} className="size-3.5" />
-									</Button>
-								</div>
-							</header>
-							<div className="flex items-center justify-between gap-3">
-								<SegmentedTabs<Tab>
-									ariaLabel={m("plugins:plugins_title")}
-									equalWidth={false}
-									value={tab}
-									onValueChange={setTab}
-									options={[
-										{ value: "browse", label: m("plugins:plugins_tab_browse") },
-										{
-											value: "connected",
-											label: (
-												<>
-													{m("plugins:plugins_tab_connected")}
-													{connectedById.size > 0 && (
-														<span className="tabular-nums text-muted-foreground">
-															{connectedById.size}
-														</span>
-													)}
-												</>
-											),
-										},
-									]}
-								/>
-							</div>
-							{!state.isSignedIn ? (
-								<p className="py-8 text-muted-foreground">
-									{m("plugins:plugins_sign_in")}
-								</p>
-							) : state.failed && !snapshot ? (
-								<div
-									role="alert"
-									className="flex items-center gap-3 py-8 text-muted-foreground"
-								>
-									<p className="flex-1">{m("plugins:plugins_load_failed")}</p>
-									<Button
-										variant="ghost"
-										onClick={() => void state.load()}
-										className="shrink-0"
-									>
-										{m("plugins:plugins_retry")}
-									</Button>
-								</div>
-							) : !snapshot ? (
-								<PluginsLoading label={m("plugins:plugins_loading")} />
-							) : matches.length === 0 ? (
-								<p className="py-12 text-center text-muted-foreground">
-									{deferredQuery
-										? m("plugins:plugins_no_results", { query: query.trim() })
-										: m("plugins:plugins_none_connected")}
-								</p>
-							) : tab === "browse" && deferredQuery.length === 0 ? (
-								<>
-									<PluginSection title={m("plugins:plugins_featured")}>
-										{matches
-											.filter((plugin) => plugin.featured)
-											.slice(0, FEATURED_LIMIT)
-											.map(rowFor)}
-									</PluginSection>
-									<PluginSection title={m("plugins:plugins_all")}>
-										{matches.slice(0, limit).map(rowFor)}
-									</PluginSection>
-									{matches.length > limit && (
-										<ShowMore
-											label={m("plugins:plugins_show_more")}
-											onClick={() => setLimit((value) => value + PAGE_SIZE)}
-										/>
-									)}
-								</>
-							) : (
-								<>
-									<PluginSection
-										title={
-											tab === "connected"
-												? m("plugins:plugins_tab_connected")
-												: m("plugins:plugins_results")
+		<AddMcpServerAction snapshot={snapshot} onAdded={onServerAdded}>
+			{(add) => {
+				const addButton = (variant: "secondary" | "ghost") => (
+					<AddMcpServerButton
+						add={add}
+						variant={variant}
+						disabled={attempt !== null || busy !== null}
+					/>
+				);
+				return (
+					<section className="flex min-h-0 flex-1 flex-col bg-background">
+						<div className="min-h-0 flex-1 overflow-y-auto">
+							<div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-8 py-8 text-xs max-[800px]:px-4">
+								{attempt && (
+									<PendingBanner
+										name={pendingPlugin?.name ?? attempt.name ?? ""}
+										onReopen={
+											attempt.authorizationUrl
+												? () =>
+														attempt.authorizationUrl &&
+														void openPluginAuthorization(
+															attempt.authorizationUrl,
+														)
+												: undefined
 										}
-									>
-										{matches.slice(0, limit).map(rowFor)}
-									</PluginSection>
-									{matches.length > limit && (
-										<ShowMore
-											label={m("plugins:plugins_show_more")}
-											onClick={() => setLimit((value) => value + PAGE_SIZE)}
-										/>
-									)}
-								</>
-							)}
-						</>
-					)}
-				</div>
-			</div>
-		</section>
+										onCancel={() => void cancel()}
+									/>
+								)}
+								{detail ? (
+									<PluginDetail
+										key={detail.id}
+										plugin={detail}
+										status={statusOf(detail)}
+										connections={connectedById.get(detail.id) ?? []}
+										allConnections={snapshot?.connections ?? []}
+										canManage={canManage}
+										organization={
+											snapshot?.tenantId.startsWith("organization:") ?? false
+										}
+										locked={!canManage || attempt !== null || busy !== null}
+										toggle={toggle}
+										onBack={() => setSelected(null)}
+										onConnect={(label, apiKey) =>
+											connect(detail, label, apiKey)
+										}
+										onDisconnect={(id) => void disconnect(detail, id)}
+										onRemove={() => removeServer(detail)}
+									/>
+								) : (
+									<>
+										<header className="flex flex-wrap items-start justify-between gap-4">
+											<div className="min-w-0">
+												<h1 className="text-xl font-medium tracking-[-0.01em] text-foreground">
+													{m("plugins:plugins_title")}
+												</h1>
+												<p className="mt-1 text-muted-foreground">
+													{m("plugins:plugins_subtitle")}
+												</p>
+											</div>
+											<div className="flex items-center gap-1.5">
+												<label className="flex h-7 w-56 items-center gap-2 rounded-md bg-muted/55 px-2.5 focus-within:ring-2 focus-within:ring-ring/24">
+													<HugeiconsIcon
+														icon={Search01Icon}
+														className="size-3.5 shrink-0 text-muted-foreground"
+													/>
+													<input
+														aria-label={m("plugins:plugins_search")}
+														placeholder={m("plugins:plugins_search")}
+														value={query}
+														onChange={(event) => setQuery(event.target.value)}
+														className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+													/>
+												</label>
+												{state.isSignedIn && addButton("secondary")}
+												<Button
+													variant="ghost"
+													size="icon"
+													aria-label={m("plugins:plugins_refresh")}
+													onClick={() => void state.load()}
+												>
+													<HugeiconsIcon
+														icon={RefreshIcon}
+														className="size-3.5"
+													/>
+												</Button>
+											</div>
+										</header>
+										<div className="flex items-center justify-between gap-3">
+											<SegmentedTabs<Tab>
+												ariaLabel={m("plugins:plugins_title")}
+												equalWidth={false}
+												value={tab}
+												onValueChange={setTab}
+												options={[
+													{
+														value: "browse",
+														label: m("plugins:plugins_tab_browse"),
+													},
+													{
+														value: "connected",
+														label: (
+															<>
+																{m("plugins:plugins_tab_connected")}
+																{connectedById.size > 0 && (
+																	<span className="tabular-nums text-muted-foreground">
+																		{connectedById.size}
+																	</span>
+																)}
+															</>
+														),
+													},
+												]}
+											/>
+										</div>
+										{!state.isSignedIn ? (
+											<p className="py-8 text-muted-foreground">
+												{m("plugins:plugins_sign_in")}
+											</p>
+										) : state.failed && !snapshot ? (
+											<div
+												role="alert"
+												className="flex items-center gap-3 py-8 text-muted-foreground"
+											>
+												<p className="flex-1">
+													{m("plugins:plugins_load_failed")}
+												</p>
+												<Button
+													variant="ghost"
+													onClick={() => void state.load()}
+													className="shrink-0"
+												>
+													{m("plugins:plugins_retry")}
+												</Button>
+											</div>
+										) : !snapshot ? (
+											<PluginsLoading label={m("plugins:plugins_loading")} />
+										) : matches.length === 0 ? (
+											deferredQuery ? (
+												<p className="py-12 text-center text-muted-foreground">
+													{m("plugins:plugins_no_results", {
+														query: query.trim(),
+													})}
+												</p>
+											) : (
+												<div className="flex flex-col items-center gap-3 py-12 text-muted-foreground">
+													<p>{m("plugins:plugins_none_connected")}</p>
+													<div className="flex items-center gap-1.5">
+														<Button
+															variant="secondary"
+															onClick={() => setTab("browse")}
+														>
+															{m("plugins:plugins_settings_browse")}
+														</Button>
+														{addButton("ghost")}
+													</div>
+												</div>
+											)
+										) : tab === "browse" && deferredQuery.length === 0 ? (
+											<>
+												{matches.some((plugin) => plugin.custom) && (
+													<PluginSection
+														title={m("plugins:plugins_custom_servers")}
+													>
+														{matches
+															.filter((plugin) => plugin.custom)
+															.map(rowFor)}
+													</PluginSection>
+												)}
+												<PluginSection title={m("plugins:plugins_featured")}>
+													{catalogMatches
+														.filter((plugin) => plugin.featured)
+														.slice(0, FEATURED_LIMIT)
+														.map(rowFor)}
+												</PluginSection>
+												<PluginSection title={m("plugins:plugins_all")}>
+													{catalogMatches.slice(0, limit).map(rowFor)}
+												</PluginSection>
+												{showMore(catalogMatches.length)}
+											</>
+										) : (
+											<>
+												<PluginSection
+													title={
+														tab === "connected"
+															? m("plugins:plugins_tab_connected")
+															: m("plugins:plugins_results")
+													}
+												>
+													{matches.slice(0, limit).map(rowFor)}
+												</PluginSection>
+												{showMore(matches.length)}
+											</>
+										)}
+									</>
+								)}
+							</div>
+						</div>
+					</section>
+				);
+			}}
+		</AddMcpServerAction>
 	);
 }
 
@@ -505,6 +676,16 @@ function ShowMore({
 	);
 }
 
+/** What a row or header shows under the name: the service, or a custom server's host. */
+const subtitleOf = (plugin: PluginDefinition) => {
+	if (!plugin.custom || plugin.url === null) return plugin.domain;
+	try {
+		return new URL(plugin.url).host;
+	} catch {
+		return plugin.url;
+	}
+};
+
 function PluginRow({
 	plugin,
 	status,
@@ -526,13 +707,16 @@ function PluginRow({
 				onClick={onOpen}
 				className="flex min-w-0 flex-1 items-center gap-3 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
 			>
-				<PluginIcon name={plugin.name} domain={plugin.domain} />
+				<PluginIcon name={plugin.name} domain={pluginDomain(plugin)} />
 				<span className="min-w-0 flex-1">
-					<span className="block truncate text-[13px] font-medium text-foreground">
-						{plugin.name}
+					<span className="flex min-w-0 items-center gap-1.5 text-[13px] font-medium text-foreground">
+						<span className="truncate">{plugin.name}</span>
+						{plugin.custom && <CustomTag />}
 					</span>
 					<span className="block truncate text-muted-foreground">
-						{plugin.description}
+						{plugin.custom
+							? plugin.description || subtitleOf(plugin)
+							: plugin.description}
 					</span>
 				</span>
 			</button>
@@ -603,188 +787,357 @@ function PendingBanner({
 	);
 }
 
+/** How a custom server signs in, as shown in its details. */
+function authLabel(
+	m: (key: MessageKey, values?: Record<string, string>) => string,
+	plugin: PluginDefinition,
+) {
+	const auth = customServerAuthOf(plugin);
+	return auth === "auto"
+		? m("plugins:plugins_auth_auto")
+		: auth === "bearer"
+			? m("plugins:plugins_auth_bearer")
+			: m("plugins:plugins_auth_header_named", {
+					header: plugin.apiKeyHeader ?? "",
+				});
+}
+
 /** Show account controls and validate names against every connection for this plugin. */
 function PluginDetail({
 	plugin,
 	status,
 	connections,
 	allConnections,
+	canManage,
+	organization,
 	locked,
+	toggle,
 	onBack,
 	onConnect,
 	onDisconnect,
+	onRemove,
 }: {
 	readonly plugin: PluginDefinition;
 	readonly status: PluginStatus;
 	readonly connections: readonly PluginConnection[];
 	readonly allConnections: readonly PluginConnection[];
+	readonly canManage: boolean;
+	readonly organization: boolean;
 	readonly locked: boolean;
+	readonly toggle: PluginConnectionToggle;
 	readonly onBack: () => void;
-	readonly onConnect: (label: string) => void;
+	readonly onConnect: (label: string, apiKey?: string) => Promise<boolean>;
 	readonly onDisconnect: (connectionId: string) => void;
+	readonly onRemove: () => Promise<boolean>;
 }) {
-	const { message: m } = useUiMessages(["plugins"]);
+	const { message: m } = useUiMessages(["plugins", "common"]);
 	const [label, setLabel] = useState("");
+	const [apiKey, setApiKey] = useState("");
+	const [confirmRemove, setConfirmRemove] = useState(false);
+	const [removing, setRemoving] = useState(false);
+	const needsKey = plugin.apiKeyHeader !== null;
 	const duplicateLabel = hasPluginConnectionLabel(
 		allConnections,
 		plugin.id,
 		label,
 	);
+	const canSubmit =
+		!locked &&
+		status !== "connecting" &&
+		label.trim().length > 0 &&
+		!duplicateLabel &&
+		(!needsKey || apiKey.trim().length > 0);
+	const busy = locked || status === "connecting";
+	const copyUrl = async () => {
+		try {
+			await copyText(plugin.url ?? "");
+			toastManager.add({
+				title: m("plugins:plugins_url_copied"),
+				type: "success",
+			});
+		} catch {
+			toastManager.add({
+				title: m("plugins:plugins_copy_failed"),
+				type: "error",
+			});
+		}
+	};
 	return (
 		<>
-			<nav className="flex items-center gap-1 text-muted-foreground">
+			<nav
+				aria-label={m("plugins:plugins_title")}
+				className="flex h-7 min-w-0 items-center gap-1.5 text-muted-foreground"
+			>
 				<button
 					type="button"
 					onClick={onBack}
-					className="flex h-7 items-center gap-1 rounded-md hover:text-foreground"
+					className="rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
 				>
-					<HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" />
 					{m("plugins:plugins_back")}
 				</button>
-				<HugeiconsIcon icon={ArrowRight01Icon} className="size-3" />
+				<span aria-hidden className="text-muted-foreground/50">
+					/
+				</span>
 				<span className="truncate text-foreground">{plugin.name}</span>
 			</nav>
-			<header className="flex flex-wrap items-center gap-4">
+			<header className="flex items-center gap-3">
 				<PluginIcon
 					name={plugin.name}
-					domain={plugin.domain}
-					className="size-12 rounded-xl text-base"
+					domain={pluginDomain(plugin)}
+					className="size-10 rounded-xl text-sm"
 				/>
 				<div className="min-w-0 flex-1">
-					<h1 className="truncate text-xl font-medium tracking-[-0.01em] text-foreground">
-						{plugin.name}
+					<h1 className="flex min-w-0 items-center gap-2 text-lg font-medium tracking-[-0.01em] text-foreground">
+						<span className="truncate">{plugin.name}</span>
+						{plugin.custom && <CustomTag />}
 					</h1>
-					<p className="mt-0.5 truncate text-muted-foreground">
-						{plugin.domain}
-					</p>
+					<p className="truncate text-muted-foreground">{subtitleOf(plugin)}</p>
 				</div>
-				{status === "connecting" ? (
-					<Button disabled>
+				{status === "connecting" && (
+					<span
+						role="status"
+						className="flex h-7 shrink-0 items-center gap-1.5 text-muted-foreground"
+					>
 						<Spinner className="size-3.5" />
 						{m("plugins:plugins_waiting")}
-					</Button>
-				) : status === "connected" ? (
-					<div className="flex items-center gap-1.5">
-						<span className="flex h-7 items-center gap-1 px-2 text-muted-foreground">
-							<HugeiconsIcon icon={Tick02Icon} className="size-3.5" />
-							{m("plugins:plugins_connected")}
-						</span>
-					</div>
-				) : null}
+					</span>
+				)}
+				{(!plugin.custom || canManage) && (
+					<Menu>
+						<MenuTrigger
+							render={
+								<Button
+									variant="ghost"
+									size="icon"
+									className="shrink-0 text-muted-foreground"
+									aria-label={m("plugins:plugins_more_actions")}
+								/>
+							}
+						>
+							<HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
+						</MenuTrigger>
+						<MenuPopup align="end" className="w-44">
+							{plugin.custom ? (
+								<MenuItem
+									variant="destructive"
+									disabled={locked}
+									onClick={() => setConfirmRemove(true)}
+								>
+									<HugeiconsIcon icon={Delete02Icon} />
+									{m("plugins:plugins_remove_server")}
+								</MenuItem>
+							) : (
+								<MenuItem
+									onClick={() => void openExternal(`https://${plugin.domain}`)}
+								>
+									<HugeiconsIcon icon={Link04Icon} />
+									{m("plugins:plugins_visit_website")}
+								</MenuItem>
+							)}
+						</MenuPopup>
+					</Menu>
+				)}
 			</header>
-			<p className="max-w-prose text-[13px] leading-5 text-foreground/85">
-				{plugin.description}
-			</p>
-			{connections.length > 0 && (
-				<section className="flex flex-col gap-1">
-					<h2 className="text-[13px] font-medium">
-						{m("plugins:plugins_connections")}
-					</h2>
+			{plugin.description && (
+				<p className="max-w-prose text-[13px] leading-5 text-foreground/85">
+					{plugin.description}
+				</p>
+			)}
+			<section className="flex flex-col gap-2">
+				<h2 className="flex items-baseline gap-1.5 text-[13px] font-medium">
+					{m("plugins:plugins_connections")}
+					{connections.length > 0 && (
+						<span className="font-normal tabular-nums text-muted-foreground">
+							{connections.length}
+						</span>
+					)}
+				</h2>
+				<div className="flex flex-col rounded-lg bg-muted/35 p-1">
 					{connections.map((connection) => (
 						<div
 							key={connection.id}
-							className="flex items-center gap-3 rounded-md py-1"
+							className="flex h-9 items-center gap-3 rounded-md px-2"
 						>
-							<span className="min-w-0 flex-1 truncate">
+							<span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
 								{connection.label}
-								<span className="ml-2 text-muted-foreground">
-									{m("plugins:plugins_connected_on", {
-										date: formatDate(connection.createdAt, {
-											dateStyle: "medium",
-										}),
-									})}
-								</span>
 							</span>
-							<Button
-								variant="ghost"
-								disabled={locked}
-								onClick={() => onDisconnect(connection.id)}
-							>
-								{m("plugins:plugins_disconnect")}
-							</Button>
+							<span className="shrink-0 text-muted-foreground max-[640px]:hidden">
+								{m("plugins:plugins_connected_on", {
+									date: formatDate(connection.createdAt, {
+										dateStyle: "medium",
+									}),
+								})}
+							</span>
+							<PluginConnectionSwitch
+								connection={connection}
+								name={pluginConnectionName(plugin.name, connection.label)}
+								toggle={toggle}
+							/>
+							{canManage && (
+								<Menu>
+									<MenuTrigger
+										render={
+											<Button
+												variant="ghost"
+												size="icon"
+												className="-mr-1 size-7 shrink-0 text-muted-foreground"
+												aria-label={m("plugins:plugins_account_actions", {
+													name: connection.label,
+												})}
+											/>
+										}
+									>
+										<HugeiconsIcon
+											icon={MoreHorizontalIcon}
+											className="size-4"
+										/>
+									</MenuTrigger>
+									<MenuPopup align="end" className="w-40">
+										<MenuItem
+											variant="destructive"
+											disabled={locked}
+											onClick={() => onDisconnect(connection.id)}
+										>
+											<HugeiconsIcon icon={Unlink03Icon} />
+											{m("plugins:plugins_disconnect")}
+										</MenuItem>
+									</MenuPopup>
+								</Menu>
+							)}
 						</div>
 					))}
-				</section>
-			)}
-			<form
-				className="flex flex-wrap items-center gap-2"
-				onSubmit={(event) => {
-					event.preventDefault();
-					if (
-						!locked &&
-						status !== "connecting" &&
-						label.trim() &&
-						!duplicateLabel
-					)
-						onConnect(label.trim());
-				}}
-			>
-				<input
-					className="h-7 w-48 rounded-md bg-muted/55 px-2.5 text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring/24"
-					aria-label={m("plugins:plugins_connection_name")}
-					aria-invalid={duplicateLabel || undefined}
-					aria-describedby={
-						duplicateLabel ? "plugin-connection-name-error" : undefined
-					}
-					placeholder={m("plugins:plugins_connection_name_placeholder")}
-					maxLength={80}
-					value={label}
-					onChange={(event) => setLabel(event.target.value)}
-					disabled={locked || status === "connecting"}
-				/>
-				<Button
-					className="h-7"
-					type="submit"
-					disabled={
-						locked || status === "connecting" || !label.trim() || duplicateLabel
-					}
-				>
-					<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
-					{m(
-						connections.length
-							? "plugins:plugins_connect_another"
-							: "plugins:plugins_connect",
+					{canManage ? (
+						<form
+							className={cn(
+								"flex flex-wrap items-center gap-1.5 p-1",
+								connections.length > 0 && "mt-1 border-t border-border/40 pt-2",
+							)}
+							onSubmit={(event) => {
+								event.preventDefault();
+								if (!canSubmit) return;
+								void onConnect(
+									label.trim(),
+									needsKey ? apiKey : undefined,
+								).then((started) => {
+									if (!started) return;
+									setLabel("");
+									setApiKey("");
+								});
+							}}
+						>
+							<input
+								className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
+								aria-label={m("plugins:plugins_connection_name")}
+								aria-invalid={duplicateLabel || undefined}
+								aria-describedby={
+									duplicateLabel ? "plugin-connection-name-error" : undefined
+								}
+								placeholder={m("plugins:plugins_connection_name_placeholder")}
+								maxLength={80}
+								value={label}
+								onChange={(event) => setLabel(event.target.value)}
+								disabled={busy}
+							/>
+							{needsKey && (
+								<input
+									type="password"
+									autoComplete="off"
+									spellCheck={false}
+									className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
+									aria-label={m("plugins:plugins_api_key")}
+									placeholder={m("plugins:plugins_api_key_placeholder")}
+									value={apiKey}
+									onChange={(event) => setApiKey(event.target.value)}
+									disabled={busy}
+								/>
+							)}
+							<Button
+								className="h-7 shrink-0"
+								variant={connections.length ? "secondary" : "default"}
+								type="submit"
+								disabled={!canSubmit}
+							>
+								<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
+								{m(
+									connections.length
+										? "plugins:plugins_connect_another"
+										: "plugins:plugins_connect",
+								)}
+							</Button>
+							{duplicateLabel && (
+								<p
+									id="plugin-connection-name-error"
+									role="status"
+									className="w-full px-1 text-muted-foreground"
+								>
+									{m("plugins:plugins_connection_name_exists")}
+								</p>
+							)}
+						</form>
+					) : (
+						<p className="px-2 py-2 text-muted-foreground">
+							{m("plugins:plugins_manage_admins_only")}
+						</p>
 					)}
-				</Button>
-				{duplicateLabel && (
-					<p
-						id="plugin-connection-name-error"
-						role="status"
-						className="w-full text-xs text-muted-foreground"
-					>
-						{m("plugins:plugins_connection_name_exists")}
-					</p>
-				)}
-			</form>
-			<section className="flex flex-col gap-1">
+				</div>
+			</section>
+			<section className="flex flex-col gap-2">
 				<h2 className="text-[13px] font-medium">
 					{m("plugins:plugins_information")}
 				</h2>
-				<dl className="grid grid-cols-[8rem_1fr] gap-y-2 py-1">
-					<dt className="text-muted-foreground">
-						{m("plugins:plugins_website")}
-					</dt>
-					<dd>
-						<button
-							type="button"
-							className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
-							onClick={() => void openExternal(`https://${plugin.domain}`)}
-						>
-							{plugin.domain}
-							<HugeiconsIcon
-								icon={Link04Icon}
-								className="size-3 text-muted-foreground"
-							/>
-						</button>
-					</dd>
-					{plugin.category && (
+				<dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
+					{plugin.custom ? (
 						<>
 							<dt className="text-muted-foreground">
-								{m("plugins:plugins_category")}
+								{m("plugins:plugins_add_server_url")}
 							</dt>
-							<dd className="capitalize">
-								{plugin.category.replaceAll("-", " ")}
+							<dd className="flex min-w-0 items-center gap-1">
+								<span className="truncate select-text font-mono text-[11px] leading-4 text-foreground/85">
+									{plugin.url}
+								</span>
+								<Button
+									variant="ghost"
+									size="icon"
+									className="size-6 shrink-0 text-muted-foreground"
+									aria-label={m("plugins:plugins_copy_url")}
+									onClick={() => void copyUrl()}
+								>
+									<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+								</Button>
 							</dd>
+							<dt className="text-muted-foreground">
+								{m("plugins:plugins_add_server_auth")}
+							</dt>
+							<dd>{authLabel(m, plugin)}</dd>
+						</>
+					) : (
+						<>
+							<dt className="text-muted-foreground">
+								{m("plugins:plugins_website")}
+							</dt>
+							<dd>
+								<button
+									type="button"
+									className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
+									onClick={() => void openExternal(`https://${plugin.domain}`)}
+								>
+									{plugin.domain}
+									<HugeiconsIcon
+										icon={Link04Icon}
+										className="size-3 text-muted-foreground"
+									/>
+								</button>
+							</dd>
+							{plugin.category && (
+								<>
+									<dt className="text-muted-foreground">
+										{m("plugins:plugins_category")}
+									</dt>
+									<dd className="capitalize">
+										{plugin.category.replaceAll("-", " ")}
+									</dd>
+								</>
+							)}
 						</>
 					)}
 					<dt className="text-muted-foreground">
@@ -793,9 +1146,47 @@ function PluginDetail({
 					<dd>{m("plugins:plugins_access_value")}</dd>
 				</dl>
 			</section>
-			<p className="max-w-prose leading-5 text-muted-foreground">
-				{m("plugins:plugins_privacy")}
+			<p className="max-w-prose text-[11px] leading-4 text-muted-foreground">
+				{m(
+					organization
+						? "plugins:plugins_privacy_organization"
+						: "plugins:plugins_privacy",
+				)}
 			</p>
+			<AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
+				<AlertDialogPopup className="max-w-sm">
+					<AlertDialogHeader>
+						<AlertDialogTitle>
+							{m("plugins:plugins_remove_server_title", { name: plugin.name })}
+						</AlertDialogTitle>
+						<AlertDialogDescription>
+							{m("plugins:plugins_remove_server_description")}
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogClose
+							render={<Button variant="ghost" className="h-7" />}
+							disabled={removing}
+						>
+							{m("common:cancel")}
+						</AlertDialogClose>
+						<Button
+							variant="destructive"
+							className="h-7"
+							loading={removing}
+							onClick={() => {
+								setRemoving(true);
+								void onRemove().then((removed) => {
+									setRemoving(false);
+									if (removed) setConfirmRemove(false);
+								});
+							}}
+						>
+							{m("plugins:plugins_remove_server")}
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogPopup>
+			</AlertDialog>
 		</>
 	);
 }

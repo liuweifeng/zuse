@@ -1633,15 +1633,6 @@ export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 	error: SessionNotFoundError,
 });
 
-export const SessionMcpUpdateRpc = Rpc.make("session.mcp.update", {
-	payload: Schema.Struct({
-		sessionId: SessionId,
-		servers: Schema.Array(Schema.Unknown),
-	}),
-	success: Schema.Void,
-	error: SessionNotFoundError,
-});
-
 /** Ordered durable session-domain feed with cursor-based replay. */
 export const SessionEventsRpc = Rpc.make("session.events", {
 	payload: Schema.Struct({

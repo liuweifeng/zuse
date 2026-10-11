@@ -29,7 +29,6 @@ const settings = RepositorySettings.make({
 	environmentVariables: { WORKSPACE_VALUE: "personal" },
 	cloudEnvironmentVariables: {},
 	fileIncludeGlobs: "",
-	mcpDisabledServers: [],
 });
 
 beforeEach(() => {

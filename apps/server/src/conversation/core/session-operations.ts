@@ -797,21 +797,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			yield* ndjsonAppend(sessionId, persisted);
 		});
 
-	const updateMcpServers: ConversationOperations["updateMcpServers"] = (
-		sessionId,
-		servers,
-	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			const update = provider.updateMcpServers;
-			if (update === undefined) return;
-			yield* update(sessionId, servers).pipe(
-				Effect.catchTag("AgentSessionNotFoundError", () =>
-					Effect.fail(new SessionNotFoundError({ sessionId })),
-				),
-			);
-		});
-
 	const ensureSessionNotStarted = (sessionId: SessionId) =>
 		sql<{ readonly id: string }>`
       SELECT id FROM messages
@@ -959,7 +944,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		answerQuestion,
 		cancelQuestion,
 		respondToPlan,
-		updateMcpServers,
 		setWorktree,
 		setModel,
 		setProvider,

@@ -2,10 +2,10 @@
 
 Zuse embeds Executor v2 on Cloudflare, pinned to upstream commit
 `50bea37fe5d146701990901a878ea940c5012564`. The renderer never receives vendor tokens,
-client secrets, Executor settings, or user-editable server URLs.
+client secrets, API keys, Executor settings, or catalog server URLs.
 
-This integration exposes catalog plugins, account connection, discovery and tool
-calls. Schedules, workflows, codemode, webhooks, app UIs and user-authored code are
+This integration exposes catalog plugins, custom remote MCP servers, account
+connection, discovery and tool calls. It is the only way agents receive MCP tools. Schedules, workflows, codemode, webhooks, app UIs and user-authored code are
 not exposed. The existing renderer and local/cloud agent contracts are unchanged.
 
 ## Deployment
@@ -92,6 +92,31 @@ receive display metadata; endpoints stay server-owned.
 Changing an existing entry's name, endpoint, discovery URL or scopes changes its
 build source (see below). Existing connections to it then need reconnection.
 
+## Custom servers
+
+A workspace can add a remote MCP server by URL (`addServer`). Personal servers
+belong to the account; organization servers are added and removed by admins and
+used by every member and organization machine, like other organization
+connections. The definition (name, URL, optional key header) is sealed in the
+tenant's vault, because URLs can carry tokens, and loaded before the engine so
+lazy registration resolves `custom-<id>` the same way as catalog ids. Clients
+receive the name, host and the URL without its query string. A tenant keeps at
+most 25 servers.
+
+Auth is either detected like unhinted catalog entries (public or OAuth) or an
+API key sent in a named header on every request. Keys are checked with one
+`initialize` before they are saved (401/403 is
+`plugin_credentials_rejected`) and stored as an Executor `secrets` account, so
+each connection of a keyed server carries its own key and `connect` requires
+one. Transport headers (`host`, `content-type`, `accept`, `mcp-session-id`, …)
+are rejected. Key builds add `header` to the rendered source; catalog sources
+are unchanged.
+
+If the first connection fails, the server is not kept, so the user can fix the
+URL or key and retry. `removeServer` disconnects every connection to it,
+whoever made it, then deletes the definition; tools of a missing definition are
+never resolved.
+
 ## Outbound policy
 
 `plugin-egress.ts` is the single policy for MCP endpoints, OAuth metadata,
@@ -106,18 +131,20 @@ The feed's `auth.kind` (`oauth` or `none`) is used when present. Otherwise
 connecting sends one anonymous MCP `initialize` (10 s timeout, same policy):
 2xx means public, 401/403 means OAuth. The resolved auth is stored in the
 connection's engine reference, so restarts never re-probe. Connect failures
-remove the attempt and connection and return a stable `{ error }` code:
+remove the attempt and connection and return a `failed` attempt whose `error`
+is a stable `PluginConnectError` code, so the app can say what to fix:
 
 - `plugin_client_registration_unsupported`: the OAuth server has no dynamic
   client registration and needs a pre-registered client.
 - `plugin_auth_unsupported`: no usable OAuth metadata, or an unexpected probe
   status.
 - `plugin_unreachable`: the probe failed, timed out, or got 429/5xx.
+- `plugin_url_rejected`: a custom server URL outside the outbound policy.
+- `plugin_credentials_rejected`: the server refused the API key, or none was given.
+- `plugin_limit_reached`: too many connections or custom servers.
 - `plugin_operation_failed`: anything else.
 
-The desktop control-plane client currently maps every unknown 400 code to
-`CloudWorkspaceOpError` `invalid-request`; distinguishing these in the UI needs
-a contract change.
+Malformed requests and permission failures remain HTTP errors.
 
 ## OAuth return
 
@@ -178,6 +205,12 @@ MCP configuration in their process environment. Pi receives a temporary native
 tool extension with a revocable loopback credential, removed on teardown. No
 upstream tokens are installed in any agent runtime.
 
+The gateway is the only MCP surface agents get: Zuse no longer reads, lists or
+passes through the user's native MCP configs, and each driver suppresses its
+CLI's own MCP loading where the CLI offers a verified switch. The per-provider
+mechanisms and remaining gaps are in
+[ADR 0005](../adr/0005-agents-receive-mcp-only-through-zuse-gateway.md).
+
 ## Verification
 
 From `infra/api`:
@@ -190,6 +223,8 @@ bunx wrangler deploy --dry-run --outdir ../../.context/plugin-worker-build
 
 Worker tests exercise real workerd, SQLite, encryption, and the embedded SDK
 against deterministic upstream HTTP fixtures. They cover Worker restart,
+custom servers (public, OAuth and API key; URL and header policy; removal;
+organization sharing),
 subject/tenant isolation, discovery, calls, disconnect, OAuth PKCE and branded
 DCR, confirmation ownership, replay rejection, cancellation, multiple connections,
 token refresh, failed exchange cleanup, account removal, auth probing, lazy

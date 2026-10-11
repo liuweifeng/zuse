@@ -1,5 +1,4 @@
 import {
-	type McpServerConfig,
 	type Options,
 	type Query,
 	query,
@@ -36,7 +35,6 @@ import type {
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
-import type { ResolvedMcpServer } from "../user-mcp/types.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
 import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
@@ -50,37 +48,6 @@ import {
 import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
-
-/**
- * User MCP servers → SDK external-server config entries. Tools surface as
- * `mcp__<name>__<tool>` and fall through `claudeToolPermissionPolicy` to the permission
- * broker like any unlisted tool. With toolSearch on, the SDK defers their
- * tool schemas behind search (the default); with it off we pin
- * `alwaysLoad` so behavior matches the builtins.
- */
-const userMcpConfigEntries = (
-	servers: ReadonlyArray<ResolvedMcpServer>,
-	toolSearch: boolean,
-): Record<string, McpServerConfig> =>
-	Object.fromEntries(
-		servers.map((server): [string, McpServerConfig] => [
-			server.name,
-			server.transport === "stdio"
-				? {
-						type: "stdio",
-						command: server.command ?? "",
-						args: [...(server.args ?? [])],
-						env: { ...(server.env ?? {}) },
-						alwaysLoad: !toolSearch,
-					}
-				: {
-						type: server.transport,
-						url: server.url ?? "",
-						headers: { ...(server.headers ?? {}) },
-						alwaysLoad: !toolSearch,
-					},
-		]),
-	);
 
 /**
  * Live-only handle for one Claude SDK conversation. The orchestrator
@@ -1654,11 +1621,6 @@ export const startClaudeSession = (
 	resumeCursor: string | null = null,
 	browserSend: BrowserSend,
 	orchestrationTools: OrchestrationSessionTools | null = null,
-	// The user's native MCP servers (from ~/.claude.json / .mcp.json), already
-	// resolved server-side: env refs expanded, held OAuth tokens injected as
-	// Authorization headers. Spread into `Options.mcpServers` after the
-	// builtins, whose names win any collision.
-	userMcpServers: ReadonlyArray<ResolvedMcpServer> = [],
 	// SDK `skills` allowlist, resolved server-side from the user's disabled
 	// skills. `undefined` keeps the SDK default (every discovered skill);
 	// a list hides unlisted skills from the model and makes the Skill tool
@@ -1855,6 +1817,9 @@ export const startClaudeSession = (
 					...process.env,
 					...input.executionEnv,
 					...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
+					// Agents get MCP only through the Zuse gateway: keep the CLI
+					// from auto-fetching the user's claude.ai connectors.
+					ENABLE_CLAUDEAI_MCP_SERVERS: "false",
 				}),
 				cwd,
 			),
@@ -1878,17 +1843,12 @@ export const startClaudeSession = (
 			Object.keys(agentsMap).length > 0;
 		// `allowedTools` is a strict allow-list when set: anything not listed
 		// gets disallowed. So when sub-agents are on we must also list our
-		// in-process AskUserQuestion tool by its fully-qualified name, plus a
-		// server-level `mcp__<name>` entry per user MCP server (allowing the
-		// whole server keeps the list stable as its tool set changes).
+		// gateway server (allowing the whole server keeps the list stable as
+		// its tool set changes).
 		const subagentOptions = subagentsEffective
 			? ({
 					agents: agentsMap,
-					allowedTools: [
-						"Agent",
-						`mcp__${ZUSE_MCP_NAME}`,
-						...userMcpServers.map((server) => `mcp__${server.name}`),
-					],
+					allowedTools: ["Agent", `mcp__${ZUSE_MCP_NAME}`],
 				} as Pick<Options, "agents" | "allowedTools">)
 			: {};
 		// The SDK ships a built-in `AskUserQuestion` tool that opens its
@@ -1925,8 +1885,13 @@ export const startClaudeSession = (
 							(t) => !subagentOptions.allowedTools?.includes(t),
 						)),
 			],
+			// Agents receive MCP only through the Zuse gateway. Strict mode makes
+			// the CLI ignore every other MCP source (user/project/local config,
+			// `.mcp.json`, plugins, agent frontmatter, claude.ai connectors)
+			// without touching `settingSources`, so CLAUDE.md, skills, and hooks
+			// still load.
+			strictMcpConfig: true,
 			mcpServers: {
-				...userMcpConfigEntries(userMcpServers, input.toolSearch ?? false),
 				[ZUSE_MCP_NAME]: {
 					type: "http",
 					url: mcpGatewaySession.endpoint,

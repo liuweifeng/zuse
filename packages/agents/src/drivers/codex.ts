@@ -48,6 +48,7 @@ import {
 	CodexAppServerClient,
 	CodexAppServerRequestError,
 } from "./codex-app-server-client.ts";
+import { resolveCodexNativeMcpIsolation } from "./codex-native-mcp.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import { mapCodexRateLimits } from "./codex-usage-limits.ts";
 import {
@@ -1546,6 +1547,18 @@ export const startCodexSession = (
 					...input.executionEnv,
 				})
 			: { ...process.env, ...input.executionEnv };
+		// Agents get MCP only through the Zuse gateway; resolve which native
+		// Codex servers must be switched off before the app-server starts.
+		const nativeMcp = yield* Effect.promise(() =>
+			resolveCodexNativeMcpIsolation({
+				codexPath,
+				cwd,
+				...(input.providerAccountHome
+					? { accountHome: input.providerAccountHome }
+					: {}),
+				env: childEnv,
+			}),
+		);
 		let app = yield* Effect.tryPromise({
 			try: () =>
 				CodexAppServerClient.start({
@@ -1566,6 +1579,7 @@ export const startCodexSession = (
 						url: mcpGatewaySession.codexServerConfig.url,
 						bearerTokenEnvVar:
 							mcpGatewaySession.codexServerConfig.bearer_token_env_var,
+						disabledNativeServers: nativeMcp.processServerNames,
 					},
 					onNotification: (notification) => {
 						rawProtocolLog.append("server_notification", notification);
@@ -1666,6 +1680,7 @@ export const startCodexSession = (
 							env: Object.fromEntries(
 								fallback.env.map(({ name, value }) => [name, value]),
 							),
+							disabledNativeServers: nativeMcp.processServerNames,
 						},
 						onNotification: (notification) => {
 							rawProtocolLog.append("server_notification", notification);
@@ -1716,6 +1731,10 @@ export const startCodexSession = (
 			serviceName: "zuse",
 			developerInstructions: input.workspaceInstructions ?? null,
 			experimentalRawEvents: true,
+			// Project-scoped native MCP servers resolve per thread cwd.
+			...(Object.keys(nativeMcp.threadConfig).length > 0
+				? { config: nativeMcp.threadConfig }
+				: {}),
 		};
 
 		type ThreadResponse = {

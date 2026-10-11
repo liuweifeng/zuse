@@ -11,8 +11,8 @@ import {
 import { Effect, FileSystem, Layer } from "effect";
 import { toggleDisabledKey } from "../../config-store/disabled-keys.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
-import { withCodexApp } from "../../mcp/codex-status.ts";
 import { ensureBundledZuseSkillInstalled } from "../bundled-zuse-skill.ts";
+import { withCodexApp } from "../codex-app.ts";
 import { createCodexSkillBatcher } from "../codex-skill-batcher.ts";
 import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 import {
@@ -492,9 +492,8 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 					return enabled;
 				}
 				if (providerId === "codex") {
-					// Codex owns its skill config — write the native flag, like
-					// Codex MCP toggles. This affects Codex everywhere, including
-					// outside Zuse.
+					// Codex owns its skill config — write the native flag. This
+					// affects Codex everywhere, including outside Zuse.
 					const response = yield* withCodexApp(null, (app) =>
 						app.request<SkillsConfigWriteResponse>("skills/config/write", {
 							name,

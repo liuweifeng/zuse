@@ -1110,27 +1110,27 @@ function lineLengthOverLimit(str, lineWidth, indentLength) {
   return true;
 }
 function doubleQuotedString(value6, ctx) {
-  const json3 = JSON.stringify(value6);
+  const json4 = JSON.stringify(value6);
   if (ctx.options.doubleQuotedAsJSON)
-    return json3;
+    return json4;
   const { implicitKey } = ctx;
   const minMultiLineLength = ctx.options.doubleQuotedMinMultiLineLength;
   const indent = ctx.indent || (containsDocumentMarker(value6) ? "  " : "");
   let str = "";
   let start = 0;
-  for (let i = 0, ch = json3[i]; ch; ch = json3[++i]) {
-    if (ch === " " && json3[i + 1] === "\\" && json3[i + 2] === "n") {
-      str += json3.slice(start, i) + "\\ ";
+  for (let i = 0, ch = json4[i]; ch; ch = json4[++i]) {
+    if (ch === " " && json4[i + 1] === "\\" && json4[i + 2] === "n") {
+      str += json4.slice(start, i) + "\\ ";
       i += 1;
       start = i;
       ch = "\\";
     }
     if (ch === "\\")
-      switch (json3[i + 1]) {
+      switch (json4[i + 1]) {
         case "u":
           {
-            str += json3.slice(start, i);
-            const code = json3.substr(i + 2, 4);
+            str += json4.slice(start, i);
+            const code = json4.substr(i + 2, 4);
             switch (code) {
               case "0000":
                 str += "\\0";
@@ -1160,23 +1160,23 @@ function doubleQuotedString(value6, ctx) {
                 if (code.substr(0, 2) === "00")
                   str += "\\x" + code.substr(2);
                 else
-                  str += json3.substr(i, 6);
+                  str += json4.substr(i, 6);
             }
             i += 5;
             start = i + 1;
           }
           break;
         case "n":
-          if (implicitKey || json3[i + 2] === '"' || json3.length < minMultiLineLength) {
+          if (implicitKey || json4[i + 2] === '"' || json4.length < minMultiLineLength) {
             i += 1;
           } else {
-            str += json3.slice(start, i) + "\n\n";
-            while (json3[i + 2] === "\\" && json3[i + 3] === "n" && json3[i + 4] !== '"') {
+            str += json4.slice(start, i) + "\n\n";
+            while (json4[i + 2] === "\\" && json4[i + 3] === "n" && json4[i + 4] !== '"') {
               str += "\n";
               i += 2;
             }
             str += indent;
-            if (json3[i + 2] === " ")
+            if (json4[i + 2] === " ")
               str += "\\";
             i += 1;
             start = i + 1;
@@ -1186,7 +1186,7 @@ function doubleQuotedString(value6, ctx) {
           i += 1;
       }
   }
-  str = start ? str + json3.slice(start) : json3;
+  str = start ? str + json4.slice(start) : json4;
   return implicitKey ? str : foldFlowLines(str, indent, FOLD_QUOTED, getFoldOptions(ctx, false));
 }
 function singleQuotedString(value6, ctx) {
@@ -1220,9 +1220,9 @@ function blockString({ comment, type: type3, value: value6 }, ctx, onComment, on
     return quotedString(value6, ctx);
   }
   const indent = ctx.indent || (ctx.forceBlockIndent || containsDocumentMarker(value6) ? "  " : "");
-  const literal4 = blockQuote === "literal" ? true : blockQuote === "folded" || type3 === Scalar2.BLOCK_FOLDED ? false : type3 === Scalar2.BLOCK_LITERAL ? true : !lineLengthOverLimit(value6, lineWidth, indent.length);
+  const literal5 = blockQuote === "literal" ? true : blockQuote === "folded" || type3 === Scalar2.BLOCK_FOLDED ? false : type3 === Scalar2.BLOCK_LITERAL ? true : !lineLengthOverLimit(value6, lineWidth, indent.length);
   if (!value6)
-    return literal4 ? "|\n" : ">\n";
+    return literal5 ? "|\n" : ">\n";
   let chomp;
   let endStart;
   for (endStart = value6.length; endStart > 0; --endStart) {
@@ -1271,7 +1271,7 @@ function blockString({ comment, type: type3, value: value6 }, ctx, onComment, on
     if (onComment)
       onComment();
   }
-  if (!literal4) {
+  if (!literal5) {
     const foldedValue = value6.replace(/\n+/g, "\n$&").replace(/(?:^|\n)([\t ].*)(?:([\n\t ]*)\n(?![\n\t ]))?/g, "$1$2").replace(/\n+/g, `$&${indent}`);
     let literalFallback = false;
     const foldOptions = getFoldOptions(ctx, true);
@@ -3537,11 +3537,11 @@ var init_Document = __esm({
           throw new Error(`With a null YAML version, the { schema: Schema } option is required`);
       }
       // json & jsonArg are only used from toJSON()
-      toJS({ json: json3, jsonArg, mapAsMap, maxAliasCount, onAnchor, reviver } = {}) {
+      toJS({ json: json4, jsonArg, mapAsMap, maxAliasCount, onAnchor, reviver } = {}) {
         const ctx = {
           anchors: /* @__PURE__ */ new Map(),
           doc: this,
-          keep: !json3,
+          keep: !json4,
           mapAsMap: mapAsMap === true,
           mapKeyWarned: false,
           maxAliasCount: typeof maxAliasCount === "number" ? maxAliasCount : 100
@@ -7228,25 +7228,25 @@ var require_ipaddr = __commonJS({
         deprecatedTransitional: new RegExp(`^(?:::)(${ipv4Part}\\.${ipv4Part}\\.${ipv4Part}\\.${ipv4Part}(${zoneIndex})?)$`, "i"),
         transitional: new RegExp(`^((?:${ipv6Part})|(?:::)(?:${ipv6Part})?)${ipv4Part}\\.${ipv4Part}\\.${ipv4Part}\\.${ipv4Part}(${zoneIndex})?$`, "i")
       };
-      function expandIPv6(string9, parts2) {
-        if (string9.indexOf("::") !== string9.lastIndexOf("::")) {
+      function expandIPv6(string10, parts2) {
+        if (string10.indexOf("::") !== string10.lastIndexOf("::")) {
           return null;
         }
         let colonCount = 0;
         let lastColon = -1;
-        let zoneId = (string9.match(ipv6Regexes.zoneIndex) || [])[0];
+        let zoneId = (string10.match(ipv6Regexes.zoneIndex) || [])[0];
         let replacement, replacementCount;
         if (zoneId) {
           zoneId = zoneId.substring(1);
-          string9 = string9.replace(/%.+$/, "");
+          string10 = string10.replace(/%.+$/, "");
         }
-        while ((lastColon = string9.indexOf(":", lastColon + 1)) >= 0) {
+        while ((lastColon = string10.indexOf(":", lastColon + 1)) >= 0) {
           colonCount++;
         }
-        if (string9.substr(0, 2) === "::") {
+        if (string10.substr(0, 2) === "::") {
           colonCount--;
         }
-        if (string9.substr(-2, 2) === "::") {
+        if (string10.substr(-2, 2) === "::") {
           colonCount--;
         }
         if (colonCount > parts2) {
@@ -7257,15 +7257,15 @@ var require_ipaddr = __commonJS({
         while (replacementCount--) {
           replacement += "0:";
         }
-        string9 = string9.replace("::", replacement);
-        if (string9[0] === ":") {
-          string9 = string9.slice(1);
+        string10 = string10.replace("::", replacement);
+        if (string10[0] === ":") {
+          string10 = string10.slice(1);
         }
-        if (string9[string9.length - 1] === ":") {
-          string9 = string9.slice(0, -1);
+        if (string10[string10.length - 1] === ":") {
+          string10 = string10.slice(0, -1);
         }
         parts2 = (function() {
-          const ref = string9.split(":");
+          const ref = string10.split(":");
           const results = [];
           for (let i = 0; i < ref.length; i++) {
             results.push(parseInt(ref[i], 16));
@@ -7296,17 +7296,17 @@ var require_ipaddr = __commonJS({
         }
         return true;
       }
-      function parseIntAuto(string9) {
-        if (hexRegex.test(string9)) {
-          return parseInt(string9, 16);
+      function parseIntAuto(string10) {
+        if (hexRegex.test(string10)) {
+          return parseInt(string10, 16);
         }
-        if (string9[0] === "0" && !isNaN(parseInt(string9[1], 10))) {
-          if (octalRegex.test(string9)) {
-            return parseInt(string9, 8);
+        if (string10[0] === "0" && !isNaN(parseInt(string10[1], 10))) {
+          if (octalRegex.test(string10)) {
+            return parseInt(string10, 8);
           }
-          throw new Error(`ipaddr: cannot parse ${string9} as octal`);
+          throw new Error(`ipaddr: cannot parse ${string10} as octal`);
         }
-        return parseInt(string9, 10);
+        return parseInt(string10, 10);
       }
       function padPart(part, length) {
         while (part.length < length) {
@@ -7430,9 +7430,9 @@ var require_ipaddr = __commonJS({
         };
         return IPv4;
       })();
-      ipaddr2.IPv4.broadcastAddressFromCIDR = function(string9) {
+      ipaddr2.IPv4.broadcastAddressFromCIDR = function(string10) {
         try {
-          const cidr = this.parseCIDR(string9);
+          const cidr = this.parseCIDR(string10);
           const ipInterfaceOctets = cidr[0].toByteArray();
           const subnetMaskOctets = this.subnetMaskFromPrefixLength(cidr[1]).toByteArray();
           const octets = [];
@@ -7446,36 +7446,36 @@ var require_ipaddr = __commonJS({
           throw new Error("ipaddr: the address does not have IPv4 CIDR format");
         }
       };
-      ipaddr2.IPv4.isIPv4 = function(string9) {
-        return this.parser(string9) !== null;
+      ipaddr2.IPv4.isIPv4 = function(string10) {
+        return this.parser(string10) !== null;
       };
-      ipaddr2.IPv4.isValid = function(string9) {
+      ipaddr2.IPv4.isValid = function(string10) {
         try {
-          new this(this.parser(string9));
+          new this(this.parser(string10));
           return true;
         } catch (e) {
           return false;
         }
       };
-      ipaddr2.IPv4.isValidCIDR = function(string9) {
+      ipaddr2.IPv4.isValidCIDR = function(string10) {
         try {
-          this.parseCIDR(string9);
+          this.parseCIDR(string10);
           return true;
         } catch (e) {
           return false;
         }
       };
-      ipaddr2.IPv4.isValidFourPartDecimal = function(string9) {
-        if (ipaddr2.IPv4.isValid(string9) && string9.match(/^(0|[1-9]\d*)(\.(0|[1-9]\d*)){3}$/)) {
+      ipaddr2.IPv4.isValidFourPartDecimal = function(string10) {
+        if (ipaddr2.IPv4.isValid(string10) && string10.match(/^(0|[1-9]\d*)(\.(0|[1-9]\d*)){3}$/)) {
           return true;
         } else {
           return false;
         }
       };
-      ipaddr2.IPv4.networkAddressFromCIDR = function(string9) {
+      ipaddr2.IPv4.networkAddressFromCIDR = function(string10) {
         let cidr, i, ipInterfaceOctets, octets, subnetMaskOctets;
         try {
-          cidr = this.parseCIDR(string9);
+          cidr = this.parseCIDR(string10);
           ipInterfaceOctets = cidr[0].toByteArray();
           subnetMaskOctets = this.subnetMaskFromPrefixLength(cidr[1]).toByteArray();
           octets = [];
@@ -7489,16 +7489,16 @@ var require_ipaddr = __commonJS({
           throw new Error("ipaddr: the address does not have IPv4 CIDR format");
         }
       };
-      ipaddr2.IPv4.parse = function(string9) {
-        const parts2 = this.parser(string9);
+      ipaddr2.IPv4.parse = function(string10) {
+        const parts2 = this.parser(string10);
         if (parts2 === null) {
           throw new Error("ipaddr: string is not formatted like an IPv4 Address");
         }
         return new this(parts2);
       };
-      ipaddr2.IPv4.parseCIDR = function(string9) {
+      ipaddr2.IPv4.parseCIDR = function(string10) {
         let match10;
-        if (match10 = string9.match(/^(.+)\/(\d+)$/)) {
+        if (match10 = string10.match(/^(.+)\/(\d+)$/)) {
           const maskLength = parseInt(match10[2]);
           if (maskLength >= 0 && maskLength <= 32) {
             const parsed = [this.parse(match10[1]), maskLength];
@@ -7512,9 +7512,9 @@ var require_ipaddr = __commonJS({
         }
         throw new Error("ipaddr: string is not formatted like an IPv4 CIDR range");
       };
-      ipaddr2.IPv4.parser = function(string9) {
+      ipaddr2.IPv4.parser = function(string10) {
         let match10, part, value6;
-        if (match10 = string9.match(ipv4Regexes.fourOctet)) {
+        if (match10 = string10.match(ipv4Regexes.fourOctet)) {
           return (function() {
             const ref = match10.slice(1, 6);
             const results = [];
@@ -7524,7 +7524,7 @@ var require_ipaddr = __commonJS({
             }
             return results;
           })();
-        } else if (match10 = string9.match(ipv4Regexes.longValue)) {
+        } else if (match10 = string10.match(ipv4Regexes.longValue)) {
           value6 = parseIntAuto(match10[1]);
           if (value6 > 4294967295 || value6 < 0) {
             throw new Error("ipaddr: address outside defined range");
@@ -7537,7 +7537,7 @@ var require_ipaddr = __commonJS({
             }
             return results;
           })().reverse();
-        } else if (match10 = string9.match(ipv4Regexes.twoOctet)) {
+        } else if (match10 = string10.match(ipv4Regexes.twoOctet)) {
           return (function() {
             const ref = match10.slice(1, 4);
             const results = [];
@@ -7551,7 +7551,7 @@ var require_ipaddr = __commonJS({
             results.push(value6 & 255);
             return results;
           })();
-        } else if (match10 = string9.match(ipv4Regexes.threeOctet)) {
+        } else if (match10 = string10.match(ipv4Regexes.threeOctet)) {
           return (function() {
             const ref = match10.slice(1, 5);
             const results = [];
@@ -7756,29 +7756,29 @@ var require_ipaddr = __commonJS({
         };
         IPv6.prototype.toRFC5952String = function() {
           const regex2 = /((^|:)(0(:|$)){2,})/g;
-          const string9 = this.toNormalizedString();
+          const string10 = this.toNormalizedString();
           let bestMatchIndex = 0;
           let bestMatchLength = -1;
           let match10;
-          while (match10 = regex2.exec(string9)) {
+          while (match10 = regex2.exec(string10)) {
             if (match10[0].length > bestMatchLength) {
               bestMatchIndex = match10.index;
               bestMatchLength = match10[0].length;
             }
           }
           if (bestMatchLength < 0) {
-            return string9;
+            return string10;
           }
-          return `${string9.substring(0, bestMatchIndex)}::${string9.substring(bestMatchIndex + bestMatchLength)}`;
+          return `${string10.substring(0, bestMatchIndex)}::${string10.substring(bestMatchIndex + bestMatchLength)}`;
         };
         IPv6.prototype.toString = function() {
           return this.toRFC5952String();
         };
         return IPv6;
       })();
-      ipaddr2.IPv6.broadcastAddressFromCIDR = function(string9) {
+      ipaddr2.IPv6.broadcastAddressFromCIDR = function(string10) {
         try {
-          const cidr = this.parseCIDR(string9);
+          const cidr = this.parseCIDR(string10);
           const ipInterfaceOctets = cidr[0].toByteArray();
           const subnetMaskOctets = this.subnetMaskFromPrefixLength(cidr[1]).toByteArray();
           const octets = [];
@@ -7792,36 +7792,36 @@ var require_ipaddr = __commonJS({
           throw new Error(`ipaddr: the address does not have IPv6 CIDR format (${e})`);
         }
       };
-      ipaddr2.IPv6.isIPv6 = function(string9) {
-        return this.parser(string9) !== null;
+      ipaddr2.IPv6.isIPv6 = function(string10) {
+        return this.parser(string10) !== null;
       };
-      ipaddr2.IPv6.isValid = function(string9) {
-        if (typeof string9 === "string" && string9.indexOf(":") === -1) {
+      ipaddr2.IPv6.isValid = function(string10) {
+        if (typeof string10 === "string" && string10.indexOf(":") === -1) {
           return false;
         }
         try {
-          const addr = this.parser(string9);
+          const addr = this.parser(string10);
           new this(addr.parts, addr.zoneId);
           return true;
         } catch (e) {
           return false;
         }
       };
-      ipaddr2.IPv6.isValidCIDR = function(string9) {
-        if (typeof string9 === "string" && string9.indexOf(":") === -1) {
+      ipaddr2.IPv6.isValidCIDR = function(string10) {
+        if (typeof string10 === "string" && string10.indexOf(":") === -1) {
           return false;
         }
         try {
-          this.parseCIDR(string9);
+          this.parseCIDR(string10);
           return true;
         } catch (e) {
           return false;
         }
       };
-      ipaddr2.IPv6.networkAddressFromCIDR = function(string9) {
+      ipaddr2.IPv6.networkAddressFromCIDR = function(string10) {
         let cidr, i, ipInterfaceOctets, octets, subnetMaskOctets;
         try {
-          cidr = this.parseCIDR(string9);
+          cidr = this.parseCIDR(string10);
           ipInterfaceOctets = cidr[0].toByteArray();
           subnetMaskOctets = this.subnetMaskFromPrefixLength(cidr[1]).toByteArray();
           octets = [];
@@ -7835,16 +7835,16 @@ var require_ipaddr = __commonJS({
           throw new Error(`ipaddr: the address does not have IPv6 CIDR format (${e})`);
         }
       };
-      ipaddr2.IPv6.parse = function(string9) {
-        const addr = this.parser(string9);
+      ipaddr2.IPv6.parse = function(string10) {
+        const addr = this.parser(string10);
         if (addr.parts === null) {
           throw new Error("ipaddr: string is not formatted like an IPv6 Address");
         }
         return new this(addr.parts, addr.zoneId);
       };
-      ipaddr2.IPv6.parseCIDR = function(string9) {
+      ipaddr2.IPv6.parseCIDR = function(string10) {
         let maskLength, match10, parsed;
-        if (match10 = string9.match(/^(.+)\/(\d+)$/)) {
+        if (match10 = string10.match(/^(.+)\/(\d+)$/)) {
           maskLength = parseInt(match10[2]);
           if (maskLength >= 0 && maskLength <= 128) {
             parsed = [this.parse(match10[1]), maskLength];
@@ -7858,15 +7858,15 @@ var require_ipaddr = __commonJS({
         }
         throw new Error("ipaddr: string is not formatted like an IPv6 CIDR range");
       };
-      ipaddr2.IPv6.parser = function(string9) {
+      ipaddr2.IPv6.parser = function(string10) {
         let addr, i, match10, octet, octets, zoneId;
-        if (match10 = string9.match(ipv6Regexes.deprecatedTransitional)) {
+        if (match10 = string10.match(ipv6Regexes.deprecatedTransitional)) {
           return this.parser(`::ffff:${match10[1]}`);
         }
-        if (ipv6Regexes.native.test(string9)) {
-          return expandIPv6(string9, 8);
+        if (ipv6Regexes.native.test(string10)) {
+          return expandIPv6(string10, 8);
         }
-        if (match10 = string9.match(ipv6Regexes.transitional)) {
+        if (match10 = string10.match(ipv6Regexes.transitional)) {
           zoneId = match10[6] || "";
           addr = match10[1];
           if (!match10[1].endsWith("::")) {
@@ -7923,34 +7923,34 @@ var require_ipaddr = __commonJS({
           throw new Error("ipaddr: the binary input is neither an IPv6 nor IPv4 address");
         }
       };
-      ipaddr2.isValid = function(string9) {
-        return ipaddr2.IPv6.isValid(string9) || ipaddr2.IPv4.isValid(string9);
+      ipaddr2.isValid = function(string10) {
+        return ipaddr2.IPv6.isValid(string10) || ipaddr2.IPv4.isValid(string10);
       };
-      ipaddr2.isValidCIDR = function(string9) {
-        return ipaddr2.IPv6.isValidCIDR(string9) || ipaddr2.IPv4.isValidCIDR(string9);
+      ipaddr2.isValidCIDR = function(string10) {
+        return ipaddr2.IPv6.isValidCIDR(string10) || ipaddr2.IPv4.isValidCIDR(string10);
       };
-      ipaddr2.parse = function(string9) {
-        if (ipaddr2.IPv6.isValid(string9)) {
-          return ipaddr2.IPv6.parse(string9);
-        } else if (ipaddr2.IPv4.isValid(string9)) {
-          return ipaddr2.IPv4.parse(string9);
+      ipaddr2.parse = function(string10) {
+        if (ipaddr2.IPv6.isValid(string10)) {
+          return ipaddr2.IPv6.parse(string10);
+        } else if (ipaddr2.IPv4.isValid(string10)) {
+          return ipaddr2.IPv4.parse(string10);
         } else {
           throw new Error("ipaddr: the address has neither IPv6 nor IPv4 format");
         }
       };
-      ipaddr2.parseCIDR = function(string9) {
+      ipaddr2.parseCIDR = function(string10) {
         try {
-          return ipaddr2.IPv6.parseCIDR(string9);
+          return ipaddr2.IPv6.parseCIDR(string10);
         } catch (e) {
           try {
-            return ipaddr2.IPv4.parseCIDR(string9);
+            return ipaddr2.IPv4.parseCIDR(string10);
           } catch (e2) {
             throw new Error("ipaddr: the address has neither IPv6 nor IPv4 CIDR format");
           }
         }
       };
-      ipaddr2.process = function(string9) {
-        const addr = this.parse(string9);
+      ipaddr2.process = function(string10) {
+        const addr = this.parse(string10);
         if (addr.kind() === "ipv6" && addr.isIPv4MappedAddress()) {
           return addr.toIPv4Address();
         } else {
@@ -15179,7 +15179,7 @@ var require_content_type = __commonJS({
       if (!type3 || !TYPE_REGEXP.test(type3)) {
         throw new TypeError("invalid type");
       }
-      var string9 = type3;
+      var string10 = type3;
       if (parameters && typeof parameters === "object") {
         var param;
         var params = Object.keys(parameters).sort();
@@ -15188,16 +15188,16 @@ var require_content_type = __commonJS({
           if (!TOKEN_REGEXP.test(param)) {
             throw new TypeError("invalid parameter name");
           }
-          string9 += "; " + param + "=" + qstring(parameters[param]);
+          string10 += "; " + param + "=" + qstring(parameters[param]);
         }
       }
-      return string9;
+      return string10;
     }
-    function parse8(string9) {
-      if (!string9) {
+    function parse8(string10) {
+      if (!string10) {
         throw new TypeError("argument string is required");
       }
-      var header = typeof string9 === "object" ? getcontenttype(string9) : string9;
+      var header = typeof string10 === "object" ? getcontenttype(string10) : string10;
       if (typeof header !== "string") {
         throw new TypeError("argument string is required to be a string");
       }
@@ -23665,18 +23665,18 @@ var formatSegment = (values3) => {
   if (values3.size === 0) {
     return "*";
   }
-  const array3 = Array.from(values3);
+  const array4 = Array.from(values3);
   const segments = [];
   let index2 = 0;
-  while (index2 < array3.length) {
-    const start = array3[index2];
-    const step = array3[index2 + 1] - start;
-    if (index2 + 2 < array3.length && array3[index2 + 2] - array3[index2 + 1] === step) {
+  while (index2 < array4.length) {
+    const start = array4[index2];
+    const step = array4[index2 + 1] - start;
+    if (index2 + 2 < array4.length && array4[index2 + 2] - array4[index2 + 1] === step) {
       let end3 = index2 + 2;
-      while (end3 + 1 < array3.length && array3[end3 + 1] - array3[end3] === step) {
+      while (end3 + 1 < array4.length && array4[end3 + 1] - array4[end3] === step) {
         end3++;
       }
-      segments.push(`${start}-${array3[end3]}${step === 1 ? "" : `/${step}`}`);
+      segments.push(`${start}-${array4[end3]}${step === 1 ? "" : `/${step}`}`);
       index2 = end3 + 1;
     } else {
       segments.push(`${start}`);
@@ -25886,26 +25886,26 @@ var of2 = (a) => makeChunk({
   a
 });
 var fromIterable3 = (self2) => isChunk(self2) ? self2 : fromArrayUnsafe(fromIterable2(self2));
-var copyToArray = (self2, array3, initial) => {
+var copyToArray = (self2, array4, initial) => {
   switch (self2.backing._tag) {
     case "IArray": {
-      copy(self2.backing.array, 0, array3, initial, self2.length);
+      copy(self2.backing.array, 0, array4, initial, self2.length);
       break;
     }
     case "IConcat": {
-      copyToArray(self2.left, array3, initial);
-      copyToArray(self2.right, array3, initial + self2.left.length);
+      copyToArray(self2.left, array4, initial);
+      copyToArray(self2.right, array4, initial + self2.left.length);
       break;
     }
     case "ISingleton": {
-      array3[initial] = self2.backing.a;
+      array4[initial] = self2.backing.a;
       break;
     }
     case "ISlice": {
       let i = 0;
       let j = initial;
       while (i < self2.length) {
-        array3[j] = getUnsafe3(self2, i);
+        array4[j] = getUnsafe3(self2, i);
         i += 1;
         j += 1;
       }
@@ -26083,29 +26083,29 @@ var takeN = (self2, n) => {
   if (n <= 0 || !self2.head) return [];
   n = Math.min(n, self2.length);
   if (n === self2.length && self2.head?.offset === 0 && !self2.head.next) {
-    const array4 = self2.head.array;
+    const array5 = self2.head.array;
     clear(self2);
-    return array4;
+    return array5;
   }
-  const array3 = new Array(n);
+  const array4 = new Array(n);
   let index2 = 0;
   let chunk2 = self2.head;
   while (chunk2) {
     while (chunk2.offset < chunk2.array.length) {
-      array3[index2++] = chunk2.array[chunk2.offset];
+      array4[index2++] = chunk2.array[chunk2.offset];
       if (chunk2.mutable) chunk2.array[chunk2.offset] = void 0;
       chunk2.offset++;
       if (index2 === n) {
         self2.head = chunk2;
         self2.length -= n;
         if (self2.length === 0) clear(self2);
-        return array3;
+        return array4;
       }
     }
     chunk2 = chunk2.next;
   }
   clear(self2);
-  return array3;
+  return array4;
 };
 var takeNVoid = (self2, n) => {
   n = normalize(n);
@@ -26164,27 +26164,27 @@ var toArrayN = (self2, n) => {
   return out;
 };
 var filter6 = (self2, f) => {
-  const array3 = [];
+  const array4 = [];
   let chunk2 = self2.head;
   while (chunk2) {
     for (let i = chunk2.offset; i < chunk2.array.length; i++) {
       if (f(chunk2.array[i], i)) {
-        array3.push(chunk2.array[i]);
+        array4.push(chunk2.array[i]);
       }
     }
     chunk2 = chunk2.next;
   }
-  if (array3.length === 0) {
+  if (array4.length === 0) {
     clear(self2);
     return;
   }
   self2.head = self2.tail = {
-    array: array3,
+    array: array4,
     mutable: true,
     offset: 0,
     next: void 0
   };
-  self2.length = array3.length;
+  self2.length = array4.length;
 };
 var remove3 = (self2, value6) => filter6(self2, (v) => v !== value6);
 
@@ -27900,9 +27900,9 @@ var acquireUseRelease3 = (acquire, use, release2) => fromTransformBracket(fnUntr
   option6 = some3(value6);
   return yield* toTransform(use(value6))(upstream, scope3);
 }));
-var fromArray = (array3) => fromPull(sync4(() => {
+var fromArray = (array4) => fromPull(sync4(() => {
   let index2 = 0;
-  return suspend3(() => index2 >= array3.length ? done3() : succeed7(array3[index2++]));
+  return suspend3(() => index2 >= array4.length ? done3() : succeed7(array4[index2++]));
 }));
 var fromIteratorArray = (iterator, chunkSize = DefaultChunkSize) => {
   const size8 = normalizeNonEmpty(chunkSize);
@@ -28111,10 +28111,10 @@ var orElseIfEmpty = /* @__PURE__ */ dual(2, (self2, f) => fromTransform((upstrea
   return suspend3(() => currentPull ?? makePull);
 })));
 var flattenArray = (self2) => transformPull(self2, (pull) => {
-  let array3;
+  let array4;
   let index2 = 0;
   const pump = suspend3(function loop() {
-    if (array3 === void 0) {
+    if (array4 === void 0) {
       return flatMap5(pull, (array_) => {
         switch (array_.length) {
           case 0:
@@ -28122,15 +28122,15 @@ var flattenArray = (self2) => transformPull(self2, (pull) => {
           case 1:
             return succeed7(array_[0]);
           default: {
-            array3 = array_;
+            array4 = array_;
             return succeed7(array_[index2++]);
           }
         }
       });
     }
-    const next2 = array3[index2++];
-    if (index2 >= array3.length) {
-      array3 = void 0;
+    const next2 = array4[index2++];
+    if (index2 >= array4.length) {
+      array4 = void 0;
       index2 = 0;
     }
     return succeed7(next2);
@@ -28616,9 +28616,9 @@ var mkUint8Array = (self2) => map8(runFold(self2, () => ({
   const result6 = new Uint8Array(bytes2);
   let offset = 0;
   for (let i = 0; i < arrays.length; i++) {
-    const array3 = arrays[i];
-    result6.set(array3, offset);
-    offset += array3.length;
+    const array4 = arrays[i];
+    result6.set(array4, offset);
+    offset += array4.length;
   }
   return result6;
 });
@@ -29430,7 +29430,7 @@ var fromIteratorSucceed = (iterator, maxChunkSize) => fromChannel2(fromIteratorA
 var fromIterable4 = (iterable, options4) => Array.isArray(iterable) && options4?.chunkSize === void 0 ? fromArray2(iterable) : fromChannel2(fromIterableArray(iterable, options4?.chunkSize));
 var fromIterableEffect = (iterable) => unwrap3(map8(iterable, fromIterable4));
 var fromIterableEffectRepeat = (iterable) => flatMap7(fromEffectRepeat(iterable), fromIterable4);
-var fromArray2 = (array3) => isReadonlyArrayNonEmpty(array3) ? fromChannel2(succeed8(array3)) : empty8;
+var fromArray2 = (array4) => isReadonlyArrayNonEmpty(array4) ? fromChannel2(succeed8(array4)) : empty8;
 var fromArrayEffect = (effect2) => unwrap3(map8(effect2, fromArray2));
 var fromArrays = (...arrays) => fromChannel2(fromArray(filter3(arrays, isReadonlyArrayNonEmpty)));
 var fromQueue = (queue) => fromChannel2(fromQueueArray(queue));
@@ -34088,8 +34088,8 @@ var decodeJsonError = (input) => {
 };
 var encodeUnknownAsJson = (input) => {
   try {
-    const json3 = formatJson(input);
-    return json3 === void 0 ? format(input) : JSON.parse(json3);
+    const json4 = formatJson(input);
+    return json4 === void 0 ? format(input) : JSON.parse(json4);
   } catch {
     return format(input);
   }
@@ -34551,12 +34551,12 @@ var UniqueSymbol = class extends ASTNodeImpl {
 var Literal = class extends ASTNodeImpl {
   _tag = "Literal";
   literal;
-  constructor(literal4, annotations3, checks, encoding, context3) {
+  constructor(literal5, annotations3, checks, encoding, context3) {
     super(annotations3, checks, encoding, context3);
-    if (typeof literal4 === "number" && !globalThis.Number.isFinite(literal4)) {
-      throw new Error(`A numeric literal must be finite, got ${format(literal4)}`);
+    if (typeof literal5 === "number" && !globalThis.Number.isFinite(literal5)) {
+      throw new Error(`A numeric literal must be finite, got ${format(literal5)}`);
     }
-    this.literal = literal4;
+    this.literal = literal5;
   }
   /** @internal */
   getParser() {
@@ -35028,11 +35028,11 @@ var Objects = class extends ASTNodeImpl {
         return yield* fail7(new InvalidType(ast, input, options4));
       }
       compileMembers();
-      const record4 = input;
+      const record5 = input;
       const out = {};
       const state = {
         ast,
-        input: record4,
+        input: record5,
         out,
         issues: void 0,
         options: options4
@@ -35040,7 +35040,7 @@ var Objects = class extends ASTNodeImpl {
       const errorsAllOption = options4.errors === "all";
       const onExcessPropertyError = options4.onExcessProperty === "error";
       const concurrency = options4.concurrency === void 0 ? 1 : resolveConcurrency(options4.concurrency);
-      const indexKeys = indexCount && onExcessPropertyError ? ast.indexSignatures.map((index2) => getIndexSignatureKeys(record4, index2.parameter, options4)) : void 0;
+      const indexKeys = indexCount && onExcessPropertyError ? ast.indexSignatures.map((index2) => getIndexSignatureKeys(record5, index2.parameter, options4)) : void 0;
       if (onExcessPropertyError) {
         expectedKeysSet ??= new Set(expectedKeys);
         const coveredKeys = indexKeys ? new Set(expectedKeysSet) : expectedKeysSet;
@@ -35049,11 +35049,11 @@ var Objects = class extends ASTNodeImpl {
             for (const key2 of keys5) coveredKeys.add(key2);
           }
         }
-        const inputKeys = Reflect.ownKeys(record4);
+        const inputKeys = Reflect.ownKeys(record5);
         for (let i = 0; i < inputKeys.length; i++) {
           const key2 = inputKeys[i];
           if (!coveredKeys.has(key2)) {
-            const unexpected = new UnexpectedKey(ast, record4[key2], options4);
+            const unexpected = new UnexpectedKey(ast, record5[key2], options4);
             const issue2 = new Pointer([key2], unexpected);
             if (errorsAllOption) {
               if (state.issues) {
@@ -35078,7 +35078,7 @@ var Objects = class extends ASTNodeImpl {
         for (let i = 0; i < indexCount; i++) {
           const index2 = indexes[i];
           const parse8 = index2.is.parameter === string2 ? parseStringIndex : parseIndex;
-          const keys5 = indexKeys?.[i] ?? (index2.is.parameter === string2 ? Object.keys(record4) : getIndexSignatureKeys(record4, index2.is.parameter, options4));
+          const keys5 = indexKeys?.[i] ?? (index2.is.parameter === string2 ? Object.keys(record5) : getIndexSignatureKeys(record5, index2.is.parameter, options4));
           for (let j = 0; j < keys5.length; j++) {
             const eff = parse8(state, keys5[j], index2);
             if (!effectIsExit(eff)) yield* eff;
@@ -35089,7 +35089,7 @@ var Objects = class extends ASTNodeImpl {
         const keyPairs = empty2();
         for (let i = 0; i < indexCount; i++) {
           const index2 = indexes[i];
-          const keys5 = indexKeys?.[i] ?? (index2.is.parameter === string2 ? Object.keys(record4) : getIndexSignatureKeys(record4, index2.is.parameter, options4));
+          const keys5 = indexKeys?.[i] ?? (index2.is.parameter === string2 ? Object.keys(record5) : getIndexSignatureKeys(record5, index2.is.parameter, options4));
           for (let j = 0; j < keys5.length; j++) {
             keyPairs.push([keys5[j], index2]);
           }
@@ -35124,11 +35124,11 @@ var Objects = class extends ASTNodeImpl {
         return fail7(new InvalidType(ast, input, options4));
       }
       const props = compileMembers();
-      const record4 = input;
+      const record5 = input;
       const out = {};
       const state = {
         ast,
-        input: record4,
+        input: record5,
         out,
         issues: void 0,
         options: options4
@@ -35137,8 +35137,8 @@ var Objects = class extends ASTNodeImpl {
         for (let index2 = 0; index2 < props.length; index2++) {
           const property = props[index2];
           const name = property.name;
-          const hasKey = hasPropertySignature(record4, name);
-          const value6 = hasKey ? record4[name] : missing;
+          const hasKey = hasPropertySignature(record5, name);
+          const value6 = hasKey ? record5[name] : missing;
           const exit3 = property.parser(value6, options4);
           if (!effectIsExit(exit3)) {
             return resume(state, index2, exit3);
@@ -35243,10 +35243,10 @@ function structWithRest(ast, records) {
   let propertySignatures = ast.propertySignatures;
   let indexSignatures = ast.indexSignatures;
   let checks = ast.checks;
-  for (const record4 of records) {
-    propertySignatures = propertySignatures.concat(record4.propertySignatures);
-    indexSignatures = indexSignatures.concat(record4.indexSignatures);
-    checks = combineChecks(checks, record4.checks);
+  for (const record5 of records) {
+    propertySignatures = propertySignatures.concat(record5.propertySignatures);
+    indexSignatures = indexSignatures.concat(record5.indexSignatures);
+    checks = combineChecks(checks, record5.checks);
   }
   return new Objects(propertySignatures, indexSignatures, void 0, checks);
 }
@@ -35379,9 +35379,9 @@ function getIndex(types) {
     if (onlyLiterals) {
       if (isLiteral(encoded) || isUniqueSymbol(encoded)) {
         literalCandidates ??= /* @__PURE__ */ new Map();
-        const literal4 = isLiteral(encoded) ? encoded.literal : encoded.symbol;
-        let arr = literalCandidates.get(literal4);
-        if (!arr) literalCandidates.set(literal4, arr = []);
+        const literal5 = isLiteral(encoded) ? encoded.literal : encoded.symbol;
+        let arr = literalCandidates.get(literal5);
+        if (!arr) literalCandidates.set(literal5, arr = []);
         arr.push(a);
       } else {
         onlyLiterals = false;
@@ -35393,13 +35393,13 @@ function getIndex(types) {
       sentinelCandidateCount++;
       for (const {
         key: key2,
-        literal: literal4
+        literal: literal5
       } of sentinels) {
         let entry2 = bySentinel.get(key2);
         if (!entry2) bySentinel.set(key2, entry2 = [/* @__PURE__ */ new Map(), /* @__PURE__ */ new Set()]);
         entry2[1].add(i);
-        let indexes = entry2[0].get(literal4);
-        if (!indexes) entry2[0].set(literal4, indexes = /* @__PURE__ */ new Set());
+        let indexes = entry2[0].get(literal5);
+        if (!indexes) entry2[0].set(literal5, indexes = /* @__PURE__ */ new Set());
         indexes.add(i);
       }
     } else {
@@ -35414,8 +35414,8 @@ function getIndex(types) {
   } else if (bySentinel?.size === 1 && !otherwise) {
     const [key2, [byValue]] = bySentinel.entries().next().value;
     const candidates = byValue;
-    for (const [literal4, indexes] of byValue) {
-      candidates.set(literal4, Object.freeze(Array.from(indexes, (index3) => types[index3])));
+    for (const [literal5, indexes] of byValue) {
+      candidates.set(literal5, Object.freeze(Array.from(indexes, (index3) => types[index3])));
     }
     index2 = (input, isConstructor) => {
       if (isObjectKeyword(input)) {
@@ -35943,7 +35943,7 @@ function record(key2, value6) {
     literals,
     parameters: indexSignatures
   } = parseParameter(key2);
-  return new Objects(literals.map((literal4) => new PropertySignature(literal4, value6)), indexSignatures.map((parameter2) => new IndexSignature(parameter2, value6)));
+  return new Objects(literals.map((literal5) => new PropertySignature(literal5, value6)), indexSignatures.map((parameter2) => new IndexSignature(parameter2, value6)));
 }
 function isOptional(ast) {
   return ast.context?.isOptional ?? false;
@@ -36033,8 +36033,8 @@ function segmentTemplateLiteralParts(ast, input, options4) {
   const literals = ast.literals;
   const inputLength = input.length;
   for (let i = 0; i < literals.length; i++) {
-    const literal4 = literals[i];
-    if (literal4 && !input.includes(literal4)) return void 0;
+    const literal5 = literals[i];
+    if (literal5 && !input.includes(literal5)) return void 0;
   }
   if (ast.suffixLengths[0] > inputLength) return void 0;
   const out = new Array(parts2.length);
@@ -37763,7 +37763,7 @@ function toCodecArrayFromSingleASTStep(ast) {
 
 // node_modules/effect/dist/RegExp.js
 var RegExp2 = globalThis.RegExp;
-var escape2 = (string9) => string9.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&");
+var escape2 = (string10) => string10.replace(/[/\\^$*+?.()|[\]{}]/g, "\\$&");
 
 // node_modules/effect/dist/internal/errors.js
 function errorWithPath(message, path2) {
@@ -38102,23 +38102,23 @@ function compileJsonSchema(representations, rootPaths, references, options4) {
           type: "boolean"
         };
       case "Literal": {
-        const literal4 = representation.literal;
-        return typeof literal4 === "bigint" ? {
+        const literal5 = representation.literal;
+        return typeof literal5 === "bigint" ? {
           type: "string",
-          enum: [globalThis.String(literal4)]
+          enum: [globalThis.String(literal5)]
         } : {
-          type: typeof literal4,
-          enum: [literal4]
+          type: typeof literal5,
+          enum: [literal5]
         };
       }
       case "Enum": {
-        const types = representation.enums.map(([title, literal4], index2) => {
-          if (typeof literal4 === "number" && !globalThis.Number.isFinite(literal4)) {
-            throw errorWithPath(`Invalid numeric enum value ${globalThis.String(literal4)}`, [...path2, "enums", index2, 1]);
+        const types = representation.enums.map(([title, literal5], index2) => {
+          if (typeof literal5 === "number" && !globalThis.Number.isFinite(literal5)) {
+            throw errorWithPath(`Invalid numeric enum value ${globalThis.String(literal5)}`, [...path2, "enums", index2, 1]);
           }
           return {
-            type: typeof literal4,
-            enum: [literal4],
+            type: typeof literal5,
+            enum: [literal5],
             title
           };
         });
@@ -38754,7 +38754,7 @@ function toBaseStandardJSONSchemaV1(ast, target2) {
   throw new globalThis.Error(`Unsupported target: ${target2}`);
 }
 function toStandardJSONSchemaV1(self2) {
-  const jsonSchema2 = {
+  const jsonSchema3 = {
     input(options4) {
       return toBaseStandardJSONSchemaV1(self2.ast, options4.target);
     },
@@ -38766,7 +38766,7 @@ function toStandardJSONSchemaV1(self2) {
     const out = self2;
     if ("jsonSchema" in out["~standard"]) return out;
     Object.assign(out["~standard"], {
-      jsonSchema: jsonSchema2
+      jsonSchema: jsonSchema3
     });
     return out;
   }
@@ -38774,7 +38774,7 @@ function toStandardJSONSchemaV1(self2) {
     "~standard": {
       version: 1,
       vendor: "effect",
-      jsonSchema: jsonSchema2
+      jsonSchema: jsonSchema3
     }
   });
 }
@@ -39026,8 +39026,8 @@ function stringTreeToXml(value6, options4) {
           push(depth, `</${safe4}>`);
           return;
         }
-        const object3 = node2;
-        const keys5 = Object.keys(object3);
+        const object4 = node2;
+        const keys5 = Object.keys(object4);
         if (sortKeys) keys5.sort();
         if (keys5.length === 0) {
           push(depth, `<${safe4}${attrs}/>`);
@@ -39035,7 +39035,7 @@ function stringTreeToXml(value6, options4) {
         }
         push(depth, `<${safe4}${attrs}>`);
         for (const key2 of keys5) {
-          recur2(xml.parseTagName(key2).safe, object3[key2], depth + 1, key2);
+          recur2(xml.parseTagName(key2).safe, object4[key2], depth + 1, key2);
         }
         push(depth, `</${safe4}>`);
       } finally {
@@ -40045,11 +40045,11 @@ var fromReadonlyRecord = (cookies) => {
   return self2;
 };
 var fromIterable9 = (cookies) => {
-  const record4 = {};
+  const record5 = {};
   for (const cookie of cookies) {
-    assignProperty(record4, cookie.name, cookie);
+    assignProperty(record5, cookie.name, cookie);
   }
-  return fromReadonlyRecord(record4);
+  return fromReadonlyRecord(record5);
 };
 var fromSetCookie = (headers) => {
   const arrayHeaders = typeof headers === "string" ? [headers] : headers;
@@ -40252,7 +40252,7 @@ var expireCookieUnsafe = /* @__PURE__ */ dual((args2) => isCookies(args2[0]), (s
   expires: /* @__PURE__ */ new Date(0)
 }));
 var setAll = /* @__PURE__ */ dual(2, (self2, cookies) => {
-  const record4 = {
+  const record5 = {
     ...self2.cookies
   };
   for (const [name, value6, options4] of cookies) {
@@ -40260,9 +40260,9 @@ var setAll = /* @__PURE__ */ dual(2, (self2, cookies) => {
     if (isFailure2(result6)) {
       return result6;
     }
-    assignProperty(record4, name, result6.success);
+    assignProperty(record5, name, result6.success);
   }
-  return succeed2(fromReadonlyRecord(record4));
+  return succeed2(fromReadonlyRecord(record5));
 });
 var setAllUnsafe = /* @__PURE__ */ dual(2, (self2, cookies) => getOrThrow2(setAll(self2, cookies)));
 function serializeCookie(self2) {
@@ -40327,13 +40327,13 @@ function serializeCookie(self2) {
 }
 var toCookieHeader = (self2) => Object.values(self2.cookies).map((cookie) => `${cookie.name}=${cookie.valueEncoded}`).join("; ");
 var toRecord = (self2) => {
-  const record4 = {};
+  const record5 = {};
   const cookies = Object.values(self2.cookies);
   for (let index2 = 0; index2 < cookies.length; index2++) {
     const cookie = cookies[index2];
-    assignProperty(record4, cookie.name, cookie.value);
+    assignProperty(record5, cookie.name, cookie.value);
   }
-  return record4;
+  return record5;
 };
 var toSetCookieHeaders = (self2) => Object.values(self2.cookies).map(serializeCookie);
 function parseHeader(header) {
@@ -41338,13 +41338,13 @@ function flip5(schema8) {
     schema: schema8
   });
 }
-function Literal2(literal4) {
-  const out = make39(new Literal(literal4), {
-    literal: literal4,
+function Literal2(literal5) {
+  const out = make39(new Literal(literal5), {
+    literal: literal5,
     transform(to) {
       return out.pipe(decodeTo2(Literal2(to), {
         decode: transform(() => to),
-        encode: transform(() => literal4)
+        encode: transform(() => literal5)
       }));
     }
   });
@@ -41667,11 +41667,11 @@ function withDecodingDefaultType(defaultValue, options4) {
     return toType2(self2).pipe(withDecodingDefault(defaultValue, options4), encodeTo(optional2(self2)));
   };
 }
-function tag(literal4) {
-  return Literal2(literal4).pipe(withConstructorDefault2(succeed7(literal4)));
+function tag(literal5) {
+  return Literal2(literal5).pipe(withConstructorDefault2(succeed7(literal5)));
 }
-function tagDefaultOmit(literal4) {
-  return tag(literal4).pipe(withDecodingDefaultKey(succeed7(literal4), {
+function tagDefaultOmit(literal5) {
+  return tag(literal5).pipe(withDecodingDefaultKey(succeed7(literal5), {
     encodingStrategy: "omit"
   }));
 }
@@ -41704,16 +41704,16 @@ function toTaggedUnion(tag4) {
       }
       const sentinels = collectSentinels(ast);
       if (sentinels.length > 0) {
-        const literal4 = sentinels.find((s) => s.key === tag4)?.literal;
-        if (isPropertyKey(literal4)) {
-          const key2 = typeof literal4 === "number" ? globalThis.String(literal4) : literal4;
+        const literal5 = sentinels.find((s) => s.key === tag4)?.literal;
+        if (isPropertyKey(literal5)) {
+          const key2 = typeof literal5 === "number" ? globalThis.String(literal5) : literal5;
           if (discriminantKeys.has(key2)) {
-            throw new globalThis.Error(`Duplicate discriminant: ${globalThis.String(literal4)}`);
+            throw new globalThis.Error(`Duplicate discriminant: ${globalThis.String(literal5)}`);
           }
           discriminantKeys.add(key2);
-          discriminants.push(literal4);
-          assignProperty(cases, literal4, schema8);
-          assignProperty(guards, literal4, is(toType2(schema8)));
+          discriminants.push(literal5);
+          assignProperty(cases, literal5, schema8);
+          assignProperty(guards, literal5, is(toType2(schema8)));
           return;
         }
       }
@@ -42218,11 +42218,11 @@ function makeIsMultipleOf(options4) {
     });
   };
 }
-function encodeNumberPayload(number7) {
-  if (!globalThis.Number.isFinite(number7)) {
-    throw new globalThis.RangeError(`Expected a finite number, got ${format(number7)}`);
+function encodeNumberPayload(number8) {
+  if (!globalThis.Number.isFinite(number8)) {
+    throw new globalThis.RangeError(`Expected a finite number, got ${format(number8)}`);
   }
-  return number7;
+  return number8;
 }
 var isGreaterThan6 = /* @__PURE__ */ makeIsGreaterThan({
   order: Number2,
@@ -42955,11 +42955,11 @@ function Defect(options4) {
 }
 function ReadonlyMap(key2, value6) {
   const schema8 = declareConstructor()([key2, value6], ([key3, value7]) => {
-    const array3 = ArraySchema(Tuple3([key3, value7]));
+    const array4 = ArraySchema(Tuple3([key3, value7]));
     return (input, ast, options4) => {
       if (input instanceof globalThis.Map) {
-        return mapBothEager2(decodeUnknownEffect(array3)([...input], options4), {
-          onSuccess: (array4) => new globalThis.Map(array4),
+        return mapBothEager2(decodeUnknownEffect(array4)([...input], options4), {
+          onSuccess: (array5) => new globalThis.Map(array5),
           onFailure: (issue2) => makeCompositeAtKey(ast, "entries", issue2, input, options4)
         });
       }
@@ -42989,11 +42989,11 @@ function ReadonlyMap(key2, value6) {
 }
 function ReadonlySet(value6) {
   const schema8 = declareConstructor()([value6], ([value7]) => {
-    const array3 = ArraySchema(value7);
+    const array4 = ArraySchema(value7);
     return (input, ast, options4) => {
       if (input instanceof globalThis.Set) {
-        return mapBothEager2(decodeUnknownEffect(array3)([...input], options4), {
-          onSuccess: (array4) => new globalThis.Set(array4),
+        return mapBothEager2(decodeUnknownEffect(array4)([...input], options4), {
+          onSuccess: (array5) => new globalThis.Set(array5),
           onFailure: (issue2) => makeCompositeAtKey(ast, "values", issue2, input, options4)
         });
       }
@@ -44947,8 +44947,8 @@ function Finite2(name) {
 function Int2(name) {
   return schema(Int, name);
 }
-function Literal3(literal4, name) {
-  return schema(Literal2(literal4), name);
+function Literal3(literal5, name) {
+  return schema(Literal2(literal5), name);
 }
 function Literals2(literals, name) {
   return schema(Literals(literals), name);
@@ -44956,27 +44956,27 @@ function Literals2(literals, name) {
 function Array3(value6, pathOrOptions, options4) {
   const hasPath = isPath(pathOrOptions);
   const resolvedOptions = hasPath ? options4 : pathOrOptions;
-  const array3 = ArraySchema(value6);
+  const array4 = ArraySchema(value6);
   const separator = resolvedOptions?.separator ?? ",";
-  const arrayString = String6.pipe(decodeTo2(toCodecStringTree2(array3), {
+  const arrayString = String6.pipe(decodeTo2(toCodecStringTree2(array4), {
     decode: split2(resolvedOptions),
     encode: passthrough2({
       strict: false
     }).compose(transform((input) => input.join(separator)))
   }));
-  return schema(Union2([arrayString, array3]), hasPath ? pathOrOptions : void 0);
+  return schema(Union2([arrayString, array4]), hasPath ? pathOrOptions : void 0);
 }
 function Record3(key2, value6, pathOrOptions, options4) {
   const hasPath = isPath(pathOrOptions);
-  const record4 = Record2(key2, value6);
+  const record5 = Record2(key2, value6);
   const split4 = splitKeyValue2(hasPath ? options4 : pathOrOptions);
-  const recordString = String6.pipe(decodeTo2(toCodecStringTree2(record4), {
+  const recordString = String6.pipe(decodeTo2(toCodecStringTree2(record5), {
     decode: split4.decode,
     encode: passthrough2({
       strict: false
     }).compose(split4.encode)
   }));
-  return schema(Union2([record4, recordString]), hasPath ? pathOrOptions : void 0);
+  return schema(Union2([record5, recordString]), hasPath ? pathOrOptions : void 0);
 }
 function Boolean5(name) {
   return schema(BooleanLiterals, name);
@@ -45569,7 +45569,7 @@ var defaultTransforms = (transformer, nested2 = true) => {
       if (value6.length === 0 || value6[0].constructor !== Object) {
         return value6;
       }
-      return array3(value6);
+      return array4(value6);
     } else if (value6?.constructor === Object) {
       return transformObject(value6);
     }
@@ -45614,11 +45614,11 @@ var defaultTransforms = (transformer, nested2 = true) => {
     }
     return newRows;
   };
-  const array3 = nested2 ? transformArrayNested : transformArray;
+  const array4 = nested2 ? transformArrayNested : transformArray;
   return {
     value: transformValue,
     object: transformObject,
-    array: array3
+    array: array4
   };
 };
 var ATTR_DB_OPERATION_NAME = "db.operation.name";
@@ -47600,16 +47600,16 @@ function translateJsonSchemaMultiDocument(document, options4, singleRoot = false
         return value6 <= payload.maximum;
     }
   }
-  function satisfiesLiteral(representation, literal4) {
-    const value6 = literal4.literal;
+  function satisfiesLiteral(representation, literal5) {
+    const value6 = literal5.literal;
     if (representation._tag === "String" ? typeof value6 !== "string" : typeof value6 !== "number") {
       return false;
     }
     return representation.checks.every((check2) => satisfiesPrimitiveCheck(check2, value6));
   }
-  function intersectPrimitiveWithLiteral(primitive, literal4) {
-    const satisfies = primitive._tag === "Boolean" ? typeof literal4.literal === "boolean" : satisfiesLiteral(primitive, literal4);
-    return satisfies ? annotateIntersection(literal4, primitive, literal4) : never6;
+  function intersectPrimitiveWithLiteral(primitive, literal5) {
+    const satisfies = primitive._tag === "Boolean" ? typeof literal5.literal === "boolean" : satisfiesLiteral(primitive, literal5);
+    return satisfies ? annotateIntersection(literal5, primitive, literal5) : never6;
   }
   function intersectArrays(left, right, path2) {
     const elements = [];
@@ -47790,8 +47790,8 @@ function translateJsonSchemaMultiDocument(document, options4, singleRoot = false
   function literalValue(representation) {
     if (representation._tag === "Null") return null;
     if (representation._tag !== "Literal") return void 0;
-    const literal4 = representation.literal;
-    return typeof literal4 === "string" || typeof literal4 === "number" || typeof literal4 === "boolean" ? literal4 : void 0;
+    const literal5 = representation.literal;
+    return typeof literal5 === "string" || typeof literal5 === "number" || typeof literal5 === "boolean" ? literal5 : void 0;
   }
   function intersectLiteralUnions(left, right, path2) {
     if ((left.options?.mode ?? "anyOf") !== "anyOf" || (right.options?.mode ?? "anyOf") !== "anyOf") {
@@ -47974,8 +47974,8 @@ function translateJsonSchemaMultiDocument(document, options4, singleRoot = false
     let representation = translateType(schema8, path2);
     if (Object.hasOwn(schema8, "const")) {
       const constPath = [...path2, "const"];
-      const literal4 = makeJsonLiteral(schema8.const, constPath);
-      if (literal4 !== void 0) representation = intersect(representation, literal4, constPath);
+      const literal5 = makeJsonLiteral(schema8.const, constPath);
+      if (literal5 !== void 0) representation = intersect(representation, literal5, constPath);
     }
     if (Array.isArray(schema8.enum)) {
       const types = schema8.enum.map((value6, index2) => makeJsonLiteral(value6, [...path2, "enum", index2]) ?? unknown2);
@@ -48561,8 +48561,8 @@ function toCodeDocument(document) {
       case "Symbol":
         return makeCode("Schema.Symbol", "symbol");
       case "Literal": {
-        const literal4 = format(representation.literal);
-        return makeCode(`Schema.Literal(${literal4})`, literal4);
+        const literal5 = format(representation.literal);
+        return makeCode(`Schema.Literal(${literal5})`, literal5);
       }
       case "UniqueSymbol": {
         const identifier3 = addSymbol(representation.symbol);
@@ -48643,7 +48643,7 @@ function toCodeDocument(document) {
           return makeCode("Schema.Never", "never");
         }
         if (representation.options === void 0 && representation.types.every(isSimpleLiveLiteral)) {
-          const literals = representation.types.map((literal4) => format(literal4.literal));
+          const literals = representation.types.map((literal5) => format(literal5.literal));
           return literals.length === 1 ? makeCode(`Schema.Literal(${literals[0]})`, literals[0]) : makeCode(`Schema.Literals([${literals.join(", ")}])`, literals.join(" | "));
         }
         const types = representation.types.map((type3, index2) => recur2(type3, [...path2, "types", index2], includeTypeBrands));
@@ -48688,21 +48688,21 @@ var IsPatternPayload = /* @__PURE__ */ Struct4({
 }));
 var ErrorOptionsPayload = /* @__PURE__ */ declare((input) => {
   if (typeof input !== "object" || input === null) return false;
-  const object3 = input;
+  const object4 = input;
   const keys5 = globalThis.Object.keys(input);
-  return keys5.length > 0 && keys5.every((key2) => (key2 === "includeStack" || key2 === "excludeCause") && object3[key2] === true);
+  return keys5.length > 0 && keys5.every((key2) => (key2 === "includeStack" || key2 === "excludeCause") && object4[key2] === true);
 });
 var ErrorRepresentationPayload = /* @__PURE__ */ Union2([Null2, ErrorOptionsPayload]);
 var RedactedOptionsPayload = /* @__PURE__ */ declare((input) => {
   if (typeof input !== "object" || input === null) return false;
-  const object3 = input;
+  const object4 = input;
   const keys5 = globalThis.Object.keys(input);
   return keys5.length > 0 && keys5.every((key2) => {
     switch (key2) {
       case "label":
-        return typeof object3[key2] === "string";
+        return typeof object4[key2] === "string";
       case "disallowJsonEncode":
-        return object3[key2] === true;
+        return object4[key2] === true;
       default:
         return false;
     }
@@ -53089,7 +53089,7 @@ var codeByLiteral = {
   NotExtended: 510,
   NetworkAuthenticationRequired: 511
 };
-var fromLiteral = (literal4) => codeByLiteral[literal4];
+var fromLiteral = (literal5) => codeByLiteral[literal5];
 
 // node_modules/effect/dist/unstable/httpapi/HttpApiSchema.js
 var StreamSchemaTypeId = "~effect/httpapi/HttpApiSchema/Stream";
@@ -62081,7 +62081,7 @@ var defaultLabel = (tx2, owner, provider) => Effect_exports.gen(function* () {
   );
   const labels = new Set(rows.map((row) => row.label));
   let label = "Default";
-  for (let number7 = 2; labels.has(label); number7++) label = `Default ${number7}`;
+  for (let number8 = 2; labels.has(label); number8++) label = `Default ${number8}`;
   return label;
 });
 var ownedAccount = (db, input) => storedAccount(db, input.account, input.owner);
@@ -65843,8 +65843,8 @@ var addressLiteral = (host) => host.startsWith("[") && host.endsWith("]") ? host
 var isPrivateHostname = (hostname) => {
   const host = hostname.toLowerCase().replace(/\.$/, "");
   if (host === "") return true;
-  const literal4 = addressLiteral(host);
-  if (import_ipaddr.default.isValid(literal4)) return !isPublicAddress(literal4);
+  const literal5 = addressLiteral(host);
+  if (import_ipaddr.default.isValid(literal5)) return !isPublicAddress(literal5);
   if (host.startsWith("[")) return true;
   if (isLoopbackHostname(host)) return true;
   if (!host.includes(".")) return true;
@@ -66381,12 +66381,12 @@ async function processDiscoveryResponse(expectedIssuerIdentifier, response) {
     throw OPE('"response" is not a conform Authorization Server Metadata response (unexpected HTTP status code)', RESPONSE_IS_NOT_CONFORM, response);
   }
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.issuer, '"response" body "issuer" property', INVALID_RESPONSE, { body: json3 });
-  if (expected !== _nodiscoverycheck && new URL(json3.issuer).href !== expected.href) {
-    throw OPE('"response" body "issuer" property does not match the expected value', JSON_ATTRIBUTE_COMPARISON, { expected: expected.href, body: json3, attribute: "issuer" });
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.issuer, '"response" body "issuer" property', INVALID_RESPONSE, { body: json4 });
+  if (expected !== _nodiscoverycheck && new URL(json4.issuer).href !== expected.href) {
+    throw OPE('"response" body "issuer" property does not match the expected value', JSON_ATTRIBUTE_COMPARISON, { expected: expected.href, body: json4, attribute: "issuer" });
   }
-  return json3;
+  return json4;
 }
 function assertApplicationJson(response) {
   assertContentType(response, "application/json");
@@ -66959,25 +66959,25 @@ async function processPushedAuthorizationResponse(as5, client, response) {
   }
   await checkOAuthBodyError(response, 201, "Pushed Authorization Request Endpoint");
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.request_uri, '"response" body "request_uri" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.request_uri, '"response" body "request_uri" property', INVALID_RESPONSE, {
+    body: json4
   });
-  let expiresIn = typeof json3.expires_in !== "number" ? parseFloat(json3.expires_in) : json3.expires_in;
+  let expiresIn = typeof json4.expires_in !== "number" ? parseFloat(json4.expires_in) : json4.expires_in;
   assertNumber(expiresIn, true, '"response" body "expires_in" property', INVALID_RESPONSE, {
-    body: json3
+    body: json4
   });
-  json3.expires_in = expiresIn;
-  return json3;
+  json4.expires_in = expiresIn;
+  return json4;
 }
 async function parseOAuthResponseErrorBody(response) {
   if (response.status > 399 && response.status < 500) {
     assertReadableResponse(response);
     assertApplicationJson(response);
     try {
-      const json3 = await response.clone().json();
-      if (isJsonObject2(json3) && typeof json3.error === "string" && json3.error.length) {
-        return json3;
+      const json4 = await response.clone().json();
+      if (isJsonObject2(json4) && typeof json4.error === "string" && json4.error.length) {
+        return json4;
       }
     } catch {
     }
@@ -67187,32 +67187,32 @@ async function processUserInfoResponse(as5, client, expectedSubject, response, o
     throw OPE('"response" is not a conform UserInfo Endpoint response (unexpected HTTP status code)', RESPONSE_IS_NOT_CONFORM, response);
   }
   assertReadableResponse(response);
-  let json3;
+  let json4;
   if (getContentType2(response) === "application/jwt") {
     const { claims, jwt } = await validateJwt(await response.text(), checkSigningAlgorithm.bind(void 0, client.userinfo_signed_response_alg, as5.userinfo_signing_alg_values_supported, void 0), getClockSkew(client), getClockTolerance(client), options4?.[jweDecrypt]).then(validateOptionalAudience.bind(void 0, client.client_id)).then(validateOptionalIssuer.bind(void 0, as5));
     jwtRefs.set(response, jwt);
-    json3 = claims;
+    json4 = claims;
   } else {
     if (client.userinfo_signed_response_alg) {
       throw OPE("JWT UserInfo Response expected", JWT_USERINFO_EXPECTED, response);
     }
-    json3 = await getResponseJsonBody(response);
+    json4 = await getResponseJsonBody(response);
   }
-  assertString(json3.sub, '"response" body "sub" property', INVALID_RESPONSE, { body: json3 });
+  assertString(json4.sub, '"response" body "sub" property', INVALID_RESPONSE, { body: json4 });
   switch (expectedSubject) {
     case skipSubjectCheck:
       break;
     default:
       assertString(expectedSubject, '"expectedSubject"');
-      if (json3.sub !== expectedSubject) {
+      if (json4.sub !== expectedSubject) {
         throw OPE('unexpected "response" body "sub" property value', JSON_ATTRIBUTE_COMPARISON, {
           expected: expectedSubject,
-          body: json3,
+          body: json4,
           attribute: "sub"
         });
       }
   }
-  return json3;
+  return json4;
 }
 async function authenticatedRequest(as5, client, clientAuthentication, url2, body, headers, options4) {
   await clientAuthentication(as5, client, body, headers);
@@ -67280,32 +67280,32 @@ async function processGenericAccessTokenResponse(as5, client, response, addition
   }
   await checkOAuthBodyError(response, 200, "Token Endpoint");
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.access_token, '"response" body "access_token" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.access_token, '"response" body "access_token" property', INVALID_RESPONSE, {
+    body: json4
   });
-  assertString(json3.token_type, '"response" body "token_type" property', INVALID_RESPONSE, {
-    body: json3
+  assertString(json4.token_type, '"response" body "token_type" property', INVALID_RESPONSE, {
+    body: json4
   });
-  json3.token_type = json3.token_type.toLowerCase();
-  if (json3.expires_in !== void 0) {
-    let expiresIn = typeof json3.expires_in !== "number" ? parseFloat(json3.expires_in) : json3.expires_in;
+  json4.token_type = json4.token_type.toLowerCase();
+  if (json4.expires_in !== void 0) {
+    let expiresIn = typeof json4.expires_in !== "number" ? parseFloat(json4.expires_in) : json4.expires_in;
     assertNumber(expiresIn, true, '"response" body "expires_in" property', INVALID_RESPONSE, {
-      body: json3
+      body: json4
     });
-    json3.expires_in = expiresIn;
+    json4.expires_in = expiresIn;
   }
-  if (json3.refresh_token !== void 0) {
-    assertString(json3.refresh_token, '"response" body "refresh_token" property', INVALID_RESPONSE, {
-      body: json3
+  if (json4.refresh_token !== void 0) {
+    assertString(json4.refresh_token, '"response" body "refresh_token" property', INVALID_RESPONSE, {
+      body: json4
     });
   }
-  if (json3.scope !== void 0 && typeof json3.scope !== "string") {
-    throw OPE('"response" body "scope" property must be a string', INVALID_RESPONSE, { body: json3 });
+  if (json4.scope !== void 0 && typeof json4.scope !== "string") {
+    throw OPE('"response" body "scope" property must be a string', INVALID_RESPONSE, { body: json4 });
   }
-  if (json3.id_token !== void 0) {
-    assertString(json3.id_token, '"response" body "id_token" property', INVALID_RESPONSE, {
-      body: json3
+  if (json4.id_token !== void 0) {
+    assertString(json4.id_token, '"response" body "id_token" property', INVALID_RESPONSE, {
+      body: json4
     });
     const requiredClaims = [];
     if (client.require_auth_time === true) {
@@ -67318,18 +67318,18 @@ async function processGenericAccessTokenResponse(as5, client, response, addition
     if (additionalRequiredIdTokenClaims?.length) {
       requiredClaims.push(...additionalRequiredIdTokenClaims);
     }
-    const { claims, jwt } = await validateIdTokenClaims(as5, client, json3.id_token, requiredClaims, decryptFn);
+    const { claims, jwt } = await validateIdTokenClaims(as5, client, json4.id_token, requiredClaims, decryptFn);
     validateIdTokenAuthorizedParty(client, claims);
     validateIdTokenAuthTimeClaim(claims);
     jwtRefs.set(response, jwt);
-    idTokenClaims.set(json3, claims);
+    idTokenClaims.set(json4, claims);
   }
-  if (recognizedTokenTypes?.[json3.token_type] !== void 0) {
-    recognizedTokenTypes[json3.token_type](response, json3);
-  } else if (json3.token_type !== "dpop" && json3.token_type !== "bearer") {
-    throw new UnsupportedOperationError("unsupported `token_type` value", { cause: { body: json3 } });
+  if (recognizedTokenTypes?.[json4.token_type] !== void 0) {
+    recognizedTokenTypes[json4.token_type](response, json4);
+  } else if (json4.token_type !== "dpop" && json4.token_type !== "bearer") {
+    throw new UnsupportedOperationError("unsupported `token_type` value", { cause: { body: json4 } });
   }
-  return json3;
+  return json4;
 }
 function checkAuthenticationChallenges(response) {
   let challenges;
@@ -67628,7 +67628,7 @@ async function processIntrospectionResponse(as5, client, response, options4) {
     throw CodedTypeError('"response" must be an instance of Response', ERR_INVALID_ARG_TYPE);
   }
   await checkOAuthBodyError(response, 200, "Introspection Endpoint");
-  let json3;
+  let json4;
   if (getContentType2(response) === "application/token-introspection+jwt") {
     assertReadableResponse(response);
     const { claims, jwt } = await validateJwt(await response.text(), checkSigningAlgorithm.bind(void 0, client.introspection_signed_response_alg, as5.introspection_signing_alg_values_supported, "RS256"), getClockSkew(client), getClockTolerance(client), options4?.[jweDecrypt]).then(checkJwtType.bind(void 0, "token-introspection+jwt")).then(validatePresence.bind(void 0, ["aud", "iat", "iss"])).then(validateIssuer.bind(void 0, as5)).then(validateAudience.bind(void 0, client.client_id));
@@ -67638,17 +67638,17 @@ async function processIntrospectionResponse(as5, client, response, options4) {
         claims
       });
     }
-    json3 = claims.token_introspection;
+    json4 = claims.token_introspection;
   } else {
     assertReadableResponse(response);
-    json3 = await getResponseJsonBody(response);
+    json4 = await getResponseJsonBody(response);
   }
-  if (typeof json3.active !== "boolean") {
+  if (typeof json4.active !== "boolean") {
     throw OPE('"response" body "active" property must be a boolean', INVALID_RESPONSE, {
-      body: json3
+      body: json4
     });
   }
-  return json3;
+  return json4;
 }
 async function jwksRequest(as5, options4) {
   assertAs(as5);
@@ -67701,14 +67701,14 @@ async function processJwksResponse(response) {
     throw OPE('"response" is not a conform JSON Web Key Set response (unexpected HTTP status code)', RESPONSE_IS_NOT_CONFORM, response);
   }
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response, (response2) => assertContentTypes(response2, "application/json", "application/jwk-set+json"));
-  if (!Array.isArray(json3.keys)) {
-    throw OPE('"response" body "keys" property must be an array', INVALID_RESPONSE, { body: json3 });
+  const json4 = await getResponseJsonBody(response, (response2) => assertContentTypes(response2, "application/json", "application/jwk-set+json"));
+  if (!Array.isArray(json4.keys)) {
+    throw OPE('"response" body "keys" property must be an array', INVALID_RESPONSE, { body: json4 });
   }
-  if (!Array.prototype.every.call(json3.keys, isJsonObject2)) {
-    throw OPE('"response" body "keys" property members must be JWK formatted objects', INVALID_RESPONSE, { body: json3 });
+  if (!Array.prototype.every.call(json4.keys, isJsonObject2)) {
+    throw OPE('"response" body "keys" property members must be JWK formatted objects', INVALID_RESPONSE, { body: json4 });
   }
-  return json3;
+  return json4;
 }
 function supported(alg) {
   switch (alg) {
@@ -68192,28 +68192,28 @@ async function processDeviceAuthorizationResponse(as5, client, response) {
   }
   await checkOAuthBodyError(response, 200, "Device Authorization Endpoint");
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.device_code, '"response" body "device_code" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.device_code, '"response" body "device_code" property', INVALID_RESPONSE, {
+    body: json4
   });
-  assertString(json3.user_code, '"response" body "user_code" property', INVALID_RESPONSE, {
-    body: json3
+  assertString(json4.user_code, '"response" body "user_code" property', INVALID_RESPONSE, {
+    body: json4
   });
-  assertString(json3.verification_uri, '"response" body "verification_uri" property', INVALID_RESPONSE, { body: json3 });
-  let expiresIn = typeof json3.expires_in !== "number" ? parseFloat(json3.expires_in) : json3.expires_in;
+  assertString(json4.verification_uri, '"response" body "verification_uri" property', INVALID_RESPONSE, { body: json4 });
+  let expiresIn = typeof json4.expires_in !== "number" ? parseFloat(json4.expires_in) : json4.expires_in;
   assertNumber(expiresIn, true, '"response" body "expires_in" property', INVALID_RESPONSE, {
-    body: json3
+    body: json4
   });
-  json3.expires_in = expiresIn;
-  if (json3.verification_uri_complete !== void 0) {
-    assertString(json3.verification_uri_complete, '"response" body "verification_uri_complete" property', INVALID_RESPONSE, { body: json3 });
+  json4.expires_in = expiresIn;
+  if (json4.verification_uri_complete !== void 0) {
+    assertString(json4.verification_uri_complete, '"response" body "verification_uri_complete" property', INVALID_RESPONSE, { body: json4 });
   }
-  if (json3.interval !== void 0) {
-    assertNumber(json3.interval, false, '"response" body "interval" property', INVALID_RESPONSE, {
-      body: json3
+  if (json4.interval !== void 0) {
+    assertNumber(json4.interval, false, '"response" body "interval" property', INVALID_RESPONSE, {
+      body: json4
     });
   }
-  return json3;
+  return json4;
 }
 async function deviceCodeGrantRequest(as5, client, clientAuthentication, deviceCode, options4) {
   assertAs(as5);
@@ -68415,21 +68415,21 @@ async function processBackchannelAuthenticationResponse(as5, client, response) {
   }
   await checkOAuthBodyError(response, 200, "Backchannel Authentication Endpoint");
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.auth_req_id, '"response" body "auth_req_id" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.auth_req_id, '"response" body "auth_req_id" property', INVALID_RESPONSE, {
+    body: json4
   });
-  let expiresIn = typeof json3.expires_in !== "number" ? parseFloat(json3.expires_in) : json3.expires_in;
+  let expiresIn = typeof json4.expires_in !== "number" ? parseFloat(json4.expires_in) : json4.expires_in;
   assertNumber(expiresIn, true, '"response" body "expires_in" property', INVALID_RESPONSE, {
-    body: json3
+    body: json4
   });
-  json3.expires_in = expiresIn;
-  if (json3.interval !== void 0) {
-    assertNumber(json3.interval, false, '"response" body "interval" property', INVALID_RESPONSE, {
-      body: json3
+  json4.expires_in = expiresIn;
+  if (json4.interval !== void 0) {
+    assertNumber(json4.interval, false, '"response" body "interval" property', INVALID_RESPONSE, {
+      body: json4
     });
   }
-  return json3;
+  return json4;
 }
 async function backchannelAuthenticationGrantRequest(as5, client, clientAuthentication, authReqId, options4) {
   assertAs(as5);
@@ -68472,21 +68472,21 @@ async function processDynamicClientRegistrationResponse(response) {
   }
   await checkOAuthBodyError(response, 201, "Dynamic Client Registration Endpoint");
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.client_id, '"response" body "client_id" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.client_id, '"response" body "client_id" property', INVALID_RESPONSE, {
+    body: json4
   });
-  if (json3.client_secret !== void 0) {
-    assertString(json3.client_secret, '"response" body "client_secret" property', INVALID_RESPONSE, {
-      body: json3
+  if (json4.client_secret !== void 0) {
+    assertString(json4.client_secret, '"response" body "client_secret" property', INVALID_RESPONSE, {
+      body: json4
     });
   }
-  if (json3.client_secret) {
-    assertNumber(json3.client_secret_expires_at, true, '"response" body "client_secret_expires_at" property', INVALID_RESPONSE, {
-      body: json3
+  if (json4.client_secret) {
+    assertNumber(json4.client_secret_expires_at, true, '"response" body "client_secret_expires_at" property', INVALID_RESPONSE, {
+      body: json4
     });
   }
-  return json3;
+  return json4;
 }
 async function resourceDiscoveryRequest(resourceIdentifier, options4) {
   return performDiscovery(resourceIdentifier, "resourceIdentifier", (url2) => {
@@ -68506,27 +68506,27 @@ async function processResourceDiscoveryResponse(expectedResourceIdentifier, resp
     throw OPE('"response" is not a conform Resource Server Metadata response (unexpected HTTP status code)', RESPONSE_IS_NOT_CONFORM, response);
   }
   assertReadableResponse(response);
-  const json3 = await getResponseJsonBody(response);
-  assertString(json3.resource, '"response" body "resource" property', INVALID_RESPONSE, {
-    body: json3
+  const json4 = await getResponseJsonBody(response);
+  assertString(json4.resource, '"response" body "resource" property', INVALID_RESPONSE, {
+    body: json4
   });
-  if (expected !== _nodiscoverycheck && new URL(json3.resource).href !== expected.href) {
-    throw OPE('"response" body "resource" property does not match the expected value', JSON_ATTRIBUTE_COMPARISON, { expected: expected.href, body: json3, attribute: "resource" });
+  if (expected !== _nodiscoverycheck && new URL(json4.resource).href !== expected.href) {
+    throw OPE('"response" body "resource" property does not match the expected value', JSON_ATTRIBUTE_COMPARISON, { expected: expected.href, body: json4, attribute: "resource" });
   }
-  return json3;
+  return json4;
 }
 async function getResponseJsonBody(response, check2 = assertApplicationJson) {
-  let json3;
+  let json4;
   try {
-    json3 = await response.json();
+    json4 = await response.json();
   } catch (cause) {
     check2(response);
     throw OPE('failed to parse "response" body as JSON', PARSE_ERROR, cause);
   }
-  if (!isJsonObject2(json3)) {
-    throw OPE('"response" body must be a top level object', INVALID_RESPONSE, { body: json3 });
+  if (!isJsonObject2(json4)) {
+    throw OPE('"response" body must be a top level object', INVALID_RESPONSE, { body: json4 });
   }
-  return json3;
+  return json4;
 }
 var _nopkce = nopkce;
 var _nodiscoverycheck = /* @__PURE__ */ Symbol();
@@ -69261,9 +69261,9 @@ var sameIdentity = (server, saved, refreshed) => {
   return refreshed.sub === saved.idTokenSubject && refreshed.iss === issuer;
 };
 var jsonBody = (headers, body) => {
-  const json3 = new Headers(headers);
-  json3.set("content-type", "application/json");
-  return { headers: json3, body: JSON.stringify(Object.fromEntries(body)) };
+  const json4 = new Headers(headers);
+  json4.set("content-type", "application/json");
+  return { headers: json4, body: JSON.stringify(Object.fromEntries(body)) };
 };
 var makeOAuthProtocol = (options4) => {
   const transport = (telemetry, received, format13) => (url2, init2) => Effect_exports.runPromiseWith(telemetry.context)(
@@ -70695,11 +70695,11 @@ var makeDeclarations = (options4) => {
         const value6 = yield* evaluated;
         if (policy.retain !== void 0 && !policy.retain(value6))
           return { value: value6, kept: void 0 };
-        const json3 = yield* Schema_exports.encodeEffect(JsonText)(value6).pipe(
+        const json4 = yield* Schema_exports.encodeEffect(JsonText)(value6).pipe(
           Effect_exports.mapError(() => new StorageError())
         );
-        yield* options4.cache.set(id2, { kind: "json", app: state.app.id, at: started, json: json3 });
-        const kept2 = { at: started, json: json3, until: started + declarationFreshness.maxStaleMillis };
+        yield* options4.cache.set(id2, { kind: "json", app: state.app.id, at: started, json: json4 });
+        const kept2 = { at: started, json: json4, until: started + declarationFreshness.maxStaleMillis };
         return { value: value6, kept: kept2 };
       });
       const load = evaluation.pipe(
@@ -70896,9 +70896,9 @@ var makeListings = (options4) => {
         state.app.id,
         id2,
         Schema_exports.encodeEffect(ListingJson)(outcome3.listing).pipe(
-          Effect_exports.map((json3) => ({
+          Effect_exports.map((json4) => ({
             at: load2.started,
-            json: json3,
+            json: json4,
             until: load2.started + policy.maxStaleMillis
           }))
         )
@@ -73225,10 +73225,10 @@ var declarationId = (ast) => {
   const representation = ast.annotations?.["representation"];
   return typeof representation === "object" && representation !== null && "id" in representation && typeof representation.id === "string" ? representation.id : void 0;
 };
-var literalStorageType = (literal4) => {
-  switch (typeof literal4) {
+var literalStorageType = (literal5) => {
+  switch (typeof literal5) {
     case "number":
-      return Number.isInteger(literal4) ? "integer" : "decimal";
+      return Number.isInteger(literal5) ? "integer" : "decimal";
     case "bigint":
       return "bigint";
     case "boolean":
@@ -77518,7 +77518,7 @@ var makeSqlOrmAdapter = (schema8, config2) => {
         flatJoins.push({
           name: alias,
           idKey: target2.getIdColumn().ormName,
-          cleanup: (record4) => compiledJoinSelect.removeExtendedKeys(record4)
+          cleanup: (record5) => compiledJoinSelect.removeExtendedKeys(record5)
         });
         joinSelections.push(
           ...yield* mapSelect(compiledJoinSelect.result, target2, {
@@ -77586,24 +77586,24 @@ var makeSqlOrmAdapter = (schema8, config2) => {
       }
       const rows = yield* sql`${spaced2(parts2)}`;
       const records = yield* decodeRows(rows, table2, options4.computed);
-      for (const record4 of records) {
+      for (const record5 of records) {
         for (const join4 of flatJoins) {
-          const joined = record4[join4.name];
+          const joined = record5[join4.name];
           if (typeof joined !== "object" || joined === null) continue;
           const nested2 = joined;
-          if (nested2[join4.idKey] === null) record4[join4.name] = null;
+          if (nested2[join4.idKey] === null) record5[join4.name] = null;
           else join4.cleanup(nested2);
         }
       }
       yield* Effect_exports.forEach(subQueryJoins, (join4) => runSubQueryJoin(records, join4));
-      for (const record4 of records) compiledSelect.removeExtendedKeys(record4);
+      for (const record5 of records) compiledSelect.removeExtendedKeys(record5);
       return records;
     }
   );
   const runSubQueryJoin = Effect_exports.fnUntraced(function* (records, join4) {
     const { options: joinOptions, relation } = join4;
     if (joinOptions === false || records.length === 0) {
-      for (const record4 of records) record4[relation.name] = relation.type === "one" ? null : [];
+      for (const record5 of records) record5[relation.name] = relation.type === "one" ? null : [];
       return;
     }
     const selectBuilder = extendSelect(joinOptions.select);
@@ -77615,8 +77615,8 @@ var makeSqlOrmAdapter = (schema8, config2) => {
       const [left, right] = pair;
       const column2 = yield* columnOf(relation.table, right);
       const keys5 = /* @__PURE__ */ new Map();
-      for (const record4 of records) {
-        const value6 = record4[left];
+      for (const record5 of records) {
+        const value6 = record5[left];
         if (!isAbsentKey(value6)) keys5.set(keyPart(value6), value6);
       }
       for (const group of chunk([...keys5.values()], parameterBudget(provider))) {
@@ -77625,11 +77625,11 @@ var makeSqlOrmAdapter = (schema8, config2) => {
     } else {
       const branches = [];
       const seen = /* @__PURE__ */ new Set();
-      for (const record4 of records) {
+      for (const record5 of records) {
         const items = [];
         let containsNull = false;
         for (const [left, right] of relation.on) {
-          const value6 = record4[left];
+          const value6 = record5[left];
           if (isAbsentKey(value6)) {
             containsNull = true;
             break;
@@ -77644,7 +77644,7 @@ var makeSqlOrmAdapter = (schema8, config2) => {
         }
         if (containsNull) continue;
         const key2 = JSON.stringify(
-          relation.on.map(([left]) => record4[left]),
+          relation.on.map(([left]) => record5[left]),
           (_, v) => keyPart(v)
         );
         if (seen.has(key2)) continue;
@@ -77668,13 +77668,13 @@ var makeSqlOrmAdapter = (schema8, config2) => {
         })
       );
     }
-    for (const record4 of records) {
-      const matched = subRecords.filter((subRecord) => matches(record4, subRecord, relation));
-      record4[relation.name] = relation.type === "one" ? matched[0] ?? null : matched;
+    for (const record5 of records) {
+      const matched = subRecords.filter((subRecord) => matches(record5, subRecord, relation));
+      record5[relation.name] = relation.type === "one" ? matched[0] ?? null : matched;
     }
     for (const subRecord of subRecords) compiledSelect.removeExtendedKeys(subRecord);
   });
-  const matches = (record4, subRecord, relation) => relation.on.every(([left, right]) => Equal_exports.equals(record4[left], subRecord[right]));
+  const matches = (record5, subRecord, relation) => relation.on.every(([left, right]) => Equal_exports.equals(record5[left], subRecord[right]));
   const findFirstImpl = Effect_exports.fn("FumaDB.SqlQuery.findFirst")(
     function* (table2, options4) {
       const records = yield* findManyImpl(table2, { ...options4, limit: 1 });
@@ -78201,14 +78201,14 @@ var aesGcmCredentials = (secret, crypto3) => Effect_exports.gen(function* () {
         try: () => crypto3.getRandomValues(new Uint8Array(12)),
         catch: () => new CredentialsError()
       });
-      const json3 = yield* Schema_exports.encodeEffect(Schema_exports.fromJsonString(JsonObject3))(
+      const json4 = yield* Schema_exports.encodeEffect(Schema_exports.fromJsonString(JsonObject3))(
         Redacted_exports.value(fields)
       ).pipe(Effect_exports.mapError(() => new CredentialsError()));
       const encrypted = yield* Effect_exports.tryPromise({
         try: () => crypto3.subtle.encrypt(
           { name: "AES-GCM", iv: nonce, additionalData: new TextEncoder().encode(account) },
           key2,
-          new TextEncoder().encode(json3)
+          new TextEncoder().encode(json4)
         ),
         catch: () => new CredentialsError()
       });
@@ -79360,8 +79360,32 @@ function wrap(decoder3, optionalValue, field) {
     }
   };
 }
+function string6(options4 = {}) {
+  return wrap(
+    options4.minLength === void 0 ? Schema_exports.String : Schema_exports.String.check(Schema_exports.isMinLength(options4.minLength)),
+    false,
+    { kind: "string" }
+  );
+}
+function object(fields) {
+  const entries3 = Object.entries(fields).map(
+    ([key2, field]) => [key2, decoderOf(field)]
+  );
+  const decoder3 = entries3.length === 0 ? withJsonSchemaDocument(
+    // Native Struct({}) accepts every non-null value and retains undeclared fields.
+    Schema_exports.Record(Schema_exports.String, Schema_exports.Unknown).pipe(
+      Schema_exports.decodeTo(Schema_exports.Record(Schema_exports.String, Schema_exports.Never), {
+        decode: SchemaGetter_exports.transform(() => ({})),
+        encode: SchemaGetter_exports.transform((value6) => value6)
+      })
+    ),
+    { type: "object", properties: {}, additionalProperties: false }
+  ) : Schema_exports.Struct(Object.fromEntries(entries3));
+  return { ...wrap(decoder3, false), fields: Object.freeze({ ...fields }) };
+}
 var ImportedJsonSchema = /* @__PURE__ */ Symbol("apps.JsonSchemaDocument");
 var importedJsonSchema = (decoder3) => ImportedJsonSchema in decoder3 ? decoder3[ImportedJsonSchema] : void 0;
+var withJsonSchemaDocument = (decoder3, document) => Object.assign(decoder3, { [ImportedJsonSchema]: document });
 var once = (compute) => {
   let state;
   return () => (state ??= { value: compute() }).value;
@@ -79592,6 +79616,7 @@ var toPromise = (operation, signal2) => {
 };
 
 // packages/apps/src/implementation/provider.ts
+var secrets = (options4) => new SecretsMethod(options4);
 var oauth2 = (config2, response) => parse5(OAuth2Config, config2).pipe(Effect_exports.map((config3) => new OAuth2Method({ config: config3, response })));
 var defineProvider = ({
   health,
@@ -79925,6 +79950,7 @@ var unavailableStorage = {
 
 // packages/apps/src/index.ts
 var OAuth2AccessToken2 = wrap(OAuth2AccessToken, false);
+var secrets2 = (options4) => secrets({ label: options4.label, fields: decoderOf(options4.fields) });
 function oauth22(options4) {
   const { response = OAuth2AccessToken2, ...config2 } = options4;
   return Effect_exports.runSync(oauth2(config2, decoderOf(response)));
@@ -80059,9 +80085,9 @@ var accountFieldSecrets = (accounts2) => {
   return [...found].sort((a, b) => b.length - a.length);
 };
 var accountSecrets = (accounts2) => accountFieldSecrets(Redacted_exports.value(accounts2));
-var boundFailureMessage = (message, secrets2) => {
+var boundFailureMessage = (message, secrets3) => {
   let redacted = message;
-  for (const secret of secrets2) redacted = redacted.split(secret).join("[redacted]");
+  for (const secret of secrets3) redacted = redacted.split(secret).join("[redacted]");
   return redacted.length <= maxFailureMessageLength ? redacted : `${redacted.slice(0, maxFailureMessageLength - 1)}\u2026`;
 };
 var errorName = (error2) => (error2.name.length > 0 ? error2.name : "Error").slice(0, 128);
@@ -80071,13 +80097,13 @@ var ownMessage = (error2) => {
   return error2.message.length > 0 ? `${error2.message}${suffix}` : void 0;
 };
 var describeFailure = (error2) => error2 instanceof Error ? `${errorName(error2)}: ${ownMessage(error2) ?? "(no message)"}` : typeof error2 === "string" ? error2 : `A non-Error ${error2 === null ? "null" : typeof error2} value was thrown`;
-var failureDetail = (error2, secrets2) => {
+var failureDetail = (error2, secrets3) => {
   if (Schema_exports.is(AppDatabaseError)(error2))
     return {
       source: "storage",
       errorName: "AppDatabaseError",
       code: error2.reason,
-      message: boundFailureMessage(ownMessage(error2) ?? storageMessages[error2.reason], secrets2)
+      message: boundFailureMessage(ownMessage(error2) ?? storageMessages[error2.reason], secrets3)
     };
   if (Schema_exports.is(AppStorageUnavailable)(error2))
     return {
@@ -80104,11 +80130,11 @@ var failureDetail = (error2, secrets2) => {
       errorName: errorName(error2),
       message: boundFailureMessage(
         ownMessage(error2) ?? `${errorName(error2)} was thrown without a message.`,
-        secrets2
+        secrets3
       )
     };
   if (typeof error2 === "string")
-    return { source: "app", errorName: "string", message: boundFailureMessage(error2, secrets2) };
+    return { source: "app", errorName: "string", message: boundFailureMessage(error2, secrets3) };
   return {
     source: "app",
     errorName: typeof error2,
@@ -80117,12 +80143,12 @@ var failureDetail = (error2, secrets2) => {
 };
 
 // packages/apps/src/implementation/workflow-context.ts
-var workflowSafe = (work, secrets2) => work.pipe(
+var workflowSafe = (work, secrets3) => work.pipe(
   Effect_exports.catchCause((cause) => {
     if (Cause_exports.hasInterrupts(cause)) return Effect_exports.interrupt;
     const error2 = Cause_exports.squash(cause);
     if (Schema_exports.is(WorkflowFailure)(error2)) return Effect_exports.fail(error2);
-    const { errorName: errorName2, message } = failureDetail(error2, secrets2);
+    const { errorName: errorName2, message } = failureDetail(error2, secrets3);
     return Effect_exports.fail(
       new WorkflowFailure({
         reason: "execution",
@@ -80335,7 +80361,7 @@ var inputInvalid = (error2) => {
 var ApprovalDecision = Schema_exports.Literals(["approved", "denied", "user-approval"]);
 
 // packages/apps/src/implementation/router-catalog.ts
-var safeFailure = (error2, secrets2) => {
+var safeFailure = (error2, secrets3) => {
   const provider = parseProviderError(error2);
   if (Option_exports.isSome(provider)) return provider.value;
   const skills = Schema_exports.decodeUnknownOption(SkillLoadFailed)(error2);
@@ -80353,14 +80379,14 @@ var safeFailure = (error2, secrets2) => {
     return new McpError({ phase, reason, ...status2 === void 0 ? {} : { status: status2 } });
   }
   if (Schema_exports.is(HostDeclarationInvalid2)(error2)) return error2;
-  return new HostEvaluationFailed2(failureDetail(error2, secrets2));
+  return new HostEvaluationFailed2(failureDetail(error2, secrets3));
 };
-var sourced = (work, secrets2) => Effect_exports.suspend(work).pipe(
+var sourced = (work, secrets3) => Effect_exports.suspend(work).pipe(
   Effect_exports.catchCause(
-    (cause) => Cause_exports.hasInterrupts(cause) ? Effect_exports.interrupt : Effect_exports.fail(safeFailure(Cause_exports.squash(cause), secrets2))
+    (cause) => Cause_exports.hasInterrupts(cause) ? Effect_exports.interrupt : Effect_exports.fail(safeFailure(Cause_exports.squash(cause), secrets3))
   )
 );
-var routerMeta = (node2, secrets2) => node2.kind === "router" ? Effect_exports.succeed(node2.meta) : node2.meta === void 0 ? Effect_exports.succeed(node2.overrides) : sourced(node2.meta, secrets2).pipe(Effect_exports.map((meta2) => mergeMeta(meta2, node2.overrides)));
+var routerMeta = (node2, secrets3) => node2.kind === "router" ? Effect_exports.succeed(node2.meta) : node2.meta === void 0 ? Effect_exports.succeed(node2.overrides) : sourced(node2.meta, secrets3).pipe(Effect_exports.map((meta2) => mergeMeta(meta2, node2.overrides)));
 var routerSkillPrefix = "tools";
 var plainSegment = /^[a-z][a-z0-9]*$/;
 var pathHash = (path2) => {
@@ -80426,18 +80452,18 @@ var within = (wanted, path2) => [...wanted].flatMap(
 var readCatalog = (root, options4) => Effect_exports.gen(function* () {
   const tools = [];
   const routers = [];
-  const { wanted, secrets: secrets2 } = options4;
+  const { wanted, secrets: secrets3 } = options4;
   const readSource = (source, path2, relative) => Effect_exports.gen(function* () {
     const describe2 = source.describe;
     const [meta2, listed] = yield* Effect_exports.all(
       [
-        routerMeta(source, secrets2),
-        options4.summary && source.summaries !== void 0 ? sourced(source.summaries, secrets2) : relative !== void 0 && describe2 !== void 0 ? sourced(
+        routerMeta(source, secrets3),
+        options4.summary && source.summaries !== void 0 ? sourced(source.summaries, secrets3) : relative !== void 0 && describe2 !== void 0 ? sourced(
           () => Effect_exports.forEach(relative, (name) => describe2(name), {
             concurrency: "unbounded"
           }),
-          secrets2
-        ).pipe(Effect_exports.map((tools2) => tools2.filter((tool) => tool !== void 0))) : sourced(source.list, secrets2)
+          secrets3
+        ).pipe(Effect_exports.map((tools2) => tools2.filter((tool) => tool !== void 0))) : sourced(source.list, secrets3)
       ],
       { concurrency: "unbounded" }
     );
@@ -80752,7 +80778,7 @@ var makeCache = (host, background, scope3 = "shared", deadline) => {
     const decode5 = (value6) => Schema_exports.decodeUnknownEffect(options4.schema)(value6);
     const load = (lease) => Effect_exports.gen(function* () {
       const value6 = yield* options4.load.pipe(Effect_exports.flatMap(decode5));
-      const json3 = yield* Schema_exports.decodeUnknownEffect(Schema_exports.Json)(value6).pipe(
+      const json4 = yield* Schema_exports.decodeUnknownEffect(Schema_exports.Json)(value6).pipe(
         Effect_exports.mapError(() => new CacheError({ reason: "invalid" }))
       );
       const now3 = yield* Clock_exports.currentTimeMillis;
@@ -80761,7 +80787,7 @@ var makeCache = (host, background, scope3 = "shared", deadline) => {
         key: key2,
         lease,
         entry: {
-          value: json3,
+          value: json4,
           version: crypto.randomUUID(),
           freshUntil: now3 + fresh2,
           staleUntil: now3 + fresh2 + stale
@@ -80939,7 +80965,7 @@ function safe3(work, failure5) {
     )
   );
 }
-var evaluationSafe = (work, secrets2) => work.pipe(
+var evaluationSafe = (work, secrets3) => work.pipe(
   Effect_exports.catchCause((cause) => {
     if (Cause_exports.hasInterrupts(cause)) return Effect_exports.interrupt;
     const error2 = Cause_exports.squash(cause);
@@ -80947,16 +80973,16 @@ var evaluationSafe = (work, secrets2) => work.pipe(
     const skills = parseSkillLoadFailed(error2);
     const mcp = parseMcpError(error2);
     return Effect_exports.fail(
-      Option_exports.isSome(provider) ? provider.value : Option_exports.isSome(skills) ? skills.value : Option_exports.isSome(mcp) ? mcp.value : new HostEvaluationFailed2(failureDetail(error2, secrets2))
+      Option_exports.isSome(provider) ? provider.value : Option_exports.isSome(skills) ? skills.value : Option_exports.isSome(mcp) ? mcp.value : new HostEvaluationFailed2(failureDetail(error2, secrets3))
     );
   })
 );
-var declarationInvalid = (summary2, cause, secrets2 = []) => new HostDeclarationInvalid2({
+var declarationInvalid = (summary2, cause, secrets3 = []) => new HostDeclarationInvalid2({
   source: "app",
   errorName: "HostDeclarationInvalid",
   message: boundFailureMessage(
     cause === void 0 ? summary2 : `${summary2}: ${describeFailure(cause)}`,
-    secrets2
+    secrets3
   )
 });
 var declarationSafe = (work, summary2) => Effect_exports.suspend(work).pipe(
@@ -81112,8 +81138,8 @@ function dispatch(app3, request3, context3, signal2) {
           declarationInvalid("The app module's default export is not an app created by defineApp")
         );
       const native = toEffectApp(app3);
-      const secrets2 = accountSecrets(context3.accounts);
-      const storageFailure = (error2) => Effect_exports.fail(new HostOperationFailed2(failureDetail(error2, secrets2)));
+      const secrets3 = accountSecrets(context3.accounts);
+      const storageFailure = (error2) => Effect_exports.fail(new HostOperationFailed2(failureDetail(error2, secrets3)));
       const declared = yield* requirements(native.accounts, native.database?.schema);
       if (request3.operation === "requirements") {
         if (native.database !== void 0)
@@ -81223,7 +81249,7 @@ function dispatch(app3, request3, context3, signal2) {
         fetch: yield* invocationFetch(fetching.signal),
         elicit: makeElicit(delivery, invocationSignal)
       };
-      const definition = yield* evaluationSafe(native.evaluate(bound), secrets2).pipe(
+      const definition = yield* evaluationSafe(native.evaluate(bound), secrets3).pipe(
         Effect_exports.withSpan("app.evaluate")
       );
       if (request3.operation === "skills") {
@@ -81232,7 +81258,7 @@ function dispatch(app3, request3, context3, signal2) {
         ));
         const source = definition.dynamicSkills;
         const before = cacheCommands;
-        const dynamic = source === void 0 ? [] : yield* evaluationSafe(Effect_exports.suspend(source.list), secrets2).pipe(
+        const dynamic = source === void 0 ? [] : yield* evaluationSafe(Effect_exports.suspend(source.list), secrets3).pipe(
           Effect_exports.withSpan("app.skills.load")
         );
         const cached4 = source !== void 0 && cacheCommands > before;
@@ -81309,7 +81335,7 @@ function dispatch(app3, request3, context3, signal2) {
           }),
           invocationSignal
         );
-        const output = yield* workflowSafe(entry2.run(workflowContext, input2), secrets2);
+        const output = yield* workflowSafe(entry2.run(workflowContext, input2), secrets3);
         const outputSchema = entry2.output;
         const decoded = outputSchema === void 0 ? output : yield* safe3(
           () => Schema_exports.decodeUnknownEffect(outputSchema)(output),
@@ -81332,7 +81358,7 @@ function dispatch(app3, request3, context3, signal2) {
         const summary2 = request3.detail === "summary";
         const catalog = yield* readCatalog(definition.tools, {
           summary: summary2,
-          secrets: secrets2,
+          secrets: secrets3,
           ...request3.tools === void 0 ? {} : { wanted: new Set(request3.tools) },
           ...request3.scheduled === true ? { scheduled: true } : {},
           schedules: (name) => Object.entries(definition.schedules ?? {}).filter(([, schedule4]) => schedule4.tool === name).map(([name2, { tool: _tool, ...schedule4 }]) => ({ name: name2, ...schedule4 }))
@@ -81375,7 +81401,7 @@ function dispatch(app3, request3, context3, signal2) {
       }
       const toolName = request3.operation === "call" ? request3.tool : request3.name;
       const location2 = locate(definition.tools, toolName);
-      const tool = location2 === void 0 ? void 0 : location2.kind === "operation" ? location2.operation : yield* evaluationSafe(location2.source.resolve(location2.name), secrets2);
+      const tool = location2 === void 0 ? void 0 : location2.kind === "operation" ? location2.operation : yield* evaluationSafe(location2.source.resolve(location2.name), secrets3);
       if (tool === void 0)
         return yield* request3.operation === "call" ? new HostToolNotFound() : new HostOperationNotFound();
       const requested = request3.operation === "call" ? request3.kind : request3.operation === "query" ? "query" : "mutation";
@@ -81470,7 +81496,7 @@ function dispatch(app3, request3, context3, signal2) {
                 status: response.value.status,
                 message: response.value.message,
                 ...response.value.recovery === void 0 ? {} : { recovery: response.value.recovery }
-              }) : Option_exports.isSome(failure5) ? failure5.value : new HostOperationFailed2(failureDetail(error2, secrets2))
+              }) : Option_exports.isSome(failure5) ? failure5.value : new HostOperationFailed2(failureDetail(error2, secrets3))
             );
           }),
           Effect_exports.withSpan("app.operation.execute", {
@@ -81747,15 +81773,15 @@ var catalogCache = (options4) => Effect_exports.gen(function* () {
       summary2 = [];
       summaryBytes = 0;
     });
-    const json3 = (value6) => Schema_exports.decodeUnknownEffect(Schema_exports.fromJsonString(JsonObject2))(JSON.stringify(value6));
+    const json4 = (value6) => Schema_exports.decodeUnknownEffect(Schema_exports.fromJsonString(JsonObject2))(JSON.stringify(value6));
     for (const tool of tools) {
-      const value6 = yield* json3(tool);
+      const value6 = yield* json4(tool);
       const bytes2 = new TextEncoder().encode(JSON.stringify(value6)).byteLength;
       if (page.length && (page.length >= 64 || pageBytes + bytes2 > 5e5)) yield* pageOut();
       yield* append4({ key: part(revision, "tool", tool.name), value: value6 });
       page.push(value6);
       pageBytes += bytes2;
-      const brief = yield* json3(options4.summary.of(tool));
+      const brief = yield* json4(options4.summary.of(tool));
       const briefBytes = new TextEncoder().encode(JSON.stringify(brief)).byteLength;
       if (summary2.length && summaryBytes + briefBytes > 5e5) yield* summaryOut();
       summary2.push(brief);
@@ -81768,7 +81794,7 @@ var catalogCache = (options4) => Effect_exports.gen(function* () {
       revision,
       pages: pages2,
       summaries,
-      ...header === void 0 ? {} : { header: yield* json3(header) }
+      ...header === void 0 ? {} : { header: yield* json4(header) }
     };
   });
   const getOptions = {
@@ -81981,8 +82007,8 @@ function getEnumValues(entries3) {
   const values3 = Object.entries(entries3).filter(([k, _]) => numericValues.indexOf(+k) === -1).map(([_, v]) => v);
   return values3;
 }
-function joinValues(array3, separator = "|") {
-  return array3.map((val) => stringifyPrimitive(val)).join(separator);
+function joinValues(array4, separator = "|") {
+  return array4.map((val) => stringifyPrimitive(val)).join(separator);
 }
 function jsonStringifyReplacer(_, value6) {
   if (typeof value6 === "bigint")
@@ -82023,9 +82049,9 @@ function floatSafeRemainder(val, step) {
   return ratio - roundedRatio;
 }
 var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
-function defineLazy(object3, key2, getter) {
+function defineLazy(object4, key2, getter) {
   let value6 = void 0;
-  Object.defineProperty(object3, key2, {
+  Object.defineProperty(object4, key2, {
     get() {
       if (value6 === EVALUATING) {
         return void 0;
@@ -82037,7 +82063,7 @@ function defineLazy(object3, key2, getter) {
       return value6;
     },
     set(v) {
-      Object.defineProperty(object3, key2, {
+      Object.defineProperty(object4, key2, {
         value: v
         // configurable: true,
       });
@@ -83163,8 +83189,8 @@ function datetime(args2) {
 var anyString = /^[\s\S]{0,}$/;
 var bigint3 = /^-?\d+n?$/;
 var integer = /^-?\d+$/;
-var number4 = /^-?\d+(?:\.\d+)?$/;
-var boolean3 = /^(?:true|false)$/i;
+var number5 = /^-?\d+(?:\.\d+)?$/;
+var boolean4 = /^(?:true|false)$/i;
 var _null2 = /^null$/i;
 var lowercase = /^[^A-Z]*$/;
 var uppercase = /^[^a-z]*$/;
@@ -84028,7 +84054,7 @@ var $ZodJWT = /* @__PURE__ */ $constructor("$ZodJWT", (inst, def) => {
 });
 var $ZodNumber = /* @__PURE__ */ $constructor("$ZodNumber", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.pattern = number4;
+  inst._zod.pattern = number5;
   inst._zod.parse = (payload, _ctx) => {
     if (def.coerce)
       try {
@@ -84056,7 +84082,7 @@ var $ZodNumberFormat = /* @__PURE__ */ $constructor("$ZodNumberFormat", (inst, d
 });
 var $ZodBoolean = /* @__PURE__ */ $constructor("$ZodBoolean", (inst, def) => {
   $ZodType.init(inst, def);
-  inst._zod.pattern = boolean3;
+  inst._zod.pattern = boolean4;
   inst._zod.parse = (payload, _ctx) => {
     if (def.coerce)
       try {
@@ -84861,7 +84887,7 @@ var $ZodRecord = /* @__PURE__ */ $constructor("$ZodRecord", (inst, def) => {
         if (keyResult instanceof Promise) {
           throw new Error("Async schemas not supported in object keys currently");
         }
-        const checkNumericKey = typeof key2 === "string" && number4.test(key2) && keyResult.issues.length;
+        const checkNumericKey = typeof key2 === "string" && number5.test(key2) && keyResult.issues.length;
         if (checkNumericKey) {
           const retryResult = def.keyType._zod.run({ value: Number(key2), issues: [] }, ctx);
           if (retryResult instanceof Promise) {
@@ -86276,13 +86302,13 @@ function initializeContext(params) {
     external: params?.external ?? void 0
   };
 }
-function handleUnrepresentable(schema8, ctx, json3, params, message) {
+function handleUnrepresentable(schema8, ctx, json4, params, message) {
   const result6 = typeof ctx.unrepresentable === "function" ? ctx.unrepresentable({ zodSchema: schema8, path: params.path, message }) : ctx.unrepresentable;
   if (result6 === "any")
     return false;
   if (result6 === void 0 || result6 === "throw")
     throw new Error(message);
-  Object.assign(json3, result6);
+  Object.assign(json4, result6);
   return true;
 }
 function processSchema(schema8, ctx, _params = { path: [], schemaPath: [] }) {
@@ -86481,8 +86507,8 @@ function foldObjects(members2) {
   }
   const properties = {};
   const required4 = /* @__PURE__ */ new Set();
-  for (const object3 of objects) {
-    for (const key2 in object3.properties) {
+  for (const object4 of objects) {
+    for (const key2 in object4.properties) {
       if (Object.prototype.hasOwnProperty.call(properties, key2))
         continue;
       const parts2 = [];
@@ -86496,18 +86522,18 @@ function foldObjects(members2) {
       const merged = parts2.length === 1 ? parts2[0] : foldObjects(parts2) ?? { allOf: parts2 };
       assignProp(properties, key2, merged);
     }
-    for (const key2 of object3.required ?? [])
+    for (const key2 of object4.required ?? [])
       required4.add(key2);
   }
   const folded = { type: "object", properties };
   if (required4.size)
     folded.required = [...required4];
-  if (objects.every((object3) => object3.additionalProperties === false)) {
+  if (objects.every((object4) => object4.additionalProperties === false)) {
     folded.additionalProperties = false;
   } else {
     const constraints = [];
-    for (const object3 of objects) {
-      const constraint = undeclaredConstraint(object3);
+    for (const object4 of objects) {
+      const constraint = undeclaredConstraint(object4);
       if (constraint && !constraints.some((seen) => JSON.stringify(seen) === JSON.stringify(constraint)))
         constraints.push(constraint);
     }
@@ -86518,12 +86544,12 @@ function foldObjects(members2) {
   }
   return folded;
 }
-function foldIntersection(json3) {
-  const allOf = json3.allOf;
+function foldIntersection(json4) {
+  const allOf = json4.allOf;
   if (!Array.isArray(allOf) || allOf.length < 2)
     return;
   for (const key2 of FOLDABLE_KEYS)
-    if (key2 in json3)
+    if (key2 in json4)
       return;
   const unions = allOf.filter((m) => UNION_KEYS.some((k) => Array.isArray(m[k])));
   let folded = null;
@@ -86542,8 +86568,8 @@ function foldIntersection(json3) {
   }
   if (!folded)
     return;
-  delete json3.allOf;
-  assignProps(json3, folded);
+  delete json4.allOf;
+  assignProps(json4, folded);
 }
 function finalize2(ctx, schema8) {
   const root = ctx.seen.get(schema8);
@@ -86625,20 +86651,20 @@ function finalize2(ctx, schema8) {
     if (ctx.intersections.length) {
       const carriers = /* @__PURE__ */ new Map();
       for (const seen of ctx.seen.values()) {
-        for (const json3 of [seen.schema, seen.def]) {
-          const allOf = json3?.allOf;
+        for (const json4 of [seen.schema, seen.def]) {
+          const allOf = json4?.allOf;
           if (!Array.isArray(allOf))
             continue;
           const existing = carriers.get(allOf);
           if (existing)
-            existing.push(json3);
+            existing.push(json4);
           else
-            carriers.set(allOf, [json3]);
+            carriers.set(allOf, [json4]);
         }
       }
       for (const allOf of ctx.intersections) {
-        for (const json3 of carriers.get(allOf) ?? [])
-          foldIntersection(json3);
+        for (const json4 of carriers.get(allOf) ?? [])
+          foldIntersection(json4);
       }
     }
   }
@@ -86873,29 +86899,29 @@ var exactPatterns = /* @__PURE__ */ new Map([
 ]);
 var exactPattern = (p) => exactPatterns.get(p) ?? p;
 var stringProcessor = (schema8, ctx, _json, _params) => {
-  const json3 = _json;
-  json3.type = "string";
+  const json4 = _json;
+  json4.type = "string";
   const { minimum, maximum, format: format13, patterns, contentEncoding, laxFormat } = aggregateChecks(schema8);
   if (typeof minimum === "number")
-    json3.minLength = minimum;
+    json4.minLength = minimum;
   if (typeof maximum === "number")
-    json3.maxLength = maximum;
+    json4.maxLength = maximum;
   if (format13) {
-    json3.format = formatMap[format13] ?? format13;
-    if (json3.format === "")
-      delete json3.format;
+    json4.format = formatMap[format13] ?? format13;
+    if (json4.format === "")
+      delete json4.format;
     if (format13 === "time" || laxFormat) {
-      delete json3.format;
+      delete json4.format;
     }
   }
   if (contentEncoding)
-    json3.contentEncoding = contentEncoding;
+    json4.contentEncoding = contentEncoding;
   if (patterns && patterns.size > 0) {
     const patternList = [...patterns].map(exactPattern);
     if (patternList.length === 1)
-      json3.pattern = patternList[0].source;
+      json4.pattern = patternList[0].source;
     else if (patternList.length > 1) {
-      json3.allOf = [
+      json4.allOf = [
         ...patternList.map((regex2) => ({
           ...ctx.target === "draft-07" || ctx.target === "draft-04" || ctx.target === "openapi-3.0" ? { type: "string" } : {},
           pattern: regex2.source
@@ -86905,31 +86931,31 @@ var stringProcessor = (schema8, ctx, _json, _params) => {
   }
 };
 var numberProcessor = (schema8, ctx, _json, params) => {
-  const json3 = _json;
+  const json4 = _json;
   const { minimum, maximum, multipleOf, exclusiveMaximum, exclusiveMinimum, isInt: isInt2 } = aggregateChecks(schema8);
-  json3.type = isInt2 ? "integer" : "number";
+  json4.type = isInt2 ? "integer" : "number";
   const exMin = typeof exclusiveMinimum === "number" && exclusiveMinimum >= (minimum ?? Number.NEGATIVE_INFINITY);
   const exMax = typeof exclusiveMaximum === "number" && exclusiveMaximum <= (maximum ?? Number.POSITIVE_INFINITY);
   const legacy = ctx.target === "draft-04" || ctx.target === "openapi-3.0";
   if (exMin) {
     if (legacy) {
-      json3.minimum = exclusiveMinimum;
-      json3.exclusiveMinimum = true;
+      json4.minimum = exclusiveMinimum;
+      json4.exclusiveMinimum = true;
     } else {
-      json3.exclusiveMinimum = exclusiveMinimum;
+      json4.exclusiveMinimum = exclusiveMinimum;
     }
   } else if (typeof minimum === "number") {
-    json3.minimum = minimum;
+    json4.minimum = minimum;
   }
   if (exMax) {
     if (legacy) {
-      json3.maximum = exclusiveMaximum;
-      json3.exclusiveMaximum = true;
+      json4.maximum = exclusiveMaximum;
+      json4.exclusiveMaximum = true;
     } else {
-      json3.exclusiveMaximum = exclusiveMaximum;
+      json4.exclusiveMaximum = exclusiveMaximum;
     }
   } else if (typeof maximum === "number") {
-    json3.maximum = maximum;
+    json4.maximum = maximum;
   }
   if (multipleOf) {
     const divisors = /* @__PURE__ */ new Set();
@@ -86937,66 +86963,66 @@ var numberProcessor = (schema8, ctx, _json, params) => {
       if (Number.isFinite(divisor) && divisor !== 0)
         divisors.add(Math.abs(divisor));
       else
-        handleUnrepresentable(schema8, ctx, json3, params, `A multipleOf divisor of ${divisor} cannot be represented in JSON Schema`);
+        handleUnrepresentable(schema8, ctx, json4, params, `A multipleOf divisor of ${divisor} cannot be represented in JSON Schema`);
     }
     const [first, ...rest] = divisors;
     if (first !== void 0)
-      json3.multipleOf = first;
+      json4.multipleOf = first;
     if (rest.length)
-      json3.allOf = [...json3.allOf ?? [], ...rest.map((m) => ({ multipleOf: m }))];
+      json4.allOf = [...json4.allOf ?? [], ...rest.map((m) => ({ multipleOf: m }))];
   }
 };
-var booleanProcessor = (_schema, _ctx, json3, _params) => {
-  json3.type = "boolean";
+var booleanProcessor = (_schema, _ctx, json4, _params) => {
+  json4.type = "boolean";
 };
-var bigintProcessor = (schema8, ctx, json3, params) => {
-  handleUnrepresentable(schema8, ctx, json3, params, "BigInt cannot be represented in JSON Schema");
+var bigintProcessor = (schema8, ctx, json4, params) => {
+  handleUnrepresentable(schema8, ctx, json4, params, "BigInt cannot be represented in JSON Schema");
 };
-var nullProcessor = (_schema, ctx, json3, _params) => {
+var nullProcessor = (_schema, ctx, json4, _params) => {
   if (ctx.target === "openapi-3.0") {
-    json3.type = "string";
-    json3.nullable = true;
-    json3.enum = [null];
+    json4.type = "string";
+    json4.nullable = true;
+    json4.enum = [null];
   } else {
-    json3.type = "null";
+    json4.type = "null";
   }
 };
-var neverProcessor = (_schema, _ctx, json3, _params) => {
-  json3.not = {};
+var neverProcessor = (_schema, _ctx, json4, _params) => {
+  json4.not = {};
 };
 var anyProcessor = (_schema, _ctx, _json, _params) => {
 };
 var unknownProcessor = (_schema, _ctx, _json, _params) => {
 };
-var dateProcessor = (schema8, ctx, json3, params) => {
-  handleUnrepresentable(schema8, ctx, json3, params, "Date cannot be represented in JSON Schema");
+var dateProcessor = (schema8, ctx, json4, params) => {
+  handleUnrepresentable(schema8, ctx, json4, params, "Date cannot be represented in JSON Schema");
 };
-var enumProcessor = (schema8, _ctx, json3, _params) => {
+var enumProcessor = (schema8, _ctx, json4, _params) => {
   const def = schema8._zod.def;
   const values3 = getEnumValues(def.entries);
   if (values3.length === 0) {
-    json3.not = {};
+    json4.not = {};
     return;
   }
   if (values3.every((v) => typeof v === "number"))
-    json3.type = "number";
+    json4.type = "number";
   if (values3.every((v) => typeof v === "string"))
-    json3.type = "string";
-  json3.enum = values3;
+    json4.type = "string";
+  json4.enum = values3;
 };
-var literalProcessor = (schema8, ctx, json3, params) => {
+var literalProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   if (def.values.length === 0) {
-    json3.not = {};
+    json4.not = {};
     return;
   }
   const vals = [];
   for (const val of def.values) {
     if (val === void 0) {
-      if (handleUnrepresentable(schema8, ctx, json3, params, "Literal `undefined` cannot be represented in JSON Schema"))
+      if (handleUnrepresentable(schema8, ctx, json4, params, "Literal `undefined` cannot be represented in JSON Schema"))
         return;
     } else if (typeof val === "bigint") {
-      if (handleUnrepresentable(schema8, ctx, json3, params, "BigInt literals cannot be represented in JSON Schema"))
+      if (handleUnrepresentable(schema8, ctx, json4, params, "BigInt literals cannot be represented in JSON Schema"))
         return;
       vals.push(Number(val));
     } else {
@@ -87006,40 +87032,40 @@ var literalProcessor = (schema8, ctx, json3, params) => {
   if (vals.length === 0) {
   } else if (vals.length === 1) {
     const val = vals[0];
-    json3.type = val === null ? "null" : typeof val;
+    json4.type = val === null ? "null" : typeof val;
     if (ctx.target === "draft-04" || ctx.target === "openapi-3.0") {
-      json3.enum = [val];
+      json4.enum = [val];
     } else {
-      json3.const = val;
+      json4.const = val;
     }
   } else {
     if (vals.every((v) => typeof v === "number"))
-      json3.type = "number";
+      json4.type = "number";
     if (vals.every((v) => typeof v === "string"))
-      json3.type = "string";
+      json4.type = "string";
     if (vals.every((v) => typeof v === "boolean"))
-      json3.type = "boolean";
+      json4.type = "boolean";
     if (vals.every((v) => v === null))
-      json3.type = "null";
-    json3.enum = vals;
+      json4.type = "null";
+    json4.enum = vals;
   }
 };
-var customProcessor = (schema8, ctx, json3, params) => {
-  handleUnrepresentable(schema8, ctx, json3, params, "Custom types cannot be represented in JSON Schema");
+var customProcessor = (schema8, ctx, json4, params) => {
+  handleUnrepresentable(schema8, ctx, json4, params, "Custom types cannot be represented in JSON Schema");
 };
-var transformProcessor = (schema8, ctx, json3, params) => {
-  handleUnrepresentable(schema8, ctx, json3, params, "Transforms cannot be represented in JSON Schema");
+var transformProcessor = (schema8, ctx, json4, params) => {
+  handleUnrepresentable(schema8, ctx, json4, params, "Transforms cannot be represented in JSON Schema");
 };
 var arrayProcessor = (schema8, ctx, _json, params) => {
-  const json3 = _json;
+  const json4 = _json;
   const def = schema8._zod.def;
   const { minimum, maximum } = aggregateChecks(schema8);
   if (typeof minimum === "number")
-    json3.minItems = minimum;
+    json4.minItems = minimum;
   if (typeof maximum === "number")
-    json3.maxItems = maximum;
-  json3.type = "array";
-  json3.items = processSchema(def.element, ctx, {
+    json4.maxItems = maximum;
+  json4.type = "array";
+  json4.items = processSchema(def.element, ctx, {
     ...params,
     path: [...params.path, "items"]
   });
@@ -87055,17 +87081,17 @@ function inputOptin(schema8) {
   return schema8._zod.optin;
 }
 var objectProcessor = (schema8, ctx, _json, params) => {
-  const json3 = _json;
+  const json4 = _json;
   const def = schema8._zod.def;
   const shape = def.shape;
   const symbolKeys = Object.getOwnPropertySymbols(shape);
-  if (symbolKeys.length && handleUnrepresentable(schema8, ctx, json3, params, "Symbol keys cannot be represented in JSON Schema")) {
+  if (symbolKeys.length && handleUnrepresentable(schema8, ctx, json4, params, "Symbol keys cannot be represented in JSON Schema")) {
     return;
   }
-  json3.type = "object";
-  json3.properties = {};
+  json4.type = "object";
+  json4.properties = {};
   for (const key2 in shape) {
-    assignProp(json3.properties, key2, processSchema(shape[key2], ctx, {
+    assignProp(json4.properties, key2, processSchema(shape[key2], ctx, {
       ...params,
       path: [...params.path, "properties", key2]
     }));
@@ -87078,21 +87104,21 @@ var objectProcessor = (schema8, ctx, _json, params) => {
     }
   }
   if (requiredKeys.length > 0) {
-    json3.required = requiredKeys;
+    json4.required = requiredKeys;
   }
   if (def.catchall?._zod.def.type === "never") {
-    json3.additionalProperties = false;
+    json4.additionalProperties = false;
   } else if (!def.catchall) {
     if (ctx.io === "output")
-      json3.additionalProperties = false;
+      json4.additionalProperties = false;
   } else if (def.catchall) {
-    json3.additionalProperties = processSchema(def.catchall, ctx, {
+    json4.additionalProperties = processSchema(def.catchall, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
   }
 };
-var unionProcessor = (schema8, ctx, json3, params) => {
+var unionProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   const isExclusive = def.inclusive === false;
   const options4 = def.options.map((x, i) => processSchema(x, ctx, {
@@ -87100,12 +87126,12 @@ var unionProcessor = (schema8, ctx, json3, params) => {
     path: [...params.path, isExclusive ? "oneOf" : "anyOf", i]
   }));
   if (isExclusive) {
-    json3.oneOf = options4;
+    json4.oneOf = options4;
   } else {
-    json3.anyOf = options4;
+    json4.anyOf = options4;
   }
 };
-var intersectionProcessor = (schema8, ctx, json3, params) => {
+var intersectionProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   const a = processSchema(def.left, ctx, {
     ...params,
@@ -87120,34 +87146,34 @@ var intersectionProcessor = (schema8, ctx, json3, params) => {
     ...isSimpleIntersection(a) ? a.allOf : [a],
     ...isSimpleIntersection(b) ? b.allOf : [b]
   ];
-  json3.allOf = allOf;
+  json4.allOf = allOf;
   ctx.intersections.push(allOf);
 };
-function stringifyKeyNames(bySchema, json3, visited) {
-  if (json3.$ref) {
-    if (visited.has(json3))
-      return json3;
-    visited.add(json3);
-    const def = bySchema.get(json3)?.def;
+function stringifyKeyNames(bySchema, json4, visited) {
+  if (json4.$ref) {
+    if (visited.has(json4))
+      return json4;
+    visited.add(json4);
+    const def = bySchema.get(json4)?.def;
     if (!def)
-      return json3;
+      return json4;
     const inlined = stringifyKeyNames(bySchema, def, visited);
-    return inlined === def ? json3 : inlined;
+    return inlined === def ? json4 : inlined;
   }
   for (const keyword of ["anyOf", "oneOf"]) {
-    const branches = json3[keyword];
+    const branches = json4[keyword];
     if (!Array.isArray(branches))
       continue;
     const mapped = branches.map((branch) => stringifyKeyNames(bySchema, branch, visited));
     if (mapped.some((branch, i) => branch !== branches[i]))
-      json3 = { ...json3, [keyword]: mapped };
+      json4 = { ...json4, [keyword]: mapped };
   }
-  const types = Array.isArray(json3.type) ? json3.type : [json3.type];
+  const types = Array.isArray(json4.type) ? json4.type : [json4.type];
   const numericType = !types.includes("string") && types.some((t) => t === "number" || t === "integer");
-  const values3 = json3.enum ?? (json3.const !== void 0 ? [json3.const] : void 0);
+  const values3 = json4.enum ?? (json4.const !== void 0 ? [json4.const] : void 0);
   if (!numericType && !values3?.some((v) => typeof v === "number"))
-    return json3;
-  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format: format13, id: id2, ...rest } = json3;
+    return json4;
+  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum, multipleOf, format: format13, id: id2, ...rest } = json4;
   if (rest.enum)
     rest.enum = rest.enum.map((v) => typeof v === "number" ? String(v) : v);
   else if (typeof rest.const === "number")
@@ -87156,7 +87182,7 @@ function stringifyKeyNames(bySchema, json3, visited) {
     return rest;
   rest.type = "string";
   if (!values3)
-    rest.pattern = (types.includes("number") ? number4 : integer).source;
+    rest.pattern = (types.includes("number") ? number5 : integer).source;
   return rest;
 }
 var pendingRecords = /* @__PURE__ */ new WeakMap();
@@ -87167,8 +87193,8 @@ function rewriteKeyNames(ctx) {
       bySchema.set(entry2.schema, entry2);
   }
   const rewrites = /* @__PURE__ */ new Map();
-  for (const record4 of pendingRecords.get(ctx) ?? []) {
-    const seen = ctx.seen.get(record4);
+  for (const record5 of pendingRecords.get(ctx) ?? []) {
+    const seen = ctx.seen.get(record5);
     const names = (seen?.def ?? seen?.schema)?.propertyNames;
     if (!names || names === true || rewrites.has(names))
       continue;
@@ -87187,9 +87213,9 @@ function rewriteKeyNames(ctx) {
   }
 }
 var recordProcessor = (schema8, ctx, _json, params) => {
-  const json3 = _json;
+  const json4 = _json;
   const def = schema8._zod.def;
-  json3.type = "object";
+  json4.type = "object";
   const keyType = def.keyType;
   const patterns = aggregateChecks(keyType).patterns;
   if (def.mode === "loose" && patterns && patterns.size > 0) {
@@ -87197,13 +87223,13 @@ var recordProcessor = (schema8, ctx, _json, params) => {
       ...params,
       path: [...params.path, "patternProperties", "*"]
     });
-    json3.patternProperties = {};
+    json4.patternProperties = {};
     for (const pattern2 of patterns) {
-      assignProp(json3.patternProperties, exactPattern(pattern2).source, valueSchema);
+      assignProp(json4.patternProperties, exactPattern(pattern2).source, valueSchema);
     }
   } else {
     if (ctx.target === "draft-07" || ctx.target === "draft-2020-12") {
-      json3.propertyNames = processSchema(def.keyType, ctx, {
+      json4.propertyNames = processSchema(def.keyType, ctx, {
         ...params,
         path: [...params.path, "propertyNames"]
       });
@@ -87215,7 +87241,7 @@ var recordProcessor = (schema8, ctx, _json, params) => {
       }
       pending.push(schema8);
     }
-    json3.additionalProperties = processSchema(def.valueType, ctx, {
+    json4.additionalProperties = processSchema(def.valueType, ctx, {
       ...params,
       path: [...params.path, "additionalProperties"]
     });
@@ -87225,19 +87251,19 @@ var recordProcessor = (schema8, ctx, _json, params) => {
   if (keyValues && !def.partial && !omittableOnInput) {
     const validKeyValues = [...keyValues].filter((v) => typeof v === "string" || typeof v === "number");
     if (validKeyValues.length > 0) {
-      json3.required = validKeyValues.map(String);
+      json4.required = validKeyValues.map(String);
     }
   }
 };
-var nullableProcessor = (schema8, ctx, json3, params) => {
+var nullableProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   const inner = processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema8);
   if (ctx.target === "openapi-3.0") {
     seen.ref = def.innerType;
-    json3.nullable = true;
+    json4.nullable = true;
   } else {
-    json3.anyOf = [inner, { type: "null" }];
+    json4.anyOf = [inner, { type: "null" }];
   }
 };
 var nonoptionalProcessor = (schema8, ctx, _json, params) => {
@@ -87247,7 +87273,7 @@ var nonoptionalProcessor = (schema8, ctx, _json, params) => {
   seen.ref = def.innerType;
 };
 var UNREPRESENTABLE_DEFAULT = /* @__PURE__ */ Symbol();
-function serializeDefaultValue(value6, schema8, ctx, json3, params) {
+function serializeDefaultValue(value6, schema8, ctx, json4, params) {
   let unrepresentable = false;
   const serialized = JSON.stringify(value6, (_, val) => {
     if (typeof val !== "bigint")
@@ -87257,30 +87283,30 @@ function serializeDefaultValue(value6, schema8, ctx, json3, params) {
   });
   if (!unrepresentable)
     return JSON.parse(serialized);
-  handleUnrepresentable(schema8, ctx, json3, params, "BigInt defaults cannot be represented in JSON Schema");
+  handleUnrepresentable(schema8, ctx, json4, params, "BigInt defaults cannot be represented in JSON Schema");
   return UNREPRESENTABLE_DEFAULT;
 }
-var defaultProcessor = (schema8, ctx, json3, params) => {
+var defaultProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema8);
   seen.ref = def.innerType;
-  const value6 = serializeDefaultValue(def.defaultValue, schema8, ctx, json3, params);
+  const value6 = serializeDefaultValue(def.defaultValue, schema8, ctx, json4, params);
   if (value6 !== UNREPRESENTABLE_DEFAULT)
-    json3.default = value6;
+    json4.default = value6;
 };
-var prefaultProcessor = (schema8, ctx, json3, params) => {
+var prefaultProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema8);
   seen.ref = def.innerType;
   if (ctx.io !== "input")
     return;
-  const value6 = serializeDefaultValue(def.defaultValue, schema8, ctx, json3, params);
+  const value6 = serializeDefaultValue(def.defaultValue, schema8, ctx, json4, params);
   if (value6 !== UNREPRESENTABLE_DEFAULT)
-    json3._prefault = value6;
+    json4._prefault = value6;
 };
-var catchProcessor = (schema8, ctx, json3, params) => {
+var catchProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema8);
@@ -87289,10 +87315,10 @@ var catchProcessor = (schema8, ctx, json3, params) => {
   try {
     catchValue = def.catchValue(void 0);
   } catch {
-    handleUnrepresentable(schema8, ctx, json3, params, "Dynamic catch values are not supported in JSON Schema");
+    handleUnrepresentable(schema8, ctx, json4, params, "Dynamic catch values are not supported in JSON Schema");
     return;
   }
-  json3.default = catchValue;
+  json4.default = catchValue;
 };
 var pipeProcessor = (schema8, ctx, _json, params) => {
   const def = schema8._zod.def;
@@ -87302,12 +87328,12 @@ var pipeProcessor = (schema8, ctx, _json, params) => {
   const seen = ctx.seen.get(schema8);
   seen.ref = innerType;
 };
-var readonlyProcessor = (schema8, ctx, json3, params) => {
+var readonlyProcessor = (schema8, ctx, json4, params) => {
   const def = schema8._zod.def;
   processSchema(def.innerType, ctx, params);
   const seen = ctx.seen.get(schema8);
   seen.ref = def.innerType;
-  json3.readOnly = true;
+  json4.readOnly = true;
 };
 var optionalProcessor = (schema8, ctx, _json, params) => {
   const def = schema8._zod.def;
@@ -87438,7 +87464,7 @@ var ZodType = /* @__PURE__ */ $constructor("ZodType", (inst, def) => {
     return nonoptional(this, params);
   },
   array() {
-    return array2(this);
+    return array3(this);
   },
   or(arg) {
     return union5([this, arg]);
@@ -87564,7 +87590,7 @@ var _ZodString = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodString.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json3, params) => stringProcessor(inst, ctx, json3, params);
+    inst._zod.processJSONSchema = (ctx, json4, params) => stringProcessor(inst, ctx, json4, params);
   },
   /* @__PURE__ */ util_exports.derived({
     format: (inst) => aggregateChecks(inst).format ?? null,
@@ -87701,7 +87727,7 @@ var ZodString = /* @__PURE__ */ $constructor("ZodString", (inst, def) => {
     return this.check(_isoDuration(ZodISODuration, params));
   }
 });
-function string7(params) {
+function string8(params) {
   return _string(ZodString, params);
 }
 var ZodStringFormat = /* @__PURE__ */ $constructor("ZodStringFormat", (inst, def) => {
@@ -87808,7 +87834,7 @@ var ZodNumber = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodNumber.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json3, params) => numberProcessor(inst, ctx, json3, params);
+    inst._zod.processJSONSchema = (ctx, json4, params) => numberProcessor(inst, ctx, json4, params);
     inst.isFinite = true;
   },
   /* @__PURE__ */ util_exports.derived({
@@ -87873,7 +87899,7 @@ var ZodNumber = /* @__PURE__ */ $constructor(
     }
   })
 );
-function number5(params) {
+function number6(params) {
   return _number(ZodNumber, params);
 }
 var ZodNumberFormat = /* @__PURE__ */ $constructor("ZodNumberFormat", (inst, def) => {
@@ -87886,9 +87912,9 @@ function int3(params) {
 var ZodBoolean = /* @__PURE__ */ $constructor("ZodBoolean", (inst, def) => {
   $ZodBoolean.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => booleanProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => booleanProcessor(inst, ctx, json4, params);
 });
-function boolean4(params) {
+function boolean5(params) {
   return _boolean(ZodBoolean, params);
 }
 var ZodBigInt = /* @__PURE__ */ $constructor(
@@ -87896,7 +87922,7 @@ var ZodBigInt = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodBigInt.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json3, params) => bigintProcessor(inst, ctx, json3, params);
+    inst._zod.processJSONSchema = (ctx, json4, params) => bigintProcessor(inst, ctx, json4, params);
   },
   /* @__PURE__ */ util_exports.derived({
     minValue: (inst) => aggregateChecks(inst).minimum ?? null,
@@ -87941,7 +87967,7 @@ var ZodBigInt = /* @__PURE__ */ $constructor(
 var ZodNull = /* @__PURE__ */ $constructor("ZodNull", (inst, def) => {
   $ZodNull.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => nullProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => nullProcessor(inst, ctx, json4, params);
 });
 function _null4(params) {
   return _null3(ZodNull, params);
@@ -87949,7 +87975,7 @@ function _null4(params) {
 var ZodAny = /* @__PURE__ */ $constructor("ZodAny", (inst, def) => {
   $ZodAny.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => anyProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => anyProcessor(inst, ctx, json4, params);
 });
 function any4() {
   return _any(ZodAny);
@@ -87957,7 +87983,7 @@ function any4() {
 var ZodUnknown = /* @__PURE__ */ $constructor("ZodUnknown", (inst, def) => {
   $ZodUnknown.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => unknownProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => unknownProcessor(inst, ctx, json4, params);
 });
 function unknown3() {
   return _unknown(ZodUnknown);
@@ -87965,7 +87991,7 @@ function unknown3() {
 var ZodNever = /* @__PURE__ */ $constructor("ZodNever", (inst, def) => {
   $ZodNever.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => neverProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => neverProcessor(inst, ctx, json4, params);
 });
 function never7(params) {
   return _never(ZodNever, params);
@@ -87975,7 +88001,7 @@ var ZodDate = /* @__PURE__ */ $constructor(
   (inst, def) => {
     $ZodDate.init(inst, def);
     ZodType.init(inst, def);
-    inst._zod.processJSONSchema = (ctx, json3, params) => dateProcessor(inst, ctx, json3, params);
+    inst._zod.processJSONSchema = (ctx, json4, params) => dateProcessor(inst, ctx, json4, params);
     inst.min = (value6, params) => inst.check(_gte(value6, params));
     inst.max = (value6, params) => inst.check(_lte(value6, params));
   },
@@ -87994,7 +88020,7 @@ var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodArray.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => arrayProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => arrayProcessor(inst, ctx, json4, params);
   inst.element = def.element;
 }, {
   min(n, params) {
@@ -88013,14 +88039,14 @@ var ZodArray = /* @__PURE__ */ $constructor("ZodArray", (inst, def) => {
     return this.element;
   }
 });
-function array2(element, params) {
+function array3(element, params) {
   return _array(ZodArray, element, params);
 }
 var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodObjectJIT.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => objectProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => objectProcessor(inst, ctx, json4, params);
   util_exports.installLazyProp(inst, "shape", (self2) => self2._zod.def.shape, false);
 }, {
   keyof() {
@@ -88066,7 +88092,7 @@ var ZodObject = /* @__PURE__ */ $constructor("ZodObject", (inst, def) => {
     return util_exports.required(ZodNonOptional, this, args2[0]);
   }
 });
-function object(shape, params) {
+function object2(shape, params) {
   const def = {
     type: "object",
     shape: shape ?? {},
@@ -88085,7 +88111,7 @@ function looseObject(shape, params) {
 var ZodUnion = /* @__PURE__ */ $constructor("ZodUnion", (inst, def) => {
   $ZodUnion.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => unionProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => unionProcessor(inst, ctx, json4, params);
   inst.options = def.options;
 });
 function union5(options4, params) {
@@ -88110,7 +88136,7 @@ function discriminatedUnion(discriminator3, options4, params) {
 var ZodIntersection = /* @__PURE__ */ $constructor("ZodIntersection", (inst, def) => {
   $ZodIntersection.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => intersectionProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => intersectionProcessor(inst, ctx, json4, params);
 });
 function intersection3(left, right) {
   return new ZodIntersection({
@@ -88123,15 +88149,15 @@ var ZodRecord = /* @__PURE__ */ $constructor("ZodRecord", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodRecord.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => recordProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => recordProcessor(inst, ctx, json4, params);
   inst.keyType = def.keyType;
   inst.valueType = def.valueType;
 });
-function record3(keyType, valueType, params) {
+function record4(keyType, valueType, params) {
   if (!valueType || !valueType._zod) {
     return new ZodRecord({
       type: "record",
-      keyType: string7(),
+      keyType: string8(),
       valueType: keyType,
       ...util_exports.normalizeParams(valueType)
     });
@@ -88146,7 +88172,7 @@ function record3(keyType, valueType, params) {
 var ZodEnum = /* @__PURE__ */ $constructor("ZodEnum", (inst, def) => {
   $ZodEnum.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => enumProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => enumProcessor(inst, ctx, json4, params);
   inst.enum = def.entries;
   inst.options = [...inst._zod.values];
   const keys5 = new Set(Object.keys(def.entries));
@@ -88192,7 +88218,7 @@ function _enum(values3, params) {
 var ZodLiteral = /* @__PURE__ */ $constructor("ZodLiteral", (inst, def) => {
   $ZodLiteral.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => literalProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => literalProcessor(inst, ctx, json4, params);
   inst.values = new Set(def.values);
   Object.defineProperty(inst, "value", {
     get() {
@@ -88203,7 +88229,7 @@ var ZodLiteral = /* @__PURE__ */ $constructor("ZodLiteral", (inst, def) => {
     }
   });
 });
-function literal3(value6, params) {
+function literal4(value6, params) {
   return new ZodLiteral({
     type: "literal",
     values: Array.isArray(value6) ? value6 : [value6],
@@ -88214,7 +88240,7 @@ var ZodTransform = /* @__PURE__ */ $constructor("ZodTransform", (inst, def) => {
   _ensureDefaultMemoizer();
   $ZodTransform.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => transformProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => transformProcessor(inst, ctx, json4, params);
   inst._zod.parse = (payload, _ctx) => {
     if (_ctx.direction === "backward") {
       throw new $ZodEncodeError(inst.constructor.name);
@@ -88253,7 +88279,7 @@ function transform5(fn5) {
 var ZodOptional = /* @__PURE__ */ $constructor("ZodOptional", (inst, def) => {
   $ZodOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => optionalProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function optional4(innerType) {
@@ -88265,7 +88291,7 @@ function optional4(innerType) {
 var ZodExactOptional = /* @__PURE__ */ $constructor("ZodExactOptional", (inst, def) => {
   $ZodExactOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => optionalProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => optionalProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function exactOptional(innerType) {
@@ -88277,7 +88303,7 @@ function exactOptional(innerType) {
 var ZodNullable = /* @__PURE__ */ $constructor("ZodNullable", (inst, def) => {
   $ZodNullable.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => nullableProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => nullableProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nullable(innerType) {
@@ -88289,7 +88315,7 @@ function nullable(innerType) {
 var ZodDefault = /* @__PURE__ */ $constructor("ZodDefault", (inst, def) => {
   $ZodDefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => defaultProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => defaultProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeDefault = inst.unwrap;
 });
@@ -88305,7 +88331,7 @@ function _default(innerType, defaultValue) {
 var ZodPrefault = /* @__PURE__ */ $constructor("ZodPrefault", (inst, def) => {
   $ZodPrefault.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => prefaultProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => prefaultProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function prefault(innerType, defaultValue) {
@@ -88320,7 +88346,7 @@ function prefault(innerType, defaultValue) {
 var ZodNonOptional = /* @__PURE__ */ $constructor("ZodNonOptional", (inst, def) => {
   $ZodNonOptional.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => nonoptionalProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => nonoptionalProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function nonoptional(innerType, params) {
@@ -88333,7 +88359,7 @@ function nonoptional(innerType, params) {
 var ZodCatch = /* @__PURE__ */ $constructor("ZodCatch", (inst, def) => {
   $ZodCatch.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => catchProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => catchProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
   inst.removeCatch = inst.unwrap;
 });
@@ -88347,7 +88373,7 @@ function _catch(innerType, catchValue) {
 var ZodPipe = /* @__PURE__ */ $constructor("ZodPipe", (inst, def) => {
   $ZodPipe.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => pipeProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => pipeProcessor(inst, ctx, json4, params);
   inst.in = def.in;
   inst.out = def.out;
 });
@@ -88366,7 +88392,7 @@ var ZodPreprocess = /* @__PURE__ */ $constructor("ZodPreprocess", (inst, def) =>
 var ZodReadonly = /* @__PURE__ */ $constructor("ZodReadonly", (inst, def) => {
   $ZodReadonly.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => readonlyProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => readonlyProcessor(inst, ctx, json4, params);
   inst.unwrap = () => inst._zod.def.innerType;
 });
 function readonly(innerType) {
@@ -88378,7 +88404,7 @@ function readonly(innerType) {
 var ZodCustom = /* @__PURE__ */ $constructor("ZodCustom", (inst, def) => {
   $ZodCustom.init(inst, def);
   ZodType.init(inst, def);
-  inst._zod.processJSONSchema = (ctx, json3, params) => customProcessor(inst, ctx, json3, params);
+  inst._zod.processJSONSchema = (ctx, json4, params) => customProcessor(inst, ctx, json4, params);
 });
 function custom2(fn5, _params) {
   return _custom(ZodCustom, fn5 ?? (() => true), _params);
@@ -88444,18 +88470,18 @@ function duration2(params) {
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint4,
-  boolean: () => boolean5,
+  boolean: () => boolean6,
   date: () => date5,
-  number: () => number6,
-  string: () => string8
+  number: () => number7,
+  string: () => string9
 });
-function string8(params) {
+function string9(params) {
   return _coercedString(ZodString, params);
 }
-function number6(params) {
+function number7(params) {
   return _coercedNumber(ZodNumber, params);
 }
-function boolean5(params) {
+function boolean6(params) {
   return _coercedBoolean(ZodBoolean, params);
 }
 function bigint4(params) {
@@ -88471,23 +88497,23 @@ var SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, "2025-06-18", "2025-
 var RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 var JSONRPC_VERSION = "2.0";
 var AssertObjectSchema = custom2((v) => v !== null && (typeof v === "object" || typeof v === "function"));
-var ProgressTokenSchema = union5([string7(), number5().int()]);
-var CursorSchema = string7();
+var ProgressTokenSchema = union5([string8(), number6().int()]);
+var CursorSchema = string8();
 var TaskCreationParamsSchema = looseObject({
   /**
    * Requested duration in milliseconds to retain task from creation.
    */
-  ttl: number5().optional(),
+  ttl: number6().optional(),
   /**
    * Time in milliseconds to wait between task status requests.
    */
-  pollInterval: number5().optional()
+  pollInterval: number6().optional()
 });
-var TaskMetadataSchema = object({
-  ttl: number5().optional()
+var TaskMetadataSchema = object2({
+  ttl: number6().optional()
 });
-var RelatedTaskMetadataSchema = object({
-  taskId: string7()
+var RelatedTaskMetadataSchema = object2({
+  taskId: string8()
 });
 var RequestMetaSchema = looseObject({
   /**
@@ -88499,7 +88525,7 @@ var RequestMetaSchema = looseObject({
    */
   [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
 });
-var BaseRequestParamsSchema = object({
+var BaseRequestParamsSchema = object2({
   /**
    * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
    */
@@ -88517,19 +88543,19 @@ var TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
   task: TaskMetadataSchema.optional()
 });
 var isTaskAugmentedRequestParams = (value6) => TaskAugmentedRequestParamsSchema.safeParse(value6).success;
-var RequestSchema = object({
-  method: string7(),
+var RequestSchema = object2({
+  method: string8(),
   params: BaseRequestParamsSchema.loose().optional()
 });
-var NotificationsParamsSchema = object({
+var NotificationsParamsSchema = object2({
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
   _meta: RequestMetaSchema.optional()
 });
-var NotificationSchema = object({
-  method: string7(),
+var NotificationSchema = object2({
+  method: string8(),
   params: NotificationsParamsSchema.loose().optional()
 });
 var ResultSchema = looseObject({
@@ -88539,20 +88565,20 @@ var ResultSchema = looseObject({
    */
   _meta: RequestMetaSchema.optional()
 });
-var RequestIdSchema = union5([string7(), number5().int()]);
-var JSONRPCRequestSchema = object({
-  jsonrpc: literal3(JSONRPC_VERSION),
+var RequestIdSchema = union5([string8(), number6().int()]);
+var JSONRPCRequestSchema = object2({
+  jsonrpc: literal4(JSONRPC_VERSION),
   id: RequestIdSchema,
   ...RequestSchema.shape
 }).strict();
 var isJSONRPCRequest = (value6) => JSONRPCRequestSchema.safeParse(value6).success;
-var JSONRPCNotificationSchema = object({
-  jsonrpc: literal3(JSONRPC_VERSION),
+var JSONRPCNotificationSchema = object2({
+  jsonrpc: literal4(JSONRPC_VERSION),
   ...NotificationSchema.shape
 }).strict();
 var isJSONRPCNotification = (value6) => JSONRPCNotificationSchema.safeParse(value6).success;
-var JSONRPCResultResponseSchema = object({
-  jsonrpc: literal3(JSONRPC_VERSION),
+var JSONRPCResultResponseSchema = object2({
+  jsonrpc: literal4(JSONRPC_VERSION),
   id: RequestIdSchema,
   result: ResultSchema
 }).strict();
@@ -88568,18 +88594,18 @@ var ErrorCode;
   ErrorCode2[ErrorCode2["InternalError"] = -32603] = "InternalError";
   ErrorCode2[ErrorCode2["UrlElicitationRequired"] = -32042] = "UrlElicitationRequired";
 })(ErrorCode || (ErrorCode = {}));
-var JSONRPCErrorResponseSchema = object({
-  jsonrpc: literal3(JSONRPC_VERSION),
+var JSONRPCErrorResponseSchema = object2({
+  jsonrpc: literal4(JSONRPC_VERSION),
   id: RequestIdSchema.optional(),
-  error: object({
+  error: object2({
     /**
      * The error type that occurred.
      */
-    code: number5().int(),
+    code: number6().int(),
     /**
      * A short description of the error. The message SHOULD be limited to a concise single sentence.
      */
-    message: string7(),
+    message: string8(),
     /**
      * Additional information about the error. The value of this member is defined by the sender (e.g. detailed error information, nested errors etc.).
      */
@@ -88605,28 +88631,28 @@ var CancelledNotificationParamsSchema = NotificationsParamsSchema.extend({
   /**
    * An optional string describing the reason for the cancellation. This MAY be logged or presented to the user.
    */
-  reason: string7().optional()
+  reason: string8().optional()
 });
 var CancelledNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/cancelled"),
+  method: literal4("notifications/cancelled"),
   params: CancelledNotificationParamsSchema
 });
-var IconSchema = object({
+var IconSchema = object2({
   /**
    * URL or data URI for the icon.
    */
-  src: string7(),
+  src: string8(),
   /**
    * Optional MIME type for the icon.
    */
-  mimeType: string7().optional(),
+  mimeType: string8().optional(),
   /**
    * Optional array of strings that specify sizes at which the icon can be used.
    * Each string should be in WxH format (e.g., `"48x48"`, `"96x96"`) or `"any"` for scalable formats like SVG.
    *
    * If not provided, the client should assume that the icon can be used at any size.
    */
-  sizes: array2(string7()).optional(),
+  sizes: array3(string8()).optional(),
   /**
    * Optional specifier for the theme this icon is designed for. `light` indicates
    * the icon is designed to be used with a light background, and `dark` indicates
@@ -88636,7 +88662,7 @@ var IconSchema = object({
    */
   theme: _enum(["light", "dark"]).optional()
 });
-var IconsSchema = object({
+var IconsSchema = object2({
   /**
    * Optional set of sized icons that the client can display in a user interface.
    *
@@ -88648,11 +88674,11 @@ var IconsSchema = object({
    * - `image/svg+xml` - SVG images (scalable but requires security precautions)
    * - `image/webp` - WebP images (modern, efficient format)
    */
-  icons: array2(IconSchema).optional()
+  icons: array3(IconSchema).optional()
 });
-var BaseMetadataSchema = object({
+var BaseMetadataSchema = object2({
   /** Intended for programmatic or logical use, but used as a display name in past specs or fallback */
-  name: string7(),
+  name: string8(),
   /**
    * Intended for UI and end-user contexts — optimized to be human-readable and easily understood,
    * even by those unfamiliar with domain-specific terminology.
@@ -88661,16 +88687,16 @@ var BaseMetadataSchema = object({
    * where `annotations.title` should be given precedence over using `name`,
    * if present).
    */
-  title: string7().optional()
+  title: string8().optional()
 });
 var ImplementationSchema = BaseMetadataSchema.extend({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
-  version: string7(),
+  version: string8(),
   /**
    * An optional URL of the website for this implementation.
    */
-  websiteUrl: string7().optional(),
+  websiteUrl: string8().optional(),
   /**
    * An optional human-readable description of what this implementation does.
    *
@@ -88678,11 +88704,11 @@ var ImplementationSchema = BaseMetadataSchema.extend({
    * and capabilities. For example, a server might describe the types of resources
    * or tools it provides, while a client might describe its intended use case.
    */
-  description: string7().optional()
+  description: string8().optional()
 });
-var FormElicitationCapabilitySchema = intersection3(object({
-  applyDefaults: boolean4().optional()
-}), record3(string7(), unknown3()));
+var FormElicitationCapabilitySchema = intersection3(object2({
+  applyDefaults: boolean5().optional()
+}), record4(string8(), unknown3()));
 var ElicitationCapabilitySchema = preprocess((value6) => {
   if (value6 && typeof value6 === "object" && !Array.isArray(value6)) {
     if (Object.keys(value6).length === 0) {
@@ -88690,10 +88716,10 @@ var ElicitationCapabilitySchema = preprocess((value6) => {
     }
   }
   return value6;
-}, intersection3(object({
+}, intersection3(object2({
   form: FormElicitationCapabilitySchema.optional(),
   url: AssertObjectSchema.optional()
-}), record3(string7(), unknown3()).optional()));
+}), record4(string8(), unknown3()).optional()));
 var ClientTasksCapabilitySchema = looseObject({
   /**
    * Present if the client supports listing tasks.
@@ -88742,15 +88768,15 @@ var ServerTasksCapabilitySchema = looseObject({
     }).optional()
   }).optional()
 });
-var ClientCapabilitiesSchema = object({
+var ClientCapabilitiesSchema = object2({
   /**
    * Experimental, non-standard capabilities that the client supports.
    */
-  experimental: record3(string7(), AssertObjectSchema).optional(),
+  experimental: record4(string8(), AssertObjectSchema).optional(),
   /**
    * Present if the client supports sampling from an LLM.
    */
-  sampling: object({
+  sampling: object2({
     /**
      * Present if the client supports context inclusion via includeContext parameter.
      * If not declared, servers SHOULD only use `includeContext: "none"` (or omit it).
@@ -88768,11 +88794,11 @@ var ClientCapabilitiesSchema = object({
   /**
    * Present if the client supports listing roots.
    */
-  roots: object({
+  roots: object2({
     /**
      * Whether the client supports issuing notifications for changes to the roots list.
      */
-    listChanged: boolean4().optional()
+    listChanged: boolean5().optional()
   }).optional(),
   /**
    * Present if the client supports task creation.
@@ -88781,25 +88807,25 @@ var ClientCapabilitiesSchema = object({
   /**
    * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
    */
-  extensions: record3(string7(), AssertObjectSchema).optional()
+  extensions: record4(string8(), AssertObjectSchema).optional()
 });
 var InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
    * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
    */
-  protocolVersion: string7(),
+  protocolVersion: string8(),
   capabilities: ClientCapabilitiesSchema,
   clientInfo: ImplementationSchema
 });
 var InitializeRequestSchema = RequestSchema.extend({
-  method: literal3("initialize"),
+  method: literal4("initialize"),
   params: InitializeRequestParamsSchema
 });
-var ServerCapabilitiesSchema = object({
+var ServerCapabilitiesSchema = object2({
   /**
    * Experimental, non-standard capabilities that the server supports.
    */
-  experimental: record3(string7(), AssertObjectSchema).optional(),
+  experimental: record4(string8(), AssertObjectSchema).optional(),
   /**
    * Present if the server supports sending log messages to the client.
    */
@@ -88811,33 +88837,33 @@ var ServerCapabilitiesSchema = object({
   /**
    * Present if the server offers any prompt templates.
    */
-  prompts: object({
+  prompts: object2({
     /**
      * Whether this server supports issuing notifications for changes to the prompt list.
      */
-    listChanged: boolean4().optional()
+    listChanged: boolean5().optional()
   }).optional(),
   /**
    * Present if the server offers any resources to read.
    */
-  resources: object({
+  resources: object2({
     /**
      * Whether this server supports clients subscribing to resource updates.
      */
-    subscribe: boolean4().optional(),
+    subscribe: boolean5().optional(),
     /**
      * Whether this server supports issuing notifications for changes to the resource list.
      */
-    listChanged: boolean4().optional()
+    listChanged: boolean5().optional()
   }).optional(),
   /**
    * Present if the server offers any tools to call.
    */
-  tools: object({
+  tools: object2({
     /**
      * Whether this server supports issuing notifications for changes to the tool list.
      */
-    listChanged: boolean4().optional()
+    listChanged: boolean5().optional()
   }).optional(),
   /**
    * Present if the server supports task creation.
@@ -88846,13 +88872,13 @@ var ServerCapabilitiesSchema = object({
   /**
    * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
    */
-  extensions: record3(string7(), AssertObjectSchema).optional()
+  extensions: record4(string8(), AssertObjectSchema).optional()
 });
 var InitializeResultSchema = ResultSchema.extend({
   /**
    * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
    */
-  protocolVersion: string7(),
+  protocolVersion: string8(),
   capabilities: ServerCapabilitiesSchema,
   serverInfo: ImplementationSchema,
   /**
@@ -88860,32 +88886,32 @@ var InitializeResultSchema = ResultSchema.extend({
    *
    * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
    */
-  instructions: string7().optional()
+  instructions: string8().optional()
 });
 var InitializedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/initialized"),
+  method: literal4("notifications/initialized"),
   params: NotificationsParamsSchema.optional()
 });
 var isInitializedNotification = (value6) => InitializedNotificationSchema.safeParse(value6).success;
 var PingRequestSchema = RequestSchema.extend({
-  method: literal3("ping"),
+  method: literal4("ping"),
   params: BaseRequestParamsSchema.optional()
 });
-var ProgressSchema = object({
+var ProgressSchema = object2({
   /**
    * The progress thus far. This should increase every time progress is made, even if the total is unknown.
    */
-  progress: number5(),
+  progress: number6(),
   /**
    * Total number of items to process (or total progress required), if known.
    */
-  total: optional4(number5()),
+  total: optional4(number6()),
   /**
    * An optional message describing the current progress.
    */
-  message: optional4(string7())
+  message: optional4(string8())
 });
-var ProgressNotificationParamsSchema = object({
+var ProgressNotificationParamsSchema = object2({
   ...NotificationsParamsSchema.shape,
   ...ProgressSchema.shape,
   /**
@@ -88894,7 +88920,7 @@ var ProgressNotificationParamsSchema = object({
   progressToken: ProgressTokenSchema
 });
 var ProgressNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/progress"),
+  method: literal4("notifications/progress"),
   params: ProgressNotificationParamsSchema
 });
 var PaginatedRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -88915,85 +88941,85 @@ var PaginatedResultSchema = ResultSchema.extend({
   nextCursor: CursorSchema.optional()
 });
 var TaskStatusSchema = _enum(["working", "input_required", "completed", "failed", "cancelled"]);
-var TaskSchema = object({
-  taskId: string7(),
+var TaskSchema = object2({
+  taskId: string8(),
   status: TaskStatusSchema,
   /**
    * Time in milliseconds to keep task results available after completion.
    * If null, the task has unlimited lifetime until manually cleaned up.
    */
-  ttl: union5([number5(), _null4()]),
+  ttl: union5([number6(), _null4()]),
   /**
    * ISO 8601 timestamp when the task was created.
    */
-  createdAt: string7(),
+  createdAt: string8(),
   /**
    * ISO 8601 timestamp when the task was last updated.
    */
-  lastUpdatedAt: string7(),
-  pollInterval: optional4(number5()),
+  lastUpdatedAt: string8(),
+  pollInterval: optional4(number6()),
   /**
    * Optional diagnostic message for failed tasks or other status information.
    */
-  statusMessage: optional4(string7())
+  statusMessage: optional4(string8())
 });
 var CreateTaskResultSchema = ResultSchema.extend({
   task: TaskSchema
 });
 var TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
 var TaskStatusNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/tasks/status"),
+  method: literal4("notifications/tasks/status"),
   params: TaskStatusNotificationParamsSchema
 });
 var GetTaskRequestSchema = RequestSchema.extend({
-  method: literal3("tasks/get"),
+  method: literal4("tasks/get"),
   params: BaseRequestParamsSchema.extend({
-    taskId: string7()
+    taskId: string8()
   })
 });
 var GetTaskResultSchema = ResultSchema.merge(TaskSchema);
 var GetTaskPayloadRequestSchema = RequestSchema.extend({
-  method: literal3("tasks/result"),
+  method: literal4("tasks/result"),
   params: BaseRequestParamsSchema.extend({
-    taskId: string7()
+    taskId: string8()
   })
 });
 var GetTaskPayloadResultSchema = ResultSchema.loose();
 var ListTasksRequestSchema = PaginatedRequestSchema.extend({
-  method: literal3("tasks/list")
+  method: literal4("tasks/list")
 });
 var ListTasksResultSchema = PaginatedResultSchema.extend({
-  tasks: array2(TaskSchema)
+  tasks: array3(TaskSchema)
 });
 var CancelTaskRequestSchema = RequestSchema.extend({
-  method: literal3("tasks/cancel"),
+  method: literal4("tasks/cancel"),
   params: BaseRequestParamsSchema.extend({
-    taskId: string7()
+    taskId: string8()
   })
 });
 var CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
-var ResourceContentsSchema = object({
+var ResourceContentsSchema = object2({
   /**
    * The URI of this resource.
    */
-  uri: string7(),
+  uri: string8(),
   /**
    * The MIME type of this resource, if known.
    */
-  mimeType: optional4(string7()),
+  mimeType: optional4(string8()),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var TextResourceContentsSchema = ResourceContentsSchema.extend({
   /**
    * The text of the item. This must only be set if the item can actually be represented as text (not binary data).
    */
-  text: string7()
+  text: string8()
 });
-var Base64Schema = string7().refine((val) => {
+var Base64Schema = string8().refine((val) => {
   try {
     atob(val);
     return true;
@@ -89008,43 +89034,43 @@ var BlobResourceContentsSchema = ResourceContentsSchema.extend({
   blob: Base64Schema
 });
 var RoleSchema = _enum(["user", "assistant"]);
-var AnnotationsSchema2 = object({
+var AnnotationsSchema2 = object2({
   /**
    * Intended audience(s) for the resource.
    */
-  audience: array2(RoleSchema).optional(),
+  audience: array3(RoleSchema).optional(),
   /**
    * Importance hint for the resource, from 0 (least) to 1 (most).
    */
-  priority: number5().min(0).max(1).optional(),
+  priority: number6().min(0).max(1).optional(),
   /**
    * ISO 8601 timestamp for the most recent modification.
    */
   lastModified: iso_exports.datetime({ offset: true }).optional()
 });
-var ResourceSchema = object({
+var ResourceSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
    * The URI of this resource.
    */
-  uri: string7(),
+  uri: string8(),
   /**
    * A description of what this resource represents.
    *
    * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
    */
-  description: optional4(string7()),
+  description: optional4(string8()),
   /**
    * The MIME type of this resource, if known.
    */
-  mimeType: optional4(string7()),
+  mimeType: optional4(string8()),
   /**
    * The size of the raw resource content, in bytes (i.e., before base64 encoding or any tokenization), if known.
    *
    * This can be used by Hosts to display file sizes and estimate context window usage.
    */
-  size: optional4(number5()),
+  size: optional4(number6()),
   /**
    * Optional annotations for the client.
    */
@@ -89055,23 +89081,23 @@ var ResourceSchema = object({
    */
   _meta: optional4(looseObject({}))
 });
-var ResourceTemplateSchema = object({
+var ResourceTemplateSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
    * A URI template (according to RFC 6570) that can be used to construct resource URIs.
    */
-  uriTemplate: string7(),
+  uriTemplate: string8(),
   /**
    * A description of what this template is for.
    *
    * This can be used by clients to improve the LLM's understanding of available resources. It can be thought of like a "hint" to the model.
    */
-  description: optional4(string7()),
+  description: optional4(string8()),
   /**
    * The MIME type for all resources that match this template. This should only be included if all resources matching this template have the same type.
    */
-  mimeType: optional4(string7()),
+  mimeType: optional4(string8()),
   /**
    * Optional annotations for the client.
    */
@@ -89083,16 +89109,16 @@ var ResourceTemplateSchema = object({
   _meta: optional4(looseObject({}))
 });
 var ListResourcesRequestSchema = PaginatedRequestSchema.extend({
-  method: literal3("resources/list")
+  method: literal4("resources/list")
 });
 var ListResourcesResultSchema = PaginatedResultSchema.extend({
-  resources: array2(ResourceSchema)
+  resources: array3(ResourceSchema)
 });
 var ListResourceTemplatesRequestSchema = PaginatedRequestSchema.extend({
-  method: literal3("resources/templates/list")
+  method: literal4("resources/templates/list")
 });
 var ListResourceTemplatesResultSchema = PaginatedResultSchema.extend({
-  resourceTemplates: array2(ResourceTemplateSchema)
+  resourceTemplates: array3(ResourceTemplateSchema)
 });
 var ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
@@ -89100,65 +89126,65 @@ var ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
    *
    * @format uri
    */
-  uri: string7()
+  uri: string8()
 });
 var ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
 var ReadResourceRequestSchema = RequestSchema.extend({
-  method: literal3("resources/read"),
+  method: literal4("resources/read"),
   params: ReadResourceRequestParamsSchema
 });
 var ReadResourceResultSchema = ResultSchema.extend({
-  contents: array2(union5([TextResourceContentsSchema, BlobResourceContentsSchema]))
+  contents: array3(union5([TextResourceContentsSchema, BlobResourceContentsSchema]))
 });
 var ResourceListChangedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/resources/list_changed"),
+  method: literal4("notifications/resources/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
 var SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 var SubscribeRequestSchema = RequestSchema.extend({
-  method: literal3("resources/subscribe"),
+  method: literal4("resources/subscribe"),
   params: SubscribeRequestParamsSchema
 });
 var UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
 var UnsubscribeRequestSchema = RequestSchema.extend({
-  method: literal3("resources/unsubscribe"),
+  method: literal4("resources/unsubscribe"),
   params: UnsubscribeRequestParamsSchema
 });
 var ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
   /**
    * The URI of the resource that has been updated. This might be a sub-resource of the one that the client actually subscribed to.
    */
-  uri: string7()
+  uri: string8()
 });
 var ResourceUpdatedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/resources/updated"),
+  method: literal4("notifications/resources/updated"),
   params: ResourceUpdatedNotificationParamsSchema
 });
-var PromptArgumentSchema = object({
+var PromptArgumentSchema = object2({
   /**
    * The name of the argument.
    */
-  name: string7(),
+  name: string8(),
   /**
    * A human-readable description of the argument.
    */
-  description: optional4(string7()),
+  description: optional4(string8()),
   /**
    * Whether this argument must be provided.
    */
-  required: optional4(boolean4())
+  required: optional4(boolean5())
 });
-var PromptSchema = object({
+var PromptSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
    * An optional description of what this prompt provides
    */
-  description: optional4(string7()),
+  description: optional4(string8()),
   /**
    * A list of arguments to use for templating the prompt.
    */
-  arguments: optional4(array2(PromptArgumentSchema)),
+  arguments: optional4(array3(PromptArgumentSchema)),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
@@ -89166,31 +89192,31 @@ var PromptSchema = object({
   _meta: optional4(looseObject({}))
 });
 var ListPromptsRequestSchema = PaginatedRequestSchema.extend({
-  method: literal3("prompts/list")
+  method: literal4("prompts/list")
 });
 var ListPromptsResultSchema = PaginatedResultSchema.extend({
-  prompts: array2(PromptSchema)
+  prompts: array3(PromptSchema)
 });
 var GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
   /**
    * The name of the prompt or prompt template.
    */
-  name: string7(),
+  name: string8(),
   /**
    * Arguments to use for templating the prompt.
    */
-  arguments: record3(string7(), string7()).optional()
+  arguments: record4(string8(), string8()).optional()
 });
 var GetPromptRequestSchema = RequestSchema.extend({
-  method: literal3("prompts/get"),
+  method: literal4("prompts/get"),
   params: GetPromptRequestParamsSchema
 });
-var TextContentSchema = object({
-  type: literal3("text"),
+var TextContentSchema = object2({
+  type: literal4("text"),
   /**
    * The text content of the message.
    */
-  text: string7(),
+  text: string8(),
   /**
    * Optional annotations for the client.
    */
@@ -89199,10 +89225,10 @@ var TextContentSchema = object({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
-var ImageContentSchema = object({
-  type: literal3("image"),
+var ImageContentSchema = object2({
+  type: literal4("image"),
   /**
    * The base64-encoded image data.
    */
@@ -89210,7 +89236,7 @@ var ImageContentSchema = object({
   /**
    * The MIME type of the image. Different providers may support different image types.
    */
-  mimeType: string7(),
+  mimeType: string8(),
   /**
    * Optional annotations for the client.
    */
@@ -89219,10 +89245,10 @@ var ImageContentSchema = object({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
-var AudioContentSchema = object({
-  type: literal3("audio"),
+var AudioContentSchema = object2({
+  type: literal4("audio"),
   /**
    * The base64-encoded audio data.
    */
@@ -89230,7 +89256,7 @@ var AudioContentSchema = object({
   /**
    * The MIME type of the audio. Different providers may support different audio types.
    */
-  mimeType: string7(),
+  mimeType: string8(),
   /**
    * Optional annotations for the client.
    */
@@ -89239,33 +89265,33 @@ var AudioContentSchema = object({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
-var ToolUseContentSchema = object({
-  type: literal3("tool_use"),
+var ToolUseContentSchema = object2({
+  type: literal4("tool_use"),
   /**
    * The name of the tool to invoke.
    * Must match a tool name from the request's tools array.
    */
-  name: string7(),
+  name: string8(),
   /**
    * Unique identifier for this tool call.
    * Used to correlate with ToolResultContent in subsequent messages.
    */
-  id: string7(),
+  id: string8(),
   /**
    * Arguments to pass to the tool.
    * Must conform to the tool's inputSchema.
    */
-  input: record3(string7(), unknown3()),
+  input: record4(string8(), unknown3()),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
-var EmbeddedResourceSchema = object({
-  type: literal3("resource"),
+var EmbeddedResourceSchema = object2({
+  type: literal4("resource"),
   resource: union5([TextResourceContentsSchema, BlobResourceContentsSchema]),
   /**
    * Optional annotations for the client.
@@ -89275,10 +89301,10 @@ var EmbeddedResourceSchema = object({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var ResourceLinkSchema = ResourceSchema.extend({
-  type: literal3("resource_link")
+  type: literal4("resource_link")
 });
 var ContentBlockSchema = union5([
   TextContentSchema,
@@ -89287,7 +89313,7 @@ var ContentBlockSchema = union5([
   ResourceLinkSchema,
   EmbeddedResourceSchema
 ]);
-var PromptMessageSchema = object({
+var PromptMessageSchema = object2({
   role: RoleSchema,
   content: ContentBlockSchema
 });
@@ -89295,24 +89321,24 @@ var GetPromptResultSchema = ResultSchema.extend({
   /**
    * An optional description for the prompt.
    */
-  description: string7().optional(),
-  messages: array2(PromptMessageSchema)
+  description: string8().optional(),
+  messages: array3(PromptMessageSchema)
 });
 var PromptListChangedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/prompts/list_changed"),
+  method: literal4("notifications/prompts/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ToolAnnotationsSchema = object({
+var ToolAnnotationsSchema = object2({
   /**
    * A human-readable title for the tool.
    */
-  title: string7().optional(),
+  title: string8().optional(),
   /**
    * If true, the tool does not modify its environment.
    *
    * Default: false
    */
-  readOnlyHint: boolean4().optional(),
+  readOnlyHint: boolean5().optional(),
   /**
    * If true, the tool may perform destructive updates to its environment.
    * If false, the tool performs only additive updates.
@@ -89321,7 +89347,7 @@ var ToolAnnotationsSchema = object({
    *
    * Default: true
    */
-  destructiveHint: boolean4().optional(),
+  destructiveHint: boolean5().optional(),
   /**
    * If true, calling the tool repeatedly with the same arguments
    * will have no additional effect on the its environment.
@@ -89330,7 +89356,7 @@ var ToolAnnotationsSchema = object({
    *
    * Default: false
    */
-  idempotentHint: boolean4().optional(),
+  idempotentHint: boolean5().optional(),
   /**
    * If true, this tool may interact with an "open world" of external
    * entities. If false, the tool's domain of interaction is closed.
@@ -89339,9 +89365,9 @@ var ToolAnnotationsSchema = object({
    *
    * Default: true
    */
-  openWorldHint: boolean4().optional()
+  openWorldHint: boolean5().optional()
 });
-var ToolExecutionSchema = object({
+var ToolExecutionSchema = object2({
   /**
    * Indicates the tool's preference for task-augmented execution.
    * - "required": Clients MUST invoke the tool as a task
@@ -89352,31 +89378,31 @@ var ToolExecutionSchema = object({
    */
   taskSupport: _enum(["required", "optional", "forbidden"]).optional()
 });
-var ToolSchema = object({
+var ToolSchema = object2({
   ...BaseMetadataSchema.shape,
   ...IconsSchema.shape,
   /**
    * A human-readable description of the tool.
    */
-  description: string7().optional(),
+  description: string8().optional(),
   /**
    * A JSON Schema 2020-12 object defining the expected parameters for the tool.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  inputSchema: object({
-    type: literal3("object"),
-    properties: record3(string7(), AssertObjectSchema).optional(),
-    required: array2(string7()).optional()
+  inputSchema: object2({
+    type: literal4("object"),
+    properties: record4(string8(), AssertObjectSchema).optional(),
+    required: array3(string8()).optional()
   }).catchall(unknown3()),
   /**
    * An optional JSON Schema 2020-12 object defining the structure of the tool's output
    * returned in the structuredContent field of a CallToolResult.
    * Must have type: 'object' at the root level per MCP spec.
    */
-  outputSchema: object({
-    type: literal3("object"),
-    properties: record3(string7(), AssertObjectSchema).optional(),
-    required: array2(string7()).optional()
+  outputSchema: object2({
+    type: literal4("object"),
+    properties: record4(string8(), AssertObjectSchema).optional(),
+    required: array3(string8()).optional()
   }).catchall(unknown3()).optional(),
   /**
    * Optional additional tool information.
@@ -89390,13 +89416,13 @@ var ToolSchema = object({
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var ListToolsRequestSchema = PaginatedRequestSchema.extend({
-  method: literal3("tools/list")
+  method: literal4("tools/list")
 });
 var ListToolsResultSchema = PaginatedResultSchema.extend({
-  tools: array2(ToolSchema)
+  tools: array3(ToolSchema)
 });
 var CallToolResultSchema = ResultSchema.extend({
   /**
@@ -89405,13 +89431,13 @@ var CallToolResultSchema = ResultSchema.extend({
    * If the Tool does not define an outputSchema, this field MUST be present in the result.
    * For backwards compatibility, this field is always present, but it may be empty.
    */
-  content: array2(ContentBlockSchema).default([]),
+  content: array3(ContentBlockSchema).default([]),
   /**
    * An object containing structured tool output.
    *
    * If the Tool defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
    */
-  structuredContent: record3(string7(), unknown3()).optional(),
+  structuredContent: record4(string8(), unknown3()).optional(),
   /**
    * Whether the tool call ended in an error.
    *
@@ -89426,7 +89452,7 @@ var CallToolResultSchema = ResultSchema.extend({
    * server does not support tool calls, or any other exceptional conditions,
    * should be reported as an MCP error response.
    */
-  isError: boolean4().optional()
+  isError: boolean5().optional()
 });
 var CompatibilityCallToolResultSchema = CallToolResultSchema.or(ResultSchema.extend({
   toolResult: unknown3()
@@ -89435,21 +89461,21 @@ var CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   /**
    * The name of the tool to call.
    */
-  name: string7(),
+  name: string8(),
   /**
    * Arguments to pass to the tool.
    */
-  arguments: record3(string7(), unknown3()).optional()
+  arguments: record4(string8(), unknown3()).optional()
 });
 var CallToolRequestSchema = RequestSchema.extend({
-  method: literal3("tools/call"),
+  method: literal4("tools/call"),
   params: CallToolRequestParamsSchema
 });
 var ToolListChangedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/tools/list_changed"),
+  method: literal4("notifications/tools/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
-var ListChangedOptionsBaseSchema = object({
+var ListChangedOptionsBaseSchema = object2({
   /**
    * If true, the list will be refreshed automatically when a list changed notification is received.
    * The callback will be called with the updated list.
@@ -89458,7 +89484,7 @@ var ListChangedOptionsBaseSchema = object({
    *
    * @default true
    */
-  autoRefresh: boolean4().default(true),
+  autoRefresh: boolean5().default(true),
   /**
    * Debounce time in milliseconds for list changed notification processing.
    *
@@ -89467,7 +89493,7 @@ var ListChangedOptionsBaseSchema = object({
    *
    * @default 300
    */
-  debounceMs: number5().int().nonnegative().default(300)
+  debounceMs: number6().int().nonnegative().default(300)
 });
 var LoggingLevelSchema = _enum(["debug", "info", "notice", "warning", "error", "critical", "alert", "emergency"]);
 var SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
@@ -89477,7 +89503,7 @@ var SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
   level: LoggingLevelSchema
 });
 var SetLevelRequestSchema = RequestSchema.extend({
-  method: literal3("logging/setLevel"),
+  method: literal4("logging/setLevel"),
   params: SetLevelRequestParamsSchema
 });
 var LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
@@ -89488,41 +89514,41 @@ var LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
   /**
    * An optional name of the logger issuing this message.
    */
-  logger: string7().optional(),
+  logger: string8().optional(),
   /**
    * The data to be logged, such as a string message or an object. Any JSON serializable type is allowed here.
    */
   data: unknown3()
 });
 var LoggingMessageNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/message"),
+  method: literal4("notifications/message"),
   params: LoggingMessageNotificationParamsSchema
 });
-var ModelHintSchema = object({
+var ModelHintSchema = object2({
   /**
    * A hint for a model name.
    */
-  name: string7().optional()
+  name: string8().optional()
 });
-var ModelPreferencesSchema = object({
+var ModelPreferencesSchema = object2({
   /**
    * Optional hints to use for model selection.
    */
-  hints: array2(ModelHintSchema).optional(),
+  hints: array3(ModelHintSchema).optional(),
   /**
    * How much to prioritize cost when selecting a model.
    */
-  costPriority: number5().min(0).max(1).optional(),
+  costPriority: number6().min(0).max(1).optional(),
   /**
    * How much to prioritize sampling speed (latency) when selecting a model.
    */
-  speedPriority: number5().min(0).max(1).optional(),
+  speedPriority: number6().min(0).max(1).optional(),
   /**
    * How much to prioritize intelligence and capabilities when selecting a model.
    */
-  intelligencePriority: number5().min(0).max(1).optional()
+  intelligencePriority: number6().min(0).max(1).optional()
 });
-var ToolChoiceSchema = object({
+var ToolChoiceSchema = object2({
   /**
    * Controls when tools are used:
    * - "auto": Model decides whether to use tools (default)
@@ -89531,17 +89557,17 @@ var ToolChoiceSchema = object({
    */
   mode: _enum(["auto", "required", "none"]).optional()
 });
-var ToolResultContentSchema = object({
-  type: literal3("tool_result"),
-  toolUseId: string7().describe("The unique identifier for the corresponding tool call."),
-  content: array2(ContentBlockSchema).default([]),
-  structuredContent: object({}).loose().optional(),
-  isError: boolean4().optional(),
+var ToolResultContentSchema = object2({
+  type: literal4("tool_result"),
+  toolUseId: string8().describe("The unique identifier for the corresponding tool call."),
+  content: array3(ContentBlockSchema).default([]),
+  structuredContent: object2({}).loose().optional(),
+  isError: boolean5().optional(),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var SamplingContentSchema = discriminatedUnion("type", [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
@@ -89551,17 +89577,17 @@ var SamplingMessageContentBlockSchema = discriminatedUnion("type", [
   ToolUseContentSchema,
   ToolResultContentSchema
 ]);
-var SamplingMessageSchema = object({
+var SamplingMessageSchema = object2({
   role: RoleSchema,
-  content: union5([SamplingMessageContentBlockSchema, array2(SamplingMessageContentBlockSchema)]),
+  content: union5([SamplingMessageContentBlockSchema, array3(SamplingMessageContentBlockSchema)]),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
-  messages: array2(SamplingMessageSchema),
+  messages: array3(SamplingMessageSchema),
   /**
    * The server's preferences for which model to select. The client MAY modify or omit this request.
    */
@@ -89569,7 +89595,7 @@ var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   /**
    * An optional system prompt the server wants to use for sampling. The client MAY modify or omit this prompt.
    */
-  systemPrompt: string7().optional(),
+  systemPrompt: string8().optional(),
   /**
    * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
    * The client MAY ignore this request.
@@ -89578,14 +89604,14 @@ var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    * declares ClientCapabilities.sampling.context. These values may be removed in future spec releases.
    */
   includeContext: _enum(["none", "thisServer", "allServers"]).optional(),
-  temperature: number5().optional(),
+  temperature: number6().optional(),
   /**
    * The requested maximum number of tokens to sample (to prevent runaway completions).
    *
    * The client MAY choose to sample fewer tokens than the requested maximum.
    */
-  maxTokens: number5().int(),
-  stopSequences: array2(string7()).optional(),
+  maxTokens: number6().int(),
+  stopSequences: array3(string8()).optional(),
   /**
    * Optional metadata to pass through to the LLM provider. The format of this metadata is provider-specific.
    */
@@ -89594,7 +89620,7 @@ var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    * Tools that the model may use during generation.
    * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
    */
-  tools: array2(ToolSchema).optional(),
+  tools: array3(ToolSchema).optional(),
   /**
    * Controls how the model uses tools.
    * The client MUST return an error if this field is provided but ClientCapabilities.sampling.tools is not declared.
@@ -89603,14 +89629,14 @@ var CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   toolChoice: ToolChoiceSchema.optional()
 });
 var CreateMessageRequestSchema = RequestSchema.extend({
-  method: literal3("sampling/createMessage"),
+  method: literal4("sampling/createMessage"),
   params: CreateMessageRequestParamsSchema
 });
 var CreateMessageResultSchema = ResultSchema.extend({
   /**
    * The name of the model that generated the message.
    */
-  model: string7(),
+  model: string8(),
   /**
    * The reason why sampling stopped, if known.
    *
@@ -89621,7 +89647,7 @@ var CreateMessageResultSchema = ResultSchema.extend({
    *
    * This field is an open string to allow for provider-specific stop reasons.
    */
-  stopReason: optional4(_enum(["endTurn", "stopSequence", "maxTokens"]).or(string7())),
+  stopReason: optional4(_enum(["endTurn", "stopSequence", "maxTokens"]).or(string8())),
   role: RoleSchema,
   /**
    * Response content. Single content block (text, image, or audio).
@@ -89632,7 +89658,7 @@ var CreateMessageResultWithToolsSchema = ResultSchema.extend({
   /**
    * The name of the model that generated the message.
    */
-  model: string7(),
+  model: string8(),
   /**
    * The reason why sampling stopped, if known.
    *
@@ -89644,87 +89670,87 @@ var CreateMessageResultWithToolsSchema = ResultSchema.extend({
    *
    * This field is an open string to allow for provider-specific stop reasons.
    */
-  stopReason: optional4(_enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(string7())),
+  stopReason: optional4(_enum(["endTurn", "stopSequence", "maxTokens", "toolUse"]).or(string8())),
   role: RoleSchema,
   /**
    * Response content. May be a single block or array. May include ToolUseContent if stopReason is "toolUse".
    */
-  content: union5([SamplingMessageContentBlockSchema, array2(SamplingMessageContentBlockSchema)])
+  content: union5([SamplingMessageContentBlockSchema, array3(SamplingMessageContentBlockSchema)])
 });
-var BooleanSchemaSchema = object({
-  type: literal3("boolean"),
-  title: string7().optional(),
-  description: string7().optional(),
-  default: boolean4().optional()
+var BooleanSchemaSchema = object2({
+  type: literal4("boolean"),
+  title: string8().optional(),
+  description: string8().optional(),
+  default: boolean5().optional()
 });
-var StringSchemaSchema = object({
-  type: literal3("string"),
-  title: string7().optional(),
-  description: string7().optional(),
-  minLength: number5().optional(),
-  maxLength: number5().optional(),
+var StringSchemaSchema = object2({
+  type: literal4("string"),
+  title: string8().optional(),
+  description: string8().optional(),
+  minLength: number6().optional(),
+  maxLength: number6().optional(),
   format: _enum(["email", "uri", "date", "date-time"]).optional(),
-  default: string7().optional()
+  default: string8().optional()
 });
-var NumberSchemaSchema = object({
+var NumberSchemaSchema = object2({
   type: _enum(["number", "integer"]),
-  title: string7().optional(),
-  description: string7().optional(),
-  minimum: number5().optional(),
-  maximum: number5().optional(),
-  default: number5().optional()
+  title: string8().optional(),
+  description: string8().optional(),
+  minimum: number6().optional(),
+  maximum: number6().optional(),
+  default: number6().optional()
 });
-var UntitledSingleSelectEnumSchemaSchema = object({
-  type: literal3("string"),
-  title: string7().optional(),
-  description: string7().optional(),
-  enum: array2(string7()),
-  default: string7().optional()
+var UntitledSingleSelectEnumSchemaSchema = object2({
+  type: literal4("string"),
+  title: string8().optional(),
+  description: string8().optional(),
+  enum: array3(string8()),
+  default: string8().optional()
 });
-var TitledSingleSelectEnumSchemaSchema = object({
-  type: literal3("string"),
-  title: string7().optional(),
-  description: string7().optional(),
-  oneOf: array2(object({
-    const: string7(),
-    title: string7()
+var TitledSingleSelectEnumSchemaSchema = object2({
+  type: literal4("string"),
+  title: string8().optional(),
+  description: string8().optional(),
+  oneOf: array3(object2({
+    const: string8(),
+    title: string8()
   })),
-  default: string7().optional()
+  default: string8().optional()
 });
-var LegacyTitledEnumSchemaSchema = object({
-  type: literal3("string"),
-  title: string7().optional(),
-  description: string7().optional(),
-  enum: array2(string7()),
-  enumNames: array2(string7()).optional(),
-  default: string7().optional()
+var LegacyTitledEnumSchemaSchema = object2({
+  type: literal4("string"),
+  title: string8().optional(),
+  description: string8().optional(),
+  enum: array3(string8()),
+  enumNames: array3(string8()).optional(),
+  default: string8().optional()
 });
 var SingleSelectEnumSchemaSchema = union5([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
-var UntitledMultiSelectEnumSchemaSchema = object({
-  type: literal3("array"),
-  title: string7().optional(),
-  description: string7().optional(),
-  minItems: number5().optional(),
-  maxItems: number5().optional(),
-  items: object({
-    type: literal3("string"),
-    enum: array2(string7())
+var UntitledMultiSelectEnumSchemaSchema = object2({
+  type: literal4("array"),
+  title: string8().optional(),
+  description: string8().optional(),
+  minItems: number6().optional(),
+  maxItems: number6().optional(),
+  items: object2({
+    type: literal4("string"),
+    enum: array3(string8())
   }),
-  default: array2(string7()).optional()
+  default: array3(string8()).optional()
 });
-var TitledMultiSelectEnumSchemaSchema = object({
-  type: literal3("array"),
-  title: string7().optional(),
-  description: string7().optional(),
-  minItems: number5().optional(),
-  maxItems: number5().optional(),
-  items: object({
-    anyOf: array2(object({
-      const: string7(),
-      title: string7()
+var TitledMultiSelectEnumSchemaSchema = object2({
+  type: literal4("array"),
+  title: string8().optional(),
+  description: string8().optional(),
+  minItems: number6().optional(),
+  maxItems: number6().optional(),
+  items: object2({
+    anyOf: array3(object2({
+      const: string8(),
+      title: string8()
     }))
   }),
-  default: array2(string7()).optional()
+  default: array3(string8()).optional()
 });
 var MultiSelectEnumSchemaSchema = union5([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema]);
 var EnumSchemaSchema = union5([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
@@ -89735,53 +89761,53 @@ var ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
    *
    * Optional for backward compatibility. Clients MUST treat missing mode as "form".
    */
-  mode: literal3("form").optional(),
+  mode: literal4("form").optional(),
   /**
    * The message to present to the user describing what information is being requested.
    */
-  message: string7(),
+  message: string8(),
   /**
    * A restricted subset of JSON Schema.
    * Only top-level properties are allowed, without nesting.
    */
-  requestedSchema: object({
-    type: literal3("object"),
-    properties: record3(string7(), PrimitiveSchemaDefinitionSchema),
-    required: array2(string7()).optional()
+  requestedSchema: object2({
+    type: literal4("object"),
+    properties: record4(string8(), PrimitiveSchemaDefinitionSchema),
+    required: array3(string8()).optional()
   })
 });
 var ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.extend({
   /**
    * The elicitation mode.
    */
-  mode: literal3("url"),
+  mode: literal4("url"),
   /**
    * The message to present to the user explaining why the interaction is needed.
    */
-  message: string7(),
+  message: string8(),
   /**
    * The ID of the elicitation, which must be unique within the context of the server.
    * The client MUST treat this ID as an opaque value.
    */
-  elicitationId: string7(),
+  elicitationId: string8(),
   /**
    * The URL that the user should navigate to.
    */
-  url: string7().url()
+  url: string8().url()
 });
 var ElicitRequestParamsSchema = union5([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
 var ElicitRequestSchema = RequestSchema.extend({
-  method: literal3("elicitation/create"),
+  method: literal4("elicitation/create"),
   params: ElicitRequestParamsSchema
 });
 var ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
   /**
    * The ID of the elicitation that completed.
    */
-  elicitationId: string7()
+  elicitationId: string8()
 });
 var ElicitationCompleteNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/elicitation/complete"),
+  method: literal4("notifications/elicitation/complete"),
   params: ElicitationCompleteNotificationParamsSchema
 });
 var ElicitResultSchema = ResultSchema.extend({
@@ -89798,46 +89824,46 @@ var ElicitResultSchema = ResultSchema.extend({
    * Per MCP spec, content is "typically omitted" for decline/cancel actions.
    * We normalize null to undefined for leniency while maintaining type compatibility.
    */
-  content: preprocess((val) => val === null ? void 0 : val, record3(string7(), union5([string7(), number5(), boolean4(), array2(string7())])).optional())
+  content: preprocess((val) => val === null ? void 0 : val, record4(string8(), union5([string8(), number6(), boolean5(), array3(string8())])).optional())
 });
-var ResourceTemplateReferenceSchema = object({
-  type: literal3("ref/resource"),
+var ResourceTemplateReferenceSchema = object2({
+  type: literal4("ref/resource"),
   /**
    * The URI or URI template of the resource.
    */
-  uri: string7()
+  uri: string8()
 });
-var PromptReferenceSchema = object({
-  type: literal3("ref/prompt"),
+var PromptReferenceSchema = object2({
+  type: literal4("ref/prompt"),
   /**
    * The name of the prompt or prompt template
    */
-  name: string7()
+  name: string8()
 });
 var CompleteRequestParamsSchema = BaseRequestParamsSchema.extend({
   ref: union5([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
   /**
    * The argument's information
    */
-  argument: object({
+  argument: object2({
     /**
      * The name of the argument
      */
-    name: string7(),
+    name: string8(),
     /**
      * The value of the argument to use for completion matching.
      */
-    value: string7()
+    value: string8()
   }),
-  context: object({
+  context: object2({
     /**
      * Previously-resolved variables in a URI template or prompt.
      */
-    arguments: record3(string7(), string7()).optional()
+    arguments: record4(string8(), string8()).optional()
   }).optional()
 });
 var CompleteRequestSchema = RequestSchema.extend({
-  method: literal3("completion/complete"),
+  method: literal4("completion/complete"),
   params: CompleteRequestParamsSchema
 });
 var CompleteResultSchema = ResultSchema.extend({
@@ -89845,41 +89871,41 @@ var CompleteResultSchema = ResultSchema.extend({
     /**
      * An array of completion values. Must not exceed 100 items.
      */
-    values: array2(string7()).max(100),
+    values: array3(string8()).max(100),
     /**
      * The total number of completion options available. This can exceed the number of values actually sent in the response.
      */
-    total: optional4(number5().int()),
+    total: optional4(number6().int()),
     /**
      * Indicates whether there are additional completion options beyond those provided in the current response, even if the exact total is unknown.
      */
-    hasMore: optional4(boolean4())
+    hasMore: optional4(boolean5())
   })
 });
-var RootSchema = object({
+var RootSchema = object2({
   /**
    * The URI identifying the root. This *must* start with file:// for now.
    */
-  uri: string7().startsWith("file://"),
+  uri: string8().startsWith("file://"),
   /**
    * An optional name for the root.
    */
-  name: string7().optional(),
+  name: string8().optional(),
   /**
    * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
    * for notes on _meta usage.
    */
-  _meta: record3(string7(), unknown3()).optional()
+  _meta: record4(string8(), unknown3()).optional()
 });
 var ListRootsRequestSchema = RequestSchema.extend({
-  method: literal3("roots/list"),
+  method: literal4("roots/list"),
   params: BaseRequestParamsSchema.optional()
 });
 var ListRootsResultSchema = ResultSchema.extend({
-  roots: array2(RootSchema)
+  roots: array3(RootSchema)
 });
 var RootsListChangedNotificationSchema = NotificationSchema.extend({
-  method: literal3("notifications/roots/list_changed"),
+  method: literal4("notifications/roots/list_changed"),
   params: NotificationsParamsSchema.optional()
 });
 var ClientRequestSchema = union5([
@@ -90000,133 +90026,133 @@ var SafeUrlSchema = url().superRefine((val, ctx) => {
   return u.protocol !== "javascript:" && u.protocol !== "data:" && u.protocol !== "vbscript:";
 }, { message: "URL cannot use javascript:, data:, or vbscript: scheme" });
 var OAuthProtectedResourceMetadataSchema = looseObject({
-  resource: string7().url(),
-  authorization_servers: array2(SafeUrlSchema).optional(),
-  jwks_uri: string7().url().optional(),
-  scopes_supported: array2(string7()).optional(),
-  bearer_methods_supported: array2(string7()).optional(),
-  resource_signing_alg_values_supported: array2(string7()).optional(),
-  resource_name: string7().optional(),
-  resource_documentation: string7().optional(),
-  resource_policy_uri: string7().url().optional(),
-  resource_tos_uri: string7().url().optional(),
-  tls_client_certificate_bound_access_tokens: boolean4().optional(),
-  authorization_details_types_supported: array2(string7()).optional(),
-  dpop_signing_alg_values_supported: array2(string7()).optional(),
-  dpop_bound_access_tokens_required: boolean4().optional()
+  resource: string8().url(),
+  authorization_servers: array3(SafeUrlSchema).optional(),
+  jwks_uri: string8().url().optional(),
+  scopes_supported: array3(string8()).optional(),
+  bearer_methods_supported: array3(string8()).optional(),
+  resource_signing_alg_values_supported: array3(string8()).optional(),
+  resource_name: string8().optional(),
+  resource_documentation: string8().optional(),
+  resource_policy_uri: string8().url().optional(),
+  resource_tos_uri: string8().url().optional(),
+  tls_client_certificate_bound_access_tokens: boolean5().optional(),
+  authorization_details_types_supported: array3(string8()).optional(),
+  dpop_signing_alg_values_supported: array3(string8()).optional(),
+  dpop_bound_access_tokens_required: boolean5().optional()
 });
 var OAuthMetadataSchema = looseObject({
-  issuer: string7(),
+  issuer: string8(),
   authorization_endpoint: SafeUrlSchema,
   token_endpoint: SafeUrlSchema,
   registration_endpoint: SafeUrlSchema.optional(),
-  scopes_supported: array2(string7()).optional(),
-  response_types_supported: array2(string7()),
-  response_modes_supported: array2(string7()).optional(),
-  grant_types_supported: array2(string7()).optional(),
-  token_endpoint_auth_methods_supported: array2(string7()).optional(),
-  token_endpoint_auth_signing_alg_values_supported: array2(string7()).optional(),
+  scopes_supported: array3(string8()).optional(),
+  response_types_supported: array3(string8()),
+  response_modes_supported: array3(string8()).optional(),
+  grant_types_supported: array3(string8()).optional(),
+  token_endpoint_auth_methods_supported: array3(string8()).optional(),
+  token_endpoint_auth_signing_alg_values_supported: array3(string8()).optional(),
   service_documentation: SafeUrlSchema.optional(),
   revocation_endpoint: SafeUrlSchema.optional(),
-  revocation_endpoint_auth_methods_supported: array2(string7()).optional(),
-  revocation_endpoint_auth_signing_alg_values_supported: array2(string7()).optional(),
-  introspection_endpoint: string7().optional(),
-  introspection_endpoint_auth_methods_supported: array2(string7()).optional(),
-  introspection_endpoint_auth_signing_alg_values_supported: array2(string7()).optional(),
-  code_challenge_methods_supported: array2(string7()).optional(),
-  client_id_metadata_document_supported: boolean4().optional()
+  revocation_endpoint_auth_methods_supported: array3(string8()).optional(),
+  revocation_endpoint_auth_signing_alg_values_supported: array3(string8()).optional(),
+  introspection_endpoint: string8().optional(),
+  introspection_endpoint_auth_methods_supported: array3(string8()).optional(),
+  introspection_endpoint_auth_signing_alg_values_supported: array3(string8()).optional(),
+  code_challenge_methods_supported: array3(string8()).optional(),
+  client_id_metadata_document_supported: boolean5().optional()
 });
 var OpenIdProviderMetadataSchema = looseObject({
-  issuer: string7(),
+  issuer: string8(),
   authorization_endpoint: SafeUrlSchema,
   token_endpoint: SafeUrlSchema,
   userinfo_endpoint: SafeUrlSchema.optional(),
   jwks_uri: SafeUrlSchema,
   registration_endpoint: SafeUrlSchema.optional(),
-  scopes_supported: array2(string7()).optional(),
-  response_types_supported: array2(string7()),
-  response_modes_supported: array2(string7()).optional(),
-  grant_types_supported: array2(string7()).optional(),
-  acr_values_supported: array2(string7()).optional(),
-  subject_types_supported: array2(string7()),
-  id_token_signing_alg_values_supported: array2(string7()),
-  id_token_encryption_alg_values_supported: array2(string7()).optional(),
-  id_token_encryption_enc_values_supported: array2(string7()).optional(),
-  userinfo_signing_alg_values_supported: array2(string7()).optional(),
-  userinfo_encryption_alg_values_supported: array2(string7()).optional(),
-  userinfo_encryption_enc_values_supported: array2(string7()).optional(),
-  request_object_signing_alg_values_supported: array2(string7()).optional(),
-  request_object_encryption_alg_values_supported: array2(string7()).optional(),
-  request_object_encryption_enc_values_supported: array2(string7()).optional(),
-  token_endpoint_auth_methods_supported: array2(string7()).optional(),
-  token_endpoint_auth_signing_alg_values_supported: array2(string7()).optional(),
-  display_values_supported: array2(string7()).optional(),
-  claim_types_supported: array2(string7()).optional(),
-  claims_supported: array2(string7()).optional(),
-  service_documentation: string7().optional(),
-  claims_locales_supported: array2(string7()).optional(),
-  ui_locales_supported: array2(string7()).optional(),
-  claims_parameter_supported: boolean4().optional(),
-  request_parameter_supported: boolean4().optional(),
-  request_uri_parameter_supported: boolean4().optional(),
-  require_request_uri_registration: boolean4().optional(),
+  scopes_supported: array3(string8()).optional(),
+  response_types_supported: array3(string8()),
+  response_modes_supported: array3(string8()).optional(),
+  grant_types_supported: array3(string8()).optional(),
+  acr_values_supported: array3(string8()).optional(),
+  subject_types_supported: array3(string8()),
+  id_token_signing_alg_values_supported: array3(string8()),
+  id_token_encryption_alg_values_supported: array3(string8()).optional(),
+  id_token_encryption_enc_values_supported: array3(string8()).optional(),
+  userinfo_signing_alg_values_supported: array3(string8()).optional(),
+  userinfo_encryption_alg_values_supported: array3(string8()).optional(),
+  userinfo_encryption_enc_values_supported: array3(string8()).optional(),
+  request_object_signing_alg_values_supported: array3(string8()).optional(),
+  request_object_encryption_alg_values_supported: array3(string8()).optional(),
+  request_object_encryption_enc_values_supported: array3(string8()).optional(),
+  token_endpoint_auth_methods_supported: array3(string8()).optional(),
+  token_endpoint_auth_signing_alg_values_supported: array3(string8()).optional(),
+  display_values_supported: array3(string8()).optional(),
+  claim_types_supported: array3(string8()).optional(),
+  claims_supported: array3(string8()).optional(),
+  service_documentation: string8().optional(),
+  claims_locales_supported: array3(string8()).optional(),
+  ui_locales_supported: array3(string8()).optional(),
+  claims_parameter_supported: boolean5().optional(),
+  request_parameter_supported: boolean5().optional(),
+  request_uri_parameter_supported: boolean5().optional(),
+  require_request_uri_registration: boolean5().optional(),
   op_policy_uri: SafeUrlSchema.optional(),
   op_tos_uri: SafeUrlSchema.optional(),
-  client_id_metadata_document_supported: boolean4().optional()
+  client_id_metadata_document_supported: boolean5().optional()
 });
-var OpenIdProviderDiscoveryMetadataSchema = object({
+var OpenIdProviderDiscoveryMetadataSchema = object2({
   ...OpenIdProviderMetadataSchema.shape,
   ...OAuthMetadataSchema.pick({
     code_challenge_methods_supported: true
   }).shape
 });
-var OAuthTokensSchema = object({
-  access_token: string7(),
-  id_token: string7().optional(),
+var OAuthTokensSchema = object2({
+  access_token: string8(),
+  id_token: string8().optional(),
   // Optional for OAuth 2.1, but necessary in OpenID Connect
-  token_type: string7(),
+  token_type: string8(),
   expires_in: coerce_exports.number().optional(),
-  scope: string7().optional(),
-  refresh_token: string7().optional()
+  scope: string8().optional(),
+  refresh_token: string8().optional()
 }).strip();
-var OAuthErrorResponseSchema = object({
-  error: string7(),
-  error_description: string7().optional(),
-  error_uri: string7().optional()
+var OAuthErrorResponseSchema = object2({
+  error: string8(),
+  error_description: string8().optional(),
+  error_uri: string8().optional()
 });
-var OptionalSafeUrlSchema = SafeUrlSchema.optional().or(literal3("").transform(() => void 0));
-var OAuthClientMetadataSchema = object({
-  redirect_uris: array2(SafeUrlSchema),
-  token_endpoint_auth_method: string7().optional(),
-  grant_types: array2(string7()).optional(),
-  response_types: array2(string7()).optional(),
-  client_name: string7().optional(),
+var OptionalSafeUrlSchema = SafeUrlSchema.optional().or(literal4("").transform(() => void 0));
+var OAuthClientMetadataSchema = object2({
+  redirect_uris: array3(SafeUrlSchema),
+  token_endpoint_auth_method: string8().optional(),
+  grant_types: array3(string8()).optional(),
+  response_types: array3(string8()).optional(),
+  client_name: string8().optional(),
   client_uri: SafeUrlSchema.optional(),
   logo_uri: OptionalSafeUrlSchema,
-  scope: string7().optional(),
-  contacts: array2(string7()).optional(),
+  scope: string8().optional(),
+  contacts: array3(string8()).optional(),
   tos_uri: OptionalSafeUrlSchema,
-  policy_uri: string7().optional(),
+  policy_uri: string8().optional(),
   jwks_uri: SafeUrlSchema.optional(),
   jwks: any4().optional(),
-  software_id: string7().optional(),
-  software_version: string7().optional(),
-  software_statement: string7().optional()
+  software_id: string8().optional(),
+  software_version: string8().optional(),
+  software_statement: string8().optional()
 }).strip();
-var OAuthClientInformationSchema = object({
-  client_id: string7(),
-  client_secret: string7().optional(),
-  client_id_issued_at: number5().optional(),
-  client_secret_expires_at: number5().optional()
+var OAuthClientInformationSchema = object2({
+  client_id: string8(),
+  client_secret: string8().optional(),
+  client_id_issued_at: number6().optional(),
+  client_secret_expires_at: number6().optional()
 }).strip();
 var OAuthClientInformationFullSchema = OAuthClientMetadataSchema.merge(OAuthClientInformationSchema);
-var OAuthClientRegistrationErrorSchema = object({
-  error: string7(),
-  error_description: string7().optional()
+var OAuthClientRegistrationErrorSchema = object2({
+  error: string8(),
+  error_description: string8().optional()
 }).strip();
-var OAuthTokenRevocationRequestSchema = object({
-  token: string7(),
-  token_type_hint: string7().optional()
+var OAuthTokenRevocationRequestSchema = object2({
+  token: string8(),
+  token_type_hint: string8().optional()
 }).strip();
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/shared/auth-utils.js
@@ -94297,7 +94323,8 @@ async function createPluginEngine(options4) {
     if (!plugin) throw new Error("Unknown plugin");
     return plugin;
   };
-  const sourceOf = (plugin, auth2) => `export default ${JSON.stringify({ protocol: 1, id: plugin.id, name: plugin.name, endpoint: plugin.endpoint, auth: auth2, scopes: plugin.scopes ?? [], ...plugin.oauthDiscovery ? { oauthDiscovery: plugin.oauthDiscovery } : {} })};
+  const headerOf = (plugin) => plugin.header ?? "Authorization";
+  const sourceOf = (plugin, auth2) => `export default ${JSON.stringify({ protocol: 1, id: plugin.id, name: plugin.name, endpoint: plugin.endpoint, auth: auth2, scopes: plugin.scopes ?? [], ...plugin.oauthDiscovery ? { oauthDiscovery: plugin.oauthDiscovery } : {}, ...auth2 === "header" ? { header: headerOf(plugin) } : {} })};
 `;
   const register = (pluginId, auth2) => {
     const key2 = JSON.stringify([pluginId, auth2]);
@@ -94313,9 +94340,31 @@ async function createPluginEngine(options4) {
       const build2 = BuildId.make(
         `bld_${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}`
       );
+      const header = headerOf(plugin);
       const app3 = auth2 === "none" ? defineApp({ accounts: {} }, async ({ signal: signal2 }) => ({
         tools: await mcpRouter({ url: plugin.endpoint, signal: signal2 })
-      })) : defineApp(
+      })) : auth2 === "header" ? defineApp(
+        {
+          accounts: {
+            service: defineProvider({
+              name: plugin.name,
+              auth: {
+                key: secrets2({
+                  label: header,
+                  fields: object({ value: string6({ minLength: 1 }) })
+                })
+              }
+            })
+          }
+        },
+        async ({ accounts: accounts2, signal: signal2 }) => ({
+          tools: await mcpRouter({
+            url: plugin.endpoint,
+            signal: signal2,
+            headers: { [header]: accounts2.service.fields.value }
+          })
+        })
+      ) : defineApp(
         {
           accounts: {
             service: defineProvider({
@@ -94356,7 +94405,7 @@ async function createPluginEngine(options4) {
     const parsed = JSON.parse(declared);
     if (typeof parsed !== "object" || parsed === null) return void 0;
     const { id: id2, auth: auth2 } = parsed;
-    if (typeof id2 !== "string" || auth2 !== "none" && auth2 !== "oauth" || !options4.plugin(id2))
+    if (typeof id2 !== "string" || auth2 !== "none" && auth2 !== "oauth" && auth2 !== "header" || !options4.plugin(id2))
       return void 0;
     const entry2 = await register(id2, auth2);
     return entry2.source === source ? entry2 : void 0;
@@ -94591,6 +94640,20 @@ async function createPluginEngine(options4) {
         if (result6.status !== "redirect")
           throw new Error("Expected authorization redirect");
         return result6.authorizationUrl;
+      },
+      async submit(owner, ref, label, value6) {
+        await target2(owner, ref);
+        if (!ref.connection) throw new Error("Missing connection");
+        const account = await run4(
+          e.accountConnections.submit({
+            owner: ownerOf(owner),
+            connection: AccountConnectionId.make(ref.connection),
+            method: "key",
+            label,
+            fields: Redacted_exports.make({ value: value6 })
+          })
+        );
+        return { ...ref, account: account.id };
       },
       async complete(owner, ref, callbackUrl) {
         await target2(owner, ref);
