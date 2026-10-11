@@ -3087,7 +3087,7 @@ describe("managed image launch assets", () => {
 			launch("assets-match", { digest, recovered: false }),
 		);
 		expect(result.bootstrapWritten).toBe(false);
-		expect(result.networkOpened).toBe(true);
+		expect(result.networkOpened).toBe(false);
 		expect(result.started).toBe(1);
 		expect(result.workspace?.state).toBe("provisioning");
 	});
@@ -3111,6 +3111,7 @@ describe("managed image launch assets", () => {
 			launch("assets-recovered", { digest, recovered: true }),
 		);
 		expect(result.bootstrapWritten).toBe(true);
+		expect(result.networkOpened).toBe(true);
 		expect(result.started).toBe(1);
 	});
 

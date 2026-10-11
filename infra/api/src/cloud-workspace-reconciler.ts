@@ -1595,7 +1595,11 @@ const prepareWorkspaceRuntimeLaunch = Effect.fn(
 	const files = launchAssetFiles(config, layout.snapshot);
 	yield* Effect.all(
 		[
-			provider.setNetwork(sandboxId, { kind: "open" }),
+			// Reuse is restricted to a fresh managed fork, allocated with open
+			// networking. Recovered and native machines still need policy repair.
+			imageAssets === "reuse"
+				? Effect.void
+				: provider.setNetwork(sandboxId, { kind: "open" }),
 			imageAssets === "reuse"
 				? Effect.void
 				: provider.writeTextFiles !== undefined

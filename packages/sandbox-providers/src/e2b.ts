@@ -533,6 +533,16 @@ export const makeE2bSandboxProvider = (
 				providerSandboxId,
 				processGroupCommand(input, selector),
 			);
+			for (const line of result.stdout.split("\n")) {
+				const match = /^zuse-process-stage=([a-z-]+) atMs=(\d+)$/u.exec(line);
+				if (match)
+					console.info("[cloud-timing]", {
+						provider: "e2b",
+						providerSandboxId,
+						stage: `e2b.activation.${match[1]}`,
+						atMs: Number(match[2]),
+					});
+			}
 			if (result.exitCode !== 0) return yield* providerError("transient");
 		},
 	);
