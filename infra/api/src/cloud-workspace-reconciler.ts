@@ -1043,6 +1043,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					args: ["-c", PROJECT_IMAGE_BUILD_SCRIPT],
 					env: {
 						ZUSE_PROJECT_BUILD_ID: build.buildId,
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: build.buildId,
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
 						ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
 						...(build.settings?.codexAuthDeliveryVersion === 1

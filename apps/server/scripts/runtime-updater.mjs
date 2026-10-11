@@ -181,7 +181,9 @@ const validateManifest = async (signed) => {
 		wireProtocol.min > expectedWireProtocol ||
 		wireProtocol.max < expectedWireProtocol
 	) {
-		throw new Error("Runtime wire protocol is incompatible");
+		throw new Error(
+			`Runtime wire protocol is incompatible: expected ${expectedWireProtocol}, signed runtime ${candidate.version} supports ${wireProtocol.min}..${wireProtocol.max}`,
+		);
 	}
 	if (
 		typeof candidate.toolchain !== "object" ||

@@ -2899,3 +2899,49 @@ test("a configured runtime channel without its installer fails before allocating
 		}).pipe(Effect.provide(testLayer)),
 	);
 });
+
+test("image runtime installation owns a transaction per build", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "image-transaction",
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const original = yield* store.getBuild(workspace.buildId);
+			if (original === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...original,
+				state: "queued",
+				snapshotId: undefined,
+				providerSandboxId: undefined,
+				nextActionAtMs: 0,
+			});
+			const provider = yield* (yield* SandboxProviders).get(original.provider);
+			const start = vi.spyOn(provider, "startProcess");
+			yield* reconcileCloudBuild(original.buildId).pipe(
+				Effect.provideService(SandboxOfferConfiguration, {
+					port: 47837,
+					createTimeoutSeconds: 3600,
+					keepAliveTimeoutSeconds: 600,
+					runtimeManifestUrl: "https://runtime.invalid/pinned.json",
+					runtimeInstallerSource: "// signed updater",
+					runtimeSigningPublicJwk: "public-key",
+				}),
+			);
+			expect(start).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({
+					env: expect.objectContaining({
+						ZUSE_PROJECT_BUILD_ID: original.buildId,
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: original.buildId,
+						ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+					}),
+				}),
+			);
+		}).pipe(Effect.provide(testLayer)),
+	);
+});
