@@ -30,6 +30,7 @@ export const RpcAuthorizationLive = Layer.effect(
 					scope !== "personal" &&
 					!rpc._tag.startsWith("cloud.") &&
 					![
+						"plugins.request",
 						"machines.checkout",
 						"machines.billingPortal",
 						"machines.prepaidBalance",

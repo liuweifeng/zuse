@@ -6,15 +6,18 @@ import {
 	MemoizeRpcs,
 	PingResult,
 	PingRpc,
+	PluginSnapshot,
+	PluginsRequestRpc,
 	RpcAccessDeniedError,
 	RpcAuthorization,
 	SessionId,
 	WireWelcome,
+	WORKSPACE_SCOPE_HEADER,
 	WorktreeId,
 } from "@zuse/contracts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime, Schema, Stream } from "effect";
-import { Rpc, RpcGroup, RpcTest } from "effect/unstable/rpc";
+import { Rpc, RpcClient, RpcGroup, RpcTest } from "effect/unstable/rpc";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
@@ -28,6 +31,7 @@ import { MigrationsLive } from "../../src/persistence/migrations.ts";
 const Rpcs = RpcGroup.make(
 	ConnectHandshakeRpc,
 	PingRpc,
+	PluginsRequestRpc,
 	Rpc.make("fs.watchTree", {
 		payload: {
 			folderId: FolderId,
@@ -136,6 +140,17 @@ const fileScopeResult = () =>
 		),
 	);
 const handlers = Rpcs.toLayer({
+	"plugins.request": () =>
+		Effect.map(RequestWorkspace, (scope) =>
+			PluginSnapshot.make({
+				kind: "snapshot",
+				tenantId: scope === "personal" ? "personal:owner" : scope,
+				tenants: [],
+				endpoint: "",
+				catalog: [],
+				connections: [],
+			}),
+		),
 	"machines.checkout": () => RequestWorkspace,
 	"machines.billingPortal": () => RequestWorkspace,
 	"machines.prepaidBalance": () => RequestWorkspace,
@@ -234,13 +249,18 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 		),
 	);
 	const call = <A, E>(
-		identity: ConnectionIdentity["Service"],
+		identity: ConnectionIdentity["Service"] | undefined,
 		run: (client: Effect.Success<typeof makeClient>) => Effect.Effect<A, E>,
+		scope = "personal",
 	) =>
 		runtime.runPromise(
 			Effect.scoped(Effect.flatMap(makeClient, run)).pipe(
 				Effect.provide(handlers),
-				Effect.provideService(ConnectionIdentity, identity),
+				RpcClient.withHeaders({ [WORKSPACE_SCOPE_HEADER]: scope }),
+				(effect) =>
+					identity === undefined
+						? effect
+						: Effect.provideService(effect, ConnectionIdentity, identity),
 			),
 		);
 	try {
@@ -269,6 +289,43 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 					: Effect.succeed(cloudPermission),
 			),
 		};
+		for (const scope of ["personal", "organization:org_1"]) {
+			await expect(
+				call(
+					undefined,
+					(client) => client("plugins.request", { action: "list" }),
+					scope,
+				),
+			).resolves.toMatchObject({
+				kind: "snapshot",
+				tenantId: scope === "personal" ? "personal:owner" : scope,
+			});
+			for (const action of ["list", "disconnect"] as const)
+				await expect(
+					call(
+						cloudIdentity,
+						(client) =>
+							client(
+								"plugins.request",
+								action === "list"
+									? { action }
+									: {
+											action,
+											tenantId: scope === "personal" ? "personal:owner" : scope,
+											connectionId: "connection",
+										},
+							),
+						scope,
+					),
+				).rejects.toMatchObject({ code: "access-denied" });
+		}
+		await expect(
+			call(
+				undefined,
+				(client) => client("host.secret", undefined),
+				"organization:org_1",
+			),
+		).rejects.toMatchObject({ code: "access-denied" });
 		signedIn = false;
 		await expect(
 			call(cloudIdentity, (client) =>
@@ -344,6 +401,20 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 			subject: "owner",
 			expiresAt: Date.now() + 60_000,
 		};
+		for (const scope of ["personal", "organization:org_1"]) {
+			const list = (client: Effect.Success<typeof makeClient>) =>
+				client("plugins.request", { action: "list" });
+			await expect(call(ownerIdentity, list, scope)).resolves.toMatchObject({
+				kind: "snapshot",
+				tenantId: scope === "personal" ? "personal:owner" : scope,
+			});
+			await expect(
+				call({ ...ownerIdentity, subject: "guest" }, list, scope),
+			).rejects.toMatchObject({ code: "access-denied" });
+			await expect(
+				call({ ...ownerIdentity, expiresAt: 0 }, list, scope),
+			).rejects.toMatchObject({ code: "credential-expired" });
+		}
 		await expect(
 			call(ownerIdentity, (client) => client("host.secret", undefined)),
 		).resolves.toBe("host-only");
