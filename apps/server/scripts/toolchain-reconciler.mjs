@@ -132,7 +132,14 @@ if (!skipInstall && !releaseReady) {
 	await run(
 		hasBun ? "bun" : "npm",
 		hasBun
-			? ["install", "--production", "--cwd", staging]
+			? [
+					"install",
+					"--production",
+					"--cwd",
+					staging,
+					"--cache-dir",
+					join(staging, ".install-cache"),
+				]
 			: [
 					"install",
 					"--no-audit",
@@ -140,8 +147,13 @@ if (!skipInstall && !releaseReady) {
 					"--omit=dev",
 					"--prefix",
 					staging,
+					"--cache",
+					join(staging, ".install-cache"),
 				],
 	);
+	// Do not snapshot download caches: duplicated tool binaries in the user's
+	// home delay writable-data hydration by tens of seconds on disk restores.
+	await rm(join(staging, ".install-cache"), { recursive: true, force: true });
 	await writeFile(
 		join(staging, "zuse-toolchain.json"),
 		`${JSON.stringify(manifest, null, 2)}\n`,

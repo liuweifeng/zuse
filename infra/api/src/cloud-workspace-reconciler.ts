@@ -3054,6 +3054,11 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				authorizedWorkspace,
 				boot.token,
 				true,
+			).pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: workspace.provider },
+					"runtime.launch-input",
+				),
 			);
 			if (runtimeOptions === null) return;
 			if (provider.supportsFencedProcessReplacement !== true) {
@@ -3067,7 +3072,12 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				workspaceRuntimeProcessSelector(),
 				activationProcessInput(runtimeOptions, operation),
 			);
-			yield* startRuntime;
+			yield* startRuntime.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: workspace.provider },
+					"runtime.launch-process",
+				),
+			);
 			return;
 		}
 

@@ -1,3 +1,4 @@
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Redacted, Schema } from "effect";
 import {
 	type ProviderSandbox,
@@ -427,7 +428,11 @@ export const makeE2bSandboxProvider = (
 			waitForExit = false,
 		) {
 			yield* validatedEnv(input.env ?? {});
-			const { accessToken, host } = yield* processConnection(providerSandboxId);
+			const timed = (stage: string) =>
+				measureCloudStage({ provider: "e2b", providerSandboxId }, stage);
+			const { accessToken, host } = yield* processConnection(
+				providerSandboxId,
+			).pipe(timed("e2b.process-connect"));
 			const response = yield* Effect.tryPromise({
 				try: () =>
 					http.fetch(`https://${host}/process.Process/Start`, {
@@ -450,7 +455,7 @@ export const makeE2bSandboxProvider = (
 						}),
 					}),
 				catch: () => providerError("transient"),
-			});
+			}).pipe(timed("e2b.process-request"));
 
 			if (!response.ok) return yield* errorForStatus(response.status);
 			return yield* Effect.tryPromise({
@@ -495,7 +500,7 @@ export const makeE2bSandboxProvider = (
 					}
 				},
 				catch: () => providerError("transient"),
-			});
+			}).pipe(timed("e2b.process-receipt"));
 		},
 	);
 

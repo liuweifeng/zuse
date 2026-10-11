@@ -1038,7 +1038,9 @@ describe("cloud workspace reconciler", () => {
 				);
 				const args = start.mock.calls[0]?.[2].args?.join(" ") ?? "";
 				expect(args).not.toContain("runtime-updater.mjs");
-				expect(args).toContain("ensure_workspace_runtime\nexec /bin/bash");
+				expect(args).toMatch(
+					/ensure_workspace_runtime\n(?:workspace_runtime_timing[^\n]*\n)*exec \/bin\/bash/u,
+				);
 				const saved = yield* (yield* CloudWorkspaceStore).getWorkspace(
 					workspace.workspaceId,
 				);

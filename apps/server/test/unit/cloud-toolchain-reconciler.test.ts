@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readlinkSync,
@@ -72,6 +73,8 @@ const dest = args[args.indexOf(${JSON.stringify(installer === "bun" ? "--cwd" : 
 const pkg = JSON.parse(fs.readFileSync(dest + "/package.json", "utf8"));
 if (JSON.stringify(pkg.dependencies) !== ${JSON.stringify(JSON.stringify(manifest.npmPackages))}) process.exit(2);
 if (JSON.stringify(pkg.trustedDependencies) !== ${JSON.stringify(JSON.stringify(Object.keys(manifest.npmPackages)))}) process.exit(3);
+fs.mkdirSync(dest + "/.install-cache");
+fs.writeFileSync(dest + "/.install-cache/download", "disposable archive");
 fs.cpSync(${JSON.stringify(join(fixtureRelease, "node_modules"))}, dest + "/node_modules", {recursive:true});
 `,
 				{ mode: 0o755 },
@@ -100,6 +103,7 @@ fs.cpSync(${JSON.stringify(join(fixtureRelease, "node_modules"))}, dest + "/node
 		const first = run();
 		expect(first.status, first.stderr).toBe(0);
 		expect(readlinkSync(current)).toBe(release);
+		expect(existsSync(join(release, ".install-cache"))).toBe(false);
 		for (const name of ["bun", "corepack", "claude", "codex"])
 			expect(readlinkSync(join(links, name))).toBe(
 				join(current, "node_modules/.bin", name),
