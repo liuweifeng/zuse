@@ -4,7 +4,7 @@
  * Clear reusable pages, leave 1 GiB of headroom, then warm read-only runtime
  * files without starting another Node heap. Never run on an enrolled workspace.
  */
-export const IMAGE_MEMORY_PREPARATION_SCRIPT = `sudo -n python3 - <<'ZUSE_IMAGE_MEMORY'
+export const IMAGE_MEMORY_PREPARATION_SCRIPT = `python3 - <<'ZUSE_IMAGE_MEMORY'
 import mmap
 import os
 

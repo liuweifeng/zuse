@@ -2916,7 +2916,8 @@ touch '${join(status, "ready")}'
 			[
 				"-c",
 				`sleep() { :; }
-sudo() { echo "Image memory preparation unavailable" >&2; return ${fails === "memory" ? 26 : 99}; }
+sudo() { if [ ${JSON.stringify(fails)} != memory ]; then return 99; fi; while [[ "$1" == -* ]]; do if [ "$1" = -u ]; then shift; fi; shift; done; "$@"; }
+python3() { return 26; }
 ${script}`,
 			],
 			{

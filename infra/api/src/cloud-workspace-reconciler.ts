@@ -139,10 +139,7 @@ const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
-export const PROJECT_IMAGE_BUILD_SCRIPT = `set -e
-completion="/var/lib/zuse/project-build/completed-\${ZUSE_PROJECT_BUILD_ID:?}"
-rm -f "$completion" /var/lib/zuse/project-build/ready /var/lib/zuse/project-build/failed /var/lib/zuse/project-build/failure-phase /tmp/zuse-project-builder-exited
-trap 'code=$?; printf "%s\\n" "$code" >"$completion.tmp-$$" && mv "$completion.tmp-$$" "$completion"; exit "$code"' EXIT
+const PROJECT_IMAGE_USER_BUILD_SCRIPT = `set -e
 : >${PROJECT_BUILD_LOG_FILE}
 if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   printf 'updating-runtime\\n' >/var/lib/zuse/project-build/failure-phase
@@ -168,14 +165,28 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   printf 'preparing-runtime-cache\\n' >/var/lib/zuse/project-build/failure-phase
   mkdir -p /opt/zuse/node-compile-cache
   NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache node --input-type=module -e 'await import("/opt/zuse/current/bin.mjs")' >>${PROJECT_BUILD_LOG_FILE} 2>&1
-  if [ "\${ZUSE_PROJECT_IMAGE_PROVIDER:-}" = e2b ]; then
-    printf 'preparing-snapshot-memory\\n' >/var/lib/zuse/project-build/failure-phase
-    { ${IMAGE_MEMORY_PREPARATION_SCRIPT} } >>${PROJECT_BUILD_LOG_FILE} 2>&1
-  fi
   rm -f /var/lib/zuse/project-build/failure-phase
 fi
 `;
 
+export const PROJECT_IMAGE_BUILD_SCRIPT = `set -e
+completion="/var/lib/zuse/project-build/completed-\${ZUSE_PROJECT_BUILD_ID:?}"
+rm -f "$completion" /var/lib/zuse/project-build/ready /var/lib/zuse/project-build/failed /var/lib/zuse/project-build/failure-phase /tmp/zuse-project-builder-exited
+trap 'code=$?; printf "%s\\n" "$code" >"$completion.tmp-$$" && mv "$completion.tmp-$$" "$completion"; exit "$code"' EXIT
+if [ "\${ZUSE_PROJECT_IMAGE_PROVIDER:-}" = e2b ]; then
+  # The provider runs this wrapper as root; installs and Git still run as zuse.
+  sudo -n -E -H -u zuse bash <<'ZUSE_IMAGE_USER_BUILD'
+${PROJECT_IMAGE_USER_BUILD_SCRIPT}
+ZUSE_IMAGE_USER_BUILD
+  if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
+    printf 'preparing-snapshot-memory\\n' >/var/lib/zuse/project-build/failure-phase
+    { ${IMAGE_MEMORY_PREPARATION_SCRIPT} } >>${PROJECT_BUILD_LOG_FILE} 2>&1
+    rm -f /var/lib/zuse/project-build/failure-phase
+  fi
+else
+${PROJECT_IMAGE_USER_BUILD_SCRIPT}
+fi
+`;
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
@@ -1061,7 +1072,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						),
 						...runtimeUpdateEnvironment(config),
 					},
-					user: "zuse",
+					user: build.provider === "e2b" ? "root" : "zuse",
 				})
 				.pipe(Effect.orDie);
 			yield* store.saveBuild({
