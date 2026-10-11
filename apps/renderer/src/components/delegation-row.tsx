@@ -125,7 +125,7 @@ export function DelegationRow({
 			) : (
 				<SubagentAvatar name={view.title} size="sm" />
 			)}
-			<span className="max-w-56 shrink-0 truncate font-medium text-foreground/90">
+			<span className="min-w-0 max-w-56 truncate font-medium text-foreground/90">
 				{title}
 			</span>
 			<span
