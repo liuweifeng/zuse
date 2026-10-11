@@ -67,7 +67,7 @@ export const processActivationGuard = (
 					// freshly restored filesystem (sync -f invokes syncfs).
 					'sync -- "$temporary"',
 					'mv -f "$temporary" "$journal"',
-					'sync -- "$activation_dir"',
+					'sync -- "$activation_dir" /var/lib/zuse-process-activations /var/lib',
 				]),
 	];
 };

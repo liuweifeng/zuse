@@ -807,6 +807,20 @@ export const makeBoxSandboxProvider = (
 				{},
 				// 409 covers an already archived box or an in-flight stop.
 				[409],
+			).pipe(
+				Effect.catchTag("SandboxProviderError", (error) =>
+					error.code !== "rejected"
+						? Effect.fail(error)
+						: inspect(providerSandboxId).pipe(
+								// Boat also returns 400 stop_failed after TTL archival.
+								// Confirm retained paused storage instead of failing a retry.
+								Effect.flatMap((sandbox) =>
+									sandbox?.state === "paused"
+										? Effect.void
+										: Effect.fail(error),
+								),
+							),
+				),
 			),
 		resume: Effect.fn("BoxSandboxProvider.resume")(
 			function* (providerSandboxId, timeoutSeconds, _onTimeout, sizeId) {

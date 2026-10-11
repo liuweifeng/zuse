@@ -792,6 +792,22 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[0]?.url).toBe("https://box.test/sandboxes/bx_1/stop");
 	});
 
+	test.each([
+		"archived",
+		"running",
+	])("verifies the state after a rejected stop (%s)", async (state) => {
+		const http = makeHttp([
+			{ status: 400, body: { code: "stop_failed" } },
+			{
+				status: 200,
+				body: { sandbox: { ...readyBox("bx_1").sandbox, state } },
+			},
+		]);
+		const result = Effect.runPromise(makeAdapter(http.client).pause("bx_1"));
+		if (state === "archived") await expect(result).resolves.toBeUndefined();
+		else await expect(result).rejects.toMatchObject({ code: "rejected" });
+	});
+
 	test("resumes with only persisted layout preparation", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
