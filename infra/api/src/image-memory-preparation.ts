@@ -23,6 +23,13 @@ if size:
 print('Prepared snapshot memory bytes:', size)
 os.sync()
 ZUSE_IMAGE_MEMORY
+# Read the installed agent packages, including their native executables. A
+# version check touches too little of the app-server startup path. No agent
+# process, account state, or random-number state survives image capture.
+find -L /opt/zuse/toolchain-current/node_modules/@openai /opt/zuse/toolchain-current/node_modules/@anthropic-ai -type f -exec cat {} + >/dev/null
+# The process supervisor starts before Node. Keep its standard-library imports
+# resident too, then warm the runtime last so agent reads cannot evict it.
+python3 -c 'import ctypes,os,signal,subprocess,sys,time'
 cat "$(command -v node)" /opt/zuse/current/bin.mjs >/dev/null
 find /opt/zuse/node-compile-cache -type f -exec cat {} + >/dev/null
 `;
