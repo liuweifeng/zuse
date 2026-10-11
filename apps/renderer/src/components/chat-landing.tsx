@@ -1722,20 +1722,25 @@ function WorkspaceChatLanding({
 			<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1 flex-col [container-type:inline-size]">
 				<div className="min-h-0 flex-1 overflow-y-auto">
 					{progress.kind === "worktree" ? (
-						<SetupCardView
-							data={{
-								repoName: selectedFolder?.name ?? "this repo",
-								hasWorktree:
-									pendingWorktreeId !== null || workspaceMode === "worktree",
-								worktreePending: pendingWorktree === null,
-								worktreeName: pendingWorktree?.name ?? null,
-								branch: pendingWorktree?.branch ?? null,
-								baseBranch: pendingWorktree?.baseBranch ?? null,
-								setupStatus: pendingWorktree?.setupStatus ?? null,
-								setupOutput: pendingWorktree?.setupOutput ?? "",
-								onRerun: null,
-							}}
-						/>
+						<div className="px-[var(--chat-row-gutter)] pt-3">
+							<div className="mx-auto w-full max-w-[var(--chat-reading-column)]">
+								<SetupCardView
+									data={{
+										repoName: selectedFolder?.name ?? "this repo",
+										hasWorktree:
+											pendingWorktreeId !== null ||
+											workspaceMode === "worktree",
+										worktreePending: pendingWorktree === null,
+										worktreeName: pendingWorktree?.name ?? null,
+										branch: pendingWorktree?.branch ?? null,
+										baseBranch: pendingWorktree?.baseBranch ?? null,
+										setupStatus: pendingWorktree?.setupStatus ?? null,
+										setupOutput: pendingWorktree?.setupOutput ?? "",
+										onRerun: null,
+									}}
+								/>
+							</div>
+						</div>
 					) : null}
 				</div>
 				<div className="px-4 pb-4">

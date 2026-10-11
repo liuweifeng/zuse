@@ -11,10 +11,7 @@ describe("qualifyNamingMessage", () => {
 					goal: false,
 				}),
 			),
-		).toEqual({
-			userText: "Fix reconnect handling",
-			conversationText: "User: Fix reconnect handling",
-		});
+		).toEqual({ userText: "Fix reconnect handling" });
 	});
 
 	it("uses the text from a rich user message", () => {

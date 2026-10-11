@@ -373,7 +373,6 @@ export const makeConversationFixtureRuntime = (
 
 	const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
 		generate: () => Effect.die("not used"),
-		generateBranch: () => Effect.die("not used"),
 	});
 
 	const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {

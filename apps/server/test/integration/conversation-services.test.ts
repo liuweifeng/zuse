@@ -544,20 +544,19 @@ const StubGitLive = Layer.succeed(GitService, {
 });
 
 const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
-	generate: () =>
+	generate: (input) =>
 		Effect.gen(function* () {
 			titleGenerationStarts += 1;
 			if (titleGenerationBarrier !== null) {
 				yield* Effect.promise(() => titleGenerationBarrier as Promise<void>);
 			}
-			return generatedTitle === null
-				? yield* Effect.die("not used")
-				: generatedTitle;
+			if (generatedTitle === null && generatedBranch === null)
+				return yield* Effect.die("not used");
+			return {
+				title: input.title ? generatedTitle : null,
+				branch: input.branch ? generatedBranch : null,
+			};
 		}),
-	generateBranch: () =>
-		generatedBranch === null
-			? Effect.die("not used")
-			: Effect.succeed(generatedBranch),
 });
 
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {

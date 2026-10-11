@@ -8,16 +8,12 @@ import type { SqlClient } from "effect/unstable/sql";
 import type { ConfigStoreServiceShape } from "../../config-store/services/config-store-service.ts";
 import type { makeReactorEffectJournal } from "../../provider/reactor-effect-journal.ts";
 import type { TitleGeneratorShape } from "../../provider/title-generator.ts";
-import {
-	buildConversationText,
-	formatBranchName,
-} from "../../provider/title-generator.ts";
+import { formatBranchName } from "../../provider/title-generator.ts";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { textFromMessageContent } from "./conversation-input.ts";
 
 export interface QualifiedNamingTurn {
 	readonly userText: string;
-	readonly conversationText: string;
 }
 
 export const qualifyNamingMessage = (
@@ -32,12 +28,7 @@ export const qualifyNamingMessage = (
 		) {
 			return null;
 		}
-		return {
-			userText,
-			conversationText: buildConversationText([
-				{ role: "user", text: userText },
-			]),
-		};
+		return { userText };
 	} catch {
 		return null;
 	}
@@ -171,67 +162,64 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				LIMIT 1
 			`.pipe(Effect.orDie);
 			const isInitialSession = initialRows[0]?.id === sessionId;
-			if (
+			const wantsTitle =
 				session.titleProvenance === "pending" ||
-				(isInitialSession && chat.titleProvenance === "pending")
-			) {
-				const title = yield* titleGen.generate({
-					folderId: chat.projectId,
-					providerId: session.providerId,
-					model: session.model,
-					conversationText: qualified.conversationText,
-					fallbackText: qualified.userText,
-				});
-				if (title.length > 0 && title !== "New chat") {
-					session = yield* lookupSession(sessionId);
-					if (session.titleProvenance === "pending") {
-						yield* sessionDomain.dispatch({
-							commandId: `${commandId}:session`,
-							streamId: sessionId,
-							command: {
-								_tag: "SetTitle",
-								title,
-								titleProvenance: "automatic",
-								updatedAt: yield* currentTimestamp,
-							},
-						});
-					}
-					chat = yield* lookupChat(chatId);
-					if (isInitialSession && chat.titleProvenance === "pending") {
-						yield* renameChatWithCommandId(
-							chatId,
-							title,
-							`${commandId}:chat`,
-							"automatic",
-						);
-					}
-				}
-			}
-
+				(isInitialSession && chat.titleProvenance === "pending");
+			const worktreeId = isInitialSession ? chat.worktreeId : null;
+			const wt = worktreeId === null ? null : yield* worktrees.get(worktreeId);
+			const wantsBranch = wt !== null && wt.branchProvenance === "pending";
 			const markComplete = reactorEffects.complete(commandId);
-			if (!isInitialSession || chat.worktreeId === null) {
-				yield* markComplete;
-				return;
-			}
-			const worktreeId = chat.worktreeId;
-			const wt = yield* worktrees.get(worktreeId);
-			if (wt === null || wt.branchProvenance !== "pending") {
+			if (!wantsTitle && !wantsBranch) {
 				yield* markComplete;
 				return;
 			}
 
-			const settings = yield* configStore.getSettings();
-			const username = yield* git
-				.getUserName(chat.projectId)
-				.pipe(Effect.catch(() => Effect.succeed("")));
-			const branchFragment = yield* titleGen.generateBranch({
+			// One naming turn covers both so a fresh worktree chat boots one
+			// throwaway provider session instead of two in sequence.
+			const names = yield* titleGen.generate({
 				folderId: chat.projectId,
 				providerId: session.providerId,
 				model: session.model,
 				userText: qualified.userText,
+				title: wantsTitle,
+				branch: wantsBranch,
 			});
+			const title = names.title;
+			if (title !== null && title.length > 0 && title !== "New chat") {
+				session = yield* lookupSession(sessionId);
+				if (session.titleProvenance === "pending") {
+					yield* sessionDomain.dispatch({
+						commandId: `${commandId}:session`,
+						streamId: sessionId,
+						command: {
+							_tag: "SetTitle",
+							title,
+							titleProvenance: "automatic",
+							updatedAt: yield* currentTimestamp,
+						},
+					});
+				}
+				chat = yield* lookupChat(chatId);
+				if (isInitialSession && chat.titleProvenance === "pending") {
+					yield* renameChatWithCommandId(
+						chatId,
+						title,
+						`${commandId}:chat`,
+						"automatic",
+					);
+				}
+			}
+
+			if (worktreeId === null || names.branch === null) {
+				yield* markComplete;
+				return;
+			}
+			const settings = yield* configStore.getSettings();
+			const username = yield* git
+				.getUserName(chat.projectId)
+				.pipe(Effect.catch(() => Effect.succeed("")));
 			const branch = formatBranchName(
-				branchFragment,
+				names.branch,
 				username,
 				settings.branchNamingStyle,
 				settings.branchNamingPrefix,
