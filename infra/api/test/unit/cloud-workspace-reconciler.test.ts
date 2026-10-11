@@ -24,6 +24,11 @@ import {
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test, vi } from "vitest";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
+import {
+	launchAssetFiles,
+	launchAssetsDigest,
+	WORKSPACE_BOOTSTRAP_FILE,
+} from "../../src/cloud-workspace-launch-assets.ts";
 import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts";
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
@@ -2881,6 +2886,7 @@ fs.writeFileSync(${JSON.stringify(join(root, "opt/zuse/current/runtime-metadata.
 			`import fs from 'node:fs';
 if (process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES !== '1') throw new Error('Must not reinstall system packages');
 if (${JSON.stringify(fails)} === 'toolchain') process.exit(24);
+if (process.env.ZUSE_TOOLCHAIN_BIN_DIR !== '/home/zuse/.local/bin') throw new Error('Must install user-owned tools');
 fs.writeFileSync(${JSON.stringify(join(status, "tools-ready"))}, 'ready');`,
 		);
 		writeFileSync(
@@ -2890,6 +2896,10 @@ test -f '${join(status, "tools-ready")}' || exit 25
 touch '${join(status, "ready")}'
 `,
 			{ mode: 0o700 },
+		);
+		writeFileSync(
+			join(root, "opt/zuse/current/bin.mjs"),
+			"// import-safe runtime fixture\n",
 		);
 		const script = PROJECT_IMAGE_BUILD_SCRIPT.replaceAll(
 			"/tmp/zuse-",
@@ -2902,7 +2912,7 @@ touch '${join(status, "ready")}'
 			[
 				"-c",
 				`sleep() { :; }
-sudo() { shift; "$@"; }
+sudo() { echo "Unexpected privilege escalation" >&2; return 99; }
 ${script}`,
 			],
 			{
@@ -3009,4 +3019,113 @@ test("image runtime installation owns a transaction per build", async () => {
 			);
 		}).pipe(Effect.provide(testLayer)),
 	);
+});
+
+describe("managed image launch assets", () => {
+	const offer = {
+		port: 47837,
+		createTimeoutSeconds: 3600,
+		keepAliveTimeoutSeconds: 600,
+		runtimeManifestUrl: "https://runtime.test/manifest.json",
+		runtimeSigningPublicJwk: "public-key",
+	};
+	const launch = (
+		workspaceId: string,
+		input: {
+			readonly digest: string | undefined;
+			readonly recovered: boolean;
+		},
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "start-queued",
+				requestConfig: {},
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing fixture build");
+			yield* store.saveBuild({
+				...build,
+				settings: { launchAssetsDigest: input.digest },
+				revision: build.revision + 1,
+			});
+			const control = yield* FakeSandboxProviderControlService;
+			if (!input.recovered) yield* Ref.set(control.sandboxes, new Map());
+			const provider = yield* (yield* SandboxProviders).get("fake");
+			const write = vi.spyOn(provider, "writeTextFile");
+			const network = vi.spyOn(provider, "setNetwork");
+			const start = vi.spyOn(provider, "replaceProcess");
+			try {
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxOfferConfiguration, offer),
+				);
+				return {
+					bootstrapWritten: write.mock.calls.some(
+						([, path]) => path === WORKSPACE_BOOTSTRAP_FILE,
+					),
+					networkOpened: network.mock.calls.length > 0,
+					started: start.mock.calls.length,
+					workspace: yield* store.getWorkspace(workspaceId),
+				};
+			} finally {
+				write.mockRestore();
+				network.mockRestore();
+				start.mockRestore();
+			}
+		}).pipe(Effect.provide(testLayer));
+
+	test("a fresh restore of an image with the current digest launches without rewriting scripts", async () => {
+		const digest = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const result = await Effect.runPromise(
+			launch("assets-match", { digest, recovered: false }),
+		);
+		expect(result.bootstrapWritten).toBe(false);
+		expect(result.networkOpened).toBe(true);
+		expect(result.started).toBe(1);
+		expect(result.workspace?.state).toBe("provisioning");
+	});
+
+	test("a missing or stale image digest writes the current scripts", async () => {
+		for (const digest of [undefined, "stale-digest"]) {
+			const result = await Effect.runPromise(
+				launch(`assets-${digest ?? "missing"}`, { digest, recovered: false }),
+			);
+			expect(result.bootstrapWritten).toBe(true);
+			expect(result.networkOpened).toBe(true);
+			expect(result.started).toBe(1);
+		}
+	});
+
+	test("a recovered sandbox repairs its scripts even when the image digest matches", async () => {
+		const digest = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const result = await Effect.runPromise(
+			launch("assets-recovered", { digest, recovered: true }),
+		);
+		expect(result.bootstrapWritten).toBe(true);
+		expect(result.started).toBe(1);
+	});
+
+	test("the digest covers the signing key", async () => {
+		const withKey = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const otherKey = await Effect.runPromise(
+			launchAssetsDigest(
+				launchAssetFiles({ ...offer, runtimeSigningPublicJwk: "other-key" }),
+			),
+		);
+		const withoutKey = await Effect.runPromise(
+			launchAssetsDigest(
+				launchAssetFiles({ ...offer, runtimeSigningPublicJwk: undefined }),
+			),
+		);
+		expect(new Set([withKey, otherKey, withoutKey]).size).toBe(3);
+	});
 });

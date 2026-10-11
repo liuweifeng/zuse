@@ -11,12 +11,27 @@ export const scheduleWorkspaceStartup = async (
 	namespace: WorkspaceStartupNamespace,
 	workspaceId: string,
 ): Promise<void> => {
+	const startedAtMs = Date.now();
+	console.info("[cloud-timing]", {
+		workspaceId,
+		stage: "startup.enqueue",
+		event: "start",
+		atMs: startedAtMs,
+	});
 	const response = await namespace.get(namespace.idFromName(workspaceId)).fetch(
 		new Request("https://workspace-startup.internal/schedule", {
 			method: "POST",
 			body: JSON.stringify({ workspaceId }),
 		}),
 	);
+	console.info("[cloud-timing]", {
+		workspaceId,
+		stage: "startup.enqueue",
+		event: "end",
+		atMs: Date.now(),
+		durationMs: Date.now() - startedAtMs,
+		outcome: response.ok ? "Success" : "Failure",
+	});
 	if (!response.ok) throw new Error("workspace startup scheduling failed");
 };
 

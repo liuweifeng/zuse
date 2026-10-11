@@ -11,9 +11,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Cause, Clock, Data, Duration, Effect } from "effect";
-import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
-import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
 import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-prepare.sh";
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import WORKSPACE_RUNTIME_SOURCE from "../../cloud-sandboxes/workspace-runtime.sh";
@@ -40,6 +38,16 @@ import {
 	forkCloudWorkspaceMachine,
 	machineForkSource,
 } from "./cloud-workspace-fork.ts";
+import {
+	GITHUB_AUTH_FILE,
+	imageLaunchAssetsMatch,
+	launchAssetFiles,
+	launchAssetsDigest,
+	promoteLaunchAssetsDigest,
+	runtimeSigningKeyPath,
+	WORKSPACE_BOOTSTRAP_FILE,
+	withPendingLaunchAssetsDigest,
+} from "./cloud-workspace-launch-assets.ts";
 import {
 	MAX_MEMORY_RESTARTS,
 	MEMORY_PRESSURE_WAIT_MS,
@@ -112,10 +120,6 @@ export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
 	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
 const ARCHIVE_QUIESCE_GRACE_MS = 1_500;
 const BILLING_RESERVATION_REFRESH_MS = 60_000;
-const runtimeSigningKeyPath = (snapshot = false) =>
-	snapshot
-		? "/var/lib/zuse/runtime-signing-public.jwk"
-		: "/home/zuse/.zuse-runtime-signing-public.jwk";
 const runtimeUpdateEnvironment = (
 	config: SandboxOfferConfig,
 	snapshot = false,
@@ -127,22 +131,6 @@ const runtimeUpdateEnvironment = (
 				ZUSE_RUNTIME_PUBLIC_KEY_FILE: runtimeSigningKeyPath(snapshot),
 				ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
 			};
-
-const writeRuntimeSigningKey = (
-	provider: SandboxProviderAdapter,
-	providerSandboxId: string,
-	config: SandboxOfferConfig,
-	user = "zuse",
-	snapshot = false,
-) =>
-	config.runtimeSigningPublicJwk === undefined
-		? Effect.void
-		: provider.writeTextFile(
-				providerSandboxId,
-				runtimeSigningKeyPath(snapshot),
-				config.runtimeSigningPublicJwk,
-				user,
-			);
 
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
 const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
@@ -168,21 +156,14 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync("/opt/zuse/current/runtime-metadata.json", "utf8")); if (metadata.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) throw new Error("Installed image runtime protocol mismatch");' >>${PROJECT_BUILD_LOG_FILE} 2>&1
   # Install the signed release's agent tools once in the reusable image, never on wake.
   printf 'preparing-agent-tools\\n' >/var/lib/zuse/project-build/failure-phase
-  sudo -n env ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  env ZUSE_TOOLCHAIN_BIN_DIR=/home/zuse/.local/bin ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  # Import only: compile the signed runtime without opening storage or enrolling.
+  mkdir -p /opt/zuse/node-compile-cache
+  NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache node --input-type=module -e 'await import("/opt/zuse/current/bin.mjs")' >>${PROJECT_BUILD_LOG_FILE} 2>&1
 fi
 ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1
 `;
 
-const WORKSPACE_BOOTSTRAP_FILE =
-	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
-const WORKSPACE_RUNTIME_FILE =
-	"/var/lib/zuse/project-build/workspace-runtime.sh";
-// GitHub auth ships with the build for the same reason the bootstrap does:
-// base images are republished by hand, so an image older than the `gh` shim
-// would otherwise leave every workspace with an unauthenticated `gh`.
-const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
-const WORKSPACE_REPOSITORY_FILE =
-	"/var/lib/zuse/project-build/workspace-repository.sh";
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
@@ -933,6 +914,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
+			// The image carries the workspace launch files; their digest is recorded
+			// so fresh restores can skip rewriting unchanged scripts.
+			const imageAssets = launchAssetFiles(config);
+			const imageAssetsDigest = yield* launchAssetsDigest(imageAssets);
 			yield* Effect.all(
 				[
 					provider.writeTextFile(
@@ -941,29 +926,13 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						PROJECT_BUILDER_SOURCE,
 						"zuse",
 					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_REPOSITORY_FILE,
-						WORKSPACE_REPOSITORY_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_BOOTSTRAP_FILE,
-						WORKSPACE_BOOTSTRAP_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_RUNTIME_FILE,
-						WORKSPACE_RUNTIME_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						GITHUB_AUTH_FILE,
-						GITHUB_AUTH_SOURCE,
-						"zuse",
+					...imageAssets.map(({ path, contents }) =>
+						provider.writeTextFile(
+							sandbox.providerSandboxId,
+							path,
+							contents,
+							"zuse",
+						),
 					),
 					...(config.runtimeManifestUrl === undefined
 						? []
@@ -975,7 +944,6 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 									"zuse",
 								),
 							]),
-					writeRuntimeSigningKey(provider, sandbox.providerSandboxId, config),
 				],
 				{ concurrency: "unbounded", discard: true },
 			).pipe(Effect.orDie);
@@ -1084,6 +1052,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* store.saveBuild({
 				...build,
 				providerSandboxId: sandbox.providerSandboxId,
+				settings: withPendingLaunchAssetsDigest(
+					build.settings,
+					imageAssetsDigest,
+				),
 				state: "building",
 				nextActionAtMs: nowMs + RETRY_MS,
 				revision: build.revision + 1,
@@ -1301,6 +1273,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const sanitizing = {
 				...build,
 				sourceCommit,
+				settings: promoteLaunchAssetsDigest(
+					build.settings,
+					yield* launchAssetsDigest(launchAssetFiles(config)),
+				),
 				logText: [
 					logText,
 					"Repository preparation completed. Publishing snapshot…",
@@ -1602,39 +1578,35 @@ const prepareWorkspaceRuntimeLaunch = Effect.fn(
 	workspace: CloudWorkspaceRecord,
 	provider: SandboxProviderAdapter,
 	sandboxId: string,
+	// Only a fresh restore of a managed image whose recorded digest matches the
+	// current sources may skip the writes; every recovery path repairs them.
+	imageAssets: "write" | "reuse" = "write",
 ) {
 	const config = yield* SandboxOfferConfiguration;
 	const layout = cloudWorkspaceLayout(workspace);
-	const files = [
-		{ path: WORKSPACE_REPOSITORY_FILE, contents: WORKSPACE_REPOSITORY_SOURCE },
-		{ path: GITHUB_AUTH_FILE, contents: GITHUB_AUTH_SOURCE },
-		{ path: WORKSPACE_BOOTSTRAP_FILE, contents: WORKSPACE_BOOTSTRAP_SOURCE },
-		{ path: WORKSPACE_RUNTIME_FILE, contents: WORKSPACE_RUNTIME_SOURCE },
-		...(config.runtimeSigningPublicJwk === undefined
-			? []
-			: [
-					{
-						path: runtimeSigningKeyPath(layout.snapshot),
-						contents: config.runtimeSigningPublicJwk,
-					},
-				]),
-	];
+	const files = launchAssetFiles(config, layout.snapshot);
 	yield* Effect.all(
 		[
 			provider.setNetwork(sandboxId, { kind: "open" }),
-			provider.writeTextFiles !== undefined
-				? provider.writeTextFiles(sandboxId, files, layout.user)
-				: Effect.all(
-						files.map(({ path, contents }) =>
-							provider.writeTextFile(sandboxId, path, contents, layout.user),
+			imageAssets === "reuse"
+				? Effect.void
+				: provider.writeTextFiles !== undefined
+					? provider.writeTextFiles(sandboxId, files, layout.user)
+					: Effect.all(
+							files.map(({ path, contents }) =>
+								provider.writeTextFile(sandboxId, path, contents, layout.user),
+							),
+							{ concurrency: "unbounded", discard: true },
 						),
-						{ concurrency: "unbounded", discard: true },
-					),
 		],
 		{ concurrency: "unbounded", discard: true },
 	).pipe(
 		measureCloudStage(
-			{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+			{
+				workspaceId: workspace.workspaceId,
+				provider: provider.providerId,
+				reason: imageAssets === "reuse" ? "image-assets" : "written",
+			},
 			"runtime.prepare-launch-assets",
 		),
 	);
@@ -3057,10 +3029,24 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				updatedAtMs: allocatedAtMs,
 			};
 			yield* saveWorkspace(authorizedWorkspace);
+			const freshManagedRestore =
+				recovered === null &&
+				machineFork === undefined &&
+				!replacingFailedSandbox &&
+				preparedSnapshotAvailable &&
+				!importedSnapshot(build) &&
+				!cloudWorkspaceLayout(authorizedWorkspace).snapshot;
 			yield* prepareWorkspaceRuntimeLaunch(
 				authorizedWorkspace,
 				provider,
 				sandbox.providerSandboxId,
+				freshManagedRestore &&
+					imageLaunchAssetsMatch(
+						build,
+						yield* launchAssetsDigest(launchAssetFiles(config)),
+					)
+					? "reuse"
+					: "write",
 			);
 			const runtimeOptions = yield* workspaceRuntimeLaunchInput(
 				authorizedWorkspace,
