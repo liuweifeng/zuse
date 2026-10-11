@@ -521,7 +521,9 @@ test("failed token exchange removes the connection and consumes confirmation", a
 	const ticket = await authorize(a);
 	failTokenExchange = true;
 	try {
-		expect((await a.request({ action: "complete", ticket })).status).toBe(400);
+		expect(
+			(await a.request({ action: "complete", ticket })).body,
+		).toMatchObject({ state: "failed", error: "plugin_sign_in_failed" });
 	} finally {
 		failTokenExchange = false;
 	}
@@ -567,7 +569,9 @@ test("rejects missing and mismatched OAuth issuers instead of bypassing validati
 	const a = await client(create());
 	for (const issuer of [null, "https://wrong-issuer.test"]) {
 		const ticket = await authorize(a, issuer);
-		expect((await a.request({ action: "complete", ticket })).status).toBe(400);
+		expect(
+			(await a.request({ action: "complete", ticket })).body,
+		).toMatchObject({ state: "failed", error: "plugin_sign_in_failed" });
 	}
 }, 60_000);
 
@@ -578,7 +582,9 @@ test("passes duplicate OAuth response parameters to Executor for rejection", asy
 		"&code=second-code",
 	]) {
 		const ticket = await authorize(a, "https://mcp.linear.app", extra);
-		expect((await a.request({ action: "complete", ticket })).status).toBe(400);
+		expect(
+			(await a.request({ action: "complete", ticket })).body,
+		).toMatchObject({ state: "failed", error: "plugin_sign_in_failed" });
 	}
 }, 60_000);
 

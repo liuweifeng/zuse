@@ -36,6 +36,17 @@ export async function pluginReturnTo(): Promise<PluginReturnTo> {
 		: { kind: "desktop", port: allowed };
 }
 
+const reportedFailures = new Set<string>();
+/**
+ * The return handler and the Plugins page can both see one failed sign-in;
+ * only the first to claim it reports it.
+ */
+export const claimPluginFailure = (attemptId: string): boolean => {
+	if (reportedFailures.has(attemptId)) return false;
+	reportedFailures.add(attemptId);
+	return true;
+};
+
 /**
  * Connections changed (an OAuth return, a toggle). Refreshes the shared
  * snapshot once; every view subscribed to the cache updates from it.

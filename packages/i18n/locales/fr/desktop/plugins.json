@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "Impossible de copier. Réessayez.",
 	"plugins_visit_website": "Visiter le site",
 	"plugins_privacy_organization": "Les connexions sont partagées avec les membres de cette organisation. Les jetons restent chiffrés sur les serveurs Zuse et n'atteignent jamais les machines des agents. La déconnexion arrête immédiatement les nouveaux appels.",
-	"plugins_account_actions": "Actions pour {{name}}"
+	"plugins_account_actions": "Actions pour {{name}}",
+	"plugins_error_sign_in_failed": "Vous êtes connecté, mais Zuse n'a pas pu finaliser la connexion. Réessayez. Si l'échec persiste, la connexion de ce service n'est pas encore prise en charge.",
+	"plugins_connected_accounts": "Comptes connectés",
+	"plugins_turn_off": "Désactiver pour les agents",
+	"plugins_turn_on": "Activer pour les agents",
+	"plugins_connection_off": "Désactivé · les agents ne peuvent pas utiliser ce compte"
 }

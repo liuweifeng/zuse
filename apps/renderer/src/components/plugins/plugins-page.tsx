@@ -5,18 +5,13 @@ import type {
 	PluginConnection,
 	PluginDefinition,
 } from "@zuse/contracts";
-import { formatDate, type MessageKey } from "@zuse/i18n";
+import type { MessageKey } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	Copy01Icon,
-	Delete02Icon,
-	Link04Icon,
-	MoreHorizontalIcon,
 	PlusSignIcon,
 	RefreshIcon,
 	Search01Icon,
 	Tick02Icon,
-	Unlink03Icon,
 } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
@@ -26,24 +21,20 @@ import {
 	useState,
 } from "react";
 import { useAuth } from "~/hooks/use-auth.ts";
-import {
-	type PluginConnectionToggle,
-	usePluginConnectionToggle,
-} from "~/hooks/use-plugin-connection-toggle.ts";
+import { usePluginConnectionToggle } from "~/hooks/use-plugin-connection-toggle.ts";
 import {
 	hasPluginConnectionLabel,
-	pluginConnectionName,
+	nextPluginConnectionLabel,
 	usePluginAccount,
 	usePluginTenant,
 } from "~/lib/connected-plugins.ts";
-import { copyText, openExternal } from "~/lib/platform-capabilities.ts";
 import {
 	apiKeyValue,
-	customServerAuthOf,
 	pluginConnectErrorKey,
 	pluginDomain,
 } from "~/lib/plugin-servers.ts";
 import {
+	claimPluginFailure,
 	pluginRequest,
 	pluginReturnTo,
 	usePluginSnapshot,
@@ -53,19 +44,8 @@ import {
 	subscribePluginsPageFocus,
 	takePluginsPageFocus,
 } from "~/lib/plugins-navigation.ts";
-import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui.ts";
-import {
-	AlertDialog,
-	AlertDialogClose,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogPopup,
-	AlertDialogTitle,
-} from "../ui/alert-dialog.tsx";
 import { Button } from "../ui/button.tsx";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu.tsx";
 import { SegmentedTabs } from "../ui/segmented-tabs.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { toastManager } from "../ui/toast.tsx";
@@ -75,7 +55,11 @@ import {
 	type McpServerAdded,
 } from "./add-mcp-server-dialog.tsx";
 import { CustomTag } from "./custom-tag.tsx";
-import { PluginConnectionSwitch } from "./plugin-connection-switch.tsx";
+import {
+	PluginDetail,
+	type PluginStatus,
+	subtitleOf,
+} from "./plugin-detail.tsx";
 import { PluginIcon } from "./plugin-icon.tsx";
 import { PluginsLoading } from "./plugins-loading.tsx";
 
@@ -164,7 +148,7 @@ function usePlugins() {
 				if (stopped) return;
 				if (result.kind === "attempt" && result.state !== "pending") {
 					setAttempt(null);
-					if (result.state === "failed")
+					if (result.state === "failed" && claimPluginFailure(result.id))
 						toastConnectFailed(
 							m,
 							snapshot.catalog.find(
@@ -271,11 +255,14 @@ function WorkspacePluginsPage() {
 	/** Validate account names before starting an independent connection attempt. */
 	const connect = async (
 		plugin: PluginDefinition,
-		label = plugin.name,
+		label?: string,
 		apiKey?: string,
 	): Promise<boolean> => {
 		if (!snapshot || busy || attempt) return false;
-		const trimmedLabel = label.trim() || plugin.name;
+		// Names are optional: an empty name takes the next free default.
+		const trimmedLabel =
+			label?.trim() ||
+			nextPluginConnectionLabel(snapshot.connections, plugin.id, plugin.name);
 		if (
 			hasPluginConnectionLabel(snapshot.connections, plugin.id, trimmedLabel)
 		) {
@@ -641,8 +628,6 @@ function WorkspacePluginsPage() {
 	);
 }
 
-type PluginStatus = "available" | "connecting" | "connected";
-
 function PluginSection({
 	title,
 	children,
@@ -675,16 +660,6 @@ function ShowMore({
 		</Button>
 	);
 }
-
-/** What a row or header shows under the name: the service, or a custom server's host. */
-const subtitleOf = (plugin: PluginDefinition) => {
-	if (!plugin.custom || plugin.url === null) return plugin.domain;
-	try {
-		return new URL(plugin.url).host;
-	} catch {
-		return plugin.url;
-	}
-};
 
 function PluginRow({
 	plugin,
@@ -784,409 +759,5 @@ function PendingBanner({
 				{m("plugins:plugins_cancel")}
 			</Button>
 		</div>
-	);
-}
-
-/** How a custom server signs in, as shown in its details. */
-function authLabel(
-	m: (key: MessageKey, values?: Record<string, string>) => string,
-	plugin: PluginDefinition,
-) {
-	const auth = customServerAuthOf(plugin);
-	return auth === "auto"
-		? m("plugins:plugins_auth_auto")
-		: auth === "bearer"
-			? m("plugins:plugins_auth_bearer")
-			: m("plugins:plugins_auth_header_named", {
-					header: plugin.apiKeyHeader ?? "",
-				});
-}
-
-/** Show account controls and validate names against every connection for this plugin. */
-function PluginDetail({
-	plugin,
-	status,
-	connections,
-	allConnections,
-	canManage,
-	organization,
-	locked,
-	toggle,
-	onBack,
-	onConnect,
-	onDisconnect,
-	onRemove,
-}: {
-	readonly plugin: PluginDefinition;
-	readonly status: PluginStatus;
-	readonly connections: readonly PluginConnection[];
-	readonly allConnections: readonly PluginConnection[];
-	readonly canManage: boolean;
-	readonly organization: boolean;
-	readonly locked: boolean;
-	readonly toggle: PluginConnectionToggle;
-	readonly onBack: () => void;
-	readonly onConnect: (label: string, apiKey?: string) => Promise<boolean>;
-	readonly onDisconnect: (connectionId: string) => void;
-	readonly onRemove: () => Promise<boolean>;
-}) {
-	const { message: m } = useUiMessages(["plugins", "common"]);
-	const [label, setLabel] = useState("");
-	const [apiKey, setApiKey] = useState("");
-	const [confirmRemove, setConfirmRemove] = useState(false);
-	const [removing, setRemoving] = useState(false);
-	const needsKey = plugin.apiKeyHeader !== null;
-	const duplicateLabel = hasPluginConnectionLabel(
-		allConnections,
-		plugin.id,
-		label,
-	);
-	const canSubmit =
-		!locked &&
-		status !== "connecting" &&
-		label.trim().length > 0 &&
-		!duplicateLabel &&
-		(!needsKey || apiKey.trim().length > 0);
-	const busy = locked || status === "connecting";
-	const copyUrl = async () => {
-		try {
-			await copyText(plugin.url ?? "");
-			toastManager.add({
-				title: m("plugins:plugins_url_copied"),
-				type: "success",
-			});
-		} catch {
-			toastManager.add({
-				title: m("plugins:plugins_copy_failed"),
-				type: "error",
-			});
-		}
-	};
-	return (
-		<>
-			<nav
-				aria-label={m("plugins:plugins_title")}
-				className="flex h-7 min-w-0 items-center gap-1.5 text-muted-foreground"
-			>
-				<button
-					type="button"
-					onClick={onBack}
-					className="rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					{m("plugins:plugins_back")}
-				</button>
-				<span aria-hidden className="text-muted-foreground/50">
-					/
-				</span>
-				<span className="truncate text-foreground">{plugin.name}</span>
-			</nav>
-			<header className="flex items-center gap-3">
-				<PluginIcon
-					name={plugin.name}
-					domain={pluginDomain(plugin)}
-					className="size-10 rounded-xl text-sm"
-				/>
-				<div className="min-w-0 flex-1">
-					<h1 className="flex min-w-0 items-center gap-2 text-lg font-medium tracking-[-0.01em] text-foreground">
-						<span className="truncate">{plugin.name}</span>
-						{plugin.custom && <CustomTag />}
-					</h1>
-					<p className="truncate text-muted-foreground">{subtitleOf(plugin)}</p>
-				</div>
-				{status === "connecting" && (
-					<span
-						role="status"
-						className="flex h-7 shrink-0 items-center gap-1.5 text-muted-foreground"
-					>
-						<Spinner className="size-3.5" />
-						{m("plugins:plugins_waiting")}
-					</span>
-				)}
-				{(!plugin.custom || canManage) && (
-					<Menu>
-						<MenuTrigger
-							render={
-								<Button
-									variant="ghost"
-									size="icon"
-									className="shrink-0 text-muted-foreground"
-									aria-label={m("plugins:plugins_more_actions")}
-								/>
-							}
-						>
-							<HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
-						</MenuTrigger>
-						<MenuPopup align="end" className="w-44">
-							{plugin.custom ? (
-								<MenuItem
-									variant="destructive"
-									disabled={locked}
-									onClick={() => setConfirmRemove(true)}
-								>
-									<HugeiconsIcon icon={Delete02Icon} />
-									{m("plugins:plugins_remove_server")}
-								</MenuItem>
-							) : (
-								<MenuItem
-									onClick={() => void openExternal(`https://${plugin.domain}`)}
-								>
-									<HugeiconsIcon icon={Link04Icon} />
-									{m("plugins:plugins_visit_website")}
-								</MenuItem>
-							)}
-						</MenuPopup>
-					</Menu>
-				)}
-			</header>
-			{plugin.description && (
-				<p className="max-w-prose text-[13px] leading-5 text-foreground/85">
-					{plugin.description}
-				</p>
-			)}
-			<section className="flex flex-col gap-2">
-				<h2 className="flex items-baseline gap-1.5 text-[13px] font-medium">
-					{m("plugins:plugins_connections")}
-					{connections.length > 0 && (
-						<span className="font-normal tabular-nums text-muted-foreground">
-							{connections.length}
-						</span>
-					)}
-				</h2>
-				<div className="flex flex-col rounded-lg bg-muted/35 p-1">
-					{connections.map((connection) => (
-						<div
-							key={connection.id}
-							className="flex h-9 items-center gap-3 rounded-md px-2"
-						>
-							<span className="min-w-0 flex-1 truncate text-[13px] text-foreground">
-								{connection.label}
-							</span>
-							<span className="shrink-0 text-muted-foreground max-[640px]:hidden">
-								{m("plugins:plugins_connected_on", {
-									date: formatDate(connection.createdAt, {
-										dateStyle: "medium",
-									}),
-								})}
-							</span>
-							<PluginConnectionSwitch
-								connection={connection}
-								name={pluginConnectionName(plugin.name, connection.label)}
-								toggle={toggle}
-							/>
-							{canManage && (
-								<Menu>
-									<MenuTrigger
-										render={
-											<Button
-												variant="ghost"
-												size="icon"
-												className="-mr-1 size-7 shrink-0 text-muted-foreground"
-												aria-label={m("plugins:plugins_account_actions", {
-													name: connection.label,
-												})}
-											/>
-										}
-									>
-										<HugeiconsIcon
-											icon={MoreHorizontalIcon}
-											className="size-4"
-										/>
-									</MenuTrigger>
-									<MenuPopup align="end" className="w-40">
-										<MenuItem
-											variant="destructive"
-											disabled={locked}
-											onClick={() => onDisconnect(connection.id)}
-										>
-											<HugeiconsIcon icon={Unlink03Icon} />
-											{m("plugins:plugins_disconnect")}
-										</MenuItem>
-									</MenuPopup>
-								</Menu>
-							)}
-						</div>
-					))}
-					{canManage ? (
-						<form
-							className={cn(
-								"flex flex-wrap items-center gap-1.5 p-1",
-								connections.length > 0 && "mt-1 border-t border-border/40 pt-2",
-							)}
-							onSubmit={(event) => {
-								event.preventDefault();
-								if (!canSubmit) return;
-								void onConnect(
-									label.trim(),
-									needsKey ? apiKey : undefined,
-								).then((started) => {
-									if (!started) return;
-									setLabel("");
-									setApiKey("");
-								});
-							}}
-						>
-							<input
-								className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
-								aria-label={m("plugins:plugins_connection_name")}
-								aria-invalid={duplicateLabel || undefined}
-								aria-describedby={
-									duplicateLabel ? "plugin-connection-name-error" : undefined
-								}
-								placeholder={m("plugins:plugins_connection_name_placeholder")}
-								maxLength={80}
-								value={label}
-								onChange={(event) => setLabel(event.target.value)}
-								disabled={busy}
-							/>
-							{needsKey && (
-								<input
-									type="password"
-									autoComplete="off"
-									spellCheck={false}
-									className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
-									aria-label={m("plugins:plugins_api_key")}
-									placeholder={m("plugins:plugins_api_key_placeholder")}
-									value={apiKey}
-									onChange={(event) => setApiKey(event.target.value)}
-									disabled={busy}
-								/>
-							)}
-							<Button
-								className="h-7 shrink-0"
-								variant={connections.length ? "secondary" : "default"}
-								type="submit"
-								disabled={!canSubmit}
-							>
-								<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
-								{m(
-									connections.length
-										? "plugins:plugins_connect_another"
-										: "plugins:plugins_connect",
-								)}
-							</Button>
-							{duplicateLabel && (
-								<p
-									id="plugin-connection-name-error"
-									role="status"
-									className="w-full px-1 text-muted-foreground"
-								>
-									{m("plugins:plugins_connection_name_exists")}
-								</p>
-							)}
-						</form>
-					) : (
-						<p className="px-2 py-2 text-muted-foreground">
-							{m("plugins:plugins_manage_admins_only")}
-						</p>
-					)}
-				</div>
-			</section>
-			<section className="flex flex-col gap-2">
-				<h2 className="text-[13px] font-medium">
-					{m("plugins:plugins_information")}
-				</h2>
-				<dl className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-4 gap-y-2.5">
-					{plugin.custom ? (
-						<>
-							<dt className="text-muted-foreground">
-								{m("plugins:plugins_add_server_url")}
-							</dt>
-							<dd className="flex min-w-0 items-center gap-1">
-								<span className="truncate select-text font-mono text-[11px] leading-4 text-foreground/85">
-									{plugin.url}
-								</span>
-								<Button
-									variant="ghost"
-									size="icon"
-									className="size-6 shrink-0 text-muted-foreground"
-									aria-label={m("plugins:plugins_copy_url")}
-									onClick={() => void copyUrl()}
-								>
-									<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-								</Button>
-							</dd>
-							<dt className="text-muted-foreground">
-								{m("plugins:plugins_add_server_auth")}
-							</dt>
-							<dd>{authLabel(m, plugin)}</dd>
-						</>
-					) : (
-						<>
-							<dt className="text-muted-foreground">
-								{m("plugins:plugins_website")}
-							</dt>
-							<dd>
-								<button
-									type="button"
-									className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
-									onClick={() => void openExternal(`https://${plugin.domain}`)}
-								>
-									{plugin.domain}
-									<HugeiconsIcon
-										icon={Link04Icon}
-										className="size-3 text-muted-foreground"
-									/>
-								</button>
-							</dd>
-							{plugin.category && (
-								<>
-									<dt className="text-muted-foreground">
-										{m("plugins:plugins_category")}
-									</dt>
-									<dd className="capitalize">
-										{plugin.category.replaceAll("-", " ")}
-									</dd>
-								</>
-							)}
-						</>
-					)}
-					<dt className="text-muted-foreground">
-						{m("plugins:plugins_access")}
-					</dt>
-					<dd>{m("plugins:plugins_access_value")}</dd>
-				</dl>
-			</section>
-			<p className="max-w-prose text-[11px] leading-4 text-muted-foreground">
-				{m(
-					organization
-						? "plugins:plugins_privacy_organization"
-						: "plugins:plugins_privacy",
-				)}
-			</p>
-			<AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
-				<AlertDialogPopup className="max-w-sm">
-					<AlertDialogHeader>
-						<AlertDialogTitle>
-							{m("plugins:plugins_remove_server_title", { name: plugin.name })}
-						</AlertDialogTitle>
-						<AlertDialogDescription>
-							{m("plugins:plugins_remove_server_description")}
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogClose
-							render={<Button variant="ghost" className="h-7" />}
-							disabled={removing}
-						>
-							{m("common:cancel")}
-						</AlertDialogClose>
-						<Button
-							variant="destructive"
-							className="h-7"
-							loading={removing}
-							onClick={() => {
-								setRemoving(true);
-								void onRemove().then((removed) => {
-									setRemoving(false);
-									if (removed) setConfirmRemove(false);
-								});
-							}}
-						>
-							{m("plugins:plugins_remove_server")}
-						</Button>
-					</AlertDialogFooter>
-				</AlertDialogPopup>
-			</AlertDialog>
-		</>
 	);
 }

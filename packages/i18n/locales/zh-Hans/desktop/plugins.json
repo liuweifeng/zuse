@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "无法复制，请重试。",
 	"plugins_visit_website": "访问网站",
 	"plugins_privacy_organization": "连接会与此组织的成员共享。令牌在 Zuse 服务器上加密保存，绝不会发送到智能体所在的机器。断开连接后，新的调用会立即停止。",
-	"plugins_account_actions": "{{name}} 的操作"
+	"plugins_account_actions": "{{name}} 的操作",
+	"plugins_error_sign_in_failed": "你已登录，但 Zuse 无法完成连接。请重试。如果仍然失败，说明暂不支持此服务的登录方式。",
+	"plugins_connected_accounts": "已连接的账号",
+	"plugins_turn_off": "对智能体关闭",
+	"plugins_turn_on": "对智能体开启",
+	"plugins_connection_off": "已关闭 · 智能体无法使用此账号"
 }

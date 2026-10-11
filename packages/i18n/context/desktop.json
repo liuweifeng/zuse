@@ -7232,7 +7232,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 215
+				"line": 214
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7246,7 +7246,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 240
+				"line": 239
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7260,7 +7260,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 241
+				"line": 240
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7300,7 +7300,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 212
+				"line": 211
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7330,7 +7330,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 200
+				"line": 190
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7340,7 +7340,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 206
+				"line": 196
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -8880,7 +8880,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/composer/switch-account-action.tsx",
-				"line": 232
+				"line": 231
 			},
 			{
 				"path": "apps/renderer/src/components/create-branch-dialog.tsx",
@@ -8911,8 +8911,8 @@
 				"line": 401
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1171
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 418
 			},
 			{
 				"path": "apps/renderer/src/components/project-setup-dialog.tsx",
@@ -12324,23 +12324,23 @@
 			},
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 20
+				"line": 25
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 145
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 97
+				"line": 81
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 493
+				"line": 480
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 529
-			},
-			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 868
+				"line": 516
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-popover.tsx",
@@ -12378,7 +12378,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 496
+				"line": 483
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12388,11 +12388,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 506
+				"line": 493
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 507
+				"line": 494
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12402,7 +12402,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 517
+				"line": 504
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12417,7 +12417,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 536
+				"line": 523
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12427,11 +12427,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 542
+				"line": 529
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 624
+				"line": 611
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12445,7 +12445,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 608
+				"line": 595
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12455,7 +12455,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 614
+				"line": 601
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12465,7 +12465,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 625
+				"line": 612
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12475,7 +12475,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 434
+				"line": 421
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12489,7 +12489,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 575
+				"line": 562
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-popover.tsx",
@@ -12507,7 +12507,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 564
+				"line": 551
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12521,7 +12521,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 556
+				"line": 543
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12535,7 +12535,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 571
+				"line": 558
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12553,7 +12553,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 579
+				"line": 566
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12571,7 +12571,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 585
+				"line": 572
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -12585,7 +12585,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 748
+				"line": 723
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12595,7 +12595,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 738
+				"line": 713
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12605,7 +12605,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 726
+				"line": 701
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12614,8 +12614,8 @@
 		"source": "Plugins",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 876
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 153
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12624,8 +12624,12 @@
 		"source": "Connect",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1064
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 246
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 327
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12639,8 +12643,8 @@
 		"source": "Disconnect",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1002
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 577
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12649,8 +12653,8 @@
 		"source": "Waiting for browser…",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 902
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 230
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12660,7 +12664,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 780
+				"line": 755
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12669,8 +12673,12 @@
 		"source": "Cancel",
 		"locations": [
 			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 320
+			},
+			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 784
+				"line": 759
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12680,7 +12688,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 776
+				"line": 751
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12690,11 +12698,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 38
+				"line": 52
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 305
+				"line": 292
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12704,7 +12712,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 39
+				"line": 53
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
@@ -12712,7 +12720,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 306
+				"line": 293
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12722,11 +12730,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 44
+				"line": 43
+			},
+			{
+				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
+				"line": 58
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 96
+				"line": 80
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12736,7 +12748,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/plugin-servers.ts",
-				"line": 189
+				"line": 191
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12746,7 +12758,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 45
+				"line": 59
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12756,7 +12768,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 23
+				"line": 28
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12766,7 +12778,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugin-return-handler.tsx",
-				"line": 24
+				"line": 29
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12776,7 +12788,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 358
+				"line": 345
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12786,7 +12798,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 340
+				"line": 327
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12795,8 +12807,8 @@
 		"source": "Information",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1086
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 345
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12805,8 +12817,8 @@
 		"source": "Website",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1116
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 363
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12815,8 +12827,8 @@
 		"source": "Category",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1134
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 381
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12825,8 +12837,8 @@
 		"source": "Access",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1144
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 391
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12835,28 +12847,23 @@
 		"source": "Read and write, within each chat's permissions",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1146
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 393
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"plugins:plugins_connections": {
 		"source": "Connections",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 948
-			}
-		],
+		"locations": [],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"plugins:plugins_connected_on": {
 		"source": "Connected {{date}}",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 965
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 538
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12865,8 +12872,8 @@
 		"source": "Connections are private to your Zuse account. Tokens stay encrypted on Zuse servers and never reach agent machines. Disconnecting stops new calls immediately.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1153
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 399
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -12920,7 +12927,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 591
+				"line": 578
 			},
 			{
 				"path": "apps/renderer/src/components/settings/plugins-settings-pane.tsx",
@@ -13029,30 +13036,20 @@
 	},
 	"plugins:plugins_connection_name": {
 		"source": "Connection name",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1030
-			}
-		],
+		"locations": [],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"plugins:plugins_connection_name_placeholder": {
 		"source": "Work, personal, or company name",
-		"locations": [
-			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1035
-			}
-		],
+		"locations": [],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"plugins:plugins_connect_another": {
 		"source": "Connect another account",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1063
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 338
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13062,11 +13059,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 283
-			},
-			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1073
+				"line": 270
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13141,8 +13134,8 @@
 				"line": 284
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1092
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 350
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13169,8 +13162,8 @@
 				"line": 304
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1109
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 356
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13183,8 +13176,8 @@
 				"line": 308
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 797
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 58
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13197,8 +13190,8 @@
 				"line": 309
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 799
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 60
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13217,8 +13210,8 @@
 		"source": "Custom header ({{header}})",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 800
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 61
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13466,7 +13459,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 601
+				"line": 588
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13475,8 +13468,8 @@
 		"source": "API key",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1047
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 305
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13485,8 +13478,8 @@
 		"source": "Key for this account",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1048
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 306
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13495,12 +13488,12 @@
 		"source": "Remove server",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 927
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 199
 			},
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1185
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 432
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13509,8 +13502,8 @@
 		"source": "Remove {{name}}?",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1160
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 407
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13519,8 +13512,8 @@
 		"source": "This disconnects every account and removes the server from this workspace. Agents lose access right away.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1163
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 410
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13530,7 +13523,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 378
+				"line": 365
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13540,7 +13533,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 385
+				"line": 372
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13549,8 +13542,8 @@
 		"source": "Only organization admins can change plugins in this workspace.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1079
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 268
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-popover.tsx",
@@ -13603,8 +13596,8 @@
 		"source": "More actions",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 913
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 182
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13613,8 +13606,8 @@
 		"source": "Copy server URL",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1102
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 221
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13623,8 +13616,8 @@
 		"source": "Server URL copied",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 855
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 129
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13633,8 +13626,8 @@
 		"source": "Couldn't copy. Try again.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 860
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 134
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13643,8 +13636,8 @@
 		"source": "Visit website",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 934
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 208
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13653,8 +13646,8 @@
 		"source": "Connections are shared with members of this organization. Tokens stay encrypted on Zuse servers and never reach agent machines. Disconnecting stops new calls immediately.",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 1152
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 398
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13663,8 +13656,58 @@
 		"source": "Actions for {{name}}",
 		"locations": [
 			{
-				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
-				"line": 984
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 552
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_error_sign_in_failed": {
+		"source": "You signed in, but Zuse couldn't finish connecting. Try again. If it keeps failing, this service's sign-in isn't supported yet.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/plugin-servers.ts",
+				"line": 188
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_connected_accounts": {
+		"source": "Connected accounts",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 274
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_turn_off": {
+		"source": "Turn off for agents",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 567
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_turn_on": {
+		"source": "Turn on for agents",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 568
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_connection_off": {
+		"source": "Off · agents can't use this account",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 541
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

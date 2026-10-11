@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "복사하지 못했습니다. 다시 시도하세요.",
 	"plugins_visit_website": "웹사이트 방문",
 	"plugins_privacy_organization": "연결은 이 조직의 구성원과 공유됩니다. 토큰은 Zuse 서버에 암호화되어 저장되며 에이전트 머신에 전달되지 않습니다. 연결을 해제하면 새 호출이 즉시 중단됩니다.",
-	"plugins_account_actions": "{{name}} 작업"
+	"plugins_account_actions": "{{name}} 작업",
+	"plugins_error_sign_in_failed": "로그인했지만 Zuse가 연결을 완료하지 못했습니다. 다시 시도하세요. 계속 실패하면 이 서비스의 로그인은 아직 지원되지 않습니다.",
+	"plugins_connected_accounts": "연결된 계정",
+	"plugins_turn_off": "에이전트 사용 끄기",
+	"plugins_turn_on": "에이전트 사용 켜기",
+	"plugins_connection_off": "꺼짐 · 에이전트가 이 계정을 사용할 수 없습니다"
 }

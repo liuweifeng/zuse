@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "⟦Côôüüldn't côôpy. Try ààgààïïn.⟧",
 	"plugins_visit_website": "⟦Vïïsïït wëëbsïïtëë⟧",
 	"plugins_privacy_organization": "⟦Côônnëëctïïôôns ààrëë shààrëëd wïïth mëëmbëërs ôôf thïïs ôôrgàànïïzààtïïôôn. Tôôkëëns stàày ëëncryptëëd ôôn Züüsëë sëërvëërs àànd nëëvëër rëëààch ààgëënt mààchïïnëës. Dïïscôônnëëctïïng stôôps nëëw cààlls ïïmmëëdïïààtëëly.⟧",
-	"plugins_account_actions": "⟦ÀÀctïïôôns fôôr {{name}}⟧"
+	"plugins_account_actions": "⟦ÀÀctïïôôns fôôr {{name}}⟧",
+	"plugins_error_sign_in_failed": "⟦Yôôüü sïïgnëëd ïïn, büüt Züüsëë côôüüldn't fïïnïïsh côônnëëctïïng. Try ààgààïïn. ÏÏf ïït këëëëps fààïïlïïng, thïïs sëërvïïcëë's sïïgn-ïïn ïïsn't süüppôôrtëëd yëët.⟧",
+	"plugins_connected_accounts": "⟦Côônnëëctëëd ààccôôüünts⟧",
+	"plugins_turn_off": "⟦Tüürn ôôff fôôr ààgëënts⟧",
+	"plugins_turn_on": "⟦Tüürn ôôn fôôr ààgëënts⟧",
+	"plugins_connection_off": "⟦ÔÔff · ààgëënts cààn't üüsëë thïïs ààccôôüünt⟧"
 }

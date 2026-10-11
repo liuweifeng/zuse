@@ -78,6 +78,24 @@ describe("api deployment safety", () => {
 		expect(staging.vars.ORGANIZATION_ROLLOUT_ENABLED).not.toBe("true");
 	});
 
+	// Production once shipped without API_PUBLIC_ORIGIN: every plugin OAuth
+	// redirect_uri became "undefined/v1/plugins/callback/…" and was rejected.
+	test.each([
+		["staging", wranglerConfigUrl, STAGING_API_URL],
+		["production", productionWranglerConfigUrl, PRODUCTION_API_URL],
+	] as const)("configures plugin OAuth origins for %s", async (_, url, apiUrl) => {
+		const target = parse(await readFile(url, "utf8")) as WranglerTarget;
+		expect(
+			target.durable_objects.bindings.some(
+				(binding) => binding.class_name === "PluginVault",
+			),
+		).toBe(true);
+		expect(target.vars.API_PUBLIC_ORIGIN).toBe(apiUrl);
+		const app = target.vars.PLUGIN_APP_ORIGIN ?? "";
+		expect(new URL(app).protocol).toBe("https:");
+		expect(target.vars.ALLOWED_BROWSER_ORIGINS?.split(",")).toContain(app);
+	});
+
 	test.each([
 		"snapshot",
 		"version",
@@ -86,6 +104,7 @@ describe("api deployment safety", () => {
 		"legacy-secret",
 		"slack-secret",
 		"stripe-secret",
+		"http-origin",
 	])("checks enabled production prerequisites before deployment: %s", async (scenario) => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
@@ -93,6 +112,8 @@ describe("api deployment safety", () => {
 			config.vars.BOAT_ADAPTER_ENABLED = "true";
 			if (scenario === "snapshot") delete config.vars.BOAT_TEMPLATE_SNAPSHOT;
 			if (scenario === "version") config.vars.BOAT_TEMPLATE_VERSION = " ";
+			if (scenario === "http-origin")
+				config.vars.API_PUBLIC_ORIGIN = "http://api.zuse.sh";
 			await writeFile(
 				join(directory, "wrangler.production.jsonc"),
 				JSON.stringify(config),
@@ -155,7 +176,9 @@ else process.exit(2);
 								? "SLACK_SIGNING_SECRET"
 								: scenario === "stripe-secret"
 									? "STRIPE_SECRET_KEY"
-									: "BOAT_API_KEY",
+									: scenario === "http-origin"
+										? "API_PUBLIC_ORIGIN (must be https)"
+										: "BOAT_API_KEY",
 				);
 			}
 		} finally {

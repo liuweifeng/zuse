@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "Couldn't copy. Try again.",
 	"plugins_visit_website": "Visit website",
 	"plugins_privacy_organization": "Connections are shared with members of this organization. Tokens stay encrypted on Zuse servers and never reach agent machines. Disconnecting stops new calls immediately.",
-	"plugins_account_actions": "Actions for {{name}}"
+	"plugins_account_actions": "Actions for {{name}}",
+	"plugins_error_sign_in_failed": "You signed in, but Zuse couldn't finish connecting. Try again. If it keeps failing, this service's sign-in isn't supported yet.",
+	"plugins_connected_accounts": "Connected accounts",
+	"plugins_turn_off": "Turn off for agents",
+	"plugins_turn_on": "Turn on for agents",
+	"plugins_connection_off": "Off · agents can't use this account"
 }

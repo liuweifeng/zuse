@@ -116,6 +116,32 @@ const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	error: a.state === "failed" ? (a.error ?? "plugin_operation_failed") : null,
 	pluginId: a.pluginId,
 });
+const isHttpsOrigin = (value: string | undefined) =>
+	value !== undefined &&
+	URL.canParse(value) &&
+	new URL(value).protocol === "https:";
+/** Executor failures carry a tag and reason; never their message or cause. */
+const failureKind = (error: unknown): Record<string, string> => {
+	if (typeof error !== "object" || error === null) return { tag: "unknown" };
+	const value = error as {
+		_tag?: unknown;
+		reason?: unknown;
+		code?: unknown;
+		detail?: { tag?: unknown; reason?: unknown };
+		message?: unknown;
+	};
+	const tag = value.detail?.tag ?? value._tag;
+	const reason = value.detail?.reason ?? value.reason;
+	return {
+		tag: typeof tag === "string" ? tag : "unknown",
+		...(typeof reason === "string" ? { reason } : {}),
+		...(typeof value.code === "string" ? { code: value.code } : {}),
+		// Untagged errors are Zuse's own (egress policy, missing state); safe to log.
+		...(tag === undefined && typeof value.message === "string"
+			? { message: value.message.slice(0, 160) }
+			: {}),
+	};
+};
 /** Rejected before anything is stored. */
 const rejected = (
 	id: string,
@@ -163,7 +189,8 @@ export class PluginVault {
 			const version = await ctx.storage.get("schema-version");
 			if (version !== undefined && version !== 2)
 				throw new Error("Plugin storage requires an explicit v1 migration");
-			if (!env.PLUGIN_ENCRYPTION_KEY)
+			// OAuth callbacks are built from this origin; providers require HTTPS.
+			if (!env.PLUGIN_ENCRYPTION_KEY || !isHttpsOrigin(env.API_PUBLIC_ORIGIN))
 				throw new Error("Plugins are not configured");
 			for (const key of (
 				await ctx.storage.list({ prefix: "server:" })
@@ -448,9 +475,18 @@ export class PluginVault {
 			await this.ctx.storage.put(this.refKey(identity.subject, a.id), ref);
 			await this.finish(a);
 			return publicAttempt({ ...a, state: "connected" });
-		} catch {
-			await this.fail(a, "failed");
-			throw new Error("OAuth completion failed");
+		} catch (error) {
+			// Provider responses stay private; the failure kind is enough to diagnose.
+			console.warn(
+				JSON.stringify({
+					event: "plugin_sign_in_failed",
+					plugin: a.pluginId,
+					...failureKind(error),
+				}),
+			);
+			return publicAttempt(
+				await this.fail(a, "failed", "plugin_sign_in_failed"),
+			);
 		}
 	}
 	/** Starts one connection. Failures come back as a failed attempt with a reason. */
@@ -564,6 +600,13 @@ export class PluginVault {
 			await this.ctx.storage.setAlarm(Date.now() + TTL);
 			return publicAttempt(next);
 		} catch (error) {
+			console.warn(
+				JSON.stringify({
+					event: "plugin_connect_failed",
+					plugin: plugin.id,
+					...failureKind(error),
+				}),
+			);
 			return publicAttempt(await this.fail(a, "failed", errorCode(error)));
 		}
 	}

@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "Kopieren fehlgeschlagen. Versuche es erneut.",
 	"plugins_visit_website": "Website besuchen",
 	"plugins_privacy_organization": "Verbindungen werden mit den Mitgliedern dieser Organisation geteilt. Tokens bleiben verschlüsselt auf Zuse-Servern und erreichen nie die Rechner der Agenten. Durch Trennen werden neue Aufrufe sofort gestoppt.",
-	"plugins_account_actions": "Aktionen für {{name}}"
+	"plugins_account_actions": "Aktionen für {{name}}",
+	"plugins_error_sign_in_failed": "Du hast dich angemeldet, aber Zuse konnte die Verbindung nicht abschließen. Versuche es erneut. Wenn es weiter fehlschlägt, wird die Anmeldung dieses Dienstes noch nicht unterstützt.",
+	"plugins_connected_accounts": "Verbundene Konten",
+	"plugins_turn_off": "Für Agenten deaktivieren",
+	"plugins_turn_on": "Für Agenten aktivieren",
+	"plugins_connection_off": "Aus · Agenten können dieses Konto nicht nutzen"
 }

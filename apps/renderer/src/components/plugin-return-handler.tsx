@@ -8,7 +8,12 @@ import {
 	parsePluginReturn,
 	takeUrlPluginReturn,
 } from "~/lib/plugin-return.ts";
-import { notifyPluginsChanged, pluginRequest } from "~/lib/plugins-client.ts";
+import { pluginConnectErrorKey } from "~/lib/plugin-servers.ts";
+import {
+	claimPluginFailure,
+	notifyPluginsChanged,
+	pluginRequest,
+} from "~/lib/plugins-client.ts";
 import { openPluginsPage } from "~/lib/plugins-navigation.ts";
 import { toastManager } from "./ui/toast.tsx";
 
@@ -32,6 +37,15 @@ async function redeem(value: PluginReturn) {
 			tenantId: value.tenantId,
 			ticket: value.ticket,
 		});
+		if (result.kind === "attempt" && result.state === "failed") {
+			if (claimPluginFailure(result.id))
+				toastManager.add({
+					title: message("plugins:plugins_connect_failed", { name }),
+					description: message(pluginConnectErrorKey(result.error, false)),
+					type: "error",
+				});
+			return;
+		}
 		if (result.kind !== "attempt" || result.state !== "connected")
 			throw new Error("Connection did not complete");
 		toastManager.add({

@@ -94278,12 +94278,14 @@ var mcpRouter = (options4, kinds = {}) => Effect_exports.runPromise(
 
 // adapter/bridge.ts
 var PluginEngineError = class extends Error {
-  constructor(code) {
+  constructor(code, detail) {
     super(code);
     this.code = code;
+    this.detail = detail;
     this.name = "PluginEngineError";
   }
   code;
+  detail;
 };
 var CLIENT_REGISTRATION_REASONS = /* @__PURE__ */ new Set([
   "client_registration_required",
@@ -94295,11 +94297,16 @@ var oauthSetupError = (error2) => {
   if (typeof error2 !== "object" || error2 === null || !("_tag" in error2))
     return error2;
   const reason = "reason" in error2 ? error2.reason : void 0;
+  const detail = {
+    tag: String(error2._tag),
+    ...typeof reason === "string" ? { reason } : {}
+  };
   if (error2._tag === "OAuthClientUnavailable" || error2._tag === "OAuthSetupFailed" && typeof reason === "string" && CLIENT_REGISTRATION_REASONS.has(reason))
-    return new PluginEngineError("client_registration_unsupported");
+    return new PluginEngineError("client_registration_unsupported", detail);
   if (error2._tag === "OAuthSetupFailed")
     return new PluginEngineError(
-      reason === "service_unavailable" ? "unreachable" : "auth_unsupported"
+      reason === "service_unavailable" ? "unreachable" : "auth_unsupported",
+      detail
     );
   return error2;
 };

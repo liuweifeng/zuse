@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "無法複製，請再試一次。",
 	"plugins_visit_website": "造訪網站",
 	"plugins_privacy_organization": "連線會與此組織的成員共用。權杖會在 Zuse 伺服器上加密保存，絕不會傳送到代理程式所在的機器。中斷連線後，新的呼叫會立即停止。",
-	"plugins_account_actions": "{{name}} 的動作"
+	"plugins_account_actions": "{{name}} 的動作",
+	"plugins_error_sign_in_failed": "你已登入，但 Zuse 無法完成連線。請再試一次。如果仍然失敗，表示尚不支援此服務的登入方式。",
+	"plugins_connected_accounts": "已連結的帳號",
+	"plugins_turn_off": "對代理程式關閉",
+	"plugins_turn_on": "對代理程式開啟",
+	"plugins_connection_off": "已關閉 · 代理程式無法使用此帳號"
 }

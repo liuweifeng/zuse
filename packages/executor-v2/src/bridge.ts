@@ -62,7 +62,11 @@ import type {
 
 /** A failure the caller can explain; other failures stay opaque. */
 export class PluginEngineError extends Error {
-	constructor(readonly code: PluginEngineErrorCode) {
+	constructor(
+		readonly code: PluginEngineErrorCode,
+		/** The SDK failure kind, for logs; never provider responses. */
+		readonly detail?: { readonly tag: string; readonly reason?: string },
+	) {
 		super(code);
 		this.name = "PluginEngineError";
 	}
@@ -78,16 +82,21 @@ const oauthSetupError = (error: unknown) => {
 	if (typeof error !== "object" || error === null || !("_tag" in error))
 		return error;
 	const reason = "reason" in error ? error.reason : undefined;
+	const detail = {
+		tag: String(error._tag),
+		...(typeof reason === "string" ? { reason } : {}),
+	};
 	if (
 		error._tag === "OAuthClientUnavailable" ||
 		(error._tag === "OAuthSetupFailed" &&
 			typeof reason === "string" &&
 			CLIENT_REGISTRATION_REASONS.has(reason))
 	)
-		return new PluginEngineError("client_registration_unsupported");
+		return new PluginEngineError("client_registration_unsupported", detail);
 	if (error._tag === "OAuthSetupFailed")
 		return new PluginEngineError(
 			reason === "service_unavailable" ? "unreachable" : "auth_unsupported",
+			detail,
 		);
 	return error;
 };

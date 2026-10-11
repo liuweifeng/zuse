@@ -116,5 +116,10 @@
 	"plugins_copy_failed": "コピーできませんでした。もう一度お試しください。",
 	"plugins_visit_website": "Web サイトを開く",
 	"plugins_privacy_organization": "接続はこの組織のメンバーと共有されます。トークンは Zuse のサーバーで暗号化されたまま保存され、エージェントのマシンには送信されません。接続を解除すると、新しい呼び出しはすぐに停止します。",
-	"plugins_account_actions": "{{name}} の操作"
+	"plugins_account_actions": "{{name}} の操作",
+	"plugins_error_sign_in_failed": "サインインは完了しましたが、Zuse が接続を完了できませんでした。もう一度お試しください。失敗が続く場合、このサービスのサインインにはまだ対応していません。",
+	"plugins_connected_accounts": "接続済みアカウント",
+	"plugins_turn_off": "エージェントでの使用をオフ",
+	"plugins_turn_on": "エージェントでの使用をオン",
+	"plugins_connection_off": "オフ · エージェントはこのアカウントを使用できません"
 }

@@ -59,6 +59,18 @@ export const hasPluginConnectionLabel = (
 	);
 };
 
+/** A free default name: the plugin's name, then "Name 2", "Name 3", … */
+export const nextPluginConnectionLabel = (
+	connections: readonly Pick<PluginConnection, "pluginId" | "label">[],
+	pluginId: string,
+	pluginName: string,
+): string => {
+	for (let index = 1; ; index++) {
+		const label = index === 1 ? pluginName : `${pluginName} ${index}`;
+		if (!hasPluginConnectionLabel(connections, pluginId, label)) return label;
+	}
+};
+
 /** List usable connections individually so mentions can select the exact account. */
 export const connectedOf = (
 	snapshot: PluginSnapshot | null,
