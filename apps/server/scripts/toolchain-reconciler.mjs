@@ -111,18 +111,37 @@ if (skipInstall && !releaseReady) {
 }
 if (!skipInstall && !releaseReady) {
 	await mkdir(staging, { recursive: true, mode: 0o755 });
-	const packageSpecs = Object.entries(manifest.npmPackages).map(
-		([name, version]) => `${name}@${version}`,
+	await writeFile(
+		join(staging, "package.json"),
+		JSON.stringify({
+			private: true,
+			dependencies: manifest.npmPackages,
+			trustedDependencies: Object.keys(manifest.npmPackages),
+		}),
 	);
-	await run("npm", [
-		"install",
-		"--no-audit",
-		"--no-fund",
-		"--omit=dev",
-		"--prefix",
-		staging,
-		...packageSpecs,
-	]);
+	// Managed bases already carry Bun. Its standalone installer does not depend
+	// on the provider's global npm dependency tree. Custom snapshots may only
+	// have npm; select once, never retry a failed install with another manager.
+	let hasBun = true;
+	try {
+		await run("bun", ["--version"], { capture: true });
+	} catch (cause) {
+		if (cause.code !== "ENOENT") throw cause;
+		hasBun = false;
+	}
+	await run(
+		hasBun ? "bun" : "npm",
+		hasBun
+			? ["install", "--production", "--cwd", staging]
+			: [
+					"install",
+					"--no-audit",
+					"--no-fund",
+					"--omit=dev",
+					"--prefix",
+					staging,
+				],
+	);
 	await writeFile(
 		join(staging, "zuse-toolchain.json"),
 		`${JSON.stringify(manifest, null, 2)}\n`,

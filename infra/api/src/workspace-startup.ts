@@ -70,10 +70,11 @@ export class WorkspaceStartupTask {
 		const body = (await request.json()) as { workspaceId?: unknown };
 		if (typeof body.workspaceId !== "string" || !body.workspaceId)
 			return new Response(null, { status: 400 });
+		const scheduledAtMs = Date.now();
 		const pending: StartupRequest = {
 			workspaceId: body.workspaceId,
 			revision: crypto.randomUUID(),
-			scheduledAtMs: Date.now(),
+			scheduledAtMs,
 		};
 		await this.state.storage.transaction(async (storage) => {
 			await storage.put("pending", pending);
@@ -81,6 +82,12 @@ export class WorkspaceStartupTask {
 			const alarm = await storage.getAlarm();
 			if (alarm === null || alarm > Date.now())
 				await storage.setAlarm(Date.now());
+		});
+		console.info("[cloud-timing]", {
+			workspaceId: pending.workspaceId,
+			stage: "startup.persist-dispatch",
+			atMs: Date.now(),
+			durationMs: Date.now() - scheduledAtMs,
 		});
 		return new Response(null, { status: 202 });
 	}

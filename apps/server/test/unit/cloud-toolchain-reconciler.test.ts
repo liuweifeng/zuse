@@ -10,7 +10,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { expect, test } from "vitest";
 
-test("reconciles an installed image toolchain into user-owned command links", () => {
+test.each([
+	"installed",
+	"bun",
+	"npm",
+])("reconciles a %s image toolchain into user-owned command links", (installer) => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-toolchain-"));
 	try {
 		const manifest = {
@@ -26,7 +30,9 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 			},
 		};
 		const release = join(root, "releases", manifest.version);
-		const tools = join(release, "node_modules/.bin");
+		const fixtureRelease =
+			installer === "installed" ? release : join(root, "fixture");
+		const tools = join(fixtureRelease, "node_modules/.bin");
 		const system = join(root, "system");
 		const links = join(root, "user-bin");
 		mkdirSync(tools, { recursive: true });
@@ -34,7 +40,7 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 		const manifestPath = join(root, "manifest.json");
 		writeFileSync(manifestPath, JSON.stringify(manifest));
 		writeFileSync(
-			join(release, "zuse-toolchain.json"),
+			join(fixtureRelease, "zuse-toolchain.json"),
 			JSON.stringify(manifest),
 		);
 		for (const name of ["bun", "corepack", "claude", "codex"])
@@ -55,6 +61,22 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 			writeFileSync(join(system, name), "#!/bin/sh\necho fixture-version\n", {
 				mode: 0o755,
 			});
+		if (installer !== "installed") {
+			writeFileSync(
+				join(system, installer),
+				`#!${process.execPath}
+const fs = require("node:fs");
+if (process.argv.includes("--version")) { console.log("1.0.0"); process.exit(0); }
+const args = process.argv.slice(2);
+const dest = args[args.indexOf(${JSON.stringify(installer === "bun" ? "--cwd" : "--prefix")}) + 1];
+const pkg = JSON.parse(fs.readFileSync(dest + "/package.json", "utf8"));
+if (JSON.stringify(pkg.dependencies) !== ${JSON.stringify(JSON.stringify(manifest.npmPackages))}) process.exit(2);
+if (JSON.stringify(pkg.trustedDependencies) !== ${JSON.stringify(JSON.stringify(Object.keys(manifest.npmPackages)))}) process.exit(3);
+fs.cpSync(${JSON.stringify(join(fixtureRelease, "node_modules"))}, dest + "/node_modules", {recursive:true});
+`,
+				{ mode: 0o755 },
+			);
+		}
 		const current = join(root, "current");
 		const run = () =>
 			spawnSync(
@@ -70,7 +92,7 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 						ZUSE_TOOLCHAIN_CURRENT_LINK: current,
 						ZUSE_TOOLCHAIN_BIN_DIR: links,
 						ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES: "1",
-						ZUSE_TOOLCHAIN_SKIP_INSTALL: "1",
+						ZUSE_TOOLCHAIN_SKIP_INSTALL: installer === "installed" ? "1" : "0",
 						ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL: "1",
 					},
 				},
