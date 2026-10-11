@@ -78,6 +78,24 @@ describe("api deployment safety", () => {
 		expect(staging.vars.ORGANIZATION_ROLLOUT_ENABLED).not.toBe("true");
 	});
 
+	// Production once shipped without API_PUBLIC_ORIGIN: every plugin OAuth
+	// redirect_uri became "undefined/v1/plugins/callback/…" and was rejected.
+	test.each([
+		["staging", wranglerConfigUrl, STAGING_API_URL],
+		["production", productionWranglerConfigUrl, PRODUCTION_API_URL],
+	] as const)("configures plugin OAuth origins for %s", async (_, url, apiUrl) => {
+		const target = parse(await readFile(url, "utf8")) as WranglerTarget;
+		expect(
+			target.durable_objects.bindings.some(
+				(binding) => binding.class_name === "PluginVault",
+			),
+		).toBe(true);
+		expect(target.vars.API_PUBLIC_ORIGIN).toBe(apiUrl);
+		const app = target.vars.PLUGIN_APP_ORIGIN ?? "";
+		expect(new URL(app).protocol).toBe("https:");
+		expect(target.vars.ALLOWED_BROWSER_ORIGINS?.split(",")).toContain(app);
+	});
+
 	test.each([
 		"snapshot",
 		"version",
