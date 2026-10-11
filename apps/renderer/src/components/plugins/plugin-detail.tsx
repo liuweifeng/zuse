@@ -20,7 +20,6 @@ import {
 import { copyText, openExternal } from "~/lib/platform-capabilities.ts";
 import { customServerAuthOf, pluginDomain } from "~/lib/plugin-servers.ts";
 import { cn } from "~/lib/utils";
-import { DitherAvatar } from "../dither-kit/avatar.tsx";
 import {
 	AlertDialog,
 	AlertDialogClose,
@@ -140,196 +139,217 @@ export function PluginDetail({
 
 	const showAccounts = connections.length > 0 || askingKey;
 	return (
-		<>
-			<nav
-				aria-label={m("plugins:plugins_title")}
-				className="flex h-7 min-w-0 items-center gap-1.5 text-muted-foreground"
-			>
-				<button
-					type="button"
-					onClick={onBack}
-					className="rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+		<div className="flex flex-col gap-9 pb-10 text-[13px]">
+			<div className="flex flex-col gap-6">
+				<nav
+					aria-label={m("plugins:plugins_title")}
+					className="flex h-6 min-w-0 items-center gap-1.5 text-muted-foreground"
 				>
-					{m("plugins:plugins_back")}
-				</button>
-				<span aria-hidden className="text-muted-foreground/50">
-					/
-				</span>
-				<span className="truncate text-foreground">{plugin.name}</span>
-			</nav>
-			<header className="flex flex-col gap-4">
-				<PluginIcon
-					name={plugin.name}
-					domain={pluginDomain(plugin)}
-					className="size-14 rounded-2xl text-xl"
-				/>
-				<div className="flex flex-wrap items-end justify-between gap-3">
-					<div className="min-w-0">
-						<h1 className="flex min-w-0 items-center gap-2 text-xl font-medium tracking-[-0.01em] text-foreground">
-							<span className="truncate">{plugin.name}</span>
-							{plugin.custom && <CustomTag />}
-						</h1>
-						<p className="mt-1 truncate text-[13px] text-muted-foreground">
+					<button
+						type="button"
+						onClick={onBack}
+						className="rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+					>
+						{m("plugins:plugins_back")}
+					</button>
+					<span aria-hidden className="text-muted-foreground/40">
+						/
+					</span>
+					<span className="truncate text-foreground">{plugin.name}</span>
+				</nav>
+				<header className="flex flex-col gap-5">
+					<PluginIcon
+						name={plugin.name}
+						domain={pluginDomain(plugin)}
+						className="size-16 rounded-[18px] text-2xl"
+					/>
+					<div className="flex flex-col gap-1">
+						{/* Actions sit on the title's line; the subtitle runs under both. */}
+						<div className="flex min-h-8 items-center justify-between gap-4">
+							<h1 className="flex min-w-0 items-center gap-2 text-[22px] font-semibold leading-8 tracking-[-0.015em] text-foreground">
+								<span className="truncate">{plugin.name}</span>
+								{plugin.custom && <CustomTag />}
+							</h1>
+							<div className="flex shrink-0 items-center gap-2">
+								{(!plugin.custom || canManage) && (
+									<Menu>
+										<MenuTrigger
+											render={
+												<Button
+													variant="ghost"
+													size="icon"
+													className="size-8 text-muted-foreground"
+													aria-label={m("plugins:plugins_more_actions")}
+												/>
+											}
+										>
+											<HugeiconsIcon
+												icon={MoreHorizontalIcon}
+												className="size-4"
+											/>
+										</MenuTrigger>
+										<MenuPopup align="end" className="w-44">
+											{plugin.custom ? (
+												<MenuItem
+													variant="destructive"
+													disabled={locked}
+													onClick={() => setConfirmRemove(true)}
+												>
+													<HugeiconsIcon icon={Delete02Icon} />
+													{m("plugins:plugins_remove_server")}
+												</MenuItem>
+											) : (
+												<MenuItem
+													onClick={() =>
+														void openExternal(`https://${plugin.domain}`)
+													}
+												>
+													<HugeiconsIcon icon={Link04Icon} />
+													{m("plugins:plugins_visit_website")}
+												</MenuItem>
+											)}
+										</MenuPopup>
+									</Menu>
+								)}
+								{plugin.custom && plugin.url !== null && (
+									<Button
+										variant="secondary"
+										className="h-8 px-3 text-[13px]"
+										onClick={() => void copyUrl()}
+									>
+										<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
+										{m("plugins:plugins_copy_url")}
+									</Button>
+								)}
+								{connecting ? (
+									<span
+										role="status"
+										className="flex h-8 items-center gap-2 px-2 text-muted-foreground"
+									>
+										<Spinner className="size-3.5" />
+										{m("plugins:plugins_waiting")}
+									</span>
+								) : (
+									canManage &&
+									connections.length === 0 &&
+									!askingKey && (
+										<DitherActionButton
+											className="h-8 px-4 text-[13px]"
+											disabled={busy}
+											onClick={startConnect}
+										>
+											<span className="flex items-center gap-1.5">
+												<HugeiconsIcon
+													icon={PlusSignIcon}
+													className="size-3.5"
+												/>
+												{m("plugins:plugins_connect")}
+											</span>
+										</DitherActionButton>
+									)
+								)}
+							</div>
+						</div>
+						<p className="truncate text-sm text-muted-foreground">
 							{subtitleOf(plugin)}
 						</p>
 					</div>
-					<div className="flex shrink-0 items-center gap-1.5">
-						{(!plugin.custom || canManage) && (
-							<Menu>
-								<MenuTrigger
-									render={
-										<Button
-											variant="ghost"
-											size="icon"
-											className="text-muted-foreground"
-											aria-label={m("plugins:plugins_more_actions")}
-										/>
-									}
-								>
-									<HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
-								</MenuTrigger>
-								<MenuPopup align="end" className="w-44">
-									{plugin.custom ? (
-										<MenuItem
-											variant="destructive"
-											disabled={locked}
-											onClick={() => setConfirmRemove(true)}
-										>
-											<HugeiconsIcon icon={Delete02Icon} />
-											{m("plugins:plugins_remove_server")}
-										</MenuItem>
-									) : (
-										<MenuItem
-											onClick={() =>
-												void openExternal(`https://${plugin.domain}`)
-											}
-										>
-											<HugeiconsIcon icon={Link04Icon} />
-											{m("plugins:plugins_visit_website")}
-										</MenuItem>
-									)}
-								</MenuPopup>
-							</Menu>
-						)}
-						{plugin.custom && plugin.url !== null && (
-							<Button
-								variant="secondary"
-								className="h-7"
-								onClick={() => void copyUrl()}
-							>
-								<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
-								{m("plugins:plugins_copy_url")}
-							</Button>
-						)}
-						{connecting ? (
-							<span
-								role="status"
-								className="flex h-7 items-center gap-1.5 px-2 text-muted-foreground"
-							>
-								<Spinner className="size-3.5" />
-								{m("plugins:plugins_waiting")}
-							</span>
-						) : (
-							canManage &&
-							connections.length === 0 &&
-							!askingKey && (
-								<DitherActionButton disabled={busy} onClick={startConnect}>
-									<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
-									{m("plugins:plugins_connect")}
-								</DitherActionButton>
-							)
-						)}
-					</div>
+				</header>
+			</div>
+			{(plugin.description || !canManage) && (
+				<div className="flex flex-col gap-3">
+					{plugin.description && (
+						<p className="max-w-prose text-sm leading-6 text-foreground/85">
+							{plugin.description}
+						</p>
+					)}
+					{!canManage && (
+						<p className="text-muted-foreground">
+							{m("plugins:plugins_manage_admins_only")}
+						</p>
+					)}
 				</div>
-			</header>
-			{plugin.description && (
-				<p className="max-w-prose text-[13px] leading-5 text-foreground/85">
-					{plugin.description}
-				</p>
-			)}
-			{!canManage && (
-				<p className="text-muted-foreground">
-					{m("plugins:plugins_manage_admins_only")}
-				</p>
 			)}
 			{showAccounts && (
 				<DetailSection title={m("plugins:plugins_connected_accounts")}>
-					<div className="overflow-hidden rounded-xl border border-border/50 bg-muted/25">
-						{connections.map((connection) => (
-							<AccountRow
-								key={connection.id}
-								connection={connection}
-								name={pluginConnectionName(plugin.name, connection.label)}
-								canManage={canManage}
-								locked={locked}
-								toggle={toggle}
-								onDisconnect={() => onDisconnect(connection.id)}
-							/>
-						))}
-						{canManage &&
-							(askingKey ? (
-								<form
-									className="flex items-center gap-3 border-border/40 px-4 py-3 not-first:border-t"
-									onSubmit={(event) => {
-										event.preventDefault();
-										submitKey();
-									}}
-								>
-									<AddGlyph />
-									<input
-										type="password"
-										autoComplete="off"
-										spellCheck={false}
-										// The key form opens on request; focus it.
-										// biome-ignore lint/a11y/noAutofocus: opened by an explicit click
-										autoFocus
-										className="h-7 min-w-0 flex-1 rounded-md bg-background/60 px-2.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
-										aria-label={m("plugins:plugins_api_key")}
-										placeholder={m("plugins:plugins_api_key_placeholder")}
-										value={apiKey}
-										onChange={(event) => setApiKey(event.target.value)}
-										disabled={busy}
-									/>
-									<Button
-										type="button"
-										variant="ghost"
-										className="h-7"
-										onClick={() => {
-											setAskingKey(false);
-											setApiKey("");
+					<div className="rounded-2xl border border-border/60 bg-muted/20 px-5">
+						<div className="divide-y divide-border/50">
+							{connections.map((connection) => (
+								<AccountRow
+									key={connection.id}
+									connection={connection}
+									name={pluginConnectionName(plugin.name, connection.label)}
+									canManage={canManage}
+									locked={locked}
+									toggle={toggle}
+									onDisconnect={() => onDisconnect(connection.id)}
+								/>
+							))}
+							{canManage &&
+								(askingKey ? (
+									<form
+										className="flex items-center gap-3.5 py-4"
+										onSubmit={(event) => {
+											event.preventDefault();
+											submitKey();
 										}}
 									>
-										{m("plugins:plugins_cancel")}
-									</Button>
-									<DitherActionButton
-										type="submit"
-										disabled={busy || apiKey.trim().length === 0}
+										<AddGlyph />
+										<input
+											type="password"
+											autoComplete="off"
+											spellCheck={false}
+											// biome-ignore lint/a11y/noAutofocus: opened by an explicit click
+											autoFocus
+											className="h-8 min-w-0 flex-1 rounded-lg bg-background/70 px-3 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
+											aria-label={m("plugins:plugins_api_key")}
+											placeholder={m("plugins:plugins_api_key_placeholder")}
+											value={apiKey}
+											onChange={(event) => setApiKey(event.target.value)}
+											disabled={busy}
+										/>
+										<Button
+											type="button"
+											variant="ghost"
+											className="h-8 px-3 text-[13px]"
+											onClick={() => {
+												setAskingKey(false);
+												setApiKey("");
+											}}
+										>
+											{m("plugins:plugins_cancel")}
+										</Button>
+										<DitherActionButton
+											type="submit"
+											className="h-8 px-4 text-[13px]"
+											disabled={busy || apiKey.trim().length === 0}
+										>
+											{m("plugins:plugins_connect")}
+										</DitherActionButton>
+									</form>
+								) : (
+									<button
+										type="button"
+										disabled={busy}
+										onClick={startConnect}
+										className="group/add -mx-5 flex w-[calc(100%+2.5rem)] items-center gap-3.5 px-5 py-4 text-left text-sm text-foreground outline-none transition-colors last:rounded-b-2xl first:rounded-t-2xl hover:bg-muted/30 focus-visible:bg-muted/30 disabled:pointer-events-none disabled:opacity-60"
 									>
-										{m("plugins:plugins_connect")}
-									</DitherActionButton>
-								</form>
-							) : (
-								<button
-									type="button"
-									disabled={busy}
-									onClick={startConnect}
-									className="flex w-full items-center gap-3 border-border/40 px-4 py-3 text-left text-[13px] text-foreground outline-none transition-colors not-first:border-t hover:bg-muted/40 focus-visible:bg-muted/40 disabled:pointer-events-none disabled:opacity-60"
-								>
-									<AddGlyph />
-									{m("plugins:plugins_connect_another")}
-								</button>
-							))}
+										<AddGlyph />
+										{m("plugins:plugins_connect_another")}
+									</button>
+								))}
+						</div>
 					</div>
 				</DetailSection>
 			)}
 			<DetailSection title={m("plugins:plugins_information")}>
-				<dl className="grid grid-cols-[8rem_minmax(0,1fr)] items-center gap-x-4 gap-y-3 text-[13px]">
+				<dl className="grid grid-cols-[10rem_minmax(0,1fr)] items-baseline gap-y-4 text-sm">
 					{plugin.custom ? (
 						<>
 							<dt className="text-muted-foreground">
 								{m("plugins:plugins_add_server_url")}
 							</dt>
-							<dd className="truncate select-text font-mono text-xs text-foreground/85">
+							<dd className="truncate select-text font-mono text-[13px] text-foreground/90">
 								{plugin.url}
 							</dd>
 							<dt className="text-muted-foreground">
@@ -345,13 +365,13 @@ export function PluginDetail({
 							<dd>
 								<button
 									type="button"
-									className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
+									className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
 									onClick={() => void openExternal(`https://${plugin.domain}`)}
 								>
 									{plugin.domain}
 									<HugeiconsIcon
 										icon={Link04Icon}
-										className="size-3 text-muted-foreground"
+										className="size-3.5 text-muted-foreground"
 									/>
 								</button>
 							</dd>
@@ -372,14 +392,14 @@ export function PluginDetail({
 					</dt>
 					<dd>{m("plugins:plugins_access_value")}</dd>
 				</dl>
+				<p className="mt-6 max-w-prose text-xs leading-5 text-muted-foreground">
+					{m(
+						organization
+							? "plugins:plugins_privacy_organization"
+							: "plugins:plugins_privacy",
+					)}
+				</p>
 			</DetailSection>
-			<p className="max-w-prose text-[11px] leading-4 text-muted-foreground">
-				{m(
-					organization
-						? "plugins:plugins_privacy_organization"
-						: "plugins:plugins_privacy",
-				)}
-			</p>
 			<AlertDialog open={confirmRemove} onOpenChange={setConfirmRemove}>
 				<AlertDialogPopup className="max-w-sm">
 					<AlertDialogHeader>
@@ -414,7 +434,7 @@ export function PluginDetail({
 					</AlertDialogFooter>
 				</AlertDialogPopup>
 			</AlertDialog>
-		</>
+		</div>
 	);
 }
 
@@ -426,23 +446,59 @@ function DetailSection({
 	readonly children: ReactNode;
 }) {
 	return (
-		<section className="flex flex-col gap-3">
-			<h2 className="border-border/50 border-b pb-2.5 text-[15px] font-medium text-foreground">
+		<section className="flex flex-col">
+			<h2 className="border-border/60 border-b pb-3 text-[15px] font-medium text-foreground">
 				{title}
 			</h2>
-			{children}
+			<div className="pt-5">{children}</div>
 		</section>
 	);
 }
+
+const AVATAR = "grid size-9 shrink-0 place-items-center rounded-full";
 
 /** The round "+" leading the add-account row, sized like an avatar. */
 function AddGlyph() {
 	return (
 		<span
 			aria-hidden
-			className="grid size-8 shrink-0 place-items-center rounded-full bg-background/70 text-muted-foreground"
+			className={cn(
+				AVATAR,
+				"bg-background text-muted-foreground ring-1 ring-border/60 ring-inset",
+			)}
 		>
-			<HugeiconsIcon icon={PlusSignIcon} className="size-3.5" />
+			<HugeiconsIcon icon={PlusSignIcon} className="size-4" />
+		</span>
+	);
+}
+
+/** Initials on a hue derived from the account name: stable and distinguishable. */
+function AccountAvatar({
+	label,
+	dimmed,
+}: {
+	readonly label: string;
+	readonly dimmed: boolean;
+}) {
+	let hash = 0;
+	for (const char of label) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+	const words = label.trim().split(/\s+/).filter(Boolean);
+	const initials = (
+		words.length > 1
+			? `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`
+			: label.trim().slice(0, 2)
+	).toUpperCase();
+	return (
+		<span
+			aria-hidden
+			className={cn(
+				AVATAR,
+				"text-xs font-semibold text-white",
+				dimmed && "opacity-40 grayscale",
+			)}
+			style={{ backgroundColor: `oklch(0.6 0.14 ${hash % 360})` }}
+		>
+			{initials}
 		</span>
 	);
 }
@@ -466,24 +522,18 @@ function AccountRow({
 	const { message: m } = useUiMessages(["plugins"]);
 	const enabled = toggle.enabled(connection);
 	return (
-		<div className="flex items-center gap-3 border-border/40 px-4 py-3 not-first:border-t">
-			<DitherAvatar
-				name={connection.label}
-				className={cn(
-					"size-8 shrink-0 overflow-hidden rounded-full",
-					!enabled && "opacity-45 grayscale",
-				)}
-			/>
-			<div className="min-w-0 flex-1">
+		<div className="flex items-center gap-3.5 py-4">
+			<AccountAvatar label={connection.label} dimmed={!enabled} />
+			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<p
 					className={cn(
-						"truncate text-[13px] font-medium",
+						"truncate text-sm font-medium leading-5",
 						enabled ? "text-foreground" : "text-muted-foreground",
 					)}
 				>
 					{connection.label}
 				</p>
-				<p className="truncate text-xs text-muted-foreground">
+				<p className="truncate text-[13px] leading-5 text-muted-foreground">
 					{enabled
 						? m("plugins:plugins_connected_on", {
 								date: formatDate(connection.createdAt, { dateStyle: "medium" }),
@@ -498,7 +548,7 @@ function AccountRow({
 							<Button
 								variant="ghost"
 								size="icon"
-								className="-mr-1.5 shrink-0 text-muted-foreground"
+								className="-mr-2 size-8 shrink-0 text-muted-foreground"
 								aria-label={m("plugins:plugins_account_actions", {
 									name: connection.label,
 								})}
