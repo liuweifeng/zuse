@@ -116,6 +116,10 @@ const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	error: a.state === "failed" ? (a.error ?? "plugin_operation_failed") : null,
 	pluginId: a.pluginId,
 });
+const isHttpsOrigin = (value: string | undefined) =>
+	value !== undefined &&
+	URL.canParse(value) &&
+	new URL(value).protocol === "https:";
 /** Executor failures carry a tag and reason; never their message or cause. */
 const failureKind = (error: unknown): Record<string, string> => {
 	if (typeof error !== "object" || error === null) return { tag: "unknown" };
@@ -185,8 +189,8 @@ export class PluginVault {
 			const version = await ctx.storage.get("schema-version");
 			if (version !== undefined && version !== 2)
 				throw new Error("Plugin storage requires an explicit v1 migration");
-			// OAuth callbacks and redirects are built from these origins.
-			if (!env.PLUGIN_ENCRYPTION_KEY || !URL.canParse(env.API_PUBLIC_ORIGIN))
+			// OAuth callbacks are built from this origin; providers require HTTPS.
+			if (!env.PLUGIN_ENCRYPTION_KEY || !isHttpsOrigin(env.API_PUBLIC_ORIGIN))
 				throw new Error("Plugins are not configured");
 			for (const key of (
 				await ctx.storage.list({ prefix: "server:" })
