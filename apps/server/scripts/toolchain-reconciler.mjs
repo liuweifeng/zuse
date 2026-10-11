@@ -20,6 +20,7 @@ const toolchainsRoot =
 	process.env.ZUSE_TOOLCHAINS_ROOT ?? "/opt/zuse/toolchains";
 const currentLink =
 	process.env.ZUSE_TOOLCHAIN_CURRENT_LINK ?? "/opt/zuse/toolchain-current";
+const binDirectory = process.env.ZUSE_TOOLCHAIN_BIN_DIR ?? "/usr/local/bin";
 const skipSystemPackages =
 	process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES === "1";
 const skipInstall = process.env.ZUSE_TOOLCHAIN_SKIP_INSTALL === "1";
@@ -112,7 +113,7 @@ if (!skipInstall && !releaseReady) {
 	const packageSpecs = Object.entries(manifest.npmPackages).map(
 		([name, version]) => `${name}@${version}`,
 	);
-	await run("/usr/local/bin/npm", [
+	await run("npm", [
 		"install",
 		"--no-audit",
 		"--no-fund",
@@ -192,8 +193,9 @@ try {
 	throw cause;
 }
 
+await mkdir(binDirectory, { recursive: true, mode: 0o755 });
 for (const name of ["bun", "corepack", "claude", "codex"]) {
-	const destination = `/usr/local/bin/${name}`;
+	const destination = join(binDirectory, name);
 	const temporary = `${destination}.next-${randomUUID()}`;
 	await symlink(bin(name), temporary);
 	await rename(temporary, destination);
@@ -203,7 +205,7 @@ if (
 	process.getuid?.() === 0 &&
 	process.env.ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL !== "1"
 ) {
-	await run("/usr/local/bin/node", [
+	await run(process.execPath, [
 		join(dirname(manifestFile), "runtime-update-trigger.mjs"),
 	]);
 }
