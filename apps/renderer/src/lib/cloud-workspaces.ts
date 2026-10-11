@@ -30,6 +30,7 @@ import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import {
 	cloudWorkspaceStartupError,
 	isCloudWorkspaceAttachable,
+	waitForCloudWorkspaceAttachable,
 	waitForCloudWorkspaceReady,
 } from "../lib/cloud-workspace-lifecycle.ts";
 import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
@@ -664,6 +665,21 @@ const attachCloudWorkspace = async (
 				? "Cloud workspace is paused."
 				: "Cloud workspace is not currently available for passive attachment.",
 		);
+	}
+	// Organization gateways require an enrolled runtime's authorization capabilities.
+	// A missing report during provisioning is not evidence of an old runtime.
+	if (
+		summary.workspaceScope?.kind === "organization" &&
+		!isCloudWorkspaceAttachable(workspace)
+	) {
+		workspace = await waitForCloudWorkspaceAttachable(
+			control["cloud.workspaces.watch"]({
+				workspaceId: summary.workspaceId,
+				afterRevision: workspace.revision,
+			}),
+			publish,
+		);
+		assertRendererAccountCurrent(account);
 	}
 	// Socket loss only invalidates an attachment ticket. Runtime replacement is
 	// owned by the lifecycle reconciler, never inferred from gateway failures.

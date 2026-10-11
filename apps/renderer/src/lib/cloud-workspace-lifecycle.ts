@@ -35,8 +35,9 @@ export const cloudWorkspaceStartupError = (
 			: null;
 
 /** Wait for the server-owned lifecycle stream to reach a terminal attach state. */
-export const waitForCloudWorkspaceReady = (
+const waitForCloudWorkspaceState = (
 	stream: Stream.Stream<CloudWorkspace, unknown>,
+	isReady: (workspace: CloudWorkspace) => boolean,
 	onWorkspace?: (workspace: CloudWorkspace) => void,
 ): Promise<CloudWorkspace> =>
 	Effect.runPromise(
@@ -46,7 +47,7 @@ export const waitForCloudWorkspaceReady = (
 				const error = cloudWorkspaceStartupError(workspace);
 				return error === null ? Effect.void : Effect.fail(error);
 			}),
-			Stream.filter(isCloudWorkspaceReady),
+			Stream.filter(isReady),
 			Stream.runHead,
 			Effect.flatMap((workspace) =>
 				Option.match(workspace, {
@@ -59,3 +60,17 @@ export const waitForCloudWorkspaceReady = (
 			),
 		),
 	);
+
+export const waitForCloudWorkspaceReady = (
+	stream: Stream.Stream<CloudWorkspace, unknown>,
+	onWorkspace?: (workspace: CloudWorkspace) => void,
+): Promise<CloudWorkspace> =>
+	waitForCloudWorkspaceState(stream, isCloudWorkspaceReady, onWorkspace);
+
+/** Organization tickets require the runtime's authorization capability report.
+ * Attach as soon as enrollment completes, without waiting for repository setup. */
+export const waitForCloudWorkspaceAttachable = (
+	stream: Stream.Stream<CloudWorkspace, unknown>,
+	onWorkspace?: (workspace: CloudWorkspace) => void,
+): Promise<CloudWorkspace> =>
+	waitForCloudWorkspaceState(stream, isCloudWorkspaceAttachable, onWorkspace);
