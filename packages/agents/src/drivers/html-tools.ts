@@ -39,7 +39,7 @@ export const HTML_MCP_TOOLS = [
 			idempotentHint: true,
 			openWorldHint: true,
 		},
-		description: `Preview an interactive visual before publishing. Returns a PNG screenshot, content height and console output. ${guide}`,
+		description: `Preview a custom HTML visual before publishing. Use emit_ui for charts, tables, diagrams, and dashboards; use HTML only for custom pages or live interactive simulations emit_ui cannot express. Returns a PNG screenshot, content height and console output. ${guide}`,
 		inputSchema: {
 			type: "object",
 			properties: {
@@ -63,7 +63,7 @@ export const HTML_MCP_TOOLS = [
 			idempotentHint: false,
 			openWorldHint: true,
 		},
-		description: `Publish an interactive HTML visual inline in this conversation before your final reply. Preview with html_preview first. The reader sees the visual; add only what it does not say. Set height to the preview's contentHeight (80–2000px); taller content scrolls inside the frame. ${guide}`,
+		description: `Publish a custom HTML visual inline in this conversation before your final reply. Prefer emit_ui unless the user asked for HTML or the visual needs live interaction emit_ui cannot express. Preview with html_preview first. The reader sees the visual; add only what it does not say. Set height to the preview's contentHeight (80–2000px); taller content scrolls inside the frame. ${guide}`,
 		inputSchema: {
 			type: "object",
 			properties: {

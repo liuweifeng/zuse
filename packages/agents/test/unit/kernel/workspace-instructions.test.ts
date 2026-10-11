@@ -11,6 +11,8 @@ describe("zuseWorkspaceInstructions", () => {
 		expect(text).toContain("Project root: /repo");
 		expect(text).toContain("Working directory: /repo/worktrees/demo");
 		expect(text).toContain('Use the "zuse" MCP server');
+		expect(text).toContain("Call emit_ui");
+		expect(text).toContain("html_render");
 		expect(text).toContain("Zuse's system plugins by default");
 		expect(text).toContain("plugins_search");
 		expect(text).toContain("Settings → Integrations");

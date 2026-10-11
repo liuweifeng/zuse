@@ -129,6 +129,17 @@ views = Tabs([{label: "Before", content: Text("Old flow")}, {label: "After", con
 		expect(html).toContain('data-status="active"');
 		expect(html).not.toContain("New flow");
 	});
+	it("renders flow diagrams in order with the focal node marked", () => {
+		const html = render(
+			'root = Flow([{label: "Desktop app"}, {label: "Zuse", detail: "Orchestrates", highlight: true}, {label: "Cloud computers"}], "Conceptual integration")',
+		);
+		expect(html.indexOf("Desktop app")).toBeLessThan(html.indexOf("Zuse"));
+		expect(html.indexOf("Zuse")).toBeLessThan(html.indexOf("Cloud computers"));
+		for (const text of ["Orchestrates", "Conceptual integration"])
+			expect(html).toContain(text);
+		expect(html.match(/data-highlight="true"/g)).toHaveLength(1);
+		expect(html).not.toContain("could not");
+	});
 	it("stays locked after a remount once its response is in flight or sent", () => {
 		const live = (messageId: string) =>
 			renderToStaticMarkup(

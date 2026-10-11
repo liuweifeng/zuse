@@ -1,8 +1,11 @@
 # Generated UI in transcripts
 
 Agents can call `emit_ui({ spec })` through the session's orchestration tools to
-render OpenUI Lang UI inline in their reply: dashboards, plans, comparisons, and
-forms. The tool is available to providers through the shared MCP gateway and
+render OpenUI Lang UI inline in their reply: dashboards, plans, comparisons,
+diagrams, and forms. It is the default visual surface: the workspace
+instructions tell agents to use it unprompted for structured answers, and
+`html_render` is reserved for custom pages or live simulations it cannot
+express. The tool is available to providers through the shared MCP gateway and
 Claude's native tool adapter. Successful calls return the persisted message ID;
 invalid specs return an error the agent can correct.
 
@@ -35,11 +38,16 @@ renderer. Existing argument order is part of the saved format and must remain
 compatible.
 
 - Display: Card (titled section), Text, Stat, KeyValue, Table, Progress, Badge,
-  List, Grid, Callout, Steps, Tabs.
+  List, Grid, Callout, Steps, Flow (2–8 boxes joined by arrows, one optionally
+  highlighted; stacks vertically in narrow chats), Tabs.
 - Charts: BarChart, LineChart. Points are ordered `{ label, value }` pairs with
   an optional unit.
-- Interaction: FollowUps, Form, and the fields Input, TextArea, Select,
-  RadioGroup, Checkbox, Slider.
+- Interaction: Form and the fields Input, TextArea, Select,
+  RadioGroup, Checkbox, Slider. Agents are told to use a Form only when they
+  are blocked on several answers, and to state next steps in prose.
+- Legacy: FollowUps still renders saved blocks but has `advertised: false`, so
+  it is left out of the tool description. Prompt buttons that send a new
+  message read as unclear actions.
 
 ```openui
 root = Form([env, region, migrate, rollout, notes], "Deploy", "Deploy settings")

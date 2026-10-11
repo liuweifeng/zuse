@@ -404,15 +404,17 @@ export function ChatView({
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
-					<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
-					{backgroundAgents.length > 0 && (
-						<Suspense fallback={null}>
-							<BackgroundAgentWorkingRows agents={backgroundAgents} />
-						</Suspense>
-					)}
-					{pendingCreation?.phase === "failed" ? (
-						<ChatCreationFailureActions creation={pendingCreation} />
-					) : null}
+					<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
+						<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
+						{backgroundAgents.length > 0 && (
+							<Suspense fallback={null}>
+								<BackgroundAgentWorkingRows agents={backgroundAgents} />
+							</Suspense>
+						)}
+						{pendingCreation?.phase === "failed" ? (
+							<ChatCreationFailureActions creation={pendingCreation} />
+						) : null}
+					</div>
 				</div>
 				<div className="h-2" />
 			</>

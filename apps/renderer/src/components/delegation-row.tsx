@@ -92,8 +92,9 @@ function StatusGlyph({ status }: { readonly status: DelegationStatus }) {
 }
 
 /**
- * One delegated agent on a single line: status, provider, title, latest
- * output, elapsed time, and a chevron on hover when it opens elsewhere.
+ * One delegated agent on a single content-width line: status, provider,
+ * title, truncated latest output, elapsed time, and a chevron on hover when it
+ * opens elsewhere.
  */
 export function DelegationRow({
 	view,
@@ -124,12 +125,12 @@ export function DelegationRow({
 			) : (
 				<SubagentAvatar name={view.title} size="sm" />
 			)}
-			<span className="max-w-[45%] shrink-0 truncate font-medium text-foreground/90">
+			<span className="max-w-56 shrink-0 truncate font-medium text-foreground/90">
 				{title}
 			</span>
 			<span
 				className={cn(
-					"min-w-0 flex-1 truncate",
+					"min-w-0 max-w-md truncate",
 					failed ? "text-destructive" : "text-muted-foreground",
 				)}
 			>
@@ -156,7 +157,7 @@ export function DelegationRow({
 		</>
 	);
 	const className =
-		"group/delegation flex h-7 w-full min-w-0 items-center gap-2 rounded px-2 text-left text-xs";
+		"group/delegation flex h-7 w-fit min-w-0 max-w-full items-center gap-2 rounded px-2 text-left text-xs";
 	return (
 		<div>
 			{interactive ? (

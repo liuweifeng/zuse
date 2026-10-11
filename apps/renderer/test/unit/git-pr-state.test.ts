@@ -4,7 +4,10 @@ import {
 	deriveBranchWorkflow,
 	deriveEnvironmentPrRows,
 } from "../../src/lib/branch-workflow.ts";
-import { resolveGitPrState } from "../../src/lib/git-pr-state.ts";
+import {
+	gitHubStatusMessageKey,
+	resolveGitPrState,
+} from "../../src/lib/git-pr-state.ts";
 
 const run = {
 	name: "build",
@@ -121,4 +124,19 @@ test("incomplete checks cannot imply success in any status surface", () => {
 	expect(state.pr?.checks).toBe("pending");
 	expect(state.details?.checks).toBe("pending");
 	expect(deriveEnvironmentPrRows(state.pr).checks?.kind).toBe("pending");
+});
+
+test("a branch without a pull request never reports incomplete checks", () => {
+	expect(gitHubStatusMessageKey({ ...pr, checksComplete: false })).toBe(
+		"projects:github_observation_incomplete_checks",
+	);
+	expect(
+		gitHubStatusMessageKey({
+			...pr,
+			state: "none",
+			number: null,
+			url: null,
+			checksComplete: false,
+		}),
+	).toBeNull();
 });

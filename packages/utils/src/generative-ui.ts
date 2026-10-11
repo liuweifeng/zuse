@@ -42,6 +42,8 @@ const chartPoints = z
 export interface GenerativeUiComponentSpec {
 	readonly description: string;
 	readonly props: z.ZodObject<z.ZodRawShape>;
+	/** False keeps saved blocks rendering but hides the component from agents. */
+	readonly advertised?: boolean;
 }
 
 /**
@@ -160,6 +162,23 @@ export const generativeUiComponents = {
 				.max(20),
 		}),
 	},
+	Flow: {
+		description:
+			"Diagram of 2-8 boxes joined by arrows in order — architecture, data flow, pipelines, handoffs. Mark the focal box with highlight. Runs left to right, stacking vertically in narrow chats.",
+		props: z.object({
+			nodes: z
+				.array(
+					z.object({
+						label: z.string().min(1).max(60),
+						detail: z.string().max(200).optional(),
+						highlight: z.boolean().optional(),
+					}),
+				)
+				.min(2)
+				.max(8),
+			caption: z.string().max(200).optional(),
+		}),
+	},
 	Tabs: {
 		description:
 			"Switchable views of alternatives, e.g. options or before/after. Each tab holds one component.",
@@ -173,6 +192,9 @@ export const generativeUiComponents = {
 		}),
 	},
 	FollowUps: {
+		// Buttons that send a new message read as unclear actions; answers
+		// should end in prose or a visual instead.
+		advertised: false,
 		description:
 			"Suggested next steps as buttons. Clicking one sends its prompt as the user's next message. 1-6 items.",
 		props: z.object({
@@ -323,6 +345,11 @@ export const generativeUiComponentSignature = (
 
 export const generativeUiComponentLines = (): string =>
 	generativeUiComponentNames
+		.filter(
+			(name) =>
+				(generativeUiComponents[name] as GenerativeUiComponentSpec)
+					.advertised !== false,
+		)
 		.map(
 			(name) =>
 				`${generativeUiComponentSignature(name)} — ${generativeUiComponents[name].description}`,

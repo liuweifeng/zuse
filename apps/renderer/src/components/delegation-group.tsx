@@ -198,7 +198,7 @@ export const DelegationGroup = memo(function DelegationGroup({
 				aria-description={summary}
 				aria-expanded={expanded}
 				onClick={() => setUserExpanded(!expanded)}
-				className="flex h-7 w-full min-w-0 items-center gap-2 ps-3 pe-4 text-left text-xs text-muted-foreground hover:text-foreground"
+				className="flex h-7 w-fit min-w-0 max-w-full items-center gap-2 ps-3 pe-4 text-left text-xs text-muted-foreground hover:text-foreground"
 			>
 				<span className="flex shrink-0 items-center -space-x-1">
 					{views.slice(0, MAX_STACK).map((view) => (
@@ -214,7 +214,7 @@ export const DelegationGroup = memo(function DelegationGroup({
 						</span>
 					) : null}
 				</span>
-				<span className="min-w-0 flex-1 truncate">
+				<span className="min-w-0 max-w-md truncate">
 					{working > 0 ? (
 						<ShimmerText tone="lime">{summary}</ShimmerText>
 					) : (

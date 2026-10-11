@@ -7,6 +7,7 @@ import {
 	orchestrationMcpPromptHint,
 	READ_ONLY_ORCHESTRATION_TOOLS,
 } from "@zuse/agents/drivers/orchestration-tools";
+import { validateGenerativeUiSpec } from "@zuse/utils/generative-ui";
 import { describe, expect, test } from "vitest";
 
 describe("orchestration MCP tools", () => {
@@ -41,6 +42,20 @@ describe("orchestration MCP tools", () => {
 			"whoami",
 			"emit_ui",
 		]);
+	});
+
+	test("emit_ui examples are valid and never teach prompt buttons", () => {
+		const description =
+			ORCHESTRATION_MCP_TOOLS.find((tool) => tool.name === "emit_ui")
+				?.description ?? "";
+		const examples = description
+			.split("\n\n")
+			.filter((block) => block.startsWith("Example"))
+			.map((block) => block.split("\n").slice(1).join("\n"));
+		expect(examples.length).toBeGreaterThan(0);
+		for (const spec of examples)
+			expect(validateGenerativeUiSpec(spec)).toEqual({ ok: true });
+		expect(description).not.toContain("FollowUps");
 	});
 
 	test("marks read-only and mutating tools explicitly", () => {

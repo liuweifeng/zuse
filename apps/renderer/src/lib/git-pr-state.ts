@@ -83,7 +83,7 @@ export function gitHubStatusMessageKey(
 				? pr.state === "none"
 					? "projects:github_observation_loading"
 					: "projects:github_observation_cached"
-				: pr.checksComplete === false
+				: pr.checksComplete === false && pr.state !== "none"
 					? "projects:github_observation_incomplete_checks"
 					: null;
 	}

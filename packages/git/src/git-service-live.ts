@@ -1070,7 +1070,9 @@ export const GitServiceLive = Layer.effect(
 				autoMergeEnabled: false,
 				prCapability: capability,
 				stale: capability !== "available",
-				checksComplete: false,
+				// No PR means no checks to wait for; false would surface a
+				// misleading "Checks are incomplete" on every PR-less branch.
+				checksComplete: true,
 			});
 		const infoFromPr = (pr: GitHubPr): GitPrInfo => {
 			const counts = countChecks(pr.statusCheckRollup);

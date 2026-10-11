@@ -25,6 +25,7 @@ describe("generative UI spec", () => {
 			"LineChart",
 			"Callout",
 			"Steps",
+			"Flow",
 			"Tabs",
 			"FollowUps",
 			"Form",
@@ -61,6 +62,8 @@ describe("generative UI spec", () => {
 		expect(lines).toContain(
 			"KeyValue(pairs: { key: string, value: string }[])",
 		);
+		expect(lines).toContain("Flow(");
+		expect(lines).not.toContain("FollowUps(");
 	});
 
 	it("accepts a valid spec", () => {
@@ -176,6 +179,16 @@ comparison = BarChart("Change", [{label: "Build", value: -3}, {label: "Test", va
 			validateGenerativeUiSpec(`root = Card([Stat("Failing", "2"), next], "Tests")
 next = FollowUps([{label: "Fix failures", prompt: "Fix the two failing tests."}, {label: "Explain", prompt: "Explain why they fail."}])`),
 		).toEqual({ ok: true });
+	});
+	it("accepts flow diagrams and rejects ones without a connection", () => {
+		expect(
+			validateGenerativeUiSpec(
+				'root = Flow([{label: "Desktop app"}, {label: "Zuse", detail: "Orchestrates", highlight: true}, {label: "Cloud computers"}], "Conceptual")',
+			),
+		).toEqual({ ok: true });
+		expect(validateGenerativeUiSpec('root = Flow([{label: "Alone"}])').ok).toBe(
+			false,
+		);
 	});
 	it("treats tool-looking strings as inert text", () => {
 		expect(
