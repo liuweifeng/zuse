@@ -1,5 +1,11 @@
-import { measureCloudStage } from "@zuse/utils/cloud-timing";
+import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Redacted, Schema } from "effect";
+import {
+	type BoundedCache,
+	boundedCache,
+	credentialCacheKey,
+	credentialScoped,
+} from "./credential-cache.ts";
 import { discardResponseBody } from "./http-response.ts";
 import {
 	type ProviderSandbox,
@@ -206,9 +212,37 @@ export const E2B_PROVIDER_ID = "e2b" as const;
 const LABEL_METADATA_KEY = "zuse-label";
 const SANDBOX_ID_METADATA_KEY = "zuse-sandbox-id";
 
+/** A guest control credential: envd access token plus the sandbox domain. */
+export type E2bControlConnectionCache = BoundedCache<{
+	readonly accessToken: string;
+	readonly domain: string;
+}>;
+
+const E2B_CONTROL_CONNECTION_LIMIT = 256;
+const sharedControlConnections = boundedCache<E2bControlConnectionCache>(64);
+
+/**
+ * The API constructs adapters per request. Guest control credentials are kept
+ * per API origin and key across requests so a warm isolate reaches envd
+ * without first fetching sandbox detail. One credential never sees another's.
+ */
+export const e2bControlConnectionsFor = (
+	config: Pick<E2bSandboxConfig, "apiKey" | "apiBaseUrl">,
+): E2bControlConnectionCache =>
+	credentialScoped(
+		sharedControlConnections,
+		credentialCacheKey(config.apiBaseUrl ?? E2B_API_BASE_URL, config.apiKey),
+		() => boundedCache(E2B_CONTROL_CONNECTION_LIMIT),
+	);
+
 export const makeE2bSandboxProvider = (
 	config: E2bSandboxConfig,
 	http: E2bHttpClient = defaultHttpClient,
+	// A custom transport keeps a private cache so tests and alternative
+	// transports never share credentials with the live isolate cache.
+	controlConnections: E2bControlConnectionCache = http === defaultHttpClient
+		? e2bControlConnectionsFor(config)
+		: boundedCache(E2B_CONTROL_CONNECTION_LIMIT),
 ): SandboxProviderAdapter => {
 	const apiBaseUrl = (config.apiBaseUrl ?? E2B_API_BASE_URL).replace(
 		/\/+$/,
@@ -216,10 +250,6 @@ export const makeE2bSandboxProvider = (
 	);
 	const endpointDomain = (domain: string | null | undefined): string =>
 		domain ?? config.sandboxDomain ?? E2B_DEFAULT_SANDBOX_DOMAIN;
-	const controlConnections = new Map<
-		string,
-		{ readonly accessToken: string; readonly domain: string }
-	>();
 	const rememberControlConnection = (detail: {
 		readonly sandboxID: string;
 		readonly domain?: string | null;
@@ -388,6 +418,14 @@ export const makeE2bSandboxProvider = (
 	const processConnection = Effect.fn("E2bSandboxProvider.processConnection")(
 		function* (providerSandboxId: string) {
 			const cached = controlConnections.get(providerSandboxId);
+			cloudTimingEvent(
+				{
+					provider: "e2b",
+					providerSandboxId,
+					reason: cached === undefined ? "fetched" : "cached",
+				},
+				"e2b.control-connection",
+			);
 			if (cached !== undefined)
 				return {
 					accessToken: cached.accessToken,
@@ -426,6 +464,38 @@ export const makeE2bSandboxProvider = (
 			: { Authorization: `Basic ${btoa(`${user}:`)}` }),
 	});
 
+	/**
+	 * Every authenticated guest request goes through here. A cached control
+	 * credential may have been rotated by an external pause or resume; an
+	 * authentication rejection clears it, refetches sandbox detail, and retries
+	 * exactly once. Transport failures and any other status are returned as is,
+	 * because the guest may already have acted on the request.
+	 */
+	const guestFetch = Effect.fn("E2bSandboxProvider.guestFetch")(function* (
+		providerSandboxId: string,
+		send: (connection: {
+			readonly accessToken: string;
+			readonly host: string;
+		}) => Promise<Response>,
+		onNetworkFailure?: () => void,
+	) {
+		const attempt = Effect.gen(function* () {
+			const connection = yield* processConnection(providerSandboxId);
+			return yield* Effect.tryPromise({
+				try: () => send(connection),
+				catch: () => {
+					onNetworkFailure?.();
+					return providerError("transient");
+				},
+			});
+		});
+		const response = yield* attempt;
+		if (response.status !== 401 && response.status !== 403) return response;
+		yield* discardResponseBody(response);
+		controlConnections.delete(providerSandboxId);
+		return yield* attempt;
+	});
+
 	const executeProcess = Effect.fn("E2bSandboxProvider.executeProcess")(
 		function* (
 			providerSandboxId: string,
@@ -435,11 +505,9 @@ export const makeE2bSandboxProvider = (
 			yield* validatedEnv(input.env ?? {});
 			const timed = (stage: string) =>
 				measureCloudStage({ provider: "e2b", providerSandboxId }, stage);
-			const { accessToken, host } = yield* processConnection(
+			const response = yield* guestFetch(
 				providerSandboxId,
-			).pipe(timed("e2b.process-connect"));
-			const response = yield* Effect.tryPromise({
-				try: () =>
+				({ accessToken, host }) =>
 					http.fetch(`https://${host}/process.Process/Start`, {
 						method: "POST",
 						headers: {
@@ -459,8 +527,7 @@ export const makeE2bSandboxProvider = (
 							stdin: false,
 						}),
 					}),
-				catch: () => providerError("transient"),
-			}).pipe(timed("e2b.process-request"));
+			).pipe(timed("e2b.process-request"));
 
 			if (!response.ok) {
 				yield* discardResponseBody(response);
@@ -572,9 +639,9 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const { accessToken, host } = yield* processConnection(providerSandboxId);
-		const response = yield* Effect.tryPromise({
-			try: () =>
+		const response = yield* guestFetch(
+			providerSandboxId,
+			({ accessToken, host }) =>
 				http.fetch(`https://${host}/filesystem.Filesystem/Stat`, {
 					method: "POST",
 					headers: {
@@ -584,8 +651,7 @@ export const makeE2bSandboxProvider = (
 					},
 					body: JSON.stringify({ path }),
 				}),
-			catch: () => providerError("transient"),
-		});
+		);
 		yield* discardResponseBody(response);
 		if (response.status === 404) return false;
 		if (!response.ok) return yield* errorForStatus(response.status);
@@ -597,18 +663,17 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const { accessToken, host } = yield* processConnection(providerSandboxId);
 		const query = new URLSearchParams({ path });
 		if (user !== undefined) query.set("username", user);
-		const response = yield* Effect.tryPromise({
-			try: () =>
+		const response = yield* guestFetch(
+			providerSandboxId,
+			({ accessToken, host }) =>
 				http.fetch(`https://${host}/files?${query.toString()}`, {
 					headers: {
 						...envdHeaders(providerSandboxId, accessToken),
 					},
 				}),
-			catch: () => providerError("transient"),
-		});
+		);
 		if (!response.ok) {
 			yield* discardResponseBody(response);
 			return yield* errorForStatus(response.status);
@@ -636,32 +701,34 @@ export const makeE2bSandboxProvider = (
 		) {
 			if (new TextEncoder().encode(contents).byteLength > 65_536)
 				return yield* providerError("rejected");
-			const { accessToken, host } = yield* processConnection(providerSandboxId);
 			const query = new URLSearchParams({ path });
 			if (user !== undefined) query.set("username", user);
-			const form = new FormData();
-			form.append(
-				"file",
-				new Blob([contents], { type: "text/plain" }),
-				path.split("/").at(-1) ?? "file",
-			);
-			const response = yield* Effect.tryPromise({
-				try: () =>
+			// Built per attempt: a form body cannot be sent twice.
+			const form = () => {
+				const data = new FormData();
+				data.append(
+					"file",
+					new Blob([contents], { type: "text/plain" }),
+					path.split("/").at(-1) ?? "file",
+				);
+				return data;
+			};
+			const response = yield* guestFetch(
+				providerSandboxId,
+				({ accessToken, host }) =>
 					http.fetch(`https://${host}/files?${query.toString()}`, {
 						method: "POST",
 						headers: {
 							...envdHeaders(providerSandboxId, accessToken),
 						},
-						body: form,
+						body: form(),
 					}),
-				catch: () => {
+				() =>
 					reportRequestFailure({
 						method: "POST /files",
 						phase: "network",
-					});
-					return providerError("transient");
-				},
-			});
+					}),
+			);
 			yield* discardResponseBody(response);
 			if (!response.ok) {
 				reportRequestFailure({
