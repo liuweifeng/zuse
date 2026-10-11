@@ -1,5 +1,6 @@
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Redacted, Schema } from "effect";
+import { discardResponseBody } from "./http-response.ts";
 import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
@@ -263,7 +264,10 @@ export const makeE2bSandboxProvider = (
 				phase: "response",
 				status: response.status,
 			});
-		}).pipe(Effect.andThen(Effect.fail(errorForStatus(response.status))));
+		}).pipe(
+			Effect.andThen(discardResponseBody(response)),
+			Effect.andThen(Effect.fail(errorForStatus(response.status))),
+		);
 
 	const request = <A, I>(
 		method: string,
@@ -302,6 +306,7 @@ export const makeE2bSandboxProvider = (
 		toleratedStatuses: ReadonlyArray<number> = [],
 	): Effect.Effect<void, SandboxProviderError> =>
 		send(method, path, body).pipe(
+			Effect.tap(discardResponseBody),
 			Effect.flatMap((response) =>
 				response.ok || toleratedStatuses.includes(response.status)
 					? Effect.void
@@ -457,7 +462,10 @@ export const makeE2bSandboxProvider = (
 				catch: () => providerError("transient"),
 			}).pipe(timed("e2b.process-request"));
 
-			if (!response.ok) return yield* errorForStatus(response.status);
+			if (!response.ok) {
+				yield* discardResponseBody(response);
+				return yield* errorForStatus(response.status);
+			}
 			return yield* Effect.tryPromise({
 				try: async () => {
 					if (response.body === null)
@@ -568,6 +576,7 @@ export const makeE2bSandboxProvider = (
 				}),
 			catch: () => providerError("transient"),
 		});
+		yield* discardResponseBody(response);
 		if (response.status === 404) return false;
 		if (!response.ok) return yield* errorForStatus(response.status);
 		return true;
@@ -590,9 +599,15 @@ export const makeE2bSandboxProvider = (
 				}),
 			catch: () => providerError("transient"),
 		});
-		if (!response.ok) return yield* errorForStatus(response.status);
+		if (!response.ok) {
+			yield* discardResponseBody(response);
+			return yield* errorForStatus(response.status);
+		}
 		const contentLength = Number(response.headers.get("content-length") ?? "0");
-		if (contentLength > 65_536) return yield* providerError("rejected");
+		if (contentLength > 65_536) {
+			yield* discardResponseBody(response);
+			return yield* providerError("rejected");
+		}
 		const text = yield* Effect.tryPromise({
 			try: () => response.text(),
 			catch: () => providerError("transient"),
@@ -637,6 +652,7 @@ export const makeE2bSandboxProvider = (
 					return providerError("transient");
 				},
 			});
+			yield* discardResponseBody(response);
 			if (!response.ok) {
 				reportRequestFailure({
 					method: "POST /files",

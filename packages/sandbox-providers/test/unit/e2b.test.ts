@@ -853,3 +853,58 @@ describe("E2B sandbox provider", () => {
 		});
 	});
 });
+
+test.each([
+	"timeout",
+	"stat",
+	"write",
+	"missing-stat",
+	"failed-process",
+])("releases an unread %s response instead of holding a Worker connection", async (operation) => {
+	let cancelled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode("unused response"));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	const http = makeHttp([
+		...(operation === "timeout"
+			? []
+			: [
+					{
+						status: 200,
+						body: {
+							sandboxID: "sbx_1",
+							state: "running",
+							envdAccessToken: "envd-secret",
+						},
+					},
+				]),
+		{
+			status:
+				operation === "missing-stat"
+					? 404
+					: operation === "failed-process"
+						? 503
+						: 200,
+			rawBody: body,
+		},
+	]);
+	const adapter = makeAdapter(http.client);
+	const action =
+		operation === "timeout"
+			? adapter.extendTimeout("sbx_1", 300)
+			: operation === "write"
+				? adapter.writeTextFile("sbx_1", "/tmp/receipt", "ready")
+				: operation === "failed-process"
+					? adapter.startProcess("sbx_1", { command: "true" })
+					: adapter.pathExists("sbx_1", "/tmp/receipt").pipe(Effect.asVoid);
+	const result = await Effect.runPromise(action.pipe(Effect.result));
+	expect(result._tag).toBe(
+		operation === "failed-process" ? "Failure" : "Success",
+	);
+	expect(cancelled).toBe(true);
+});

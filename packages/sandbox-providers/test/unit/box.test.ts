@@ -1249,3 +1249,20 @@ describe("Box provider-reported usage", () => {
 		expect(http.calls).toHaveLength(0);
 	});
 });
+
+test("releases tolerated deletion responses without retaining a Worker connection", async () => {
+	let cancelled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode("not found"));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	const adapter = makeAdapter({
+		fetch: async () => new Response(body, { status: 404 }),
+	});
+	await Effect.runPromise(adapter.kill("already-deleted"));
+	expect(cancelled).toBe(true);
+});

@@ -10,6 +10,7 @@ import {
 	boxSystemdProcessCommand,
 	boxSystemdProcessInspectionCommand,
 } from "./box-process.ts";
+import { discardResponseBody } from "./http-response.ts";
 import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
@@ -238,7 +239,6 @@ export const makeBoxSandboxProvider = (
 
 	const responseErrorCode = (response: Response): Promise<string | undefined> =>
 		response
-			.clone()
 			.json()
 			.then((payload: unknown) =>
 				typeof payload === "object" &&
@@ -305,7 +305,7 @@ export const makeBoxSandboxProvider = (
 		send(method, path, body, headers).pipe(
 			Effect.flatMap((response) =>
 				response.ok || toleratedStatuses.includes(response.status)
-					? Effect.void
+					? discardResponseBody(response)
 					: failForResponse(method, response),
 			),
 		);
