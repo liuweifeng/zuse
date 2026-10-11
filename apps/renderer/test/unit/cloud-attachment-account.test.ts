@@ -41,6 +41,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (original) => ({
 		"cloud.chats.list": mocks.list,
 		"cloud.chats.watch": mocks.watch,
 		"cloud.workspaces.get": mocks.get,
+		"cloud.workspaces.watch": mocks.watch,
 		"cloud.workspaces.resume": mocks.resume,
 		"cloud.workspaces.connect": mocks.connect,
 		"cloud.transcript.get": mocks.transcript,
@@ -730,4 +731,98 @@ it("passively attaches the online runtime before repository setup finishes", asy
 	expect(mocks.connect).toHaveBeenCalledOnce();
 	expect(mocks.resume).not.toHaveBeenCalled();
 	expect(mocks.watch).not.toHaveBeenCalled();
+});
+
+it.each([
+	["wake", "setup"],
+	["wake", "failed"],
+	["connect", "setup"],
+	["connect", "failed"],
+] as const)("waits for organization runtime enrollment before requesting a ticket (%s, %s)", async (activation, outcome) => {
+	observeRendererAccount("organization-startup-owner");
+	const starting = {
+		...summary,
+		workspaceId: `organization-startup-${activation}-${outcome}`,
+		workspaceScope: {
+			kind: "organization" as const,
+			organizationId: "org-startup",
+		},
+		state: "provisioning" as const,
+		runtimeState: "offline" as const,
+		revision: 1,
+	};
+	let enrolled = false;
+	mocks.get.mockReturnValue(Effect.succeed(starting));
+	mocks.watch.mockReturnValue(
+		Stream.make(starting, {
+			...starting,
+			revision: 2,
+			state: outcome,
+			runtimeState: outcome === "setup" ? "online" : "offline",
+			statusCode:
+				outcome === "setup" ? "syncing-repository" : "provisioning-failed",
+		}).pipe(
+			Stream.tap((next) =>
+				Effect.sync(() => {
+					enrolled = next.state === "setup";
+				}),
+			),
+		),
+	);
+	mocks.connect.mockImplementation(() => {
+		expect(enrolled).toBe(true);
+		return Effect.succeed({
+			workspaceId: starting.workspaceId,
+			wsUrl: "wss://example.test/cloud",
+			protocol: "zuse-workspace-v3",
+			role: "client",
+			generation: 1,
+			gatewayEpoch: 1,
+			credential: "ticket",
+			expiresAt: Date.now() + 60_000,
+		});
+	});
+	const attached = ensureCloudWorkspaceAttached(starting, activation);
+	if (outcome === "failed") {
+		await expect(attached).rejects.toThrow(
+			"Cloud startup failed during provisioning-failed.",
+		);
+		expect(mocks.connect).not.toHaveBeenCalled();
+	} else {
+		await attached;
+		expect(mocks.connect).toHaveBeenCalledOnce();
+	}
+	expect(mocks.watch).toHaveBeenCalledWith({
+		workspaceId: starting.workspaceId,
+		afterRevision: 1,
+	});
+	expect(mocks.resume).not.toHaveBeenCalled();
+});
+
+it.each([
+	["paused", "paused", "offline"],
+	["provisioning", "paused", "offline"],
+	["ready", "paused", "online"],
+] as const)("does not wait or wake a passive organization workspace (%s, %s, %s)", async (state, desiredState, runtimeState) => {
+	observeRendererAccount("passive-organization-owner");
+	const paused = {
+		...summary,
+		workspaceId: `passive-organization-${state}`,
+		workspaceScope: {
+			kind: "organization" as const,
+			organizationId: "org-startup",
+		},
+		state,
+		desiredState,
+		runtimeState,
+	};
+	mocks.get.mockReturnValue(Effect.succeed(paused));
+	await expect(ensureCloudWorkspaceAttached(paused, "connect")).rejects.toThrow(
+		state === "paused"
+			? "Cloud workspace is paused."
+			: "Cloud workspace is not currently available for passive attachment.",
+	);
+	expect(mocks.watch).not.toHaveBeenCalled();
+	expect(mocks.resume).not.toHaveBeenCalled();
+	expect(mocks.connect).not.toHaveBeenCalled();
 });
