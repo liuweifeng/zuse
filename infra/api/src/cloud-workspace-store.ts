@@ -1726,6 +1726,14 @@ export const mailboxLifecycleTombstoneConfig = (
 	};
 };
 
+// Enrollment means the launch creates a session shell; message acceptance is
+// recorded by the mailbox command receipt, not the runtime-ready acknowledgement.
+const completedLaunchStatus = (workspace: CloudWorkspaceRecord): string =>
+	typeof workspace.requestConfig.cloudCommandEnrollmentProtocolVersion ===
+	"number"
+		? "ready"
+		: "agent-running";
+
 const completeLaunchWorkspace = (
 	workspace: CloudWorkspaceRecord,
 	input: CompleteLaunchIntentInput,
@@ -1745,7 +1753,7 @@ const completeLaunchWorkspace = (
 		...workspace,
 		runtimeState: "online",
 		state: "ready",
-		statusCode: "agent-running",
+		statusCode: completedLaunchStatus(workspace),
 		requestConfig: {
 			...requestConfig,
 			sessionHeadVersion: Math.max(
@@ -1758,8 +1766,13 @@ const completeLaunchWorkspace = (
 				...startupTimings,
 				connectedAt: startupTimings.connectedAt ?? input.nowMs,
 				repositoryReadyAt: startupTimings.repositoryReadyAt ?? input.nowMs,
-				agentStartedAt: startupTimings.agentStartedAt ?? input.nowMs,
-				messageAcceptedAt: startupTimings.messageAcceptedAt ?? input.nowMs,
+				...(completedLaunchStatus(workspace) === "ready"
+					? {}
+					: {
+							agentStartedAt: startupTimings.agentStartedAt ?? input.nowMs,
+							messageAcceptedAt:
+								startupTimings.messageAcceptedAt ?? input.nowMs,
+						}),
 				...(requestedAt === undefined
 					? {}
 					: {
@@ -2546,7 +2559,9 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						input.repositoryReady === false &&
 						!(
 							workspace.runtimeState === "online" &&
-							["agent-starting", "agent-running"].includes(workspace.statusCode)
+							["agent-starting", "agent-running", "ready"].includes(
+								workspace.statusCode,
+							)
 						);
 					const timings =
 						(workspace.requestConfig.startupTimings as
@@ -2568,7 +2583,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							? (input.preparationPhase ?? "syncing-repository")
 							: launchPending
 								? "agent-starting"
-								: "agent-running",
+								: completedLaunchStatus(workspace),
 						requestConfig: {
 							...(input.repositoryReady === false
 								? workspace.requestConfig
@@ -5209,8 +5224,8 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					sql`UPDATE api_cloud_workspaces
 					SET runtime_state='online',
-						state=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN state WHEN ${input.repositoryReady !== false}::boolean AND jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
-						status_code=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running') THEN status_code WHEN ${input.repositoryReady === false}::boolean THEN ${input.preparationPhase ?? "syncing-repository"} WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'agent-running' ELSE 'agent-starting' END,
+						state=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running', 'ready') THEN state WHEN ${input.repositoryReady !== false}::boolean AND jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN 'ready' ELSE 'setup' END,
+						status_code=CASE WHEN runtime_state='online' AND status_code IN ('agent-starting', 'agent-running', 'ready') THEN status_code WHEN ${input.repositoryReady === false}::boolean THEN ${input.preparationPhase ?? "syncing-repository"} WHEN jsonb_typeof(request_config->'sessionHeadVersion')='number' AND COALESCE((request_config->>'runtimeSessionRecoveryPending')::boolean, false)=false THEN CASE WHEN jsonb_typeof(request_config->'cloudCommandEnrollmentProtocolVersion')='number' THEN 'ready' ELSE 'agent-running' END ELSE 'agent-starting' END,
 						request_config=(CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config ELSE request_config - 'cloudCommandProtocolVersion' - 'cloudCommandRuntimeGeneration' END) || jsonb_build_object(
 							'runtimeProcessManaged', true,
  'deviceBridgeVersion', COALESCE(to_jsonb(${input.deviceBridgeVersion ?? null}::integer), CASE WHEN ${input.repositoryReady === false}::boolean THEN request_config->'deviceBridgeVersion' ELSE 'null'::jsonb END),
