@@ -9,6 +9,7 @@ import { describe, expect, test } from "vitest";
 
 import { cloudFailurePresentation } from "../../src/cloud-failure-presentation.ts";
 import {
+	getClientProtocolVersion,
 	isRpcCredentialExpired,
 	makeManagedClientSession,
 	makeRpcClientSession,
@@ -120,5 +121,116 @@ test("decodes a retained runtime's encoded handshake rejection before opening re
 		_tag: "WireProtocolRejected",
 		expectedVersion: 6,
 		receivedVersion: 7,
+	});
+});
+
+const retainedProtocol = (
+	version: number,
+	sent: unknown[],
+	releases: () => void,
+) =>
+	Layer.effect(
+		RpcClient.Protocol,
+		Effect.gen(function* () {
+			yield* Effect.addFinalizer(() => Effect.sync(releases));
+			return yield* RpcClient.Protocol.make((write) =>
+				Effect.succeed({
+					supportsAck: false,
+					supportsTransferables: false,
+					send: (clientId, request) => {
+						if (request._tag !== "Request") return Effect.void;
+						sent.push(request.payload);
+						const hello = request.payload as { protocolVersion: number };
+						return write(clientId, {
+							_tag: "Exit",
+							requestId: request.id,
+							exit:
+								hello.protocolVersion === version
+									? {
+											_tag: "Success",
+											value: {
+												protocolVersion: version,
+												workspaceScopeProtocol: 1,
+											},
+										}
+									: {
+											_tag: "Failure",
+											cause: [
+												{
+													_tag: "Fail",
+													error: {
+														_tag: "WireProtocolRejected",
+														expectedVersion: version,
+														receivedVersion: hello.protocolVersion,
+													},
+												},
+											],
+										},
+						});
+					},
+				}),
+			);
+		}),
+	);
+
+describe("retained cloud handshake negotiation", () => {
+	test.each([
+		5, 6,
+	])("negotiates protocol %s before exposing a client", async (version) => {
+		const sent: unknown[] = [];
+		let negotiated: number | undefined;
+		let releases = 0;
+		const session = await makeRpcClientSession(
+			retainedProtocol(version, sent, () => {
+				releases++;
+			}),
+			RpcGroup.make(ConnectHandshakeRpc),
+			{
+				protocolVersion: 7,
+				allowLegacyCloud: true,
+				onNegotiated: (value) => {
+					negotiated = value;
+				},
+				perform: (client, hello) => client["connect.handshake"](hello),
+			},
+		);
+		expect(sent).toEqual([
+			{ protocolVersion: 7 },
+			{ protocolVersion: version },
+		]);
+		expect(negotiated).toBe(version);
+		expect(getClientProtocolVersion(new Proxy(session.client, {}))).toBe(
+			version,
+		);
+		expect(releases).toBe(0);
+		await session.dispose();
+		expect(releases).toBe(1);
+	});
+
+	test.each([
+		{ version: 6, allowLegacyCloud: false },
+		{ version: 4, allowLegacyCloud: true },
+		{ version: 8, allowLegacyCloud: true },
+	])("keeps strict or unsupported protocols closed: %j", async ({
+		version,
+		allowLegacyCloud,
+	}) => {
+		const sent: unknown[] = [];
+		let releases = 0;
+		await expect(
+			makeRpcClientSession(
+				retainedProtocol(version, sent, () => {
+					releases++;
+				}),
+				RpcGroup.make(ConnectHandshakeRpc),
+				{
+					protocolVersion: 7,
+					allowLegacyCloud,
+					perform: (client, hello) => client["connect.handshake"](hello),
+				},
+			),
+		).rejects.toMatchObject({ _tag: "WireProtocolRejected" });
+		expect(sent).toEqual([{ protocolVersion: 7 }]);
+		expect(releases).toBe(1);
 	});
 });

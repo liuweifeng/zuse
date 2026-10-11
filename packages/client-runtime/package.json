@@ -30,6 +30,8 @@
 		"./command-dispatch": "./src/command-dispatch.ts",
 		"./composer-commands": "./src/composer-commands.ts",
 		"./composer-trigger": "./src/composer-trigger.ts",
+		"./legacy-runtime-capabilities": "./src/legacy-runtime-capabilities.ts",
+		"./legacy-runtime-response": "./src/legacy-runtime-response.ts",
 		"./connection": "./src/connection.ts",
 		"./endpoint-selection": "./src/endpoint-selection.ts",
 		"./environment-runtime": "./src/environment-runtime.ts",

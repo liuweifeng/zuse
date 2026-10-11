@@ -961,7 +961,12 @@ export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 		model: Schema.String,
 	}),
 	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, SessionConfigurationError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		SessionConfigurationError,
+		// Legacy cloud runtimes cannot hand off a started provider conversation.
+		SessionAlreadyStartedError,
+	]),
 });
 
 export const SessionArchiveRpc = Rpc.make("session.archive", {

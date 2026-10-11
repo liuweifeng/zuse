@@ -16,6 +16,7 @@ vi.mock("../../src/lib/rpc-client.ts", async (original) => ({
 	...(await original<typeof import("../../src/lib/rpc-client.ts")>()),
 	removeRendererEnvironment: mocks.remove,
 	setActiveEnvironment: mocks.setActive,
+	subscribeRendererRpcConnection: () => () => undefined,
 }));
 vi.mock("../../src/lib/environment-shell-client-bus.ts", async (original) => ({
 	...(await original<

@@ -1,3 +1,5 @@
+import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
+import { supportsRuntimeRpc } from "@zuse/client-runtime/legacy-runtime-capabilities";
 import "@zuse/i18n/english/chat";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { SessionForkConstruction, SessionId } from "@zuse/contracts";
@@ -28,6 +30,13 @@ export function SessionForkRecovery({
 		const refresh = async () => {
 			try {
 				const client = await getVerifiedRpcClient(environmentId);
+				if (
+					!supportsRuntimeRpc(
+						"session.forkConstructions",
+						getClientProtocolVersion(client),
+					)
+				)
+					return;
 				if (current !== generation.current) return;
 				const rows = await Effect.runPromise(
 					client["session.forkConstructions"]({ sessionId }),

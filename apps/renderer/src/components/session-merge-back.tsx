@@ -1,8 +1,10 @@
+import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
+import { supportsRuntimeRpc } from "@zuse/client-runtime/legacy-runtime-capabilities";
 import "@zuse/i18n/english/chat";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import { useMessages } from "@zuse/i18n/react";
 import { Effect } from "effect";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { getVerifiedRpcClient } from "../lib/rpc-client.ts";
 import { Button } from "./ui/button.tsx";
@@ -16,6 +18,25 @@ export function SessionMergeBack({
 }) {
 	const { message } = useMessages(["chat"]);
 	const [busy, setBusy] = useState(false);
+	const [supported, setSupported] = useState(false);
+	useEffect(() => {
+		let disposed = false;
+		setSupported(false);
+		void getVerifiedRpcClient(sessionRef.environmentId)
+			.then((client) => {
+				if (!disposed)
+					setSupported(
+						supportsRuntimeRpc(
+							"session.mergeBack",
+							getClientProtocolVersion(client),
+						),
+					);
+			})
+			.catch(() => undefined);
+		return () => {
+			disposed = true;
+		};
+	}, [sessionRef.environmentId]);
 	const pending = useRef(false);
 	const command = useRef<string | null>(null);
 	const merge = async () => {
@@ -48,6 +69,7 @@ export function SessionMergeBack({
 			setBusy(false);
 		}
 	};
+	if (!supported) return null;
 	return (
 		<div className="flex justify-end px-3">
 			<Button

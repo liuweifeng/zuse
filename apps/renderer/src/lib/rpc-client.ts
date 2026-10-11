@@ -4,6 +4,7 @@ import {
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
 import { parseEnvironmentRoute } from "@zuse/client-runtime/environment-scope";
+import { normalizeLegacyRuntimeResponse } from "@zuse/client-runtime/legacy-runtime-response";
 import {
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
@@ -278,6 +279,9 @@ const makeRendererRpcSession = async (
 		closed = true;
 		onClose(event);
 	};
+	let negotiatedVersion: number = WIRE_PROTOCOL_VERSION;
+	const legacyCloud =
+		options.kind === "websocket" && options.key.startsWith("workspace:");
 	const protocolLayer =
 		options.kind === "electron"
 			? electronClientProtocolLayer(options.bridge, () =>
@@ -296,12 +300,20 @@ const makeRendererRpcSession = async (
 						openTimeout: rendererWebSocketOpenTimeout(options.key),
 						protocols: options.protocols,
 						onClose: notifyClose,
+						transformResponse: (response) =>
+							negotiatedVersion < WIRE_PROTOCOL_VERSION
+								? normalizeLegacyRuntimeResponse(response)
+								: response,
 					},
 				);
 	assertConnectionAccount(options);
 	const session = instrumentRendererRpcClient(
 		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 			protocolVersion: WIRE_PROTOCOL_VERSION,
+			allowLegacyCloud: legacyCloud,
+			onNegotiated: (version) => {
+				negotiatedVersion = version;
+			},
 			perform: (client, hello) => client["connect.handshake"](hello),
 		}),
 	);

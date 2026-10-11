@@ -405,8 +405,30 @@ describe("cloud agent commands", () => {
 		).toHaveBeenCalledWith({ workspaceId: "sibling" });
 		expect(wsClientProtocolLayer).toHaveBeenLastCalledWith(
 			"wss://api.test/gateway",
-			{ protocols: ["zuse-workspace-v2", "ticket"] },
+			{
+				protocols: ["zuse-workspace-v2", "ticket"],
+				transformResponse: expect.any(Function),
+			},
 		);
+
+		const calls = vi.mocked(makeRpcClientSession).mock.calls;
+		expect(calls.at(-2)?.[2]).toMatchObject({ allowLegacyCloud: false });
+		const handshake = calls.at(-1)?.[2];
+		expect(handshake).toMatchObject({ allowLegacyCloud: true });
+		const transform = vi
+			.mocked(wsClientProtocolLayer)
+			.mock.calls.at(-1)?.[1]?.transformResponse;
+		const legacy = {
+			id: "s_1",
+			projectId: "project",
+			providerId: "codex",
+			model: "model",
+			cursor: null,
+			resumeStrategy: "none",
+		};
+		expect(transform?.(legacy)).toBe(legacy);
+		handshake?.onNegotiated?.(6);
+		expect(transform?.(legacy)).toMatchObject({ providerThread: null });
 		expect(connectionMocks.dispose).toHaveBeenCalledTimes(2);
 	});
 	test("renames the cloud workspace's actual sidebar chat", async () => {

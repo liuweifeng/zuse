@@ -1,3 +1,5 @@
+import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
+import { supportsRuntimeRpc } from "@zuse/client-runtime/legacy-runtime-capabilities";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/common";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
@@ -32,6 +34,12 @@ export function SessionSecretRequests({
 			loading = true;
 			try {
 				const client = await getVerifiedRpcClient(environmentId);
+				if (
+					!supportsRuntimeRpc("secrets.list", getClientProtocolVersion(client))
+				) {
+					unsupported = true;
+					return;
+				}
 				if (stopped) return;
 				const rows = await Effect.runPromise(
 					client["secrets.list"]({ sessionId }),

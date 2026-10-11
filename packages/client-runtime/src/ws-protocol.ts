@@ -29,6 +29,10 @@ export type WsProtocolOptions = {
 
 export type WsProtocolLayerOptions = {
 	readonly openTimeout?: Duration.Input;
+	/** Selected from authenticated runtime metadata; local connections remain current. */
+	readonly protocolVersion?: number;
+	/** Adapt retained runtime replies before current RPC schema validation. */
+	readonly transformResponse?: (value: unknown) => unknown;
 	readonly makeWebSocket?: (
 		url: string,
 		protocols?: string | Array<string>,
@@ -84,6 +88,22 @@ export const authenticatedWsUrl = (options: WsProtocolOptions): string => {
 	return withWireProtocolVersion(url.toString(), WIRE_PROTOCOL_VERSION);
 };
 
+export const responseSerializationLayer = (
+	transformResponse?: (value: unknown) => unknown,
+): Layer.Layer<RpcSerialization.RpcSerialization> =>
+	transformResponse === undefined
+		? RpcSerialization.layerJson
+		: Layer.succeed(RpcSerialization.RpcSerialization, {
+				...RpcSerialization.json,
+				makeUnsafe: () => {
+					const parser = RpcSerialization.json.makeUnsafe();
+					return {
+						encode: parser.encode,
+						decode: (data) => parser.decode(data).map(transformResponse),
+					};
+				},
+			});
+
 export const wsClientProtocolLayer = (
 	endpoint: string | WsProtocolOptions,
 	options?: WsProtocolLayerOptions,
@@ -103,14 +123,18 @@ export const wsClientProtocolLayer = (
 		options?.onClose === undefined
 			? baseConstructor
 			: observeWebSocketConstructor(baseConstructor, options.onClose);
+	const url =
+		typeof endpoint === "string" ? endpoint : authenticatedWsUrl(endpoint);
 	return RpcClient.layerProtocolSocket().pipe(
 		Layer.provide(
 			Socket.layerWebSocket(
-				typeof endpoint === "string" ? endpoint : authenticatedWsUrl(endpoint),
+				options?.protocolVersion === undefined
+					? url
+					: withWireProtocolVersion(url, options.protocolVersion),
 				{ openTimeout: options?.openTimeout },
 			),
 		),
 		Layer.provide(Layer.succeed(Socket.WebSocketConstructor, makeWebSocket)),
-		Layer.provide(RpcSerialization.layerJson),
+		Layer.provide(responseSerializationLayer(options?.transformResponse)),
 	);
 };

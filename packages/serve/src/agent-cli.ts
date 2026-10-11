@@ -11,6 +11,7 @@ import {
 } from "node:path";
 
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import { normalizeLegacyRuntimeResponse } from "@zuse/client-runtime/legacy-runtime-response";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	AgentItemId,
@@ -290,10 +291,26 @@ const endpoint = async (
 const connect = async (
 	connectionEndpoint: string,
 	protocols?: readonly string[],
+	allowLegacyCloud = false,
 ) => {
-	const layer = wsClientProtocolLayer(connectionEndpoint, { protocols });
+	let protocolVersion: number = WIRE_PROTOCOL_VERSION;
+	const layer = wsClientProtocolLayer(connectionEndpoint, {
+		protocols,
+		...(allowLegacyCloud
+			? {
+					transformResponse: (value: unknown) =>
+						protocolVersion < WIRE_PROTOCOL_VERSION
+							? normalizeLegacyRuntimeResponse(value)
+							: value,
+				}
+			: {}),
+	});
 	return makeRpcClientSession(layer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
+		allowLegacyCloud,
+		onNegotiated: (version) => {
+			protocolVersion = version;
+		},
 		perform: (client, hello) => client["connect.handshake"](hello),
 	});
 };
@@ -716,10 +733,11 @@ const connectCloudWorkspace = async (
 	const connection = await rpc(
 		client["cloud.workspaces.connect"]({ workspaceId }),
 	);
-	return connect(connection.wsUrl, [
-		connection.protocol,
-		connection.credential,
-	]);
+	return connect(
+		connection.wsUrl,
+		[connection.protocol, connection.credential],
+		true,
+	);
 };
 
 const executeCloudCommand = async (

@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
 	activeEnvironment: "local",
+	protocolVersion: 7,
 	dispatch: vi.fn(),
 	patchActive: vi.fn(),
 	cloudSummary: vi.fn(),
@@ -46,7 +47,13 @@ vi.mock("../../src/lib/environment-entities.ts", () => ({
 	overlayEnvironmentShell: () => false,
 }));
 
+vi.mock("@zuse/client-runtime/connection", async (original) => ({
+	...(await original<typeof import("@zuse/client-runtime/connection")>()),
+	getClientProtocolVersion: () => mocks.protocolVersion,
+}));
+
 vi.mock("../../src/lib/rpc-client.ts", () => ({
+	getVerifiedRpcClient: async () => ({}),
 	getActiveEnvironment: () => mocks.activeEnvironment,
 }));
 
@@ -80,6 +87,7 @@ const { useSessionsStore } = await import("../../src/store/sessions.ts");
 
 describe("session command environment routing", () => {
 	beforeEach(() => {
+		mocks.protocolVersion = 7;
 		mocks.activeEnvironment = "local";
 		mocks.dispatch.mockReset();
 		mocks.patchActive.mockReset();
@@ -98,7 +106,10 @@ describe("session command environment routing", () => {
 		useSessionsStore.setState({ draftSession: null, error: null });
 	});
 
-	it("wakes and forks a catalog-only boxd session in its source workspace", async () => {
+	it.each([
+		5, 6, 7,
+	])("forks in the source workspace with safe retries only on protocol %i", async (version) => {
+		mocks.protocolVersion = version;
 		const sessionId = SessionId.make("source-cloud-session");
 		const cloud = {
 			workspaceId: "boxd-workspace",
@@ -119,7 +130,7 @@ describe("session command environment routing", () => {
 		const forked = await useSessionsStore.getState().fork({
 			sourceSessionId: sessionId,
 			fromMessageId: MessageId.make("fork-point"),
-			nativeChildStepId: "completed-native-step",
+			nativeChildStepId: version === 7 ? "completed-native-step" : undefined,
 			destination: "tab",
 		});
 		expect(mocks.attach).toHaveBeenCalledWith(cloud);
@@ -130,9 +141,11 @@ describe("session command environment routing", () => {
 			expect.objectContaining({
 				ref: { environmentId: "boxd-workspace", sessionId },
 				kind: "session.fork",
+				retry: version === 7 ? "safe" : "never",
 				payload: expect.objectContaining({
 					destination: "tab",
-					nativeChildStepId: "completed-native-step",
+					nativeChildStepId:
+						version === 7 ? "completed-native-step" : undefined,
 				}),
 			}),
 		);

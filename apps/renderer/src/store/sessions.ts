@@ -1,3 +1,5 @@
+import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
+import { supportsIdempotentSessionFork } from "@zuse/client-runtime/legacy-runtime-capabilities";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type {
 	AgentItemId,
@@ -38,7 +40,10 @@ import {
 	type ModelSelection,
 } from "../lib/pending-model-change.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
-import { getActiveEnvironment } from "../lib/rpc-client.ts";
+import {
+	getActiveEnvironment,
+	getVerifiedRpcClient,
+} from "../lib/rpc-client.ts";
 import { sessionForkDestinations } from "../lib/session-fork.ts";
 import {
 	dispatchSessionCommand,
@@ -612,6 +617,14 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					});
 				}
 			}
+			// Retained runtimes do not deduplicate forks by commandId. Never replay
+			// an ambiguous fork there, even though the current engine supports it.
+			const forkClient = await getVerifiedRpcClient(environmentId);
+			const retry = supportsIdempotentSessionFork(
+				getClientProtocolVersion(forkClient),
+			)
+				? "safe"
+				: "never";
 			const commandId = nextCommandId("session-fork");
 			const { result } = await dispatchTimelineCommand<
 				{
@@ -645,7 +658,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					worktreeId: input.worktreeId,
 					title: input.title,
 				},
-				"safe",
+				retry,
 				environmentId,
 			);
 			const { forkMode } = result;

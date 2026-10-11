@@ -1,7 +1,10 @@
+import { Effect } from "effect";
+import { RpcSerialization } from "effect/unstable/rpc";
 import { describe, expect, it, vi } from "vitest";
 import {
 	authenticatedWsUrl,
 	observeWebSocketConstructor,
+	responseSerializationLayer,
 } from "../../src/ws-protocol.ts";
 
 describe("WebSocket client protocol", () => {
@@ -41,4 +44,25 @@ describe("WebSocket client protocol", () => {
 			expect.objectContaining({ code: 1006 }),
 		);
 	});
+});
+
+it("adapts only incoming responses after the negotiated version changes", async () => {
+	let version = 7;
+	const parser = await Effect.runPromise(
+		RpcSerialization.RpcSerialization.pipe(
+			Effect.map((serialization) => serialization.makeUnsafe()),
+			Effect.provide(
+				responseSerializationLayer((value) =>
+					version < 7 ? { adapted: value } : value,
+				),
+			),
+		),
+	);
+	const response = { _tag: "Exit", requestId: "1" };
+	expect(parser.decode(JSON.stringify(response))).toEqual([response]);
+	version = 6;
+	expect(parser.decode(JSON.stringify(response))).toEqual([
+		{ adapted: response },
+	]);
+	expect(parser.encode(response)).toBe(JSON.stringify(response));
 });
