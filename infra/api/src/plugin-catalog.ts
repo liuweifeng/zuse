@@ -4,7 +4,11 @@ import { PLUGIN_CATALOG_DATA } from "./plugin-catalog.data.ts";
 export type PluginAuth = "oauth" | "none";
 
 /** Server-owned entry. Clients never supply endpoints, headers, or client secrets. */
-export interface CatalogPlugin extends PluginDefinition {
+export interface CatalogPlugin
+	extends Pick<
+		PluginDefinition,
+		"id" | "name" | "description" | "domain" | "category" | "featured"
+	> {
 	readonly endpoint: string;
 	/** OAuth discovery target when the endpoint carries provider query defaults. */
 	readonly oauthDiscovery?: string;
@@ -28,6 +32,9 @@ const publicCatalog: readonly PluginDefinition[] = PLUGIN_CATALOG.map(
 		domain,
 		category,
 		featured,
+		custom: false,
+		url: null,
+		apiKeyHeader: null,
 	}),
 );
 export const publicPluginCatalog = () => publicCatalog;

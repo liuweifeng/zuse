@@ -24,7 +24,14 @@ import {
 	SourceSnapshot,
 	ToolName,
 } from "@executor-js/sdk/core";
-import { defineApp, defineProvider, oauth2 } from "apps";
+import {
+	defineApp,
+	defineProvider,
+	oauth2,
+	object,
+	secrets,
+	string,
+} from "apps";
 import {
 	DeclaredRequirements,
 	type HostContext,
@@ -55,7 +62,11 @@ import type {
 
 /** A failure the caller can explain; other failures stay opaque. */
 export class PluginEngineError extends Error {
-	constructor(readonly code: PluginEngineErrorCode) {
+	constructor(
+		readonly code: PluginEngineErrorCode,
+		/** The SDK failure kind, for logs; never provider responses. */
+		readonly detail?: { readonly tag: string; readonly reason?: string },
+	) {
 		super(code);
 		this.name = "PluginEngineError";
 	}
@@ -71,21 +82,30 @@ const oauthSetupError = (error: unknown) => {
 	if (typeof error !== "object" || error === null || !("_tag" in error))
 		return error;
 	const reason = "reason" in error ? error.reason : undefined;
+	const detail = {
+		tag: String(error._tag),
+		...(typeof reason === "string" ? { reason } : {}),
+	};
 	if (
 		error._tag === "OAuthClientUnavailable" ||
 		(error._tag === "OAuthSetupFailed" &&
 			typeof reason === "string" &&
 			CLIENT_REGISTRATION_REASONS.has(reason))
 	)
-		return new PluginEngineError("client_registration_unsupported");
+		return new PluginEngineError("client_registration_unsupported", detail);
 	if (error._tag === "OAuthSetupFailed")
 		return new PluginEngineError(
 			reason === "service_unavailable" ? "unreachable" : "auth_unsupported",
+			detail,
 		);
 	return error;
 };
 
-/** Only these bundled declarations can execute. No user source, eval, or dynamic deployment. */
+/**
+ * Only these bundled declarations can execute: a remote MCP endpoint with one
+ * auth method. Endpoints come from the host's lookup; no user source, eval, or
+ * dynamic deployment.
+ */
 export async function createPluginEngine(
 	options: EngineOptions,
 ): Promise<PluginEngine> {
@@ -114,10 +134,11 @@ export async function createPluginEngine(
 		if (!plugin) throw new Error("Unknown plugin");
 		return plugin;
 	};
+	const headerOf = (plugin: EnginePlugin) => plugin.header ?? "Authorization";
 	// Build IDs hash this source. Its shape is unchanged from eager registration,
 	// so connections created before lazy registration keep their builds.
 	const sourceOf = (plugin: EnginePlugin, auth: EngineAuth) =>
-		`export default ${JSON.stringify({ protocol: 1, id: plugin.id, name: plugin.name, endpoint: plugin.endpoint, auth, scopes: plugin.scopes ?? [], ...(plugin.oauthDiscovery ? { oauthDiscovery: plugin.oauthDiscovery } : {}) })};\n`;
+		`export default ${JSON.stringify({ protocol: 1, id: plugin.id, name: plugin.name, endpoint: plugin.endpoint, auth, scopes: plugin.scopes ?? [], ...(plugin.oauthDiscovery ? { oauthDiscovery: plugin.oauthDiscovery } : {}), ...(auth === "header" ? { header: headerOf(plugin) } : {}) })};\n`;
 	/** Registers one definition on demand, memoized per (plugin, auth). */
 	const register = (pluginId: string, auth: EngineAuth): Promise<Entry> => {
 		const key = JSON.stringify([pluginId, auth]);
@@ -133,35 +154,59 @@ export async function createPluginEngine(
 			const build = BuildId.make(
 				`bld_${Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("")}`,
 			);
+			const header = headerOf(plugin);
 			const app =
 				auth === "none"
 					? defineApp({ accounts: {} }, async ({ signal }) => ({
 							tools: await mcpRouter({ url: plugin.endpoint, signal }),
 						}))
-					: defineApp(
-							{
-								accounts: {
-									service: defineProvider({
-										name: plugin.name,
-										auth: {
-											oauth: oauth2({
-												discover: plugin.oauthDiscovery ?? plugin.endpoint,
-												scopes: [...(plugin.scopes ?? [])],
-											}),
+					: auth === "header"
+						? defineApp(
+								{
+									accounts: {
+										service: defineProvider({
+											name: plugin.name,
+											auth: {
+												key: secrets({
+													label: header,
+													fields: object({ value: string({ minLength: 1 }) }),
+												}),
+											},
+										}),
+									},
+								},
+								async ({ accounts, signal }) => ({
+									tools: await mcpRouter({
+										url: plugin.endpoint,
+										signal,
+										headers: { [header]: accounts.service.fields.value },
+									}),
+								}),
+							)
+						: defineApp(
+								{
+									accounts: {
+										service: defineProvider({
+											name: plugin.name,
+											auth: {
+												oauth: oauth2({
+													discover: plugin.oauthDiscovery ?? plugin.endpoint,
+													scopes: [...(plugin.scopes ?? [])],
+												}),
+											},
+										}),
+									},
+								},
+								async ({ accounts, signal }) => ({
+									tools: await mcpRouter({
+										url: plugin.endpoint,
+										signal,
+										headers: {
+											Authorization: `Bearer ${accounts.service.fields.access_token}`,
 										},
 									}),
-								},
-							},
-							async ({ accounts, signal }) => ({
-								tools: await mcpRouter({
-									url: plugin.endpoint,
-									signal,
-									headers: {
-										Authorization: `Bearer ${accounts.service.fields.access_token}`,
-									},
 								}),
-							}),
-						);
+							);
 			const entry = { source, build, handler: createAppHandler(app) };
 			builds.set(build, entry);
 			return entry;
@@ -182,7 +227,7 @@ export async function createPluginEngine(
 		const { id, auth } = parsed as { id?: unknown; auth?: unknown };
 		if (
 			typeof id !== "string" ||
-			(auth !== "none" && auth !== "oauth") ||
+			(auth !== "none" && auth !== "oauth" && auth !== "header") ||
 			!options.plugin(id)
 		)
 			return undefined;
@@ -445,6 +490,20 @@ export async function createPluginEngine(
 				if (result.status !== "redirect")
 					throw new Error("Expected authorization redirect");
 				return result.authorizationUrl;
+			},
+			async submit(owner, ref, label, value) {
+				await target(owner, ref);
+				if (!ref.connection) throw new Error("Missing connection");
+				const account = await run(
+					e.accountConnections.submit({
+						owner: ownerOf(owner),
+						connection: AccountConnectionId.make(ref.connection),
+						method: "key",
+						label,
+						fields: Redacted.make({ value }),
+					}),
+				);
+				return { ...ref, account: account.id };
 			},
 			async complete(owner, ref, callbackUrl) {
 				await target(owner, ref);

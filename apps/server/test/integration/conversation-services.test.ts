@@ -683,20 +683,19 @@ const StubGitLive = Layer.succeed(GitService, {
 });
 
 const StubTitleGeneratorLive = Layer.succeed(TitleGenerator, {
-	generate: () =>
+	generate: (input) =>
 		Effect.gen(function* () {
 			titleGenerationStarts += 1;
 			if (titleGenerationBarrier !== null) {
 				yield* Effect.promise(() => titleGenerationBarrier as Promise<void>);
 			}
-			return generatedTitle === null
-				? yield* Effect.die("not used")
-				: generatedTitle;
+			if (generatedTitle === null && generatedBranch === null)
+				return yield* Effect.die("not used");
+			return {
+				title: input.title ? generatedTitle : null,
+				branch: input.branch ? generatedBranch : null,
+			};
 		}),
-	generateBranch: () =>
-		generatedBranch === null
-			? Effect.die("not used")
-			: Effect.succeed(generatedBranch),
 });
 
 const StubConfigStoreLive = Layer.succeed(ConfigStoreService, {
@@ -750,7 +749,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				environmentVariables: {},
 				cloudEnvironmentVariables: {},
 				fileIncludeGlobs: "",
-				mcpDisabledServers: [],
 			}),
 		),
 	update: (projectId, patch) =>
@@ -769,7 +767,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 				environmentVariables: patch.environmentVariables ?? {},
 				cloudEnvironmentVariables: patch.cloudEnvironmentVariables ?? {},
 				fileIncludeGlobs: patch.fileIncludeGlobs ?? "",
-				mcpDisabledServers: patch.mcpDisabledServers ?? [],
 			}),
 		),
 });
@@ -2091,6 +2088,82 @@ describe("ConversationServices — chat & session lifecycle", () => {
 
 			expect(evidence.events).toEqual([]);
 			expect(evidence.stops).toEqual([]);
+		});
+	});
+
+	it("releases an idle provider for an account switch but never a running turn", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:attach-account-switch-provider",
+						streamId: initialSession.id,
+						command: {
+							_tag: "AttachProvider",
+							providerId: "claude",
+							attachedAt: Date.now(),
+						},
+					}),
+				),
+			);
+			activeProviderSessions.add(initialSession.id);
+			expect(
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.releaseProvider(initialSession.id),
+					),
+				),
+			).toBe(true);
+			expect(activeProviderSessions.has(initialSession.id)).toBe(false);
+
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:release-running-turn",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SubmitTurn",
+							turnId: AgentTurnId.make("turn_release_running"),
+							messageId: MessageId.make("message_release_running"),
+							role: "user",
+							kind: "user",
+							contentJson: JSON.stringify({ _tag: "user", text: "work" }),
+							parentItemId: null,
+							providerInputJson: JSON.stringify(
+								new ComposerInput({
+									text: "work",
+									attachments: [],
+									fileRefs: [],
+									skillRefs: [],
+								}),
+							),
+							createdAt: Date.now(),
+						},
+					}),
+				),
+			);
+			const session = await run(
+				Effect.flatMap(store, (service) =>
+					service.getSession(initialSession.id),
+				),
+			);
+			expect(["booting", "running"]).toContain(session.status);
+			expect(
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.releaseProvider(initialSession.id),
+					),
+				),
+			).toBe(false);
 		});
 	});
 

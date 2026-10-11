@@ -221,6 +221,7 @@ describe("Stripe billing provider", () => {
 			expect.objectContaining({
 				automatic_tax: { enabled: false },
 				client_reference_id: "account",
+				allow_promotion_codes: true,
 			}),
 		);
 	});

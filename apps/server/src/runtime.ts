@@ -71,7 +71,6 @@ import {
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { RuntimeCloudControl } from "./machine/runtime-cloud-control.ts";
-import { McpServiceLive } from "./mcp/layers/mcp-service.ts";
 import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
 import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
@@ -497,18 +496,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// McpService reads the user's native Claude/Codex MCP configs, tracks
-	// per-server connection status (SDK probe for claude-source, ephemeral
-	// codex app-server for codex-source), stores enable/disable overrides in
-	// settings, and runs OAuth flows (tokens in the keychain).
-	const McpLayer = McpServiceLive.pipe(
-		Layer.provide(ConfigStoreLayer),
-		Layer.provide(RepositorySettingsLayer),
-		Layer.provide(CredentialsLayer),
-		Layer.provide(BrowserBridgeLayer),
-		Layer.provide(MigratedSqlite),
-		Layer.provide(NodeServices.layer),
-	);
 	const RuntimeGitExecutionLayer = Layer.succeed(
 		RuntimeGitExecution,
 		makeRuntimeGitExecution(deps.cloudWorkspaceRuntime !== undefined),
@@ -589,10 +576,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AttachmentLayer),
 		Layer.provide(BrowserBridgeLayer),
 		// OpenCode session-start reads `opencodeCustomProviders` from settings to
-		// inject user-defined providers into `opencode serve`; Claude session
-		// start resolves the user's native MCP servers through McpService.
+		// inject user-defined providers into `opencode serve`.
 		Layer.provide(ConfigStoreLayer),
-		Layer.provide(McpLayer),
 		// Claude session start resolves the skills allowlist for disabled skills.
 		Layer.provide(SkillDiscoveryLayer),
 		Layer.provide(AnalyticsLayer),
@@ -850,7 +835,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		ProjectScaffoldLayer,
 		ProviderLayer,
 		ModelCatalogLayer,
-		McpLayer,
 		SessionDomainLayer,
 		SessionQueriesLayer,
 		ConversationServicesLayer,

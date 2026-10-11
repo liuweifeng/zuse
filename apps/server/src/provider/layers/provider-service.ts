@@ -1,4 +1,3 @@
-import { execFileSync } from "node:child_process";
 import { startClaudeSession } from "@zuse/agents/drivers/claude";
 import { startCodexSession } from "@zuse/agents/drivers/codex";
 import { startCursorSession } from "@zuse/agents/drivers/cursor";
@@ -27,6 +26,7 @@ import {
 import { zuseWorkspaceInstructions } from "@zuse/agents/kernel/workspace-instructions";
 import {
 	issueMcpGatewaySession,
+	type McpGatewayHttpServer,
 	type McpGatewaySession,
 } from "@zuse/agents/mcp-gateway";
 import {
@@ -69,11 +69,6 @@ import { AutomationService } from "../../automation/service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
 import { createHtmlTools } from "../../html-render/service.ts";
-import {
-	legacyAppOwnedCodexServerNames,
-	readNativeServers,
-} from "../../mcp/native-config.ts";
-import { McpService } from "../../mcp/services/mcp-service.ts";
 import {
 	ModelCatalogService,
 	toDriverModelDescriptor,
@@ -180,7 +175,6 @@ export const ProviderServiceLive = Layer.effect(
 		);
 		const browserBridge = yield* BrowserBridgeService;
 		const configStore = yield* ConfigStoreService;
-		const mcp = yield* McpService;
 		const skillDiscovery = yield* SkillDiscoveryService;
 		const analytics = yield* AnalyticsService;
 		const runtime = yield* Effect.context<never>();
@@ -721,9 +715,7 @@ export const ProviderServiceLive = Layer.effect(
 						managedCredential?.kind === "api-key"
 							? managedCredential.secret
 							: null;
-					let managedMcp:
-						| import("@zuse/agents/user-mcp/types").ResolvedMcpServer
-						| undefined;
+					let managedMcp: McpGatewayHttpServer | undefined;
 					if (
 						["cursor", "opencode", "opencode2", "pi"].includes(input.providerId)
 					) {
@@ -793,12 +785,7 @@ export const ProviderServiceLive = Layer.effect(
 								...driverInput.executionEnv,
 								...pluginCliEnv(managedPlugins.endpoint, managedPlugins.token),
 							};
-							managedMcp = {
-								name: "zuse",
-								transport: "http",
-								url: managedPlugins.endpoint,
-								headers: { Authorization: `Bearer ${managedPlugins.token}` },
-							};
+							managedMcp = managedPlugins.httpServer;
 						}
 					}
 					const acquiredHandle = yield* acquireStartupHandle(
@@ -1116,14 +1103,12 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "cursor") {
-								const userMcpServers = yield* mcp.resolveForCursorSession(cwd);
 								providerHandle = yield* startCursorSession(
 									driverInput,
 									cwd,
 									apiKey,
 									sessionId,
 									resumeCursor,
-									userMcpServers,
 									managedMcp,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
@@ -1153,7 +1138,6 @@ export const ProviderServiceLive = Layer.effect(
 										}),
 									);
 								}
-								const userMcpServers = yield* mcp.resolveForClaudeSession(cwd);
 								// Disabled Claude skills are enforced through the SDK `skills`
 								// allowlist; skip discovery entirely when nothing is disabled.
 								const skillAllowlist = hasDisabledSkillsFor(
@@ -1179,7 +1163,6 @@ export const ProviderServiceLive = Layer.effect(
 											browserBridge.send(sessionId, command),
 										),
 									orchestrationTools,
-									userMcpServers,
 									skillAllowlist,
 									providerEventCursor,
 								).pipe(
@@ -1217,24 +1200,6 @@ export const ProviderServiceLive = Layer.effect(
 										executor,
 									),
 								);
-								for (const name of legacyAppOwnedCodexServerNames(
-									readNativeServers({
-										cwd,
-										excludeCodexNames: [],
-									}),
-								)) {
-									try {
-										execFileSync(codexPath, ["mcp", "remove", name], {
-											stdio: "ignore",
-											timeout: 5_000,
-										});
-									} catch (cause) {
-										console.warn(
-											`[mcp-migration] could not remove legacy app-owned entry ${name}`,
-											cause,
-										);
-									}
-								}
 								// We used to also fail-fast here when `codex --version` was below
 								// the SDK pin. Pulled because `session.create` calls
 								// `provider.start` synchronously — failing at start blocked
@@ -1650,11 +1615,6 @@ export const ProviderServiceLive = Layer.effect(
 						),
 					),
 				) as Stream.Stream<ProviderEventDelivery, AgentSessionNotFoundError>,
-			updateMcpServers: (sessionId, servers) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) => handle.updateMcpServers?.(servers) ?? Effect.void,
-				),
 			setCredential: (providerId, apiKey) =>
 				Effect.gen(function* () {
 					const normalized = apiKey.trim();

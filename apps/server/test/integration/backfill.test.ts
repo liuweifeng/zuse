@@ -14,6 +14,8 @@ import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_c
 import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
 import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
 
+import { Migration0080SessionDelegations } from "../../src/persistence/migrations/0080_session_delegations.ts";
+
 describe("lifecycle backfill", () => {
 	test("appends missing lifecycle events once and advances all cursors", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-backfill-"));
@@ -188,6 +190,7 @@ describe("lifecycle backfill", () => {
 				Effect.gen(function* () {
 					yield* Migration0030CqrsEngine;
 					yield* Migration0031BackfillRuns;
+					yield* Migration0080SessionDelegations;
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`
 						INSERT INTO command_receipts

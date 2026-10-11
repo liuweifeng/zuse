@@ -21,6 +21,7 @@ import {
 	FolderId,
 	MemoizeRpcs,
 	MessageId,
+	ProviderAccountError,
 	type ProviderId,
 	SessionAlreadyStartedError,
 	SessionId,
@@ -1907,14 +1908,6 @@ const SessionPlanRespond = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-const SessionMcpUpdate = MemoizeRpcs.toLayerHandler(
-	"session.mcp.update",
-	({ sessionId, servers }) =>
-		Effect.flatMap(SessionService, (svc) =>
-			svc.updateMcpServers(sessionId, servers),
-		),
-);
-
 const SessionSetWorktree = MemoizeRpcs.toLayerHandler(
 	"session.setWorktree",
 	({ sessionId, worktreeId }) =>
@@ -2345,8 +2338,12 @@ const BrowserRemoveCredential = MemoizeRpcs.toLayerHandler(
 );
 
 const ProviderAccountHandlers = Layer.mergeAll(
-	MemoizeRpcs.toLayerHandler("provider.accounts.list", ({ providerId }) =>
-		Effect.flatMap(ProviderAccounts, (accounts) => accounts.list(providerId)),
+	MemoizeRpcs.toLayerHandler(
+		"provider.accounts.list",
+		({ providerId, sessionId }) =>
+			Effect.flatMap(ProviderAccounts, (accounts) =>
+				accounts.list(providerId, sessionId),
+			),
 	),
 	MemoizeRpcs.toLayerHandler(
 		"provider.accounts.save",
@@ -2369,6 +2366,38 @@ const ProviderAccountHandlers = Layer.mergeAll(
 		Effect.flatMap(ProviderAccounts, (accounts) =>
 			withUsageCredentialChange(providerId, accounts.remove(providerId, id)),
 		),
+	),
+	MemoizeRpcs.toLayerHandler(
+		"provider.accounts.switchSession",
+		({ providerId, sessionId, id }) =>
+			Effect.gen(function* () {
+				const sessions = yield* SessionService;
+				const accounts = yield* ProviderAccounts;
+				const chatUnavailable = () =>
+					new ProviderAccountError({ message: "Chat is unavailable." });
+				const session = yield* sessions
+					.getSession(SessionId.make(sessionId))
+					.pipe(Effect.mapError(chatUnavailable));
+				if (session.providerId !== providerId)
+					return yield* new ProviderAccountError({
+						message: "This chat uses another provider.",
+					});
+				// Stop the old login's process before copying its transcript, so the
+				// copy is final and the next turn starts under the new account.
+				const released = yield* sessions
+					.releaseProvider(session.id)
+					.pipe(Effect.mapError(chatUnavailable));
+				if (!released)
+					return yield* new ProviderAccountError({
+						message: "Stop the current reply before switching accounts.",
+					});
+				yield* accounts.switchSession(
+					providerId,
+					sessionId,
+					id,
+					session.providerThread?.nativeThreadRef.nativeId ?? null,
+				);
+			}),
 	),
 );
 
@@ -2432,7 +2461,6 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionAnswerQuestion,
 	SessionCancelQuestion,
 	SessionPlanRespond,
-	SessionMcpUpdate,
 	SessionSetWorktree,
 	SessionEvents,
 	SessionEventsHead,

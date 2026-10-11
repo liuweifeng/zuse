@@ -43,7 +43,6 @@ describe("effectiveChatRuntimeMode", () => {
 						SettingsFile.make({
 							...useSettingsStore.getState(),
 							schemaVersion: 1,
-							mcpDisabledServers: [],
 							subagents: { enableForNewSessions: false, presets: {} },
 							defaultRuntimeMode: "full-access",
 						}),

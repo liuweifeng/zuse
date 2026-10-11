@@ -293,6 +293,14 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	);
 }
 
+/** Every tab kind shares one fixed width so the strip doesn't reflow as titles change. */
+const tabClassName = (active: boolean, extra: string): string =>
+	`relative flex h-6 w-40 shrink-0 items-center rounded-md px-2 text-[12px] transition-colors ${extra} ${
+		active
+			? "bg-accent text-foreground"
+			: "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+	}`;
+
 function TabButton({
 	active,
 	onClick,
@@ -309,11 +317,7 @@ function TabButton({
 			type="button"
 			onClick={onClick}
 			title={title ?? label}
-			className={`relative flex h-6 max-w-[160px] shrink-0 items-center gap-1.5 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
-				active
-					? "rounded-md bg-accent text-foreground after:bg-transparent"
-					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
-			}`}
+			className={tabClassName(active, "gap-1.5")}
 		>
 			<span className="truncate">{label}</span>
 		</button>
@@ -352,13 +356,7 @@ export function ChatTabButton({
 	const { message: uiMessage } = useUiMessages(["errors"]);
 
 	return (
-		<div
-			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
-				active
-					? "rounded-md bg-accent text-foreground after:bg-transparent"
-					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
-			}`}
-		>
+		<div className={tabClassName(active, "group gap-1")}>
 			<button
 				type="button"
 				onClick={onClick}
@@ -486,7 +484,7 @@ function NewChatTabButton({
 			disabled={busy}
 			title={uiMessage("errors:main_tabs_new_tab_in_this_chat")}
 			aria-label={uiMessage("errors:main_tabs_new_tab_in_this_chat")}
-			className="relative flex shrink-0 items-center justify-center rounded px-2 text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+			className="relative flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
 		>
 			{busy ? (
 				<span className="inline-flex size-3.5 items-center justify-center">
@@ -521,13 +519,7 @@ function FileTabButton({
 	const { message: uiMessage } = useUiMessages(["errors"]);
 
 	return (
-		<div
-			className={`group relative flex h-6 max-w-[160px] shrink-0 items-center gap-1 px-2 text-[12px] leading-none transition-colors after:pointer-events-none after:absolute after:inset-x-1.5 after:-bottom-px after:h-[2px] after:rounded-full after:transition-colors ${
-				active
-					? "rounded-md bg-accent text-foreground after:bg-transparent"
-					: "rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground after:bg-transparent"
-			}`}
-		>
+		<div className={tabClassName(active, "group gap-1 leading-none")}>
 			<button
 				type="button"
 				onClick={onClick}

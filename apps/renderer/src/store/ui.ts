@@ -61,7 +61,7 @@ export type SettingsSection =
  * the file tab only exists when `openFile !== null`. Opening a different file
  * replaces (never stacks) the file tab — see specs/0.02-MVP/features/file-viewer.md.
  */
-export type PluginsSettingsTab = "plugins" | "mcps" | "skills";
+export type PluginsSettingsTab = "plugins" | "skills";
 
 export type MainTab =
 	| "chat"

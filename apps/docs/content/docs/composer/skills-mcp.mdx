@@ -1,6 +1,6 @@
 ---
 title: Skills, commands, and MCP servers
-description: Discover provider-native skills and control the external tools available to sessions.
+description: Discover provider-native skills and commands, and how sessions get MCP tools.
 section: composer
 order: 54
 platforms: [desktop, browser, mobile]
@@ -28,16 +28,10 @@ Commands such as `/new`, `/model`, `/mode`, `/plan`, `/run`, and `/help` are han
 
 Only commands applicable to the active provider appear. Goal mode is exposed for supported Codex and Grok versions.
 
-## MCP servers and connected apps
+## MCP servers
 
-Open **Settings → MCP Servers** to see a reconciled inventory of:
+Agents launched by Zuse receive MCP tools only through Zuse's session gateway, which serves the plugins connected to your workspace. Zuse does not pass through MCP servers configured in a provider's own files, and stops each provider CLI from loading them where the CLI supports it.
 
-- Zuse's built-in tool server;
-- Claude user, project, local, plugin, and connected-app servers;
-- Codex-configured servers and provider-reported apps.
+To use another MCP server, add it in **Plugins**, either from the catalog or as a custom remote server. See [Add an MCP server](/how-to/local-configure-mcp/).
 
-Zuse reads the providers' native configuration as the source of truth. It does not keep a duplicate MCP registry. Add definitions with the provider's own tooling or configuration files, then refresh the inventory in Zuse.
-
-The settings pane shows connection state, tool count, missing requirements, and authentication needs. Supported entries can be connected, enabled, or disabled from Zuse. Global disabled-server overrides live in user settings; repository overrides live in `.zuse/settings.toml` as `mcp_disabled_servers`.
-
-Disabling a server changes new session availability. Restart or recreate an existing provider session when its process has already loaded an older tool configuration.
+Start a new chat after connecting a plugin. An existing provider process may still have its older tool set.

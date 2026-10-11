@@ -22,7 +22,6 @@ test("Pi registers live orchestration schemas with required and optional fields 
 	try {
 		const extension = await createPiPluginExtension({
 			name: "zuse",
-			transport: "http",
 			url: "http://127.0.0.1:1234/mcp",
 			headers: { Authorization: "Bearer session" },
 		});
@@ -48,8 +47,8 @@ test("Pi preserves plugin-only sessions when orchestration scope is disabled", a
 	try {
 		const extension = await createPiPluginExtension({
 			name: "zuse",
-			transport: "http",
 			url: "http://127.0.0.1:1234/mcp",
+			headers: {},
 		});
 		try {
 			expect(await readFile(extension.file, "utf8")).not.toContain(

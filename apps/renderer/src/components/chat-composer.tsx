@@ -2,7 +2,6 @@ import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
-import { useActiveContext } from "../store/active-workspace.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -190,8 +189,8 @@ import {
 const EMPTY_PERMISSION_REQUESTS: Readonly<Record<string, PermissionRequest>> =
 	{};
 
-import { McpPopover } from "./mcp-popover.tsx";
 import { ModelPicker } from "./model-picker.tsx";
+import { PluginsPopover } from "./plugins/plugins-popover.tsx";
 import { resetLabel, StickMeter } from "./usage/usage-meter.tsx";
 
 const isBrowserAnnotation = (
@@ -301,7 +300,6 @@ export function ChatComposer({
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
 	// Provider features the installed CLI supports (from the availability
 	// probe). Codex goal mode is version-gated; Grok advertises it natively.
-	const activeContext = useActiveContext();
 	const capabilities = useProvidersStore((s) =>
 		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
@@ -1807,19 +1805,7 @@ export function ChatComposer({
 												current={session.permissionMode}
 											/>
 										)}
-									{session.providerId !== "pi" &&
-										(!isHostedProduct() ||
-											(!isDraft && activeContext.status === "ready")) && (
-											<McpPopover
-												environmentId={qualifiedEnvironmentId}
-												projectId={
-													activeContext.status === "ready"
-														? activeContext.folderId
-														: session.projectId
-												}
-												providerId={session.providerId}
-											/>
-										)}
+									<PluginsPopover />
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
 									<ComposerModelPicker

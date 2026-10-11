@@ -58,18 +58,20 @@ export const pluginFetch: typeof fetch = async (input, init) => {
 const PROBE_PROTOCOL = "2025-06-18";
 
 /**
- * Anonymous MCP `initialize`: success means no sign-in, 401/403 means OAuth.
- * Tools are never listed or called.
+ * One MCP `initialize`, with optional credentials. Tools are never listed or
+ * called. Returns the response status; failures to answer are unreachable.
  */
-export async function probePluginAuth(
+async function probeInitialize(
 	endpoint: string,
-	request: typeof fetch = pluginFetch,
-): Promise<PluginAuth> {
+	request: typeof fetch,
+	headers: Readonly<Record<string, string>>,
+): Promise<number> {
 	let response: Response;
 	try {
 		response = await request(endpoint, {
 			method: "POST",
 			headers: {
+				...headers,
 				"content-type": "application/json",
 				accept: "application/json, text/event-stream",
 			},
@@ -90,12 +92,13 @@ export async function probePluginAuth(
 	}
 	await response.body?.cancel().catch(() => undefined);
 	if (response.ok) {
-		// A public server may allocate a session for this check; release it.
+		// A server may allocate a session for this check; release it.
 		const session = response.headers.get("mcp-session-id");
 		if (session)
 			await request(endpoint, {
 				method: "DELETE",
 				headers: {
+					...headers,
 					"mcp-session-id": session,
 					"mcp-protocol-version": PROBE_PROTOCOL,
 				},
@@ -103,10 +106,36 @@ export async function probePluginAuth(
 			})
 				.then((released) => released.body?.cancel())
 				.catch(() => undefined);
-		return "none";
 	}
-	if (response.status === 401 || response.status === 403) return "oauth";
 	if (response.status === 429 || response.status >= 500)
 		throw new PluginOperationError({ code: "plugin_unreachable" });
+	return response.status;
+}
+
+/** Anonymous probe: success means no sign-in, 401/403 means OAuth. */
+export async function probePluginAuth(
+	endpoint: string,
+	request: typeof fetch = pluginFetch,
+): Promise<PluginAuth> {
+	const status = await probeInitialize(endpoint, request, {});
+	if (status >= 200 && status < 300) return "none";
+	if (status === 401 || status === 403) return "oauth";
 	throw new PluginOperationError({ code: "plugin_auth_unsupported" });
+}
+
+/** Checks an API key before it is saved: 401/403 means the key was rejected. */
+export async function probePluginKey(
+	endpoint: string,
+	header: string,
+	value: string,
+	request: typeof fetch = pluginFetch,
+): Promise<void> {
+	const status = await probeInitialize(endpoint, request, { [header]: value });
+	if (status >= 200 && status < 300) return;
+	throw new PluginOperationError({
+		code:
+			status === 401 || status === 403
+				? "plugin_credentials_rejected"
+				: "plugin_auth_unsupported",
+	});
 }

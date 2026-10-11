@@ -1,25 +1,20 @@
-import { refreshProviderMetadata } from "../lib/refresh-provider-metadata.ts";
 import "@zuse/i18n/english/providers";
 import type { NativeAccountProvider, ProviderAccount } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { Effect } from "effect";
-import {
-	Check,
-	Info,
-	MoreHorizontal,
-	Plus,
-	SquareTerminal,
-} from "lucide-react";
-import {
-	type ReactNode,
-	useCallback,
-	useEffect,
-	useRef,
-	useState,
-} from "react";
+import { MoreHorizontal, Plus, SquareTerminal } from "lucide-react";
+import { type ReactNode, useRef, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
-import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
-import { openExternal, useProviderLogin } from "../lib/use-provider-login.ts";
+import {
+	type ProviderAccountOperation,
+	runProviderAccountOperation,
+	suggestAccountName,
+	useProviderAccounts,
+} from "../lib/provider-accounts.ts";
+import {
+	openExternal,
+	startProviderAccountLogin,
+	useProviderLogin,
+} from "../lib/use-provider-login.ts";
 import { cn } from "../lib/utils.ts";
 import {
 	AlertDialog,
@@ -39,9 +34,66 @@ import {
 	MenuTrigger,
 } from "./ui/menu.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
-import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-/** The preference applies at the first turn; durable chats retain their account. */
+type Run = (operation: ProviderAccountOperation) => Promise<boolean>;
+
+const AVATAR_TONES = [
+	"bg-sky-500/20 text-sky-300",
+	"bg-violet-500/20 text-violet-300",
+	"bg-emerald-500/20 text-emerald-300",
+	"bg-amber-500/20 text-amber-300",
+	"bg-rose-500/20 text-rose-300",
+	"bg-fuchsia-500/20 text-fuchsia-300",
+] as const;
+
+const initials = (name: string) =>
+	name
+		.trim()
+		.split(/\s+/)
+		.slice(0, 2)
+		.map((part) => part.charAt(0))
+		.join("")
+		.toUpperCase();
+
+/**
+ * Round account avatar: the account's initials on a stable tone derived from
+ * its id, or a terminal glyph for the default CLI login (`id === null`).
+ */
+export function AccountAvatar({
+	id,
+	name,
+	className,
+}: {
+	id: string | null;
+	name: string;
+	className?: string;
+}) {
+	const tone =
+		id === null
+			? "bg-foreground/[0.07] text-muted-foreground"
+			: AVATAR_TONES[
+					[...id].reduce((sum, char) => sum + char.charCodeAt(0), 0) %
+						AVATAR_TONES.length
+				];
+	return (
+		<span
+			aria-hidden
+			className={cn(
+				"flex size-5 shrink-0 items-center justify-center rounded-full font-semibold text-[9px]",
+				tone,
+				className,
+			)}
+		>
+			{id === null ? <SquareTerminal className="size-3" /> : initials(name)}
+		</span>
+	);
+}
+
+/**
+ * Native CLI accounts for one provider on one computer. One account is the
+ * default for new chats; a chat keeps its account until the user switches it
+ * from the composer.
+ */
 export function ProviderAccountsControls({
 	providerId,
 	environmentId,
@@ -50,47 +102,20 @@ export function ProviderAccountsControls({
 	environmentId: string;
 }) {
 	const { message: t } = useMessages(["providers", "common"]);
-	const [accounts, setAccounts] = useState<readonly ProviderAccount[]>([]);
-	const [available, setAvailable] = useState(false);
+	const {
+		available,
+		accounts,
+		loaded,
+		error: loadError,
+	} = useProviderAccounts(environmentId, providerId);
 	const [busy, setBusy] = useState(false);
-	const [adding, setAdding] = useState(false);
 	const [error, setError] = useState<string | null>(null);
-	const load = useCallback(async () => {
-		const client = await runtimeOperationClient(environmentId);
-		return Effect.runPromise(client["provider.accounts.list"]({ providerId }));
-	}, [environmentId, providerId]);
-	useEffect(() => {
-		let active = true;
-		void load()
-			.then((result) => {
-				if (active) {
-					setAccounts(result.accounts);
-					setAvailable(result.available);
-				}
-			})
-			.catch((cause) => {
-				if (active) setError(formatError(cause));
-			});
-		return () => {
-			active = false;
-		};
-	}, [load]);
-	const run = async (
-		operation: (
-			client: Awaited<ReturnType<typeof runtimeOperationClient>>,
-		) => Effect.Effect<unknown, unknown>,
-	) => {
+	const run: Run = async (operation) => {
 		if (busy) return false;
 		setBusy(true);
 		setError(null);
 		try {
-			await Effect.runPromise(
-				operation(await runtimeOperationClient(environmentId)),
-			);
-			const result = await load();
-			setAccounts(result.accounts);
-			setAvailable(result.available);
-			await refreshProviderMetadata(environmentId);
+			await runProviderAccountOperation(environmentId, providerId, operation);
 			return true;
 		} catch (cause) {
 			setError(formatError(cause));
@@ -99,161 +124,190 @@ export function ProviderAccountsControls({
 			setBusy(false);
 		}
 	};
-	if (!available && !error) return null;
-	const defaultSelected = !accounts.some((a) => a.preferred);
+	// Connecting means signing in: create the account under a suggested name
+	// (renamable later) and open the provider's login straight away.
+	const connect = async () => {
+		if (busy) return;
+		setBusy(true);
+		setError(null);
+		try {
+			const account = await runProviderAccountOperation(
+				environmentId,
+				providerId,
+				{
+					kind: "save",
+					name: suggestAccountName(accounts, (index) =>
+						t("providers:accounts_suggested_name", { index }),
+					),
+				},
+			);
+			if (account)
+				void startProviderAccountLogin(environmentId, providerId, account.id);
+		} catch (cause) {
+			setError(formatError(cause));
+		} finally {
+			setBusy(false);
+		}
+	};
+	const shownError = error ?? loadError;
+	if (!loaded || (!available && !shownError)) return null;
+	const defaultSelected = !accounts.some((account) => account.preferred);
 	return (
-		<div className="flex flex-col gap-2">
-			<div className="flex h-7 items-center justify-between gap-2">
-				<div className="flex items-center gap-1">
-					<span className="text-[11px] font-medium text-muted-foreground">
-						{t("providers:accounts_title")}
-					</span>
-					<Tooltip>
-						<TooltipTrigger
-							className="flex size-5 items-center justify-center rounded text-muted-foreground/60 hover:text-foreground"
-							aria-label={t("providers:accounts_hint")}
-						>
-							<Info className="size-3" aria-hidden />
-						</TooltipTrigger>
-						<TooltipPopup className="max-w-64">
-							{t("providers:accounts_hint")}
-						</TooltipPopup>
-					</Tooltip>
-				</div>
+		<div className="flex flex-col gap-2.5">
+			<div className="flex items-baseline gap-1.5">
+				<span className="font-medium text-[11px] text-muted-foreground">
+					{t("providers:accounts_title")}
+				</span>
 				{available && (
-					<Button
-						className="h-7 px-2 text-[11px] text-muted-foreground"
-						size="xs"
-						variant="ghost"
-						disabled={busy || adding}
-						onClick={() => setAdding(true)}
-					>
-						<Plus className="size-3" />
-						{t("providers:accounts_add")}
-					</Button>
+					<span className="text-[10px] text-muted-foreground/70">
+						{accounts.length + 1}
+					</span>
 				)}
 			</div>
 			{available && (
 				<div className="flex flex-col divide-y divide-border/40 overflow-hidden rounded-md bg-muted/30">
-					<AccountRowShell
-						leading={<SquareTerminal className="size-3" aria-hidden />}
+					<AccountRow
+						avatar={
+							<AccountAvatar id={null} name={t("providers:accounts_default")} />
+						}
 						label={t("providers:accounts_default")}
-						selected={defaultSelected}
-						disabled={busy}
-						onSelect={() =>
-							void run((client) =>
-								client["provider.accounts.preferred"]({
-									providerId,
-									id: null,
-								}),
+						isDefault={defaultSelected}
+						detail={t("providers:accounts_default_detail")}
+						actions={
+							defaultSelected ? null : (
+								<AccountMenu
+									label={t("providers:accounts_actions", {
+										name: t("providers:accounts_default"),
+									})}
+									disabled={busy}
+								>
+									<MenuItem
+										className="h-7"
+										onClick={() => void run({ kind: "preferred", id: null })}
+									>
+										{t("providers:accounts_use_for_new_chats")}
+									</MenuItem>
+								</AccountMenu>
 							)
 						}
-						trailing={<span className="w-7" aria-hidden />}
 					/>
 					{accounts.map((account) => (
 						<ProviderAccountRow
 							key={account.id}
-							error={error}
 							account={account}
 							environmentId={environmentId}
 							busy={busy}
+							error={error}
 							run={run}
 						/>
 					))}
-					{adding && (
-						<AccountNameForm
-							initialName=""
-							placeholder={t("providers:accounts_name")}
-							submitLabel={t("common:add")}
-							busy={busy}
-							onCancel={() => setAdding(false)}
-							onSubmit={(name) =>
-								run((client) =>
-									client["provider.accounts.save"]({ providerId, name }),
-								).then((ok) => {
-									if (ok) setAdding(false);
-								})
-							}
-						/>
-					)}
+					<button
+						type="button"
+						disabled={busy}
+						onClick={() => void connect()}
+						className="group/connect flex min-h-9 items-center gap-2.5 px-2.5 py-1.5 text-left text-muted-foreground text-xs outline-none transition-colors hover:bg-muted/40 hover:text-foreground focus-visible:bg-muted/40 disabled:opacity-60"
+					>
+						<span
+							aria-hidden
+							className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground/40 border-dashed group-hover/connect:border-muted-foreground"
+						>
+							<Plus className="size-3" />
+						</span>
+						{t("providers:accounts_connect")}
+					</button>
 				</div>
 			)}
-			{error && (
+			{available && (
+				<p className="text-[10px] text-muted-foreground/70 leading-snug">
+					{t("providers:accounts_hint")}
+				</p>
+			)}
+			{shownError && (
 				<p role="alert" className="text-[11px] text-destructive">
-					{error}
+					{shownError}
 				</p>
 			)}
 		</div>
 	);
 }
 
-/** One account line: avatar, name, optional status, selection, then row actions. */
-function AccountRowShell({
-	leading,
+/**
+ * One account line: avatar, name with an optional "Default" badge, then a
+ * muted detail on the same line and trailing actions.
+ */
+function AccountRow({
+	avatar,
 	label,
-	status,
-	selected,
-	disabled,
-	onSelect,
-	trailing,
+	isDefault = false,
+	detail,
+	actions,
 }: {
-	leading: ReactNode;
+	avatar: ReactNode;
 	label: string;
-	status?: ReactNode;
-	selected: boolean;
-	disabled: boolean;
-	onSelect: () => void;
-	trailing: ReactNode;
+	isDefault?: boolean;
+	detail?: ReactNode;
+	actions?: ReactNode;
 }) {
 	const { message: t } = useMessages(["providers"]);
 	return (
-		<div
-			className={cn(
-				"group/account flex items-center gap-2 pr-0.5 pl-2.5",
-				status ? "min-h-7 py-1" : "h-7",
-			)}
-		>
-			<span
-				aria-hidden
-				className="flex size-4 shrink-0 items-center justify-center rounded bg-foreground/[0.07] text-[9px] font-semibold text-muted-foreground uppercase"
-			>
-				{leading}
-			</span>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<span className="truncate text-xs text-foreground">{label}</span>
-				{status}
-			</div>
-			{selected ? (
-				<span className="flex h-5 shrink-0 items-center gap-1 rounded-full bg-foreground/[0.07] px-2 text-[10px] font-medium text-foreground">
-					<Check className="size-2.5" strokeWidth={3} aria-hidden />
-					{t("providers:accounts_selected")}
+		<div className="group/account flex min-h-9 items-center gap-2.5 px-2.5 py-1.5">
+			{avatar}
+			<div className="flex min-w-0 flex-1 items-center gap-2">
+				<span className="min-w-0 truncate text-foreground text-xs">
+					{label}
 				</span>
-			) : disabled ? null : (
-				<Button
-					className="h-7 px-2 text-[11px] text-muted-foreground opacity-0 group-hover/account:opacity-100 focus-visible:opacity-100"
-					size="xs"
-					variant="ghost"
-					onClick={onSelect}
-				>
-					{t("providers:accounts_use")}
-				</Button>
-			)}
-			{trailing}
+				{isDefault && (
+					<span className="shrink-0 rounded-full bg-foreground/[0.08] px-1.5 py-px font-medium text-[10px] text-foreground/80">
+						{t("providers:accounts_default_badge")}
+					</span>
+				)}
+				{detail !== undefined && (
+					<span className="flex min-w-0 truncate text-[11px] text-muted-foreground">
+						{detail}
+					</span>
+				)}
+			</div>
+			{actions}
 		</div>
+	);
+}
+
+function AccountMenu({
+	label,
+	disabled,
+	children,
+}: {
+	label: string;
+	disabled: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<Menu>
+			<MenuTrigger
+				render={
+					<Button
+						className="size-6 text-muted-foreground opacity-60 group-hover/account:opacity-100 focus-visible:opacity-100 data-popup-open:opacity-100"
+						size="icon-xs"
+						variant="ghost"
+						disabled={disabled}
+						aria-label={label}
+					/>
+				}
+			>
+				<MoreHorizontal className="size-3.5" />
+			</MenuTrigger>
+			<MenuPopup align="end">{children}</MenuPopup>
+		</Menu>
 	);
 }
 
 function AccountNameForm({
 	initialName,
-	placeholder,
-	submitLabel,
 	busy,
 	onCancel,
 	onSubmit,
 }: {
 	initialName: string;
-	placeholder?: string;
-	submitLabel: string;
 	busy: boolean;
 	onCancel: () => void;
 	onSubmit: (name: string) => Promise<void>;
@@ -262,10 +316,10 @@ function AccountNameForm({
 	const [name, setName] = useState(initialName);
 	return (
 		<form
-			className="flex items-center gap-1 py-0.5 pr-0.5 pl-1"
+			className="flex min-w-0 flex-1 items-center gap-1"
 			onSubmit={(event) => {
 				event.preventDefault();
-				void onSubmit(name);
+				if (name.trim()) void onSubmit(name);
 			}}
 		>
 			<Input
@@ -275,7 +329,7 @@ function AccountNameForm({
 				maxLength={80}
 				value={name}
 				aria-label={t("providers:accounts_name")}
-				placeholder={placeholder}
+				onFocus={(event) => event.currentTarget.select()}
 				onChange={(event) => setName(event.target.value)}
 				onKeyDown={(event) => {
 					if (event.key === "Escape") {
@@ -288,15 +342,17 @@ function AccountNameForm({
 				className="h-7"
 				size="sm"
 				type="submit"
-				disabled={busy || !name.trim()}
+				loading={busy}
+				disabled={!name.trim()}
 			>
-				{submitLabel}
+				{t("common:save")}
 			</Button>
 			<Button
 				className="h-7"
 				size="sm"
 				variant="ghost"
 				type="button"
+				disabled={busy}
 				onClick={onCancel}
 			>
 				{t("common:cancel")}
@@ -316,27 +372,17 @@ function ProviderAccountRow({
 	environmentId: string;
 	busy: boolean;
 	error: string | null;
-	run: (
-		operation: (
-			client: Awaited<ReturnType<typeof runtimeOperationClient>>,
-		) => Effect.Effect<unknown, unknown>,
-	) => Promise<boolean>;
+	run: Run;
 }) {
 	const { message: t } = useMessages(["providers", "common"]);
-	const [editing, setEditing] = useState(false);
+	const [renaming, setRenaming] = useState(false);
 	const [removing, setRemoving] = useState(false);
 	const removalPending = useRef(false);
 	const confirmRemoval = async () => {
 		if (busy || removalPending.current) return;
 		removalPending.current = true;
 		try {
-			const ok = await run((client) =>
-				client["provider.accounts.remove"]({
-					providerId: account.providerId,
-					id: account.id,
-				}),
-			);
-			if (ok) setRemoving(false);
+			if (await run({ kind: "remove", id: account.id })) setRemoving(false);
 		} finally {
 			removalPending.current = false;
 		}
@@ -346,70 +392,54 @@ function ProviderAccountRow({
 		accountId: account.id,
 	});
 	const state = login.state;
-	if (editing) {
+	const avatar = <AccountAvatar id={account.id} name={account.name} />;
+	if (renaming) {
 		return (
-			<AccountNameForm
-				initialName={account.name}
-				submitLabel={t("common:save")}
-				busy={busy}
-				onCancel={() => setEditing(false)}
-				onSubmit={(name) =>
-					run((client) =>
-						client["provider.accounts.save"]({
-							providerId: account.providerId,
-							id: account.id,
-							name,
-						}),
-					).then((ok) => {
-						if (ok) setEditing(false);
-					})
-				}
-			/>
+			<div className="flex min-h-9 items-center gap-2.5 py-1 pr-1 pl-2.5">
+				{avatar}
+				<AccountNameForm
+					initialName={account.name}
+					busy={busy}
+					onCancel={() => setRenaming(false)}
+					onSubmit={async (name) => {
+						if (await run({ kind: "save", id: account.id, name }))
+							setRenaming(false);
+					}}
+				/>
+			</div>
 		);
 	}
-	const status =
+	const detail =
 		state.kind === "waiting" ? (
-			<ShimmerText
-				as="span"
-				className="truncate text-[10px] text-muted-foreground"
-			>
+			<ShimmerText as="span" className="min-w-0 truncate">
 				{state.output || t("providers:accounts_waiting")}
 			</ShimmerText>
 		) : state.kind === "failed" ? (
 			<span
 				role="alert"
 				title={state.reason}
-				className="truncate text-[10px] text-destructive"
+				className="min-w-0 truncate text-destructive"
 			>
 				{state.reason}
 			</span>
 		) : state.kind === "success" ? (
-			<span role="status" className="text-[10px] text-muted-foreground">
-				{t("providers:accounts_signed_in")}
-			</span>
+			<span role="status">{t("providers:accounts_signed_in")}</span>
 		) : undefined;
+	const textAction =
+		"h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground";
 	return (
 		<>
-			<AccountRowShell
-				leading={account.name.trim().charAt(0)}
+			<AccountRow
+				avatar={avatar}
 				label={account.name}
-				status={status}
-				selected={account.preferred}
-				disabled={busy || state.kind === "waiting"}
-				onSelect={() =>
-					void run((client) =>
-						client["provider.accounts.preferred"]({
-							providerId: account.providerId,
-							id: account.id,
-						}),
-					)
-				}
-				trailing={
+				isDefault={account.preferred}
+				detail={detail}
+				actions={
 					state.kind === "waiting" ? (
 						<div className="flex shrink-0 items-center">
 							{state.url && (
 								<Button
-									className="h-7 px-2 text-[11px]"
+									className={textAction}
 									size="xs"
 									variant="ghost"
 									onClick={() => {
@@ -420,7 +450,7 @@ function ProviderAccountRow({
 								</Button>
 							)}
 							<Button
-								className="h-7 px-2 text-[11px] text-muted-foreground"
+								className={textAction}
 								size="xs"
 								variant="ghost"
 								onClick={login.cancel}
@@ -429,26 +459,36 @@ function ProviderAccountRow({
 							</Button>
 						</div>
 					) : (
-						<Menu>
-							<MenuTrigger
-								render={
-									<Button
-										className="h-7 w-7 text-muted-foreground"
-										size="icon-sm"
-										variant="ghost"
-										disabled={busy}
-										aria-label={account.name}
-									/>
-								}
+						<div className="flex shrink-0 items-center">
+							{state.kind === "failed" && (
+								<Button
+									className={textAction}
+									size="xs"
+									variant="ghost"
+									onClick={() => void login.start()}
+								>
+									{t("common:retry")}
+								</Button>
+							)}
+							<AccountMenu
+								label={t("providers:accounts_actions", { name: account.name })}
+								disabled={busy}
 							>
-								<MoreHorizontal className="size-3.5" />
-							</MenuTrigger>
-							<MenuPopup align="end">
+								{!account.preferred && (
+									<MenuItem
+										className="h-7"
+										onClick={() =>
+											void run({ kind: "preferred", id: account.id })
+										}
+									>
+										{t("providers:accounts_use_for_new_chats")}
+									</MenuItem>
+								)}
 								<MenuItem className="h-7" onClick={() => void login.start()}>
-									{t("common:signIn")}
+									{t("providers:accounts_sign_in_again")}
 								</MenuItem>
-								<MenuItem className="h-7" onClick={() => setEditing(true)}>
-									{t("common:edit")}
+								<MenuItem className="h-7" onClick={() => setRenaming(true)}>
+									{t("providers:accounts_rename")}
 								</MenuItem>
 								<MenuSeparator />
 								<MenuItem
@@ -458,8 +498,8 @@ function ProviderAccountRow({
 								>
 									{t("common:remove")}
 								</MenuItem>
-							</MenuPopup>
-						</Menu>
+							</AccountMenu>
+						</div>
 					)
 				}
 			/>
@@ -479,7 +519,7 @@ function ProviderAccountRow({
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{error && (
-						<p role="alert" className="px-4 text-xs text-destructive">
+						<p role="alert" className="px-4 text-destructive text-xs">
 							{error}
 						</p>
 					)}

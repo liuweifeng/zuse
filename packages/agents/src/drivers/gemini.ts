@@ -32,6 +32,7 @@ import {
 import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
+import { APP_MCP_SERVER_NAME } from "../mcp-gateway/index.ts";
 import { handleFsRequest } from "./acp/fs.ts";
 import { replyToAcpRequest } from "./acp/request-reply.ts";
 import { handleTerminalRequest } from "./acp/terminal.ts";
@@ -116,6 +117,11 @@ const formatGeminiDiagnostics = (diagnostics: string): string => {
  * Best-effort: if any fs op fails the CLI just stays in safe mode, so we
  * swallow errors via `Effect.ignore`.
  */
+export const GEMINI_ACP_ARGS: ReadonlyArray<string> = [
+	"--experimental-acp",
+	`--allowed-mcp-server-names=${APP_MCP_SERVER_NAME}`,
+];
+
 const ensureGeminiFolderTrusted = (cwd: string): Effect.Effect<void> =>
 	Effect.gen(function* () {
 		const home = os.homedir();
@@ -273,7 +279,10 @@ export const startGeminiSession = (
 
 		let child: ChildProcessWithoutNullStreams;
 		try {
-			child = spawn(geminiPath, ["--experimental-acp"], {
+			// Agents get MCP only through the Zuse gateway: the allowlist drops
+			// every other server (user/project settings and extensions) while the
+			// ACP-provided `zuse` entry passes through the same filter.
+			child = spawn(geminiPath, GEMINI_ACP_ARGS, {
 				cwd,
 				env: {
 					...process.env,

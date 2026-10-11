@@ -126,6 +126,7 @@ import {
 	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
 import { openNewChatLanding } from "../lib/open-new-chat-landing.ts";
+import { openPluginsPage } from "../lib/plugins-navigation.ts";
 import {
 	activeAgentCountLabel,
 	getPowerRuntimeActivity,
@@ -1429,11 +1430,7 @@ function SidebarActions() {
 					icon={PuzzleIcon}
 					label={uiMessage("projects:projects_sidebar_plugins")}
 					active={pluginsOpen}
-					onClick={() => {
-						const ui = useUiStore.getState();
-						ui.setView("chat");
-						ui.setActiveMainTab("plugins");
-					}}
+					onClick={() => openPluginsPage()}
 				/>
 			)}
 		</div>

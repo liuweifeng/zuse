@@ -73,7 +73,6 @@ export const telemetryCategoryForSpan = (name: string): string => {
 		if (method.startsWith("auth.")) return "auth";
 		if (method.startsWith("permission.")) return "permission";
 		if (method.startsWith("attachment.")) return "attachment";
-		if (method.startsWith("mcp.")) return "mcp";
 		if (
 			method.startsWith("session.") ||
 			method.startsWith("chat.") ||

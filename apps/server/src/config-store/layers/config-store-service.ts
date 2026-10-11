@@ -102,7 +102,6 @@ const freshSettings = (): SettingsFile =>
 		opencode2ProviderVisible: {},
 		opencode2ModelVisibleByProvider: {},
 		opencode2CustomProviders: [],
-		mcpDisabledServers: [],
 		disabledSkills: [],
 		subagents: { enableForNewSessions: true, presets: {} },
 		branchNamingStyle: "username-slug",
@@ -495,7 +494,6 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		}
 	}
 
-	const mcpDisabledServers = coerceKeyList(obj.mcpDisabledServers);
 	const disabledSkills = coerceKeyList(obj.disabledSkills);
 
 	let subagents = base.subagents;
@@ -591,7 +589,6 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		opencode2ProviderVisible,
 		opencode2ModelVisibleByProvider,
 		opencode2CustomProviders,
-		mcpDisabledServers,
 		disabledSkills,
 		subagents,
 		branchNamingStyle,
@@ -887,8 +884,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 						cur.opencode2ModelVisibleByProvider,
 					opencode2CustomProviders:
 						patch.opencode2CustomProviders ?? cur.opencode2CustomProviders,
-					mcpDisabledServers:
-						patch.mcpDisabledServers ?? cur.mcpDisabledServers,
 					disabledSkills: patch.disabledSkills ?? cur.disabledSkills,
 					subagents: patch.subagents ?? cur.subagents,
 					branchNamingStyle: patch.branchNamingStyle ?? cur.branchNamingStyle,
@@ -1028,7 +1023,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 						opencode2ModelVisibleByProvider:
 							cur.opencode2ModelVisibleByProvider,
 						opencode2CustomProviders: cur.opencode2CustomProviders,
-						mcpDisabledServers: cur.mcpDisabledServers,
 						disabledSkills: cur.disabledSkills,
 						subagents,
 						branchNamingStyle: cur.branchNamingStyle,

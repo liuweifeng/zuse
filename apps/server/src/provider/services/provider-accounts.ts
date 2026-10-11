@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
+import { defaultProviderAccountHome } from "@zuse/agents/drivers/provider-account-env";
 import {
 	type NativeAccountProvider,
 	type ProviderAccount,
@@ -9,6 +10,7 @@ import {
 import { Context, Effect, Layer } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { AppPaths } from "../../app-paths.ts";
+import { copyProviderTranscript } from "./provider-account-transcripts.ts";
 
 type AccountRow = {
 	id: string;
@@ -54,28 +56,51 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 				});
 			return rows[0];
 		});
+		const homePath = (provider: NativeAccountProvider, id: string) =>
+			join(userData, "provider-accounts", provider, id);
 		const home = Effect.fn("ProviderAccounts.home")(function* (
 			provider: NativeAccountProvider,
 			id: string,
 		) {
 			yield* requireAvailable();
 			yield* find(provider, id);
-			const path = join(userData, "provider-accounts", provider, id);
+			const path = homePath(provider, id);
 			yield* Effect.tryPromise({
 				try: () => mkdir(path, { recursive: true, mode: 0o700 }),
 				catch: failed,
 			});
 			return path;
 		});
+		/** The chat's bound account (null = default login); undefined before its first turn. */
+		const bound = Effect.fn("ProviderAccounts.bound")(function* (
+			provider: NativeAccountProvider,
+			sessionId: string,
+		) {
+			const rows = yield* sql<{
+				account_id: string | null;
+			}>`SELECT account_id FROM session_provider_accounts WHERE session_id=${sessionId} AND provider_id=${provider}`.pipe(
+				Effect.mapError(failed),
+			);
+			return rows[0] === undefined ? undefined : rows[0].account_id;
+		});
 		return {
 			list: Effect.fn("ProviderAccounts.list")(function* (
 				provider: NativeAccountProvider,
+				sessionId?: string,
 			) {
 				const rows =
 					yield* sql<AccountRow>`SELECT id,provider_id,name,preferred FROM provider_accounts WHERE provider_id=${provider} ORDER BY created_at,id`.pipe(
 						Effect.mapError(failed),
 					);
-				return { available, accounts: rows.map(metadata) };
+				const sessionAccountId =
+					available && sessionId !== undefined
+						? yield* bound(provider, sessionId)
+						: undefined;
+				return {
+					available,
+					accounts: rows.map(metadata),
+					...(sessionAccountId === undefined ? {} : { sessionAccountId }),
+				};
 			}),
 			save: Effect.fn("ProviderAccounts.save")(function* (
 				provider: NativeAccountProvider,
@@ -129,6 +154,49 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 					Effect.mapError(failed),
 				);
 			}),
+			/**
+			 * Rebind a chat to another account. The caller must have stopped the
+			 * chat's provider process. The native transcript is copied first so a
+			 * failure leaves the chat on its working account; a chat whose history
+			 * cannot be found is not moved, because it would silently lose context.
+			 */
+			switchSession: Effect.fn("ProviderAccounts.switchSession")(function* (
+				provider: NativeAccountProvider,
+				sessionId: string,
+				id: string | null,
+				cursor: string | null,
+			) {
+				yield* requireAvailable();
+				const current = yield* bound(provider, sessionId);
+				if (current !== undefined && current === id) return;
+				const target =
+					id === null
+						? defaultProviderAccountHome(provider)
+						: yield* home(provider, id);
+				if (cursor !== null) {
+					// Removed accounts keep their homes, so their chats can still move away.
+					const source =
+						current === null || current === undefined
+							? defaultProviderAccountHome(provider)
+							: homePath(provider, current);
+					const copied = yield* Effect.tryPromise({
+						try: () => copyProviderTranscript(provider, source, target, cursor),
+						catch: () =>
+							new ProviderAccountError({
+								message:
+									"Couldn’t copy this chat to the other account. Check disk space and try again.",
+							}),
+					});
+					if (!copied)
+						return yield* new ProviderAccountError({
+							message:
+								"This chat’s history wasn’t found for its current account, so it can’t move without losing context.",
+						});
+				}
+				yield* sql`INSERT INTO session_provider_accounts(session_id,provider_id,account_id) SELECT id,${provider},${id} FROM sessions WHERE id=${sessionId} ON CONFLICT(session_id,provider_id) DO UPDATE SET account_id=excluded.account_id`.pipe(
+					Effect.mapError(failed),
+				);
+			}),
 			home,
 			selected: Effect.fn("ProviderAccounts.selected")(function* (
 				provider: NativeAccountProvider,
@@ -151,10 +219,10 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 				const accountId = yield* sql
 					.withTransaction(
 						Effect.gen(function* () {
-							const bound = yield* sql<{
+							const binding = yield* sql<{
 								account_id: string | null;
 							}>`SELECT account_id FROM session_provider_accounts WHERE session_id=${sessionId} AND provider_id=${provider}`;
-							if (bound[0]) return bound[0].account_id;
+							if (binding[0]) return binding[0].account_id;
 							// Native forks inherit their source account. Legacy resumes stay on the
 							// default login rather than picking today's preferred account.
 							const source = resuming

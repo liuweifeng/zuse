@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { childProcessEnv } from "@zuse/utils/process-env";
 
 export type AccountProvider = "claude" | "codex";
@@ -10,6 +12,15 @@ export const providerAccountEnv = (
 	provider === "claude"
 		? { CLAUDE_CONFIG_DIR: home, CLAUDE_SECURESTORAGE_CONFIG_DIR: home }
 		: { CODEX_HOME: home };
+
+/** Home the native CLI uses when no named account is bound (the default login). */
+export const defaultProviderAccountHome = (
+	provider: AccountProvider,
+	env: NodeJS.ProcessEnv = process.env,
+): string =>
+	provider === "claude"
+		? env.CLAUDE_CONFIG_DIR?.trim() || join(homedir(), ".claude")
+		: env.CODEX_HOME?.trim() || join(homedir(), ".codex");
 
 export const providerAccountUnsetEnv = (
 	provider: AccountProvider,

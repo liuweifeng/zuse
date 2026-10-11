@@ -107,7 +107,10 @@ const startProviderLogin = async (
 					});
 					return;
 				}
-				await refreshProviderMetadata(environmentId);
+				// A named account's login only changes provider metadata when it is the
+				// default for new chats; never hold its "Signed in" on a full re-probe.
+				if (accountId) void refreshProviderMetadata(environmentId);
+				else await refreshProviderMetadata(environmentId);
 				if (owners.get(key) !== owner) return;
 				setState(key, { kind: "success" });
 				owner.resetAfter(() => {
@@ -132,6 +135,13 @@ const startProviderLogin = async (
 	)
 		owners.delete(key);
 };
+
+/** Start signing in to a named account, e.g. right after it is created. */
+export const startProviderAccountLogin = (
+	environmentId: string,
+	providerId: ProviderId,
+	accountId: string,
+) => startProviderLogin(environmentId, providerId, accountId);
 
 /**
  * Shared one-click provider sign-in state machine. Subscribes to

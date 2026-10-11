@@ -33,7 +33,6 @@ type MutableRepositorySettingsFile = {
 } & {
 	environmentVariables: Record<string, string>;
 	cloudEnvironmentVariables: Record<string, string>;
-	mcpDisabledServers: string[];
 };
 
 const isProviderId = (v: unknown): v is ProviderId =>
@@ -72,7 +71,6 @@ const emptyFileSettings = (): RepositorySettingsFile => ({
 	environmentVariables: {},
 	cloudEnvironmentVariables: {},
 	fileIncludeGlobs: "",
-	mcpDisabledServers: [],
 });
 
 const parseEnvJson = (value: string | null): Record<string, string> => {
@@ -152,12 +150,10 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
 		...fallback,
 		environmentVariables: {},
 		cloudEnvironmentVariables: {},
-		mcpDisabledServers: [...fallback.mcpDisabledServers],
 	};
 	let section = "";
 	const legacyIncludeSectionValues: string[] = [];
-	let pendingArrayKey: "file_include_globs" | "mcp_disabled_servers" | null =
-		null;
+	let pendingArrayKey: "file_include_globs" | null = null;
 	let pendingArrayRaw = "";
 	const parseTomlStringArray = (raw: string): string[] =>
 		[...raw.matchAll(/"(?:\\.|[^"\\])*"|'[^']*'/g)]
@@ -168,8 +164,6 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
 		if (pendingArrayKey === "file_include_globs") {
 			settings.fileIncludeGlobs =
 				parseTomlStringArray(pendingArrayRaw).join("\n");
-		} else if (pendingArrayKey === "mcp_disabled_servers") {
-			settings.mcpDisabledServers = parseTomlStringArray(pendingArrayRaw);
 		}
 		pendingArrayKey = null;
 		pendingArrayRaw = "";
@@ -225,13 +219,6 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
 				if (value.includes("]")) finishPendingArray();
 			} else if (key === "file_include_globs") {
 				settings.fileIncludeGlobs = parseTomlString(value);
-			} else if (
-				key === "mcp_disabled_servers" &&
-				value.trim().startsWith("[")
-			) {
-				pendingArrayKey = "mcp_disabled_servers";
-				pendingArrayRaw = value;
-				if (value.includes("]")) finishPendingArray();
 			}
 		} else if (section === "scripts") {
 			if (key === "setup")
@@ -339,11 +326,6 @@ const coerceJsonSettings = (
 				: typeof obj.file_include_globs === "string"
 					? obj.file_include_globs
 					: fallback.fileIncludeGlobs,
-		mcpDisabledServers: Array.isArray(obj.mcpDisabledServers)
-			? obj.mcpDisabledServers.filter(
-					(v): v is string => typeof v === "string" && v.length > 0,
-				)
-			: fallback.mcpDisabledServers,
 	};
 };
 
@@ -405,10 +387,6 @@ const writeTomlSettings = (
 			includeGlobValues(settings.fileIncludeGlobs),
 		),
 		"",
-		...tomlStringArray("mcp_disabled_servers", [
-			...settings.mcpDisabledServers,
-		]),
-		"",
 		"[scripts]",
 		`setup = ${tomlNullableString(cleanScript(settings.setupScript))}`,
 		`run = ${tomlNullableString(cleanScript(settings.runScript))}`,
@@ -456,7 +434,6 @@ const fileToSettings = (
 		environmentVariables: file.environmentVariables,
 		cloudEnvironmentVariables: file.cloudEnvironmentVariables,
 		fileIncludeGlobs: file.fileIncludeGlobs,
-		mcpDisabledServers: file.mcpDisabledServers,
 	});
 
 const settingsToFile = (
@@ -475,7 +452,6 @@ const settingsToFile = (
 	environmentVariables: settings.environmentVariables,
 	cloudEnvironmentVariables: settings.cloudEnvironmentVariables,
 	fileIncludeGlobs: settings.fileIncludeGlobs,
-	mcpDisabledServers: settings.mcpDisabledServers,
 });
 
 const rowToFile = (
@@ -506,7 +482,6 @@ const rowToFile = (
 		},
 		cloudEnvironmentVariables: fallback.cloudEnvironmentVariables,
 		fileIncludeGlobs: fallback.fileIncludeGlobs,
-		mcpDisabledServers: fallback.mcpDisabledServers,
 	};
 };
 
@@ -550,7 +525,6 @@ const applyPatch = (
 		cloudEnvironmentVariables:
 			patch.cloudEnvironmentVariables ?? current.cloudEnvironmentVariables,
 		fileIncludeGlobs: patch.fileIncludeGlobs ?? current.fileIncludeGlobs,
-		mcpDisabledServers: patch.mcpDisabledServers ?? current.mcpDisabledServers,
 	});
 
 export const RepositorySettingsServiceLive = Layer.effect(

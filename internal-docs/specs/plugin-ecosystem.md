@@ -46,8 +46,10 @@ installer as a prerequisite for this experience.
 The zero-configuration promise applies to curated hosted integrations whose
 endpoint and auth setup Zuse can supply. Arbitrary localhost MCPs, private network
 services, API-key-only services, and customer-specific domains cannot universally
-offer redirect-only onboarding. Keep existing native MCP support as an advanced
-surface; qualify each catalog entry rather than advertise every MCP as one-click.
+offer redirect-only onboarding. Such servers are added as custom remote MCP
+servers in Plugins; native MCP passthrough was removed
+([ADR 0005](../adr/0005-agents-receive-mcp-only-through-zuse-gateway.md)).
+Qualify each catalog entry rather than advertise every MCP as one-click.
 Local agents using hosted plugins still require an internet connection.
 
 Initial scope is managed tool connections. Skills, downloadable binaries, hooks,
@@ -61,9 +63,8 @@ not promised capabilities of every driver.
 
 | Existing component | Evidence | Planned use |
 | --- | --- | --- |
-| Native MCP inventory | `packages/contracts/src/mcp.ts`, `apps/server/src/mcp/layers/mcp-service.ts`, `apps/server/src/mcp/native-config.ts` | Preserve provider-owned/native definitions; add managed connection references and availability rather than rewriting native files. |
-| Runtime-scoped UI cache | `apps/renderer/src/store/mcp.ts` | Keep native inventory environment-scoped; introduce account-scoped connection state and merge only at display/session resolution boundaries. |
-| MCP settings and composer | `apps/renderer/src/components/settings/mcp-servers-pane.tsx`, `apps/renderer/src/components/mcp-popover.tsx` | Plugins is the discovery surface; composer shows enabled connections and their effective runtime status. |
+| Native MCP inventory | Removed (ADR 0005). | Agents receive MCP only through the Zuse gateway; drivers suppress native CLI MCP config where a verified switch exists. |
+| Native MCP UI | Removed with the native inventory. | Plugins is the discovery surface; composer shows enabled connections and their effective runtime status. |
 | Shared session MCP gateway | `packages/agents/src/mcp-gateway/index.ts`, `packages/agents/src/kernel/provider-mcp-session.ts` | Add injected managed-tool dependencies to the shared gateway. Preserve its live-handle token lifetime and disposal behavior. |
 | Gateway consumers | `packages/agents/src/drivers/{claude,codex,grok,gemini,kiro}.ts` | Existing common seam, with driver-specific compatibility tests. |
 | Cursor MCP support | `packages/agents/src/drivers/cursor.ts`, `apps/server/src/provider/layers/provider-service.ts` | Feed the same Zuse gateway through its existing MCP normalization/configuration seam. |
@@ -77,7 +78,8 @@ There is a documentation tension to resolve during implementation: the current M
 contract explicitly says Zuse stores no server registry, while historical
 [ADR 0032](../../specs/self-orchestration/decisions/0032-mcp-connector-passthrough.md)
 proposed a registry. Add a new decision describing an account-owned managed
-catalog alongside native passthrough; do not silently rewrite historical decisions.
+catalog. [ADR 0005](../adr/0005-agents-receive-mcp-only-through-zuse-gateway.md)
+supersedes ADR 0032's native passthrough; do not silently rewrite historical decisions.
 
 [ADR 0001](../adr/0001-e2b-cloud-workspace-auth.md) keeps local and cloud model-provider
 authentication separate. Sharing explicitly connected SaaS plugins does not imply
@@ -301,7 +303,7 @@ driver cannot refresh safely; never silently restart a live task.
 
 | Situation | User-visible behavior |
 | --- | --- |
-| Not signed into Zuse | Explain that managed connections require a Zuse account; existing native MCP setup still works. |
+| Not signed into Zuse | Explain that managed connections and custom MCP servers require a Zuse account. |
 | Awaiting authorization | Connecting indicator; reopen browser/cancel; completion recovered after app restart. |
 | Provider denied consent | No connection created; actionable retry. |
 | Expired/revoked upstream auth | Reconnect the affected connection; other connections stay usable. |
@@ -429,7 +431,7 @@ Zuse from a user's Slack data-access connection. Reuse GitHub installation grant
 only where identity/scopes match the requested plugin behavior.
 
 Ship behind account and plugin flags: internal users, opt-in beta, then general
-availability after the full driver matrix passes. Retain existing native MCP paths.
+availability after the full driver matrix passes.
 Rollback disables new managed calls/connection creation while retaining encrypted
 records and audit; do not drop tables or erase credentials. Version runtime/API
 capabilities so older workspaces show a useful upgrade status.

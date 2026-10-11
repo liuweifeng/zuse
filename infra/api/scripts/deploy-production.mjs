@@ -77,6 +77,9 @@ const requiredValues = {
 				BOXD_TEMPLATE_VERSION: vars.BOXD_TEMPLATE_VERSION,
 			}
 		: {}),
+	// Plugin OAuth callbacks are built from it; without it every sign-in fails.
+	API_PUBLIC_ORIGIN: vars.API_PUBLIC_ORIGIN,
+	PLUGIN_APP_ORIGIN: vars.PLUGIN_APP_ORIGIN,
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
 	R2: config.r2_buckets?.[0]?.bucket_name,
 	...(e2bEnabled
@@ -122,6 +125,16 @@ const requiredValues = {
 const missingValues = Object.entries(requiredValues)
 	.filter(([, value]) => typeof value !== "string" || value.trim() === "")
 	.map(([name]) => name);
+// Plugin OAuth redirects and returns must be HTTPS origins.
+for (const name of ["API_PUBLIC_ORIGIN", "PLUGIN_APP_ORIGIN"]) {
+	const value = vars[name];
+	if (
+		typeof value === "string" &&
+		value.trim() !== "" &&
+		(!URL.canParse(value) || new URL(value).protocol !== "https:")
+	)
+		missingValues.push(`${name} (must be https)`);
+}
 const enabledAdapters = new Set([
 	...(e2bEnabled ? ["e2b"] : []),
 	...(boatEnabled ? ["box", "boat"] : []),

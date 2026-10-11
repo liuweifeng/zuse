@@ -1,6 +1,6 @@
 /**
  * Apply an enable/disable toggle to a settings "disabled keys" list
- * (`mcpDisabledServers`, `disabledSkills`). Enabling removes the key;
+ * (`disabledSkills`). Enabling removes the key;
  * disabling appends it once. Order of existing keys is preserved.
  */
 export const toggleDisabledKey = (

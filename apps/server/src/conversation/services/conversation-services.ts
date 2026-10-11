@@ -294,6 +294,14 @@ export interface ConversationOperations {
 	) => Effect.Effect<void, SessionNotFoundError | SessionConfigurationError>;
 
 	/**
+	 * Stop an idle session's provider process; the next turn starts a fresh
+	 * one. Returns false while a turn is booting or running.
+	 */
+	readonly releaseProvider: (
+		sessionId: SessionId,
+	) => Effect.Effect<boolean, SessionNotFoundError>;
+
+	/**
 	 * Update the per-session permission posture. The change applies to the
 	 * next tool call — running `canUseTool` callbacks observe the new value
 	 * via the runtime-mode getter `ProviderService` hands the driver.
@@ -337,11 +345,6 @@ export interface ConversationOperations {
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
 	) => Effect.Effect<void, SessionNotFoundError | PlanResolutionError>;
-
-	readonly updateMcpServers: (
-		sessionId: SessionId,
-		servers: ReadonlyArray<unknown>,
-	) => Effect.Effect<void, SessionNotFoundError>;
 
 	/**
 	 * Switch the worktree this session runs in. Allowed only before the first
@@ -696,12 +699,12 @@ export type SessionServiceShape = Pick<
 	| "renameSession"
 	| "setModel"
 	| "setProvider"
+	| "releaseProvider"
 	| "setRuntimeMode"
 	| "setPermissionMode"
 	| "answerQuestion"
 	| "cancelQuestion"
 	| "respondToPlan"
-	| "updateMcpServers"
 	| "setWorktree"
 	| "archiveSession"
 	| "unarchiveSession"

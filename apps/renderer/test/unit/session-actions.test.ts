@@ -28,6 +28,7 @@ import { registerWebSocketEnvironment } from "../../src/lib/rpc-client.ts";
 import {
 	classifyError,
 	classifyMessage,
+	compactAndContinueSession,
 	isRecoveredPreAckSessionError,
 	optimisticQueuedMessageReady,
 	pendingSessionCommandError,
@@ -68,9 +69,14 @@ describe("session actions", () => {
 	});
 
 	it.each([
-		false,
-		true,
-	])("resumes an unresolved failed turn without submitting a duplicate (resume failure: %s)", async (resumeFails) => {
+		{ action: retryLastSessionMessage, resumeFails: false },
+		{ action: retryLastSessionMessage, resumeFails: true },
+		{ action: compactAndContinueSession, resumeFails: false },
+		{ action: compactAndContinueSession, resumeFails: true },
+	])("resumes an unresolved failed turn without submitting a duplicate ($action.name, resume failure: $resumeFails)", async ({
+		action,
+		resumeFails,
+	}) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let resumes = 0;
 		let sends = 0;
@@ -136,7 +142,7 @@ describe("session actions", () => {
 			() =>
 				getRendererClientBus().snapshot(retained.key).data?.status === "error",
 		);
-		expect(await retryLastSessionMessage(ref)).toBe(!resumeFails);
+		expect(await action(ref)).toBe(!resumeFails);
 		expect(resumes).toBe(1);
 		expect(sends).toBe(0);
 		expect(pendingSessionMessages(ref)).toEqual([]);

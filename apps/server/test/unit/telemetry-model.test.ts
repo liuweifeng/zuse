@@ -44,7 +44,6 @@ describe("telemetry model", () => {
 			["RpcServer.api.connect", "network"],
 			["RpcServer.auth.signIn", "auth"],
 			["RpcServer.attachment.add", "attachment"],
-			["RpcServer.mcp.list", "mcp"],
 		] as const;
 
 		for (const [name, category] of names) {

@@ -42,7 +42,17 @@ test("generated catalog keeps unique ids, allowed endpoints, and legacy entries"
 test("public catalog exposes display metadata only", () => {
 	const [first] = publicPluginCatalog();
 	expect(Object.keys(first ?? {}).sort()).toEqual(
-		["category", "description", "domain", "featured", "id", "name"].sort(),
+		[
+			"apiKeyHeader",
+			"category",
+			"custom",
+			"description",
+			"domain",
+			"featured",
+			"id",
+			"name",
+			"url",
+		].sort(),
 	);
 });
 

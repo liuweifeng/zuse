@@ -69,7 +69,10 @@ const chat = Chat.make({
 	updatedAt: now,
 });
 
-const sourceFixture = (path: string, schema: "legacy" | "engine") => {
+const sourceFixture = (
+	path: string,
+	schema: "legacy" | "engine" | "engine-delegations",
+) => {
 	const db = new DatabaseSync(path);
 	db.exec(`CREATE TABLE sessions (id TEXT, chat_id TEXT, project_id TEXT, title TEXT, provider_id TEXT, model TEXT, status TEXT, archived_at TEXT, cursor TEXT, resume_strategy TEXT, runtime_mode TEXT, worktree_id TEXT, forked_from_session_id TEXT, forked_from_message_id TEXT, permission_mode TEXT, tool_search INTEGER, created_at TEXT, updated_at TEXT);
  INSERT INTO sessions VALUES ('source','parent-chat','old-project','Original','codex','model','idle',NULL,'provider-cursor','codex-thread-id','full-access',NULL,NULL,NULL,'default',0,'2026-01-01','2026-01-01');
@@ -91,7 +94,7 @@ const sourceFixture = (path: string, schema: "legacy" | "engine") => {
 		JSON.stringify({ _tag: "assistant", text: "world" }),
 		2,
 	);
-	if (schema === "engine") {
+	if (schema !== "legacy") {
 		db.exec(`ALTER TABLE sessions ADD COLUMN active_provider_thread_id TEXT;
    CREATE TABLE session_provider_threads (id TEXT, session_id TEXT, provider TEXT, native_thread_id TEXT, native_head_id TEXT, status TEXT, first_turn_ordinal INTEGER, last_turn_ordinal INTEGER, created_at TEXT, updated_at TEXT);
    INSERT INTO session_provider_threads VALUES ('thread-source', 'source', 'codex', 'provider-cursor', NULL, 'idle', NULL, NULL, '2026-01-01', '2026-01-01');
@@ -99,12 +102,18 @@ const sourceFixture = (path: string, schema: "legacy" | "engine") => {
    ALTER TABLE sessions DROP COLUMN cursor;
    ALTER TABLE sessions DROP COLUMN resume_strategy;`);
 	}
+	if (schema === "engine-delegations") {
+		db.exec(
+			"CREATE TABLE session_delegations (child_session_id TEXT, parent_session_id TEXT)",
+		);
+	}
 	db.close();
 };
 
 describe.each([
 	"legacy",
 	"engine",
+	"engine-delegations",
 ] as const)("machine fork transcript import (%s schema)", (schema) => {
 	test.each([
 		"start",

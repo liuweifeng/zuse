@@ -5,6 +5,7 @@ import type {
 } from "@zuse/contracts";
 import { useMemo, useSyncExternalStore } from "react";
 import { useAuth } from "../hooks/use-auth.ts";
+import { pluginDomain } from "./plugin-servers.ts";
 import { usePluginSnapshot } from "./plugins-client.ts";
 import {
 	rendererWorkspaceSnapshot,
@@ -58,6 +59,18 @@ export const hasPluginConnectionLabel = (
 	);
 };
 
+/** A free default name: the plugin's name, then "Name 2", "Name 3", … */
+export const nextPluginConnectionLabel = (
+	connections: readonly Pick<PluginConnection, "pluginId" | "label">[],
+	pluginId: string,
+	pluginName: string,
+): string => {
+	for (let index = 1; ; index++) {
+		const label = index === 1 ? pluginName : `${pluginName} ${index}`;
+		if (!hasPluginConnectionLabel(connections, pluginId, label)) return label;
+	}
+};
+
 /** List usable connections individually so mentions can select the exact account. */
 export const connectedOf = (
 	snapshot: PluginSnapshot | null,
@@ -73,13 +86,48 @@ export const connectedOf = (
 		return [
 			{
 				id: plugin.id,
-				domain: plugin.domain,
+				domain: pluginDomain(plugin),
 				name: pluginConnectionName(plugin.name, connection.label),
 				pluginName: plugin.name,
 				connectionId: connection.id,
 			},
 		];
 	});
+};
+
+/** One settings row per connected account, including disabled accounts. */
+export type PluginConnectionRow = {
+	readonly connection: PluginConnection;
+	readonly plugin: PluginDefinition | null;
+	readonly name: string;
+	readonly description: string;
+	readonly domain: string;
+	readonly custom: boolean;
+};
+
+/** Connected accounts in name order, for settings and the composer. */
+export const pluginConnectionRows = (
+	snapshot: PluginSnapshot,
+): readonly PluginConnectionRow[] => {
+	const catalog = new Map(
+		snapshot.catalog.map((plugin) => [plugin.id, plugin]),
+	);
+	return snapshot.connections
+		.filter((connection) => connection.state === "connected")
+		.map((connection) => {
+			const plugin = catalog.get(connection.pluginId) ?? null;
+			return {
+				connection,
+				plugin,
+				name: plugin
+					? pluginConnectionName(plugin.name, connection.label)
+					: connection.label,
+				description: plugin?.description ?? "",
+				domain: plugin ? pluginDomain(plugin) : "",
+				custom: plugin?.custom ?? false,
+			};
+		})
+		.sort((left, right) => left.name.localeCompare(right.name));
 };
 
 /** The account whose plugins apply, or null when signed out. */

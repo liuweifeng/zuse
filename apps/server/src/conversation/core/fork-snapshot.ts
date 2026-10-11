@@ -8,8 +8,8 @@ import {
 } from "@zuse/domain/queries/sql-message-queries";
 import {
 	decodeSessionRow,
-	SESSION_WITH_PROVIDER_THREAD_SELECT,
 	type SessionRow,
+	sessionWithProviderThreadSelect,
 } from "@zuse/domain/queries/sql-session-queries";
 import { Effect } from "effect";
 import { sessionFromRecord } from "./conversation-records.ts";
@@ -31,10 +31,16 @@ export const readForkSnapshot = (
 					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_provider_threads'",
 				)
 				.get() !== undefined;
+		const hasDelegations =
+			db
+				.prepare(
+					"SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_delegations'",
+				)
+				.get() !== undefined;
 		const row = db
 			.prepare(
 				hasThreads
-					? `${SESSION_WITH_PROVIDER_THREAD_SELECT} WHERE s.id = ? AND s.chat_id = ?`
+					? `${sessionWithProviderThreadSelect(hasDelegations)} WHERE s.id = ? AND s.chat_id = ?`
 					: "SELECT * FROM sessions WHERE id = ? AND chat_id = ?",
 			)
 			.get(sessionId, chatId);

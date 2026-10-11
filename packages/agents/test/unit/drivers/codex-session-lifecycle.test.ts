@@ -23,6 +23,23 @@ import { Effect, Fiber, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
+// The shared control client answers `config/read` for native MCP isolation.
+let nativeConfigLayers: unknown[] = [];
+vi.mock("../../../src/drivers/codex-control-client.ts", () => ({
+	withCodexControlClient: async (
+		_codexPath: string | null,
+		run: (client: unknown) => Promise<unknown>,
+	) =>
+		run({
+			request: async (method: string) => {
+				if (method !== "config/read") {
+					throw new Error(`Unexpected control method: ${method}`);
+				}
+				return { config: {}, origins: {}, layers: nativeConfigLayers };
+			},
+		}),
+}));
+
 const readAttachmentPath = vi.fn(() =>
 	Effect.succeed<{ path: string; mimeType: string } | null>(null),
 );
@@ -289,11 +306,56 @@ const requestNativeQuestion = (
 	});
 
 afterEach(() => {
+	nativeConfigLayers = [];
 	appServerRequest = null;
 	appServerExit = null;
 	readAttachmentPath.mockReset();
 	readAttachmentPath.mockImplementation(() => Effect.succeed(null));
 	vi.restoreAllMocks();
+});
+
+describe("Codex native MCP isolation", () => {
+	it("disables user servers at launch and project servers per thread", async () => {
+		nativeConfigLayers = [
+			{
+				name: { type: "user", file: "/home/u/.codex/config.toml" },
+				version: "1",
+				config: {
+					mcp_servers: {
+						linear: { url: "https://mcp.linear.app/mcp" },
+						"dotted.name": { command: "npx" },
+						zuse: { url: "http://127.0.0.1:1/mcp" },
+					},
+				},
+				disabledReason: null,
+			},
+			{
+				name: { type: "project", dotCodexFolder: "/repo/.codex" },
+				version: "1",
+				config: { mcp_servers: { local: { command: "node" } } },
+				disabledReason: null,
+			},
+			{
+				name: { type: "project", dotCodexFolder: "/other/.codex" },
+				version: "1",
+				config: { mcp_servers: { untrusted: { command: "node" } } },
+				disabledReason: "untrusted",
+			},
+		];
+		await withSession({}, async (_handle, appServer) => {
+			const start = vi.mocked(CodexAppServerClient.start);
+			expect(start.mock.calls[0]?.[0].mcp?.disabledNativeServers).toEqual([
+				"linear",
+				"dotted.name",
+			]);
+			expect(appServer.requests).toContainEqual({
+				method: "thread/start",
+				params: expect.objectContaining({
+					config: { "mcp_servers.local.enabled": false },
+				}),
+			});
+		});
+	});
 });
 
 describe("Codex session cursor persistence", () => {

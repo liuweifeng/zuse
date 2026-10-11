@@ -44,6 +44,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
+import { opencodeMcpIsolationPluginUrl } from "./opencode-mcp-isolation.ts";
 
 /**
  * Live handle for one OpenCode conversation. Mirrors the other driver
@@ -890,7 +891,7 @@ export const startOpencodeSession = (
 	opencodePath: string,
 	sessionId: AgentSessionId,
 	resumeCursor: string | null = null,
-	managedMcp?: import("../user-mcp/types.ts").ResolvedMcpServer,
+	managedMcp?: import("../mcp-gateway/index.ts").McpGatewayHttpServer,
 ): Effect.Effect<
 	OpencodeSessionHandle,
 	AgentSessionStartError,
@@ -941,6 +942,9 @@ export const startOpencodeSession = (
 					cwd,
 					JSON.stringify({
 						...JSON.parse(buildOpencodeConfigContent(customProviders)),
+						// Agents get MCP only through the Zuse gateway; the plugin
+						// drops every other merged `mcp` entry before MCP starts.
+						plugin: [await opencodeMcpIsolationPluginUrl()],
 						...(managedMcp
 							? {
 									mcp: {

@@ -124,11 +124,6 @@ export interface ProviderServiceShape {
 		sessionId: AgentSessionId,
 	) => Stream.Stream<ProviderEventDelivery, AgentSessionNotFoundError>;
 
-	readonly updateMcpServers?: (
-		sessionId: AgentSessionId,
-		servers: ReadonlyArray<unknown>,
-	) => Effect.Effect<void, AgentSessionNotFoundError>;
-
 	readonly setCredential: (
 		providerId: ProviderId,
 		apiKey: string,

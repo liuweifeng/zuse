@@ -70,9 +70,9 @@ export interface SessionRow {
 	readonly pt_updated_at: string | null;
 }
 
-/** Columns for a session row joined with its active provider thread. */
-export const SESSION_WITH_PROVIDER_THREAD_SELECT = `
-	SELECT s.*, d.parent_session_id,
+/** Omit delegation metadata only when reading retained snapshots predating that table. */
+export const sessionWithProviderThreadSelect = (includeDelegations = true) => `
+	SELECT s.*, ${includeDelegations ? "d.parent_session_id" : "NULL AS parent_session_id"},
 		p.id AS pt_id, p.provider AS pt_provider,
 		p.native_thread_id AS pt_native_thread_id,
 		p.native_head_id AS pt_native_head_id, p.status AS pt_status,
@@ -80,8 +80,11 @@ export const SESSION_WITH_PROVIDER_THREAD_SELECT = `
 		p.last_turn_ordinal AS pt_last_turn_ordinal,
 		p.created_at AS pt_created_at, p.updated_at AS pt_updated_at
 	FROM sessions s
-	LEFT JOIN session_delegations d ON d.child_session_id = s.id
+	${includeDelegations ? "LEFT JOIN session_delegations d ON d.child_session_id = s.id" : ""}
 	LEFT JOIN session_provider_threads p ON p.id = s.active_provider_thread_id`;
+
+export const SESSION_WITH_PROVIDER_THREAD_SELECT =
+	sessionWithProviderThreadSelect();
 
 const providerThreadFromRow = (
 	row: SessionRow,

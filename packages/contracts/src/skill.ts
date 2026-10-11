@@ -36,7 +36,7 @@ export class Skill extends Schema.Class<Skill>("Skill")({
 	/**
 	 * Whether `skill.setEnabled` can enforce a toggle for this skill. False
 	 * when the provider exposes no enforcement seam (the switch should be
-	 * disabled), mirroring `McpServerDescriptor.toggleSupported`.
+	 * disabled).
 	 */
 	toggleSupported: Schema.Boolean.pipe(
 		Schema.withConstructorDefault(Effect.succeed(false)),

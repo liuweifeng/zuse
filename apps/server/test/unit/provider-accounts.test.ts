@@ -1,6 +1,13 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -176,5 +183,146 @@ describe("native provider accounts", () => {
 				).toEqual([]);
 			}),
 		);
+	});
+});
+
+describe("switching a chat's account", () => {
+	const writeFileAt = async (path: string, content: string) => {
+		await mkdir(dirname(path), { recursive: true });
+		await writeFile(path, content);
+	};
+	const withDefaultHomes = async <A>(root: string, test: () => Promise<A>) => {
+		const previous = {
+			CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR,
+			CODEX_HOME: process.env.CODEX_HOME,
+		};
+		process.env.CLAUDE_CONFIG_DIR = join(root, "default-claude");
+		process.env.CODEX_HOME = join(root, "default-codex");
+		try {
+			return await test();
+		} finally {
+			for (const [key, value] of Object.entries(previous)) {
+				if (value === undefined) delete process.env[key];
+				else process.env[key] = value;
+			}
+		}
+	};
+
+	it("moves the Claude transcript with the chat and back again", async () => {
+		const root = await mkdtemp(join(tmpdir(), "zuse-accounts-switch-"));
+		roots.push(root);
+		await withDefaultHomes(root, async () => {
+			const defaultTranscript = join(
+				root,
+				"default-claude/projects/-repo/cursor-1.jsonl",
+			);
+			await writeFileAt(defaultTranscript, "default history\n");
+			await writeFileAt(
+				join(root, "default-claude/projects/-repo/cursor-1/subagents/a.jsonl"),
+				"subagent\n",
+			);
+			await run((userData) =>
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const accounts = yield* makeProviderAccounts(userData);
+					const work = yield* accounts.save("claude", "Work");
+					yield* sql`INSERT INTO sessions(id,provider_id) VALUES('chat','claude')`;
+					yield* accounts.resolve("claude", "chat", false);
+					expect(
+						(yield* accounts.list("claude", "chat")).sessionAccountId,
+					).toBeNull();
+
+					yield* accounts.switchSession("claude", "chat", work.id, "cursor-1");
+					const workHome = join(
+						userData,
+						"provider-accounts",
+						"claude",
+						work.id,
+					);
+					const workTranscript = join(
+						workHome,
+						"projects/-repo/cursor-1.jsonl",
+					);
+					expect(
+						yield* Effect.promise(() => readFile(workTranscript, "utf8")),
+					).toBe("default history\n");
+					expect(
+						yield* Effect.promise(() =>
+							readFile(
+								join(workHome, "projects/-repo/cursor-1/subagents/a.jsonl"),
+								"utf8",
+							),
+						),
+					).toBe("subagent\n");
+					expect((yield* accounts.resolve("claude", "chat", true))?.id).toBe(
+						work.id,
+					);
+					expect(
+						(yield* accounts.list("claude", "chat")).sessionAccountId,
+					).toBe(work.id);
+
+					// The chat continued on Work; switching back must carry that forward.
+					yield* Effect.promise(() =>
+						writeFile(workTranscript, "default history\nwork turn\n"),
+					);
+					yield* accounts.switchSession("claude", "chat", null, "cursor-1");
+					expect(
+						yield* Effect.promise(() => readFile(defaultTranscript, "utf8")),
+					).toBe("default history\nwork turn\n");
+					expect(yield* accounts.resolve("claude", "chat", true)).toBeNull();
+				}),
+			);
+		});
+	});
+
+	it("refuses to move a chat whose history is missing and keeps its account", async () => {
+		const root = await mkdtemp(join(tmpdir(), "zuse-accounts-switch-"));
+		roots.push(root);
+		await withDefaultHomes(root, () =>
+			run((userData) =>
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const accounts = yield* makeProviderAccounts(userData);
+					const work = yield* accounts.save("claude", "Work");
+					yield* sql`INSERT INTO sessions(id,provider_id) VALUES('chat','claude')`;
+					yield* accounts.resolve("claude", "chat", false);
+					const error = yield* accounts
+						.switchSession("claude", "chat", work.id, "missing")
+						.pipe(Effect.flip);
+					expect(error.message).toContain("losing context");
+					expect(yield* accounts.resolve("claude", "chat", true)).toBeNull();
+				}),
+			),
+		);
+	});
+
+	it("copies a date-sharded Codex rollout into the target account", async () => {
+		const root = await mkdtemp(join(tmpdir(), "zuse-accounts-switch-"));
+		roots.push(root);
+		const rollout =
+			"sessions/2026/10/11/rollout-2026-10-11T12-00-00-thread-1.jsonl";
+		await withDefaultHomes(root, async () => {
+			await writeFileAt(join(root, "default-codex", rollout), "rollout\n");
+			await run((userData) =>
+				Effect.gen(function* () {
+					const sql = yield* SqlClient.SqlClient;
+					const accounts = yield* makeProviderAccounts(userData);
+					const work = yield* accounts.save("codex", "Work");
+					yield* sql`INSERT INTO sessions(id,provider_id) VALUES('chat','codex')`;
+					yield* accounts.switchSession("codex", "chat", work.id, "thread-1");
+					expect(
+						yield* Effect.promise(() =>
+							readFile(
+								join(userData, "provider-accounts", "codex", work.id, rollout),
+								"utf8",
+							),
+						),
+					).toBe("rollout\n");
+					expect((yield* accounts.list("codex", "chat")).sessionAccountId).toBe(
+						work.id,
+					);
+				}),
+			);
+		});
 	});
 });

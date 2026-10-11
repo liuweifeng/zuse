@@ -22,6 +22,9 @@ describe("plugin response", () => {
 				domain: "",
 				category: null,
 				featured: false,
+				custom: false,
+				url: null,
+				apiKeyHeader: null,
 			},
 		]);
 	});

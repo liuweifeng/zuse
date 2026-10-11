@@ -6,7 +6,7 @@ import {
 	parsePluginReturn,
 	takeUrlPluginReturn,
 } from "~/lib/plugin-return.ts";
-import { useUiStore } from "~/store/ui.ts";
+import { openPluginsPage } from "~/lib/plugins-navigation.ts";
 import { toastManager } from "./ui/toast.tsx";
 
 // Tickets are single-use; a duplicate loopback hit or re-render must not
@@ -43,8 +43,7 @@ export function PluginReturnHandler() {
 			seen.add(id);
 			// The web app returns on its root; bring the user back to Plugins.
 			if (window.zuse === undefined) {
-				useUiStore.getState().setView("chat");
-				useUiStore.getState().setActiveMainTab("plugins");
+				openPluginsPage();
 			}
 			// Return capture remains immediate; catalog/RPC redemption is loaded only
 			// for an actual callback, never for the ordinary application startup.

@@ -448,6 +448,7 @@ export const makeStripeBillingProvider = (
 				return yield* call(() =>
 					client.createCheckout({
 						mode: "subscription",
+						allow_promotion_codes: true,
 						customer: customerId,
 						client_reference_id: input.accountId,
 						success_url: input.successUrl.replaceAll(
