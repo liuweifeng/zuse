@@ -13,11 +13,6 @@ import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
 
 import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 
-import {
-	startDesktopAnalytics,
-	trackAnalyticsScreen,
-} from "./lib/analytics.ts";
-
 import { AppearanceController } from "./lib/appearance.tsx";
 
 import {
@@ -250,11 +245,20 @@ function ReadyApp({
 	);
 	useEffect(() => installQueueOnlineRecovery(), []);
 	useEffect(() => {
+		let disposed = false;
 		let stop: (() => void) | undefined;
-		void startDesktopAnalytics().then((cleanup) => {
-			stop = cleanup;
-		});
-		return () => stop?.();
+		void import("./lib/analytics.ts")
+			.then(async ({ startDesktopAnalytics }) => {
+				if (disposed) return;
+				const cleanup = await startDesktopAnalytics();
+				if (disposed) cleanup();
+				else stop = cleanup;
+			})
+			.catch(() => undefined);
+		return () => {
+			disposed = true;
+			stop?.();
+		};
 	}, []);
 	// Native Application Menu → renderer action dispatcher. Lives on the
 	// root so the bindings work in every view (chat, settings, onboarding).
@@ -362,13 +366,20 @@ function ReadyApp({
 		);
 	}, [isSignedIn, onboardingCompleted, user?.id]);
 	useEffect(() => {
-		trackAnalyticsScreen(
-			onboardingCompleted
-				? view === "settings"
-					? "settings"
-					: activeMainTab
-				: "onboarding",
-		);
+		let disposed = false;
+		const screen = onboardingCompleted
+			? view === "settings"
+				? "settings"
+				: activeMainTab
+			: "onboarding";
+		void import("./lib/analytics.ts")
+			.then(({ trackAnalyticsScreen }) => {
+				if (!disposed) trackAnalyticsScreen(screen);
+			})
+			.catch(() => undefined);
+		return () => {
+			disposed = true;
+		};
 	}, [activeMainTab, onboardingCompleted, view]);
 
 	if (!onboardingCompleted) {
