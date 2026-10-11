@@ -2865,6 +2865,7 @@ test.each([
 	"none",
 	"runtime",
 	"toolchain",
+	"memory",
 ])("image build receipts follow the current installer result (failure %s)", (fails) => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-image-receipt-"));
 	try {
@@ -2915,7 +2916,7 @@ touch '${join(status, "ready")}'
 			[
 				"-c",
 				`sleep() { :; }
-sudo() { echo "Unexpected privilege escalation" >&2; return 99; }
+sudo() { echo "Image memory preparation unavailable" >&2; return ${fails === "memory" ? 26 : 99}; }
 ${script}`,
 			],
 			{
@@ -2923,18 +2924,34 @@ ${script}`,
 				env: {
 					...process.env,
 					ZUSE_PROJECT_BUILD_ID: "new-build",
+					ZUSE_PROJECT_IMAGE_PROVIDER: fails === "memory" ? "e2b" : "boxd",
 					ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.invalid/pinned.json",
 					ZUSE_RUNTIME_WIRE_PROTOCOL: "7",
 				},
 			},
 		);
 		expect(result.status, result.stderr).toBe(
-			fails === "runtime" ? 23 : fails === "toolchain" ? 24 : 0,
+			fails === "runtime"
+				? 23
+				: fails === "toolchain"
+					? 24
+					: fails === "memory"
+						? 26
+						: 0,
 		);
 		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
-			fails === "runtime" ? "23\n" : fails === "toolchain" ? "24\n" : "0\n",
+			fails === "runtime"
+				? "23\n"
+				: fails === "toolchain"
+					? "24\n"
+					: fails === "memory"
+						? "26\n"
+						: "0\n",
 		);
-		expect(existsSync(join(status, "ready"))).toBe(fails === "none");
+		// A post-builder failure must win even when the builder wrote ready.
+		expect(existsSync(join(status, "ready"))).toBe(
+			fails === "none" || fails === "memory",
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

@@ -93,6 +93,7 @@ import {
 } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { randomToken, sha256Hex } from "./crypto.ts";
+import { IMAGE_MEMORY_PREPARATION_SCRIPT } from "./image-memory-preparation.ts";
 import {
 	type SandboxOfferConfig,
 	SandboxOfferConfiguration,
@@ -133,6 +134,7 @@ const runtimeUpdateEnvironment = (
 			};
 
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
+
 const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
@@ -166,6 +168,10 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   printf 'preparing-runtime-cache\\n' >/var/lib/zuse/project-build/failure-phase
   mkdir -p /opt/zuse/node-compile-cache
   NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache node --input-type=module -e 'await import("/opt/zuse/current/bin.mjs")' >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  if [ "\${ZUSE_PROJECT_IMAGE_PROVIDER:-}" = e2b ]; then
+    printf 'preparing-snapshot-memory\\n' >/var/lib/zuse/project-build/failure-phase
+    { ${IMAGE_MEMORY_PREPARATION_SCRIPT} } >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  fi
   rm -f /var/lib/zuse/project-build/failure-phase
 fi
 `;
@@ -1035,6 +1041,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					args: ["-c", PROJECT_IMAGE_BUILD_SCRIPT],
 					env: {
 						ZUSE_PROJECT_BUILD_ID: build.buildId,
+						ZUSE_PROJECT_IMAGE_PROVIDER: build.provider,
 						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: build.buildId,
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
 						ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
