@@ -4377,7 +4377,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			candidate: Fragment,
 			qualifier: "" | "current." = "",
 		) =>
-			sql`CASE WHEN ${sql.literal(`${qualifier}request_config #>> '{runtimeActivation,phase}'`)} IN ${sql.in(ACTIVE_RUNTIME_ACTIVATION_PHASES)} THEN LEAST(${sql.literal(`${qualifier}next_action_at`)}, ${candidate}) ELSE ${candidate} END`;
+			sql`CASE WHEN ${sql.literal(`${qualifier}request_config -> 'runtimeReleaseChangeRequested'`)} = 'true'::jsonb OR ${sql.literal(`${qualifier}request_config #>> '{runtimeActivation,phase}'`)} IN ${sql.in(ACTIVE_RUNTIME_ACTIVATION_PHASES)} THEN LEAST(${sql.literal(`${qualifier}next_action_at`)}, ${candidate}) ELSE ${candidate} END`;
 
 		const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
 			effect.pipe(Effect.orDie);

@@ -541,12 +541,16 @@ else await writeResult(committed);
 /** Compatibility name retained for the Codex-only grant contract test. */
 export const CODEX_GRANT_SOURCE = AUTH_GRANT_SOURCE;
 
-type Authority = {
+/** Where a persisted authority lives; carries no observed power state. */
+type AuthorityLocation = {
 	readonly provider: SandboxProviderAdapter;
 	readonly sandboxId: string;
-	readonly state: "running" | "paused";
 	readonly storageIncarnationId: string;
 	readonly authEpoch: number;
+};
+
+type Authority = AuthorityLocation & {
+	readonly state: "running" | "paused";
 };
 
 export const cloudAuthAuthorityLabel = (input: {
@@ -740,6 +744,10 @@ try { accessSync(home + "/private.pem", constants.R_OK); privateKey = true; } ca
 process.stdout.write(read("bootstrap-version") === version && read("storage-incarnation-id") === incarnation && read("key-id") && read("public.jwk.json") && privateKey ? "ready" : "repair");
 `;
 
+const authorityBootstrapVersion = sha256Hex(
+	JSON.stringify(AUTH_BOOTSTRAP_FILES),
+);
+
 const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 	function* (authority: Authority) {
 		const timed = (stage: string) =>
@@ -747,7 +755,7 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 				{ providerSandboxId: authority.sandboxId },
 				`auth.${stage}`,
 			);
-		const version = yield* sha256Hex(JSON.stringify(AUTH_BOOTSTRAP_FILES));
+		const version = yield* authorityBootstrapVersion;
 		const ready = yield* Effect.gen(function* () {
 			if (authority.provider.runProcess !== undefined) {
 				const result = yield* authority.provider
@@ -1496,29 +1504,19 @@ interface IssueAuthorityGrantInput {
 	readonly previousProviderAccountId?: string;
 }
 
-const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
+/** The durable request, lock, and cache identity shared by every grant attempt. */
+const grantPaths = (input: IssueAuthorityGrantInput, operationId: string) => ({
+	requestPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`,
+	resultPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`,
+	cachePath: `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`,
+	lockPath: `${AUTH_HOME}/${input.providerId}-refresh.lock`,
+});
+
+const grantRequestJson = (
 	input: IssueAuthorityGrantInput,
-) {
-	if (
-		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
-			input.requestId,
-		) ||
-		input.recipientPublicJwk.length > 16_384 ||
-		(input.previousProviderAccountId?.length ?? 0) > 256
-	)
-		return yield* Effect.fail(
-			badRequest(`invalid_${input.providerId}_grant_request`),
-		);
-	const timed = (stage: string) =>
-		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
-	const authority = yield* provisionAuthority(input.accountId).pipe(
-		timed("prepare-authority"),
-	);
-	const operationId = crypto.randomUUID();
-	const requestPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`;
-	const resultPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`;
-	const cachePath = `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`;
-	const request = JSON.stringify({
+	authority: Pick<AuthorityLocation, "storageIncarnationId" | "authEpoch">,
+) =>
+	JSON.stringify({
 		protocolVersion: 1,
 		...(input.bindProviderId ? { providerId: input.providerId } : {}),
 		requestId: input.requestId,
@@ -1540,71 +1538,225 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		authorityIncarnationId: authority.storageIncarnationId,
 		authorityEpoch: authority.authEpoch,
 	});
-	const value = yield* Effect.gen(function* () {
-		if (authority.provider.runProcess !== undefined) {
-			// Keep the same durable request/cache and refresh lock, but execute the
-			// short operation directly instead of installing a service and polling.
-			const result = yield* authority.provider
-				.runProcess(authority.sandboxId, {
-					command: "/bin/bash",
-					args: [
-						"-c",
-						'umask 077; printf %s "$1" > "$2" && flock -x "$3" node "$4" "$2" "$5" "$6" && cat "$5"',
-						"zuse-auth-grant",
-						request,
-						requestPath,
-						`${AUTH_HOME}/${input.providerId}-refresh.lock`,
-						AUTH_CODEX_GRANT,
-						resultPath,
-						cachePath,
-					],
-					user: "zuse",
-				})
-				.pipe(
-					timed("execute-grant"),
-					Effect.mapError(() =>
-						serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-					),
-				);
-			if (result.exitCode !== 0)
-				return yield* serviceUnavailable(
-					`${input.providerId}-auth-reconnecting`,
-				);
-			return result.stdout;
-		}
-		yield* authority.provider
-			.writeTextFile(authority.sandboxId, requestPath, request, "zuse")
-			.pipe(
-				timed("write-grant-request"),
-				Effect.mapError(() =>
-					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-				),
-			);
-		yield* authority.provider
-			.startProcess(authority.sandboxId, {
-				command: "flock",
+
+// Keep the same durable request/cache and refresh lock, but execute the
+// short operation directly instead of installing a service and polling.
+const GRANT_SHELL =
+	'umask 077; printf %s "$1" > "$2" && flock -x "$3" node "$4" "$2" "$5" "$6" && cat "$5"';
+// Readiness is proven in the same guest run; a stale or missing bootstrap
+// reports "repair" and exits before any request is written or lock taken.
+const READINESS_REPAIR_EXIT = 75;
+const READINESS_CHECK_FAILED_EXIT = 70;
+const READY_GRANT_SHELL = `state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
+
+const grantShellArgs = (
+	request: string,
+	paths: ReturnType<typeof grantPaths>,
+) => [
+	"zuse-auth-grant",
+	request,
+	paths.requestPath,
+	paths.lockPath,
+	AUTH_CODEX_GRANT,
+	paths.resultPath,
+	paths.cachePath,
+];
+
+/**
+ * One guest run for a persisted ready authority: verify the exact bootstrap,
+ * incarnation and keys, then execute the grant, while the idle timeout is
+ * extended concurrently. Anything short of a proven-ready execution returns
+ * null so the caller takes the existing provisioning path with the same
+ * request identity; the grant cache makes a lost response idempotent.
+ */
+const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	operationId: string,
+) {
+	const store = yield* CloudWorkspaceStore;
+	const locator = yield* store.getCloudAuthAuthority(input.accountId);
+	if (locator?.state !== "ready" || locator.providerSandboxId === undefined)
+		return null;
+	const provider = yield* providerForAuthority(locator);
+	const runProcess = provider.runProcess;
+	if (runProcess === undefined) return null;
+	const location: AuthorityLocation = {
+		provider,
+		sandboxId: locator.providerSandboxId,
+		storageIncarnationId: locator.storageIncarnationId,
+		authEpoch: locator.authEpoch,
+	};
+	const paths = grantPaths(input, operationId);
+	const version = yield* authorityBootstrapVersion;
+	const timed = (stage: string) =>
+		measureCloudStage(
+			{ workspaceId: input.workspaceId, providerSandboxId: location.sandboxId },
+			`auth.${stage}`,
+		);
+	const [extended, executed] = yield* Effect.all(
+		[
+			provider
+				.extendTimeout(location.sandboxId, AUTH_TIMEOUT_SECONDS)
+				.pipe(timed("extend-timeout"), Effect.result),
+			runProcess(location.sandboxId, {
+				command: "/bin/bash",
 				args: [
-					"-x",
-					`${AUTH_HOME}/${input.providerId}-refresh.lock`,
-					"node",
-					AUTH_CODEX_GRANT,
-					requestPath,
-					resultPath,
-					cachePath,
+					"-c",
+					READY_GRANT_SHELL,
+					...grantShellArgs(grantRequestJson(input, location), paths),
+					AUTH_READINESS_SOURCE,
+					AUTH_HOME,
+					version,
+					location.storageIncarnationId,
 				],
 				user: "zuse",
-				tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
+			}).pipe(timed("ready-grant"), Effect.result),
+		],
+		{ concurrency: "unbounded" },
+	);
+	const fallback = (reason: string) => {
+		console.info("[cloud-auth] fast grant fallback", {
+			sandboxId: location.sandboxId,
+			reason,
+		});
+		return null;
+	};
+	if (executed._tag === "Failure") return fallback("authority-unreachable");
+	const result = executed.success;
+	if (
+		result.exitCode === READINESS_REPAIR_EXIT ||
+		result.exitCode === READINESS_CHECK_FAILED_EXIT
+	)
+		return fallback(
+			result.stdout === "repair" ? "stale-bootstrap" : "readiness-unproven",
+		);
+	if (extended._tag === "Failure")
+		console.warn("[cloud-auth] authority timeout extension failed", {
+			sandboxId: location.sandboxId,
+		});
+	// Readiness was proven, so a failing grant is this attempt's answer, never a
+	// reason to run a second refresh through the provisioning path.
+	if (result.exitCode !== 0)
+		return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
+	return { authority: location, value: result.stdout };
+});
+
+const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
+	input: IssueAuthorityGrantInput,
+) {
+	if (
+		!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(
+			input.requestId,
+		) ||
+		input.recipientPublicJwk.length > 16_384 ||
+		(input.previousProviderAccountId?.length ?? 0) > 256
+	)
+		return yield* Effect.fail(
+			badRequest(`invalid_${input.providerId}_grant_request`),
+		);
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	const operationId = crypto.randomUUID();
+	const fast = yield* fastAuthorityGrant(input, operationId);
+	const { authority, value } =
+		fast ??
+		(yield* Effect.gen(function* () {
+			const authority = yield* provisionAuthority(input.accountId).pipe(
+				timed("prepare-authority"),
+			);
+			const paths = grantPaths(input, operationId);
+			const request = grantRequestJson(input, authority);
+			const value = yield* executeProvisionedGrant(
+				input,
+				authority,
+				operationId,
+				request,
+				paths,
+			);
+			return { authority, value };
+		}));
+	return yield* parseSealedGrant(input, authority, value);
+});
+
+const executeProvisionedGrant = Effect.fn("executeProvisionedGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	authority: Authority,
+	operationId: string,
+	request: string,
+	{
+		requestPath,
+		resultPath,
+		cachePath,
+		lockPath,
+	}: ReturnType<typeof grantPaths>,
+) {
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	if (authority.provider.runProcess !== undefined) {
+		const result = yield* authority.provider
+			.runProcess(authority.sandboxId, {
+				command: "/bin/bash",
+				args: [
+					"-c",
+					GRANT_SHELL,
+					...grantShellArgs(request, {
+						requestPath,
+						resultPath,
+						cachePath,
+						lockPath,
+					}),
+				],
+				user: "zuse",
 			})
 			.pipe(
-				timed("start-grant"),
+				timed("execute-grant"),
 				Effect.mapError(() =>
 					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
 				),
 			);
-		return yield* waitForFile(authority, resultPath, 350).pipe(
-			timed("receive-grant"),
+		if (result.exitCode !== 0)
+			return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
+		return result.stdout;
+	}
+	yield* authority.provider
+		.writeTextFile(authority.sandboxId, requestPath, request, "zuse")
+		.pipe(
+			timed("write-grant-request"),
+			Effect.mapError(() =>
+				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+			),
 		);
-	});
+	yield* authority.provider
+		.startProcess(authority.sandboxId, {
+			command: "flock",
+			args: [
+				"-x",
+				lockPath,
+				"node",
+				AUTH_CODEX_GRANT,
+				requestPath,
+				resultPath,
+				cachePath,
+			],
+			user: "zuse",
+			tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
+		})
+		.pipe(
+			timed("start-grant"),
+			Effect.mapError(() =>
+				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+			),
+		);
+	return yield* waitForFile(authority, resultPath, 350).pipe(
+		timed("receive-grant"),
+	);
+});
+
+const parseSealedGrant = Effect.fn("parseSealedGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	authority: Pick<AuthorityLocation, "storageIncarnationId" | "authEpoch">,
+	value: string,
+) {
 	let parsed: { readonly errorCode?: unknown; readonly sealed?: unknown };
 	try {
 		parsed = JSON.parse(value) as typeof parsed;

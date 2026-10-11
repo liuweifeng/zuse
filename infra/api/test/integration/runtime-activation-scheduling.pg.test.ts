@@ -48,6 +48,7 @@ test.skipIf(!url)(
 			);
 			const store = await runtime.runPromise(CloudWorkspaceStore);
 			for (const phase of [
+				"requested",
 				"preparing",
 				"launching",
 				"confirming",
@@ -78,12 +79,16 @@ test.skipIf(!url)(
 								sessionHeadVersion: 5,
 								runtimeGeneration: 1,
 								gatewayEpoch: 1,
-								runtimeActivation: {
-									id: "activation",
-									phase,
-									startedAtMs: 50,
-									attempts: 1,
-								},
+								...(phase === "requested"
+									? { runtimeReleaseChangeRequested: true }
+									: {
+											runtimeActivation: {
+												id: "activation",
+												phase,
+												startedAtMs: 50,
+												attempts: 1,
+											},
+										}),
 							},
 							nextActionAtMs: 100,
 							revision: 0,

@@ -22,6 +22,7 @@ import {
 } from "@zuse/contracts";
 import {
 	makeSandboxProviders,
+	type SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
@@ -36,6 +37,7 @@ import {
 	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
 	cloudAuthStatus,
+	issueProviderGrant,
 	parseDeviceLoginOutput,
 	pollCloudAuthLogin,
 	provisionCloudAuth,
@@ -920,5 +922,281 @@ describe("authority bootstrap readiness", () => {
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
+	});
+});
+
+describe("cloud auth authority grant fast path", () => {
+	const home = "/home/zuse/.zuse/cloud-auth";
+	const requestId = "550e8400-e29b-41d4-a716-446655440000";
+	const grantInput = {
+		accountId: "account",
+		workspaceId: "workspace-1",
+		runtimeGeneration: 3,
+		providerId: "claude" as const,
+		recipientPublicJwk: "{}",
+		recipientKeyThumbprint: "runtime-thumbprint",
+		requestId,
+		reason: "initial" as const,
+	};
+	type RunProcessInput = Parameters<
+		NonNullable<SandboxProviderAdapter["runProcess"]>
+	>[1];
+	const scriptOf = (input: RunProcessInput) =>
+		input.command === "node"
+			? "readiness"
+			: input.args?.[1]?.includes('"$7"')
+				? "ready-grant"
+				: "grant";
+	const requestArg = (input: RunProcessInput) =>
+		JSON.parse(input.args?.[3] ?? "{}") as { readonly requestId?: string };
+
+	const harness = (options: {
+		readonly readyGrant: (
+			input: RunProcessInput,
+		) => Effect.Effect<
+			{ readonly exitCode: number; readonly stdout: string },
+			SandboxProviderError
+		>;
+		readonly inspectState?: "running" | null;
+	}) =>
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			yield* store.claimCloudAuthAuthority({
+				accountId: "account",
+				provider: "fake",
+				candidateStorageIncarnationId: "incarnation",
+				toolchainVersion: "test",
+				leaseOwner: "worker",
+				nowMs: 100,
+				leaseExpiresAtMs: 200,
+			});
+			yield* store.completeCloudAuthAuthorityProvisioning({
+				accountId: "account",
+				providerSandboxId: "authority",
+				storageIncarnationId: "incarnation",
+				toolchainVersion: "test",
+				leaseOwner: "worker",
+				nowMs: 150,
+			});
+			const locator = yield* store.getCloudAuthAuthority("account");
+			const sealed = JSON.stringify({
+				sealed: {
+					protocolVersion: 1,
+					providerId: "claude",
+					requestId,
+					keyThumbprint: "runtime-thumbprint",
+					authorityIncarnationId: "incarnation",
+					authorityEpoch: locator?.authEpoch,
+					wrappedKey: "wrapped",
+					iv: "iv",
+					ciphertext: "ciphertext",
+					tag: "tag",
+				},
+			});
+			const files = new Map<string, string>();
+			const calls: RunProcessInput[] = [];
+			const counters = {
+				inspections: 0,
+				extensions: 0,
+				initializations: 0,
+				creations: 0,
+			};
+			const fake = yield* (yield* SandboxProviders).get("fake");
+			const registry = yield* makeSandboxProviders({
+				registrations: [
+					{
+						adapter: {
+							...fake,
+							inspect: () => {
+								counters.inspections++;
+								return Effect.succeed(
+									options.inspectState === null
+										? null
+										: {
+												providerSandboxId: "authority",
+												providerLabel: "authority",
+												state: "running" as const,
+											},
+								);
+							},
+							create: () => {
+								counters.creations++;
+								return Effect.fail(
+									new SandboxProviderError({ code: "rejected" }),
+								);
+							},
+							recoverByLabel: () => Effect.succeed(null),
+							extendTimeout: () =>
+								Effect.sync(() => {
+									counters.extensions++;
+								}),
+							pathExists: (_id, path) => Effect.succeed(files.has(path)),
+							readTextFile: (_id, path) =>
+								Effect.succeed(files.get(path) ?? ""),
+							writeTextFile: (_id, path, contents) =>
+								Effect.sync(() => {
+									files.set(path, contents);
+								}),
+							startProcess: (_id, spec) =>
+								Effect.sync(() => {
+									if (spec.tag !== "zuse-cloud-auth-initialize") return;
+									counters.initializations++;
+									files.set(spec.args?.at(-1) ?? "", "ready");
+									files.set(`${home}/key-id`, "key");
+									files.set(`${home}/private.pem`, "private");
+									files.set(
+										`${home}/grok-toolchain-version`,
+										GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+									files.set(`${home}/public.jwk.json`, "{}");
+									files.set(`${home}/storage-incarnation-id`, "incarnation");
+									files.set(
+										`${home}/codex-toolchain-version`,
+										CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+								}),
+							runProcess: (_id, input) => {
+								calls.push(input);
+								switch (scriptOf(input)) {
+									case "readiness":
+										return Effect.succeed({
+											exitCode: 0,
+											stdout: files.has(`${home}/key-id`) ? "ready" : "repair",
+										});
+									case "ready-grant":
+										return options.readyGrant(input);
+									default:
+										return Effect.succeed({ exitCode: 0, stdout: sealed });
+								}
+							},
+						},
+					},
+				],
+				defaultProviderId: "fake",
+			});
+			const result = yield* issueProviderGrant(grantInput).pipe(
+				Effect.provideService(SandboxProviders, registry),
+				Effect.result,
+			);
+			return { result, calls, counters };
+		}).pipe(
+			Effect.provide(
+				Layer.mergeAll(
+					CloudWorkspaceStoreMemory,
+					SandboxProvidersFake,
+					Config.layer({
+						apiIssuer: "https://api.test",
+						workosJwksUrl: "https://unused.test/jwks",
+						workosIssuer: "https://unused.test",
+						mintPrivateKey: Redacted.make("{}"),
+						mintPublicKey: "{}",
+						cloudAuthProviderId: "fake",
+					}),
+				),
+			),
+		);
+
+	test("a ready authority grants in one guest run without a separate inspect or readiness call", async () => {
+		const { result, calls, counters } = await Effect.runPromise(
+			harness({
+				readyGrant: (input) =>
+					Effect.succeed({
+						exitCode: 0,
+						stdout: JSON.stringify({
+							sealed: {
+								protocolVersion: 1,
+								providerId: "claude",
+								requestId,
+								keyThumbprint: "runtime-thumbprint",
+								authorityIncarnationId: "incarnation",
+								authorityEpoch: JSON.parse(input.args?.[3] ?? "{}")
+									.authorityEpoch,
+								wrappedKey: "wrapped",
+								iv: "iv",
+								ciphertext: "ciphertext",
+								tag: "tag",
+							},
+						}),
+					}),
+			}),
+		);
+		expect(result._tag).toBe("Success");
+		if (result._tag === "Success")
+			expect(result.success).toMatchObject({
+				providerId: "claude",
+				requestId,
+				authorityIncarnationId: "incarnation",
+			});
+		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
+		// The exact readiness program, bootstrap hash and incarnation ride along.
+		const args = calls[0]?.args ?? [];
+		expect(args).toContain(AUTH_READINESS_SOURCE);
+		expect(args.at(-1)).toBe("incarnation");
+		expect(requestArg(calls[0] as RunProcessInput).requestId).toBe(requestId);
+		expect(counters).toEqual({
+			inspections: 0,
+			extensions: 1,
+			initializations: 0,
+			creations: 0,
+		});
+	});
+
+	test("a stale bootstrap falls back to provisioning and repairs before granting with the same request", async () => {
+		const { result, calls, counters } = await Effect.runPromise(
+			harness({
+				readyGrant: () => Effect.succeed({ exitCode: 75, stdout: "repair" }),
+			}),
+		);
+		expect(result._tag).toBe("Success");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant", "readiness", "grant"]);
+		expect(counters.inspections).toBe(1);
+		expect(counters.initializations).toBe(1);
+		expect(counters.creations).toBe(0);
+		expect(requestArg(calls[2] as RunProcessInput).requestId).toBe(requestId);
+	});
+
+	test("a lost grant response retries the same durable request identity instead of a second refresh", async () => {
+		const { result, calls } = await Effect.runPromise(
+			harness({
+				readyGrant: () =>
+					Effect.fail(new SandboxProviderError({ code: "transient" })),
+			}),
+		);
+		expect(result._tag).toBe("Success");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant", "readiness", "grant"]);
+		const [first, , retry] = calls as [
+			RunProcessInput,
+			RunProcessInput,
+			RunProcessInput,
+		];
+		expect(requestArg(retry).requestId).toBe(requestArg(first).requestId);
+		// Same cache path: the grant script serves the cached result if the first run completed.
+		expect(retry.args?.at(-1)).toBe(first.args?.[8]);
+	});
+
+	test("a proven-ready authority whose grant fails reports the failure rather than refreshing again", async () => {
+		const { result, calls } = await Effect.runPromise(
+			harness({
+				readyGrant: () => Effect.succeed({ exitCode: 1, stdout: "" }),
+			}),
+		);
+		expect(result._tag).toBe("Failure");
+		if (result._tag === "Failure")
+			expect(result.failure.code).toBe("claude-auth-reconnecting");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
+	});
+
+	test("a lost authority is never silently replaced from the fast path", async () => {
+		const { result, counters } = await Effect.runPromise(
+			harness({
+				inspectState: null,
+				readyGrant: () =>
+					Effect.fail(new SandboxProviderError({ code: "not-found" })),
+			}),
+		);
+		expect(result._tag).toBe("Failure");
+		if (result._tag === "Failure")
+			expect(result.failure.code).toBe("codex-auth-reconnect-required");
+		expect(counters.creations).toBe(0);
 	});
 });
