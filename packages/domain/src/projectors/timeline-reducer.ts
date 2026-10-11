@@ -11,7 +11,7 @@ import {
 import {
 	applyExecutionMessage,
 	settleExecutionSteps,
-} from "./execution-steps.js";
+} from "./execution-steps.ts";
 
 /**
  * The one pure reducer for durable session-timeline state. This module is
