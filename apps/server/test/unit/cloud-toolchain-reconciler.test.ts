@@ -48,7 +48,7 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 			"ssh",
 			"tmux",
 			"rg",
-			"fd",
+			"fdfind",
 			"jq",
 			"python3",
 		])
@@ -65,6 +65,7 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 					env: {
 						...process.env,
 						PATH: system,
+						ZUSE_GH_BINARY: join(system, "gh"),
 						ZUSE_TOOLCHAINS_ROOT: join(root, "releases"),
 						ZUSE_TOOLCHAIN_CURRENT_LINK: current,
 						ZUSE_TOOLCHAIN_BIN_DIR: links,
@@ -81,6 +82,12 @@ test("reconciles an installed image toolchain into user-owned command links", ()
 			expect(readlinkSync(join(links, name))).toBe(
 				join(current, "node_modules/.bin", name),
 			);
+		expect(
+			spawnSync(join(links, "fd"), ["--version"], {
+				encoding: "utf8",
+				env: { PATH: system },
+			}).stdout.trim(),
+		).toBe("fixture-version");
 		const repeated = run();
 		expect(repeated.status, repeated.stderr).toBe(0);
 	} finally {

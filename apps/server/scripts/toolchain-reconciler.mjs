@@ -21,6 +21,7 @@ const toolchainsRoot =
 const currentLink =
 	process.env.ZUSE_TOOLCHAIN_CURRENT_LINK ?? "/opt/zuse/toolchain-current";
 const binDirectory = process.env.ZUSE_TOOLCHAIN_BIN_DIR ?? "/usr/local/bin";
+process.env.PATH = `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`;
 const skipSystemPackages =
 	process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES === "1";
 const skipInstall = process.env.ZUSE_TOOLCHAIN_SKIP_INSTALL === "1";
@@ -172,7 +173,7 @@ try {
 	}
 	for (const [command, args] of [
 		["git", ["--version"]],
-		["gh", ["--version"]],
+		[process.env.ZUSE_GH_BINARY ?? "gh", ["--version"]],
 		["git-lfs", ["--version"]],
 		["ssh", ["-V"]],
 		["tmux", ["-V"]],
@@ -181,7 +182,20 @@ try {
 		["jq", ["--version"]],
 		["python3", ["--version"]],
 	]) {
-		await run(command, args, { capture: true });
+		try {
+			await run(command, args, { capture: true });
+		} catch (cause) {
+			// Debian ships fd-find as fdfind. Image builds install aliases in the
+			// same user-owned directory as agent tools, without requiring sudo.
+			if (command !== "fd" || cause.code !== "ENOENT") throw cause;
+			await run("fdfind", args, { capture: true });
+			await mkdir(binDirectory, { recursive: true, mode: 0o755 });
+			const temporary = join(binDirectory, `fd.next-${randomUUID()}`);
+			await writeFile(temporary, '#!/bin/sh\nexec fdfind "$@"\n', {
+				mode: 0o755,
+			});
+			await rename(temporary, join(binDirectory, "fd"));
+		}
 	}
 } catch (cause) {
 	if (previousTarget === undefined) await rm(currentLink, { force: true });

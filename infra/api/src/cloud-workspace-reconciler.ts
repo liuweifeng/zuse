@@ -156,7 +156,7 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync("/opt/zuse/current/runtime-metadata.json", "utf8")); if (metadata.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) throw new Error("Installed image runtime protocol mismatch");' >>${PROJECT_BUILD_LOG_FILE} 2>&1
   # Install the signed release's agent tools once in the reusable image, never on wake.
   printf 'preparing-agent-tools\\n' >/var/lib/zuse/project-build/failure-phase
-  env ZUSE_TOOLCHAIN_BIN_DIR=/home/zuse/.local/bin ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  env ZUSE_GH_BINARY=/usr/bin/gh ZUSE_TOOLCHAIN_BIN_DIR=/home/zuse/.local/bin ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
   # Import only: compile the signed runtime without opening storage or enrolling.
   mkdir -p /opt/zuse/node-compile-cache
   NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache node --input-type=module -e 'await import("/opt/zuse/current/bin.mjs")' >>${PROJECT_BUILD_LOG_FILE} 2>&1
