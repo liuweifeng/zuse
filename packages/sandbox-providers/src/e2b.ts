@@ -268,9 +268,10 @@ export const makeE2bSandboxProvider = (
 		body?: unknown,
 	): Effect.Effect<Response, SandboxProviderError> =>
 		Effect.tryPromise({
-			try: () =>
+			try: (signal) =>
 				http.fetch(`${apiBaseUrl}${path}`, {
 					method,
+					signal,
 					headers: {
 						"x-api-key": Redacted.value(config.apiKey),
 						...(body === undefined
@@ -502,6 +503,13 @@ export const makeE2bSandboxProvider = (
 			input: SandboxProcessInput,
 			waitForExit = false,
 		) {
+			// A bounded authority request may stop waiting before the guest exits.
+			// Close its HTTP stream on interruption as well as normal completion;
+			// the remote operation retains its own idempotency and process lifetime.
+			const controller = yield* Effect.acquireRelease(
+				Effect.sync(() => new AbortController()),
+				(controller) => Effect.sync(() => controller.abort()),
+			);
 			yield* validatedEnv(input.env ?? {});
 			const timed = (stage: string) =>
 				measureCloudStage({ provider: "e2b", providerSandboxId }, stage);
@@ -515,7 +523,10 @@ export const makeE2bSandboxProvider = (
 							"Content-Type": "application/connect+json",
 							...envdHeaders(providerSandboxId, accessToken, input.user),
 						},
-						signal: AbortSignal.timeout(60_000),
+						signal: AbortSignal.any([
+							controller.signal,
+							AbortSignal.timeout(60_000),
+						]),
 						body: connectJsonEnvelope({
 							process: {
 								cmd: input.command,
@@ -577,6 +588,7 @@ export const makeE2bSandboxProvider = (
 				catch: () => providerError("transient"),
 			}).pipe(timed("e2b.process-receipt"));
 		},
+		Effect.scoped,
 	);
 
 	const guestCommand = (providerSandboxId: string, command: string) =>

@@ -102,9 +102,15 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 		);
 	}
 
+	/** RFC 7638 thumbprint of the recipient key every grant is sealed to. */
+	thumbprint(): Promise<string> {
+		return this.keyThumbprint;
+	}
+
 	readonly getTokens = (request: {
 		readonly reason: CodexGrantRefreshReason;
 		readonly previousChatgptAccountId?: string;
+		readonly requestId?: string;
 	}): Promise<CodexChatgptAuthTokens> => {
 		const nowMs = Date.now();
 		if (
@@ -121,8 +127,17 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 		return this.inFlight;
 	};
 
-	async initialize(): Promise<void> {
-		await this.getTokens({ reason: "initial" });
+	async initialize(requestId?: string): Promise<void> {
+		await this.getTokens({ reason: "initial", requestId });
+	}
+
+	/**
+	 * Accept a grant the API issued during bootstrap, sealed to this runtime's
+	 * enrolled key, through the same checks a refreshed grant passes. Serves
+	 * the single-flight initialization from cache afterwards.
+	 */
+	async seed(sealed: SealedCodexGrant): Promise<void> {
+		await this.acceptGrant(sealed, sealed.requestId);
 	}
 
 	close(): void {
@@ -150,13 +165,69 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 		this.scheduleRecoveryRetry();
 	};
 
+	/** The one verification path for every grant, refreshed or seeded. */
+	private async acceptGrant(
+		sealed: SealedCodexGrant,
+		requestId: string,
+		previousChatgptAccountId?: string,
+	): Promise<CodexChatgptAuthTokens> {
+		const keyThumbprint = await this.keyThumbprint;
+		if (
+			sealed.requestId !== requestId ||
+			sealed.keyThumbprint !== keyThumbprint
+		)
+			throw new Error("codex-auth-update-required");
+		const grant = await openCloudAuthGrant(
+			sealed,
+			this.input.credentialPrivateKey,
+			decodeGrantPlaintext,
+		);
+		const nowMs = Date.now();
+		if (
+			grant.zuseAccountId !== this.input.zuseAccountId ||
+			grant.workspaceId !== this.input.workspaceId ||
+			grant.runtimeGeneration !== this.input.runtimeGeneration ||
+			grant.keyThumbprint !== keyThumbprint ||
+			grant.authorityIncarnationId !== sealed.authorityIncarnationId ||
+			grant.authorityEpoch !== sealed.authorityEpoch ||
+			grant.issuedAt > nowMs + 60_000 ||
+			grant.expiresAt <= nowMs + MINIMUM_GRANT_LIFETIME_MS
+		)
+			throw new Error("codex-auth-update-required");
+		if (
+			previousChatgptAccountId !== undefined &&
+			previousChatgptAccountId !== grant.chatgptAccountId
+		)
+			throw new Error("codex-auth-reconnect-required");
+		const tokens: CodexChatgptAuthTokens = {
+			accessToken: grant.accessToken,
+			chatgptAccountId: grant.chatgptAccountId,
+			chatgptPlanType: grant.chatgptPlanType,
+			expiresAt: grant.expiresAt,
+		};
+		this.cached = tokens;
+		this.scheduleProactiveRefresh(tokens.expiresAt);
+		if (this.recoveryTimer !== null) {
+			clearTimeout(this.recoveryTimer);
+			this.recoveryTimer = null;
+		}
+		if (this.recoveryPending) {
+			const consumers = [...this.blockedConsumers];
+			this.blockedConsumers.clear();
+			this.recoveryPending = false;
+			this.input.onConsumersRecovered?.(consumers);
+		}
+		this.input.onStatus?.("ready");
+		return tokens;
+	}
+
 	private async refresh(request: {
 		readonly reason: CodexGrantRefreshReason;
 		readonly previousChatgptAccountId?: string;
+		readonly requestId?: string;
 	}): Promise<CodexChatgptAuthTokens> {
 		try {
-			const keyThumbprint = await this.keyThumbprint;
-			const requestId = crypto.randomUUID();
+			const requestId = request.requestId ?? crypto.randomUUID();
 			const sealed = await this.input.issueGrant(
 				new CodexGrantRequest({
 					requestId,
@@ -171,53 +242,11 @@ export class CloudCodexAuth implements CodexExternalAuthProvider {
 							}),
 				}),
 			);
-			if (
-				sealed.requestId !== requestId ||
-				sealed.keyThumbprint !== keyThumbprint
-			)
-				throw new Error("codex-auth-update-required");
-			const grant = await openCloudAuthGrant(
+			return await this.acceptGrant(
 				sealed,
-				this.input.credentialPrivateKey,
-				decodeGrantPlaintext,
+				requestId,
+				request.previousChatgptAccountId,
 			);
-			const nowMs = Date.now();
-			if (
-				grant.zuseAccountId !== this.input.zuseAccountId ||
-				grant.workspaceId !== this.input.workspaceId ||
-				grant.runtimeGeneration !== this.input.runtimeGeneration ||
-				grant.keyThumbprint !== keyThumbprint ||
-				grant.authorityIncarnationId !== sealed.authorityIncarnationId ||
-				grant.authorityEpoch !== sealed.authorityEpoch ||
-				grant.issuedAt > nowMs + 60_000 ||
-				grant.expiresAt <= nowMs + MINIMUM_GRANT_LIFETIME_MS
-			)
-				throw new Error("codex-auth-update-required");
-			if (
-				request.previousChatgptAccountId !== undefined &&
-				request.previousChatgptAccountId !== grant.chatgptAccountId
-			)
-				throw new Error("codex-auth-reconnect-required");
-			const tokens: CodexChatgptAuthTokens = {
-				accessToken: grant.accessToken,
-				chatgptAccountId: grant.chatgptAccountId,
-				chatgptPlanType: grant.chatgptPlanType,
-				expiresAt: grant.expiresAt,
-			};
-			this.cached = tokens;
-			this.scheduleProactiveRefresh(tokens.expiresAt);
-			if (this.recoveryTimer !== null) {
-				clearTimeout(this.recoveryTimer);
-				this.recoveryTimer = null;
-			}
-			if (this.recoveryPending) {
-				const consumers = [...this.blockedConsumers];
-				this.blockedConsumers.clear();
-				this.recoveryPending = false;
-				this.input.onConsumersRecovered?.(consumers);
-			}
-			this.input.onStatus?.("ready");
-			return tokens;
 		} catch (cause) {
 			const reason = failureReason(cause);
 			const status = reason.includes("reconnect-required")

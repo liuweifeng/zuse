@@ -13,6 +13,8 @@ export const CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY =
 	"workspace-authorization-v1" as const;
 export const CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY =
 	"command-author-v1" as const;
+/** The runtime seeds a bootstrap-issued launch grant; older runtimes refresh themselves. */
+export const CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY = "launch-grant-v1" as const;
 export const CloudRuntimeAccessRequest = Schema.Struct({
 	actorId: Schema.NonEmptyString,
 	membershipId: Schema.optional(Schema.NonEmptyString),

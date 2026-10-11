@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { type CodexGrantRequest, SealedCodexGrant } from "@zuse/contracts";
+import { CodexGrantRequest, SealedCodexGrant } from "@zuse/contracts";
 import {
 	type CryptoKey,
 	calculateJwkThumbprint,
@@ -173,5 +173,63 @@ describe("CloudCodexAuth", () => {
 			"codex-auth-reconnect-required",
 		]);
 		auth.close();
+	});
+});
+
+describe("CloudCodexAuth bootstrap seeding", () => {
+	const launchRequest = (requestId: string) =>
+		new CodexGrantRequest({
+			requestId,
+			protocolVersion: 1,
+			runtimeGeneration: 4,
+			credentialPublicJwk: "{}",
+			reason: "initial",
+		});
+
+	test("a seeded grant serves initialization and the request id is honored on refresh", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		const requests: string[] = [];
+		const auth = new CloudCodexAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: async (request) => {
+				requests.push(request.requestId);
+				return seal({ request, publicKey: pair.publicKey, keyThumbprint });
+			},
+		});
+		try {
+			await auth.seed(
+				await seal({
+					request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+					publicKey: pair.publicKey,
+					keyThumbprint,
+				}),
+			);
+			await auth.initialize("550e8400-e29b-41d4-a716-446655440000");
+			expect(requests).toEqual([]);
+			expect((await auth.getTokens({ reason: "initial" })).accessToken).toBe(
+				"access-only-token",
+			);
+			await expect(
+				auth.seed(
+					await seal({
+						request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+						publicKey: pair.publicKey,
+						keyThumbprint,
+						workspaceId: "workspace-2",
+					}),
+				),
+			).rejects.toThrow("update-required");
+			await auth.getTokens({
+				reason: "unauthorized",
+				requestId: "11111111-2222-8333-9444-555555555555",
+			});
+			expect(requests).toEqual(["11111111-2222-8333-9444-555555555555"]);
+		} finally {
+			auth.close();
+		}
 	});
 });

@@ -121,9 +121,15 @@ export class CloudProviderAuth {
 		);
 	}
 
+	/** RFC 7638 thumbprint of the recipient key every grant is sealed to. */
+	thumbprint(): Promise<string> {
+		return this.keyThumbprint;
+	}
+
 	readonly resolve = (
 		providerId: CloudAuthProvider,
 		reason: ProviderGrantRefreshReason = "initial",
+		requestId?: string,
 	): Promise<ProviderCredential> => {
 		const cached = this.cached.get(providerId);
 		// A session start deliberately refreshes so a changed account connection
@@ -143,7 +149,7 @@ export class CloudProviderAuth {
 		const current = this.inFlight.get(providerId);
 		if (current !== undefined) return current;
 		this.input.onStatus?.(providerId, "reconnecting");
-		const refresh = this.refresh(providerId, reason).finally(() => {
+		const refresh = this.refresh(providerId, reason, requestId).finally(() => {
 			this.inFlight.delete(providerId);
 		});
 		this.inFlight.set(providerId, refresh);
@@ -155,7 +161,10 @@ export class CloudProviderAuth {
 	 * is cached for the launch session's own initial resolve, so startup
 	 * readiness and the first turn share a single authority refresh.
 	 */
-	async prepare(providerId: CloudAuthProvider): Promise<void> {
+	async prepare(
+		providerId: CloudAuthProvider,
+		requestId?: string,
+	): Promise<void> {
 		const cached = this.cached.get(providerId);
 		// A grant recovered moments ago is already fresh; seeding it avoids a
 		// third round trip after the recovery refresh.
@@ -164,8 +173,18 @@ export class CloudProviderAuth {
 			this.recovering.has(providerId) ||
 			cached.expiresAt <= Date.now() + PROACTIVE_REFRESH_WINDOW_MS
 		)
-			await this.resolve(providerId, "initial");
+			await this.resolve(providerId, "initial", requestId);
 		this.seeded.add(providerId);
+	}
+
+	/**
+	 * Accept a grant the API issued during bootstrap, sealed to this runtime's
+	 * enrolled key. It passes exactly the checks a refreshed grant passes and
+	 * then serves the launch session's initial resolve without a round trip.
+	 */
+	async seed(sealed: SealedProviderGrant): Promise<void> {
+		await this.acceptGrant(sealed.providerId, sealed, sealed.requestId);
+		this.seeded.add(sealed.providerId);
 	}
 
 	async startGrokBridge(): Promise<void> {
@@ -245,13 +264,64 @@ export class CloudProviderAuth {
 		});
 	}
 
+	/** The one verification path for every grant, refreshed or seeded. */
+	private async acceptGrant(
+		providerId: CloudAuthProvider,
+		sealed: SealedProviderGrant,
+		requestId: string,
+	): Promise<ProviderCredential> {
+		const keyThumbprint = await this.keyThumbprint;
+		if (
+			sealed.providerId !== providerId ||
+			sealed.requestId !== requestId ||
+			sealed.keyThumbprint !== keyThumbprint
+		)
+			throw new Error(`${providerId}-auth-update-required`);
+		const grant = await openCloudAuthGrant(
+			sealed,
+			this.input.credentialPrivateKey,
+			decodeGrantPlaintext,
+		);
+		const nowMs = Date.now();
+		if (
+			grant.zuseAccountId !== this.input.zuseAccountId ||
+			grant.workspaceId !== this.input.workspaceId ||
+			grant.runtimeGeneration !== this.input.runtimeGeneration ||
+			grant.providerId !== providerId ||
+			grant.keyThumbprint !== keyThumbprint ||
+			grant.authorityIncarnationId !== sealed.authorityIncarnationId ||
+			grant.authorityEpoch !== sealed.authorityEpoch ||
+			grant.issuedAt > nowMs + 60_000 ||
+			grant.expiresAt <= nowMs + MINIMUM_GRANT_LIFETIME_MS
+		)
+			throw new Error(`${providerId}-auth-update-required`);
+		const credential: ProviderCredential = {
+			kind: grant.credentialKind,
+			secret: grant.secret,
+			updatedAt: grant.issuedAt,
+		};
+		this.cached.set(providerId, {
+			credential,
+			providerAccountId: grant.providerAccountId,
+			issuer: grant.issuer,
+			expiresAt: grant.expiresAt,
+		});
+		this.scheduleProactiveRefresh(providerId, grant.expiresAt);
+		const recoveryTimer = this.recoveryTimers.get(providerId);
+		if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
+		this.recoveryTimers.delete(providerId);
+		if (this.recovering.delete(providerId))
+			this.input.onRecovered?.(providerId);
+		this.input.onStatus?.(providerId, "ready");
+		return credential;
+	}
+
 	private async refresh(
 		providerId: CloudAuthProvider,
 		reason: ProviderGrantRefreshReason,
+		requestId: string = crypto.randomUUID(),
 	): Promise<ProviderCredential> {
 		try {
-			const keyThumbprint = await this.keyThumbprint;
-			const requestId = crypto.randomUUID();
 			const previousProviderAccountId =
 				this.cached.get(providerId)?.providerAccountId;
 			const sealed = await this.input.issueGrant(
@@ -268,49 +338,7 @@ export class CloudProviderAuth {
 						: { previousProviderAccountId }),
 				}),
 			);
-			if (
-				sealed.providerId !== providerId ||
-				sealed.requestId !== requestId ||
-				sealed.keyThumbprint !== keyThumbprint
-			)
-				throw new Error(`${providerId}-auth-update-required`);
-			const grant = await openCloudAuthGrant(
-				sealed,
-				this.input.credentialPrivateKey,
-				decodeGrantPlaintext,
-			);
-			const nowMs = Date.now();
-			if (
-				grant.zuseAccountId !== this.input.zuseAccountId ||
-				grant.workspaceId !== this.input.workspaceId ||
-				grant.runtimeGeneration !== this.input.runtimeGeneration ||
-				grant.providerId !== providerId ||
-				grant.keyThumbprint !== keyThumbprint ||
-				grant.authorityIncarnationId !== sealed.authorityIncarnationId ||
-				grant.authorityEpoch !== sealed.authorityEpoch ||
-				grant.issuedAt > nowMs + 60_000 ||
-				grant.expiresAt <= nowMs + MINIMUM_GRANT_LIFETIME_MS
-			)
-				throw new Error(`${providerId}-auth-update-required`);
-			const credential: ProviderCredential = {
-				kind: grant.credentialKind,
-				secret: grant.secret,
-				updatedAt: grant.issuedAt,
-			};
-			this.cached.set(providerId, {
-				credential,
-				providerAccountId: grant.providerAccountId,
-				issuer: grant.issuer,
-				expiresAt: grant.expiresAt,
-			});
-			this.scheduleProactiveRefresh(providerId, grant.expiresAt);
-			const recoveryTimer = this.recoveryTimers.get(providerId);
-			if (recoveryTimer !== undefined) clearTimeout(recoveryTimer);
-			this.recoveryTimers.delete(providerId);
-			if (this.recovering.delete(providerId))
-				this.input.onRecovered?.(providerId);
-			this.input.onStatus?.(providerId, "ready");
-			return credential;
+			return await this.acceptGrant(providerId, sealed, requestId);
 		} catch (cause) {
 			const reason = reasonOf(cause);
 			const status = reason.includes("reconnect-required")

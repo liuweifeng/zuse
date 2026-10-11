@@ -1,4 +1,4 @@
-import { Effect, Redacted } from "effect";
+import { Effect, Fiber, Redacted } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
 import { boundedCache } from "../../src/credential-cache.ts";
 import {
@@ -510,6 +510,58 @@ describe("E2B sandbox provider", () => {
 				),
 			),
 		).rejects.toMatchObject({ code: "transient" });
+	});
+
+	test.each([
+		"headers",
+		"stream",
+	])("closes an interrupted process request while waiting for %s", async (phase) => {
+		const connections = boundedCache<{ accessToken: string; domain: string }>(
+			1,
+		);
+		connections.set("sbx_1", { accessToken: "token", domain: "guest.test" });
+		let notifyWaiting: () => void = () => {};
+		const waiting = new Promise<void>((resolve) => {
+			notifyWaiting = resolve;
+		});
+		let requestSignal: AbortSignal | null | undefined;
+		const adapter = makeAdapter(
+			{
+				fetch: async (_url, init) => {
+					requestSignal = init?.signal;
+					if (phase === "headers") {
+						notifyWaiting();
+						return new Promise<Response>((_resolve, reject) => {
+							requestSignal?.addEventListener("abort", () =>
+								reject(new Error("aborted")),
+							);
+						});
+					}
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(
+									connectJsonResponse({ event: { start: { pid: 42 } } }),
+								);
+								requestSignal?.addEventListener("abort", () =>
+									controller.error(new Error("aborted")),
+								);
+							},
+							pull() {
+								notifyWaiting();
+							},
+						}),
+					);
+				},
+			},
+			connections,
+		);
+		const run = adapter.runProcess;
+		if (!run) throw new Error("missing short process support");
+		const fiber = Effect.runFork(run("sbx_1", { command: "node" }));
+		await waiting;
+		await Effect.runPromise(Fiber.interrupt(fiber));
+		expect(requestSignal?.aborted).toBe(true);
 	});
 
 	test("runs a short operation through exit and returns all stdout chunks", async () => {

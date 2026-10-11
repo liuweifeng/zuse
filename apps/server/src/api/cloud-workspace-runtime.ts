@@ -38,6 +38,7 @@ import {
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
 	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
+	CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY,
 	CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
@@ -85,6 +86,7 @@ import {
 	encryptCloudCommandBody,
 	keyedCloudCommandFingerprint,
 } from "@zuse/utils/cloud-command-crypto";
+import { launchGrantRequestId } from "@zuse/utils/cloud-launch-grant";
 import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import {
 	base64UrlToBytes,
@@ -364,6 +366,10 @@ const BootstrapResponse = Schema.Struct({
 	),
 	sealedTranscriptKey: Schema.String,
 	sealedProviderGrant: Schema.optional(Schema.String),
+	/** Launch agent's grant issued at enrollment; distinct from legacy env secrets. */
+	sealedLaunchGrant: Schema.optional(
+		Schema.Union([SealedProviderGrant, SealedCodexGrant]),
+	),
 });
 
 const ProviderGrant = Schema.Struct({
@@ -933,6 +939,8 @@ export const startCloudCodexAuth = <E, R>(
 		"initialize" | "close" | "getTokens" | "onDeliveryFailure"
 	>,
 	onReady: Effect.Effect<unknown, E, R>,
+	/** Startup-only request identity; the first refresh must carry it, later ones never. */
+	startupRequestId?: string,
 ) =>
 	Effect.gen(function* () {
 		yield* Effect.acquireRelease(
@@ -944,7 +952,7 @@ export const startCloudCodexAuth = <E, R>(
 				}),
 		);
 		yield* Effect.tryPromise({
-			try: () => auth.initialize(),
+			try: () => auth.initialize(startupRequestId),
 			catch: () => fail("codex-auth-reconnecting"),
 		}).pipe(
 			measureCloudStage({ workspaceId }, "runtime.codex-auth"),
@@ -984,6 +992,77 @@ export class ProviderReadySignal {
 		});
 	}
 }
+
+/**
+ * Startup identity for the launch agent's first grant.
+ *
+ * A grant bootstrap issued is seeded through the adapter's own verification.
+ * When bootstrap sent nothing (old API, slow or disconnected authority), the
+ * first refresh reuses the deterministic launch request id exactly once, so an
+ * issuance that completed after bootstrap timed out is served from the
+ * authority's cache. A rejected seed (wrong binding, expired) must never reuse
+ * that id: the authority cache would answer with the same bad grant.
+ */
+export const makeStartupLaunchGrant = (input: {
+	readonly workspaceId: string;
+	readonly runtimeGeneration: number;
+	readonly agent: string | undefined;
+	readonly sealed: SealedProviderGrant | SealedCodexGrant | undefined;
+}) => {
+	const agent = Schema.decodeUnknownOption(CloudAuthProvider)(input.agent);
+	const launchProvider = agent._tag === "None" ? null : agent.value;
+	let outcome: "absent" | "seeded" | "rejected" =
+		input.sealed === undefined ? "absent" : "rejected";
+	let consumed = false;
+	const sealedProvider =
+		input.sealed === undefined
+			? null
+			: input.sealed instanceof SealedProviderGrant
+				? input.sealed.providerId
+				: "codex";
+	return {
+		seed: Effect.fn("seedLaunchGrant")(function* (
+			seed: (
+				sealed: SealedProviderGrant | SealedCodexGrant,
+			) => Promise<unknown>,
+		) {
+			const sealed = input.sealed;
+			if (sealed === undefined || sealedProvider !== launchProvider)
+				return false;
+			const result = yield* Effect.tryPromise({
+				try: () => seed(sealed),
+				catch: (cause) =>
+					fail(
+						cause instanceof Error ? cause.message : "launch-grant-rejected",
+					),
+			}).pipe(Effect.result);
+			if (result._tag === "Failure") {
+				console.warn("[cloud-workspace-runtime] launch grant seed rejected", {
+					providerId: sealedProvider,
+					reason: result.failure.reason,
+				});
+				outcome = "rejected";
+				return false;
+			}
+			if (result.success !== false) outcome = "seeded";
+			return result.success !== false;
+		}),
+		/** Deterministic id for one startup attempt of the launch provider, or undefined. */
+		requestId: (providerId: CloudAuthProvider, thumbprint: Promise<string>) =>
+			Effect.promise(async () => {
+				if (outcome !== "absent" || providerId !== launchProvider || consumed)
+					return undefined;
+				consumed = true;
+				return launchGrantRequestId({
+					workspaceId: input.workspaceId,
+					runtimeGeneration: input.runtimeGeneration,
+					keyThumbprint: await thumbprint,
+					providerId,
+					protocolVersion: 1,
+				});
+			}),
+	};
+};
 
 /**
  * Credentials this runtime cannot obtain by waiting are a launch failure:
@@ -2706,6 +2785,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 												CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 												CLOUD_RUNTIME_COMMAND_AUTHOR_CAPABILITY,
 												CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
+												CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY,
 											],
 										},
 									}),
@@ -2882,7 +2962,16 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						// Launch-agent credential evidence by auth mode; nothing to await
 						// for image secrets or agents without cloud-managed credentials.
 						const providerRecovery = new ProviderReadySignal();
-						let codexAuth: Pick<CloudCodexAuth, "initialize"> | null = null;
+						const startupGrant = makeStartupLaunchGrant({
+							workspaceId: config.workspaceId,
+							runtimeGeneration: bootstrap.runtimeGeneration,
+							agent: bootstrap.launchIntent?.agent,
+							sealed: bootstrap.sealedLaunchGrant,
+						});
+						let codexAuth: Pick<
+							CloudCodexAuth,
+							"initialize" | "thumbprint"
+						> | null = null;
 						let brokerProviderAuth: CloudProviderAuth | null = null;
 						let nativeAccessCheck:
 							| ((providerId: "claude" | "codex") => Promise<void>)
@@ -2982,6 +3071,12 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								},
 							});
 							brokerProviderAuth = cloudProviderAuth;
+							// Seed before any resolver or initializer can start a refresh.
+							yield* startupGrant.seed((sealed) =>
+								sealed instanceof SealedProviderGrant
+									? cloudProviderAuth.seed(sealed)
+									: Promise.resolve(false),
+							);
 							yield* Effect.acquireRelease(
 								Effect.tryPromise({
 									try: async () => {
@@ -3078,6 +3173,13 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								},
 							});
 							codexAuth = cloudCodexAuth;
+							// Seeded before the single-flight initializer is forked; when nothing
+							// was seeded, that first refresh carries the startup request id.
+							yield* startupGrant.seed((sealed) =>
+								sealed instanceof SealedCodexGrant
+									? cloudCodexAuth.seed(sealed)
+									: Promise.resolve(false),
+							);
 							yield* startCloudCodexAuth(
 								config.workspaceId,
 								cloudCodexAuth,
@@ -3087,6 +3189,10 @@ export const makeCloudWorkspaceRuntimeLayer = (
 									messages,
 									providerId: "codex",
 								}),
+								yield* startupGrant.requestId(
+									"codex",
+									cloudCodexAuth.thumbprint(),
+								),
 							);
 						}
 						let sealedGrantProvider: CloudAuthProvider | undefined;
@@ -3143,15 +3249,21 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							if (providerId === sealedGrantProvider) return Effect.void;
 							const providerAuth = brokerProviderAuth;
 							if (providerAuth !== null)
-								return Effect.tryPromise({
-									try: () => providerAuth.prepare(providerId),
-									catch: (cause) =>
-										fail(
-											cause instanceof Error && cause.message.length > 0
-												? cause.message
-												: "provider-auth-reconnecting",
+								return startupGrant
+									.requestId(providerId, providerAuth.thumbprint())
+									.pipe(
+										Effect.flatMap((requestId) =>
+											Effect.tryPromise({
+												try: () => providerAuth.prepare(providerId, requestId),
+												catch: (cause) =>
+													fail(
+														cause instanceof Error && cause.message.length > 0
+															? cause.message
+															: "provider-auth-reconnecting",
+													),
+											}),
 										),
-								});
+									);
 							const checkNative = nativeAccessCheck;
 							if (
 								checkNative !== null &&
@@ -4140,9 +4252,26 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						organizationWorkspace,
 						ensureCredential,
 						recoverReadiness: postCurrentRuntimeReady("repository-ready").pipe(
+							measureCloudStage(
+								{
+									workspaceId: config.workspaceId,
+									runtimeGeneration: runtimeCredential.generation,
+								},
+								"runtime.warm-readiness",
+							),
 							// A retained session must be acknowledged too: repository readiness
 							// alone deliberately leaves session recovery fenced in the API.
-							Effect.andThen(summaryPublisher.publish("recovery")),
+							Effect.andThen(
+								summaryPublisher.publish("recovery").pipe(
+									measureCloudStage(
+										{
+											workspaceId: config.workspaceId,
+											runtimeGeneration: runtimeCredential.generation,
+										},
+										"runtime.warm-summary",
+									),
+								),
+							),
 							Effect.asVoid,
 							Effect.tap(() =>
 								Effect.sync(() => {

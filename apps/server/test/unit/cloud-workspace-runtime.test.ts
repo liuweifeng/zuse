@@ -12,6 +12,8 @@ import {
 	QueueState,
 	RuntimeAcknowledgment,
 	RuntimeLease,
+	SealedCodexGrant,
+	SealedProviderGrant,
 	SessionId,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -43,6 +45,7 @@ import {
 	keepCloudRuntimeActive,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
+	makeStartupLaunchGrant,
 	ProviderReadySignal,
 	prepareSelectedAgentCredential,
 	providerCredentialFailureIsTerminal,
@@ -57,6 +60,7 @@ import {
 	runtimeCredentialRenewalDelayMs,
 	runtimeReadyPhaseOnGatewayOpen,
 	signRuntimeRenewalProof,
+	startCloudCodexAuth,
 	startCloudWorkspaceLaunchIntent,
 	trackSnapshotNativeAccess,
 	writeGithubBrokerState,
@@ -2414,5 +2418,128 @@ describe("launch agent credential readiness", () => {
 		expect(
 			providerCredentialFailureIsTerminal("provider-auth-reconnecting"),
 		).toBe(false);
+	});
+});
+
+describe("bootstrap launch grant startup identity", () => {
+	const sealed = {
+		protocolVersion: 1 as const,
+		requestId: "550e8400-e29b-41d4-a716-446655440000",
+		keyThumbprint: "thumb",
+		authorityIncarnationId: "incarnation",
+		authorityEpoch: 1,
+		wrappedKey: "w",
+		iv: "i",
+		ciphertext: "c",
+		tag: "t",
+	};
+	const providerGrant = new SealedProviderGrant({
+		...sealed,
+		providerId: "claude",
+	});
+	const codexGrant = new SealedCodexGrant(sealed);
+	const thumbprint = Promise.resolve("thumb");
+	const make = (
+		agent: string | undefined,
+		sealedGrant: SealedProviderGrant | SealedCodexGrant | undefined,
+	) =>
+		makeStartupLaunchGrant({
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			agent,
+			sealed: sealedGrant,
+		});
+
+	it("seeds only the selected agent's grant and hands out no startup id afterwards", async () => {
+		const seeded: string[] = [];
+		const seed = (grant: SealedProviderGrant | SealedCodexGrant) => {
+			seeded.push(
+				grant instanceof SealedProviderGrant ? grant.providerId : "codex",
+			);
+			return Promise.resolve();
+		};
+		const claude = make("claude", providerGrant);
+		expect(await Effect.runPromise(claude.seed(seed))).toBe(true);
+		expect(
+			await Effect.runPromise(claude.requestId("claude", thumbprint)),
+		).toBeUndefined();
+		const mismatched = make("codex", providerGrant);
+		expect(await Effect.runPromise(mismatched.seed(seed))).toBe(false);
+		const codex = make("codex", codexGrant);
+		expect(await Effect.runPromise(codex.seed(seed))).toBe(true);
+		expect(seeded).toEqual(["claude", "codex"]);
+	});
+
+	it("uses the deterministic startup id exactly once when bootstrap sent no grant", async () => {
+		const absent = make("claude", undefined);
+		const first = await Effect.runPromise(
+			absent.requestId("claude", thumbprint),
+		);
+		expect(first).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+		);
+		// Later initial retries after expiry must use a fresh request.
+		expect(
+			await Effect.runPromise(absent.requestId("claude", thumbprint)),
+		).toBeUndefined();
+		// Never for a provider that is not the launch agent.
+		expect(
+			await Effect.runPromise(
+				make("claude", undefined).requestId("codex", thumbprint),
+			),
+		).toBeUndefined();
+	});
+
+	it("never reuses the startup id after a rejected seed, so a bad cached grant is not read again", async () => {
+		const rejected = make("claude", providerGrant);
+		expect(
+			await Effect.runPromise(
+				rejected.seed(() =>
+					Promise.reject(new Error("claude-auth-update-required")),
+				),
+			),
+		).toBe(false);
+		expect(
+			await Effect.runPromise(rejected.requestId("claude", thumbprint)),
+		).toBeUndefined();
+	});
+
+	it("forwards the startup id to the first Codex initializer only", async () => {
+		const initializations: Array<string | undefined> = [];
+		const auth = {
+			initialize: async (requestId?: string) => {
+				initializations.push(requestId);
+			},
+			close: () => {},
+			getTokens: async () => ({
+				accessToken: "test",
+				chatgptAccountId: "account",
+				chatgptPlanType: null,
+				expiresAt: Date.now() + 60_000,
+			}),
+			onDeliveryFailure: () => {},
+		};
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const startup = make("codex", undefined);
+				yield* startCloudCodexAuth(
+					"workspace-1",
+					auth,
+					Effect.void,
+					yield* startup.requestId("codex", thumbprint),
+				);
+				const seededStartup = make("codex", codexGrant);
+				yield* seededStartup.seed(() => Promise.resolve());
+				yield* startCloudCodexAuth(
+					"workspace-1",
+					auth,
+					Effect.void,
+					yield* seededStartup.requestId("codex", thumbprint),
+				);
+			}).pipe(Effect.scoped),
+		);
+		expect(initializations).toHaveLength(2);
+		expect(initializations[0]).toMatch(/^[0-9a-f-]{36}$/u);
+		expect(initializations[1]).toBeUndefined();
 	});
 });
