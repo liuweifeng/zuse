@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # Shared by initial bootstrap and resume. Keep the lock descriptor open across
 # exec so only one process can enter runtime storage and enrollment at a time.
+workspace_runtime_timing() {
+  printf '[cloud-timing] workspaceId=%s generation=%s stage=%s atMs=%s\n' \
+    "${ZUSE_CLOUD_WORKSPACE_ID:-unknown}" "${ZUSE_RUNTIME_GENERATION:-unknown}" \
+    "$1" "$(date +%s%3N)" >> "$status_dir/runtime.log"
+}
+
 initialize_workspace_runtime_attempt() {
   status_dir="${ZUSE_WORKSPACE_RUNTIME_STATUS_DIR:-${status_dir:-/var/lib/zuse/workspace}}"
   mkdir -p "$status_dir/attempts"
+  workspace_runtime_timing runtime.launcher-enter
   runtime_attempt_dir=$(mktemp -d "$status_dir/attempts/launch.XXXXXXXX")
   phase=initializing
   workspace_runtime_lock_acquired=0

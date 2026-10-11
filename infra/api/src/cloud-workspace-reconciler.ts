@@ -466,7 +466,9 @@ initialize_workspace_runtime_attempt
 acquire_workspace_runtime_lock
 ${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
 phase=runtime-compatibility
+workspace_runtime_timing runtime.compatibility-start
 ensure_workspace_runtime
+workspace_runtime_timing runtime.compatibility-end
 exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);

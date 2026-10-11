@@ -9,6 +9,7 @@ source "$runtime_launcher"
 if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" == 1 ]]; then source /etc/zuse/snapshot.env; fi
 initialize_workspace_runtime_attempt
 acquire_workspace_runtime_lock
+workspace_runtime_timing runtime.bootstrap-shell-enter
 workspace="${ZUSE_CLOUD_WORKSPACE_ROOT:?}"
 rm -f \
   "$status_dir/ready" \
@@ -114,8 +115,9 @@ mkfifo -m 600 "$credentials_event"
 runtime_command=("${ZUSE_RUNTIME_NODE:-node}" /opt/zuse/current/bin.mjs serve)
 [[ -f /opt/zuse/current/bin.mjs ]] || runtime_command=(zuse serve --foreground)
 phase=starting-runtime
+workspace_runtime_timing runtime.exec
 (
-  exec_workspace_runtime "${runtime_command[@]}" >"$status_dir/runtime.log" 2>&1
+  exec_workspace_runtime "${runtime_command[@]}" >>"$status_dir/runtime.log" 2>&1
 ) &
 runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &

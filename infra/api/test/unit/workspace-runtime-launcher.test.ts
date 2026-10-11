@@ -273,6 +273,7 @@ const bootstrapHarness = (runtimeBehavior: "credentials" | "exit-early") => {
 		`status_dir='${status}'`,
 		`repository_script='${repository}'`,
 		'exec_workspace_runtime() { "$@"; }',
+		"workspace_runtime_timing() { :; }",
 		"phase=initializing",
 	].join("\n");
 	const result = spawnSync("bash", ["-c", `${prelude}\n${bootstrapTail()}`], {
