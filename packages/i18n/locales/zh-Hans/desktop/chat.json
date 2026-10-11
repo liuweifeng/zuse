@@ -703,5 +703,17 @@
 	"selection_menu_label": "选区操作",
 	"selection_menu_annotate": "批注",
 	"selection_menu_copy": "复制",
-	"selection_menu_copied": "已复制"
+	"selection_menu_copied": "已复制",
+	"switch_account_cache_warning": "{{name}} 没有此聊天的提示缓存，因此下一次回复会重新读取整个对话。速度更慢，并消耗 {{name}} 更多的额度。",
+	"switch_account_compact": "压缩并切换",
+	"switch_account_confirm": "切换并重试",
+	"switch_account_to": "切换到 {{name}}",
+	"switch_account_more": "更多切换方式",
+	"switch_account_confirm_title": "切换到 {{name}}？",
+	"switch_account_compact_warning": "{{name}} 会读取一次对话来进行总结。后续回复保持快速轻量。",
+	"switch_account_retry_detail": "保留完整历史记录",
+	"switch_account_compact_detail": "先总结，让回复保持快速",
+	"switch_account_compact_first": "先压缩",
+	"switch_account_compact_first_detail": "继续之前先总结聊天。部分较早的细节可能会丢失。",
+	"switch_account_choose": "选择账户"
 }

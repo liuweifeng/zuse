@@ -794,3 +794,37 @@ export const retryLastSessionMessage = async (
 	}
 	return false;
 };
+
+/**
+ * Sent after a compaction that stands in for a stopped turn. Prompts are not
+ * localized: interface language must not change what the agent is asked.
+ */
+const CONTINUE_AFTER_COMPACT_PROMPT = "Continue where you left off.";
+
+/**
+ * Compact the chat, then queue a continuation behind the compaction turn. A
+ * durable turn that failed to start must replay as-is first, so that case
+ * falls back to a plain retry.
+ */
+export const compactAndContinueSession = async (
+	ref: SessionRef,
+	providerId?: ProviderId,
+): Promise<boolean> => {
+	const projection = projectionFor(ref);
+	if (projection?.status === "error" && projection.currentTurn !== null)
+		return retryLastSessionMessage(ref, providerId);
+	if (!(await sendSessionMessage(ref, "/compact", { providerId })))
+		return false;
+	queueSessionMessage(
+		ref,
+		ComposerInput.make({
+			text: CONTINUE_AFTER_COMPACT_PROMPT,
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+			annotations: [],
+		}),
+		{ providerId },
+	);
+	return true;
+};

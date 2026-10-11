@@ -703,5 +703,17 @@
 	"selection_menu_label": "選択範囲の操作",
 	"selection_menu_annotate": "注釈",
 	"selection_menu_copy": "コピー",
-	"selection_menu_copied": "コピーしました"
+	"selection_menu_copied": "コピーしました",
+	"switch_account_cache_warning": "{{name}} にはこのチャットのプロンプトキャッシュがないため、次の応答では会話全体を読み直します。応答が遅くなり、{{name}} の上限を多く消費します。",
+	"switch_account_compact": "圧縮して切り替え",
+	"switch_account_confirm": "切り替えて再試行",
+	"switch_account_to": "{{name}} に切り替え",
+	"switch_account_more": "その他の切り替え方法",
+	"switch_account_confirm_title": "{{name}} に切り替えますか？",
+	"switch_account_compact_warning": "{{name}} は要約のために会話を一度読み込みます。以降の応答は速く軽いままです。",
+	"switch_account_retry_detail": "履歴をすべて保持",
+	"switch_account_compact_detail": "先に要約して応答を速く保つ",
+	"switch_account_compact_first": "先に圧縮",
+	"switch_account_compact_first_detail": "続行する前にチャットを要約します。以前の細部が失われる場合があります。",
+	"switch_account_choose": "アカウントを選択"
 }

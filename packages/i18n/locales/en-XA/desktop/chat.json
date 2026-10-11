@@ -703,5 +703,17 @@
 	"selection_menu_label": "⟦Sëëlëëctïïôôn ààctïïôôns⟧",
 	"selection_menu_annotate": "⟦ÀÀnnôôtààtëë⟧",
 	"selection_menu_copy": "⟦Côôpy⟧",
-	"selection_menu_copied": "⟦Côôpïïëëd⟧"
+	"selection_menu_copied": "⟦Côôpïïëëd⟧",
+	"switch_account_cache_warning": "⟦{{name}} hààs nôô prôômpt cààchëë fôôr thïïs chààt, sôô thëë nëëxt rëëply rëë-rëëààds thëë whôôlëë côônvëërsààtïïôôn. ÏÏt’s slôôwëër àànd üüsëës môôrëë ôôf {{name}}’s lïïmïït.⟧",
+	"switch_account_compact": "⟦Côômpààct àànd swïïtch⟧",
+	"switch_account_confirm": "⟦Swïïtch àànd rëëtry⟧",
+	"switch_account_to": "⟦Swïïtch tôô {{name}}⟧",
+	"switch_account_more": "⟦Môôrëë wààys tôô swïïtch⟧",
+	"switch_account_confirm_title": "⟦Swïïtch tôô {{name}}?⟧",
+	"switch_account_compact_warning": "⟦{{name}} rëëààds thëë côônvëërsààtïïôôn ôôncëë tôô süümmààrïïzëë ïït. Lààtëër rëëplïïëës stàày fààst àànd lïïght.⟧",
+	"switch_account_retry_detail": "⟦Këëëëps thëë füüll hïïstôôry⟧",
+	"switch_account_compact_detail": "⟦Süümmààrïïzëës fïïrst, sôô rëëplïïëës stàày fààst⟧",
+	"switch_account_compact_first": "⟦Côômpààct fïïrst⟧",
+	"switch_account_compact_first_detail": "⟦Süümmààrïïzëë thëë chààt bëëfôôrëë côôntïïnüüïïng. Sôômëë ëëààrlïïëër dëëtààïïl màày bëë lôôst.⟧",
+	"switch_account_choose": "⟦Chôôôôsëë ààccôôüünt⟧"
 }

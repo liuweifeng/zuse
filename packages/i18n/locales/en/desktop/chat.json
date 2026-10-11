@@ -703,5 +703,17 @@
 	"selection_menu_label": "Selection actions",
 	"selection_menu_annotate": "Annotate",
 	"selection_menu_copy": "Copy",
-	"selection_menu_copied": "Copied"
+	"selection_menu_copied": "Copied",
+	"switch_account_cache_warning": "{{name}} has no prompt cache for this chat, so the next reply re-reads the whole conversation. It’s slower and uses more of {{name}}’s limit.",
+	"switch_account_compact": "Compact and switch",
+	"switch_account_confirm": "Switch and retry",
+	"switch_account_to": "Switch to {{name}}",
+	"switch_account_more": "More ways to switch",
+	"switch_account_confirm_title": "Switch to {{name}}?",
+	"switch_account_compact_warning": "{{name}} reads the conversation once to summarize it. Later replies stay fast and light.",
+	"switch_account_retry_detail": "Keeps the full history",
+	"switch_account_compact_detail": "Summarizes first, so replies stay fast",
+	"switch_account_compact_first": "Compact first",
+	"switch_account_compact_first_detail": "Summarize the chat before continuing. Some earlier detail may be lost.",
+	"switch_account_choose": "Choose account"
 }

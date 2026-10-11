@@ -290,6 +290,7 @@ import {
 	ProviderAccountsPreferredRpc,
 	ProviderAccountsRemoveRpc,
 	ProviderAccountsSaveRpc,
+	ProviderAccountsSwitchSessionRpc,
 } from "./provider-accounts.ts";
 import {
 	PtyCloseOwnedRpc,
@@ -646,6 +647,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ProviderAccountsSaveRpc,
 	ProviderAccountsPreferredRpc,
 	ProviderAccountsRemoveRpc,
+	ProviderAccountsSwitchSessionRpc,
 	ProviderAvailabilityRpc,
 	ProviderRemoveCredentialRpc,
 	ProviderSetCredentialRpc,

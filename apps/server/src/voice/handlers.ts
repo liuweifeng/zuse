@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
@@ -7,6 +6,7 @@ import {
 	CodexAppServerClient,
 	getDefaultCodexExternalAuthTokens,
 } from "@zuse/agents/drivers/codex-app-server-client";
+import { defaultProviderAccountHome } from "@zuse/agents/drivers/provider-account-env";
 import {
 	MemoizeRpcs,
 	VoiceFallbackTicketError,
@@ -30,8 +30,7 @@ type AccountAuth = {
 	readonly accountId: string | null;
 };
 
-const codexHome = (): string =>
-	process.env.CODEX_HOME ?? join(homedir(), ".codex");
+const codexHome = (): string => defaultProviderAccountHome("codex");
 
 const asRecord = (value: unknown): Record<string, unknown> | null =>
 	typeof value === "object" && value !== null

@@ -20,6 +20,7 @@ import {
 	useCloudChatCatalogStore,
 } from "../../lib/cloud-workspace-catalog.ts";
 import { openNewChatLanding } from "../../lib/open-new-chat-landing.ts";
+import { isNativeAccountProvider } from "../../lib/provider-accounts.ts";
 import {
 	describeProviderError,
 	dismissTranscriptProviderError,
@@ -43,6 +44,7 @@ import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts"
 import { cn } from "../../lib/utils.ts";
 import { useUiStore } from "../../store/ui.ts";
 import { useProviderErrorCopy } from "../provider-error-copy.ts";
+import { SwitchAccountAction } from "./switch-account-action.tsx";
 import {
 	TrayPill,
 	trayPillActionClass,
@@ -123,8 +125,25 @@ export function ProviderErrorTray({
 			subtitle={copy.detail.length > 0 ? copy.detail : undefined}
 			actions={
 				<>
+					{notice.kind === "usage-limit" &&
+					isNativeAccountProvider(providerId) ? (
+						// Retrying on the same account would hit the limit again, so it
+						// is only offered when there is no other account to switch to.
+						<SwitchAccountAction
+							sessionRef={ref}
+							environmentId={environmentId}
+							providerId={providerId}
+							onSwitched={source.dismiss}
+							fallback={
+								<RetryAction
+									onRetry={() => void retryLastSessionMessage(ref, providerId)}
+								/>
+							}
+						/>
+					) : null}
 					<ProviderErrorActions
 						notice={notice}
+						switchesAccounts={isNativeAccountProvider(providerId)}
 						onRetry={() => void retryLastSessionMessage(ref, providerId)}
 						onKeepGoing={() =>
 							void sendSessionMessage(ref, "keep going", { providerId })
@@ -148,9 +167,11 @@ export function ProviderErrorTray({
 }
 
 const noticeTone = (notice: ProviderErrorNotice) =>
-	notice.kind === "usage-limit" || notice.kind === "reconnecting"
-		? "default"
-		: "danger";
+	notice.kind === "usage-limit"
+		? "warning"
+		: notice.kind === "reconnecting"
+			? "default"
+			: "danger";
 
 const noticeIcon = (notice: ProviderErrorNotice) =>
 	notice.kind === "usage-limit"
@@ -161,11 +182,14 @@ const noticeIcon = (notice: ProviderErrorNotice) =>
 
 function ProviderErrorActions({
 	notice,
+	switchesAccounts,
 	onRetry,
 	onKeepGoing,
 	environmentId,
 }: {
 	notice: ProviderErrorNotice;
+	/** The usage-limit retry is owned by `SwitchAccountAction`. */
+	switchesAccounts: boolean;
 	onRetry: () => void;
 	onKeepGoing: () => void;
 	environmentId: EnvironmentId;
@@ -263,6 +287,7 @@ function ProviderErrorActions({
 				</>
 			);
 		case "usage-limit":
+			return switchesAccounts ? null : <RetryAction onRetry={onRetry} />;
 		case "network":
 		case "generic":
 			return <RetryAction onRetry={onRetry} />;

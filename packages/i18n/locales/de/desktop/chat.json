@@ -703,5 +703,17 @@
 	"selection_menu_label": "Aktionen für Auswahl",
 	"selection_menu_annotate": "Kommentieren",
 	"selection_menu_copy": "Kopieren",
-	"selection_menu_copied": "Kopiert"
+	"selection_menu_copied": "Kopiert",
+	"switch_account_cache_warning": "{{name}} hat keinen Prompt-Cache für diesen Chat, daher liest die nächste Antwort die gesamte Unterhaltung neu ein. Sie ist langsamer und verbraucht mehr vom Limit von {{name}}.",
+	"switch_account_compact": "Komprimieren und wechseln",
+	"switch_account_confirm": "Wechseln und wiederholen",
+	"switch_account_to": "Zu {{name}} wechseln",
+	"switch_account_more": "Weitere Wechseloptionen",
+	"switch_account_confirm_title": "Zu {{name}} wechseln?",
+	"switch_account_compact_warning": "{{name}} liest die Unterhaltung einmal, um sie zusammenzufassen. Spätere Antworten bleiben schnell und schlank.",
+	"switch_account_retry_detail": "Behält den gesamten Verlauf",
+	"switch_account_compact_detail": "Fasst zuerst zusammen, damit Antworten schnell bleiben",
+	"switch_account_compact_first": "Zuerst komprimieren",
+	"switch_account_compact_first_detail": "Den Chat vor dem Fortfahren zusammenfassen. Frühere Details können verloren gehen.",
+	"switch_account_choose": "Konto auswählen"
 }

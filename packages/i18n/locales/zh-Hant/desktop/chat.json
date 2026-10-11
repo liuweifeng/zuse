@@ -703,5 +703,17 @@
 	"selection_menu_label": "選取範圍操作",
 	"selection_menu_annotate": "註解",
 	"selection_menu_copy": "複製",
-	"selection_menu_copied": "已複製"
+	"selection_menu_copied": "已複製",
+	"switch_account_cache_warning": "{{name}} 沒有此聊天的提示快取，因此下一次回覆會重新讀取整個對話。速度較慢，並消耗 {{name}} 更多的額度。",
+	"switch_account_compact": "壓縮並切換",
+	"switch_account_confirm": "切換並重試",
+	"switch_account_to": "切換到 {{name}}",
+	"switch_account_more": "更多切換方式",
+	"switch_account_confirm_title": "切換到 {{name}}？",
+	"switch_account_compact_warning": "{{name}} 會讀取一次對話來進行摘要。後續回覆保持快速輕量。",
+	"switch_account_retry_detail": "保留完整記錄",
+	"switch_account_compact_detail": "先摘要，讓回覆保持快速",
+	"switch_account_compact_first": "先壓縮",
+	"switch_account_compact_first_detail": "繼續之前先摘要聊天。部分較早的細節可能會遺失。",
+	"switch_account_choose": "選擇帳戶"
 }

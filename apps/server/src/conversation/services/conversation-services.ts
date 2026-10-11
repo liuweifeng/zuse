@@ -279,6 +279,14 @@ export interface ConversationOperations {
 	) => Effect.Effect<void, SessionNotFoundError | SessionAlreadyStartedError>;
 
 	/**
+	 * Stop an idle session's provider process; the next turn starts a fresh
+	 * one. Returns false while a turn is booting or running.
+	 */
+	readonly releaseProvider: (
+		sessionId: SessionId,
+	) => Effect.Effect<boolean, SessionNotFoundError>;
+
+	/**
 	 * Update the per-session permission posture. The change applies to the
 	 * next tool call — running `canUseTool` callbacks observe the new value
 	 * via the runtime-mode getter `ProviderService` hands the driver.
@@ -643,6 +651,7 @@ export type SessionServiceShape = Pick<
 	| "renameSession"
 	| "setModel"
 	| "setProvider"
+	| "releaseProvider"
 	| "setRuntimeMode"
 	| "setPermissionMode"
 	| "answerQuestion"

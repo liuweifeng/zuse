@@ -855,6 +855,23 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	/**
+	 * Stop an idle session's provider process so the next turn starts a fresh
+	 * one (e.g. under another account). Returns false, without touching the
+	 * process, while a turn is booting or running.
+	 */
+	const releaseProvider: ConversationOperations["releaseProvider"] = (
+		sessionId,
+	) =>
+		Effect.gen(function* () {
+			const session = yield* lookupSession(sessionId);
+			if (session.status === "running" || session.status === "booting")
+				return false;
+			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+			yield* interruptProviderFiber(sessionId);
+			return true;
+		});
+
+	/**
 	 * Switch a session's provider (and the model it runs under) before any
 	 * user message has been sent. The new CLI can't read the prior CLI's
 	 * transcript, so this is fresh-session-only — mid-chat callers get
@@ -947,6 +964,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		setWorktree,
 		setModel,
 		setProvider,
+		releaseProvider,
 		archiveSession,
 		unarchiveSession,
 		deleteSession,

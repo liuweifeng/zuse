@@ -1446,6 +1446,69 @@ describe("ConversationServices — chat & session lifecycle", () => {
 		});
 	});
 
+	it("releases an idle provider for an account switch but never a running turn", async () => {
+		await withRuntime(async (run) => {
+			const { initialSession } = await run(
+				Effect.flatMap(store, (service) =>
+					service.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			activeProviderSessions.add(initialSession.id);
+			expect(
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.releaseProvider(initialSession.id),
+					),
+				),
+			).toBe(true);
+			expect(activeProviderSessions.has(initialSession.id)).toBe(false);
+
+			await run(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.dispatch({
+						commandId: "test:release-running-turn",
+						streamId: initialSession.id,
+						command: {
+							_tag: "SubmitTurn",
+							turnId: AgentTurnId.make("turn_release_running"),
+							messageId: MessageId.make("message_release_running"),
+							role: "user",
+							kind: "user",
+							contentJson: JSON.stringify({ _tag: "user", text: "work" }),
+							parentItemId: null,
+							providerInputJson: JSON.stringify(
+								new ComposerInput({
+									text: "work",
+									attachments: [],
+									fileRefs: [],
+									skillRefs: [],
+								}),
+							),
+							createdAt: Date.now(),
+						},
+					}),
+				),
+			);
+			const session = await run(
+				Effect.flatMap(store, (service) =>
+					service.getSession(initialSession.id),
+				),
+			);
+			expect(["booting", "running"]).toContain(session.status);
+			expect(
+				await run(
+					Effect.flatMap(store, (service) =>
+						service.releaseProvider(initialSession.id),
+					),
+				),
+			).toBe(false);
+		});
+	});
+
 	it("archives chats through the durable archive reactor", async () => {
 		await withRuntime(async (run) => {
 			const created = await run(

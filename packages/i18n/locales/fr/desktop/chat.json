@@ -706,5 +706,17 @@
 	"selection_menu_label": "Actions sur la sélection",
 	"selection_menu_annotate": "Annoter",
 	"selection_menu_copy": "Copier",
-	"selection_menu_copied": "Copié"
+	"selection_menu_copied": "Copié",
+	"switch_account_cache_warning": "{{name}} n’a pas de cache de prompt pour cette discussion : la prochaine réponse relit toute la conversation. Elle est plus lente et consomme davantage la limite de {{name}}.",
+	"switch_account_compact": "Compacter et changer",
+	"switch_account_confirm": "Changer et réessayer",
+	"switch_account_to": "Passer à {{name}}",
+	"switch_account_more": "Autres options de changement",
+	"switch_account_confirm_title": "Passer à {{name}} ?",
+	"switch_account_compact_warning": "{{name}} lit la conversation une fois pour la résumer. Les réponses suivantes restent rapides et légères.",
+	"switch_account_retry_detail": "Conserve tout l’historique",
+	"switch_account_compact_detail": "Résume d’abord pour des réponses rapides",
+	"switch_account_compact_first": "Compacter d’abord",
+	"switch_account_compact_first_detail": "Résumer la discussion avant de continuer. Certains détails antérieurs peuvent être perdus.",
+	"switch_account_choose": "Choisir un compte"
 }
