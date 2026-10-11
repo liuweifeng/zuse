@@ -117,12 +117,25 @@ const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	pluginId: a.pluginId,
 });
 /** Executor failures carry a tag and reason; never their message or cause. */
-const failureKind = (error: unknown) => {
+const failureKind = (error: unknown): Record<string, string> => {
 	if (typeof error !== "object" || error === null) return { tag: "unknown" };
-	const { _tag, reason } = error as { _tag?: unknown; reason?: unknown };
+	const value = error as {
+		_tag?: unknown;
+		reason?: unknown;
+		code?: unknown;
+		detail?: { tag?: unknown; reason?: unknown };
+		message?: unknown;
+	};
+	const tag = value.detail?.tag ?? value._tag;
+	const reason = value.detail?.reason ?? value.reason;
 	return {
-		tag: typeof _tag === "string" ? _tag : "unknown",
+		tag: typeof tag === "string" ? tag : "unknown",
 		...(typeof reason === "string" ? { reason } : {}),
+		...(typeof value.code === "string" ? { code: value.code } : {}),
+		// Untagged errors are Zuse's own (egress policy, missing state); safe to log.
+		...(tag === undefined && typeof value.message === "string"
+			? { message: value.message.slice(0, 160) }
+			: {}),
 	};
 };
 /** Rejected before anything is stored. */
@@ -582,6 +595,13 @@ export class PluginVault {
 			await this.ctx.storage.setAlarm(Date.now() + TTL);
 			return publicAttempt(next);
 		} catch (error) {
+			console.warn(
+				JSON.stringify({
+					event: "plugin_connect_failed",
+					plugin: plugin.id,
+					...failureKind(error),
+				}),
+			);
 			return publicAttempt(await this.fail(a, "failed", errorCode(error)));
 		}
 	}
