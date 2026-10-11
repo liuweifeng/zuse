@@ -54,6 +54,7 @@ import {
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
 	setActiveEnvironment,
+	subscribeRendererRpcConnection,
 } from "../lib/rpc-client.ts";
 import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { getRendererClientBus } from "../lib/session-timeline-client-bus.ts";
@@ -598,6 +599,10 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		const shellRuntimes = new Map<string, EnvironmentShellRuntime>();
 		let activeShellKey: string | null = null;
 		const initializeOnce = createInitializationGate();
+		let unsubscribeLocalRecovery: (() => void) | null = null;
+		let initializeAfterReconnect = false;
+		if (import.meta.hot)
+			import.meta.hot.dispose(() => unsubscribeLocalRecovery?.());
 		let discoveryRevision = 0;
 		const patchEntry = (
 			key: string,
@@ -1097,6 +1102,21 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					set({ initialized: true, initializing: false });
 					return Promise.resolve();
 				}
+				// Discovery can fail before a shell lease exists. The shared local
+				// transport still reconnects, so use that edge to resume discovery.
+				unsubscribeLocalRecovery ??= subscribeRendererRpcConnection(
+					(snapshot) => {
+						if (snapshot.status !== "connected" || get().initialized) return;
+						if (get().initializing) {
+							initializeAfterReconnect = true;
+						} else if (get().initializationError !== null) {
+							void get()
+								.initialize()
+								.catch(() => undefined);
+						}
+					},
+					LOCAL_ENVIRONMENT_KEY,
+				);
 				return initializeOnce(get().initialized, async () => {
 					markRendererStartupMilestone("environment-catalog-started");
 					set({ initializing: true, initializationError: null });
@@ -1217,6 +1237,15 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					} finally {
 						set({ initializing: false });
 					}
+				}).finally(() => {
+					// A new connection may arrive before the failed RPC settles.
+					// Wait for the initialization gate to release before retrying.
+					const retry = initializeAfterReconnect;
+					initializeAfterReconnect = false;
+					if (retry && !get().initialized && get().initializationError !== null)
+						void get()
+							.initialize()
+							.catch(() => undefined);
 				});
 			},
 			syncAccountEnvironments: async () => {
