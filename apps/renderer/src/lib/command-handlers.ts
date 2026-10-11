@@ -1,4 +1,4 @@
-import { isHostedProduct } from "./hosted-connect.ts";
+import { isHostedProduct } from "./hosted-session.ts";
 import "@zuse/i18n/english/commands";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { ChatId, Command, Session } from "@zuse/contracts";

@@ -19,7 +19,7 @@ import { subscribeControlPlaneSessionCache } from "../lib/control-plane-client.t
 import { createDeferredRuntime } from "../lib/deferred-runtime.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { getProviderStatusNotice } from "../lib/provider-status.ts";
 import { runtimeOperationClient } from "../lib/runtime-operation-client.ts";
 import { StreamOperationOwner } from "../lib/stream-operation.ts";

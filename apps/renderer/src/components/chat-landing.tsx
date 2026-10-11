@@ -8,7 +8,7 @@ import {
 	loadCloudAuth,
 	peekCloudAuth,
 } from "../lib/cloud-workspace-session-cache.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import {
 	type CloudAuthLoadState,
 	cloudSendBlocker,

@@ -92,7 +92,7 @@ import { useEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "~/lib/environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "~/lib/environment-question-attachments-client-bus.ts";
 import { formatError } from "~/lib/format-error.ts";
-import { isHostedProduct } from "~/lib/hosted-connect.ts";
+import { isHostedProduct } from "~/lib/hosted-session.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {

@@ -10,7 +10,7 @@ import {
 	commandFingerprint,
 } from "@zuse/client-runtime/client-persistence";
 import type { CommandId, EnvironmentId } from "@zuse/contracts";
-import { hostedCacheDatabaseName } from "./hosted-connect.ts";
+import { hostedCacheDatabaseName } from "./hosted-session.ts";
 
 const DATABASE_NAME = "zuse-client-runtime";
 const DATABASE_VERSION = 3;

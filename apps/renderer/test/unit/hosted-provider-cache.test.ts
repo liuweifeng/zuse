@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { afterAll, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ status: vi.fn() }));
-vi.mock("../../src/lib/hosted-connect.ts", () => ({
+vi.mock("../../src/lib/hosted-session.ts", () => ({
 	isHostedProduct: () => true,
 	hostedAccountId: () => "cached-account",
 }));

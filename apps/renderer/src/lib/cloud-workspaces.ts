@@ -83,7 +83,7 @@ import {
 	retainEnvironmentShell,
 	waitForEnvironmentGateway,
 } from "./environment-shell-client-bus.ts";
-import { isHostedProduct } from "./hosted-connect.ts";
+import { isHostedProduct } from "./hosted-session.ts";
 import { hostedProjectFolderId } from "./hosted-workspace.ts";
 import { useOrganizationWorkspaces } from "./organization-workspaces.ts";
 import {

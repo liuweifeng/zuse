@@ -2,7 +2,7 @@ import type { ResourceActivation } from "@zuse/client-runtime/environment-runtim
 import type { ResourceKey } from "@zuse/client-runtime/resource-ref";
 import type { ResourceView } from "@zuse/client-runtime/resource-state";
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import { isHostedProduct } from "./hosted-connect.ts";
+import { isHostedProduct } from "./hosted-session.ts";
 
 import { getRendererClientBus } from "./session-timeline-client-bus.ts";
 

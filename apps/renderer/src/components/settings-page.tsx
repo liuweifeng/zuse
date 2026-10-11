@@ -1,5 +1,5 @@
 import { formatDate as formatUiDate } from "@zuse/i18n";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { refreshHostedProjects } from "../lib/hosted-workspace.ts";
 import { isInputComposing } from "../lib/input-composition.ts";
 import { AcpAgentManager } from "./acp-agent-manager.tsx";

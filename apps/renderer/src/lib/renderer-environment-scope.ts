@@ -1,4 +1,4 @@
-import { hostedAccountId, isHostedProduct } from "./hosted-connect.ts";
+import { hostedAccountId, isHostedProduct } from "./hosted-session.ts";
 export const LOCAL_RENDERER_STORAGE_SCOPE = "local";
 
 let activeStorageScope = LOCAL_RENDERER_STORAGE_SCOPE;

@@ -1,7 +1,7 @@
 import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";

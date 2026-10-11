@@ -37,7 +37,7 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 import { useSessionRuntimeStore } from "../store/session-runtime.ts";
 import { scopeEnvironmentShellView } from "./environment-shell-scope.ts";
-import { hostedCacheDatabaseName, isHostedProduct } from "./hosted-connect.ts";
+import { hostedCacheDatabaseName, isHostedProduct } from "./hosted-session.ts";
 import { upsertLatestEntity } from "./latest-entity.ts";
 import { markRendererStartupMilestone } from "./performance-marks.ts";
 import {

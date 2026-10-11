@@ -1,12 +1,10 @@
 import type { AuthUser } from "@zuse/contracts";
 import { useEnvironmentAuth } from "../lib/auth-client-bus.ts";
 import {
-	beginHostedSignIn,
 	hostedAccountId,
 	hostedAccountUser,
 	isHostedProduct,
-	signOutHostedProduct,
-} from "../lib/hosted-connect.ts";
+} from "../lib/hosted-session.ts";
 import { useAuthStore } from "../store/auth.ts";
 
 /**
@@ -88,8 +86,10 @@ function useHostedAccount(): UseAuth {
 		name: displayName.trim() || profileName(user),
 		displayName,
 		setDisplayName,
-		signIn: () => beginHostedSignIn(),
-		signOut: signOutHostedProduct,
+		signIn: async () =>
+			(await import("../lib/hosted-connect.ts")).beginHostedSignIn(),
+		signOut: async () =>
+			(await import("../lib/hosted-connect.ts")).signOutHostedProduct(),
 	};
 }
 export const useAuth = isHostedProduct()

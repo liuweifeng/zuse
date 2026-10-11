@@ -32,7 +32,7 @@ import {
 	subscribeEnvironmentShell,
 } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { createInitializationGate } from "../lib/initialization-gate.ts";
 import { upsertLatestEntity } from "../lib/latest-entity.ts";
 import { markRendererStartupMilestone } from "../lib/performance-marks.ts";

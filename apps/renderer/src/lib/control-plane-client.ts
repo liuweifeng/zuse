@@ -5,7 +5,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import type { getCloudControlClient } from "./cloud-control-client.ts";
-import { hostedAccountId, isHostedProduct } from "./hosted-connect.ts";
+import { hostedAccountId, isHostedProduct } from "./hosted-session.ts";
 import {
 	assertRendererAccountCurrent,
 	rendererAccountSnapshot,

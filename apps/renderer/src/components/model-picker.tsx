@@ -6,7 +6,7 @@ import {
 } from "~/lib/provider-labels";
 import { useAuth } from "../hooks/use-auth.ts";
 import { loadCloudAuth } from "../lib/cloud-workspace-session-cache.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {

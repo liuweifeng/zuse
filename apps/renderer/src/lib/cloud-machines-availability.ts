@@ -1,4 +1,4 @@
-import { isHostedProduct } from "./hosted-connect.ts";
+import { isHostedProduct } from "./hosted-session.ts";
 import { rendererPlatformCapabilities } from "./platform-capabilities.ts";
 
 export const cloudMachinesAvailable = ({
