@@ -60,6 +60,7 @@ const server = await createServer({
 				}
 				if (
 					importer?.includes("plugins-page.tsx") ||
+					importer?.includes("plugin-detail.tsx") ||
 					importer?.includes("plugin-return-handler.tsx") ||
 					importer?.includes("connected-plugins.ts") ||
 					importer?.includes("plugins-settings-pane.tsx") ||
@@ -212,49 +213,40 @@ try {
 		.click();
 	await page.getByRole("heading", { name: "Information" }).waitFor();
 	await shot("plugins-detail-connected");
-	await page
-		.getByRole("textbox", { name: "Connection name" })
-		.fill(" cloudflare docs ");
+	// No names to type: another account gets the next free default.
 	await expect(
-		page.getByRole("button", { name: "Connect another account", exact: true }),
-	).toBeDisabled();
-	await page
-		.getByText(
-			"This name is already in use. Choose a different connection name.",
-			{ exact: true },
-		)
-		.waitFor();
-	await page.getByRole("textbox", { name: "Connection name" }).press("Enter");
+		page.getByRole("textbox", { name: "Connection name" }),
+	).toHaveCount(0);
 	const accountActions = page.getByRole("button", { name: /^Actions for / });
 	await expect(accountActions).toHaveCount(1);
-	await page.getByRole("textbox", { name: "Connection name" }).fill("Personal");
 	await page
 		.getByRole("button", { name: "Connect another account", exact: true })
 		.click();
 	await page
-		.getByRole("button", { name: "Actions for Personal", exact: true })
+		.getByRole("button", { name: "Actions for Cloudflare Docs 2", exact: true })
 		.waitFor();
 	await shot("plugins-multiple-accounts");
 	// Each account has its own actions; disconnecting one leaves the other.
 	await page
-		.getByRole("button", { name: "Actions for Personal", exact: true })
+		.getByRole("button", { name: "Actions for Cloudflare Docs 2", exact: true })
 		.click();
 	await page.waitForTimeout(250); // let the menu finish opening
 	await shot("plugins-account-menu");
 	await page.getByRole("menuitem", { name: "Disconnect" }).click();
 	await expect(
-		page.getByRole("button", { name: "Actions for Personal", exact: true }),
+		page.getByRole("button", {
+			name: "Actions for Cloudflare Docs 2",
+			exact: true,
+		}),
 	).toHaveCount(0);
 	await expect(accountActions).toHaveCount(1);
 	await page
 		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
 		.click();
 	await page.getByRole("menuitem", { name: "Disconnect" }).click();
+	// With no accounts, the header offers one Connect; the account takes the plugin's name.
 	await page.getByRole("button", { name: "Connect", exact: true }).waitFor();
-	// The first account needs no name: it takes the plugin's.
-	await expect(
-		page.getByRole("textbox", { name: "Connection name" }),
-	).toHaveCount(0);
+	await shot("plugins-connect-first");
 	await page.getByRole("button", { name: "Connect", exact: true }).click();
 	await page.waitForFunction(
 		() => window.lastConnect?.label === "Cloudflare Docs",
@@ -361,22 +353,31 @@ try {
 		value: "Bearer good",
 	});
 	await page.locator("dd").getByText("Bearer token", { exact: true }).waitFor();
-	// Another account on a key-authenticated server needs its own key.
-	await page.getByRole("textbox", { name: "Connection name" }).fill("Second");
-	await expect(
-		page.getByRole("button", { name: "Connect another account", exact: true }),
-	).toBeDisabled();
-	await page.getByLabel("API key").fill("k2");
+	// Another account on a key-authenticated server asks for its own key inline.
 	await page
 		.getByRole("button", { name: "Connect another account", exact: true })
 		.click();
-	await page.waitForFunction(() => window.lastConnect?.label === "Second");
+	await expect(
+		page.getByRole("button", { name: "Connect", exact: true }),
+	).toBeDisabled();
+	await page.getByLabel("API key").fill("k2");
+	await page.getByRole("button", { name: "Connect", exact: true }).click();
+	await page.waitForFunction(
+		() => window.lastConnect?.label === "Acme 2",
+		undefined,
+		{ polling: 100 },
+	);
 	assert.equal(
 		await page.evaluate(() => window.lastConnect.apiKey),
 		"Bearer k2",
 	);
-	await page.getByRole("switch", { name: "Acme", exact: true }).click();
+	// On/off lives in each account's menu.
+	await page
+		.getByRole("button", { name: "Actions for Acme", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: "Turn off for agents" }).click();
 	await page.waitForFunction(() => window.lastPluginToggle?.enabled === false);
+	await page.getByText("Off · agents can't use this account").waitFor();
 	await shot("plugins-custom-detail-redesign");
 	await page.getByRole("button", { name: "Copy server URL" }).click();
 	await page.waitForFunction(
