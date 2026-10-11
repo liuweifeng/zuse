@@ -139,8 +139,8 @@ export function PluginDetail({
 
 	const showAccounts = connections.length > 0 || askingKey;
 	return (
-		<div className="flex flex-col gap-9 pb-10 text-[13px]">
-			<div className="flex flex-col gap-6">
+		<div className="flex flex-col gap-6 pb-8 text-[13px]">
+			<div className="flex flex-col gap-4">
 				<nav
 					aria-label={m("plugins:plugins_title")}
 					className="flex h-6 min-w-0 items-center gap-1.5 text-muted-foreground"
@@ -157,20 +157,20 @@ export function PluginDetail({
 					</span>
 					<span className="truncate text-foreground">{plugin.name}</span>
 				</nav>
-				<header className="flex flex-col gap-5">
+				<header className="flex flex-col gap-3">
 					<PluginIcon
 						name={plugin.name}
 						domain={pluginDomain(plugin)}
-						className="size-16 rounded-[18px] text-2xl"
+						className="size-12 rounded-[14px] text-lg"
 					/>
-					<div className="flex flex-col gap-1">
+					<div className="flex flex-col gap-0.5">
 						{/* Actions sit on the title's line; the subtitle runs under both. */}
-						<div className="flex min-h-8 items-center justify-between gap-4">
-							<h1 className="flex min-w-0 items-center gap-2 text-[22px] font-semibold leading-8 tracking-[-0.015em] text-foreground">
+						<div className="flex min-h-7 items-center justify-between gap-3">
+							<h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold leading-7 tracking-[-0.01em] text-foreground">
 								<span className="truncate">{plugin.name}</span>
 								{plugin.custom && <CustomTag />}
 							</h1>
-							<div className="flex shrink-0 items-center gap-2">
+							<div className="flex shrink-0 items-center gap-1">
 								{(!plugin.custom || canManage) && (
 									<Menu>
 										<MenuTrigger
@@ -178,7 +178,7 @@ export function PluginDetail({
 												<Button
 													variant="ghost"
 													size="icon"
-													className="size-8 text-muted-foreground"
+													className="size-7 text-muted-foreground"
 													aria-label={m("plugins:plugins_more_actions")}
 												/>
 											}
@@ -214,7 +214,7 @@ export function PluginDetail({
 								{plugin.custom && plugin.url !== null && (
 									<Button
 										variant="secondary"
-										className="h-8 px-3 text-[13px]"
+										className="h-7 px-2.5"
 										onClick={() => void copyUrl()}
 									>
 										<HugeiconsIcon icon={Copy01Icon} className="size-3.5" />
@@ -224,7 +224,7 @@ export function PluginDetail({
 								{connecting ? (
 									<span
 										role="status"
-										className="flex h-8 items-center gap-2 px-2 text-muted-foreground"
+										className="flex h-7 items-center gap-1.5 px-2 text-muted-foreground"
 									>
 										<Spinner className="size-3.5" />
 										{m("plugins:plugins_waiting")}
@@ -234,7 +234,7 @@ export function PluginDetail({
 									connections.length === 0 &&
 									!askingKey && (
 										<DitherActionButton
-											className="h-8 px-4 text-[13px]"
+											className="px-3"
 											disabled={busy}
 											onClick={startConnect}
 										>
@@ -250,16 +250,16 @@ export function PluginDetail({
 								)}
 							</div>
 						</div>
-						<p className="truncate text-sm text-muted-foreground">
+						<p className="truncate text-muted-foreground">
 							{subtitleOf(plugin)}
 						</p>
 					</div>
 				</header>
 			</div>
 			{(plugin.description || !canManage) && (
-				<div className="flex flex-col gap-3">
+				<div className="flex flex-col gap-2">
 					{plugin.description && (
-						<p className="max-w-prose text-sm leading-6 text-foreground/85">
+						<p className="max-w-prose leading-5 text-foreground/85">
 							{plugin.description}
 						</p>
 					)}
@@ -272,7 +272,7 @@ export function PluginDetail({
 			)}
 			{showAccounts && (
 				<DetailSection title={m("plugins:plugins_connected_accounts")}>
-					<div className="rounded-2xl border border-border/60 bg-muted/20 px-5">
+					<div className="rounded-xl border border-border/60 bg-muted/20 px-3">
 						<div className="divide-y divide-border/50">
 							{connections.map((connection) => (
 								<AccountRow
@@ -288,7 +288,7 @@ export function PluginDetail({
 							{canManage &&
 								(askingKey ? (
 									<form
-										className="flex items-center gap-3.5 py-4"
+										className="flex items-center gap-2.5 py-2"
 										onSubmit={(event) => {
 											event.preventDefault();
 											submitKey();
@@ -301,7 +301,7 @@ export function PluginDetail({
 											spellCheck={false}
 											// biome-ignore lint/a11y/noAutofocus: opened by an explicit click
 											autoFocus
-											className="h-8 min-w-0 flex-1 rounded-lg bg-background/70 px-3 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
+											className="h-7 min-w-0 flex-1 rounded-md bg-background/70 px-2.5 font-mono text-[13px] outline-none placeholder:font-sans placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
 											aria-label={m("plugins:plugins_api_key")}
 											placeholder={m("plugins:plugins_api_key_placeholder")}
 											value={apiKey}
@@ -311,7 +311,7 @@ export function PluginDetail({
 										<Button
 											type="button"
 											variant="ghost"
-											className="h-8 px-3 text-[13px]"
+											className="h-7"
 											onClick={() => {
 												setAskingKey(false);
 												setApiKey("");
@@ -321,7 +321,7 @@ export function PluginDetail({
 										</Button>
 										<DitherActionButton
 											type="submit"
-											className="h-8 px-4 text-[13px]"
+											className="px-3"
 											disabled={busy || apiKey.trim().length === 0}
 										>
 											{m("plugins:plugins_connect")}
@@ -332,7 +332,7 @@ export function PluginDetail({
 										type="button"
 										disabled={busy}
 										onClick={startConnect}
-										className="group/add -mx-5 flex w-[calc(100%+2.5rem)] items-center gap-3.5 px-5 py-4 text-left text-sm text-foreground outline-none transition-colors last:rounded-b-2xl first:rounded-t-2xl hover:bg-muted/30 focus-visible:bg-muted/30 disabled:pointer-events-none disabled:opacity-60"
+										className="-mx-3 flex w-[calc(100%+1.5rem)] items-center gap-2.5 px-3 py-2 text-left text-foreground outline-none transition-colors last:rounded-b-xl first:rounded-t-xl hover:bg-muted/30 focus-visible:bg-muted/30 disabled:pointer-events-none disabled:opacity-60"
 									>
 										<AddGlyph />
 										{m("plugins:plugins_connect_another")}
@@ -343,13 +343,13 @@ export function PluginDetail({
 				</DetailSection>
 			)}
 			<DetailSection title={m("plugins:plugins_information")}>
-				<dl className="grid grid-cols-[10rem_minmax(0,1fr)] items-baseline gap-y-4 text-sm">
+				<dl className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-y-2">
 					{plugin.custom ? (
 						<>
 							<dt className="text-muted-foreground">
 								{m("plugins:plugins_add_server_url")}
 							</dt>
-							<dd className="truncate select-text font-mono text-[13px] text-foreground/90">
+							<dd className="truncate select-text font-mono text-xs text-foreground/90">
 								{plugin.url}
 							</dd>
 							<dt className="text-muted-foreground">
@@ -365,13 +365,13 @@ export function PluginDetail({
 							<dd>
 								<button
 									type="button"
-									className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
+									className="inline-flex items-center gap-1 underline-offset-4 hover:underline"
 									onClick={() => void openExternal(`https://${plugin.domain}`)}
 								>
 									{plugin.domain}
 									<HugeiconsIcon
 										icon={Link04Icon}
-										className="size-3.5 text-muted-foreground"
+										className="size-3 text-muted-foreground"
 									/>
 								</button>
 							</dd>
@@ -392,7 +392,7 @@ export function PluginDetail({
 					</dt>
 					<dd>{m("plugins:plugins_access_value")}</dd>
 				</dl>
-				<p className="mt-6 max-w-prose text-xs leading-5 text-muted-foreground">
+				<p className="mt-4 max-w-prose text-[11px] leading-4 text-muted-foreground">
 					{m(
 						organization
 							? "plugins:plugins_privacy_organization"
@@ -447,15 +447,15 @@ function DetailSection({
 }) {
 	return (
 		<section className="flex flex-col">
-			<h2 className="border-border/60 border-b pb-3 text-[15px] font-medium text-foreground">
+			<h2 className="border-border/60 border-b pb-2 text-[13px] font-medium text-foreground">
 				{title}
 			</h2>
-			<div className="pt-5">{children}</div>
+			<div className="pt-3">{children}</div>
 		</section>
 	);
 }
 
-const AVATAR = "grid size-9 shrink-0 place-items-center rounded-full";
+const AVATAR = "grid size-6 shrink-0 place-items-center rounded-full";
 
 /** The round "+" leading the add-account row, sized like an avatar. */
 function AddGlyph() {
@@ -467,7 +467,7 @@ function AddGlyph() {
 				"bg-background text-muted-foreground ring-1 ring-border/60 ring-inset",
 			)}
 		>
-			<HugeiconsIcon icon={PlusSignIcon} className="size-4" />
+			<HugeiconsIcon icon={PlusSignIcon} className="size-3" />
 		</span>
 	);
 }
@@ -493,7 +493,7 @@ function AccountAvatar({
 			aria-hidden
 			className={cn(
 				AVATAR,
-				"text-xs font-semibold text-white",
+				"text-[9px] font-semibold text-white",
 				dimmed && "opacity-40 grayscale",
 			)}
 			style={{ backgroundColor: `oklch(0.6 0.14 ${hash % 360})` }}
@@ -522,18 +522,18 @@ function AccountRow({
 	const { message: m } = useUiMessages(["plugins"]);
 	const enabled = toggle.enabled(connection);
 	return (
-		<div className="flex items-center gap-3.5 py-4">
+		<div className="flex items-center gap-2.5 py-2">
 			<AccountAvatar label={connection.label} dimmed={!enabled} />
-			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
+			<div className="flex min-w-0 flex-1 items-baseline gap-2">
 				<p
 					className={cn(
-						"truncate text-sm font-medium leading-5",
+						"truncate font-medium leading-5",
 						enabled ? "text-foreground" : "text-muted-foreground",
 					)}
 				>
 					{connection.label}
 				</p>
-				<p className="truncate text-[13px] leading-5 text-muted-foreground">
+				<p className="shrink-0 truncate text-xs leading-5 text-muted-foreground">
 					{enabled
 						? m("plugins:plugins_connected_on", {
 								date: formatDate(connection.createdAt, { dateStyle: "medium" }),
@@ -548,7 +548,7 @@ function AccountRow({
 							<Button
 								variant="ghost"
 								size="icon"
-								className="-mr-2 size-8 shrink-0 text-muted-foreground"
+								className="-mr-1 size-7 shrink-0 text-muted-foreground"
 								aria-label={m("plugins:plugins_account_actions", {
 									name: connection.label,
 								})}
