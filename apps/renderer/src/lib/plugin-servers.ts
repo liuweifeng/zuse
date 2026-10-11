@@ -184,6 +184,8 @@ export const pluginConnectErrorKey = (
 			return "plugins:plugins_error_credentials_rejected";
 		case "plugin_limit_reached":
 			return "plugins:plugins_error_limit_reached";
+		case "plugin_sign_in_failed":
+			return "plugins:plugins_error_sign_in_failed";
 		case "plugin_operation_failed":
 		case null:
 			return "plugins:plugins_connect_failed_detail";

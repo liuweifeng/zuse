@@ -116,6 +116,15 @@ const publicAttempt = (a: PluginAttempt): PluginAttempt => ({
 	error: a.state === "failed" ? (a.error ?? "plugin_operation_failed") : null,
 	pluginId: a.pluginId,
 });
+/** Executor failures carry a tag and reason; never their message or cause. */
+const failureKind = (error: unknown) => {
+	if (typeof error !== "object" || error === null) return { tag: "unknown" };
+	const { _tag, reason } = error as { _tag?: unknown; reason?: unknown };
+	return {
+		tag: typeof _tag === "string" ? _tag : "unknown",
+		...(typeof reason === "string" ? { reason } : {}),
+	};
+};
 /** Rejected before anything is stored. */
 const rejected = (
 	id: string,
@@ -448,9 +457,18 @@ export class PluginVault {
 			await this.ctx.storage.put(this.refKey(identity.subject, a.id), ref);
 			await this.finish(a);
 			return publicAttempt({ ...a, state: "connected" });
-		} catch {
-			await this.fail(a, "failed");
-			throw new Error("OAuth completion failed");
+		} catch (error) {
+			// Provider responses stay private; the failure kind is enough to diagnose.
+			console.warn(
+				JSON.stringify({
+					event: "plugin_sign_in_failed",
+					plugin: a.pluginId,
+					...failureKind(error),
+				}),
+			);
+			return publicAttempt(
+				await this.fail(a, "failed", "plugin_sign_in_failed"),
+			);
 		}
 	}
 	/** Starts one connection. Failures come back as a failed attempt with a reason. */

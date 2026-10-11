@@ -32,6 +32,7 @@ import {
 } from "~/hooks/use-plugin-connection-toggle.ts";
 import {
 	hasPluginConnectionLabel,
+	nextPluginConnectionLabel,
 	pluginConnectionName,
 	usePluginAccount,
 	usePluginTenant,
@@ -44,6 +45,7 @@ import {
 	pluginDomain,
 } from "~/lib/plugin-servers.ts";
 import {
+	claimPluginFailure,
 	pluginRequest,
 	pluginReturnTo,
 	usePluginSnapshot,
@@ -164,7 +166,7 @@ function usePlugins() {
 				if (stopped) return;
 				if (result.kind === "attempt" && result.state !== "pending") {
 					setAttempt(null);
-					if (result.state === "failed")
+					if (result.state === "failed" && claimPluginFailure(result.id))
 						toastConnectFailed(
 							m,
 							snapshot.catalog.find(
@@ -271,11 +273,14 @@ function WorkspacePluginsPage() {
 	/** Validate account names before starting an independent connection attempt. */
 	const connect = async (
 		plugin: PluginDefinition,
-		label = plugin.name,
+		label?: string,
 		apiKey?: string,
 	): Promise<boolean> => {
 		if (!snapshot || busy || attempt) return false;
-		const trimmedLabel = label.trim() || plugin.name;
+		// Names are optional: an empty name takes the next free default.
+		const trimmedLabel =
+			label?.trim() ||
+			nextPluginConnectionLabel(snapshot.connections, plugin.id, plugin.name);
 		if (
 			hasPluginConnectionLabel(snapshot.connections, plugin.id, trimmedLabel)
 		) {
@@ -844,9 +849,14 @@ function PluginDetail({
 	const canSubmit =
 		!locked &&
 		status !== "connecting" &&
-		label.trim().length > 0 &&
 		!duplicateLabel &&
 		(!needsKey || apiKey.trim().length > 0);
+	// The first account takes the plugin's name; later ones get a numbered default.
+	const defaultLabel = nextPluginConnectionLabel(
+		allConnections,
+		plugin.id,
+		plugin.name,
+	);
 	const busy = locked || status === "connecting";
 	const copyUrl = async () => {
 		try {
@@ -1016,7 +1026,7 @@ function PluginDetail({
 								event.preventDefault();
 								if (!canSubmit) return;
 								void onConnect(
-									label.trim(),
+									label.trim() || defaultLabel,
 									needsKey ? apiKey : undefined,
 								).then((started) => {
 									if (!started) return;
@@ -1025,19 +1035,21 @@ function PluginDetail({
 								});
 							}}
 						>
-							<input
-								className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
-								aria-label={m("plugins:plugins_connection_name")}
-								aria-invalid={duplicateLabel || undefined}
-								aria-describedby={
-									duplicateLabel ? "plugin-connection-name-error" : undefined
-								}
-								placeholder={m("plugins:plugins_connection_name_placeholder")}
-								maxLength={80}
-								value={label}
-								onChange={(event) => setLabel(event.target.value)}
-								disabled={busy}
-							/>
+							{connections.length > 0 && (
+								<input
+									className="h-7 min-w-0 flex-1 basis-40 rounded-md bg-background/60 px-2.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring/24"
+									aria-label={m("plugins:plugins_connection_name")}
+									aria-invalid={duplicateLabel || undefined}
+									aria-describedby={
+										duplicateLabel ? "plugin-connection-name-error" : undefined
+									}
+									placeholder={defaultLabel}
+									maxLength={80}
+									value={label}
+									onChange={(event) => setLabel(event.target.value)}
+									disabled={busy}
+								/>
+							)}
 							{needsKey && (
 								<input
 									type="password"

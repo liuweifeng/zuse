@@ -115,6 +115,7 @@ const listeners=new Set();
 window.setPluginReadOnly=()=>{window.pluginAdmin=false;notifyPluginsChanged();};
 const snapshot=(tenantId='personal:fixture')=>({kind:'snapshot',canManage:window.pluginAdmin!==false,tenantId,tenants:[{id:tenantId,kind:tenantId.startsWith('organization:')?'organization':'personal',name:tenantId.startsWith('organization:')?'Acme Inc':'Personal'}],catalog:[...servers.filter(s=>s.tenantId===tenantId),...catalog],connections:connections.filter(c=>(c.tenantId??'personal:fixture')===tenantId),endpoint:''});
 export const notifyPluginsChanged=()=>{for(const l of listeners)l();};
+const claimed=new Set();export const claimPluginFailure=id=>{if(claimed.has(id))return false;claimed.add(id);return true;};
 export function usePluginSnapshot(account,tenantId){
  const [value,setValue]=useState(null);
  const refresh=useCallback(async()=>{setValue(snapshot(tenantId));for(const l of listeners)if(l!==refresh)l();},[tenantId]);
@@ -245,6 +246,19 @@ try {
 		page.getByRole("button", { name: "Actions for Personal", exact: true }),
 	).toHaveCount(0);
 	await expect(accountActions).toHaveCount(1);
+	await page
+		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: "Disconnect" }).click();
+	await page.getByRole("button", { name: "Connect", exact: true }).waitFor();
+	// The first account needs no name: it takes the plugin's.
+	await expect(
+		page.getByRole("textbox", { name: "Connection name" }),
+	).toHaveCount(0);
+	await page.getByRole("button", { name: "Connect", exact: true }).click();
+	await page.waitForFunction(
+		() => window.lastConnect?.label === "Cloudflare Docs",
+	);
 	await page
 		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
 		.click();

@@ -103,6 +103,8 @@ export const PluginConnectError = Schema.Literals([
 	"plugin_url_rejected",
 	/** The server rejected the API key. */
 	"plugin_credentials_rejected",
+	/** The provider returned from sign-in, but finishing the connection failed. */
+	"plugin_sign_in_failed",
 	"plugin_limit_reached",
 ]);
 export type PluginConnectError = typeof PluginConnectError.Type;
