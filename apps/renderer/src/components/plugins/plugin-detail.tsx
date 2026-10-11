@@ -234,7 +234,7 @@ export function PluginDetail({
 									connections.length === 0 &&
 									!askingKey && (
 										<DitherActionButton
-											className="px-3"
+											className="px-[calc(--spacing(4)-1px)] text-xs"
 											disabled={busy}
 											onClick={startConnect}
 										>
@@ -321,7 +321,7 @@ export function PluginDetail({
 										</Button>
 										<DitherActionButton
 											type="submit"
-											className="px-3"
+											className="px-[calc(--spacing(4)-1px)] text-xs"
 											disabled={busy || apiKey.trim().length === 0}
 										>
 											{m("plugins:plugins_connect")}
