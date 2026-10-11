@@ -697,6 +697,11 @@ const attachCloudWorkspace = async (
 	);
 };
 
+// A cold machine must provision, bootstrap, and advertise its gateway before the
+// ordinary RPC handshake can start. Terminal connection failures still end this
+// wait immediately; one bounded budget covers the whole launch, without resets.
+const CLOUD_LAUNCH_GATEWAY_TIMEOUT_MS = 5 * 60_000;
+
 /** A launch ticket is not a connected runtime. Keep one shared connection lease
  * until the authenticated handshake succeeds, then let the selected chat retain it. */
 export const connectCloudWorkspaceForLaunch = async (
@@ -712,6 +717,7 @@ export const connectCloudWorkspaceForLaunch = async (
 		await waitForEnvironmentGateway(
 			EnvironmentId.make(summary.workspaceId),
 			retained.key,
+			CLOUD_LAUNCH_GATEWAY_TIMEOUT_MS,
 		);
 		assertRendererAccountCurrent(account);
 		return () => retained.lease.release();
