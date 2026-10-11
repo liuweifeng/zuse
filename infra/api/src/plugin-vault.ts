@@ -185,7 +185,8 @@ export class PluginVault {
 			const version = await ctx.storage.get("schema-version");
 			if (version !== undefined && version !== 2)
 				throw new Error("Plugin storage requires an explicit v1 migration");
-			if (!env.PLUGIN_ENCRYPTION_KEY)
+			// OAuth callbacks and redirects are built from these origins.
+			if (!env.PLUGIN_ENCRYPTION_KEY || !URL.canParse(env.API_PUBLIC_ORIGIN))
 				throw new Error("Plugins are not configured");
 			for (const key of (
 				await ctx.storage.list({ prefix: "server:" })

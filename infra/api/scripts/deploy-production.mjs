@@ -77,6 +77,9 @@ const requiredValues = {
 				BOXD_TEMPLATE_VERSION: vars.BOXD_TEMPLATE_VERSION,
 			}
 		: {}),
+	// Plugin OAuth callbacks are built from it; without it every sign-in fails.
+	API_PUBLIC_ORIGIN: vars.API_PUBLIC_ORIGIN,
+	PLUGIN_APP_ORIGIN: vars.PLUGIN_APP_ORIGIN,
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
 	R2: config.r2_buckets?.[0]?.bucket_name,
 	...(e2bEnabled
