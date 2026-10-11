@@ -3,6 +3,10 @@ import { execFileSync } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import {
+	readEngineEndpoint,
+	requestIdleEngineShutdown,
+} from "@zusehq/server/desktop-engine";
 import { _electron } from "playwright-core";
 import { closeElectronApplication } from "../src/electron-app.ts";
 
@@ -78,5 +82,15 @@ try {
 		}
 	}
 } finally {
+	// The engine deliberately outlives the desktop shell. Stop this isolated
+	// test's owner before removing its profile and extracted executable; it can
+	// also retain the shell's debugger socket and keep Playwright alive.
+	const endpoint = await readEngineEndpoint(userData);
+	if (endpoint !== null)
+		assert.equal(
+			await requestIdleEngineShutdown(endpoint, { userData }),
+			"stopped",
+			"The packaged smoke test's engine must be idle before cleanup",
+		);
 	await rm(root, { recursive: true, force: true });
 }
