@@ -178,7 +178,12 @@ export function deriveChatTimelineRows({
 	let current: { user: Message | null; body: Message[] } | null = null;
 
 	for (const message of normalizedMessages) {
-		if (isUserMessage(message)) {
+		if (message.content._tag === "model_switch") {
+			// Configuration changes stand between turns, outside collapsed replies.
+			if (current !== null) turns.push(current);
+			turns.push({ user: null, body: [message] });
+			current = null;
+		} else if (isUserMessage(message)) {
 			if (current !== null) turns.push(current);
 			current = { user: message, body: [] };
 		} else {

@@ -29,11 +29,26 @@ describe("mobile message safety", () => {
 				},
 				createdAt: new Date(),
 			},
+			{
+				id: MessageId.make("msg-switch"),
+				sessionId,
+				role: "system",
+				content: {
+					_tag: "model_switch",
+					fromProviderId: "codex",
+					fromModel: "gpt-5",
+					toProviderId: "claude",
+					toModel: "sonnet",
+					context: "handoff",
+				},
+				createdAt: new Date(),
+			},
 		] satisfies readonly Message[];
 
 		expect(sanitizeMessages(messages).map((message) => message.id)).toEqual([
 			"msg-1",
 			"msg-2",
+			"msg-switch",
 		]);
 	});
 

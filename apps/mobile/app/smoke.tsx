@@ -195,7 +195,7 @@ const runLiveProbe = async (
 					.map((frame) =>
 						frame.kind === "event"
 							? frame.streamVersion
-							: frame.kind === "reset-required"
+							: frame.kind === "reset-required" || frame.kind === "runtime"
 								? frame.cursor.version
 								: frame.throughVersion,
 					)

@@ -149,6 +149,27 @@ const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
+export const PROJECT_IMAGE_BUILD_SCRIPT = `set -e
+completion="/var/lib/zuse/project-build/completed-\${ZUSE_PROJECT_BUILD_ID:?}"
+rm -f "$completion" /var/lib/zuse/project-build/ready /var/lib/zuse/project-build/failed /var/lib/zuse/project-build/failure-phase /tmp/zuse-project-builder-exited
+trap 'code=$?; printf "%s\\n" "$code" >"$completion.tmp-$$" && mv "$completion.tmp-$$" "$completion"; exit "$code"' EXIT
+: >${PROJECT_BUILD_LOG_FILE}
+if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
+  printf 'updating-runtime\\n' >/var/lib/zuse/project-build/failure-phase
+  code=1
+  for delay in ${PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS.join(" ")}; do
+    if [ "$delay" -gt 0 ]; then sleep "$delay"; fi
+    if ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node ${RUNTIME_ACTIVATION_INSTALLER} >>${PROJECT_BUILD_LOG_FILE} 2>&1; then code=0; break; else code=$?; fi
+  done
+  if [ "$code" -ne 0 ]; then
+    printf 'updating-runtime\\n' >/var/lib/zuse/project-build/failure-phase
+    exit "$code"
+  fi
+  node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync("/opt/zuse/current/runtime-metadata.json", "utf8")); if (metadata.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) throw new Error("Installed image runtime protocol mismatch");' >>${PROJECT_BUILD_LOG_FILE} 2>&1
+fi
+${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1
+`;
+
 const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
 const WORKSPACE_RUNTIME_FILE =
@@ -756,6 +777,16 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						nowMs,
 					);
 				});
+			if (
+				config.runtimeManifestUrl !== undefined &&
+				!config.runtimeInstallerSource?.trim()
+			) {
+				yield* failQueuedBuild(
+					"runtime-installer-unavailable",
+					"The configured runtime installer is unavailable. Retry after the API configuration is repaired.",
+				);
+				return;
+			}
 			const ownKey = connectionIdFor(build) !== undefined;
 			const rejectedLog = ownKey
 				? `${provider.displayName} refused this request with your provider key (permission denied). Check that the key can read and create machines in its organization and can use the configured template, then rebuild.`
@@ -918,6 +949,16 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						GITHUB_AUTH_SOURCE,
 						"zuse",
 					),
+					...(config.runtimeManifestUrl === undefined
+						? []
+						: [
+								provider.writeTextFile(
+									sandbox.providerSandboxId,
+									RUNTIME_ACTIVATION_INSTALLER,
+									config.runtimeInstallerSource ?? "",
+									"zuse",
+								),
+							]),
 					writeRuntimeSigningKey(provider, sandbox.providerSandboxId, config),
 				],
 				{ concurrency: "unbounded", discard: true },
@@ -999,11 +1040,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* provider
 				.startProcess(sandbox.providerSandboxId, {
 					command: "/bin/bash",
-					args: [
-						"-lc",
-						`set -e; : >${PROJECT_BUILD_LOG_FILE}; if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ] && [ -f "\${ZUSE_RUNTIME_PUBLIC_KEY_FILE:-}" ]; then code=1; for delay in ${PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS.join(" ")}; do if [ "$delay" -gt 0 ]; then sleep "$delay"; fi; if ZUSE_RUNTIME_INSTALL_ONLY=1 ZUSE_RUNTIME_SKIP_TOOLCHAIN=1 node /usr/local/lib/zuse/runtime-updater.mjs >>${PROJECT_BUILD_LOG_FILE} 2>&1; then code=0; break; else code=$?; fi; done; if [ "$code" -ne 0 ]; then printf 'updating-runtime\n' >/var/lib/zuse/project-build/failure-phase; touch /var/lib/zuse/project-build/failed /tmp/zuse-project-builder-exited; exit "$code"; fi; fi; set +e; ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1; code=$?; touch /tmp/zuse-project-builder-exited; exit "$code"`,
-					],
+					args: ["-c", PROJECT_IMAGE_BUILD_SCRIPT],
 					env: {
+						ZUSE_PROJECT_BUILD_ID: build.buildId,
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: build.buildId,
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
 						ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
 						...(build.settings?.codexAuthDeliveryVersion === 1
@@ -1042,31 +1082,33 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			);
 			const buildTimedOut =
 				nowMs - build.createdAtMs >= PROJECT_BUILD_TIMEOUT_MS;
-			const builderExited = yield* provider
-				.pathExists(
+			// Snapshot forks retain old readiness files and may retain processes too.
+			// Only this build's wrapper can receipt its installer/builder completion.
+			const completion = yield* provider
+				.readTextFile(
 					build.providerSandboxId,
-					"/tmp/zuse-project-builder-exited",
+					`/var/lib/zuse/project-build/completed-${build.buildId}`,
 					"zuse",
 				)
-				.pipe(Effect.orDie);
-			const ready = yield* provider
-				.pathExists(
-					build.providerSandboxId,
-					"/var/lib/zuse/project-build/ready",
-					"zuse",
-				)
-				.pipe(Effect.orDie);
-			if (
-				buildTimedOut ||
-				(builderExited && !ready) ||
+				.pipe(
+					Effect.map((value) => value.trim()),
+					Effect.catchTag("SandboxProviderError", (error) =>
+						error.code === "not-found"
+							? Effect.succeed(null)
+							: Effect.die(error),
+					),
+				);
+			const builderExited = completion !== null;
+			const ready =
+				completion === "0" &&
 				(yield* provider
 					.pathExists(
 						build.providerSandboxId,
-						"/var/lib/zuse/project-build/failed",
+						"/var/lib/zuse/project-build/ready",
 						"zuse",
 					)
-					.pipe(Effect.orDie))
-			) {
+					.pipe(Effect.orDie));
+			if (buildTimedOut || (builderExited && !ready)) {
 				const reportedFailurePhase = buildTimedOut
 					? ""
 					: yield* provider

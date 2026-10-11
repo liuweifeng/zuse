@@ -1,11 +1,22 @@
-/** Wires durable conversation reactor runners to focused handlers. */
+/**
+ * Wires durable conversation work to focused handlers.
+ *
+ * Provider-facing work (start, send, interrupt, stop, successor) runs from the
+ * durable job ledger: jobs are inserted in the command transaction and the job
+ * worker claims, executes, retries, and settles them. Derived work that only
+ * reads committed events (naming, archive, delete) still runs from cursor
+ * reactors.
+ */
 import type {
 	ChatArchiveScriptError,
 	ChatArchiveTimeoutError,
 	ChatArchiveWorktreeError,
 	ChatNotFoundError,
-	SessionStartError,
 } from "@zuse/contracts";
+import type {
+	JobFailure,
+	JobWorker,
+} from "@zuse/domain/agent-engine/job-worker";
 import { ChatEvent } from "@zuse/domain/chat/events";
 import type { StoredEvent } from "@zuse/domain/engine/dispatch";
 import {
@@ -23,20 +34,9 @@ import {
 	type ChatDeleteCommand,
 	chatArchiveReactorDefinition,
 	chatDeleteReactorDefinition,
-	type ProviderInterruptCommand,
-	type ProviderStartCommand,
-	type ProviderStopCommand,
-	type ProviderTurnCommand,
-	providerInterruptReactorDefinition,
-	providerStartReactorDefinition,
-	providerStopReactorDefinition,
-	providerTurnReactorDefinition,
-	type ScheduledSuccessorCommand,
-	scheduledSuccessorReactorDefinition,
 } from "@zuse/domain/reactors/conversation";
 import { Effect, Schema, type Scope, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { WorkspaceExecutionPolicy } from "../services/workspace-execution-policy.ts";
 
 export type ChatArchiveReactorError =
 	| ChatNotFoundError
@@ -45,21 +45,6 @@ export type ChatArchiveReactorError =
 	| ChatArchiveWorktreeError;
 
 export interface ConversationReactorHandlers {
-	readonly providerStart: (
-		input: ReactorDispatchInput<ProviderStartCommand>,
-	) => Effect.Effect<void, SessionStartError>;
-	readonly providerStop: (
-		input: ReactorDispatchInput<ProviderStopCommand>,
-	) => Effect.Effect<void>;
-	readonly providerTurn: (
-		input: ReactorDispatchInput<ProviderTurnCommand>,
-	) => Effect.Effect<void>;
-	readonly providerInterrupt: (
-		input: ReactorDispatchInput<ProviderInterruptCommand>,
-	) => Effect.Effect<void>;
-	readonly scheduledSuccessor: (
-		input: ReactorDispatchInput<ScheduledSuccessorCommand>,
-	) => Effect.Effect<void>;
 	readonly autoName: (
 		input: ReactorDispatchInput<AutoNameCommand>,
 	) => Effect.Effect<void>;
@@ -72,70 +57,21 @@ export interface ConversationReactorHandlers {
 }
 
 export interface ConversationReactorRuntime {
-	readonly runSession: Effect.Effect<void>;
-	readonly runProviderStart: Effect.Effect<void, SessionStartError>;
-	readonly runProviderStop: Effect.Effect<void>;
+	/**
+	 * Runs every claimable provider job to completion, then queues naming work
+	 * in the background. A provider job that failed for good surfaces as a
+	 * defect so the command that implied it does not report success.
+	 */
+	readonly runSession: (sessionId: string) => Effect.Effect<void>;
+	readonly runProviderStop: (sessionId: string) => Effect.Effect<void>;
 	readonly runChatArchive: Effect.Effect<void, ChatArchiveReactorError>;
 	readonly runChatDelete: Effect.Effect<void, ChatNotFoundError>;
-	readonly catchUpAll: Effect.Effect<
-		void,
-		SessionStartError | ChatArchiveReactorError | ChatNotFoundError
-	>;
+	readonly catchUpAll: Effect.Effect<void>;
 }
 
 const decodeChatEvent = Schema.decodeUnknownEffect(
 	Schema.fromJsonString(ChatEvent),
 );
-
-const providerTurnKey = (sessionId: string, turnId: string) =>
-	`${sessionId}\u0000${turnId}`;
-
-export const loadTerminalProviderTurnKeys = Effect.fn(
-	"ConversationReactors.loadTerminalProviderTurnKeys",
-)(function* (sql: SqlClient.SqlClient) {
-	const rows = yield* sql<{
-		readonly stream_id: string;
-		readonly turn_id: string;
-	}>`
-		SELECT
-			requested.stream_id,
-			json_extract(requested.payload_json, '$.turnId') AS turn_id
-		FROM events AS requested
-		WHERE requested.stream_kind = 'session'
-			AND requested.type = 'ProviderTurnRequested'
-			AND requested.sequence > COALESCE(
-				(
-					SELECT last_sequence
-					FROM projector_cursors
-					WHERE projector_name = 'reactor:provider-turn'
-				),
-				0
-			)
-			AND (
-				EXISTS (
-					SELECT 1
-					FROM events AS settled
-					WHERE settled.stream_kind = 'session'
-						AND settled.stream_id = requested.stream_id
-						AND settled.type = 'TurnSettled'
-						AND settled.sequence > requested.sequence
-						AND json_extract(settled.payload_json, '$.turnId')
-							= json_extract(requested.payload_json, '$.turnId')
-				)
-				OR EXISTS (
-					SELECT 1
-					FROM events AS archived
-					WHERE archived.stream_kind = 'session'
-						AND archived.stream_id = requested.stream_id
-						AND archived.type = 'SessionArchived'
-						AND archived.sequence > requested.sequence
-				)
-			)
-	`.pipe(Effect.orDie);
-	return new Set(
-		rows.map((row) => providerTurnKey(row.stream_id, row.turn_id)),
-	);
-});
 
 const serialize = Effect.fn("ConversationReactors.serialize")(function* <
 	A,
@@ -146,14 +82,36 @@ const serialize = Effect.fn("ConversationReactors.serialize")(function* <
 	return Effect.suspend(() => semaphore.withPermits(1)(effect));
 });
 
+const failureCause = (failure: JobFailure): Error =>
+	new Error(failure.failure.message, { cause: failure.failure.cause });
+
+/**
+ * Provider jobs are drained synchronously so a command that implied them can
+ * report their outcome. A permanent failure is a defect for the caller, as it
+ * was before jobs were durable; a retryable failure has already been scheduled
+ * for the worker's next pass.
+ */
+const drainProviderJobs = (worker: JobWorker, sessionId: string) =>
+	worker.drainSession(sessionId).pipe(
+		Effect.orDie,
+		Effect.flatMap((failures) => {
+			const surfaced = failures.find(
+				(failure) => failure.job.request._tag === "provider.turn.send",
+			);
+			return surfaced === undefined
+				? Effect.void
+				: Effect.die(failureCause(surfaced));
+		}),
+	);
+
 export const makeConversationReactorRuntime = Effect.fn(
 	"ConversationReactors.make",
 )(function* (
 	handlers: ConversationReactorHandlers,
+	worker: JobWorker,
 	serviceScope: Scope.Scope,
 ): Effect.fn.Return<ConversationReactorRuntime, never, SqlClient.SqlClient> {
 	const sql = yield* SqlClient.SqlClient;
-	const executionPolicy = yield* WorkspaceExecutionPolicy;
 	const sessionStorage = makeSqlConsumerStorage(sql);
 	const chatStorage = () =>
 		makeSqlConsumerStorage(sql, {
@@ -161,52 +119,6 @@ export const makeConversationReactorRuntime = Effect.fn(
 			decodeEvent: decodeChatEvent,
 		});
 
-	const providerStart = new ReactorRunner<
-		StoredEvent,
-		ProviderStartCommand,
-		SqlConsumerStorageError,
-		never,
-		SessionStartError
-	>(sessionStorage, handlers.providerStart, providerStartReactorDefinition, {
-		dispatchConcurrency: 4,
-	});
-	const providerStop = new ReactorRunner<
-		StoredEvent,
-		ProviderStopCommand,
-		SqlConsumerStorageError
-	>(sessionStorage, handlers.providerStop, providerStopReactorDefinition);
-	const terminalProviderTurnsAtStartup = new Set<string>();
-	const providerTurn = new ReactorRunner<
-		StoredEvent,
-		ProviderTurnCommand,
-		SqlConsumerStorageError
-	>(
-		sessionStorage,
-		(input) => {
-			const key = providerTurnKey(input.streamId, input.command.turnId);
-			if (terminalProviderTurnsAtStartup.delete(key)) return Effect.void;
-			return handlers.providerTurn(input);
-		},
-		providerTurnReactorDefinition,
-	);
-	const providerInterrupt = new ReactorRunner<
-		StoredEvent,
-		ProviderInterruptCommand,
-		SqlConsumerStorageError
-	>(
-		sessionStorage,
-		handlers.providerInterrupt,
-		providerInterruptReactorDefinition,
-	);
-	const scheduledSuccessor = new ReactorRunner<
-		StoredEvent,
-		ScheduledSuccessorCommand,
-		SqlConsumerStorageError
-	>(
-		sessionStorage,
-		handlers.scheduledSuccessor,
-		scheduledSuccessorReactorDefinition,
-	);
 	const autoName = new ReactorRunner<
 		StoredEvent,
 		AutoNameCommand,
@@ -227,60 +139,18 @@ export const makeConversationReactorRuntime = Effect.fn(
 		ChatNotFoundError
 	>(chatStorage(), handlers.chatDelete, chatDeleteReactorDefinition);
 
-	const runProviderStart = yield* serialize(
-		providerStart.catchUp().pipe(
-			Effect.asVoid,
-			Effect.catch((error) =>
-				error._tag === "SessionStartError"
-					? Effect.fail(error)
-					: Effect.die(error),
-			),
-		),
-	);
-	const runProviderStop = yield* serialize(
-		providerStop.catchUp().pipe(Effect.asVoid, Effect.orDie),
-	);
-	const runProviderInterrupt = yield* serialize(
-		providerInterrupt.catchUp().pipe(Effect.asVoid, Effect.orDie),
-	);
-	const runSessionLifecycle = yield* serialize(
-		Effect.gen(function* () {
-			yield* providerInterrupt.catchUp().pipe(Effect.orDie);
-			// Cancellation settlement makes an interrupt-then-send successor
-			// eligible, so claim it before delivering provider-turn effects.
-			yield* scheduledSuccessor.catchUp().pipe(Effect.orDie);
-			yield* providerTurn.catchUp().pipe(Effect.orDie);
-		}),
-	);
 	const runAutoName = yield* serialize(autoName.catchUp().pipe(Effect.orDie));
-	let preparationCatchupPending = false;
-	const runSession: Effect.Effect<void> = Effect.gen(function* () {
-		// Stop remains available while a prompt waits for repository preparation.
-		// Waiting inside the serialized provider-turn lane would prevent its
-		// interrupt from settling until after the prompt had already been sent.
-		if (!executionPolicy.isReady) {
-			yield* runProviderInterrupt;
-			if (!preparationCatchupPending) {
-				preparationCatchupPending = true;
-				yield* executionPolicy.awaitReady.pipe(
-					Effect.andThen(Effect.suspend(() => runSession)),
-					Effect.ensuring(
-						Effect.sync(() => {
-							preparationCatchupPending = false;
-						}),
-					),
-					Effect.forkIn(serviceScope, { startImmediately: true }),
-				);
-			}
-			return;
-		}
-		// Generated chat and branch names can take tens of seconds. They are
-		// durable, but they must not hold the provider-turn lane and delay the
-		// user's next message. Keep their own serialized worker in the service
-		// scope so catch-up remains reliable across overlapping turn settlements.
-		yield* runSessionLifecycle;
-		yield* Effect.forkIn(runAutoName, serviceScope);
-	});
+	const runSession = (sessionId: string) =>
+		Effect.gen(function* () {
+			yield* drainProviderJobs(worker, sessionId);
+			// Generated chat and branch names can take tens of seconds. They are
+			// durable, but they must not hold the provider lane and delay the
+			// user's next message. Keep their own serialized worker in the service
+			// scope so catch-up remains reliable across overlapping turn settlements.
+			yield* Effect.forkIn(runAutoName, serviceScope);
+		});
+	const runProviderStop = (sessionId: string) =>
+		drainProviderJobs(worker, sessionId);
 	const runChatArchive = yield* serialize(
 		chatArchive.catchUp().pipe(
 			Effect.asVoid,
@@ -307,18 +177,31 @@ export const makeConversationReactorRuntime = Effect.fn(
 
 	return {
 		runSession,
-		runProviderStart,
 		runProviderStop,
 		runChatArchive,
 		runChatDelete,
-		catchUpAll: Effect.gen(function* () {
-			const terminalKeys = yield* loadTerminalProviderTurnKeys(sql);
-			for (const key of terminalKeys) terminalProviderTurnsAtStartup.add(key);
-			yield* runProviderStart;
-			yield* runProviderStop;
-			yield* runSession;
-			yield* runChatArchive;
-			yield* runChatDelete;
-		}),
+		catchUpAll: Effect.all(
+			(
+				[
+					["providers", worker.drain.pipe(Effect.orDie)],
+					["naming", runAutoName],
+					[
+						"chat lifecycle",
+						runChatArchive.pipe(Effect.andThen(runChatDelete)),
+					],
+				] satisfies ReadonlyArray<
+					readonly [string, Effect.Effect<unknown, unknown>]
+				>
+			).map(([name, effect]) =>
+				effect.pipe(
+					Effect.catchCause((cause) =>
+						Effect.logError(
+							`[ConversationReactors] ${name} recovery failed: ${String(cause)}`,
+						),
+					),
+				),
+			),
+			{ concurrency: "unbounded", discard: true },
+		),
 	};
 });

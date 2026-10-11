@@ -1,5 +1,6 @@
 import {
 	AgentTurnId,
+	AttemptId,
 	EnvironmentId,
 	FolderId,
 	QueueState,
@@ -61,9 +62,20 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", async (original) => ({
 				? SessionTimelineProjection.make({
 						messages: [],
 						status: "booting",
-						currentTurn: {
-							turnId: AgentTurnId.make("slack-turn"),
+						turnCount: 1,
+						activeTurn: {
+							id: AgentTurnId.make("slack-turn"),
+							ordinal: 1,
+							status: "running",
 							phase: "running",
+							attempt: {
+								id: AttemptId.make("attempt-1"),
+								ordinal: 1,
+								reason: "initial",
+							},
+							providerThreadId: null,
+							requestedAt: new Date(0),
+							completedAt: null,
 						},
 						queue: QueueState.make({ items: [], paused: false }),
 						permissionMode: "default",

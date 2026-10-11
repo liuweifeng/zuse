@@ -50,7 +50,7 @@ import {
 	type ProviderEventEnvelope,
 	type ProviderId,
 	providerCapabilities,
-	type ThreadGoalSetInput,
+	SessionId,
 	type UserQuestion,
 } from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
@@ -65,6 +65,7 @@ import {
 } from "effect";
 import { ChildProcessSpawner as CommandExecutor } from "effect/unstable/process";
 import { AnalyticsService } from "../../analytics/services/analytics-service.ts";
+import { AutomationService } from "../../automation/service.ts";
 import { ConfigStoreService } from "../../config-store/services/config-store-service.ts";
 import { HarnessProvider } from "../../harness/provider.ts";
 import { createHtmlTools } from "../../html-render/service.ts";
@@ -85,7 +86,30 @@ import {
 	resolveCliPath,
 	withOpencodeInventoryAccount,
 } from "../availability.ts";
+import {
+	bindProviderEventDelivery,
+	type ProviderEventDelivery,
+} from "../provider-event-delivery.ts";
+import {
+	type GoalCurrentCheck,
+	type GoalPublication,
+	runProviderGoal,
+} from "../provider-goal.ts";
+import {
+	closeProviderHandle,
+	ownProviderRegistry,
+} from "../provider-handle-cleanup.ts";
+import { ownProviderInputs } from "../provider-input-identity.ts";
+import { sendProviderSession } from "../provider-send.ts";
 import { makeProviderSessionRegistry } from "../provider-session-registry.ts";
+import {
+	acquireStartupHandle,
+	reserveProviderStartup,
+} from "../provider-startup.ts";
+import {
+	quiesceProviderSession,
+	stopProviderSession,
+} from "../provider-stop.ts";
 import { makeQuestionAttachmentAuthority } from "../question-attachment-authority.ts";
 import { makeQuestionAttachmentSnapshotFeed } from "../question-attachment-feed.ts";
 import { BrowserBridgeService } from "../services/browser-bridge-service.ts";
@@ -115,8 +139,10 @@ const isPublicProviderEvent = (
  */
 type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
+	readonly providerSessionId: string;
 	readonly providerId: ProviderId;
 	readonly model: string;
+	readonly ownership?: import("@zuse/contracts").ProviderAttemptOwnership;
 	readonly handle: SessionHandle;
 	readonly gitExecutionKey?: string;
 	turnStartedAt: number | null;
@@ -135,6 +161,7 @@ export const ProviderServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const harness = yield* Effect.serviceOption(HarnessProvider);
 		const credentials = yield* CredentialsService;
+		const automation = yield* Effect.serviceOption(AutomationService);
 		const accounts = yield* Effect.serviceOption(ProviderAccounts);
 		const runtimeCredentials = yield* RuntimeProviderCredentials;
 		const gitExecution = yield* RuntimeGitExecution;
@@ -155,6 +182,7 @@ export const ProviderServiceLive = Layer.effect(
 			AgentSessionId,
 			SessionEntry
 		>();
+		yield* ownProviderRegistry(registry);
 		// Identical startup requests serialize and reuse the published handle;
 		// different provider/model generations may start concurrently so a slow,
 		// stale process can never head-of-line block the user's latest selection.
@@ -173,6 +201,7 @@ export const ProviderServiceLive = Layer.effect(
 			handle: SessionHandle,
 		): Effect.Effect<"attached" | "duplicate" | "conflict" | "full"> =>
 			Effect.gen(function* () {
+				if (registry.lookup(sessionId)?.handle !== handle) return "conflict";
 				const attachment = { sessionId, itemId };
 				const admission = questionAttachments.attach(attachment, questions);
 				if (admission === "conflict") {
@@ -189,7 +218,17 @@ export const ProviderServiceLive = Layer.effect(
 					// Never forward a durable question that has no corresponding live
 					// authority. Cancel the exact callback; if a broken driver cannot do
 					// that, close it so its bounded waiter registry is still drained.
-					yield* (handle.cancelQuestion?.(itemId) ?? handle.close()).pipe(
+					yield* (
+						handle.cancelQuestion === undefined
+							? handle.close()
+							: handle
+									.cancelQuestion(itemId)
+									.pipe(
+										Effect.andThen(
+											handle.acknowledgeQuestionAnswer?.(itemId) ?? Effect.void,
+										),
+									)
+					).pipe(
 						Effect.catch(() =>
 							handle.close().pipe(Effect.catch(() => Effect.void)),
 						),
@@ -223,7 +262,13 @@ export const ProviderServiceLive = Layer.effect(
 		// runtime captured at layer construction. `projectId` is bound at
 		// start() time so the driver doesn't need to know about projects.
 		const buildRequestPermission =
-			(projectId: FolderId) =>
+			(
+				projectId: FolderId,
+				authority: Pick<
+					import("../services/permission-service.ts").RequestOptions,
+					"owner" | "isCurrent"
+				>,
+			) =>
 			(
 				sessionId: AgentSessionId,
 				kind: PermissionKind,
@@ -231,6 +276,7 @@ export const ProviderServiceLive = Layer.effect(
 			): Promise<PermissionDecision> =>
 				Effect.runPromiseWith(runtime)(
 					permissions.request(sessionId, kind, {
+						...authority,
 						projectId,
 						forcePrompt: options.forcePrompt,
 					}),
@@ -413,13 +459,67 @@ export const ProviderServiceLive = Layer.effect(
 					: Effect.succeed(entry);
 			});
 
-		const invalidate = (sessionId: AgentSessionId) =>
-			Effect.sync(() => registry.invalidate(sessionId));
+		const goalOperation = <A>(
+			sessionId: AgentSessionId,
+			operation: (handle: GoalCapableHandle) => Effect.Effect<A>,
+			publish?: GoalPublication<A>,
+			notificationDriven = false,
+			verify?: GoalCurrentCheck,
+		) =>
+			Effect.flatMap(lookup(sessionId), (entry) =>
+				runProviderGoal({
+					registry,
+					lifecycle: lifecycleWorker,
+					sessionId,
+					entry,
+					operation,
+					publish,
+					notificationDriven,
+					verify,
+				}),
+			);
 
 		return {
 			availability,
-			hasSession: (sessionId) =>
-				Effect.sync(() => registry.lookup(sessionId) !== undefined),
+			hasSession: (sessionId, expectedProviderSessionId) =>
+				Effect.sync(() => {
+					const entry = registry.lookup(sessionId);
+					return (
+						entry !== undefined &&
+						(expectedProviderSessionId === undefined ||
+							entry.providerSessionId === expectedProviderSessionId)
+					);
+				}),
+			quiesce: (sessionId, expectedProviderSessionId) =>
+				lifecycleWorker.run(
+					sessionId,
+					quiesceProviderSession({
+						registry,
+						sessionId,
+						expectedProviderSessionId,
+						detachQuestions: detachSessionQuestions(sessionId),
+					}),
+				),
+			captureHistoryCheckpoint: (sessionId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.suspend(
+						() =>
+							registry.lookup(sessionId)?.handle.captureHistoryCheckpoint?.() ??
+							Effect.succeed(null),
+					),
+				),
+			restoreHistoryCheckpoint: (sessionId, checkpoint) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.suspend(
+						() =>
+							registry
+								.lookup(sessionId)
+								?.handle.restoreHistoryCheckpoint?.(checkpoint) ??
+							Effect.succeed(false),
+					),
+				),
 			guardCurrent: (sessionId, generation, effect) =>
 				lifecycleWorker.run(
 					sessionId,
@@ -435,15 +535,18 @@ export const ProviderServiceLive = Layer.effect(
 				getRuntimeMode,
 				orchestrationTools = null,
 				providerEventCursor = null,
+				admit,
+				providerSessionId,
 			) => {
 				let managedPlugins: McpGatewaySession | undefined;
 				let managedPermissionMode = input.permissionMode ?? "default";
 				const startupStartedAt = Date.now();
+				const residencyId = providerSessionId ?? crypto.randomUUID();
 				const sessionId = input.sessionId ?? nextSessionId();
 				const requestedModel = input.model
 					? safeModelId(input.providerId, input.model)
 					: "custom";
-				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}`;
+				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}\u0000${input.initialAttemptId ?? ""}\u0000${providerSessionId ?? ""}`;
 				const start = Effect.gen(function* () {
 					const execution = yield* Effect.tryPromise({
 						try: () => gitExecution.resolve(sessionId),
@@ -456,46 +559,60 @@ export const ProviderServiceLive = Layer.effect(
 										: "GitHub connection is unavailable.",
 							}),
 					});
-					const binaryPaths =
-						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					// Reserve ownership before awaiting process teardown. If `begin` moved
 					// below `handle.close()`, an older startup could outrank a later switch.
-					const reservation = yield* lifecycleWorker.run(
+					const reservation = yield* reserveProviderStartup({
+						registry,
+						lifecycle: lifecycleWorker,
 						sessionId,
-						Effect.sync(() => {
-							const existing = registry.lookup(sessionId);
-							if (
-								existing?.providerId === input.providerId &&
-								existing.model === requestedModel &&
-								existing.gitExecutionKey === execution?.key
-							) {
-								return {
-									_tag: "reuse" as const,
-									generation: registry.currentGeneration(sessionId),
-								};
-							}
-							const removed = registry.invalidate(sessionId);
-							return {
-								_tag: "start" as const,
-								generation: registry.begin(sessionId),
-								removed,
-							};
-						}),
-					);
+						providerSessionId: residencyId,
+						admit: admit ?? Effect.succeed(true),
+						matches: (existing) =>
+							(providerSessionId === undefined ||
+								existing.providerSessionId === providerSessionId) &&
+							existing.providerId === input.providerId &&
+							existing.model === requestedModel &&
+							existing.gitExecutionKey === execution?.key &&
+							(input.initialAttemptId === undefined ||
+								(existing.ownership?.attemptId === input.initialAttemptId &&
+									existing.ownership.turnId === input.initialTurnId)),
+						detachQuestions: detachSessionQuestions(sessionId),
+						closeEntry: (entry) => closeProviderHandle(entry.handle),
+					});
+					if (reservation._tag === "rejected")
+						return { sessionId, superseded: true };
 					if (reservation._tag === "reuse") {
 						return {
 							sessionId,
 							generation: reservation.generation,
+							providerSessionId: reservation.entry.providerSessionId,
 						};
 					}
-					if (reservation.removed !== undefined) {
-						// Closing may be slow, so keep it outside the ownership lock. The
-						// removed handle is detached and cannot affect the reserved generation.
-						yield* reservation.removed.handle
-							.close()
-							.pipe(Effect.catch(() => Effect.void));
-					}
+					yield* reservation.releaseDisplaced;
 					const generation = reservation.generation;
+					const permissionAuthority = {
+						isCurrent: Effect.sync(
+							() =>
+								registry.currentProviderSessionId(sessionId) === residencyId &&
+								registry.currentGeneration(sessionId) === generation,
+						),
+						owner:
+							providerSessionId === undefined
+								? undefined
+								: {
+										providerSessionId: residencyId,
+										attempt:
+											input.initialTurnId === undefined ||
+											input.initialAttemptId === undefined
+												? undefined
+												: {
+														turnId: input.initialTurnId,
+														attemptId: input.initialAttemptId,
+													},
+									},
+					};
+					const binaryPaths =
+						(yield* configStore.getSettings()).providerBinaryPaths ?? {};
 					const runtimeModeGetter =
 						getRuntimeMode ?? (() => DEFAULT_RUNTIME_MODE);
 					const folder = yield* workspace.findById(input.folderId);
@@ -539,15 +656,31 @@ export const ProviderServiceLive = Layer.effect(
 										),
 									)
 							: null;
+					const secretEnvironment =
+						automation._tag === "Some"
+							? yield* automation.value
+									.secretBindings(SessionId.make(sessionId))
+									.pipe(
+										Effect.mapError(
+											() =>
+												new AgentSessionStartError({
+													providerId: input.providerId,
+													reason:
+														"Could not load this session’s private credentials.",
+												}),
+										),
+									)
+							: {};
 					const driverInput = {
 						...input,
-						executionEnv: execution?.env,
+						executionEnv: { ...execution?.env, ...secretEnvironment },
 						providerAccountHome: account?.home,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
 						workspaceInstructions: zuseWorkspaceInstructions({
 							projectPath: folder.path,
 							includeAppTools: providerCapabilities(input.providerId).appTools,
+							includeOrchestration: orchestrationTools !== null,
 							cwd,
 						}),
 					};
@@ -587,35 +720,59 @@ export const ProviderServiceLive = Layer.effect(
 						["cursor", "opencode", "opencode2", "pi"].includes(input.providerId)
 					) {
 						managedPlugins = yield* Effect.tryPromise({
-							try: async () => {
+							try: async (signal) => {
 								const client = await getDefaultPluginClient();
+								signal.throwIfAborted();
 
-								return issueMcpGatewaySession({
-									sessionId,
-									scopes: {
-										browser: false,
-										orchestration: false,
-										plugins: client !== undefined,
-										html: true,
+								const lease = await issueMcpGatewaySession(
+									{
+										sessionId,
+										scopes: {
+											browser: false,
+											orchestration: orchestrationTools !== null,
+											plugins: client !== undefined,
+											html: true,
+										},
+										ctx: {
+											html: { client: htmlTools.client, cwd },
+											...(orchestrationTools === null
+												? {}
+												: {
+														orchestration: {
+															deps: orchestrationTools.deps,
+															requestPermission: (kind, options) =>
+																buildRequestPermission(
+																	input.folderId,
+																	permissionAuthority,
+																)(sessionId, kind, options),
+															getRuntimeMode: () =>
+																getRuntimeMode?.() ?? "approval-required",
+															getPermissionMode: () => managedPermissionMode,
+														},
+													}),
+											plugins: client
+												? {
+														client,
+														requestPermission: (kind, options) =>
+															buildRequestPermission(
+																input.folderId,
+																permissionAuthority,
+															)(sessionId, kind, options),
+														getRuntimeMode: () =>
+															getRuntimeMode?.() ?? "approval-required",
+														getPermissionMode: () => managedPermissionMode,
+													}
+												: undefined,
+										},
 									},
-									ctx: {
-										html: { client: htmlTools.client, cwd },
-										plugins: client
-											? {
-													client,
-													requestPermission: (kind, options) =>
-														buildRequestPermission(input.folderId)(
-															sessionId,
-															kind,
-															options,
-														),
-													getRuntimeMode: () =>
-														getRuntimeMode?.() ?? "approval-required",
-													getPermissionMode: () => managedPermissionMode,
-												}
-											: undefined,
-									},
-								});
+									signal,
+								);
+								if (signal.aborted) {
+									await lease.close();
+									signal.throwIfAborted();
+								}
+								managedPlugins = lease;
+								return lease;
 							},
 							catch: () =>
 								new AgentSessionStartError({
@@ -631,441 +788,500 @@ export const ProviderServiceLive = Layer.effect(
 							managedMcp = managedPlugins.httpServer;
 						}
 					}
-					let providerHandle: ProviderSessionHandle;
-					if (isAcpProviderId(input.providerId)) {
-						const launch = yield* Effect.tryPromise({
-							try: () => acpAgents.launch(input.providerId as `acp-${string}`),
-							catch: (cause) =>
-								new AgentSessionStartError({
-									providerId: input.providerId,
-									reason: String(cause),
-								}),
-						});
-						const mcpCommand = yield* resolveCliPath("bun", binaryPaths).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						providerHandle = yield* startGenericAcpSession(
-							driverInput,
-							cwd,
-							launch,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							mcpCommand ?? process.execPath,
-							orchestrationTools,
-							resumeCursor,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "zuse") {
-						if (Option.isNone(harness))
-							return yield* new AgentSessionStartError({
-								providerId: "zuse",
-								reason: "Zuse runtime is unavailable.",
-							});
-						providerHandle = yield* harness.value.start(
-							driverInput,
-							cwd,
-							sessionId,
-							resumeCursor,
-							runtimeModeGetter,
-						);
-					} else if (input.providerId === "gemini") {
-						// Same story as Grok: hand the driver the user's installed
-						// `gemini` binary. Surface a clean install message rather than
-						// letting spawn fail with ENOENT inside the driver.
-						const geminiPath = yield* resolveCliPath(
-							"gemini",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (geminiPath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "gemini",
-									reason:
-										"Gemini CLI not found on PATH. Install via `npm i -g @google/gemini-cli` and try again.",
-								}),
-							);
-						}
-						const geminiMcpCommand = yield* resolveCliPath(
-							"bun",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (geminiMcpCommand === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "gemini",
-									reason:
-										"Bun was not found on PATH. It is required for the Gemini MCP stdio fallback.",
-								}),
-							);
-						}
-						providerHandle = yield* startGeminiSession(
-							driverInput,
-							cwd,
-							apiKey,
-							geminiPath,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							geminiMcpCommand,
-							orchestrationTools,
-							resumeCursor,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "pi") {
-						const binary = yield* resolveCliPath("pi", binaryPaths).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (binary === null)
-							return yield* new AgentSessionStartError({
-								providerId: "pi",
-								reason: binaryPaths.pi
-									? "Invalid Pi binary path. Choose an absolute executable path in provider settings."
-									: "Pi CLI not found. Install @earendil-works/pi-coding-agent or set its absolute binary path.",
-							});
-						providerHandle = yield* startPiSession(
-							driverInput,
-							cwd,
-							binary,
-							sessionId,
-							resumeCursor,
-							managedMcp,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "kiro") {
-						// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
-						// (`kiro-cli login`); we only need the binary on PATH.
-						const kiroPath = yield* resolveCliPath(
-							"kiro-cli",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (kiroPath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "kiro",
-									reason:
-										"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available, then try again.",
-								}),
-							);
-						}
-						const kiroMcpCommand = yield* resolveCliPath(
-							"bun",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (kiroMcpCommand === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "kiro",
-									reason:
-										"Bun was not found on PATH. It is required for the Kiro MCP stdio fallback.",
-								}),
-							);
-						}
-						providerHandle = yield* startKiroSession(
-							driverInput,
-							cwd,
-							kiroPath,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							kiroMcpCommand,
-							orchestrationTools,
-							resumeCursor,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "grok") {
-						// Same story as Claude/Codex: hand the driver the user's
-						// installed `grok` binary (no bundled CLI in our package).
-						// Surface a clean install message rather than letting spawn
-						// fail with ENOENT inside the driver.
-						const grokPath = yield* resolveCliPath("grok", binaryPaths).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (grokPath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "grok",
-									reason:
-										"Grok CLI not found on PATH. Install Grok from https://x.ai/cli and try again.",
-								}),
-							);
-						}
-						const mcpProxyCommand = yield* resolveCliPath(
-							"bun",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						providerHandle = yield* startGrokSession(
-							driverInput,
-							cwd,
-							apiKey,
-							grokPath,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							mcpProxyCommand ?? process.execPath,
-							orchestrationTools,
-							resumeCursor,
-							providerEventCursor,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "opencode") {
-						// OpenCode spawns a local HTTP server (`opencode serve`) and we
-						// drive it via @opencode-ai/sdk. Same install-message pattern
-						// as the other CLI-backed drivers — surface a clean error
-						// before the driver tries to spawn.
-						const opencodePath = yield* resolveCliPath(
-							"opencode",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (opencodePath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "opencode",
-									reason:
-										"OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
-								}),
-							);
-						}
-						// Custom OpenAI-compatible providers are injected into
-						// `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
-						// live in opencode's own auth.json (written via
-						// `agent.opencodeSetProviderAuth`), so no key is threaded here.
-						const opencodeSettings = yield* configStore.getSettings();
-						providerHandle = yield* startOpencodeSession(
-							driverInput,
-							cwd,
-							opencodeSettings.opencodeCustomProviders,
-							opencodePath,
-							sessionId,
-							resumeCursor,
-							managedMcp,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "opencode2") {
-						const opencode2Path = yield* resolveCliPath(
-							"opencode2",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (opencode2Path === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "opencode2",
-									reason:
-										"OpenCode 2 CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/v2/install | bash` and try again.",
-								}),
-							);
-						}
-						const opencode2Settings = yield* configStore.getSettings();
-						providerHandle = yield* startOpencode2Session(
-							driverInput,
-							cwd,
-							opencode2Settings.opencode2CustomProviders,
-							opencode2Path,
-							sessionId,
-							resumeCursor,
-							buildRequestPermission(input.folderId),
-							managedMcp,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "cursor") {
-						providerHandle = yield* startCursorSession(
-							driverInput,
-							cwd,
-							apiKey,
-							sessionId,
-							resumeCursor,
-							managedMcp,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else if (input.providerId === "claude") {
-						// Point the SDK at the user's installed `claude` binary. We
-						// don't ship the SDK's bundled optional native CLI (216 MB per
-						// arch) — if `which claude` finds nothing here, the SDK would
-						// throw a cryptic "Native CLI binary for darwin-arm64 not
-						// found" error. Surface a clean install-Claude-Code message
-						// instead.
-						const claudePath = yield* resolveCliPath(
-							"claude",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (claudePath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "claude",
-									reason:
-										"Claude Code CLI not found on PATH. Install Claude Code from https://docs.claude.com/en/docs/claude-code and try again.",
-								}),
-							);
-						}
-						// Disabled Claude skills are enforced through the SDK `skills`
-						// allowlist; skip discovery entirely when nothing is disabled.
-						const skillAllowlist = hasDisabledSkillsFor(
-							(yield* configStore.getSettings()).disabledSkills,
-							"claude",
-						)
-							? claudeSkillAllowlist(
-									yield* skillDiscovery.discover("claude", cwd),
-								)
-							: undefined;
-
-						providerHandle = yield* startClaudeSession(
-							driverInput,
-							cwd,
-							managedCredential,
-							claudePath,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							resumeCursor,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							orchestrationTools,
-							skillAllowlist,
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					} else {
-						// Same story as Claude: we don't ship the SDK's bundled native
-						// CLI, so hand it the user's installed `codex` binary. Surface a
-						// clean install message if it's missing instead of the SDK's
-						// "Unable to locate Codex CLI binaries" error.
-						const codexPath = yield* resolveCliPath("codex", binaryPaths).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						if (codexPath === null) {
-							return yield* Effect.fail(
-								new AgentSessionStartError({
-									providerId: "codex",
-									reason:
-										"Codex CLI not found on PATH. Install Codex from https://github.com/openai/codex and try again.",
-								}),
-							);
-						}
-						const mcpProxyCommand = yield* resolveCliPath(
-							"bun",
-							binaryPaths,
-						).pipe(
-							Effect.provideService(
-								CommandExecutor.ChildProcessSpawner,
-								executor,
-							),
-						);
-						// We used to also fail-fast here when `codex --version` was below
-						// the SDK pin. Pulled because `session.create` calls
-						// `provider.start` synchronously — failing at start blocked
-						// session creation outright, leaving the user with no surface to
-						// upgrade *from*. The renderer's `CliUpgradeBanner` is the
-						// canonical signal (driven by the periodic availability probe),
-						// and the codex driver translates the SDK's
-						// "unexpected argument '--experimental-json'" failure on the
-						// first turn into a clean upgrade message — so the user sees
-						// either the banner before sending or the friendly error after,
-						// never the cryptic SDK trace.
-						providerHandle = yield* startCodexSession(
-							driverInput,
-							cwd,
-							apiKey,
-							codexPath,
-							sessionId,
-							buildRequestPermission(input.folderId),
-							runtimeModeGetter,
-							(command) =>
-								Effect.runPromiseWith(runtime)(
-									browserBridge.send(sessionId, command),
-								),
-							mcpProxyCommand ?? process.execPath,
-							orchestrationTools,
-							resumeCursor,
-							() => {
-								registry.invalidateIfCurrent(sessionId, generation);
-							},
-						).pipe(Effect.provideService(AttachmentService, attachmentService));
-					}
-					if (managedPlugins) {
-						const underlying = providerHandle;
-						const lease = managedPlugins;
-						providerHandle = {
-							...underlying,
-							close: () =>
-								underlying
-									.close()
-									.pipe(Effect.ensuring(Effect.promise(() => lease.close()))),
-							setPermissionMode: (mode) =>
-								underlying.setPermissionMode(mode).pipe(
-									Effect.tap(() =>
-										Effect.sync(() => {
-											managedPermissionMode = mode;
+					const acquiredHandle = yield* acquireStartupHandle(
+						Effect.gen(function* () {
+							let providerHandle: ProviderSessionHandle;
+							if (isAcpProviderId(input.providerId)) {
+								const launch = yield* Effect.tryPromise({
+									try: () =>
+										acpAgents.launch(input.providerId as `acp-${string}`),
+									catch: (cause) =>
+										new AgentSessionStartError({
+											providerId: input.providerId,
+											reason: String(cause),
 										}),
+								});
+								const mcpCommand = yield* resolveCliPath(
+									"bun",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
 									),
-								),
-						};
-					}
+								);
+								providerHandle = yield* startGenericAcpSession(
+									driverInput,
+									cwd,
+									launch,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									mcpCommand ?? process.execPath,
+									orchestrationTools,
+									resumeCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "zuse") {
+								if (Option.isNone(harness))
+									return yield* new AgentSessionStartError({
+										providerId: "zuse",
+										reason: "Zuse runtime is unavailable.",
+									});
+								providerHandle = yield* harness.value.start(
+									driverInput,
+									cwd,
+									sessionId,
+									resumeCursor,
+									runtimeModeGetter,
+									permissionAuthority,
+									orchestrationTools,
+								);
+							} else if (input.providerId === "gemini") {
+								// Same story as Grok: hand the driver the user's installed
+								// `gemini` binary. Surface a clean install message rather than
+								// letting spawn fail with ENOENT inside the driver.
+								const geminiPath = yield* resolveCliPath(
+									"gemini",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (geminiPath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "gemini",
+											reason:
+												"Gemini CLI not found on PATH. Install via `npm i -g @google/gemini-cli` and try again.",
+										}),
+									);
+								}
+								const geminiMcpCommand = yield* resolveCliPath(
+									"bun",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (geminiMcpCommand === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "gemini",
+											reason:
+												"Bun was not found on PATH. It is required for the Gemini MCP stdio fallback.",
+										}),
+									);
+								}
+								providerHandle = yield* startGeminiSession(
+									driverInput,
+									cwd,
+									apiKey,
+									geminiPath,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									geminiMcpCommand,
+									orchestrationTools,
+									resumeCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "pi") {
+								const binary = yield* resolveCliPath("pi", binaryPaths).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (binary === null)
+									return yield* new AgentSessionStartError({
+										providerId: "pi",
+										reason: binaryPaths.pi
+											? "Invalid Pi binary path. Choose an absolute executable path in provider settings."
+											: "Pi CLI not found. Install @earendil-works/pi-coding-agent or set its absolute binary path.",
+									});
+								providerHandle = yield* startPiSession(
+									driverInput,
+									cwd,
+									binary,
+									sessionId,
+									resumeCursor,
+									managedMcp,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "kiro") {
+								// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
+								// (`kiro-cli login`); we only need the binary on PATH.
+								const kiroPath = yield* resolveCliPath(
+									"kiro-cli",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (kiroPath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "kiro",
+											reason:
+												"Kiro CLI not found on PATH. Install from https://kiro.dev and ensure `kiro-cli` is available, then try again.",
+										}),
+									);
+								}
+								const kiroMcpCommand = yield* resolveCliPath(
+									"bun",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (kiroMcpCommand === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "kiro",
+											reason:
+												"Bun was not found on PATH. It is required for the Kiro MCP stdio fallback.",
+										}),
+									);
+								}
+								providerHandle = yield* startKiroSession(
+									driverInput,
+									cwd,
+									kiroPath,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									kiroMcpCommand,
+									orchestrationTools,
+									resumeCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "grok") {
+								// Same story as Claude/Codex: hand the driver the user's
+								// installed `grok` binary (no bundled CLI in our package).
+								// Surface a clean install message rather than letting spawn
+								// fail with ENOENT inside the driver.
+								const grokPath = yield* resolveCliPath(
+									"grok",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (grokPath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "grok",
+											reason:
+												"Grok CLI not found on PATH. Install Grok from https://x.ai/cli and try again.",
+										}),
+									);
+								}
+								const mcpProxyCommand = yield* resolveCliPath(
+									"bun",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								providerHandle = yield* startGrokSession(
+									driverInput,
+									cwd,
+									apiKey,
+									grokPath,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									mcpProxyCommand ?? process.execPath,
+									orchestrationTools,
+									resumeCursor,
+									providerEventCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "opencode") {
+								// OpenCode spawns a local HTTP server (`opencode serve`) and we
+								// drive it via @opencode-ai/sdk. Same install-message pattern
+								// as the other CLI-backed drivers — surface a clean error
+								// before the driver tries to spawn.
+								const opencodePath = yield* resolveCliPath(
+									"opencode",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (opencodePath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "opencode",
+											reason:
+												"OpenCode CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/install | bash` and try again.",
+										}),
+									);
+								}
+								// Custom OpenAI-compatible providers are injected into
+								// `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
+								// live in opencode's own auth.json (written via
+								// `agent.opencodeSetProviderAuth`), so no key is threaded here.
+								const opencodeSettings = yield* configStore.getSettings();
+								providerHandle = yield* startOpencodeSession(
+									driverInput,
+									cwd,
+									opencodeSettings.opencodeCustomProviders,
+									opencodePath,
+									sessionId,
+									resumeCursor,
+									managedMcp,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "opencode2") {
+								const opencode2Path = yield* resolveCliPath(
+									"opencode2",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (opencode2Path === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "opencode2",
+											reason:
+												"OpenCode 2 CLI not found on PATH. Install via `curl -fsSL https://opencode.ai/v2/install | bash` and try again.",
+										}),
+									);
+								}
+								const opencode2Settings = yield* configStore.getSettings();
+								providerHandle = yield* startOpencode2Session(
+									driverInput,
+									cwd,
+									opencode2Settings.opencode2CustomProviders,
+									opencode2Path,
+									sessionId,
+									resumeCursor,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									managedMcp,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "cursor") {
+								providerHandle = yield* startCursorSession(
+									driverInput,
+									cwd,
+									apiKey,
+									sessionId,
+									resumeCursor,
+									managedMcp,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "claude") {
+								// Point the SDK at the user's installed `claude` binary. We
+								// don't ship the SDK's bundled optional native CLI (216 MB per
+								// arch) — if `which claude` finds nothing here, the SDK would
+								// throw a cryptic "Native CLI binary for darwin-arm64 not
+								// found" error. Surface a clean install-Claude-Code message
+								// instead.
+								const claudePath = yield* resolveCliPath(
+									"claude",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (claudePath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "claude",
+											reason:
+												"Claude Code CLI not found on PATH. Install Claude Code from https://docs.claude.com/en/docs/claude-code and try again.",
+										}),
+									);
+								}
+								// Disabled Claude skills are enforced through the SDK `skills`
+								// allowlist; skip discovery entirely when nothing is disabled.
+								const skillAllowlist = hasDisabledSkillsFor(
+									(yield* configStore.getSettings()).disabledSkills,
+									"claude",
+								)
+									? claudeSkillAllowlist(
+											yield* skillDiscovery.discover("claude", cwd),
+										)
+									: undefined;
+
+								providerHandle = yield* startClaudeSession(
+									driverInput,
+									cwd,
+									managedCredential,
+									claudePath,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									resumeCursor,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									orchestrationTools,
+									skillAllowlist,
+									providerEventCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else {
+								// Same story as Claude: we don't ship the SDK's bundled native
+								// CLI, so hand it the user's installed `codex` binary. Surface a
+								// clean install message if it's missing instead of the SDK's
+								// "Unable to locate Codex CLI binaries" error.
+								const codexPath = yield* resolveCliPath(
+									"codex",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (codexPath === null) {
+									return yield* Effect.fail(
+										new AgentSessionStartError({
+											providerId: "codex",
+											reason:
+												"Codex CLI not found on PATH. Install Codex from https://github.com/openai/codex and try again.",
+										}),
+									);
+								}
+								const mcpProxyCommand = yield* resolveCliPath(
+									"bun",
+									binaryPaths,
+								).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								// We used to also fail-fast here when `codex --version` was below
+								// the SDK pin. Pulled because `session.create` calls
+								// `provider.start` synchronously — failing at start blocked
+								// session creation outright, leaving the user with no surface to
+								// upgrade *from*. The renderer's `CliUpgradeBanner` is the
+								// canonical signal (driven by the periodic availability probe),
+								// and the codex driver translates the SDK's
+								// "unexpected argument '--experimental-json'" failure on the
+								// first turn into a clean upgrade message — so the user sees
+								// either the banner before sending or the friendly error after,
+								// never the cryptic SDK trace.
+								providerHandle = yield* startCodexSession(
+									driverInput,
+									cwd,
+									apiKey,
+									codexPath,
+									sessionId,
+									buildRequestPermission(input.folderId, permissionAuthority),
+									runtimeModeGetter,
+									(command) =>
+										Effect.runPromiseWith(runtime)(
+											browserBridge.send(sessionId, command),
+										),
+									mcpProxyCommand ?? process.execPath,
+									orchestrationTools,
+									resumeCursor,
+									() => {
+										registry.invalidateIfCurrent(sessionId, generation);
+									},
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							}
+
+							if (managedPlugins) {
+								const underlying = providerHandle;
+								const lease = managedPlugins;
+								providerHandle = {
+									...underlying,
+									close: () =>
+										underlying
+											.close()
+											.pipe(
+												Effect.ensuring(Effect.promise(() => lease.close())),
+											),
+									setPermissionMode: (mode) =>
+										underlying.setPermissionMode(mode).pipe(
+											Effect.tap(() =>
+												Effect.sync(() => {
+													managedPermissionMode = mode;
+												}),
+											),
+										),
+								};
+							}
+
+							return providerHandle;
+						}),
+						{
+							close: closeProviderHandle,
+							abandon: Effect.sync(() => {
+								registry.invalidateIfCurrent(sessionId, generation);
+							}),
+						},
+					);
+					const providerHandle = ownProviderInputs(acquiredHandle.handle);
 					const handle = yield* makeTurnScopedSessionHandle(
 						providerHandle,
 						input.initialTurnId,
+						input.initialAttemptId,
 					);
 					const entry: SessionEntry = {
 						gitExecutionKey: execution?.key,
+						providerSessionId: residencyId,
+						ownership:
+							input.initialTurnId === undefined ||
+							input.initialAttemptId === undefined
+								? undefined
+								: {
+										turnId: input.initialTurnId,
+										attemptId: input.initialAttemptId,
+									},
 						providerId: input.providerId,
 						model: requestedModel,
 						handle,
@@ -1074,10 +1290,18 @@ export const ProviderServiceLive = Layer.effect(
 					};
 					const accepted = yield* lifecycleWorker.run(
 						sessionId,
-						Effect.sync(() => registry.publish(sessionId, generation, entry)),
+						(admit ?? Effect.succeed(true)).pipe(
+							Effect.flatMap((admitted) =>
+								Effect.sync(() => {
+									const published =
+										admitted && registry.publish(sessionId, generation, entry);
+									if (published) acquiredHandle.markPublished();
+									return published;
+								}),
+							),
+						),
 					);
 					if (!accepted) {
-						yield* handle.close().pipe(Effect.catch(() => Effect.void));
 						return { sessionId, superseded: true };
 					}
 					yield* analytics.capture("provider startup completed", {
@@ -1088,8 +1312,13 @@ export const ProviderServiceLive = Layer.effect(
 						duration_ms: Date.now() - startupStartedAt,
 						resumed: resumeCursor !== null,
 					});
-					return { sessionId, generation };
-				});
+					return {
+						sessionId,
+						generation,
+						providerSessionId: entry.providerSessionId,
+						nativeResumeFallback: providerHandle.nativeResumeFallback,
+					};
+				}).pipe(Effect.scoped);
 				return startupWorker
 					.run(
 						startupKey,
@@ -1125,7 +1354,16 @@ export const ProviderServiceLive = Layer.effect(
 						}),
 					);
 			},
-			send: (sessionId, turnId, text, attachments, fileRefs, skillRefs) =>
+			send: (
+				sessionId,
+				turnId,
+				text,
+				attachments,
+				fileRefs,
+				skillRefs,
+				attemptId,
+				goal,
+			) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					Effect.gen(function* () {
 						const execution = yield* Effect.tryPromise({
@@ -1143,28 +1381,40 @@ export const ProviderServiceLive = Layer.effect(
 										: undefined,
 								),
 							);
-							yield* entry.handle.close().pipe(Effect.ignore);
+							yield* closeProviderHandle(entry.handle);
 							return yield* new AgentSessionNotFoundError({ sessionId });
 						}
-						entry.turnStartedAt = Date.now();
-						entry.turnAnalytics = new TurnAnalyticsAccumulator();
-						yield* analytics.capture("message submitted", {
-							provider: entry.providerId,
-							model: entry.model,
-							attachment_count: attachments?.length ?? 0,
-							input_length_bucket: inputLengthBucket(text.length),
+						yield* sendProviderSession({
+							registry,
+							sessionId,
+							entry,
+							ownership:
+								attemptId === undefined ? undefined : { turnId, attemptId },
+							prepare: Effect.gen(function* () {
+								entry.turnStartedAt = Date.now();
+								entry.turnAnalytics = new TurnAnalyticsAccumulator();
+								yield* analytics.capture("message submitted", {
+									provider: entry.providerId,
+									model: entry.model,
+									attachment_count: attachments?.length ?? 0,
+									input_length_bucket: inputLengthBucket(text.length),
+								});
+								yield* analytics.capture("turn started", {
+									provider: entry.providerId,
+									model: entry.model,
+								});
+							}),
+							send: () =>
+								goal !== undefined
+									? entry.handle.sendGoal(turnId, goal, text)
+									: entry.handle.send(
+											turnId,
+											text,
+											attachments,
+											fileRefs,
+											skillRefs,
+										),
 						});
-						yield* analytics.capture("turn started", {
-							provider: entry.providerId,
-							model: entry.model,
-						});
-						yield* entry.handle.send(
-							turnId,
-							text,
-							attachments,
-							fileRefs,
-							skillRefs,
-						);
 					}).pipe(
 						Effect.withSpan("provider.send", {
 							attributes: {
@@ -1175,9 +1425,16 @@ export const ProviderServiceLive = Layer.effect(
 						}),
 					),
 				),
-			interrupt: (sessionId, turnId) =>
+			interrupt: (sessionId, turnId, attemptId) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
-					entry.handle.interrupt(turnId).pipe(
+					Effect.suspend(
+						(): Effect.Effect<void, AgentSessionNotFoundError> =>
+							attemptId !== undefined &&
+							(entry.ownership?.attemptId !== attemptId ||
+								entry.ownership.turnId !== turnId)
+								? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+								: entry.handle.interrupt(turnId),
+					).pipe(
 						Effect.tap(() =>
 							analytics.capture("turn interrupted", {
 								provider: entry.providerId,
@@ -1203,34 +1460,39 @@ export const ProviderServiceLive = Layer.effect(
 						}),
 					),
 				),
-			close: (sessionId) =>
+			close: (sessionId, ownership, expectedProviderSessionId) =>
 				lifecycleWorker.run(
 					sessionId,
-					Effect.flatMap(invalidate(sessionId), (entry) =>
-						entry === undefined
-							? detachSessionQuestions(sessionId).pipe(
-									Effect.andThen(
-										Effect.fail(new AgentSessionNotFoundError({ sessionId })),
-									),
-								)
-							: detachSessionQuestions(sessionId).pipe(
-									Effect.andThen(entry.handle.close()),
-									Effect.withSpan("provider.close", {
-										attributes: {
-											"provider.id": entry.providerId,
-											"provider.model": entry.model,
-											"session.id": sessionId,
-										},
-									}),
-								),
+					stopProviderSession({
+						registry,
+						sessionId,
+						ownership,
+						expectedProviderSessionId,
+						detachQuestions: detachSessionQuestions(sessionId),
+					}).pipe(
+						Effect.flatMap((retired) =>
+							retired._tag === "retired" && retired.entry === undefined
+								? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+								: Effect.void,
+						),
+						Effect.withSpan("provider.close", {
+							attributes: { "session.id": sessionId },
+						}),
 					),
 				),
+
 			events: (sessionId) =>
 				Stream.unwrap(
 					Effect.map(lookup(sessionId), (entry) =>
 						entry.handle.events.pipe(
+							Stream.filter(() => registry.lookup(sessionId) === entry),
 							Stream.filterEffect((envelope) => {
 								const event = envelope.event;
+								if (event._tag === "UserQuestionResolved") {
+									return detachQuestion(sessionId, event.itemId).pipe(
+										Effect.as(true),
+									);
+								}
 								if (event._tag === "QuestionCallbackReleased") {
 									return detachQuestion(sessionId, event.itemId).pipe(
 										Effect.as(false),
@@ -1343,21 +1605,16 @@ export const ProviderServiceLive = Layer.effect(
 								return Effect.void;
 							}),
 							Stream.filter(isPublicProviderEvent),
+							Stream.map((envelope) =>
+								bindProviderEventDelivery(
+									entry.handle,
+									envelope,
+									entry.providerSessionId,
+								),
+							),
 						),
 					),
-				) as Stream.Stream<ProviderEventEnvelope, AgentSessionNotFoundError>,
-			acknowledgeProviderEventCursor: (sessionId, cursor) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.acknowledgeProviderEventCursor?.(cursor) ?? Effect.void,
-				),
-			releaseProviderEventCursor: (sessionId, cursor) =>
-				Effect.flatMap(
-					lookup(sessionId),
-					({ handle }) =>
-						handle.releaseProviderEventCursor?.(cursor) ?? Effect.void,
-				),
+				) as Stream.Stream<ProviderEventDelivery, AgentSessionNotFoundError>,
 			setCredential: (providerId, apiKey) =>
 				Effect.gen(function* () {
 					const normalized = apiKey.trim();
@@ -1411,45 +1668,41 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.sync(() => questionAttachments.has(sessionId, itemId)),
 			validateQuestionAnswer: (sessionId, itemId, answers) =>
 				questionAttachments.validateAnswer(sessionId, itemId, answers),
+			// Attachment authority serializes each callback. Holding the session
+			// lifecycle lane here would prevent close from revoking a hung delivery.
 			answerQuestion: (sessionId, itemId, answers) =>
-				lifecycleWorker.run(
-					sessionId,
-					Effect.gen(function* () {
-						const { handle } = yield* lookup(sessionId);
-						yield* questionAttachments.deliverAnswer(
-							sessionId,
-							itemId,
-							answers,
-							handle
-								.answerQuestion(itemId, answers)
-								.pipe(
-									Effect.mapError(
-										() => new AgentSessionNotFoundError({ sessionId }),
-									),
-								),
-						);
-					}),
-				),
-			cancelQuestion: (sessionId, itemId) =>
-				lifecycleWorker.run(
-					sessionId,
-					Effect.gen(function* () {
-						const { handle } = yield* lookup(sessionId);
-						const cancel = handle.cancelQuestion;
-						if (cancel === undefined) {
-							return yield* new AgentSessionNotFoundError({ sessionId });
-						}
-						yield* questionAttachments.deliverCancellation(
-							sessionId,
-							itemId,
-							cancel(itemId).pipe(
+				Effect.gen(function* () {
+					const { handle } = yield* lookup(sessionId);
+					yield* questionAttachments.deliverAnswer(
+						sessionId,
+						itemId,
+						answers,
+						handle
+							.answerQuestion(itemId, answers)
+							.pipe(
 								Effect.mapError(
 									() => new AgentSessionNotFoundError({ sessionId }),
 								),
 							),
-						);
-					}),
-				),
+					);
+				}),
+			cancelQuestion: (sessionId, itemId) =>
+				Effect.gen(function* () {
+					const { handle } = yield* lookup(sessionId);
+					const cancel = handle.cancelQuestion;
+					if (cancel === undefined) {
+						return yield* new AgentSessionNotFoundError({ sessionId });
+					}
+					yield* questionAttachments.deliverCancellation(
+						sessionId,
+						itemId,
+						cancel(itemId).pipe(
+							Effect.mapError(
+								() => new AgentSessionNotFoundError({ sessionId }),
+							),
+						),
+					);
+				}),
 			acknowledgeQuestionResolution: (sessionId, itemId) =>
 				lifecycleWorker.run(
 					sessionId,
@@ -1463,34 +1716,51 @@ export const ProviderServiceLive = Layer.effect(
 						Effect.asVoid,
 					),
 				),
+			acknowledgePlanResponse: (sessionId, itemId) =>
+				lifecycleWorker.run(
+					sessionId,
+					Effect.flatMap(
+						lookup(sessionId),
+						({ handle }) =>
+							handle.acknowledgePlanResponse?.(itemId) ?? Effect.void,
+					).pipe(Effect.catch(() => Effect.void)),
+				),
+
 			respondToPlan: (sessionId, toolCallId, outcome, feedback) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					(
 						entry.handle.respondToPlan?.(toolCallId, outcome, feedback) ??
 						Effect.fail(new AgentSessionNotFoundError({ sessionId }))
 					).pipe(
+						Effect.mapError(() => new AgentSessionNotFoundError({ sessionId })),
 						Effect.tap(() =>
 							analytics.capture("plan decided", { decision: outcome }),
 						),
 					),
 				),
-			getGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).getGoal()
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			getGoal: (sessionId, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.getGoal(),
+					publish,
+					false,
+					verify,
 				),
-			setGoal: (sessionId, goal: ThreadGoalSetInput) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).setGoal(goal)
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			setGoal: (sessionId, goal, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.setGoal(goal),
+					publish,
+					true,
+					verify,
 				),
-			clearGoal: (sessionId) =>
-				Effect.flatMap(lookup(sessionId), ({ providerId, handle }) =>
-					providerId === "codex" || providerId === "grok"
-						? (handle as unknown as GoalCapableHandle).clearGoal()
-						: Effect.fail(new AgentSessionNotFoundError({ sessionId })),
+			clearGoal: (sessionId, publish, verify) =>
+				goalOperation(
+					sessionId,
+					(handle) => handle.clearGoal(),
+					publish,
+					true,
+					verify,
 				),
 		};
 	}),

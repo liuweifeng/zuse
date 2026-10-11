@@ -9,6 +9,7 @@ import type {
 	LagSample,
 	NearbyPairingRequest,
 	NetworkAccessState,
+	NotchTrayItem,
 	PerformanceHistory,
 	PowerExportResult,
 	PowerInteractionMeasurement,
@@ -30,9 +31,16 @@ import type {
  * encoded RPC frames; serialization + framing happen at the Effect RPC layer.
  */
 export interface RpcBridge {
-	readonly send: (frame: string | Uint8Array) => void;
+	/** Optional scoped attachment for a detached local engine. */
+	readonly connect?: (connectionId: string) => Promise<void>;
+	readonly disconnect?: (connectionId: string) => void;
+	readonly onDisconnect?: (
+		handler: (connectionId: string) => void,
+	) => () => void;
+	readonly send: (frame: string | Uint8Array, connectionId?: string) => void;
 	readonly onMessage: (
 		handler: (frame: string | Uint8Array) => void,
+		connectionId?: string,
 	) => () => void;
 }
 
@@ -466,24 +474,7 @@ export interface TailnetBridge {
 	) => Promise<TailnetEnvironmentProfile>;
 }
 
-export type NotchTrayItemState =
-	| "running"
-	| "completed"
-	| "failed"
-	| "planReady"
-	| "question"
-	| "permission";
-
-export interface NotchTrayItem {
-	readonly id: string;
-	readonly chatId: string;
-	readonly sessionId: string;
-	readonly title: string;
-	readonly subtitle: string;
-	readonly state: NotchTrayItemState;
-	readonly label: string;
-	readonly updatedAt: number;
-}
+export type { NotchTrayItem, NotchTrayItemState } from "@zuse/contracts";
 
 export interface NotchDisplaySupport {
 	readonly supported: boolean;

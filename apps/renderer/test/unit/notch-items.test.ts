@@ -43,8 +43,7 @@ const session = (status: Session["status"] = "idle") =>
 		model: "gpt-5.3-codex",
 		status,
 		archivedAt: null,
-		cursor: null,
-		resumeStrategy: "none",
+		providerThread: null,
 		runtimeMode: "approval-required",
 		worktreeId: null,
 	}) as Session;
@@ -83,6 +82,23 @@ const baseInput = {
 };
 
 describe("buildNotchItems", () => {
+	it("keeps quiet and disconnected execution distinct from running and recent completion", () => {
+		for (const [health, expected] of [
+			["stalled", "quiet"],
+			["unavailable", "unavailable"],
+			["disconnected", "disconnected"],
+			["unknown", "checking"],
+		] as const) {
+			const items = buildNotchItems({
+				...baseInput,
+				runtimeBySession: { "session-1": "running" },
+				healthBySession: { "session-1": health },
+				recentCompletions: { "session-1": { completedAt: now } },
+			});
+			expect(items[0]?.state).toBe(expected);
+			expect(items[0]?.label).not.toBe("Running");
+		}
+	});
 	it("shows running sessions", () => {
 		const items = buildNotchItems({
 			...baseInput,

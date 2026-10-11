@@ -1,4 +1,8 @@
-import { RpcAccessDeniedError } from "@zuse/contracts";
+import {
+	RpcAccessDeniedError,
+	WIRE_PROTOCOL_VERSION,
+	WireProtocolRejected,
+} from "@zuse/contracts";
 import {
 	Data,
 	Effect,
@@ -10,6 +14,7 @@ import {
 import type { Rpc } from "effect/unstable/rpc";
 import { RpcClient, type RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import { withRuntimeRpcCompatibility } from "./legacy-runtime-capabilities.ts";
 
 export type ConnectionOptions = {
 	readonly key: string;
@@ -39,9 +44,26 @@ export class WireProtocolMismatchError extends Data.TaggedError(
 )<{
 	readonly expectedVersion: number;
 	readonly receivedVersion: number;
-}> {}
+}> {
+	override get message() {
+		return `Update required: this app uses protocol ${this.expectedVersion}, but this runtime uses ${this.receivedVersion}. Update Zuse or the workspace runtime before reconnecting.`;
+	}
+}
+
+const clientProtocolVersion = Symbol("zuse.clientProtocolVersion");
+
+/** The confirmed handshake version, never an inferred version from a network error. */
+export const getClientProtocolVersion = (
+	client: object,
+): number | undefined => {
+	const value: unknown = Reflect.get(client, clientProtocolVersion);
+	return typeof value === "number" ? value : undefined;
+};
 
 export type VersionHandshake<Client, Error> = {
+	/** Only gateway transports may negotiate retained cloud contracts. */
+	readonly allowLegacyCloud?: boolean;
+	readonly onNegotiated?: (version: number) => void;
 	readonly protocolVersion: number;
 	readonly perform: (
 		client: Client,
@@ -118,13 +140,34 @@ export const makeRpcClientSession = <
 				Effect.provideService(Scope.Scope, scope),
 			);
 			if (handshake !== undefined) {
-				const welcome = yield* handshake.perform(client, {
-					protocolVersion: handshake.protocolVersion,
-				});
-				yield* validateProtocolVersion(
-					handshake.protocolVersion,
-					welcome.protocolVersion,
+				const attempt = (version: number) =>
+					handshake
+						.perform(client, { protocolVersion: version })
+						.pipe(
+							Effect.flatMap((welcome) =>
+								validateProtocolVersion(version, welcome.protocolVersion).pipe(
+									Effect.as(welcome),
+								),
+							),
+						);
+				const welcome = yield* attempt(handshake.protocolVersion).pipe(
+					Effect.catch((cause) => {
+						if (
+							handshake.allowLegacyCloud === true &&
+							handshake.protocolVersion === WIRE_PROTOCOL_VERSION &&
+							Schema.is(WireProtocolRejected)(cause) &&
+							cause.receivedVersion === handshake.protocolVersion &&
+							(cause.expectedVersion === 5 || cause.expectedVersion === 6)
+						)
+							return attempt(cause.expectedVersion);
+						return Effect.fail(cause);
+					}),
 				);
+				Object.defineProperty(client, clientProtocolVersion, {
+					value: welcome.protocolVersion,
+				});
+				handshake.onNegotiated?.(welcome.protocolVersion);
+				return withRuntimeRpcCompatibility(client, welcome.protocolVersion);
 			}
 			return client;
 		}),

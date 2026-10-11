@@ -1,3 +1,4 @@
+import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import { canUseExperimentalHarness } from "@zuse/utils/feature-access";
 import {
 	PROVIDER_SHORT_LABEL,
@@ -5,7 +6,7 @@ import {
 } from "~/lib/provider-labels";
 import { useAuth } from "../hooks/use-auth.ts";
 import { loadCloudAuth } from "../lib/cloud-workspace-session-cache.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type {
@@ -25,13 +26,8 @@ import {
 	selectableCatalogProviderIds,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import {
-	ArrowUpRight01Icon,
-	Search01Icon,
-	StarIcon,
-	Tick01Icon,
-} from "@zuse/icons/solid-rounded";
-import { ChevronDown } from "lucide-react";
+import { Search01Icon, StarIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import { ChevronDown, Clock3 } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
 	type MouseEvent as ReactMouseEvent,
@@ -44,7 +40,6 @@ import {
 } from "react";
 import { overlaySurface } from "~/components/ui/overlay-surface";
 import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
-import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
 import { useModelCatalogStore } from "~/store/model-catalog";
@@ -111,14 +106,8 @@ export function ModelPicker(props: ModelPickerProps) {
 		props.mode === "session" ? props.triggerDetail : undefined;
 	const optionsPanel =
 		props.mode === "session" ? props.optionsPanel : undefined;
-	const sessionId = props.mode === "session" ? props.sessionId : null;
 	const providerEnvironmentId =
 		props.mode === "session" ? props.environmentId : null;
-	const timeline = useOptionalRendererSessionTimeline(
-		sessionId,
-		sessionId === null ? "cache-only" : "connect",
-		props.mode === "session" ? props.environmentId : null,
-	);
 
 	// Live values
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
@@ -145,15 +134,27 @@ export function ModelPicker(props: ModelPickerProps) {
 		(s) => s.opencode2ModelVisibleByProvider,
 	);
 
-	const providerId = isDefault ? defaultProviderId : props.providerId;
-	const currentModel = isDefault
-		? (defaultModelByProvider[providerId] ?? "default")
-		: props.currentModel;
+	const pendingSelection = useSessionsStore((state) =>
+		props.mode === "session"
+			? state.pendingModelChanges[
+					resourceRefKey({
+						sessionId: props.sessionId,
+						environmentId: props.environmentId,
+					})
+				]
+			: undefined,
+	);
+	const providerId =
+		pendingSelection?.providerId ??
+		(isDefault ? defaultProviderId : props.providerId);
+	const currentModel =
+		pendingSelection?.model ??
+		(isDefault
+			? (defaultModelByProvider[providerId] ?? "default")
+			: props.currentModel);
 
 	// Setters
-	const setSessionModel = useSessionsStore((s) => s.setModel);
-	const setSessionProvider = useSessionsStore((s) => s.setProvider);
-	const createSession = useSessionsStore((s) => s.create);
+	const selectSessionModel = useSessionsStore((s) => s.selectModel);
 	const setDefaultProviderAndModel = useSettingsStore(
 		(s) => s.setDefaultProviderAndModel,
 	);
@@ -194,14 +195,6 @@ export function ModelPicker(props: ModelPickerProps) {
 	const catalog = useModelCatalogStore((s) => s.catalog);
 	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
 
-	let userMessageCount = 0;
-	if (!isDefault) {
-		for (const message of timeline.messages) {
-			if (message.role === "user") userMessageCount += 1;
-		}
-	}
-	const isFresh = isDefault ? true : userMessageCount === 0;
-
 	useEffect(() => {
 		void ensureCatalog();
 	}, [ensureCatalog]);
@@ -210,7 +203,7 @@ export function ModelPicker(props: ModelPickerProps) {
 	const [query, setQuery] = useState("");
 	const [scope, setScope] = useState<Scope>("all");
 	// Inline feedback for failed picks. The session-mode handlers
-	// (createSession / setSessionProvider / setSessionModel) used to fire-
+	// (setSessionProvider / setSessionModel) used to fire-
 	// and-forget, so a failed provider startup just closed the popover with no
 	// clue why.
 	// We now await them and surface the reason here.
@@ -440,46 +433,22 @@ export function ModelPicker(props: ModelPickerProps) {
 		}
 
 		if (props.mode !== "session") return;
-		const { environmentId, sessionId, chatId, runtimeMode } = props;
+		const { environmentId, sessionId } = props;
 
-		const isCross = pid !== providerId;
-		// Await whatever store call we kick off so we can keep the popover
-		// open + show the reason if it fails. Previously these were `void`-d
-		// and the popover always closed, swallowing SessionStartError from
-		// a missing/broken CLI behind a silent close.
 		setPickError(null);
 		setPicking(true);
 		try {
-			if (isCross && !isFresh && chatId !== undefined) {
-				const newId = await createSession(chatId, pid, modelId, {
-					runtimeMode,
-				});
-				if (newId === null) {
-					const reason =
-						useSessionsStore.getState().error ??
-						`Couldn't start ${pid}. Check that its CLI is installed and signed in.`;
-					setPickError(reason);
-					return;
-				}
-			} else if (isCross) {
-				const result = await setSessionProvider(
-					sessionId,
-					pid,
-					modelId,
-					environmentId,
-				);
-				if (!result.ok) {
-					setPickError(result.reason);
-					return;
-				}
-			} else if (modelId !== currentModel) {
-				await setSessionModel(sessionId, modelId, environmentId);
-				const reason = useSessionsStore.getState().error;
-				if (reason !== null) {
-					setPickError(reason);
-					return;
-				}
+			const result = await selectSessionModel(
+				sessionId,
+				pid,
+				modelId,
+				environmentId,
+			);
+			if (!result.ok) {
+				setPickError(result.reason);
+				return;
 			}
+
 			setOpen(false);
 		} finally {
 			setPicking(false);
@@ -569,7 +538,17 @@ export function ModelPicker(props: ModelPickerProps) {
 					{triggerDetail}
 				</span>
 			) : null}
-			<ChevronDown className="size-3 shrink-0 opacity-60" />
+			{pendingSelection !== undefined ? (
+				<span
+					role="img"
+					title={uiMessage("providers:model_picker_switch_pending")}
+					aria-label={uiMessage("providers:model_picker_switch_pending")}
+				>
+					<Clock3 className="size-3 shrink-0 text-muted-foreground" />
+				</span>
+			) : (
+				<ChevronDown className="size-3 shrink-0 opacity-60" />
+			)}
 		</PopoverTrigger>
 	);
 
@@ -681,7 +660,6 @@ export function ModelPicker(props: ModelPickerProps) {
 															entry={m}
 															currentProviderId={providerId}
 															currentModelId={currentModel}
-															isFresh={isFresh}
 															onSelect={handlePick}
 															defaultProviderId={defaultProviderId}
 															defaultModelByProvider={defaultModelByProvider}
@@ -720,7 +698,6 @@ export function ModelPicker(props: ModelPickerProps) {
 														entry={m}
 														currentProviderId={providerId}
 														currentModelId={currentModel}
-														isFresh={isFresh}
 														onSelect={handlePick}
 														defaultProviderId={defaultProviderId}
 														defaultModelByProvider={defaultModelByProvider}
@@ -871,7 +848,6 @@ function ModelRow({
 	currentModelId,
 	defaultProviderId,
 	defaultModelByProvider,
-	isFresh,
 	onSelect,
 	onSetDefault,
 	dense = false,
@@ -883,7 +859,6 @@ function ModelRow({
 	currentModelId: string;
 	defaultProviderId: ProviderId;
 	defaultModelByProvider: Record<ProviderId, string>;
-	isFresh: boolean;
 	onSelect: (providerId: ProviderId, modelId: string) => void;
 	onSetDefault: (providerId: ProviderId, modelId: string) => void;
 	dense?: boolean;
@@ -897,8 +872,6 @@ function ModelRow({
 	const isDefault =
 		entry.providerId === defaultProviderId &&
 		defaultModelByProvider[entry.providerId] === entry.modelId;
-	const isCross = entry.providerId !== currentProviderId;
-	const opensNewTab = isCross && !isFresh;
 	const select = () => onSelect(entry.providerId, entry.modelId);
 	const onRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (event.key !== "Enter" && event.key !== " ") return;
@@ -918,11 +891,6 @@ function ModelRow({
 			onClick={select}
 			onKeyDown={onRowKeyDown}
 			aria-current={isActive || undefined}
-			title={
-				opensNewTab
-					? uiMessage("providers:model_picker_open_in_new_tab")
-					: undefined
-			}
 			className={cn(
 				"group relative flex min-h-8 w-full items-center gap-1.5 rounded-md px-2 text-left text-xs transition-colors",
 				dense ? "py-1" : "py-1.5",
@@ -1007,13 +975,6 @@ function ModelRow({
 						: uiMessage("providers:model_picker_make_default")}
 				</TooltipPopup>
 			</Tooltip>
-			{opensNewTab && (
-				<HugeiconsIcon
-					icon={ArrowUpRight01Icon}
-					className="size-3 text-muted-foreground/70"
-					aria-label={uiMessage("providers:model_picker_open_in_new_tab")}
-				/>
-			)}
 			{isActive && (
 				<HugeiconsIcon
 					icon={Tick01Icon}

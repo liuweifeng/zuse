@@ -4,6 +4,10 @@ import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
 import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import { DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS } from "./device-command-tools.ts";
 
@@ -208,6 +212,7 @@ export class CodexAppServerClient {
 	private readonly child: ChildProcessWithoutNullStreams;
 	private readonly rl: readline.Interface;
 	private closed = false;
+	private eofTimer: ReturnType<typeof setTimeout> | undefined;
 	private stderrTail = Buffer.alloc(0);
 
 	initializeResponse: InitializeResponse;
@@ -232,6 +237,7 @@ export class CodexAppServerClient {
 		readonly env?: NodeJS.ProcessEnv;
 		readonly mcp?: CodexAppMcpLaunchConfig;
 		readonly startupTimeoutMs?: number;
+		readonly startupSignal?: AbortSignal;
 		readonly onStderr?: (text: string) => void;
 		readonly onNotification: NotificationHandler;
 		readonly onServerRequest: ServerRequestHandler;
@@ -240,6 +246,7 @@ export class CodexAppServerClient {
 		readonly externalAuthConsumerId?: string;
 		readonly onUnexpectedTermination?: UnexpectedTerminationHandler;
 	}): Promise<CodexAppServerClient> {
+		options.startupSignal?.throwIfAborted();
 		const externalAuthProvider =
 			options.externalAuthProvider === undefined
 				? defaultExternalAuthProvider
@@ -292,8 +299,9 @@ export class CodexAppServerClient {
 				...codexAppServerLaunchArgs(options.mcp),
 				...(hasApiKey ? ["-c", 'cli_auth_credentials_store="ephemeral"'] : []),
 			],
-			options.env === undefined ? undefined : { env: options.env },
+			{ env: options.env, detached: process.platform !== "win32" },
 		);
+		watchProviderProcess(child);
 		child.stdout.setEncoding("utf8");
 		child.stderr.setEncoding("utf8");
 
@@ -316,6 +324,23 @@ export class CodexAppServerClient {
 			options.onUnexpectedTermination,
 		);
 		rl.on("line", (line) => bootstrap.handleLine(line));
+		rl.once("close", () => {
+			if (bootstrap.closed) return;
+			// Let a normal process exit drain stderr and report its exit code first.
+			// EOF itself is terminal even when the process remains alive.
+			bootstrap.eofTimer = setTimeout(() => {
+				bootstrap.handleUnexpectedTermination(
+					new Error("Codex app-server output closed unexpectedly"),
+				);
+			}, 50);
+			bootstrap.eofTimer.unref();
+		});
+		child.stdin.on("error", (error) =>
+			bootstrap.handleUnexpectedTermination(error),
+		);
+		child.stdout.on("error", (error) =>
+			bootstrap.handleUnexpectedTermination(error),
+		);
 		child.stderr.on("data", (chunk) => {
 			bootstrap.appendStderr(String(chunk));
 			const text = String(chunk).trim();
@@ -337,64 +362,78 @@ export class CodexAppServerClient {
 			);
 		});
 
+		let rejectStartup: ((cause: unknown) => void) | undefined;
+		const abortStartup = () => {
+			rejectStartup?.(options.startupSignal?.reason);
+			void bootstrap.close();
+		};
+		options.startupSignal?.addEventListener("abort", abortStartup, {
+			once: true,
+		});
 		let timer: NodeJS.Timeout | undefined;
 		try {
-			const initialize = bootstrap.request<InitializeResponse>("initialize", {
-				clientInfo: { name: "zuse", version: "0.0.0" },
-				capabilities: {
-					experimentalApi: true,
-				},
-			});
-			const init =
-				options.startupTimeoutMs === undefined
-					? await initialize
-					: await Promise.race([
-							initialize,
-							new Promise<never>((_resolve, reject) => {
-								timer = setTimeout(
-									() => reject(new Error("Codex app-server startup timed out")),
-									options.startupTimeoutMs,
-								);
-							}),
-						]);
-			bootstrap.initializeResponse = init;
-			if (externalAuthProvider !== null) {
-				let tokens: CodexChatgptAuthTokens;
-				try {
-					tokens = await beforeCodexExternalAuthDeadline(
-						externalAuthProvider.getTokens({ reason: "initial" }),
-					);
-				} catch (cause) {
-					externalAuthProvider.onDeliveryFailure?.({
-						...(options.externalAuthConsumerId === undefined
-							? {}
-							: { consumerId: options.externalAuthConsumerId }),
-						reason:
-							cause instanceof Error
-								? cause.message
-								: "codex-auth-reconnecting",
+			options.startupSignal?.throwIfAborted();
+			const handshake = async () => {
+				const init = await bootstrap.request<InitializeResponse>("initialize", {
+					clientInfo: { name: "zuse", version: "0.0.0" },
+					capabilities: { experimentalApi: true },
+				});
+				bootstrap.initializeResponse = init;
+				if (externalAuthProvider !== null) {
+					let tokens: CodexChatgptAuthTokens;
+					try {
+						tokens = await beforeCodexExternalAuthDeadline(
+							externalAuthProvider.getTokens({ reason: "initial" }),
+						);
+					} catch (cause) {
+						externalAuthProvider.onDeliveryFailure?.({
+							...(options.externalAuthConsumerId === undefined
+								? {}
+								: { consumerId: options.externalAuthConsumerId }),
+							reason:
+								cause instanceof Error
+									? cause.message
+									: "codex-auth-reconnecting",
+						});
+						throw cause;
+					}
+					await bootstrap.request("account/login/start", {
+						type: "chatgptAuthTokens",
+						accessToken: tokens.accessToken,
+						chatgptAccountId: tokens.chatgptAccountId,
+						chatgptPlanType: tokens.chatgptPlanType,
 					});
-					throw cause;
 				}
-				await bootstrap.request("account/login/start", {
-					type: "chatgptAuthTokens",
-					accessToken: tokens.accessToken,
-					chatgptAccountId: tokens.chatgptAccountId,
-					chatgptPlanType: tokens.chatgptPlanType,
-				});
-			}
-			if (hasApiKey) {
-				await bootstrap.request("account/login/start", {
-					type: "apiKey",
-					apiKey,
-				});
-			}
-			return bootstrap;
+				if (hasApiKey) {
+					await bootstrap.request("account/login/start", {
+						type: "apiKey",
+						apiKey,
+					});
+				}
+				return bootstrap;
+			};
+			return await Promise.race([
+				handshake(),
+				new Promise<never>((_resolve, reject) => {
+					rejectStartup = reject;
+					if (options.startupSignal?.aborted) {
+						reject(options.startupSignal.reason);
+						return;
+					}
+					if (options.startupTimeoutMs !== undefined) {
+						timer = setTimeout(
+							() => reject(new Error("Codex app-server startup timed out")),
+							options.startupTimeoutMs,
+						);
+					}
+				}),
+			]);
 		} catch (cause) {
-			bootstrap.close();
+			await bootstrap.close();
 			throw cause;
 		} finally {
 			if (timer !== undefined) clearTimeout(timer);
+			options.startupSignal?.removeEventListener("abort", abortStartup);
 		}
 	}
 
@@ -404,39 +443,42 @@ export class CodexAppServerClient {
 			| CodexGoalRequestMethod
 			| CodexExperimentalRequestMethod,
 		params: unknown,
-		signal?: AbortSignal,
+		options?: { readonly timeoutMs?: number; readonly signal?: AbortSignal },
 	): Promise<T> {
+		const signal = options?.signal;
 		if (signal?.aborted) return Promise.reject(signal.reason);
-		if (this.closed) {
+		if (this.closed)
 			return Promise.reject(new Error("Codex app-server is closed"));
-		}
 		const id = this.nextId++;
 		const message =
 			params === undefined ? { id, method } : { id, method, params };
 		return new Promise<T>((resolve, reject) => {
-			const cleanup = () => signal?.removeEventListener("abort", onAbort);
-			const onAbort = () => {
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			const cleanup = () => {
+				if (timer !== undefined) clearTimeout(timer);
+				signal?.removeEventListener("abort", onAbort);
 				this.pending.delete(id);
-				cleanup();
-				reject(signal?.reason);
 			};
+			const fail = (error: unknown) => {
+				cleanup();
+				reject(error);
+			};
+			const onAbort = () => fail(signal?.reason);
 			signal?.addEventListener("abort", onAbort, { once: true });
 			this.pending.set(id, {
 				resolve: (value) => {
 					cleanup();
 					resolve(value as T);
 				},
-				reject: (error) => {
-					cleanup();
-					reject(error);
-				},
+				reject: fail,
 			});
+			if (options?.timeoutMs !== undefined)
+				timer = setTimeout(
+					() => fail(new Error("Codex app-server request timed out")),
+					options.timeoutMs,
+				);
 			this.child.stdin.write(`${JSON.stringify(message)}\n`, (err) => {
-				if (err) {
-					this.pending.delete(id);
-					cleanup();
-					reject(err);
-				}
+				if (err) fail(err);
 			});
 		});
 	}
@@ -446,12 +488,14 @@ export class CodexAppServerClient {
 		this.child.stdin.write(`${JSON.stringify({ id, result })}\n`);
 	}
 
-	close(): void {
-		if (this.closed) return;
-		this.closed = true;
-		this.rl.close();
-		this.rejectPending(new Error("Codex app-server is closed"));
-		this.child.kill();
+	close(): Promise<void> {
+		if (!this.closed) {
+			this.closed = true;
+			clearTimeout(this.eofTimer);
+			this.rl.close();
+			this.rejectPending(new Error("Codex app-server is closed"));
+		}
+		return stopProviderProcess(this.child, { processGroup: true });
 	}
 
 	private appendStderr(text: string): void {
@@ -477,7 +521,9 @@ export class CodexAppServerClient {
 		// and therefore remains intentionally quiet.
 		if (this.closed) return;
 		this.closed = true;
+		clearTimeout(this.eofTimer);
 		this.rl.close();
+		void stopProviderProcess(this.child, { processGroup: true });
 		const stderr = this.stderrTail.toString("utf8").trim();
 		const reason =
 			stderr.length === 0

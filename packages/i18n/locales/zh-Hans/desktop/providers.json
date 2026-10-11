@@ -149,6 +149,7 @@
 	"accounts_open_browser": "打开浏览器",
 	"accounts_signed_in": "已登录",
 	"accounts_remove_description": "将此账号从设置中移除。使用此账号的聊天将无法恢复。登录文件和聊天记录会保留。",
+	"model_picker_switch_pending": "当前工作完成后切换",
 	"accounts_default_detail": "CLI 登录或 API 密钥",
 	"accounts_suggested_name": "账户 {{index}}",
 	"accounts_actions": "{{name}} 操作",

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { generateKeyPairSync, sign } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import {
 	PRODUCTION_API_URL,
 	STAGING_API_URL,
+	WIRE_PROTOCOL_VERSION,
 	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "@zuse/contracts";
 import { parse } from "jsonc-parser";
@@ -31,6 +33,28 @@ const runtimeWorkflowUrl = new URL(
 	import.meta.url,
 );
 const apiDirectory = fileURLToPath(new URL("../..", import.meta.url));
+
+// Deployment prerequisite tests use a signed local fixture, never the moving
+// production channel (which may intentionally precede this branch's protocol).
+const runtimeKey = generateKeyPairSync("ed25519");
+const runtimeManifest = {
+	wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION },
+};
+const fixtureRuntimeVars = {
+	CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK: JSON.stringify(
+		runtimeKey.publicKey.export({ format: "jwk" }),
+	),
+	CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL: `data:application/json,${encodeURIComponent(
+		JSON.stringify({
+			...runtimeManifest,
+			signature: sign(
+				null,
+				Buffer.from(JSON.stringify(runtimeManifest)),
+				runtimeKey.privateKey,
+			).toString("base64url"),
+		}),
+	)}`,
+};
 
 interface WranglerTarget {
 	readonly name: string;
@@ -109,6 +133,7 @@ describe("api deployment safety", () => {
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
+			Object.assign(config.vars, fixtureRuntimeVars);
 			config.vars.BOAT_ADAPTER_ENABLED = "true";
 			if (scenario === "snapshot") delete config.vars.BOAT_TEMPLATE_SNAPSHOT;
 			if (scenario === "version") config.vars.BOAT_TEMPLATE_VERSION = " ";
@@ -206,6 +231,7 @@ else process.exit(2);
 		const directory = await mkdtemp(join(tmpdir(), "zuse-deploy-test-"));
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
+			Object.assign(config.vars, fixtureRuntimeVars);
 			// Isolate sandbox prerequisites from Stripe's checkout rollout gates.
 			config.vars.BILLING_DEFAULT_PROVIDER = "polar";
 			config.vars.CLOUD_BILLING_ENFORCEMENT_ENABLED =

@@ -1,3 +1,4 @@
+import { makeEnginePreloadRpc } from "./ipc/engine-preload-rpc.ts";
 /// <reference lib="dom" />
 /// <reference lib="dom.iterable" />
 
@@ -11,7 +12,6 @@ import {
 	COMPUTER_AWAKE_UNSUBSCRIBE_CHANNEL,
 	type ComputerAwakeMode,
 	type ComputerAwakeStatus,
-	IPC_CHANNEL,
 	type LagSample,
 	type PerformanceHistory,
 	POWER_CLEAR_HISTORY_CHANNEL,
@@ -49,7 +49,7 @@ let computerAwakeSubscriberCount = 0;
 
 /**
  * Preload bridge — the only seam between the renderer and the main process.
- * Everything the renderer can do flows through Effect RPC over `IPC_CHANNEL`.
+ * Everything the renderer can do flows through scoped Effect RPC connections to the engine.
  *
  * `send` pushes encoded request frames toward main. `onMessage` registers a
  * listener for response frames from main and returns an unsubscribe handle.
@@ -82,19 +82,7 @@ const bridge = {
 		packaged: process.env.NODE_ENV === "production",
 		env: process.env,
 	}),
-	rpc: {
-		send: (frame: string | Uint8Array) => {
-			ipcRenderer.send(IPC_CHANNEL, frame);
-		},
-		onMessage: (handler: (frame: string | Uint8Array) => void) => {
-			const wrapped = (_event: IpcRendererEvent, frame: string | Uint8Array) =>
-				handler(frame);
-			ipcRenderer.on(IPC_CHANNEL, wrapped);
-			return () => {
-				ipcRenderer.off(IPC_CHANNEL, wrapped);
-			};
-		},
-	},
+	rpc: makeEnginePreloadRpc(ipcRenderer),
 	window: {
 		onFullScreenChange: (handler: (fullscreen: boolean) => void) => {
 			const wrapped = (_event: IpcRendererEvent, value: boolean) =>

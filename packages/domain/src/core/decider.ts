@@ -3,7 +3,12 @@ import { Result, Schema } from "effect";
 import { titleProvenanceOrManual } from "../naming.js";
 import type { SessionCommand } from "./commands.js";
 import type { SessionEvent } from "./events.js";
-import type { SessionState } from "./state.js";
+import type { ProviderThreadSeed } from "./session-fields.js";
+import {
+	attemptIdFor,
+	providerThreadIdFor,
+	type SessionState,
+} from "./state.js";
 
 export class SessionNotFound extends Schema.TaggedErrorClass<SessionNotFound>()(
 	"SessionNotFound",
@@ -86,15 +91,78 @@ export const turnInterruptReceipt = (
 
 const success = (events: readonly SessionEvent[]) => Result.succeed(events);
 
+/** Stop both a published handle and any distinct startup reservation. */
+const providerStops = (
+	state: SessionState,
+	requestedAt: number,
+): readonly SessionEvent[] => {
+	const targets = new Map<string | null, string>();
+	if (state.attachedProviderId !== null)
+		targets.set(state.attachedProviderSessionId, state.attachedProviderId);
+	if (state.providerReservation !== null)
+		targets.set(
+			state.providerReservation.providerSessionId,
+			state.providerReservation.providerId,
+		);
+	return [...targets].map(([providerSessionId, providerId]) => ({
+		_tag: "ProviderStopRequested",
+		providerId,
+		...(providerSessionId === null ? {} : { providerSessionId }),
+		requestedAt,
+	}));
+};
+
+/** Events that bind a provider-native thread supplied at creation. */
+const providerThreadSeedEvents = (
+	sessionId: string,
+	seed: ProviderThreadSeed | undefined,
+	at: number,
+): readonly SessionEvent[] => {
+	if (seed === undefined) return [];
+	const id = providerThreadIdFor(sessionId, seed.provider, seed.nativeThreadId);
+	return [
+		{
+			_tag: "ProviderThreadUpdated",
+			providerThread: {
+				id,
+				provider: seed.provider,
+				nativeThreadId: seed.nativeThreadId,
+				nativeHeadId: seed.nativeHeadId ?? null,
+				status: "not_loaded",
+				firstTurnOrdinal: null,
+				lastTurnOrdinal: null,
+				createdAt: at,
+				updatedAt: at,
+			},
+		},
+		{ _tag: "ActiveProviderThreadSet", providerThreadId: id, updatedAt: at },
+	];
+};
+
+const seededProviderThreadId = (
+	sessionId: string,
+	seed: ProviderThreadSeed | undefined,
+): string | null =>
+	seed === undefined
+		? null
+		: providerThreadIdFor(sessionId, seed.provider, seed.nativeThreadId);
+
 export const decide = (
 	state: SessionState,
 	command: SessionCommand,
 ): Result.Result<readonly SessionEvent[], DomainError> => {
 	if (command._tag === "CreateSession") {
 		const titleProvenance = titleProvenanceOrManual(command.titleProvenance);
-		return state.exists
-			? Result.fail(new SessionAlreadyExists())
-			: success([{ ...command, titleProvenance, _tag: "SessionCreated" }]);
+		if (state.exists) return Result.fail(new SessionAlreadyExists());
+		const { providerThread, ...created } = command;
+		return success([
+			{ ...created, titleProvenance, _tag: "SessionCreated" },
+			...providerThreadSeedEvents(
+				command.sessionId,
+				providerThread,
+				command.createdAt,
+			),
+		]);
 	}
 	if (command._tag === "CreateSessionWithInitialTurn") {
 		if (state.exists) return Result.fail(new SessionAlreadyExists());
@@ -104,6 +172,7 @@ export const decide = (
 			messageContentJson,
 			providerInputJson,
 			providerStartJson,
+			providerThread,
 			...created
 		} = command;
 		return success([
@@ -112,6 +181,11 @@ export const decide = (
 				...(providerStartJson === undefined ? {} : { providerStartJson }),
 				_tag: "SessionCreated",
 			},
+			...providerThreadSeedEvents(
+				command.sessionId,
+				providerThread,
+				command.createdAt,
+			),
 			{
 				_tag: "MessagePersisted",
 				messageId: command.messageId,
@@ -126,6 +200,12 @@ export const decide = (
 				_tag: "TurnStarted",
 				turnId: command.turnId,
 				startedAt: command.createdAt,
+				ordinal: 1,
+				attemptId: attemptIdFor(command.turnId, 1),
+				providerThreadId: seededProviderThreadId(
+					command.sessionId,
+					providerThread,
+				),
 			},
 			{
 				_tag: "SessionStatusSet",
@@ -138,6 +218,7 @@ export const decide = (
 						{
 							_tag: "ProviderTurnRequested",
 							turnId: command.turnId,
+							attemptId: attemptIdFor(command.turnId, 1),
 							providerInputJson,
 							...(providerStartJson === undefined ? {} : { providerStartJson }),
 							requestedAt: command.createdAt,
@@ -145,7 +226,8 @@ export const decide = (
 					]),
 		]);
 	}
-	if (!state.exists) return Result.fail(new SessionNotFound());
+	if (!state.exists || state.sessionId === null)
+		return Result.fail(new SessionNotFound());
 	if (state.deleted) return Result.fail(new SessionDeletedConflict());
 
 	switch (command._tag) {
@@ -175,14 +257,94 @@ export const decide = (
 					]);
 		}
 		case "SetModel":
-			return state.model === command.model
-				? success([])
-				: success([{ ...command, _tag: "SessionModelSet" }]);
-		case "SetProvider":
-			return state.providerId === command.providerId &&
-				state.model === command.model
-				? success([])
-				: success([{ ...command, _tag: "SessionProviderSet" }]);
+		case "SetProvider": {
+			const unchanged =
+				state.model === command.model &&
+				(command._tag === "SetModel" ||
+					state.providerId === command.providerId);
+			if (unchanged) return success([]);
+			if (state.currentTurnId !== null || state.queuedTurns.size > 0)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Finish or stop the active turn and clear queued messages before switching provider or model.",
+					}),
+				);
+			const resumed =
+				command._tag === "SetProvider" && command.resumeThreadId !== undefined
+					? state.providerThreads.get(command.resumeThreadId)
+					: undefined;
+			if (
+				command._tag === "SetProvider" &&
+				((command.expectedProviderThreadId !== undefined &&
+					command.expectedProviderThreadId !== state.activeProviderThreadId) ||
+					(command.resumeThreadId !== undefined &&
+						(resumed === undefined || resumed.provider !== command.providerId)))
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Provider history changed while switching. Retry the provider selection.",
+					}),
+				);
+			const toProviderId =
+				command._tag === "SetProvider" ? command.providerId : state.providerId;
+			const marker: readonly SessionEvent[] =
+				state.messageIds.size > 0 &&
+				state.providerId !== null &&
+				state.model !== null &&
+				toProviderId !== null
+					? [
+							{
+								_tag: "MessagePersisted",
+								messageId: `model-switch:${state.sessionId}:${state.version}`,
+								turnId: null,
+								role: "system",
+								kind: "model_switch",
+								contentJson: JSON.stringify({
+									_tag: "model_switch",
+									fromProviderId: state.providerId,
+									fromModel: state.model,
+									toProviderId,
+									toModel: command.model,
+									context:
+										state.providerId === toProviderId ? "preserved" : "handoff",
+								}),
+								parentItemId: null,
+								createdAt: command.updatedAt,
+							},
+						]
+					: [];
+			return success([
+				...providerStops(state, command.updatedAt),
+				...marker,
+				command._tag === "SetModel"
+					? { ...command, _tag: "SessionModelSet" }
+					: { ...command, _tag: "SessionProviderSet" },
+				...(resumed === undefined
+					? []
+					: [
+							{
+								_tag: "ProviderThreadUpdated" as const,
+								providerThread: {
+									...resumed,
+									status: "idle" as const,
+									updatedAt: command.updatedAt,
+								},
+							},
+							{
+								_tag: "ActiveProviderThreadSet" as const,
+								providerThreadId: resumed.id,
+								updatedAt: command.updatedAt,
+							},
+						]),
+				{
+					_tag: "SessionStatusSet",
+					status: "idle",
+					updatedAt: command.updatedAt,
+				},
+			]);
+		}
 		case "SetRuntimeMode":
 			return state.runtimeMode === command.runtimeMode
 				? success([])
@@ -210,13 +372,267 @@ export const decide = (
 			return state.queuePaused === command.paused
 				? success([])
 				: success([{ ...command, _tag: "SessionQueuePausedSet" }]);
-		case "SetResume":
-			return state.cursor === command.cursor &&
-				state.resumeStrategy === command.resumeStrategy &&
-				(command.providerEventCursor === undefined ||
-					state.providerEventCursor === command.providerEventCursor)
-				? success([])
-				: success([{ ...command, _tag: "SessionResumeSet" }]);
+		case "BindProviderThread": {
+			const provider = state.providerId ?? "unknown";
+			const id = providerThreadIdFor(
+				state.sessionId,
+				provider,
+				command.nativeThreadId,
+			);
+			const existing = state.providerThreads.get(id);
+			const nativeHeadId =
+				command.nativeHeadId === undefined
+					? (existing?.nativeHeadId ?? null)
+					: command.nativeHeadId;
+			if (
+				existing !== undefined &&
+				state.activeProviderThreadId === id &&
+				existing.nativeHeadId === nativeHeadId &&
+				existing.status !== "closed" &&
+				existing.status !== "error"
+			) {
+				return success([]);
+			}
+			const currentTurn =
+				state.currentTurnId === null
+					? undefined
+					: state.turns.get(state.currentTurnId);
+			return success([
+				{
+					_tag: "ProviderThreadUpdated",
+					providerThread: {
+						id,
+						provider,
+						nativeThreadId: command.nativeThreadId,
+						nativeHeadId,
+						status: currentTurn === undefined ? "idle" : "active",
+						firstTurnOrdinal:
+							existing?.firstTurnOrdinal ?? currentTurn?.ordinal ?? null,
+						lastTurnOrdinal:
+							currentTurn?.ordinal ?? existing?.lastTurnOrdinal ?? null,
+						createdAt: existing?.createdAt ?? command.updatedAt,
+						updatedAt: command.updatedAt,
+					},
+				},
+				...(state.activeProviderThreadId === id
+					? []
+					: [
+							{
+								_tag: "ActiveProviderThreadSet" as const,
+								providerThreadId: id,
+								updatedAt: command.updatedAt,
+							},
+						]),
+			]);
+		}
+		case "BindAttemptProviderTurn": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.attemptId ||
+				state.archived
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Native execution must belong to the active attempt",
+					}),
+				);
+			if (
+				command.reference.provider !== state.providerId ||
+				command.reference.nativeThreadId.length === 0 ||
+				command.reference.nativeTurnId.length === 0
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Invalid native execution reference",
+					}),
+				);
+			const existing = state.attemptProviderTurns.get(command.attemptId);
+			if (existing !== undefined) {
+				if (
+					existing.provider === command.reference.provider &&
+					existing.nativeThreadId === command.reference.nativeThreadId &&
+					existing.nativeTurnId === command.reference.nativeTurnId
+				)
+					return success([]);
+				return Result.fail(
+					new ValidationFailed({
+						message: "An attempt cannot change its native execution",
+					}),
+				);
+			}
+			for (const [attemptId, reference] of state.attemptProviderTurns) {
+				if (
+					attemptId !== command.attemptId &&
+					reference.provider === command.reference.provider &&
+					reference.nativeThreadId === command.reference.nativeThreadId &&
+					reference.nativeTurnId === command.reference.nativeTurnId
+				)
+					return Result.fail(
+						new ValidationFailed({
+							message: "Native execution already belongs to another attempt",
+						}),
+					);
+			}
+			return success([{ ...command, _tag: "AttemptProviderTurnBound" }]);
+		}
+		case "ExpireAttempt": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.expectedAttemptId
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Expired ingestion no longer owns this attempt",
+					}),
+				);
+			const recovery = decide(state, {
+				_tag: "RecoverTurn",
+				turnId: command.turnId,
+				expectedAttemptId: command.expectedAttemptId,
+				requestedAt: command.expiredAt,
+			});
+			if (Result.isSuccess(recovery)) return recovery;
+			const interrupted = turn.phase !== "running" || state.archived;
+			const settlement = decide(state, {
+				_tag: "SettleTurn",
+				turnId: command.turnId,
+				outcome: interrupted ? "interrupted" : "error",
+				settledAt: command.expiredAt,
+			});
+			if (Result.isFailure(settlement)) return settlement;
+			const explanation: readonly SessionEvent[] = interrupted
+				? []
+				: [
+						{
+							_tag: "MessagePersisted",
+							messageId: `ingestion-expired:${command.expectedAttemptId}`,
+							turnId: command.turnId,
+							role: "system",
+							kind: "error",
+							contentJson: JSON.stringify({
+								_tag: "error",
+								message:
+									"The Agent Engine stopped ingesting this execution. Delivery was not repeated automatically; review the provider result before retrying.",
+							}),
+							parentItemId: null,
+							createdAt: command.expiredAt,
+						},
+					];
+			return success([
+				...providerStops(state, command.expiredAt),
+				...explanation,
+				...settlement.success,
+			]);
+		}
+		case "RecoverTurn": {
+			const turn = state.turns.get(command.turnId);
+			if (
+				state.archived ||
+				state.currentTurnId !== command.turnId ||
+				turn?.activeAttemptId !== command.expectedAttemptId ||
+				turn.phase !== "running"
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Recovery must own an active, uninterrupted turn",
+					}),
+				);
+			const prior = state.attemptRecoveries.get(command.expectedAttemptId);
+			const reference =
+				prior?.reference ??
+				state.attemptProviderTurns.get(command.expectedAttemptId);
+			if (reference === undefined || reference.provider !== state.providerId)
+				return Result.fail(
+					new ValidationFailed({
+						message: "Recovery requires proven native execution identity",
+					}),
+				);
+			if (turn.status === "finalizing")
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Checkpoint capture must finish before retrying this turn.",
+					}),
+				);
+			const ordinal = turn.attempts.size + 1;
+			const attemptId = attemptIdFor(command.turnId, ordinal);
+			return success([
+				...providerStops(state, command.requestedAt),
+				{
+					_tag: "AttemptStarted",
+					turnId: command.turnId,
+					attemptId,
+					ordinal,
+					reason: "provider_recovery",
+					startedAt: command.requestedAt,
+					turnOrdinal: turn.ordinal,
+					providerThreadId: turn.providerThreadId,
+					turnRequestedAt: turn.requestedAt,
+				},
+				{
+					_tag: "SessionStatusSet",
+					status: "booting",
+					updatedAt: command.requestedAt,
+				},
+				{
+					_tag: "ProviderRecoveryRequested",
+					turnId: command.turnId,
+					attemptId,
+					sourceAttemptId: prior?.sourceAttemptId ?? command.expectedAttemptId,
+					reference,
+					requestedAt: command.requestedAt,
+				},
+			]);
+		}
+		case "RetryTurn": {
+			const turn = state.turns.get(command.turnId);
+			if (state.currentTurnId !== command.turnId || turn === undefined) {
+				return Result.fail(
+					new TurnConflict({
+						expectedTurnId: command.turnId,
+						actualTurnId: state.currentTurnId,
+					}),
+				);
+			}
+			if (turn.status === "finalizing")
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Checkpoint capture must finish before retrying this turn.",
+					}),
+				);
+			const ordinal = turn.attempts.size + 1;
+			return success([
+				{
+					_tag: "AttemptStarted",
+					turnId: command.turnId,
+					attemptId: attemptIdFor(command.turnId, ordinal),
+					ordinal,
+					reason: command.reason,
+					startedAt: command.requestedAt,
+					turnOrdinal: turn.ordinal,
+					providerThreadId: turn.providerThreadId,
+					turnRequestedAt: turn.requestedAt,
+				},
+				{
+					_tag: "SessionStatusSet",
+					status: "booting",
+					updatedAt: command.requestedAt,
+				},
+				{
+					_tag: "ProviderTurnRequested",
+					turnId: command.turnId,
+					attemptId: attemptIdFor(command.turnId, ordinal),
+					providerInputJson: command.providerInputJson,
+					...(command.providerStartJson === undefined
+						? {}
+						: { providerStartJson: command.providerStartJson }),
+					requestedAt: command.requestedAt,
+				},
+			]);
+		}
 		case "ArchiveSession":
 			return state.archived
 				? success([])
@@ -252,6 +668,9 @@ export const decide = (
 				{
 					_tag: "ProviderTurnRequested",
 					turnId: command.expectedTurnId,
+					attemptId:
+						state.turns.get(command.expectedTurnId)?.activeAttemptId ??
+						attemptIdFor(command.expectedTurnId, 1),
 					providerInputJson: command.providerInputJson,
 					...(command.providerStartJson === undefined
 						? {}
@@ -279,9 +698,69 @@ export const decide = (
 							_tag: "TurnStarted",
 							turnId: command.turnId,
 							startedAt: command.startedAt,
+							ordinal: state.turnCount + 1,
+							attemptId: attemptIdFor(command.turnId, 1),
+							providerThreadId: state.activeProviderThreadId,
 						},
 					])
 				: Result.fail(new TurnAlreadyRunning({ turnId: state.currentTurnId }));
+		case "RollbackTurns": {
+			if (
+				state.currentTurnId !== null ||
+				state.queuedTurns.size > 0 ||
+				state.providerReservation !== null
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message:
+							"Stop active work and clear queued messages before rollback.",
+					}),
+				);
+			if (
+				!Number.isInteger(command.throughOrdinal) ||
+				command.throughOrdinal < 0 ||
+				command.throughOrdinal > state.turnCount
+			)
+				return Result.fail(
+					new ValidationFailed({ message: "Invalid rollback boundary." }),
+				);
+			return success([
+				{
+					...command,
+					_tag: "TurnsRolledBack",
+					rolledBackTurnIds: [...state.turns.values()]
+						.filter((turn) => turn.ordinal > command.throughOrdinal)
+						.map((turn) => turn.id),
+				},
+				{
+					_tag: "ActiveProviderThreadSet",
+					providerThreadId: null,
+					updatedAt: command.rolledBackAt,
+				},
+			]);
+		}
+		case "FinalizeTurn": {
+			if (state.currentTurnId !== command.turnId) {
+				if (state.settledTurnIds.has(command.turnId)) return success([]);
+				return Result.fail(
+					new TurnConflict({
+						expectedTurnId: command.turnId,
+						actualTurnId: state.currentTurnId,
+					}),
+				);
+			}
+			const turn = state.turns.get(command.turnId);
+			if (turn?.status === "finalizing") return success([]);
+			return success([
+				{
+					_tag: "TurnFinalizationRequested",
+					turnId: command.turnId,
+					attemptId: turn?.activeAttemptId ?? attemptIdFor(command.turnId, 1),
+					outcome: command.outcome,
+					settledAt: command.settledAt,
+				},
+			]);
+		}
 		case "SettleTurn": {
 			if (state.currentTurnId !== command.turnId) {
 				if (state.settledTurnIds.has(command.turnId)) return success([]);
@@ -338,6 +817,9 @@ export const decide = (
 						{
 							_tag: "TurnInterruptRequested",
 							turnId: receipt.turnId,
+							attemptId:
+								state.turns.get(receipt.turnId)?.activeAttemptId ??
+								attemptIdFor(receipt.turnId, 1),
 							requestedAt: command.requestedAt,
 						},
 					]);
@@ -423,6 +905,9 @@ export const decide = (
 					_tag: "TurnStarted",
 					turnId: command.turnId,
 					startedAt: command.createdAt,
+					ordinal: state.turnCount + 1,
+					attemptId: attemptIdFor(command.turnId, 1),
+					providerThreadId: state.activeProviderThreadId,
 				},
 				{
 					_tag: "SessionStatusSet",
@@ -432,6 +917,7 @@ export const decide = (
 				{
 					_tag: "ProviderTurnRequested",
 					turnId: command.turnId,
+					attemptId: attemptIdFor(command.turnId, 1),
 					providerInputJson: command.providerInputJson,
 					requestedAt: command.createdAt,
 				},
@@ -498,6 +984,9 @@ export const decide = (
 							{
 								_tag: "TurnInterruptRequested" as const,
 								turnId: command.expectedTurnId,
+								attemptId:
+									state.turns.get(command.expectedTurnId)?.activeAttemptId ??
+									attemptIdFor(command.expectedTurnId, 1),
 								requestedAt: command.requestedAt,
 							},
 						]),
@@ -563,18 +1052,94 @@ export const decide = (
 			return state.pendingPermissionIds.has(command.requestId)
 				? success([])
 				: success([{ ...command, _tag: "PermissionRequested" }]);
+		case "ExpirePermission":
+			return state.pendingPermissionIds.has(command.requestId) &&
+				!state.expiredPermissionIds.has(command.requestId)
+				? success([{ ...command, _tag: "PermissionExpired" }])
+				: success([]);
 		case "ResolvePermission":
-			return state.pendingPermissionIds.has(command.requestId)
+			return state.pendingPermissionIds.has(command.requestId) &&
+				(!state.expiredPermissionIds.has(command.requestId) ||
+					command.decision === "Deny")
 				? success([{ ...command, _tag: "PermissionResolved" }])
 				: Result.fail(
 						new PermissionNotPending({ requestId: command.requestId }),
 					);
+		case "ExpirePlan":
+			return state.expiredPlanIds.has(command.itemId)
+				? success([])
+				: success([{ ...command, _tag: "PlanExpired" }]);
+		case "ExpireQuestion":
+			// Imported transcript questions may predate their aggregate event history.
+			return state.resolvedQuestionIds.has(command.itemId) ||
+				state.expiredQuestionIds.has(command.itemId)
+				? success([])
+				: success([{ ...command, _tag: "QuestionExpired" }]);
 		case "ResolveQuestion":
 			return state.resolvedQuestionIds.has(command.itemId)
 				? success([])
 				: success([{ ...command, _tag: "QuestionResolved" }]);
+		case "ReserveProviderSession":
+			if (
+				state.currentTurnId !== null &&
+				(command.ownerAttempt?.turnId !== state.currentTurnId ||
+					command.ownerAttempt.attemptId !==
+						state.turns.get(state.currentTurnId)?.activeAttemptId)
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "an active attempt owns provider startup",
+					}),
+				);
+			if (state.currentTurnId === null && command.ownerAttempt !== undefined)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider startup attempt is no longer active",
+					}),
+				);
+			if (
+				(command.expectedModel !== undefined &&
+					command.expectedModel !== state.model) ||
+				(command.expectedWorktreeId !== undefined &&
+					command.expectedWorktreeId !== state.worktreeId)
+			)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider configuration changed before reservation",
+					}),
+				);
+			if (state.archived)
+				return Result.fail(
+					new ValidationFailed({
+						message: "cannot start a provider for an archived session",
+					}),
+				);
+			if (state.providerId !== null && state.providerId !== command.providerId)
+				return Result.fail(
+					new ValidationFailed({
+						message: "provider reservation must match the selected provider",
+					}),
+				);
+			if (
+				state.providerReservation?.providerSessionId ===
+				command.providerSessionId
+			)
+				return success([]);
+			return success([
+				...providerStops(state, command.reservedAt),
+				{
+					_tag: "ProviderSessionReserved",
+					providerId: command.providerId,
+					providerSessionId: command.providerSessionId,
+					reservedAt: command.reservedAt,
+				},
+			]);
 		case "AttachProvider":
-			if (state.attachedProviderId === command.providerId) return success([]);
+			if (
+				state.attachedProviderId === command.providerId &&
+				state.attachedProviderSessionId === (command.providerSessionId ?? null)
+			)
+				return success([]);
 			return success([
 				...(state.attachedProviderId === null
 					? []
@@ -582,28 +1147,31 @@ export const decide = (
 							{
 								_tag: "ProviderDetached" as const,
 								providerId: state.attachedProviderId,
+								...(state.attachedProviderSessionId === null
+									? {}
+									: { providerSessionId: state.attachedProviderSessionId }),
 								detachedAt: command.attachedAt,
 							},
 						]),
 				{ ...command, _tag: "ProviderAttached" },
 			]);
 		case "RequestProviderStop":
-			return state.attachedProviderId === null
-				? success([])
-				: success([
-						{
-							_tag: "ProviderStopRequested",
-							providerId: state.attachedProviderId,
-							requestedAt: command.requestedAt,
-						},
-					]);
+			return success(providerStops(state, command.requestedAt));
 		case "DetachProvider":
+			if (
+				command.expectedProviderSessionId !== undefined &&
+				state.attachedProviderSessionId !== command.expectedProviderSessionId
+			)
+				return success([]);
 			return state.attachedProviderId === null
 				? success([])
 				: success([
 						{
 							_tag: "ProviderDetached",
 							providerId: state.attachedProviderId,
+							...(state.attachedProviderSessionId === null
+								? {}
+								: { providerSessionId: state.attachedProviderSessionId }),
 							detachedAt: command.detachedAt,
 						},
 					]);

@@ -1,6 +1,8 @@
 import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
+import { deriveSessionPresentation } from "@zuse/client-runtime/session-presentation";
 import {
 	AgentTurnId,
+	AttemptId,
 	ComposerInput,
 	EnvironmentId,
 	Message,
@@ -9,6 +11,7 @@ import {
 	QueuedMessageNotFoundError,
 	QueueState,
 	SessionId,
+	SessionInputBlockedError,
 	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -25,6 +28,7 @@ import { registerWebSocketEnvironment } from "../../src/lib/rpc-client.ts";
 import {
 	classifyError,
 	classifyMessage,
+	compactAndContinueSession,
 	isRecoveredPreAckSessionError,
 	optimisticQueuedMessageReady,
 	pendingSessionCommandError,
@@ -65,9 +69,14 @@ describe("session actions", () => {
 	});
 
 	it.each([
-		false,
-		true,
-	])("resumes an unresolved failed turn without submitting a duplicate (resume failure: %s)", async (resumeFails) => {
+		{ action: retryLastSessionMessage, resumeFails: false },
+		{ action: retryLastSessionMessage, resumeFails: true },
+		{ action: compactAndContinueSession, resumeFails: false },
+		{ action: compactAndContinueSession, resumeFails: true },
+	])("resumes an unresolved failed turn without submitting a duplicate ($action.name, resume failure: $resumeFails)", async ({
+		action,
+		resumeFails,
+	}) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let resumes = 0;
 		let sends = 0;
@@ -109,9 +118,20 @@ describe("session actions", () => {
 					}),
 				],
 				status: "error",
-				currentTurn: {
-					turnId: AgentTurnId.make("failed-turn"),
+				turnCount: 1,
+				activeTurn: {
+					id: AgentTurnId.make("failed-turn"),
+					ordinal: 1,
+					status: "running",
 					phase: "running",
+					attempt: {
+						id: AttemptId.make("attempt-1"),
+						ordinal: 1,
+						reason: "initial",
+					},
+					providerThreadId: null,
+					requestedAt: new Date(0),
+					completedAt: null,
 				},
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
@@ -122,7 +142,7 @@ describe("session actions", () => {
 			() =>
 				getRendererClientBus().snapshot(retained.key).data?.status === "error",
 		);
-		expect(await retryLastSessionMessage(ref)).toBe(!resumeFails);
+		expect(await action(ref)).toBe(!resumeFails);
 		expect(resumes).toBe(1);
 		expect(sends).toBe(0);
 		expect(pendingSessionMessages(ref)).toEqual([]);
@@ -283,7 +303,8 @@ describe("session actions", () => {
 				data: SessionTimelineProjection.make({
 					messages: [],
 					status: "idle",
-					currentTurn: null,
+					activeTurn: null,
+					turnCount: 0,
 					queue: QueueState.make({ items: [], paused: false }),
 					permissionMode: "default",
 					runtimeMode: "approval-required",
@@ -354,6 +375,37 @@ describe("session actions", () => {
 		retained.lease.release();
 	});
 
+	it("clears the optimistic working state when send fails schema validation", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		let streamStarts = 0;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => {
+						streamStarts += 1;
+						return Stream.fromQueue(frames);
+					},
+					"messages.send": () =>
+						Effect.fail(
+							new Error('Expected providerId, got "acp-custom-provider"'),
+						),
+				}) as never,
+		);
+		const retained = retainSessionTimeline(ref, "connect");
+		await waitUntil(() => streamStarts === 1);
+		await expect(
+			sendSessionMessage(ref, "keep this rejected draft"),
+		).resolves.toBe(false);
+		const view = getRendererClientBus().snapshot(retained.key);
+		expect(view.pendingCommands).toEqual([]);
+		expect(view.data?.messages).toEqual([]);
+		expect(pendingSessionMessages(ref)).toEqual([]);
+		expect(view.failedCommands).toHaveLength(1);
+		expect(view.failedCommands[0]?.retryable).toBe(false);
+		expect(deriveSessionPresentation({ view }).busy).toBe(false);
+		retained.lease.release();
+	});
+
 	it("converges when a queued message was consumed before its final update", async () => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let streamStarts = 0;
@@ -386,7 +438,8 @@ describe("session actions", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({
 					items: [
 						QueuedMessage.make({
@@ -423,7 +476,10 @@ describe("session actions", () => {
 		retained.lease.release();
 	});
 
-	it("removes an optimistic queue row after an authoritative add rejection", async () => {
+	it.each([
+		"missing",
+		"blocked",
+	])("removes refused auto-queue without accepting the composer draft (%s)", async (reason) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let streamStarts = 0;
 		const input = ComposerInput.make({
@@ -440,8 +496,19 @@ describe("session actions", () => {
 						streamStarts += 1;
 						return Stream.fromQueue(frames);
 					},
-					"messages.queue.add": () =>
-						Effect.fail(new SessionNotFoundError({ sessionId })),
+					"messages.queue.add": (payload: { rejectIfBlocked?: boolean }) => {
+						expect(payload.rejectIfBlocked).toBe(true);
+						return Effect.fail(
+							reason === "missing"
+								? new SessionNotFoundError({ sessionId })
+								: new SessionInputBlockedError({
+										sessionId,
+										requestId: "question",
+										kind: "question",
+										message: "Answer the pending request",
+									}),
+						);
+					},
 				}) as never,
 		);
 
@@ -455,7 +522,8 @@ describe("session actions", () => {
 			projection: SessionTimelineProjection.make({
 				messages: [],
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				queue: QueueState.make({ items: [], paused: false }),
 				permissionMode: "default",
 				runtimeMode: "approval-required",
@@ -471,17 +539,23 @@ describe("session actions", () => {
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toHaveLength(1);
 
-		await persistQueuedMessage(ref, queueId, input);
+		expect(
+			await persistQueuedMessage(ref, queueId, input, {
+				rejectIfBlocked: true,
+			}),
+		).toBe(false);
 
 		expect(
 			getRendererClientBus().snapshot(retained.key).data?.queue.items,
 		).toEqual([]);
-		expect(pendingSessionCommandError(ref)).toMatchObject({
-			kind: "terminal",
-			category: "session-unavailable",
-			headline: "Session unavailable",
-			message: "This chat session is no longer available in the agent runtime.",
-		});
+		if (reason === "missing")
+			expect(pendingSessionCommandError(ref)).toMatchObject({
+				kind: "terminal",
+				category: "session-unavailable",
+				headline: "Session unavailable",
+				message:
+					"This chat session is no longer available in the agent runtime.",
+			});
 		retained.lease.release();
 	});
 });

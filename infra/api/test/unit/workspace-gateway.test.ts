@@ -298,6 +298,70 @@ describe("workspace gateway", () => {
 		expect(client.sent).toEqual(["response"]);
 	});
 
+	test.each([
+		WORKSPACE_GATEWAY_PROTOCOL,
+		LEGACY_WORKSPACE_GATEWAY_PROTOCOL,
+	])("delivers a legacy runtime handshake rejection unchanged through %s", async (protocol) => {
+		const client = new FakeSocket({
+			role: "client",
+			connectionId: "client-1",
+			protocol: WORKSPACE_GATEWAY_PROTOCOL,
+			...fence,
+		});
+		const runtime = new FakeSocket({ role: "runtime", protocol, ...fence });
+		const { gateway } = makeGateway({ runtimes: [runtime], clients: [client] });
+		// The retained runtime opens localhost with its own wire version.
+		// The gateway only forwards the new client's handshake and typed rejection.
+		const hello = JSON.stringify({
+			_tag: "Request",
+			id: "1",
+			tag: "connect.handshake",
+			payload: { protocolVersion: 7 },
+			headers: [],
+		});
+		await gateway.webSocketMessage(asCloudflareSocket(client), hello);
+		const forwarded =
+			protocol === LEGACY_WORKSPACE_GATEWAY_PROTOCOL
+				? JSON.parse(runtime.sent[0] as string)
+				: decodeWorkspaceGatewayFrame(runtime.sent[0] as ArrayBuffer);
+		expect(forwarded?.payload).toBe(hello);
+		const rejection = JSON.stringify({
+			_tag: "Exit",
+			requestId: "1",
+			exit: {
+				_tag: "Failure",
+				cause: [
+					{
+						_tag: "Fail",
+						error: {
+							_tag: "WireProtocolRejected",
+							expectedVersion: 6,
+							receivedVersion: 7,
+						},
+					},
+				],
+			},
+		});
+		await gateway.webSocketMessage(
+			asCloudflareSocket(runtime),
+			protocol === LEGACY_WORKSPACE_GATEWAY_PROTOCOL
+				? JSON.stringify({
+						type: "runtime.frame",
+						connectionId: "client-1",
+						encoding: "text",
+						payload: rejection,
+					})
+				: encodeWorkspaceGatewayFrame({
+						direction: "runtime",
+						connectionId: "client-1",
+						payload: rejection,
+					}),
+		);
+		expect(client.sent).toEqual([rejection]);
+		expect(client.closes).toEqual([]);
+		expect(runtime.closes).toEqual([]);
+	});
+
 	test("closes a stale client when only another runtime generation exists", async () => {
 		const client = new FakeSocket({
 			role: "client",

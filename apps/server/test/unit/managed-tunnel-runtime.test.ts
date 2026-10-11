@@ -201,7 +201,22 @@ describe("managed tunnel runtime", () => {
 						[runtime.start("first-secret"), runtime.start("second-secret")],
 						{ concurrency: 2 },
 					);
-					yield* Effect.sleep("10 millis");
+					// start() forks the connector. Wait for its durable ownership record,
+					// not an assumed filesystem latency under parallel test load.
+					yield* Effect.promise(() =>
+						expect
+							.poll(
+								async () =>
+									JSON.parse(
+										await readFile(
+											managedTunnelOwnershipPath(userData),
+											"utf8",
+										),
+									),
+								{ timeout: 2_000 },
+							)
+							.toMatchObject({ tokenPath: managedTunnelTokenPath(userData) }),
+					);
 					expect(records.filter((record) => record.running)).toHaveLength(1);
 					const connectorArgs = records
 						.filter((record) => record.args.includes("run"))

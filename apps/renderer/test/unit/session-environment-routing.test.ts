@@ -5,9 +5,12 @@ import {
 	MessageId,
 	SessionId,
 } from "@zuse/contracts";
+import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+	activeEnvironment: "local",
+	protocolVersion: 7,
 	dispatch: vi.fn(),
 	patchActive: vi.fn(),
 	cloudSummary: vi.fn(),
@@ -38,21 +41,39 @@ vi.mock("../../src/lib/cloud-workspaces.ts", () => ({
 
 vi.mock("../../src/lib/environment-entities.ts", () => ({
 	activeSessionById: () => null,
+	environmentShellData: () => null,
 	activeSessionsByProject: () => ({}),
 	overlayActiveEnvironmentShell: mocks.patchActive,
 	overlayEnvironmentShell: () => false,
 }));
 
+vi.mock("@zuse/client-runtime/connection", async (original) => ({
+	...(await original<typeof import("@zuse/client-runtime/connection")>()),
+	getClientProtocolVersion: () => mocks.protocolVersion,
+}));
+
 vi.mock("../../src/lib/rpc-client.ts", () => ({
-	getActiveEnvironment: () => "local",
+	getVerifiedRpcClient: async () => ({}),
+	getActiveEnvironment: () => mocks.activeEnvironment,
 }));
 
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 	dispatchSessionCommand: mocks.dispatch,
 	getRendererClientBus: () => ({
-		snapshot: () => ({ failedCommands: [] }),
+		snapshot: () => ({
+			failedCommands: [],
+			connection: "connected",
+			sync: "live",
+			data: emptyTimelineProjection(),
+			cursor: { epoch: "test", version: 1 },
+		}),
+		subscribe: () => () => undefined,
 	}),
 	sessionTimelineResourceKey: vi.fn(),
+	retainSessionTimeline: () => ({
+		key: "test-key",
+		lease: { release: () => undefined },
+	}),
 }));
 
 vi.mock("../../src/store/workspace.ts", () => ({
@@ -66,6 +87,8 @@ const { useSessionsStore } = await import("../../src/store/sessions.ts");
 
 describe("session command environment routing", () => {
 	beforeEach(() => {
+		mocks.protocolVersion = 7;
+		mocks.activeEnvironment = "local";
 		mocks.dispatch.mockReset();
 		mocks.patchActive.mockReset();
 		mocks.cloudSummary.mockReset().mockReturnValue(null);
@@ -83,7 +106,10 @@ describe("session command environment routing", () => {
 		useSessionsStore.setState({ draftSession: null, error: null });
 	});
 
-	it("wakes and forks a catalog-only boxd session in its source workspace", async () => {
+	it.each([
+		5, 6, 7,
+	])("forks in the source workspace with safe retries only on protocol %i", async (version) => {
+		mocks.protocolVersion = version;
 		const sessionId = SessionId.make("source-cloud-session");
 		const cloud = {
 			workspaceId: "boxd-workspace",
@@ -104,6 +130,7 @@ describe("session command environment routing", () => {
 		const forked = await useSessionsStore.getState().fork({
 			sourceSessionId: sessionId,
 			fromMessageId: MessageId.make("fork-point"),
+			nativeChildStepId: version === 7 ? "completed-native-step" : undefined,
 			destination: "tab",
 		});
 		expect(mocks.attach).toHaveBeenCalledWith(cloud);
@@ -114,7 +141,12 @@ describe("session command environment routing", () => {
 			expect.objectContaining({
 				ref: { environmentId: "boxd-workspace", sessionId },
 				kind: "session.fork",
-				payload: expect.objectContaining({ destination: "tab" }),
+				retry: version === 7 ? "safe" : "never",
+				payload: expect.objectContaining({
+					destination: "tab",
+					nativeChildStepId:
+						version === 7 ? "completed-native-step" : undefined,
+				}),
 			}),
 		);
 		expect(forked?.sessionId).toBe("fork-session");
@@ -125,6 +157,35 @@ describe("session command environment routing", () => {
 		expect(
 			useSessionsStore.getState().selectedSessionByProject["local-project"],
 		).toBe("fork-session");
+	});
+
+	it("does not insert or select a late native fork in a different environment", async () => {
+		const previousSelection = useSessionsStore.getState().selectedSessionId;
+		mocks.dispatch.mockImplementation(async () => {
+			mocks.activeEnvironment = "other-workspace";
+			return {
+				result: {
+					chat: { id: ChatId.make("late-chat") },
+					session: {
+						id: SessionId.make("late-session"),
+						projectId: FolderId.make("project"),
+					},
+					forkMode: "copy",
+				},
+			};
+		});
+		const result = await useSessionsStore.getState().fork({
+			sourceSessionId: SessionId.make("source"),
+			fromMessageId: MessageId.make("spawn"),
+			nativeChildStepId: "completed-step",
+			destination: "tab",
+		});
+		expect(result?.sessionId).toBe("late-session");
+		expect(mocks.patchActive).not.toHaveBeenCalled();
+		expect(mocks.upsertFork).not.toHaveBeenCalled();
+		expect(useSessionsStore.getState().selectedSessionId).toBe(
+			previousSelection,
+		);
 	});
 
 	it.each([

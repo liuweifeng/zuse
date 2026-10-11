@@ -489,7 +489,7 @@ readline.createInterface({input:process.stdin}).on("line", line => {
 			const pending = client.request(
 				"account/rateLimits/read",
 				{},
-				controller.signal,
+				{ signal: controller.signal },
 			);
 			controller.abort(new DOMException("Timed out", "TimeoutError"));
 			await expect(pending).rejects.toMatchObject({ name: "TimeoutError" });
@@ -501,4 +501,48 @@ readline.createInterface({input:process.stdin}).on("line", line => {
 			rmSync(directory, { recursive: true, force: true });
 		}
 	});
+});
+
+it("bounds silent requests without closing concurrent requests or accepting a late reply", async () => {
+	const directory = mkdtempSync(
+		join(tmpdir(), "zuse-app-server-read-timeout-"),
+	);
+	const executable = join(directory, "fake-app-server.mjs");
+	let client: CodexAppServerClient | undefined;
+	try {
+		writeFileSync(
+			executable,
+			`#!/usr/bin/env node
+import readline from "node:readline";
+readline.createInterface({ input: process.stdin }).on("line", (line) => {
+ const request = JSON.parse(line);
+ if (request.id === undefined) return;
+ const reply = () => process.stdout.write(JSON.stringify({ id: request.id, result: { method: request.method } }) + "\\n");
+ if (request.method === "thread/read") setTimeout(reply, 100);
+ else reply();
+});
+`,
+			{ mode: 0o755 },
+		);
+		client = await CodexAppServerClient.start({
+			codexPath: executable,
+			startupTimeoutMs: 2000,
+			onNotification: () => {},
+			onServerRequest: () => {},
+		});
+		const timedOut = expect(
+			client.request("thread/read", {}, { timeoutMs: 20 }),
+		).rejects.toThrow("request timed out");
+		expect(await client.request("model/list", {}, { timeoutMs: 1000 })).toEqual(
+			{ method: "model/list" },
+		);
+		await timedOut;
+		await new Promise((resolve) => setTimeout(resolve, 150));
+		expect(await client.request("model/list", {}, { timeoutMs: 1000 })).toEqual(
+			{ method: "model/list" },
+		);
+	} finally {
+		await client?.close();
+		rmSync(directory, { recursive: true, force: true });
+	}
 });

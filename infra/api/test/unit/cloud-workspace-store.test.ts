@@ -3250,7 +3250,10 @@ describe("cloud workspace store", () => {
 		await runtime.dispose();
 	});
 
-	test("consumes a launch intent only after its matching receipt", async () => {
+	test.each([
+		false,
+		true,
+	])("consumes a launch intent only after its matching receipt (mailbox: %s)", async (mailbox) => {
 		const runtime = ManagedRuntime.make(CloudWorkspaceStoreMemory);
 		const store = await runtime.runPromise(CloudWorkspaceStore);
 		await runtime.runPromise(store.connectProject(project));
@@ -3262,6 +3265,7 @@ describe("cloud workspace store", () => {
 			buildId: build.buildId,
 			provider: build.provider,
 			runtimeState: "online" as const,
+			runtimeCredentialHash: "runtime-secret-hash",
 			chatId: "chat-launch-completion",
 			initialSessionId: "session-launch-completion",
 			branch: "task/launch-completion",
@@ -3272,6 +3276,8 @@ describe("cloud workspace store", () => {
 			idempotencyKey: "workspace-launch-completion-key",
 			requestConfig: {
 				startupTimings: { requestedAt: 100 },
+				runtimeCredentialExpiresAtMs: 10000,
+				...(mailbox ? { cloudCommandEnrollmentProtocolVersion: 3 } : {}),
 				launchErrorCode: "runtime-storage-replaced",
 				startupFailureDiagnostic: "old failure",
 			},
@@ -3307,12 +3313,19 @@ describe("cloud workspace store", () => {
 		const recovered = await runtime.runPromise(
 			store.getWorkspace(workspace.workspaceId),
 		);
+		expect(recovered?.requestConfig.startupTimings).toEqual({
+			requestedAt: 100,
+			connectedAt: 300,
+			repositoryReadyAt: 300,
+			launchDurationMs: 200,
+			...(mailbox ? {} : { agentStartedAt: 300, messageAcceptedAt: 300 }),
+		});
 		expect(recovered?.requestConfig.launchErrorCode).toBeUndefined();
 		expect(recovered?.requestConfig.startupFailureDiagnostic).toBeUndefined();
 		expect(completed).toMatchObject({
 			kind: "completed",
 			workspace: {
-				statusCode: "agent-running",
+				statusCode: mailbox ? "ready" : "agent-running",
 				requestConfig: { sessionHeadVersion: 15 },
 			},
 		});
@@ -3332,8 +3345,24 @@ describe("cloud workspace store", () => {
 		);
 		expect(replay).toMatchObject({
 			kind: "completed",
-			workspace: { statusCode: "agent-running" },
+			workspace: { statusCode: mailbox ? "ready" : "agent-running" },
 		});
+		for (const repositoryReady of [false, true]) {
+			const ready = await runtime.runPromise(
+				store.markRuntimeRepositoryReady({
+					workspaceId: workspace.workspaceId,
+					currentCredentialHash: "runtime-secret-hash",
+					repositoryReady,
+					nowMs: 500,
+					nextIdleAtMs: 10000,
+				}),
+			);
+			expect(ready?.state).toBe("ready");
+			expect(ready?.statusCode).toBe(mailbox ? "ready" : "agent-running");
+			expect(ready?.requestConfig.startupTimings).toEqual(
+				recovered?.requestConfig.startupTimings,
+			);
+		}
 		await runtime.dispose();
 	});
 

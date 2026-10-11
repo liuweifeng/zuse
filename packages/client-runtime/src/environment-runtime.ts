@@ -1,6 +1,7 @@
 import type { EnvironmentId } from "@zuse/contracts";
 import { Effect } from "effect";
 
+import { cloudFailurePresentation } from "./cloud-failure-presentation";
 import type { ConnectionPhase, ConnectionView } from "./resource-state";
 
 export type ResourceActivation = "cache-only" | "sync" | "connect" | "wake";
@@ -568,4 +569,13 @@ export class EnvironmentRuntimeRegistry<Client> {
 export const environmentFault = (
 	phase: EnvironmentFault["phase"],
 	cause: unknown,
-): EnvironmentFault => ({ phase, message: failureMessage(cause) });
+): EnvironmentFault => {
+	const presentation = cloudFailurePresentation({ cause });
+	return {
+		phase: presentation?.kind === "update-required" ? "update-required" : phase,
+		message:
+			presentation?.kind === "update-required"
+				? presentation.message
+				: failureMessage(cause),
+	};
+};

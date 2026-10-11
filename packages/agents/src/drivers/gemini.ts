@@ -25,6 +25,11 @@ import type {
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import { APP_MCP_SERVER_NAME } from "../mcp-gateway/index.ts";
@@ -42,10 +47,7 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import {
-	type OrchestrationSessionTools,
-	orchestrationMcpPromptHint,
-} from "./orchestration-tools.ts";
+import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
@@ -193,7 +195,7 @@ export const startGeminiSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		// Keep AttachmentService in the requirement set so layer wiring stays
 		// uniform with the other drivers; attachments themselves are not yet
 		// wired through ACP's `prompt: [{ type: "image", ... }]` shape.
@@ -202,7 +204,7 @@ export const startGeminiSession = (
 
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "gemini",
 			sessionId,
 			cwd,
@@ -236,6 +238,7 @@ export const startGeminiSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 
 		let acpSessionId: string | null = null;
 		let closed = false;
@@ -286,6 +289,7 @@ export const startGeminiSession = (
 					...executionEnv,
 					...(apiKey !== null ? { GEMINI_API_KEY: apiKey } : {}),
 				},
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
 		} catch (cause) {
@@ -298,9 +302,12 @@ export const startGeminiSession = (
 			);
 		}
 
+		watchProviderProcess(child);
+		startup.add(() => stopProviderProcess(child, { processGroup: true }));
 		child.stdout.setEncoding("utf-8");
 		child.stderr.setEncoding("utf-8");
 		const rl = readline.createInterface({ input: child.stdout });
+		startup.add(() => rl.close());
 
 		const writeMessage = (msg: Record<string, unknown>): void => {
 			if (!child.stdin.writable) return;
@@ -310,6 +317,11 @@ export const startGeminiSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		startup.add(() => {
+			closed = true;
+			rpc.rejectAll(new Error("Provider startup cancelled"));
+			Queue.endUnsafe(events);
+		});
 		const userQuestions = makeAcpUserQuestionRegistry({
 			send: writeMessage,
 			emit: (event) => Queue.offerUnsafe(events, event),
@@ -319,6 +331,9 @@ export const startGeminiSession = (
 					itemId,
 					reason,
 				}),
+		});
+		startup.add(() => {
+			userQuestions.discardAll();
 		});
 		const request = (
 			method: string,
@@ -572,15 +587,7 @@ export const startGeminiSession = (
 				}),
 		});
 
-		const acquiredSession = yield* handshake.pipe(
-			Effect.tapError(() =>
-				Effect.sync(() => {
-					child.kill("SIGTERM");
-					void stdioMcpFallback.close();
-					void mcpGatewaySession.close();
-				}),
-			),
-		);
+		const acquiredSession = yield* handshake;
 		acpSessionId = acquiredSession.sessionId;
 		if (acquiredSession.resumed) {
 			for (const event of translator.flush()) Queue.offerUnsafe(events, event);
@@ -628,13 +635,7 @@ export const startGeminiSession = (
 						);
 			const finalPromptText =
 				mcpHintPending && compactSnapshot === null
-					? [
-							browserMcpPromptHint(),
-							...(orchestrationTools === null
-								? []
-								: [orchestrationMcpPromptHint()]),
-							promptText,
-						].join("\n\n")
+					? [browserMcpPromptHint(), promptText].join("\n\n")
 					: promptText;
 			mcpHintPending = false;
 			if (compactSnapshot === null) workspaceInstructionsPending = undefined;
@@ -754,7 +755,9 @@ export const startGeminiSession = (
 					} catch {
 						// ignore — stdin may already be closed by the child
 					}
-					child.kill("SIGTERM");
+					yield* Effect.promise(() =>
+						stopProviderProcess(child, { processGroup: true }),
+					);
 					rl.close();
 					yield* Effect.promise(() => stdioMcpFallback.close());
 					yield* Effect.promise(() => mcpGatewaySession.close());

@@ -149,6 +149,7 @@
 	"accounts_open_browser": "ブラウザーを開く",
 	"accounts_signed_in": "ログイン済み",
 	"accounts_remove_description": "このアカウントを設定から削除します。このアカウントを使用するチャットは再開できなくなります。ログインファイルと会話履歴は保持されます。",
+	"model_picker_switch_pending": "現在の処理が完了すると切り替わります",
 	"accounts_default_detail": "CLI ログインまたは API キー",
 	"accounts_suggested_name": "アカウント {{index}}",
 	"accounts_actions": "{{name}} の操作",

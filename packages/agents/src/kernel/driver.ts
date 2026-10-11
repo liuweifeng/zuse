@@ -3,6 +3,7 @@ import type {
 	AgentItemId,
 	AttachmentRef,
 	FileRef,
+	NativeHistoryCheckpoint,
 	PermissionMode,
 	PlanApprovalOutcome,
 	SkillRef,
@@ -24,6 +25,16 @@ export type ProviderDriverEvent = AgentEvent | QuestionCallbackReleased;
 /** Common live-session surface implemented by every provider driver. */
 export interface ProviderSessionHandle {
 	readonly events: Stream.Stream<ProviderDriverEvent>;
+	/** A missing native history was replaced before any user input was delivered. */
+	readonly nativeResumeFallback?: boolean;
+	/** Optional verified native history restoration. Unsupported drivers use portable context. */
+	readonly captureHistoryCheckpoint?: () => Effect.Effect<
+		NativeHistoryCheckpoint | null,
+		Error
+	>;
+	readonly restoreHistoryCheckpoint?: (
+		checkpoint: NativeHistoryCheckpoint,
+	) => Effect.Effect<boolean, Error>;
 	readonly send: (
 		text: string,
 		attachments?: ReadonlyArray<AttachmentRef>,
@@ -47,6 +58,10 @@ export interface ProviderSessionHandle {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
+	) => Effect.Effect<void, Error>;
+	/** Release native plan retry authority after its application receipt commits. */
+	readonly acknowledgePlanResponse?: (
+		itemId: AgentItemId,
 	) => Effect.Effect<void>;
 	readonly acknowledgeProviderEventCursor?: (
 		cursor: string,
@@ -57,6 +72,9 @@ export interface ProviderSessionHandle {
 /** Optional goal-mode extension currently implemented by two providers. */
 export interface GoalCapableSessionHandle extends ProviderSessionHandle {
 	readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
-	readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+	readonly setGoal: (
+		goal: ThreadGoalSetInput,
+		options?: { readonly execute?: boolean },
+	) => Effect.Effect<ThreadGoal>;
 	readonly clearGoal: () => Effect.Effect<void>;
 }

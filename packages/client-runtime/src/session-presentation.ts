@@ -29,6 +29,13 @@ export type SessionAttentionState =
 
 export type SessionPresentation = Readonly<{
 	runtime: SessionRuntimeState;
+	health:
+		| "unknown"
+		| "disconnected"
+		| "stalled"
+		| "blocked"
+		| "healthy"
+		| "unavailable";
 	busy: boolean;
 	turnActive: boolean;
 	/** A durable turn is active or a still-applicable start command bridges to it. */
@@ -58,11 +65,11 @@ export const runtimeStateFromTimeline = (
 ): SessionRuntimeState => {
 	if (projection.status === "error") return "failed";
 	if (projection.status === "booting") return "starting";
-	const phase = projection.currentTurn?.phase;
+	const phase = projection.activeTurn?.phase;
 	if (phase === "interrupt-requested" || phase === "interrupt-acknowledged") {
 		return "stopping";
 	}
-	if (projection.currentTurn !== null || projection.status === "running") {
+	if (projection.activeTurn !== null || projection.status === "running") {
 		return "running";
 	}
 	return "idle";
@@ -113,7 +120,9 @@ const submissionKindsFor = (
 ): ReadonlyArray<string> =>
 	interaction._tag === "Question"
 		? ["session.answerQuestion", "session.cancelQuestion"]
-		: ["permission.decide"];
+		: interaction._tag === "Plan"
+			? ["session.respondToPlan"]
+			: ["permission.decide"];
 
 const presentInteractions = (
 	projection: SessionTimelineProjection | null,
@@ -161,7 +170,7 @@ export const deriveSessionPresentation = ({
 	const qualified =
 		view.cursor !== null ||
 		(view.data !== null &&
-			(view.sync === "live" || view.data.currentTurn !== null));
+			(view.sync === "live" || view.data.activeTurn !== null));
 	const catalogFallback =
 		catalogRuntime ??
 		(catalogStatus === undefined
@@ -181,7 +190,7 @@ export const deriveSessionPresentation = ({
 			(command) => command.kind === "messages.interrupt",
 		) &&
 		(view.data === null ||
-			view.data.currentTurn !== null ||
+			view.data.activeTurn !== null ||
 			(!qualified && latestConversationalRole(view.data) !== "assistant") ||
 			isSessionTurnActive(runtime))
 	) {
@@ -196,13 +205,31 @@ export const deriveSessionPresentation = ({
 		(item) => item.interaction._tag === "Permission",
 	)
 		? "permission"
-		: interactions.some((item) => item.interaction._tag === "Question")
+		: interactions.some(
+					(item) =>
+						item.interaction._tag === "Question" &&
+						item.interaction.recoveryState !== "expired",
+				)
 			? "question"
 			: isSessionRuntimeBusy(runtime)
 				? "running"
 				: "idle";
 
+	const observation = view.data?.runtimeObservation;
+	const health: SessionPresentation["health"] =
+		view.connection !== "connected"
+			? "disconnected"
+			: view.sync !== "live" || observation === undefined
+				? "unknown"
+				: observation.state === "stalled"
+					? "stalled"
+					: observation.state === "unavailable"
+						? "unavailable"
+						: observation.state === "blocked"
+							? "blocked"
+							: "healthy";
 	return {
+		health,
 		runtime,
 		busy: isSessionRuntimeBusy(runtime),
 		turnActive: isSessionTurnActive(runtime),

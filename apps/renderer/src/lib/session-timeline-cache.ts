@@ -16,7 +16,7 @@ import {
 	SessionTimelineProjection,
 } from "@zuse/contracts";
 import { Schema } from "effect";
-import { hostedCacheDatabaseName } from "./hosted-connect.ts";
+import { hostedCacheDatabaseName } from "./hosted-session.ts";
 import {
 	decodeTimelineReadingPosition,
 	encodeTimelineReadingPosition,

@@ -16,12 +16,12 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { ThreadListResponse } from "@zuse/agents/codex-generated/v2/ThreadListResponse";
-import type { ThreadReadResponse } from "@zuse/agents/codex-generated/v2/ThreadReadResponse";
 import type { UserInput } from "@zuse/agents/codex-generated/v2/UserInput";
 import { translateClaudeSdkMessages } from "@zuse/agents/drivers/claude";
 import { translateCodexItem } from "@zuse/agents/drivers/codex";
 import type { CodexAppServerClient } from "@zuse/agents/drivers/codex-app-server-client";
 import { withCodexControlClient } from "@zuse/agents/drivers/codex-control-client";
+import { readCodexThread } from "@zuse/agents/drivers/codex-thread-reader";
 import {
 	ContinueExternalThreadResult,
 	defaultModelFor,
@@ -53,7 +53,6 @@ type DiscoveredThread = {
 	readonly updatedAt: Date;
 	readonly sourcePath: string | null;
 	readonly cursor: string;
-	readonly resumeStrategy: "claude-session-id" | "codex-thread-id";
 };
 
 const clamp = (value: string, max: number): string => {
@@ -245,7 +244,6 @@ export const discoverClaudeThreads = (
 				updatedAt,
 				sourcePath,
 				cursor: sessionId,
-				resumeStrategy: "claude-session-id",
 			});
 		}
 	}
@@ -287,7 +285,6 @@ const discoverCodexViaAppServer = (limit: number) =>
 					updatedAt: new Date(thread.updatedAt * 1000),
 					sourcePath: thread.path,
 					cursor: thread.id,
-					resumeStrategy: "codex-thread-id",
 				}),
 			);
 	});
@@ -438,7 +435,6 @@ export const discoverCodexFromIndex = async (
 				updatedAt,
 				sourcePath: rolloutFile ?? file,
 				cursor: id,
-				resumeStrategy: "codex-thread-id",
 			},
 		];
 	});
@@ -509,16 +505,11 @@ const readCodexTranscriptMessages = async (
 	app: CodexAppServerClient,
 	cursor: string,
 ): Promise<ReadonlyArray<MessageContent>> => {
-	const response = await app
-		.request<ThreadReadResponse>("thread/read", {
-			threadId: cursor,
-			includeTurns: true,
-		})
-		.catch(() => null);
-	if (response === null) return [];
+	const thread = await readCodexThread(app, cursor).catch(() => null);
+	if (thread === null) return [];
 
 	const out: MessageContent[] = [];
-	for (const turn of response.thread.turns) {
+	for (const turn of thread.turns) {
 		for (const item of turn.items) {
 			if (item.type === "userMessage") {
 				const text = item.content
@@ -535,13 +526,9 @@ const readCodexTranscriptMessages = async (
 				const childSessionId = item.receiverThreadIds[0];
 				if (childSessionId === undefined) continue;
 				const parentItemId = item.id as import("@zuse/contracts").AgentItemId;
-				const childResponse = await app
-					.request<ThreadReadResponse>("thread/read", {
-						threadId: childSessionId,
-						includeTurns: true,
-					})
-					.catch(() => null);
-				const childThread = childResponse?.thread ?? null;
+				const childThread = await readCodexThread(app, childSessionId).catch(
+					() => null,
+				);
 				const agentName =
 					childThread?.name ??
 					childThread?.agentNickname ??
@@ -889,8 +876,6 @@ export const ExternalThreadServiceLive = Layer.effect(
 					sql,
 					input.projectPath,
 				).pipe(Effect.orDie);
-				const resumeStrategy =
-					providerId === "claude" ? "claude-session-id" : "codex-thread-id";
 				const title =
 					input.title?.trim() ||
 					`${providerId === "claude" ? "Claude" : "Codex"} thread`;
@@ -901,8 +886,7 @@ export const ExternalThreadServiceLive = Layer.effect(
 						providerId,
 						model: defaultModelFor(yield* modelCatalog.current(), providerId),
 						title,
-						resumeCursor: input.cursor,
-						resumeStrategy,
+						providerThread: { nativeThreadId: input.cursor },
 					})
 					.pipe(Effect.orDie);
 				let importedMessages: ReadonlyArray<Message> = [];

@@ -36,6 +36,7 @@
         "yaml": "2.9.0",
       },
       "devDependencies": {
+        "@effect/platform-node": "catalog:",
         "@electron/asar": "^3.4.1",
         "@electron/rebuild": "^4.0.4",
         "@repo/typescript-config": "*",

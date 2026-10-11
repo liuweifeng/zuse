@@ -125,7 +125,10 @@ export const makeSessionTimelineCacheEntry = (input: {
 		schemaVersion: SESSION_TIMELINE_CACHE_SCHEMA_VERSION,
 		ref: input.ref,
 		cursor: input.cursor,
-		projection: input.projection,
+		projection: SessionTimelineProjection.make({
+			...input.projection,
+			runtimeObservation: undefined,
+		}),
 		savedAt: now,
 		accessedAt: now,
 		estimatedBytes: 0,

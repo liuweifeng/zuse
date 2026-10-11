@@ -14,8 +14,6 @@ export const sessionCreation = {
 	providerId: "provider-1",
 	model: "model-1",
 	status: "idle",
-	cursor: null,
-	resumeStrategy: "none",
 	runtimeMode: "approval-required",
 	agentsJson: null,
 	worktreeId: null,

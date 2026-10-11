@@ -34,9 +34,12 @@ import type {
 } from "../kernel/driver.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
 import { scrubInheritedClaudeMarkers } from "./claude-env.ts";
+import { claudeForkPoint, claudeResumeOptions } from "./claude-fork-point.ts";
+import { makeClaudeProcessOwner } from "./claude-process.ts";
 import { applyClaudeWorktreeEnv } from "./claude-worktree-prompt.ts";
 import {
 	type CompactSnapshot,
@@ -45,7 +48,10 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
+import {
+	type OrchestrationSessionTools,
+	READ_ONLY_ORCHESTRATION_TOOLS,
+} from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 import { isolatedProviderAccountEnv } from "./provider-account-env.ts";
 
@@ -1316,19 +1322,10 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	`mcp__${ZUSE_MCP_NAME}__browser_resize`,
 	`mcp__${ZUSE_MCP_NAME}__browser_wait_for`,
 	`mcp__${ZUSE_MCP_NAME}__browser_inspect`,
-	// Control-plane (orchestration) reads. Inspecting threads/models is
-	// non-mutating and visible to the user, so auto-allow like the browser
-	// reads. The MUTATING control-plane tools — create_thread, create_session,
-	// send_to_thread — are deliberately absent: they spawn real work and must
-	// fall through to the permission prompt, which is the approval gate for the
-	// `approval-gated` autonomy level.
-	`mcp__${ZUSE_MCP_NAME}__read_thread`,
-	`mcp__${ZUSE_MCP_NAME}__list_threads`,
-	`mcp__${ZUSE_MCP_NAME}__list_models`,
-	`mcp__${ZUSE_MCP_NAME}__whoami`,
-	// emit_ui is display-only: it paints a validated UI spec into the
-	// transcript and exposes no callbacks, so it auto-allows with the reads.
-	`mcp__${ZUSE_MCP_NAME}__emit_ui`,
+	...Array.from(
+		READ_ONLY_ORCHESTRATION_TOOLS,
+		(name) => `mcp__${ZUSE_MCP_NAME}__${name}`,
+	),
 ]);
 
 type ToolPolicy =
@@ -1626,16 +1623,24 @@ export const startClaudeSession = (
 	// a list hides unlisted skills from the model and makes the Skill tool
 	// reject them.
 	skillAllowlist: ReadonlyArray<string> | undefined = undefined,
+	resumeHead: string | null = null,
 ): Effect.Effect<
 	ClaudeSessionHandle,
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const inputChannel = new UserInputChannel();
 		const abort = new AbortController();
+		const processes = makeClaudeProcessOwner();
+		startup.add(processes.close);
+		startup.add(() => {
+			inputChannel.close();
+			abort.abort();
+			Queue.endUnsafe(events);
+		});
 
 		const buildAttachmentBlocks = (
 			refs: ReadonlyArray<AttachmentRef>,
@@ -1760,9 +1765,10 @@ export const startClaudeSession = (
 				});
 			}
 		};
+		startup.add(() => releasePendingQuestions("closed"));
 		let currentPermissionMode = input.permissionMode ?? "default";
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "claude",
 			sessionId,
 			cwd,
@@ -1865,6 +1871,7 @@ export const startClaudeSession = (
 			currentPermissionMode,
 		);
 		const options: Options = {
+			spawnClaudeCodeProcess: processes.spawn,
 			cwd,
 			systemPrompt: {
 				type: "preset",
@@ -1987,17 +1994,23 @@ export const startClaudeSession = (
 			mode: "sdk",
 		});
 
-		// If the caller has a resume cursor, hand it to the SDK before opening
-		// the conversation. When `forkFromResume` is set (the "Fork chat"
-		// feature), also pass `forkSession: true` so the SDK branches the resumed
-		// transcript into a NEW session_id — the source session's transcript is
-		// left untouched and both can run independently.
-		if (resumeCursor !== null) {
-			options.resume = resumeCursor;
-			if (input.forkFromResume === true) {
-				options.forkSession = true;
-			}
-		}
+		const resumeOptions = yield* Effect.try({
+			try: () =>
+				claudeResumeOptions(
+					resumeCursor,
+					input.forkFromResume === true,
+					resumeHead,
+				),
+			catch: (cause) =>
+				new AgentSessionStartError({
+					providerId: "claude",
+					reason:
+						cause instanceof Error
+							? cause.message
+							: "Invalid native fork boundary",
+				}),
+		});
+		Object.assign(options, resumeOptions);
 
 		let q: Query;
 		try {
@@ -2037,6 +2050,14 @@ export const startClaudeSession = (
 					for (const ev of translated) {
 						checkpointBatcher.offer(ev);
 					}
+					const point = claudeForkPoint(msg);
+					if (point !== null && typeof msg.session_id === "string")
+						checkpointBatcher.offer({
+							_tag: "SessionCursor",
+							cursor: msg.session_id,
+							strategy: "claude-session-id",
+							providerEventCursor: point,
+						});
 				}
 			},
 			catch: (cause) => cause,
@@ -2148,7 +2169,7 @@ export const startClaudeSession = (
 					inputChannel.close();
 					abort.abort();
 					void mcpGatewaySession.close();
-				}),
+				}).pipe(Effect.andThen(Effect.promise(processes.close))),
 			setPermissionMode: (mode) =>
 				Effect.tryPromise({
 					try: () =>

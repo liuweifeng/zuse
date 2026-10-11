@@ -3,9 +3,9 @@ import { layer as nodeSqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-
 import { AppPaths } from "../app-paths.ts";
 import { ensureSqliteRenameCompatibility, sqliteDbPath } from "./db-path.ts";
+import { acquireEngineOwnership } from "./engine-ownership.ts";
 
 /**
  * Live SQLite client for the chat-MVP persistence layer. Resolves the DB
@@ -30,6 +30,7 @@ export const SqliteLive = Layer.unwrap(
 			).pipe(Effect.orDie);
 		}
 		if (!inMemory) {
+			yield* acquireEngineOwnership(paths.userData);
 			yield* ensureSqliteRenameCompatibility(paths.userData).pipe(Effect.orDie);
 		}
 		const filename = inMemory ? ":memory:" : sqliteDbPath(paths.userData);

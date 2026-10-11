@@ -134,7 +134,7 @@ export function WorktreeSetupCard({
 		setupStatus === "skipped" ||
 		((setupStatus === null || setupStatus === "pending") &&
 			(creationPhase === "starting_agent" || creationPhase === "running"));
-	const externalResume = session !== null && session.resumeStrategy !== "none";
+	const externalResume = session !== null && session.providerThread !== null;
 
 	// This card owns workspace setup only. As soon as that work is done, the
 	// normal transcript activity row owns provider startup.

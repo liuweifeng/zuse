@@ -5,13 +5,19 @@ import type {
 	FailedCommand,
 	PendingCommand,
 } from "@zuse/client-runtime/resource-state";
+import {
+	deriveSessionPresentation,
+	type SessionPresentation,
+} from "@zuse/client-runtime/session-presentation";
 import type {
 	ComposerInput,
 	EnvironmentId,
 	Message,
 	MessageId,
 	QueuedMessage,
+	SessionExecutionStep,
 	SessionId,
+	SessionInteraction,
 } from "@zuse/contracts";
 import { Atom } from "effect/unstable/reactivity";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -36,6 +42,31 @@ import {
 	resetSessionTurnActivity,
 	syncSessionTurnActivity,
 } from "./session-turn-activity";
+
+const executionStepsBySessionAtom = Atom.make<
+	Record<string, readonly SessionExecutionStep[]>
+>({}).pipe(Atom.keepAlive);
+const EMPTY_EXECUTION_STEPS: readonly SessionExecutionStep[] = [];
+export const sessionExecutionStepsAtom = Atom.family((key: string) =>
+	Atom.make(
+		(get) => get(executionStepsBySessionAtom)[key] ?? EMPTY_EXECUTION_STEPS,
+	),
+);
+
+const healthBySessionAtom = Atom.make<
+	Record<string, SessionPresentation["health"]>
+>({}).pipe(Atom.keepAlive);
+export const sessionHealthAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(healthBySessionAtom)[key] ?? "unknown"),
+);
+
+const interactionsBySessionAtom = Atom.make<
+	Record<string, readonly SessionInteraction[]>
+>({}).pipe(Atom.keepAlive);
+const EMPTY_INTERACTIONS: readonly SessionInteraction[] = [];
+export const sessionInteractionsAtom = Atom.family((key: string) =>
+	Atom.make((get) => get(interactionsBySessionAtom)[key] ?? EMPTY_INTERACTIONS),
+);
 
 export const messagesBySessionAtom = Atom.make<
 	Record<string, readonly Message[]>
@@ -121,7 +152,7 @@ export const currentSessionTurnId = (connKey: string, sessionId: SessionId) =>
 		);
 		return retained === undefined
 			? undefined
-			: mobileClientBus().snapshot(retained.key).data?.currentTurn?.turnId;
+			: mobileClientBus().snapshot(retained.key).data?.activeTurn?.id;
 	})();
 const optimisticIds = new Set<MessageId>();
 const dispatchSessionCommand = async <Result>(
@@ -179,15 +210,13 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		...state,
 		[liveKey]: projection?.olderMessageSequence != null,
 	}));
-	// A cloud message the mailbox accepted but no runtime has claimed yet is
-	// "Waiting for agent", not a running turn (desktop shares this rule).
-	const running =
-		projection?.currentTurn != null ||
-		view.pendingCommands.some(
-			(command) =>
-				command.kind === "messages.send" &&
-				!(retained.cloud && isWaitingCloudSend(command)),
-		);
+	const presentation = deriveSessionPresentation({ view });
+	appAtomRegistry.update(healthBySessionAtom, (state) =>
+		state[liveKey] === presentation.health
+			? state
+			: { ...state, [liveKey]: presentation.health },
+	);
+	const running = presentation.turnInFlight;
 	if (!running && view.failedCommands.length > 0)
 		markSessionTurnStartFailed(liveKey);
 	else if (
@@ -198,6 +227,19 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		markSessionTurnWaiting(liveKey);
 	syncSessionTurnActivity(liveKey, running);
 	if (projection !== null && projection !== undefined) {
+		appAtomRegistry.update(executionStepsBySessionAtom, (state) =>
+			state[liveKey] === projection.executionSteps
+				? state
+				: {
+						...state,
+						[liveKey]: projection.executionSteps ?? EMPTY_EXECUTION_STEPS,
+					},
+		);
+		appAtomRegistry.update(interactionsBySessionAtom, (state) =>
+			state[liveKey] === projection.interactions
+				? state
+				: { ...state, [liveKey]: projection.interactions },
+		);
 		appAtomRegistry.update(transcriptReadyBySessionAtom, (state) =>
 			state[liveKey] ? state : { ...state, [liveKey]: true },
 		);
@@ -213,6 +255,12 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 					(message) =>
 						optimisticIds.has(message.id) && !durableIds.has(message.id),
 				);
+				if (
+					pending.length === 0 &&
+					current.length === durable.length &&
+					current.every((message, index) => message === durable[index])
+				)
+					return state;
 				return {
 					...state,
 					[liveKey]: [...durable, ...pending],
@@ -262,6 +310,9 @@ export const resetMessagesRuntime = async (): Promise<void> => {
 	resetSessionTurnActivity();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(messagesBySessionAtom, {});
+		appAtomRegistry.set(interactionsBySessionAtom, {});
+		appAtomRegistry.set(healthBySessionAtom, {});
+		appAtomRegistry.set(executionStepsBySessionAtom, {});
 		appAtomRegistry.set(transcriptReadyBySessionAtom, {});
 		appAtomRegistry.set(queueBySessionAtom, {});
 		appAtomRegistry.set(queuePausedBySessionAtom, {});
@@ -380,7 +431,7 @@ export const flushMessages = async (
 	if (
 		view.sync !== "live" ||
 		view.data === null ||
-		view.data.currentTurn !== null
+		view.data.activeTurn !== null
 	) {
 		return;
 	}

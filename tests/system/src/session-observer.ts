@@ -18,7 +18,11 @@ export const sessionFrameMessages = (
 };
 
 export const sessionFrameVersion = (frame: SessionTimelineFrame): number =>
-	frame.kind === "event" ? frame.streamVersion : frame.throughVersion;
+	frame.kind === "event"
+		? frame.streamVersion
+		: frame.kind === "runtime"
+			? frame.cursor.version
+			: frame.throughVersion;
 
 export const waitForSessionMessages = (
 	client: SystemRpcClient,
@@ -49,13 +53,16 @@ export const waitForActiveTurn = (
 		client["session.events"]({ sessionId }).pipe(
 			Stream.map((frame): AgentTurnId | null => {
 				if (frame.kind === "snapshot") {
-					return frame.projection.currentTurn?.turnId ?? null;
+					return frame.projection.activeTurn?.id ?? null;
 				}
 				if (
 					frame.kind === "event" &&
 					(frame.event._tag === "TurnStarted" ||
-						frame.event._tag === "TurnPhaseSet")
+						frame.event._tag === "TurnUpdated")
 				) {
+					return frame.event.turn.id;
+				}
+				if (frame.kind === "event" && frame.event._tag === "TurnPhaseSet") {
 					return frame.event.turnId;
 				}
 				return null;

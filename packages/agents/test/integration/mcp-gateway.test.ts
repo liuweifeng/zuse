@@ -1,12 +1,15 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
+import { promisify } from "node:util";
 import {
 	__testing,
 	issueMcpGatewaySession,
 	mcpGatewayDiagnostics,
 } from "@zuse/agents/mcp-gateway";
 import { afterAll, describe, expect, test, vi } from "vitest";
+import { pluginCliEnv } from "../../src/drivers/plugin-tools.ts";
 
 const mcpPost = async (
 	url: string,
@@ -108,6 +111,24 @@ afterAll(async () => {
 });
 
 describe("MCP gateway", () => {
+	test("cancelled issuance cannot replace a live session", async () => {
+		const input = {
+			sessionId: "cancelled-issuance",
+			scopes: { browser: false, orchestration: false },
+			ctx: {},
+		};
+		const live = await issueMcpGatewaySession(input);
+		try {
+			const abort = new AbortController();
+			const pending = issueMcpGatewaySession(input, abort.signal);
+			abort.abort();
+			await expect(pending).rejects.toThrow();
+			expect((await listTools(live.endpoint, live.token)).status).toBe(200);
+		} finally {
+			await live.close();
+		}
+	});
+
 	test("keeps the MCP tool call unresolved until device approval and execution finish", async () => {
 		let approved = false;
 		let requests = 0;
@@ -594,4 +615,150 @@ test("exposes visuals only in scoped sessions and binds publication to the calle
 		await issued.close();
 		await excluded.close();
 	}
+});
+
+test("orchestration CLI shares session authentication, scope, and permission checks", async () => {
+	const requestPermission = vi.fn(async () => ({ _tag: "Deny" as const }));
+	const createSession = vi.fn(baseDeps.createSession);
+	const issued = await issueMcpGatewaySession({
+		sessionId: "cli-orchestration",
+		scopes: { browser: false, orchestration: true },
+		ctx: {
+			orchestration: {
+				deps: { ...baseDeps, createSession },
+				requestPermission,
+				getRuntimeMode: () => "approval-required",
+				getPermissionMode: () => "default",
+			},
+		},
+	});
+	const post = (token: string, body: unknown) =>
+		fetch(new URL("/orchestration", issued.endpoint), {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${token}`,
+				"content-type": "application/json",
+			},
+			body: JSON.stringify(body),
+		});
+	try {
+		expect((await post("wrong", { name: "tools/list" })).status).toBe(401);
+		const listed = await post(issued.token, { name: "tools/list" });
+		expect(listed.status).toBe(200);
+		expect(await listed.json()).toMatchObject({
+			tools: expect.arrayContaining([
+				expect.objectContaining({ name: "create_session" }),
+			]),
+		});
+		await post(issued.token, {
+			name: "create_session",
+			args: { prompt: "review", chatId: "chat_1" },
+		});
+		expect(requestPermission).toHaveBeenCalled();
+		expect(createSession).not.toHaveBeenCalled();
+	} finally {
+		await issued.close();
+	}
+	expect((await post(issued.token, { name: "tools/list" })).status).toBe(401);
+});
+
+test("provider shell credentials select independent parent and child orchestration sessions", async () => {
+	const delegateTask = vi.fn(async () => ({
+		ok: true as const,
+		taskId: "shell-child",
+		sessionId: "shell-child",
+		status: "running",
+		workState: "working" as const,
+	}));
+	const issue = (sessionId: string) =>
+		issueMcpGatewaySession({
+			sessionId,
+			scopes: { browser: false, orchestration: true },
+			ctx: {
+				orchestration: {
+					deps: {
+						...baseDeps,
+						delegateTask,
+						whoami: async () => ({
+							...(await baseDeps.whoami()),
+							sessionId,
+						}),
+					},
+					requestPermission: async () => ({ _tag: "AllowOnce" as const }),
+					getRuntimeMode: () => "full-access",
+					getPermissionMode: () => "default",
+				},
+			},
+		});
+	const parent = await issue("shell-parent");
+	const child = await issue("shell-child");
+	const request = async (session: typeof parent, name: string, args = {}) => {
+		const { stdout } = await promisify(execFile)(
+			process.execPath,
+			[
+				"--input-type=module",
+				"-e",
+				`
+			const response = await fetch(process.env.ZUSE_ORCHESTRATION_URL, {
+				method: "POST",
+				headers: { authorization: "Bearer " + process.env.ZUSE_ORCHESTRATION_AUTH, "content-type": "application/json" },
+				body: process.argv[1],
+			});
+			console.log(JSON.stringify({ status: response.status, body: await response.text() }));
+		`,
+				JSON.stringify({ name, args }),
+			],
+			{
+				env: Object.fromEntries(
+					Object.entries({
+						...process.env,
+						...pluginCliEnv(session.endpoint, session.token),
+					}).filter(([key]) => !/KEY|SECRET|TOKEN/i.test(key)),
+				),
+				timeout: 10_000,
+			},
+		);
+		return JSON.parse(stdout) as { status: number; body: string };
+	};
+	const decoded = (response: { status: number; body: string }) => {
+		expect(response.status).toBe(200);
+		const result = JSON.parse(response.body);
+		return JSON.parse(result.content[0].text);
+	};
+	try {
+		const listed = await request(parent, "tools/list");
+		expect(listed.status).toBe(200);
+		expect(JSON.parse(listed.body).tools).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: "delegate_task" }),
+			]),
+		);
+		expect(decoded(await request(parent, "whoami"))).toMatchObject({
+			sessionId: "shell-parent",
+		});
+		expect(
+			decoded(
+				await request(parent, "delegate_task", {
+					task: "review",
+					clientRequestId: "request-1",
+				}),
+			),
+		).toMatchObject({ ok: true, taskId: "shell-child" });
+		expect(delegateTask).toHaveBeenCalledWith({
+			task: "review",
+			clientRequestId: "request-1",
+		});
+		expect(decoded(await request(child, "whoami"))).toMatchObject({
+			sessionId: "shell-child",
+		});
+		await parent.close();
+		expect((await request(parent, "whoami")).status).toBe(401);
+		expect(decoded(await request(child, "whoami"))).toMatchObject({
+			sessionId: "shell-child",
+		});
+	} finally {
+		await parent.close();
+		await child.close();
+	}
+	expect((await request(child, "whoami")).status).toBe(401);
 });

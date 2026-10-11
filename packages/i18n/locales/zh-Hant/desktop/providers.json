@@ -149,6 +149,7 @@
 	"accounts_open_browser": "開啟瀏覽器",
 	"accounts_signed_in": "已登入",
 	"accounts_remove_description": "將此帳號從設定中移除。使用此帳號的聊天將無法恢復。登入檔案和聊天記錄會保留。",
+	"model_picker_switch_pending": "目前工作完成後切換",
 	"accounts_default_detail": "CLI 登入或 API 金鑰",
 	"accounts_suggested_name": "帳戶 {{index}}",
 	"accounts_actions": "{{name}} 操作",

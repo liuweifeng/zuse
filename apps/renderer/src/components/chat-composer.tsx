@@ -1,6 +1,7 @@
 import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
+import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
@@ -135,6 +136,7 @@ import {
 } from "../lib/question-actionability.ts";
 import {
 	interruptSession,
+	persistQueuedMessage,
 	queueSessionMessage,
 	sendSessionMessage,
 	sessionModelOptionStorageKey,
@@ -383,11 +385,19 @@ export function ChatComposer({
 	// A message queued while offline must wait for the network. The server has
 	// no connectivity signal, so its immediate flush is suppressed here and the
 	// held queue drains through the shared online-edge recovery.
-	const queue = (input: ComposerInput) =>
-		queueSessionMessage(goalRef, input, {
+	const queue = async (input: ComposerInput) => {
+		const options = {
 			providerId: session.providerId,
+			rejectIfBlocked: true,
 			...(platformOnline ? {} : { flush: false }),
+		};
+		const queueId = queueSessionMessage(goalRef, input, {
+			...options,
+			persist: false,
 		});
+		return persistQueuedMessage(goalRef, queueId, input, options);
+	};
+
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
@@ -452,9 +462,17 @@ export function ChatComposer({
 	const pendingNativePlanApproval = useMemo(
 		() =>
 			pendingPlanApprovalRequest === null
-				? findPendingNativePlanApproval(sessionMessages ?? [])
+				? findPendingNativePlanApproval(
+						sessionMessages ?? [],
+						timeline.presentation.interactions.map((i) => i.interaction),
+					)
 				: null,
-		[pendingPlanApprovalRequest, sessionMessages, uiMessage],
+		[
+			pendingPlanApprovalRequest,
+			sessionMessages,
+			timeline.presentation.interactions,
+			uiMessage,
+		],
 	);
 	const usesEmulatedPlanMode = providerUsesEmulatedPlanMode(session.providerId);
 	const sendPlanFeedbackNow = useMemo(
@@ -1195,6 +1213,16 @@ export function ChatComposer({
 
 	const submit = (): boolean => {
 		if (
+			composerSendBlocked(timeline.presentation.health, sendPlanFeedbackNow)
+		) {
+			toastManager.add({
+				type: "error",
+				title: uiMessage("chat:send_blocked"),
+			});
+			return false;
+		}
+
+		if (
 			submitDisabled ||
 			directoryUnavailable ||
 			submitting ||
@@ -1354,10 +1382,17 @@ export function ChatComposer({
 				// Mid-turn submit — or a submit while the provider is still coming up
 				// — becomes a queue chip; auto-flushed when the turn ends or steered
 				// manually.
-				commitComposerSubmission();
-				queue(
-					goalSendMode ? ComposerInput.make({ ...input, asGoal: true }) : input,
-				);
+				setSubmitting(true);
+				void commitAcceptedComposerDelivery(
+					queue(
+						goalSendMode
+							? ComposerInput.make({ ...input, asGoal: true })
+							: input,
+					),
+					commitComposerSubmission,
+				)
+					.catch(() => undefined)
+					.finally(() => setSubmitting(false));
 				break;
 			case "send":
 				sendAndCommitAfterAcceptance();
@@ -1541,6 +1576,16 @@ export function ChatComposer({
 
 	return (
 		<TooltipProvider delay={0}>
+			{timeline.presentation.health === "stalled" ||
+			timeline.presentation.health === "unavailable" ? (
+				<div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+					{uiMessage(
+						timeline.presentation.health === "stalled"
+							? "chat:provider_quiet"
+							: "chat:execution_unavailable",
+					)}
+				</div>
+			) : null}
 			{showCard ? (
 				<div
 					className={cn("shrink-0 pb-3 pt-2", constrain ? "px-3" : undefined)}
@@ -1569,6 +1614,9 @@ export function ChatComposer({
 								itemId={pendingQuestion.interaction.id}
 								questions={pendingQuestion.interaction.questions}
 								disabled={presentedQuestion?.actionable !== true}
+								expired={
+									pendingQuestion.interaction.recoveryState === "expired"
+								}
 								submission={pendingQuestion.submission}
 								submissionError={pendingQuestion.error}
 							/>

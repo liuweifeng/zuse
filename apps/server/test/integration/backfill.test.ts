@@ -14,6 +14,8 @@ import { Migration0030CqrsEngine } from "../../src/persistence/migrations/0030_c
 import { Migration0031BackfillRuns } from "../../src/persistence/migrations/0031_backfill_runs.ts";
 import { Migration0053CloudCommandReceipts } from "../../src/persistence/migrations/0053_cloud_command_receipts.ts";
 
+import { Migration0080SessionDelegations } from "../../src/persistence/migrations/0080_session_delegations.ts";
+
 describe("lifecycle backfill", () => {
 	test("appends missing lifecycle events once and advances all cursors", async () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-backfill-"));
@@ -46,8 +48,7 @@ describe("lifecycle backfill", () => {
 				provider_id TEXT NOT NULL DEFAULT 'provider-1',
 				model TEXT NOT NULL DEFAULT 'model-1',
 				status TEXT NOT NULL DEFAULT 'idle',
-				cursor TEXT,
-				resume_strategy TEXT NOT NULL DEFAULT 'none',
+				active_provider_thread_id TEXT, provider_reservation_id TEXT,
 				runtime_mode TEXT NOT NULL DEFAULT 'approval-required',
 				agents_json TEXT,
 				worktree_id TEXT,
@@ -56,11 +57,37 @@ describe("lifecycle backfill", () => {
 				permission_mode TEXT NOT NULL DEFAULT 'default',
 				tool_search INTEGER NOT NULL DEFAULT 0,
 				queue_paused INTEGER NOT NULL DEFAULT 0,
-				current_turn_id TEXT,
-				current_turn_phase TEXT,
 				archived_at TEXT,
 				created_at TEXT NOT NULL,
 				updated_at TEXT NOT NULL DEFAULT '2026-01-01T00:00:00.000Z'
+			);
+			CREATE TABLE session_provider_threads (
+				id TEXT PRIMARY KEY, session_id TEXT NOT NULL, provider TEXT NOT NULL,
+				native_thread_id TEXT NOT NULL, native_head_id TEXT, status TEXT NOT NULL,
+				first_turn_ordinal INTEGER, last_turn_ordinal INTEGER,
+				created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+			);
+			CREATE TABLE IF NOT EXISTS session_attempts (
+				session_id TEXT NOT NULL,
+				id TEXT NOT NULL,
+				turn_id TEXT NOT NULL,
+				ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+				reason TEXT NOT NULL CHECK (reason IN ('initial', 'retry', 'provider_recovery')),
+				status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'interrupted', 'failed', 'superseded')),
+				started_at TEXT NOT NULL,
+				completed_at TEXT,
+				started_sequence INTEGER NOT NULL,
+				updated_sequence INTEGER NOT NULL,
+			provider_turn_json TEXT,
+				PRIMARY KEY (session_id, id),
+				UNIQUE (session_id, turn_id, ordinal)
+			);
+			CREATE TABLE session_turns (
+				id TEXT PRIMARY KEY, session_id TEXT NOT NULL, ordinal INTEGER NOT NULL,
+				status TEXT NOT NULL, phase TEXT, provider_thread_id TEXT,
+				active_attempt_id TEXT NOT NULL, attempt_ordinal INTEGER NOT NULL,
+				attempt_reason TEXT NOT NULL, requested_at TEXT NOT NULL, completed_at TEXT,
+				UNIQUE (session_id, ordinal)
 			);
 			CREATE TABLE messages (
 				id TEXT PRIMARY KEY,
@@ -163,6 +190,7 @@ describe("lifecycle backfill", () => {
 				Effect.gen(function* () {
 					yield* Migration0030CqrsEngine;
 					yield* Migration0031BackfillRuns;
+					yield* Migration0080SessionDelegations;
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`
 						INSERT INTO command_receipts
@@ -274,8 +302,6 @@ describe("lifecycle backfill", () => {
 					projector_name: "reactor:permission-lifecycle",
 					last_sequence: 13,
 				},
-				{ projector_name: "reactor:provider-start", last_sequence: 13 },
-				{ projector_name: "reactor:provider-stop", last_sequence: 13 },
 				{ projector_name: "session-read-model", last_sequence: 13 },
 			]);
 			expect(snapshot.receipts).toHaveLength(1);

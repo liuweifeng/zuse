@@ -43,3 +43,20 @@ export type CommandId = typeof CommandId.Type;
 
 export const EventId = makeEntityId("EventId");
 export type EventId = typeof EventId.Type;
+
+// App-owned execution and checkpoint identities.
+
+export const AttemptId = makeEntityId("AttemptId");
+export type AttemptId = typeof AttemptId.Type;
+
+export const StepId = makeEntityId("StepId");
+export type StepId = typeof StepId.Type;
+
+export const ProviderThreadId = makeEntityId("ProviderThreadId");
+export type ProviderThreadId = typeof ProviderThreadId.Type;
+
+export const CheckpointScopeId = makeEntityId("CheckpointScopeId");
+export type CheckpointScopeId = typeof CheckpointScopeId.Type;
+
+export const JobId = makeEntityId("JobId");
+export type JobId = typeof JobId.Type;

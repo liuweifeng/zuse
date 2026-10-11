@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { layer } from "@zuse/sqlite";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, expect, test, vi } from "vitest";
 import {
@@ -13,6 +13,10 @@ import {
 	makeCloudGitExecution,
 	prepareGitExecution,
 } from "../../src/api/cloud-git-execution.ts";
+import {
+	MigrationsLive,
+	MigrationsThrough0064Live,
+} from "../../src/persistence/migrations.ts";
 import { makeRuntimeGitExecution } from "../../src/provider/services/runtime-git-execution.ts";
 
 const authHelperPath = fileURLToPath(
@@ -113,34 +117,67 @@ test("concurrent member and Slack runs commit and authenticate with isolated ide
 	}
 });
 
-test("durable turn actors survive restart and changing actors cannot reuse another credential cache", async () => {
+test("migrated cloud turns preserve actor ownership across restart without borrowing a later or settled actor", async () => {
 	const directory = await mkdtemp(join(tmpdir(), "git-actors-"));
-	const runtime = ManagedRuntime.make(
-		layer({ filename: join(directory, "db.sqlite") }),
+	const sqlite = layer({ filename: join(directory, "db.sqlite") });
+	const previous = ManagedRuntime.make(
+		Layer.merge(sqlite, MigrationsThrough0064Live.pipe(Layer.provide(sqlite))),
 	);
+	let runtime: { dispose: () => Promise<void> } | undefined;
 	const fetch = vi.fn(async (_url, init) => {
 		const { actor } = JSON.parse(init.body);
+		const name = actor?.subject ?? "workspace-owner";
 		return Response.json({
-			token: actor.subject,
+			token: name,
 			expiresAtMs: Date.now() + 3_600_000,
-			identity: { name: actor.subject, email: `${actor.subject}@example.test` },
+			identity: { name, email: `${name}@example.test` },
 		});
 	});
 	vi.stubGlobal("fetch", fetch);
 	try {
-		const sql = await runtime.runPromise(SqlClient.SqlClient);
-		await runtime.runPromise(
+		await previous.runPromise(
 			Effect.gen(function* () {
-				yield* sql`CREATE TABLE sessions(id TEXT, current_turn_id TEXT)`;
-				yield* sql`CREATE TABLE events(stream_kind TEXT, stream_id TEXT, type TEXT, payload_json TEXT, stream_version INTEGER)`;
-				yield* sql`INSERT INTO sessions VALUES ('s', 'turn-a')`;
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`INSERT INTO projects (id,path,name,created_at,updated_at) VALUES ('p','/tmp/p','P','2026-10-01','2026-10-01')`;
+				yield* sql`INSERT INTO chats (id,project_id,title,created_at,updated_at) VALUES ('c','p','C','2026-10-01','2026-10-01')`;
+				yield* sql`INSERT INTO sessions (id,project_id,title,provider_id,model,status,current_turn_id,chat_id,created_at,updated_at) VALUES ('s','p','S','codex','gpt','running','turn-a','c','2026-10-01','2026-10-01')`;
 				for (const [version, name] of [
 					[1, "alice"],
 					[2, "bob"],
-				] as const)
-					yield* sql`INSERT INTO events VALUES ('session','s','ProviderTurnRequested',${JSON.stringify({ turnId: version === 1 ? "turn-a" : "turn-b", providerInputJson: JSON.stringify({ actor: { subject: name, membershipId: name } }) })},${version})`;
+				] as const) {
+					const turnId = version === 1 ? "turn-a" : "turn-b";
+					for (const [offset, type, payload] of [
+						[0, "TurnStarted", { turnId, startedAt: version }],
+						[
+							1,
+							"ProviderTurnRequested",
+							{
+								turnId,
+								providerInputJson: JSON.stringify({
+									actor: { subject: name, membershipId: name },
+								}),
+							},
+						],
+					] as const) {
+						const sequence = version * 2 + offset;
+						yield* sql`INSERT INTO events (event_id,stream_kind,stream_id,stream_version,type,occurred_at,actor,payload_json) VALUES (${`event-${sequence}`},'session','s',${sequence},${type},'2026-10-01',NULL,${JSON.stringify({ _tag: type, ...payload })})`;
+					}
+				}
 			}),
 		);
+		await previous.dispose();
+		const upgraded = ManagedRuntime.make(
+			Layer.merge(sqlite, MigrationsLive.pipe(Layer.provide(sqlite))),
+		);
+		runtime = upgraded;
+		const sql = await upgraded.runPromise(SqlClient.SqlClient);
+		expect(
+			(
+				await upgraded.runPromise(
+					sql<{ name: string }>`PRAGMA table_info(sessions)`,
+				)
+			).map((row) => row.name),
+		).not.toContain("current_turn_id");
 		const options = {
 			sql,
 			directory,
@@ -151,17 +188,29 @@ test("durable turn actors survive restart and changing actors cannot reuse anoth
 		};
 		const resolve = makeCloudGitExecution(options);
 		const alice = await resolve("s");
+		expect(alice?.env.GIT_AUTHOR_NAME).toBe("alice");
 		expect((await resolve("s"))?.key).toBe(alice?.key);
 		expect(fetch).toHaveBeenCalledTimes(1);
-		await runtime.runPromise(sql`UPDATE sessions SET current_turn_id='turn-b'`);
+		await upgraded.runPromise(
+			Effect.gen(function* () {
+				yield* sql`UPDATE session_turns SET status='completed' WHERE id='turn-a'`;
+				yield* sql`UPDATE session_turns SET status='starting' WHERE id='turn-b'`;
+			}),
+		);
 		const bob = await resolve("s");
 		expect(bob?.key).not.toBe(alice?.key);
 		expect(bob?.env.GIT_AUTHOR_NAME).toBe("bob");
 		expect(
 			(await makeCloudGitExecution(options)("s"))?.env.GIT_AUTHOR_NAME,
 		).toBe("bob");
+		await upgraded.runPromise(
+			sql`UPDATE session_turns SET status='completed' WHERE id='turn-b'`,
+		);
+		expect((await resolve("s"))?.context).toEqual({});
+		expect((await resolve("s"))?.env.GIT_AUTHOR_NAME).toBe("workspace-owner");
 	} finally {
-		await runtime.dispose();
+		await runtime?.dispose();
+		await previous.dispose();
 		await rm(directory, { recursive: true, force: true });
 	}
 });

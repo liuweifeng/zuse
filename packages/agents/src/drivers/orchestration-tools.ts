@@ -4,17 +4,31 @@ import type {
 	PermissionKind,
 	PermissionMode,
 	RuntimeMode,
+	SessionWaitOptions,
+	SessionWaitResult,
 } from "@zuse/contracts";
 import { generativeUiComponentLines } from "@zuse/utils/generative-ui";
 import { z } from "zod";
 import { getToolPolicy } from "../kernel/policy.ts";
 import {
+	AUTOMATION_TOOL_DEFINITIONS,
+	type AutomationToolDependencies,
+	type AutomationToolName,
+	buildAutomationTools,
+	callAutomationTool,
+} from "./automation-tools.ts";
+import {
 	booleanProp,
 	type JsonSchemaObject,
-	numberProp,
 	objectSchema,
 	stringProp,
 } from "./mcp-tool-schema.ts";
+import {
+	ORCHESTRATION_READ_LIMIT,
+	ORCHESTRATION_TEXT_LIMIT,
+	type OrchestrationCapabilitiesResult,
+	type OrchestrationReadInput,
+} from "./orchestration-discovery.ts";
 
 /**
  * In-process MCP "control-plane" tools — the primitives that let an agent
@@ -74,10 +88,18 @@ export type CreateSessionResult =
 	| { readonly ok: false; readonly error: string };
 
 export type SendToThreadResult =
-	| { readonly ok: true; readonly queued: boolean; readonly chatId: string }
+	| {
+			readonly ok: true;
+			readonly queued: boolean;
+			readonly chatId: string;
+			readonly wait?: SessionWaitResult;
+	  }
 	| { readonly ok: false; readonly error: string };
 
 export interface ThreadMessage {
+	readonly id?: string;
+	readonly nextTextOffset?: number | null;
+	readonly truncated?: boolean;
 	readonly role: string;
 	readonly text: string;
 }
@@ -87,6 +109,8 @@ export type ReadThreadResult =
 			readonly ok: true;
 			readonly status: string;
 			readonly messages: ReadonlyArray<ThreadMessage>;
+			readonly nextMessageId?: string | null;
+			readonly hasMore?: boolean;
 	  }
 	| { readonly ok: false; readonly error: string };
 
@@ -97,6 +121,10 @@ export interface ThreadSummary {
 	readonly worktreeId: string | null;
 	readonly status: string;
 	readonly spawnedByMe: boolean;
+	/** Durable managed-task lineage; native provider children are not session tabs. */
+	readonly parentSessionId?: string | null;
+	/** Chat-level lineage may exist without a managed task (for older chats). */
+	readonly chatOriginSessionId?: string | null;
 }
 
 export type ListThreadsResult =
@@ -123,6 +151,8 @@ export type ListModelsResult =
 	| { readonly ok: false; readonly error: string };
 
 export interface WhoamiResult {
+	readonly permissionMode?: PermissionMode;
+	readonly runtimeMode?: RuntimeMode;
 	readonly sessionId: string;
 	readonly chatId: string | null;
 	readonly projectId: string;
@@ -140,7 +170,45 @@ export type EmitUiResult =
  * The Effect-free surface `ConversationServices` binds. Each call resolves to a result
  * object; rejections are not expected (ConversationServices catches Effect failures).
  */
+export type DelegateTaskInput = {
+	readonly task: string;
+	readonly clientRequestId: string;
+	readonly role?: string;
+	readonly title?: string;
+	readonly providerId?: string;
+	readonly model?: string;
+};
+export type TaskResult =
+	| {
+			readonly ok: true;
+			readonly taskId: string;
+			readonly sessionId: string;
+			readonly status: string;
+			readonly workState:
+				| "working"
+				| "waiting_for_children"
+				| "result_available"
+				| "cancelled";
+			readonly result?: string;
+	  }
+	| { readonly ok: false; readonly error: string };
+export type ThreadSendMode = "auto" | "queue" | "steer" | "restart";
 export interface OrchestrationToolDeps {
+	readonly automation?: AutomationToolDependencies;
+	readonly capabilities?: () => Promise<OrchestrationCapabilitiesResult>;
+	readonly delegateTask?: (input: DelegateTaskInput) => Promise<TaskResult>;
+	readonly taskStatus?: (input: {
+		readonly taskId: string;
+	}) => Promise<TaskResult>;
+	readonly taskCancel?: (input: {
+		readonly taskId: string;
+	}) => Promise<TaskResult>;
+	readonly interruptThread?: (input: {
+		readonly sessionId: string;
+		readonly commandId?: string;
+	}) => Promise<
+		{ readonly ok: true } | { readonly ok: false; readonly error: string }
+	>;
 	readonly createWorktree: (input: {
 		readonly baseBranch?: string;
 	}) => Promise<CreateWorktreeResult>;
@@ -161,11 +229,23 @@ export interface OrchestrationToolDeps {
 	readonly sendToThread: (input: {
 		readonly sessionId: string;
 		readonly text: string;
+		readonly commandId?: string;
+		readonly mode?: ThreadSendMode;
+		readonly wait?: SessionWaitOptions;
 	}) => Promise<SendToThreadResult>;
-	readonly readThread: (input: {
+	readonly waitForThread?: (input: {
 		readonly sessionId: string;
-		readonly limit?: number;
-	}) => Promise<ReadThreadResult>;
+		readonly turnId?: string;
+		readonly attemptId?: string;
+		readonly target: "idle" | "blocked" | "done";
+		readonly timeoutMs?: number;
+	}) => Promise<
+		| { readonly ok: true; readonly wait: SessionWaitResult }
+		| { readonly ok: false; readonly error: string }
+	>;
+	readonly readThread: (
+		input: OrchestrationReadInput,
+	) => Promise<ReadThreadResult>;
 	readonly listThreads: (input: {
 		readonly includeArchived?: boolean;
 	}) => Promise<ListThreadsResult>;
@@ -204,9 +284,16 @@ export type OrchestrationMcpToolResult = {
 };
 
 export type OrchestrationToolName =
+	| AutomationToolName
+	| "orchestrator_capabilities"
+	| "delegate_task"
+	| "task_status"
+	| "task_cancel"
+	| "interrupt_thread"
 	| "create_thread"
 	| "create_session"
 	| "send_to_thread"
+	| "wait_for_thread"
 	| "read_thread"
 	| "list_threads"
 	| "list_models"
@@ -228,13 +315,54 @@ const CREATE_SESSION_DESCRIPTION =
 	"Open a NEW SESSION TAB inside an EXISTING sidebar chat; this never creates a worktree and never creates a new sidebar chat. Omit chatId to add the tab to YOUR OWN current chat, or pass a chatId from list_threads. The new session inherits that chat's workspace/worktree. Use this for another tab/conversation sharing the same sidebar chat and checkout. Input task is the work to assign. Returns { chatId, sessionId, title, worktreeId }. If you override providerId but omit model, Zuse uses that provider's configured default model rather than inheriting your current model.";
 
 const SEND_TO_THREAD_DESCRIPTION =
-	"Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is handed to the target session immediately and the receiving agent sees it attributed to you; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued is always false today (delivery is immediate).";
+	"Send a follow-up message to an existing thread's session (e.g. one you spawned with create_thread). The message is admitted durably; it does not create a new thread or workspace. Use to deliver review feedback, a next instruction, or a 'you're done, stop' signal. Returns { ok, chatId, queued } — queued reports durable queued delivery. mode auto queues behind active work; queue always queues, steer and restart both interrupt the current turn and schedule a successor through the engine.  With default/auto mode, provide wait:{target:idle|blocked|done,timeoutMs} for direct submission and an exact execution wait (requires an idle target). Other modes use wait_for_thread separately. Reuse commandId to retry a send safely; a wait timeout does not cancel execution.";
 
+const WAIT_DESCRIPTION =
+	"Wait for a pinned execution to become idle, blocked on input, or done. Timeout or cancelling this observation never stops execution. Returns the exact turn and attempt plus outcome; a newer execution cannot satisfy this wait.";
+const waitFields = {
+	target: z.enum(["idle", "blocked", "done"]),
+	timeoutMs: z.number().optional(),
+};
+const waitInputSchema = z.object({
+	sessionId: z.string().min(1),
+	turnId: z.string().optional(),
+	attemptId: z.string().optional(),
+	...waitFields,
+});
+const sendInputSchema = z.object({
+	sessionId: z.string().min(1),
+	text: z.string().min(1),
+	commandId: z.string().optional(),
+	mode: z.enum(["auto", "queue", "steer", "restart"]).optional(),
+	wait: z.object(waitFields).optional(),
+});
+const waitProperties = {
+	target: { type: "string", enum: ["idle", "blocked", "done"] },
+	timeoutMs: {
+		type: "number",
+		description: "Deadline in milliseconds, default 30000, maximum 300000.",
+	},
+};
+
+const readInputSchema = z.object({
+	sessionId: z.string().min(1),
+	limit: z.number().int().min(1).max(ORCHESTRATION_READ_LIMIT).optional(),
+	afterMessageId: z.string().optional(),
+	messageId: z.string().min(1).optional(),
+	textOffset: z.number().int().min(0).optional(),
+	maxTextChars: z
+		.number()
+		.int()
+		.min(1)
+		.max(ORCHESTRATION_TEXT_LIMIT)
+		.optional(),
+	view: z.enum(["messages", "activity"]).optional(),
+});
 const READ_THREAD_DESCRIPTION =
-	"Read a thread's recent messages and current status (idle / running / closed / error). Use to check what a spawned thread has done — e.g. read a review thread's findings before deciding to merge. Returns { status, messages: [{ role, text }] }. Read-only.";
+	"Read bounded messages and current session status. Without a cursor returns recent messages; afterMessageId (empty string) starts from the beginning. Continue with nextMessageId while hasMore. view:messages filters conversation text; activity includes tools and other events. For a truncated item, call with its messageId and nextTextOffset until complete before advancing. Text may change during streaming; reread that messageId to refresh it. Read-only.";
 
 const LIST_THREADS_DESCRIPTION =
-	"List the chat threads in this project with their workspace (worktreeId — null means the project's main checkout), status, chatId, and whether you spawned them. Sessions that share a chatId are tabs in one sidebar chat; chats that share a worktreeId share one workspace. Use to see the topology before spawning isolated work with create_thread or adding a session tab with create_session. Read-only.";
+	"List every session tab in this project, including background managed children, with its workspace (worktreeId — null means the project's main checkout), status, chatId, parentSessionId, and whether you spawned it. Managed task IDs equal their sessionId; use task_status or task_cancel for your direct children. chatOriginSessionId describes chat-level provenance only; it does not make every tab a managed child. Sessions that share a chatId are tabs in one sidebar chat; chats that share a worktreeId share one workspace. Use to see the topology before spawning isolated work with create_thread or adding a session tab with create_session. Read-only.";
 
 const LIST_MODELS_DESCRIPTION =
 	"List providers and model slugs available for create_thread and create_session. Use this before overriding providerId/model so you can choose a valid pair. Pass providerId to narrow the result. Returns { providers: [{ providerId, defaultModel, models: [{ id, label, defaultModel }] }] }. Read-only.";
@@ -279,7 +407,63 @@ ${generativeUiComponentLines()}
 
 Returns { ok, messageId } once the block is persisted to the transcript; a validation error lists what to fix and nothing renders.`;
 
+const delegateSchema = z.object({
+	task: z.string().min(1),
+	clientRequestId: z.string().min(1).max(200),
+	role: z.string().optional(),
+	title: z.string().optional(),
+	providerId: z.string().optional(),
+	model: z.string().optional(),
+});
+const taskSchema = z.object({ taskId: z.string().min(1) });
+const interruptSchema = z.object({
+	sessionId: z.string().min(1),
+	commandId: z.string().optional(),
+});
+const extraTools = [
+	{
+		name: "orchestrator_capabilities",
+		description:
+			"Discover available providers, models, orchestration tools, limits and current session constraints.",
+		schema: z.object({}),
+	},
+	{
+		name: "delegate_task",
+		description:
+			"Delegate a bounded task to a durable child session in your current checkout. Supply all needed context in task and optional role; parent history is not copied. Use a stable clientRequestId for safe retries. Completion is delivered to the parent automatically. Use create_thread for isolated worktree work.",
+		schema: delegateSchema,
+	},
+	{
+		name: "task_status",
+		description:
+			"Read a delegated task's durable status and captured result. A completed response may still be waiting for nested children.",
+		schema: taskSchema,
+	},
+	{
+		name: "task_cancel",
+		description:
+			"Cancel a task and its nested delegated work, pause their queues and suppress completion delivery.",
+		schema: taskSchema,
+	},
+	{
+		name: "interrupt_thread",
+		description:
+			"Request interruption of the target session's current turn. Does not resend any message.",
+		schema: interruptSchema,
+	},
+] as const;
+
 export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
+	...AUTOMATION_TOOL_DEFINITIONS.map(({ name, description, schema }) => ({
+		name,
+		description,
+		inputSchema: z.toJSONSchema(schema) as JsonObject,
+	})),
+	...extraTools.map(({ name, description, schema }) => ({
+		name,
+		description,
+		inputSchema: z.toJSONSchema(schema) as JsonObject,
+	})),
 	{
 		name: "create_thread",
 		description: CREATE_THREAD_DESCRIPTION,
@@ -331,23 +515,32 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 			{
 				sessionId: stringProp("Target session id from create_thread."),
 				text: stringProp("Message to send to the target thread."),
+				mode: { type: "string", enum: ["auto", "queue", "steer", "restart"] },
+				commandId: stringProp(
+					"Stable idempotency key when retrying this send.",
+				),
+				wait: objectSchema(waitProperties, ["target"]),
 			},
 			["sessionId", "text"],
 		),
 	},
 	{
-		name: "read_thread",
-		description: READ_THREAD_DESCRIPTION,
+		name: "wait_for_thread",
+		description: WAIT_DESCRIPTION,
 		inputSchema: objectSchema(
 			{
-				sessionId: stringProp("Target session id from create_thread."),
-				limit: numberProp(
-					"Max messages to return (most recent). Default 20.",
-					50,
-				),
+				sessionId: stringProp("Target session id."),
+				turnId: stringProp("Pin this turn."),
+				attemptId: stringProp("Pin this attempt."),
+				...waitProperties,
 			},
-			["sessionId"],
+			["sessionId", "target"],
 		),
+	},
+	{
+		name: "read_thread",
+		description: READ_THREAD_DESCRIPTION,
+		inputSchema: z.toJSONSchema(readInputSchema) as JsonObject,
 	},
 	{
 		name: "list_threads",
@@ -385,6 +578,11 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 ];
 
 export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
+	"list_scheduled_tasks",
+	"list_secret_requests",
+	"orchestrator_capabilities",
+	"task_status",
+	"wait_for_thread",
 	"read_thread",
 	"list_threads",
 	"list_models",
@@ -395,6 +593,14 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 ]);
 
 export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
+	"schedule_task",
+	"update_scheduled_task",
+	"delete_scheduled_task",
+	"trigger_scheduled_task",
+	"request_secret",
+	"delegate_task",
+	"task_cancel",
+	"interrupt_thread",
 	"create_thread",
 	"create_session",
 	"send_to_thread",
@@ -431,13 +637,6 @@ const asString = (args: JsonObject, key: string): string | undefined =>
 
 const asBoolean = (args: JsonObject, key: string): boolean | undefined =>
 	typeof args[key] === "boolean" ? (args[key] as boolean) : undefined;
-
-const asLimit = (args: JsonObject): number | undefined =>
-	typeof args["limit"] === "number" &&
-	Number.isInteger(args["limit"]) &&
-	args["limit"] > 0
-		? Math.min(args["limit"] as number, 50)
-		: undefined;
 
 export const isOrchestrationToolName = (
 	name: string,
@@ -496,6 +695,47 @@ export const callOrchestrationTool = async (
 ): Promise<OrchestrationMcpToolResult> => {
 	const args = asRecord(rawArgs);
 	switch (name) {
+		case "schedule_task":
+		case "list_scheduled_tasks":
+		case "update_scheduled_task":
+		case "delete_scheduled_task":
+		case "trigger_scheduled_task":
+		case "request_secret":
+		case "list_secret_requests":
+			return callAutomationTool(deps.automation, name, args);
+		case "orchestrator_capabilities":
+			return settle(
+				deps.capabilities
+					? await deps.capabilities()
+					: { ok: false, error: "Capabilities unavailable." },
+			);
+		case "delegate_task": {
+			const parsed = delegateSchema.safeParse(args);
+			return settle(
+				parsed.success && deps.delegateTask
+					? await deps.delegateTask(parsed.data)
+					: { ok: false, error: "Invalid or unavailable delegation." },
+			);
+		}
+		case "task_status":
+		case "task_cancel": {
+			const parsed = taskSchema.safeParse(args);
+			const handler =
+				name === "task_status" ? deps.taskStatus : deps.taskCancel;
+			return settle(
+				parsed.success && handler
+					? await handler(parsed.data)
+					: { ok: false, error: "Invalid or unavailable task operation." },
+			);
+		}
+		case "interrupt_thread": {
+			const parsed = interruptSchema.safeParse(args);
+			return settle(
+				parsed.success && deps.interruptThread
+					? await deps.interruptThread(parsed.data)
+					: { ok: false, error: "Invalid or unavailable interruption." },
+			);
+		}
 		case "create_thread": {
 			const task = asString(args, "task");
 			if (task === undefined) {
@@ -546,17 +786,28 @@ export const callOrchestrationTool = async (
 					isError: true,
 				};
 			}
-			return settle(await deps.sendToThread({ sessionId, text }));
+			const parsed = sendInputSchema.safeParse(args);
+			if (!parsed.success)
+				return settle({ ok: false, error: "Invalid send_to_thread options." });
+			return settle(await deps.sendToThread(parsed.data));
+		}
+		case "wait_for_thread": {
+			const parsed = waitInputSchema.safeParse(args);
+			if (!parsed.success)
+				return settle({ ok: false, error: "Invalid wait_for_thread options." });
+			return settle(
+				deps.waitForThread
+					? await deps.waitForThread(parsed.data)
+					: { ok: false, error: "Semantic waits are unavailable." },
+			);
 		}
 		case "read_thread": {
-			const sessionId = asString(args, "sessionId");
-			if (sessionId === undefined) {
-				return {
-					content: [{ type: "text", text: "read_thread requires sessionId." }],
-					isError: true,
-				};
-			}
-			return settle(await deps.readThread({ sessionId, limit: asLimit(args) }));
+			const parsed = readInputSchema.safeParse(args);
+			return settle(
+				parsed.success
+					? await deps.readThread(parsed.data)
+					: { ok: false, error: "Invalid read_thread options." },
+			);
 		}
 		case "list_threads":
 			return settle(
@@ -585,31 +836,7 @@ export const callOrchestrationTool = async (
 	}
 };
 
-export const orchestrationMcpPromptHint = (): string => {
-	const signature = (toolDef: OrchestrationMcpToolDef): string => {
-		const properties =
-			(toolDef.inputSchema["properties"] as
-				| Record<string, unknown>
-				| undefined) ?? {};
-		const required = new Set(
-			(toolDef.inputSchema["required"] as ReadonlyArray<string> | undefined) ??
-				[],
-		);
-		const args = Object.keys(properties)
-			.map((key) => (required.has(key) ? key : `${key}?`))
-			.join(",");
-		return `${toolDef.name}{${args}}`;
-	};
-	return [
-		"<zuse-orchestration-tools>",
-		`The "${ORCHESTRATION_MCP_SERVER_NAME}" MCP server lets this Zuse chat create real Zuse worktrees, sidebar chats, and session tabs.`,
-		`Tools: ${ORCHESTRATION_MCP_TOOLS.map(signature).join(", ")}.`,
-		"Model: project -> workspaces (worktrees) -> sidebar chats -> session tabs. create_thread makes a new workspace plus sidebar chat for isolated branch/PR work; create_session adds a tab to an existing sidebar chat.",
-		"Smoke flow: whoami -> list_threads -> create_thread -> read_thread. Use list_models before choosing providerId/model, and create_session for same-chat tabs.",
-		"Do not substitute built-in Agent/Task, Codex worker/explorer/default subagents, or EnterWorktree/ExitWorktree. Those test different provider-native features, not Zuse self-orchestration.",
-		"</zuse-orchestration-tools>",
-	].join("\n");
-};
+export { orchestrationMcpPromptHint } from "./orchestration-instructions.ts";
 
 /**
  * Build the control-plane tool definitions. Descriptions are blunt on purpose
@@ -618,6 +845,12 @@ export const orchestrationMcpPromptHint = (): string => {
  * in-conversation sub-agent (Agent/Task) that shares this chat.
  */
 export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
+	...buildAutomationTools(deps.automation),
+	...extraTools.map(({ name, description, schema }) =>
+		tool(name, description, schema.shape, async (args) =>
+			callOrchestrationTool(deps, name, args),
+		),
+	),
 	tool(
 		"create_thread",
 		CREATE_THREAD_DESCRIPTION,
@@ -711,33 +944,26 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
 	tool(
 		"send_to_thread",
 		SEND_TO_THREAD_DESCRIPTION,
-		{
-			sessionId: z.string().min(1),
-			text: z.string().min(1),
-		},
+		sendInputSchema.shape,
+		async (args) => settle(await deps.sendToThread(args)),
+	),
+	tool(
+		"wait_for_thread",
+		WAIT_DESCRIPTION,
+		waitInputSchema.shape,
 		async (args) =>
 			settle(
-				await deps.sendToThread({ sessionId: args.sessionId, text: args.text }),
+				deps.waitForThread
+					? await deps.waitForThread(args)
+					: { ok: false, error: "Semantic waits are unavailable." },
 			),
 	),
 
 	tool(
 		"read_thread",
 		READ_THREAD_DESCRIPTION,
-		{
-			sessionId: z.string().min(1),
-			limit: z
-				.number()
-				.int()
-				.positive()
-				.max(50)
-				.optional()
-				.describe("Max messages to return (most recent). Default 20."),
-		},
-		async (args) =>
-			settle(
-				await deps.readThread({ sessionId: args.sessionId, limit: args.limit }),
-			),
+		readInputSchema.shape,
+		async (args) => settle(await deps.readThread(args)),
 	),
 
 	tool(

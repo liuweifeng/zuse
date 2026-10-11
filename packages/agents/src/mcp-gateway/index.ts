@@ -464,7 +464,11 @@ const handleMcpRequest = async (
 const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 	void (async () => {
 		const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-		if (path !== APP_MCP_PATH && path !== "/plugins") {
+		if (
+			path !== APP_MCP_PATH &&
+			path !== "/plugins" &&
+			path !== "/orchestration"
+		) {
 			writeText(res, 404, "not found");
 			return;
 		}
@@ -479,6 +483,48 @@ const requestHandler = (req: IncomingMessage, res: ServerResponse): void => {
 			return;
 		}
 		try {
+			if (path === "/orchestration") {
+				if (
+					req.method !== "POST" ||
+					!record.scopes.orchestration ||
+					!record.ctx.orchestration
+				) {
+					writeText(res, 403, "unavailable");
+					return;
+				}
+				let body = "";
+				for await (const chunk of req) {
+					body += chunk;
+					if (body.length > 128_000) {
+						writeText(res, 413, "too large");
+						return;
+					}
+				}
+				const request = asJsonObject(JSON.parse(body));
+				const name = request.name;
+				let result: unknown;
+				if (name === "tools/list") {
+					result = { tools: ORCHESTRATION_MCP_TOOLS };
+				} else if (typeof name === "string" && isOrchestrationToolName(name)) {
+					const args = asJsonObject(request.args ?? {});
+					await ensureOrchestrationPermission(
+						name,
+						args,
+						record.ctx.orchestration,
+					);
+					result = await callOrchestrationTool(
+						record.ctx.orchestration.deps,
+						name,
+						args,
+					);
+				} else {
+					writeText(res, 400, "Unknown orchestration tool");
+					return;
+				}
+				res.writeHead(200, { "content-type": "application/json" });
+				res.end(JSON.stringify(result));
+				return;
+			}
 			if (path === "/plugins") {
 				if (
 					req.method !== "POST" ||
@@ -541,6 +587,9 @@ const ensureServer = async (): Promise<{
 				reject(new Error("Could not bind MCP gateway."));
 				return;
 			}
+			// Provider handles and active requests own execution lifetime. The shared
+			// listener must not keep an otherwise fully shut-down engine alive.
+			server.unref();
 			console.info(`[mcp-gateway] listening on 127.0.0.1:${address.port}`);
 			resolve({ server, port: address.port });
 		});
@@ -551,9 +600,13 @@ const ensureServer = async (): Promise<{
 /** Issues credentials owned by a provider handle; close them on disposal or transport loss. */
 export const issueMcpGatewaySession = async (
 	input: McpGatewayIssueInput,
+	signal?: AbortSignal,
 ): Promise<McpGatewaySession> => {
+	signal?.throwIfAborted();
 	const { port } = await ensureServer();
+	signal?.throwIfAborted();
 	await revokeMcpGatewaySession(input.sessionId);
+	signal?.throwIfAborted();
 	const token = randomBytes(32).toString("base64url");
 	const hash = tokenHash(token);
 	const record: RegistryRecord = {
@@ -607,11 +660,6 @@ const revokeMcpGatewaySessionRecord = async (
 export const revokeMcpGatewaySession = async (
 	sessionId: string,
 ): Promise<void> => revokeMcpGatewaySessionRecord(sessionId);
-
-export const revokeAllMcpGatewaySessions = async (): Promise<void> => {
-	recordsBySession.clear();
-	recordsByHash.clear();
-};
 
 /** Reports registered provider sessions, including live sessions idle between turns. */
 export const mcpGatewayDiagnostics = (): {

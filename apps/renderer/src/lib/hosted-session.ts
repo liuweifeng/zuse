@@ -1,3 +1,7 @@
+import { isHostedProduct } from "./platform-capabilities.ts";
+
+export { isHostedProduct } from "./platform-capabilities.ts";
+
 import { AuthSession, type AuthState, AuthUser } from "@zuse/contracts";
 import { Schema } from "effect";
 import { observeRendererAccount } from "./renderer-account.ts";
@@ -115,3 +119,8 @@ export const writeSession = (session: HostedSession): HostedSession => {
 	publishHostedAuth();
 	return session;
 };
+
+export const hostedAccountUser = (): AuthUser | null =>
+	readSession()?.user ?? null;
+export const hostedCacheDatabaseName = (base: string): string =>
+	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;

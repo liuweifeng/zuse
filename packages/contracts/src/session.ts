@@ -12,6 +12,12 @@ import {
 	UsageLimitScope,
 	UserQuestion,
 } from "./agent.ts";
+import {
+	AttemptReason,
+	ProviderRef,
+	ProviderThreadStatus,
+	TurnStatus,
+} from "./agent-engine.ts";
 import { WorkspaceActor } from "./collaboration.ts";
 import {
 	AttachmentRef,
@@ -25,10 +31,12 @@ import {
 	AgentItemId,
 	AgentSessionId,
 	AgentTurnId,
+	AttemptId,
 	ChatId,
 	CommandId,
 	FolderId,
 	MessageId,
+	ProviderThreadId,
 	WorktreeId,
 } from "./ids.ts";
 import { NameProvenanceField } from "./naming.ts";
@@ -72,33 +80,23 @@ export const SessionStatus = Schema.Literals([
 export type SessionStatus = typeof SessionStatus.Type;
 
 /**
- * How (if at all) a session can resume after the provider session is gone.
- * Captured at start time; the renderer uses it to decide whether to expose
- * a "Resumable" affordance on stopped sessions.
- *
- *   - `claude-session-id` — Claude SDK's `session_id` is stored in `cursor`
- *     and passed back as `options.resume` on the next start.
- *   - `codex-thread-id` — Codex SDK's thread id is stored in `cursor` and
- *     passed back via `Codex.resumeThread(id)`. Codex doesn't replay prior
- *     items on resume; the renderer's persisted timeline is the source of
- *     truth for what came before.
- *   - `none` — no resume; sending again starts a fresh provider session
- *     under the same DB row (existing chat-MVP behavior).
+ * The provider-native conversation currently backing a session. A session
+ * accumulates provider threads over time; this is the active one, with the
+ * native handle kept as a reference so the app never depends on it as
+ * identity. `nativeHeadRef` is the provider's replay cursor when it has one.
  */
-export const ResumeStrategy = Schema.Literals([
-	"claude-session-id",
-	"codex-thread-id",
-	"grok-session-id",
-	"cursor-session-id",
-	"gemini-session-id",
-	"opencode-session-id",
-	"opencode2-session-id",
-	"kiro-session-id",
-	"pi-session-file",
-	"zuse-execution-id",
-	"none",
-]);
-export type ResumeStrategy = typeof ResumeStrategy.Type;
+export const SessionProviderThread = Schema.Struct({
+	id: ProviderThreadId,
+	provider: ProviderId,
+	nativeThreadRef: ProviderRef,
+	nativeHeadRef: Schema.NullOr(ProviderRef),
+	status: ProviderThreadStatus,
+	firstTurnOrdinal: Schema.NullOr(Schema.Number),
+	lastTurnOrdinal: Schema.NullOr(Schema.Number),
+	createdAt: Schema.DateFromString,
+	updatedAt: Schema.DateFromString,
+});
+export type SessionProviderThread = typeof SessionProviderThread.Type;
 
 // `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
 // new `AgentDefinition.permissionMode` can reuse the same literal set
@@ -107,6 +105,8 @@ export type ResumeStrategy = typeof ResumeStrategy.Type;
 
 export class Session extends Schema.Class<Session>("Session")({
 	id: SessionId,
+	/** Durable app-managed delegation parent; absent on older runtimes. */
+	parentSessionId: Schema.optional(Schema.NullOr(SessionId)),
 	projectId: FolderId,
 	title: Schema.String,
 	titleProvenance: NameProvenanceField,
@@ -114,9 +114,8 @@ export class Session extends Schema.Class<Session>("Session")({
 	model: Schema.String,
 	status: SessionStatus,
 	archivedAt: Schema.NullOr(Schema.DateFromString),
-	cursor: Schema.NullOr(Schema.String),
-	providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
-	resumeStrategy: ResumeStrategy,
+	/** Active provider-native conversation, or null before the first turn. */
+	providerThread: Schema.NullOr(SessionProviderThread),
 	runtimeMode: RuntimeMode,
 	/**
 	 * Optional git worktree the session runs in. When null, the session runs
@@ -179,6 +178,8 @@ export type MessageRole = typeof MessageRole.Type;
  * by the human. Additive + optional: old rows decode without it.
  */
 export const MessageOrigin = Schema.Struct({
+	/** Sender name retained if its session is later renamed or removed. */
+	title: Schema.optional(Schema.String),
 	chatId: ChatId,
 	sessionId: SessionId,
 	providerId: ProviderId,
@@ -189,6 +190,7 @@ const UserContent = Schema.TaggedStruct("user", {
 	text: Schema.String,
 	actor: Schema.optional(WorkspaceActor),
 	origin: Schema.optional(MessageOrigin),
+	origins: Schema.optional(Schema.Array(MessageOrigin)),
 	goal: Schema.optional(Schema.Boolean),
 });
 
@@ -210,6 +212,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 		Schema.withDecodingDefaultType(Effect.succeed([])),
 	),
 	origin: Schema.optional(MessageOrigin),
+	origins: Schema.optional(Schema.Array(MessageOrigin)),
 	goal: Schema.optional(Schema.Boolean),
 });
 
@@ -279,6 +282,15 @@ const ErrorContent = Schema.TaggedStruct("error", {
  */
 const InterruptedContent = Schema.TaggedStruct("interrupted", {});
 
+/** A committed configuration change, retained in the conversation timeline. */
+const ModelSwitchContent = Schema.TaggedStruct("model_switch", {
+	fromProviderId: ProviderId,
+	fromModel: Schema.String,
+	toProviderId: ProviderId,
+	toModel: Schema.String,
+	context: Schema.Literals(["preserved", "handoff"]),
+});
+
 /**
  * Closing summary persisted for a sub-agent run. Mirrors the streaming
  * `SubagentSummaryEvent` so resume parity holds: the wrapper-row footer
@@ -297,6 +309,8 @@ const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
 });
 
 const SubagentProgressContent = Schema.TaggedStruct("subagent_progress", {
+	/** The native root finished while this child remains active. */
+	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
 	childSessionId: Schema.String,
@@ -357,8 +371,8 @@ const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
 });
 
 /**
- * Persisted form of a `UserQuestion` event. `itemId` is the SDK's
- * `tool_use.id` for the AskUserQuestion call; the paired
+ * Persisted form of a `UserQuestion` event. `itemId` is the application
+ * callback identity allocated at provider acquisition; the paired
  * `user_question_answer` row uses the same `itemId`.
  */
 const UserQuestionContent = Schema.TaggedStruct("user_question", {
@@ -421,6 +435,7 @@ export const MessageContent = Schema.Union([
 	ToolResultContent,
 	ErrorContent,
 	InterruptedContent,
+	ModelSwitchContent,
 	SubagentSummaryContent,
 	SubagentProgressContent,
 	UsageContent,
@@ -515,11 +530,29 @@ export const SessionTimelineTurnPhase = Schema.Literals([
 ]);
 export type SessionTimelineTurnPhase = typeof SessionTimelineTurnPhase.Type;
 
-export const SessionTimelineTurn = Schema.Struct({
-	turnId: AgentTurnId,
-	phase: SessionTimelineTurnPhase,
+/** One provider execution of a turn. Retries and recovery add attempts. */
+export const SessionAttempt = Schema.Struct({
+	id: AttemptId,
+	ordinal: Schema.Number,
+	reason: AttemptReason,
 });
-export type SessionTimelineTurn = typeof SessionTimelineTurn.Type;
+export type SessionAttempt = typeof SessionAttempt.Type;
+
+/**
+ * A counted user turn as the timeline sees it. `phase` tracks the interrupt
+ * handshake for the UI; `status` is the durable lifecycle state.
+ */
+export const SessionTurn = Schema.Struct({
+	id: AgentTurnId,
+	ordinal: Schema.Number,
+	status: TurnStatus,
+	phase: SessionTimelineTurnPhase,
+	attempt: SessionAttempt,
+	providerThreadId: Schema.NullOr(ProviderThreadId),
+	requestedAt: Schema.DateFromString,
+	completedAt: Schema.NullOr(Schema.DateFromString),
+});
+export type SessionTurn = typeof SessionTurn.Type;
 
 /**
  * An unresolved, user-blocking interaction reconstructed from the durable
@@ -527,8 +560,14 @@ export type SessionTimelineTurn = typeof SessionTimelineTurn.Type;
  * transient submission state belongs to the client command overlay.
  */
 export const SessionInteraction = Schema.Union([
+	Schema.TaggedStruct("Plan", {
+		id: AgentItemId,
+		requestedAt: Schema.DateFromString,
+		recoveryState: Schema.optional(Schema.Literals(["expired", "uncertain"])),
+	}),
 	Schema.TaggedStruct("Question", {
 		id: AgentItemId,
+		recoveryState: Schema.optional(Schema.Literal("expired")),
 		questions: Schema.Array(UserQuestion),
 		requestedAt: Schema.DateFromString,
 	}),
@@ -539,14 +578,60 @@ export const SessionInteraction = Schema.Union([
 ]);
 export type SessionInteraction = typeof SessionInteraction.Type;
 
+export const SessionRuntimeObservation = Schema.Struct({
+	state: Schema.Literals([
+		"idle",
+		"starting",
+		"running",
+		"finalizing",
+		"blocked",
+		"stalled",
+		"unavailable",
+	]),
+	observedAt: Schema.Number,
+	attemptId: Schema.NullOr(Schema.String),
+	lastProviderActivityAt: Schema.NullOr(Schema.Number),
+});
+export type SessionRuntimeObservation = typeof SessionRuntimeObservation.Type;
+
+/** Durable provider execution tree. Native children are scoped to their owning attempt. */
+export const SessionExecutionStep = Schema.Struct({
+	/** Native notifications do not provide an atomic filesystem barrier. */
+	checkpointCapability: Schema.Literal("unsupported"),
+	id: Schema.String,
+	turnId: Schema.String,
+	attemptId: Schema.String,
+	itemId: Schema.String,
+	parentItemId: Schema.NullOr(Schema.String),
+	kind: Schema.Literals(["tool", "background", "subagent"]),
+	label: Schema.String,
+	status: Schema.Literals(["running", "completed", "failed", "cancelled"]),
+	childSessionId: Schema.NullOr(Schema.String),
+	nativeChildId: Schema.NullOr(Schema.String),
+	rootCompletedAt: Schema.NullOr(Schema.Number),
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+});
+export type SessionExecutionStep = typeof SessionExecutionStep.Type;
+
 export class SessionTimelineProjection extends Schema.Class<SessionTimelineProjection>(
 	"SessionTimelineProjection",
 )({
 	messages: Schema.Array(Message),
+	executionSteps: Schema.optional(Schema.Array(SessionExecutionStep)),
+	executionStepsTruncated: Schema.optional(Schema.Boolean),
+	runtimeObservation: Schema.optional(SessionRuntimeObservation),
 	/** Sequence immediately before the oldest materialized message, if any. */
 	olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
 	status: SessionStatus,
-	currentTurn: Schema.NullOr(SessionTimelineTurn),
+	/** The turn currently in flight, or null when the session is idle. */
+	activeTurn: Schema.NullOr(SessionTurn).pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed(null)),
+	),
+	/** Number of counted turns so far; the next turn gets `turnCount + 1`. */
+	turnCount: Schema.Number.pipe(
+		Schema.withDecodingDefaultKey(Effect.succeed(0)),
+	),
 	queue: QueueState,
 	permissionMode: PermissionMode,
 	runtimeMode: RuntimeMode,
@@ -566,24 +651,42 @@ export type TurnSettlementOutcome = typeof TurnSettlementOutcome.Type;
 
 export const SessionTimelineEvent = Schema.Union([
 	Schema.TaggedStruct("Noop", {}),
-	Schema.TaggedStruct("MessagePersisted", { message: Message }),
+	Schema.TaggedStruct("MessagePersisted", {
+		message: Message,
+		turnId: Schema.optional(Schema.NullOr(AgentTurnId)),
+	}),
 	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
-	Schema.TaggedStruct("TurnStarted", {
-		turnId: AgentTurnId,
-		phase: SessionTimelineTurnPhase,
+	Schema.TaggedStruct("TurnStarted", { turn: SessionTurn }),
+	/** Attempt or status change on the active turn. */
+	Schema.TaggedStruct("TurnUpdated", {
+		turn: SessionTurn,
+		updatedAt: Schema.optional(Schema.Number),
 	}),
 	Schema.TaggedStruct("TurnPhaseSet", {
 		turnId: AgentTurnId,
 		phase: SessionTimelineTurnPhase,
 	}),
+	Schema.TaggedStruct("TranscriptRolledBack", {
+		rolledBackTurnIds: Schema.optional(Schema.Array(Schema.String)),
+		rolledBackAt: Schema.optional(Schema.Number),
+		removedMessageIds: Schema.Array(MessageId),
+	}),
+	Schema.TaggedStruct("TurnFinalizing", { turnId: AgentTurnId }),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: AgentTurnId,
 		outcome: TurnSettlementOutcome,
+		settledAt: Schema.optional(Schema.Number),
 	}),
 	Schema.TaggedStruct("PermissionModeSet", { permissionMode: PermissionMode }),
 	Schema.TaggedStruct("RuntimeModeSet", { runtimeMode: RuntimeMode }),
 	Schema.TaggedStruct("PermissionRequested", { request: PermissionRequest }),
 	Schema.TaggedStruct("PermissionResolved", { requestId: Schema.String }),
+	Schema.TaggedStruct("PermissionExpired", { requestId: Schema.String }),
+	Schema.TaggedStruct("QuestionExpired", { itemId: AgentItemId }),
+	Schema.TaggedStruct("PlanExpired", {
+		itemId: AgentItemId,
+		reason: Schema.Literals(["expired", "uncertain"]),
+	}),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: AgentItemId,
 		resolution: Schema.Literal("cancelled"),
@@ -611,6 +714,12 @@ export const SessionStreamCursor = Schema.Struct({
 export type SessionStreamCursor = typeof SessionStreamCursor.Type;
 
 export const SessionTimelineFrame = Schema.Union([
+	Schema.Struct({
+		kind: Schema.Literal("runtime"),
+		sessionId: SessionId,
+		cursor: SessionStreamCursor,
+		observation: SessionRuntimeObservation,
+	}),
 	Schema.Struct({
 		kind: Schema.Literal("snapshot"),
 		sessionId: SessionId,
@@ -661,6 +770,16 @@ export type SessionTimelineFrame = typeof SessionTimelineFrame.Type;
 export class SessionNotFoundError extends Schema.TaggedErrorClass<SessionNotFoundError>()(
 	"SessionNotFoundError",
 	{ sessionId: SessionId },
+) {}
+
+export class QuestionResolutionError extends Schema.TaggedErrorClass<QuestionResolutionError>()(
+	"QuestionResolutionError",
+	{ sessionId: SessionId, itemId: AgentItemId, reason: Schema.String },
+) {}
+
+export class PlanResolutionError extends Schema.TaggedErrorClass<PlanResolutionError>()(
+	"PlanResolutionError",
+	{ sessionId: SessionId, itemId: AgentItemId, reason: Schema.String },
 ) {}
 
 export class SessionStartError extends Schema.TaggedErrorClass<SessionStartError>()(
@@ -714,6 +833,11 @@ export type ThreadGoalSetInput = typeof ThreadGoalSetInput.Type;
 export class SessionAlreadyStartedError extends Schema.TaggedErrorClass<SessionAlreadyStartedError>()(
 	"SessionAlreadyStartedError",
 	{ sessionId: SessionId },
+) {}
+
+export class SessionConfigurationError extends Schema.TaggedErrorClass<SessionConfigurationError>()(
+	"SessionConfigurationError",
+	{ sessionId: SessionId, reason: Schema.String },
 ) {}
 
 // ---------------------------------------------------------------------------
@@ -824,14 +948,11 @@ export const SessionRenameRpc = Rpc.make("session.rename", {
 export const SessionSetModelRpc = Rpc.make("session.setModel", {
 	payload: Schema.Struct({ sessionId: SessionId, model: Schema.String }),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, SessionConfigurationError]),
 });
 
 /**
- * Switch a session's provider (and the model it runs under). Allowed only
- * before the first user message is recorded — the new CLI cannot read the
- * prior CLI's transcript, so mid-chat swaps would silently drop context.
- * Returns `SessionAlreadyStartedError` once the session has started.
+ * Switch an idle conversation to another provider with a durable context handoff.
  */
 export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 	payload: Schema.Struct({
@@ -840,7 +961,12 @@ export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 		model: Schema.String,
 	}),
 	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, SessionAlreadyStartedError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		SessionConfigurationError,
+		// Legacy cloud runtimes cannot hand off a started provider conversation.
+		SessionAlreadyStartedError,
+	]),
 });
 
 export const SessionArchiveRpc = Rpc.make("session.archive", {
@@ -1249,8 +1375,11 @@ export const ChatRenameRpc = Rpc.make("chat.rename", {
  */
 export const SessionForkRpc = Rpc.make("session.fork", {
 	payload: Schema.Struct({
+		/** Stable client identity; retry returns the same frozen fork. */
+		commandId: Schema.optional(Schema.String),
 		sourceSessionId: SessionId,
 		fromMessageId: MessageId,
+		nativeChildStepId: Schema.optional(Schema.String),
 		destination: ForkDestination,
 		providerId: Schema.optional(ProviderId),
 		model: Schema.optional(Schema.String),
@@ -1382,6 +1511,16 @@ export const MessagesListRpc = Rpc.make("messages.list", {
  * `ComposerInput` in a follow-up phase without a wire flag-day. Server
  * prefers `input` when both are present.
  */
+export class SessionInputBlockedError extends Schema.TaggedErrorClass<SessionInputBlockedError>()(
+	"SessionInputBlockedError",
+	{
+		sessionId: SessionId,
+		requestId: Schema.String,
+		kind: Schema.Literals(["permission", "question", "plan"]),
+		message: Schema.String,
+	},
+) {}
+
 export const MessagesSendRpc = Rpc.make("messages.send", {
 	payload: Schema.Struct({
 		commandId: CommandId,
@@ -1398,7 +1537,11 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 		clientMessageId: Schema.optional(MessageId),
 	}),
 	success: Schema.Void,
-	error: Schema.Union([SessionNotFoundError, DirectoryUnavailableError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		DirectoryUnavailableError,
+		SessionInputBlockedError,
+	]),
 });
 
 /** Durable outcome of an exact-turn interrupt request. */
@@ -1442,9 +1585,15 @@ export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 		ready: Schema.optional(Schema.Boolean),
 		/** Skip the idle auto-flush when restoring a cancelled composer edit. */
 		flush: Schema.optional(Schema.Boolean),
+		/** Ordinary composer auto-queue must refuse pending input; explicit queue may omit. */
+		rejectIfBlocked: Schema.optional(Schema.Boolean),
 	}),
 	success: QueuedMessage,
-	error: Schema.Union([SessionNotFoundError, QueuedMessageCapacityError]),
+	error: Schema.Union([
+		SessionNotFoundError,
+		QueuedMessageCapacityError,
+		SessionInputBlockedError,
+	]),
 });
 
 export const MessagesQueueUpdateRpc = Rpc.make("messages.queue.update", {
@@ -1559,7 +1708,7 @@ export const SessionSetPermissionModeRpc = Rpc.make(
 );
 
 /**
- * Resolve the pending `AskUserQuestion` tool call identified by `itemId`.
+ * Resolve the pending question callback identified by its application `itemId`.
  * The driver returns the answers as the tool result, the SDK turn unwinds,
  * and the renderer paints a paired `user_question_answer` row.
  */
@@ -1609,7 +1758,7 @@ export const SessionAnswerQuestionRpc = Rpc.make("session.answerQuestion", {
 		answers: Schema.Array(UserQuestionAnswer),
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QuestionResolutionError]),
 });
 
 export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {
@@ -1618,7 +1767,7 @@ export const SessionCancelQuestionRpc = Rpc.make("session.cancelQuestion", {
 		itemId: AgentItemId,
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, QuestionResolutionError]),
 });
 
 export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
@@ -1630,7 +1779,7 @@ export const SessionPlanRespondRpc = Rpc.make("session.plan.respond", {
 		feedback: Schema.optional(Schema.String),
 	}),
 	success: Schema.Void,
-	error: SessionNotFoundError,
+	error: Schema.Union([SessionNotFoundError, PlanResolutionError]),
 });
 
 /** Ordered durable session-domain feed with cursor-based replay. */
@@ -1640,6 +1789,7 @@ export const SessionEventsRpc = Rpc.make("session.events", {
 		afterVersion: Schema.optional(Schema.Number),
 		streamEpoch: Schema.optional(Schema.String),
 		hasProjection: Schema.optional(Schema.Boolean),
+		includeRuntime: Schema.optional(Schema.Boolean),
 		historyMode: Schema.optional(Schema.Literal("background")),
 	}),
 	success: SessionTimelineFrame,

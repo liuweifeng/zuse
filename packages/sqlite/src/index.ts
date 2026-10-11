@@ -183,3 +183,8 @@ export const layer = (
 			Context.make(Client.SqlClient, client),
 		),
 	).pipe(Layer.provide(Reactivity.layer));
+
+export {
+	type SqliteProcessLock,
+	tryAcquireProcessLock,
+} from "./process-lock.js";

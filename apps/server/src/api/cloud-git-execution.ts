@@ -171,17 +171,21 @@ export const makeCloudGitExecution = (input: {
 				"Authentication required: sign in to GitHub on this workspace, or connect GitHub in Cloud settings and select Use my Zuse GitHub connection for a new workspace.",
 			);
 		}
+		// The turn projection owns the active identity. A newer request event or
+		// a settled turn must never lend another actor to this execution.
 		const rows = await Effect.runPromise(input.sql<{
 			turn_id: string;
 			input_json: string;
 		}>`
 			SELECT json_extract(e.payload_json, '$.turnId') AS turn_id,
 				json_extract(e.payload_json, '$.providerInputJson') AS input_json
-			FROM events e JOIN sessions s ON s.id = e.stream_id
+			FROM events e JOIN session_turns t
+				ON t.session_id = e.stream_id
+				AND t.id = json_extract(e.payload_json, '$.turnId')
 			WHERE e.stream_kind = 'session' AND e.stream_id = ${sessionId}
 				AND e.type = 'ProviderTurnRequested'
-				AND (s.current_turn_id IS NULL OR json_extract(e.payload_json, '$.turnId') = s.current_turn_id)
-			ORDER BY e.stream_version DESC LIMIT 1
+				AND t.status IN ('starting', 'running')
+			ORDER BY t.ordinal DESC, e.stream_version DESC LIMIT 1
 		`);
 		const row = rows[0];
 		const turn =

@@ -213,16 +213,38 @@ export const forkSessionFromMessage = (options: {
 	connection: WsProtocolOptions;
 	sourceSessionId: SessionId;
 	fromMessageId: MessageId;
+	nativeChildStepId?: string;
 	destination: "tab" | "chat";
 	worktreeId?: WorktreeId | null;
+	commandId?: string;
+}) => {
+	const commandId = options.commandId ?? `session-fork:${crypto.randomUUID()}`;
+	return Effect.gen(function* () {
+		const client = yield* getConnectionClient(options.connection);
+		return yield* client["session.fork"]({
+			commandId,
+			sourceSessionId: options.sourceSessionId,
+			fromMessageId: options.fromMessageId,
+			nativeChildStepId: options.nativeChildStepId,
+			destination: options.destination,
+			worktreeId: options.worktreeId,
+		});
+	});
+};
+
+/** Caller may retain commandId across reconnects to recover a lost merge acknowledgement. */
+export const mergeSessionBack = (options: {
+	connection: WsProtocolOptions;
+	sessionId: SessionId;
+	commandId: string;
+	throughMessageId?: MessageId;
 }) =>
 	Effect.gen(function* () {
 		const client = yield* getConnectionClient(options.connection);
-		return yield* client["session.fork"]({
-			sourceSessionId: options.sourceSessionId,
-			fromMessageId: options.fromMessageId,
-			destination: options.destination,
-			worktreeId: options.worktreeId,
+		return yield* client["session.mergeBack"]({
+			commandId: options.commandId,
+			sessionId: options.sessionId,
+			throughMessageId: options.throughMessageId,
 		});
 	});
 
@@ -484,6 +506,7 @@ export const queueMessage = (options: {
 	sessionId: SessionId;
 	input: ComposerInputType;
 	queueId?: string;
+	rejectIfBlocked?: boolean;
 }) => {
 	const commandId = CommandId.make(
 		options.queueId ?? nextMobileCommandId("queue-add"),
@@ -496,6 +519,7 @@ export const queueMessage = (options: {
 			commandId,
 			input: options.input,
 			queueId: options.queueId,
+			rejectIfBlocked: options.rejectIfBlocked,
 		},
 		commandId,
 	);

@@ -15,6 +15,7 @@ export interface NativeRuntimeOptions {
 		HarnessHost,
 		"tools" | "execute" | "close" | "interruptAgents"
 	>;
+	readonly appTools?: Pick<HarnessHost, "tools" | "execute">;
 	readonly tools: Omit<
 		NativeToolOptions,
 		"rootId" | "directory" | "lockDirectory" | "notify"
@@ -46,8 +47,11 @@ export async function createNativeHarness(
 	engine = new HarnessEngine(
 		{
 			...options.host,
-			tools: native.definitions,
-			execute: (name, input, context) => native.execute(name, input, context),
+			tools: { ...native.definitions, ...options.appTools?.tools },
+			execute: (name, input, context) =>
+				options.appTools && Object.hasOwn(options.appTools.tools, name)
+					? options.appTools.execute(name, input, context)
+					: native.execute(name, input, context),
 			interruptAgents: (ids) => native.processes.interruptAgents(ids),
 			close: async () => {
 				try {

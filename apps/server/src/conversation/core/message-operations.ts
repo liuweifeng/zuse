@@ -9,15 +9,15 @@ import {
 	type MessageId,
 	type MessageOrigin,
 	type Session,
-	SessionId,
-	type SessionStartError,
+	type SessionId,
+	SessionStartError,
 	type SkillRef,
 	type TurnInterruptReceipt,
 	type WorkspaceActor,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
-import { Deferred, Effect, type FileSystem, type Scope } from "effect";
+import { Cause, Effect, type FileSystem, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { ConversationOperations } from "../services/conversation-services.ts";
 import { isGoalCapableProvider } from "./conversation-goal-operations.ts";
@@ -32,6 +32,7 @@ import {
 } from "./provider-turn-request.ts";
 import type { QueueServiceRuntime } from "./queue-service-runtime.ts";
 import { makeQueueServiceRuntime } from "./queue-service-runtime.ts";
+import { assertSessionInputUnblocked } from "./session-input-admission.ts";
 
 export interface MessageOperationsOptions {
 	readonly sql: SqlClient.SqlClient;
@@ -83,10 +84,6 @@ export interface MessageOperationsOptions {
 			receipt: import("@zuse/domain/engine/dispatch").CommandReceipt,
 		) => Effect.Effect<A, never, R>,
 	) => Effect.Effect<A, never, R>;
-	readonly beginTurn: (
-		sessionId: SessionId,
-		turnIdOverride?: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
@@ -95,12 +92,11 @@ export interface MessageOperationsOptions {
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
 	) => Effect.Effect<AgentTurnId | undefined>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
-	readonly recoverStatus: (
+	readonly hasPendingProviderTurn: (
 		sessionId: SessionId,
-		status: Session["status"],
-	) => Effect.Effect<void>;
+	) => Effect.Effect<boolean>;
 	readonly closeProvider: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly hasProvider: (sessionId: SessionId) => Effect.Effect<boolean>;
 	readonly interruptProviderFiber: (
@@ -114,12 +110,6 @@ export interface MessageOperations {
 	readonly sendMessageWithInput: ConversationOperations["sendMessageWithInput"];
 	readonly interruptSession: ConversationOperations["interruptSession"];
 	readonly queueRuntime: QueueServiceRuntime;
-	readonly runStartupRecovery: <E>(
-		catchUp: Effect.Effect<void, E>,
-	) => Effect.Effect<void>;
-	readonly withStartupRecovery: <A, E, R>(
-		effect: Effect.Effect<A, E, R>,
-	) => Effect.Effect<A, E, R>;
 }
 
 export const makeMessageOperations = Effect.fn("MessageOperations.make")(
@@ -130,18 +120,14 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			goalState,
 			lookupSession,
 			ensureForTurn,
-			setStatus,
-			persistMessage,
 			submitTurn,
-			ndjsonAppend,
 			setGoal,
 			dispatchSessionCommand,
-			beginTurn,
 			settleTurn,
 			resolveActiveTurn,
 			runSessionReactors,
 			serviceScope,
-			recoverStatus,
+			hasPendingProviderTurn,
 			closeProvider,
 			hasProvider,
 			interruptProviderFiber,
@@ -187,17 +173,19 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						: yield* decodeProviderStartRequest(row.provider_start_json).pipe(
 								Effect.orDie,
 							);
+				const startupJson = row.provider_start_json;
 				const modelOptions =
 					startup?.modelOptionsJson == null
 						? undefined
 						: yield* decodeProviderModelOptions(startup.modelOptionsJson).pipe(
 								Effect.orDie,
 							);
-				return { input, startup, modelOptions };
+				return { input, startup, startupJson, modelOptions };
 			});
-		const restartSession: ConversationOperations["resumeSession"] = (
-			sessionId,
-		) =>
+		const restartSession = (
+			sessionId: SessionId,
+			reason: "retry" | "provider_recovery" = "retry",
+		): ReturnType<ConversationOperations["resumeSession"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
 				// Best-effort cleanup of any stale in-memory session before opening
@@ -220,27 +208,40 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					yield* settleTurn(sessionId, activeTurnId, "interrupted");
 				}
 				const turnId = request === null ? undefined : activeTurnId;
-				// When a durable turn is active, reopen replays that exact request. The
-				// renderer must not submit the last user message again after success.
-				yield* ensureForTurn(session.id, {
-					initialPrompt: request?.startup?.initialPrompt ?? undefined,
-					initialTurnId: request?.startup?.initialTurnId ?? undefined,
-					modelOptions: request?.modelOptions,
-					enableSubagents: request?.startup?.enableSubagents,
-					forkFromResume: request?.startup?.forkFromResume,
-					postBootStatus: request === null ? "idle" : "running",
-					...(request === null || turnId === undefined
+				if (turnId === undefined || request === null) {
+					// No durable turn to continue: reopen the provider idle.
+					yield* ensureForTurn(session.id, {
+						initialPrompt: request?.startup?.initialPrompt ?? undefined,
+						modelOptions: request?.modelOptions,
+						enableSubagents: request?.startup?.enableSubagents,
+						forkFromResume: request?.startup?.forkFromResume,
+						forkSourceThreadId: request?.startup?.forkSourceThreadId,
+						postBootStatus: "idle",
+					});
+					return yield* lookupSession(sessionId);
+				}
+				// A durable turn is active: start a new attempt of it. The attempt
+				// implies a send job that replays the exact provider request, so the
+				// renderer never re-submits the last user message.
+				yield* dispatchSessionCommand(sessionId, {
+					_tag: "RetryTurn",
+					turnId,
+					reason,
+					providerInputJson: JSON.stringify(request.input),
+					...(request.startupJson === null
 						? {}
-						: {
-								sendAfterOpen: {
-									turnId,
-									text: request.input.text,
-									attachments: request.input.attachments,
-									fileRefs: request.input.fileRefs,
-									skillRefs: request.input.skillRefs,
-								},
+						: { providerStartJson: request.startupJson }),
+					requestedAt: Date.now(),
+				}).pipe(
+					Effect.catchCause((cause) =>
+						Effect.fail(
+							new SessionStartError({
+								providerId: session.providerId,
+								reason: String(Cause.squash(cause)),
 							}),
-				});
+						),
+					),
+				);
 				return yield* lookupSession(sessionId);
 			});
 
@@ -262,6 +263,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		): ReturnType<ConversationOperations["sendMessageWithInput"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
+				yield* assertSessionInputUnblocked(sql, sessionId, commandId);
 				const directoryRows = yield* sql<{
 					readonly project_id: string;
 					readonly project_path: string | null;
@@ -376,26 +378,40 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					skillRefs: skillRefs ?? [],
 					annotations: annotationList,
 				});
-				const persisted =
-					asGoal === true
-						? yield* beginTurn(sessionId, turnId).pipe(
-								Effect.andThen(
-									persistMessage(sessionId, content, clientMessageId, turnId),
-								),
-							)
-						: yield* submitTurn(
-								sessionId,
-								turnId,
-								content,
-								JSON.stringify({
-									...providerInput,
-									actor,
-									githubSlackMessageId,
-								}),
-								clientMessageId,
-								commandId,
-								receiptIdentity,
-							);
+				if (asGoal === true && text.trim().length === 0)
+					return { accepted: false };
+				if (asGoal === true && !isGoalCapableProvider(session.providerId)) {
+					const user = yield* options.persistMessage(
+						sessionId,
+						content,
+						clientMessageId,
+					);
+					yield* options.ndjsonAppend(sessionId, user);
+					const error = yield* options.persistMessage(sessionId, {
+						_tag: "error",
+						message:
+							"Goal mode is currently only supported for Codex and Grok sessions.",
+					});
+					yield* options.ndjsonAppend(sessionId, error);
+					return { accepted: false, messageId: user.message.id };
+				}
+				const persisted = yield* submitTurn(
+					sessionId,
+					turnId,
+					content,
+					JSON.stringify({
+						...providerInput,
+						actor,
+						githubSlackMessageId,
+						goal:
+							asGoal === true
+								? { objective: text.trim(), status: "active" }
+								: undefined,
+					}),
+					clientMessageId,
+					commandId,
+					receiptIdentity,
+				);
 				// Pin the attachments so the GC sweep treats them as referenced —
 				// a separate row per (message, attachment) keeps the existing
 				// GC join intact.
@@ -405,61 +421,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
             VALUES (${persisted.message.id}, ${a.id})
           `.pipe(Effect.ignore);
 				}
-				if (asGoal === true) {
-					const objective = text.trim();
-					if (objective.length === 0) return { accepted: false };
-					if (!isGoalCapableProvider(session.providerId)) {
-						const persistedError = yield* persistMessage(sessionId, {
-							_tag: "error",
-							message:
-								"Goal mode is currently only supported for Codex and Grok sessions.",
-						});
-						yield* ndjsonAppend(sessionId, persistedError);
-						return {
-							accepted: false,
-							messageId: persisted.message.id,
-							turnId: persisted.turnId ?? turnId,
-						};
-					}
-					const goal = yield* setGoal(sessionId, {
-						objective,
-						status: "active",
-					}).pipe(
-						Effect.catch((err) =>
-							Effect.gen(function* () {
-								const message =
-									err._tag === "SessionStartError"
-										? `Goal mode could not start ${session.providerId}: ${err.reason}`
-										: `Goal mode could not start ${session.providerId} for this session.`;
-								const persistedError = yield* persistMessage(sessionId, {
-									_tag: "error",
-									message,
-								});
-								yield* ndjsonAppend(sessionId, persistedError);
-								yield* setStatus(sessionId, "idle");
-								return null;
-							}),
-						),
-					);
-					if (goal === null)
-						return {
-							accepted: false,
-							messageId: persisted.message.id,
-							turnId: persisted.turnId ?? turnId,
-						};
-					// Grok runs goal mode by forwarding `/goal` as a real prompt turn,
-					// so reflect the running turn the way a normal send does — the
-					// driver emits `Status: idle` when the goal run finishes. Codex
-					// drives its own status via native goal notifications, so leave it.
-					if (session.providerId === "grok") {
-						yield* setStatus(sessionId, "running");
-					}
-					return {
-						accepted: true,
-						messageId: persisted.message.id,
-						turnId: persisted.turnId ?? turnId,
-					};
-				}
+
 				return {
 					accepted: true,
 					messageId: persisted.message.id,
@@ -583,84 +545,16 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			runSessionReactors,
 			resolveActiveTurn,
 		});
-		// Recovery can reopen a provider turn that waits for user input (for
-		// example, a permission decision). Keep it owned by the service scope, but
-		// never block construction of the RPC layer on that long-lived work.
-		const recoverStaleSessions = Effect.gen(function* () {
-			const staleSessions = yield* sql<{
-				readonly id: string;
-				readonly status: "running" | "booting" | "idle";
-			}>`
-				SELECT id, status FROM sessions
-				WHERE archived_at IS NULL AND (
-					status IN ('running', 'booting')
-					OR (status = 'idle' AND current_turn_id IS NOT NULL)
-				)
-			`.pipe(Effect.orDie);
-			for (const stale of staleSessions) {
-				const sessionId = SessionId.make(stale.id);
-				// Provider startup can publish idle before its durable turn settles.
-				// After a crash the turn, rather than that status, is the authority.
-				if (stale.status !== "booting") {
-					const turnId = yield* resolveActiveTurn(sessionId);
-					if (turnId !== undefined) {
-						// Catch-up may have just recreated this provider and replayed the
-						// unfinished turn. Only settle rows whose in-memory owner is gone.
-						if (yield* hasProvider(sessionId)) continue;
-						const lifecycle = yield* sql<{ readonly type: string }>`
-							SELECT type FROM events
-							WHERE stream_kind = 'session' AND stream_id = ${sessionId}
-								AND type IN (
-									'TurnInterruptRequested',
-									'TurnInterruptAcknowledged',
-									'TurnSettled'
-								)
-							ORDER BY stream_version DESC
-							LIMIT 1
-						`.pipe(Effect.orDie);
-						const interrupted =
-							lifecycle[0]?.type.startsWith("TurnInterrupt") === true;
-						yield* settleTurn(
-							sessionId,
-							turnId,
-							interrupted ? "interrupted" : "error",
-						);
-					} else {
-						yield* recoverStatus(sessionId, "error");
-					}
-				} else {
-					yield* restartSession(sessionId).pipe(
-						Effect.catch(() => recoverStatus(sessionId, "error")),
-					);
-				}
-			}
-		});
-		const startupRecoveryDone = yield* Deferred.make<void>();
-		const runStartupRecovery = <E>(catchUp: Effect.Effect<void, E>) =>
-			catchUp.pipe(
-				Effect.andThen(recoverStaleSessions),
-				// Queue entries are durable work. Reconcile them after session catch-up
-				// instead of relying on a process-local enqueue/settlement wake-up.
-				Effect.andThen(queueRuntime.reconcileReadyQueues),
-				Effect.catchCause((cause) =>
-					Effect.logError(
-						`[ConversationServices] startup recovery failed: ${String(cause)}`,
-					),
-				),
-				Effect.ensuring(Deferred.succeed(startupRecoveryDone, undefined)),
-			);
-		const withStartupRecovery = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-			Deferred.await(startupRecoveryDone).pipe(Effect.andThen(effect));
 		const resumeSession: ConversationOperations["resumeSession"] = (
 			sessionId,
 		) =>
 			Effect.gen(function* () {
-				// A manual retry can arrive as soon as RPC becomes available while
-				// durable startup recovery is still reopening the same provider. Join
-				// that single flight instead of closing its newly recovered handle.
-				yield* withStartupRecovery(Effect.void);
 				const session = yield* lookupSession(sessionId);
-				if (session.status !== "error" && (yield* hasProvider(sessionId))) {
+				if (
+					session.status !== "error" &&
+					((yield* hasPendingProviderTurn(sessionId)) ||
+						(yield* hasProvider(sessionId)))
+				) {
 					return session;
 				}
 				return yield* restartSession(sessionId);
@@ -701,7 +595,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						: Effect.void;
 				// Even if pausing the provider goal fails, still deliver Stop.
 				yield* pauseGoal.pipe(
-					Effect.ensuring(runSessionReactors),
+					Effect.ensuring(runSessionReactors(sessionId)),
 					Effect.orDie,
 				);
 				return outcome;
@@ -713,8 +607,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			sendMessageWithInput,
 			interruptSession,
 			queueRuntime,
-			runStartupRecovery,
-			withStartupRecovery,
 		};
 	},
 );

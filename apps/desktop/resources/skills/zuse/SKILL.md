@@ -135,17 +135,33 @@ Cloud lifecycle commands include `workspace get|status|pause|resume|restart|arch
 They default to the current cloud workspace. Organization runtimes currently reject
 account-level delegation; local chat/session controls remain available there.
 
-Use the `zuse` CLI when orchestration must run from a terminal, script, CI job,
-or an agent that does not have the in-session `zuse-orchestration` MCP server.
-The CLI emits exactly one JSON envelope on stdout, including failures. Discover
-the supported surface before automating it:
+For an agent running inside Zuse, use the available in-session MCP tools first:
+`orchestrator_capabilities`, `whoami`, `list_threads`, and `list_models`. They use
+the current session identity and permission policy. `list_threads` includes each
+session tab and managed child with its `parentSessionId`; native provider subagents
+remain part of their provider conversation, not separate Zuse chats.
+
+When terminal access is needed, use the available `zuse` command and its
+authenticated session gateway:
 
 ```bash
-zuse commands
-zuse computer list
-zuse project list
-zuse model list
+zuse orchestration list
+zuse orchestration call --tool orchestrator_capabilities
+zuse orchestration call --tool whoami
+zuse orchestration call --tool list_threads
+zuse orchestration call --tool list_models
 ```
+
+Use `zuse task delegate`, `task status`, and `task cancel` for durable managed
+children. Discover their arguments with `zuse commands`. These operations stay
+bound to the calling session; remote connection flags cannot change their parent.
+If authorization fails, use the in-session MCP tools. If both paths are unavailable,
+report the missing access; do not search for credential files or another CLI build.
+
+The standalone RPC commands below are also available to terminal users, scripts,
+and CI with their own connection authorization. They are separate from the
+current-session gateway. The CLI emits exactly one JSON envelope on stdout,
+including failures. Run `zuse commands` to discover the supported surface.
 
 The object shape is stable and machine-readable:
 
@@ -207,7 +223,8 @@ computer, pass `--computer <id> --ws-url <url>` and `--token <token>` when the
 endpoint is protected. Do not print or persist tokens in logs, prompts, or
 committed files.
 
-Inside a `bun dev` repository, use the branch-local CLI source. It automatically
+For human-operated development outside an agent session, the branch-local CLI
+automatically
 discovers the active dev instance through its owner-readable, gitignored
 `.zuse/dev-instances/<instance>/cli-access.json` descriptor, including shifted
 ports and protected local RPC authentication. Do not read or print the

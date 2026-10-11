@@ -28,6 +28,35 @@ const stored = (
 });
 
 describe("SqlSessionProjector", () => {
+	test("persists the startup reservation without changing conversation recency", async () => {
+		const sessions = await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				const projector = makeSqlSessionProjector(sql);
+				yield* projector.apply(
+					stored(1, { _tag: "SessionCreated", ...sessionCreation }),
+				);
+				yield* projector.apply(
+					stored(2, {
+						_tag: "ProviderSessionReserved",
+						providerId: "provider-1",
+						providerSessionId: "starting",
+						reservedAt: 42,
+					}),
+				);
+				return yield* sql<{
+					readonly updated_at: string;
+					readonly provider_reservation_id: string;
+				}>`SELECT updated_at, provider_reservation_id FROM sessions WHERE id = 'session-1'`;
+			}),
+		);
+		expect(sessions[0]).toEqual({
+			updated_at: new Date(sessionCreation.createdAt).toISOString(),
+			provider_reservation_id: "starting",
+		});
+	});
+
 	test("repairs the active chat session when a thread is archived or deleted", async () => {
 		const activeSessionIds = await run(
 			Effect.gen(function* () {
@@ -280,5 +309,112 @@ describe("SqlSessionProjector", () => {
 				checkpoint_final: 1,
 			},
 		]);
+	});
+	test("projects input lifecycle transactionally without reopening resolved requests", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`INSERT INTO chats (id, updated_at) VALUES ('chat-1', '1970-01-01T00:00:00.000Z')`;
+				const projector = makeSqlSessionProjector(sql);
+				yield* projector.apply(
+					stored(1, { _tag: "SessionCreated", ...sessionCreation }),
+				);
+				const request: StoredEvent["event"] = {
+					_tag: "MessagePersisted",
+					inputOwner: { providerSessionId: "original-provider" },
+					messageId: "question",
+					turnId: null,
+					role: "assistant",
+					kind: "user_question",
+					parentItemId: null,
+					createdAt: 2,
+					contentJson: JSON.stringify({
+						_tag: "user_question",
+						itemId: "shared-id",
+						questions: [{ question: "Choose", options: ["A"] }],
+					}),
+				};
+				yield* projector.apply(stored(2, request));
+				yield* projector.apply(
+					stored(3, {
+						_tag: "PermissionRequested",
+						requestId: "shared-id",
+						turnId: "turn",
+						payloadJson: "{}",
+						requestedAt: 3,
+					}),
+				);
+				yield* projector.apply(
+					stored(4, {
+						_tag: "PermissionExpired",
+						requestId: "shared-id",
+						expiredAt: 4,
+					}),
+				);
+				expect(
+					yield* sql`SELECT kind, status FROM session_inputs ORDER BY kind`,
+				).toEqual([
+					{ kind: "permission", status: "expired" },
+					{ kind: "question", status: "pending" },
+				]);
+				const cancelled: StoredEvent["event"] = {
+					_tag: "QuestionResolved",
+					itemId: "shared-id",
+					resolution: "cancelled",
+					resolvedAt: 5,
+				};
+				yield* sql
+					.withTransaction(
+						projector
+							.apply(stored(5, cancelled))
+							.pipe(Effect.andThen(Effect.fail("rollback"))),
+					)
+					.pipe(Effect.result);
+				expect(
+					yield* sql`SELECT status FROM session_inputs WHERE kind = 'question'`,
+				).toEqual([{ status: "pending" }]);
+				yield* projector.apply(stored(5, cancelled));
+				yield* projector.apply(
+					stored(6, {
+						...request,
+						messageId: "later-question",
+						turnId: "later-turn",
+						inputOwner: { providerSessionId: "later-provider" },
+					}),
+				);
+				expect(
+					yield* sql`SELECT turn_id, owner_json FROM session_inputs WHERE kind = 'question'`,
+				).toEqual([
+					{
+						turn_id: null,
+						owner_json: JSON.stringify({
+							providerSessionId: "original-provider",
+						}),
+					},
+				]);
+				yield* projector.apply(
+					stored(7, {
+						_tag: "PermissionResolved",
+						requestId: "shared-id",
+						decision: "Deny",
+						resolvedAt: 7,
+					}),
+				);
+				yield* projector.apply(
+					stored(4, {
+						_tag: "PermissionExpired",
+						requestId: "shared-id",
+						expiredAt: 4,
+					}),
+				);
+				expect(
+					yield* sql`SELECT kind, status FROM session_inputs ORDER BY kind`,
+				).toEqual([
+					{ kind: "permission", status: "answered" },
+					{ kind: "question", status: "cancelled" },
+				]);
+			}),
+		);
 	});
 });

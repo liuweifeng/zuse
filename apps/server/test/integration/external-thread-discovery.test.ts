@@ -250,7 +250,6 @@ describe("external thread discovery", () => {
 				updatedAt: new Date(updatedAt),
 				sourcePath: null,
 				cursor: id,
-				resumeStrategy: "codex-thread-id",
 				available: true,
 			});
 		const duplicateId = "codex:thread-1";
@@ -329,7 +328,6 @@ describe("external thread discovery", () => {
 				title: "Fix alpha flow",
 				preview: "Please fix the alpha flow",
 				projectPath: "/tmp/alpha",
-				resumeStrategy: "claude-session-id",
 			});
 		} finally {
 			rmSync(root, { recursive: true, force: true });

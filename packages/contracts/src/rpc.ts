@@ -49,6 +49,16 @@ import {
 	AuthSignOutRpc,
 } from "./auth.ts";
 import {
+	ScheduleCreateRpc,
+	ScheduleDeleteRpc,
+	ScheduleListRpc,
+	ScheduleTriggerRpc,
+	ScheduleUpdateRpc,
+	SecretListRpc,
+	SecretRequestRpc,
+	SecretRespondRpc,
+} from "./automation.ts";
+import {
 	BrowserCommandsRpc,
 	BrowserListCredentialsRpc,
 	BrowserRemoveCredentialRpc,
@@ -368,6 +378,21 @@ import {
 	SessionStreamChangesRpc,
 	SessionUnarchiveRpc,
 } from "./session.ts";
+import { SessionAttemptHistoryRpc } from "./session-attempts.ts";
+import {
+	SessionCheckpointPreviewRpc,
+	SessionCheckpointRestoreRpc,
+	SessionCheckpointRetryRpc,
+	SessionCheckpointsListRpc,
+} from "./session-checkpoint.ts";
+import {
+	SessionCancelForkRpc,
+	SessionContextLinksRpc,
+	SessionForkConstructionsRpc,
+	SessionMergeBackRpc,
+	SessionRetryForkRpc,
+} from "./session-context.ts";
+import { SessionSendAndWaitRpc, SessionWaitRpc } from "./session-wait.ts";
 import {
 	SettingsGetRpc,
 	SettingsMigrateLocalStorageRpc,
@@ -422,6 +447,14 @@ import {
  * Add new RPCs by importing them here and including them in the group.
  */
 export const MemoizeRpcs = RpcGroup.make(
+	ScheduleCreateRpc,
+	ScheduleListRpc,
+	ScheduleUpdateRpc,
+	ScheduleDeleteRpc,
+	ScheduleTriggerRpc,
+	SecretRequestRpc,
+	SecretListRpc,
+	SecretRespondRpc,
 	AcpDuplicateRpc,
 	AcpListRpc,
 	AcpCatalogRpc,
@@ -699,7 +732,19 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionEventsHeadRpc,
 	SessionEventsRpc,
 	SessionMessagesPageRpc,
+	SessionAttemptHistoryRpc,
+	SessionCheckpointsListRpc,
+	SessionCheckpointPreviewRpc,
+	SessionCheckpointRestoreRpc,
+	SessionCheckpointRetryRpc,
 	SessionForkRpc,
+	SessionWaitRpc,
+	SessionSendAndWaitRpc,
+	SessionMergeBackRpc,
+	SessionContextLinksRpc,
+	SessionForkConstructionsRpc,
+	SessionRetryForkRpc,
+	SessionCancelForkRpc,
 	SessionExportTranscriptRpc,
 	SessionLatestPlanRpc,
 	SessionResumeRpc,
@@ -779,13 +824,3 @@ export const MemoizeRpcs = RpcGroup.make(
 	SessionSetWorktreeRpc,
 ).middleware(RpcAuthorization);
 export type MemoizeRpcs = typeof MemoizeRpcs;
-
-/**
- * The Electron IPC channel name used to transport RPC frames in both
- * directions. The frame body is the bytes/string emitted by the configured
- * `RpcSerialization` (we use NDJSON in v1 — see `apps/desktop/src/runtime.ts`).
- *
- * Renderer → main: `ipcRenderer.send(IPC_CHANNEL, frame)`
- * Main → renderer: `webContents.send(IPC_CHANNEL, frame)`
- */
-export const IPC_CHANNEL = "zuse:rpc" as const;

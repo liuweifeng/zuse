@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { makeRpcClientSession } from "@zuse/client-runtime/connection";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import { WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect } from "effect";
@@ -404,8 +405,30 @@ describe("cloud agent commands", () => {
 		).toHaveBeenCalledWith({ workspaceId: "sibling" });
 		expect(wsClientProtocolLayer).toHaveBeenLastCalledWith(
 			"wss://api.test/gateway",
-			{ protocols: ["zuse-workspace-v2", "ticket"] },
+			{
+				protocols: ["zuse-workspace-v2", "ticket"],
+				transformResponse: expect.any(Function),
+			},
 		);
+
+		const calls = vi.mocked(makeRpcClientSession).mock.calls;
+		expect(calls.at(-2)?.[2]).toMatchObject({ allowLegacyCloud: false });
+		const handshake = calls.at(-1)?.[2];
+		expect(handshake).toMatchObject({ allowLegacyCloud: true });
+		const transform = vi
+			.mocked(wsClientProtocolLayer)
+			.mock.calls.at(-1)?.[1]?.transformResponse;
+		const legacy = {
+			id: "s_1",
+			projectId: "project",
+			providerId: "codex",
+			model: "model",
+			cursor: null,
+			resumeStrategy: "none",
+		};
+		expect(transform?.(legacy)).toBe(legacy);
+		handshake?.onNegotiated?.(6);
+		expect(transform?.(legacy)).toMatchObject({ providerThread: null });
 		expect(connectionMocks.dispose).toHaveBeenCalledTimes(2);
 	});
 	test("renames the cloud workspace's actual sidebar chat", async () => {
@@ -515,5 +538,211 @@ describe("plugin CLI", () => {
 		} finally {
 			fetchMock.mockRestore();
 		}
+	});
+});
+
+describe("session-scoped orchestration CLI", () => {
+	test("directs an agent with rejected desktop RPC access to its session gateway", async () => {
+		vi.mocked(makeRpcClientSession).mockRejectedValueOnce(
+			new Error("SocketOpenError"),
+		);
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValue(new Response(null, { status: 401 }));
+		try {
+			await expect(
+				__testing.execute(["session", "list", "--project", "/repo"], {
+					ZUSE_WS_URL: "ws://127.0.0.1:47837/rpc",
+					ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:4422/orchestration",
+					ZUSE_ORCHESTRATION_AUTH: "session-only-secret",
+				}),
+			).rejects.toMatchObject({
+				code: "unauthorized",
+				message: expect.stringContaining(
+					"zuse orchestration call --tool list_threads",
+				),
+			});
+			expect(JSON.stringify(fetcher.mock.calls)).not.toContain(
+				"session-only-secret",
+			);
+		} finally {
+			fetcher.mockRestore();
+		}
+	});
+	test("requires current session credentials and rejects remote overrides", async () => {
+		await expect(
+			__testing.execute(["orchestration", "list"], {}),
+		).rejects.toMatchObject({ code: "orchestration_session_required" });
+		await expect(
+			__testing.execute(
+				["orchestration", "list", "--cloud-workspace", "other"],
+				{},
+			),
+		).rejects.toMatchObject({ code: "invalid_input" });
+	});
+	test("uses the session endpoint for live schemas and tool calls", async () => {
+		const fetcher = vi
+			.spyOn(globalThis, "fetch")
+			.mockResolvedValueOnce(
+				Response.json({ tools: [{ name: "delegate_task" }] }),
+			)
+			.mockResolvedValueOnce(
+				Response.json({
+					content: [
+						{
+							type: "text",
+							text: JSON.stringify({ ok: true, taskId: "child" }),
+						},
+					],
+				}),
+			);
+		const env = {
+			ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:1234/orchestration",
+			ZUSE_ORCHESTRATION_AUTH: "session-auth",
+		};
+		try {
+			await expect(
+				__testing.execute(["orchestration", "list"], env),
+			).resolves.toEqual({ tools: [{ name: "delegate_task" }] });
+			await expect(
+				__testing.execute(
+					[
+						"orchestration",
+						"call",
+						"--tool",
+						"delegate_task",
+						"--arguments-json",
+						'{"task":"review","clientRequestId":"one"}',
+					],
+					env,
+				),
+			).resolves.toEqual({ ok: true, taskId: "child" });
+			expect(fetcher.mock.calls[1]?.[0]).toBe(env.ZUSE_ORCHESTRATION_URL);
+			expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+				name: "delegate_task",
+				args: { task: "review", clientRequestId: "one" },
+			});
+		} finally {
+			fetcher.mockRestore();
+		}
+	});
+});
+
+test("task aliases preserve request identity and the current cloud runtime endpoint", async () => {
+	const fetcher = vi
+		.spyOn(globalThis, "fetch")
+		.mockImplementation(async () =>
+			Response.json({ content: [{ type: "text", text: '{"ok":true}' }] }),
+		);
+	const env = {
+		ZUSE_ORCHESTRATION_URL: "http://127.0.0.1:4422/orchestration",
+		ZUSE_ORCHESTRATION_AUTH: "cloud-session",
+		ZUSE_CLOUD_WORKSPACE_ID: "cloud-123",
+	};
+	try {
+		await __testing.execute(
+			[
+				"task",
+				"delegate",
+				"--task",
+				"review",
+				"--request-id",
+				"stable",
+				"--provider",
+				"codex",
+			],
+			env,
+		);
+		expect(fetcher.mock.calls[0]?.[0]).toBe(env.ZUSE_ORCHESTRATION_URL);
+		expect(JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body))).toEqual({
+			name: "delegate_task",
+			args: { task: "review", clientRequestId: "stable", providerId: "codex" },
+		});
+		await __testing.execute(["task", "status", "child"], env);
+		expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toEqual({
+			name: "task_status",
+			args: { taskId: "child" },
+		});
+		await __testing.execute(["schedule", "list"], env);
+		expect(JSON.parse(String(fetcher.mock.calls[2]?.[1]?.body))).toEqual({
+			name: "list_scheduled_tasks",
+			args: {},
+		});
+	} finally {
+		fetcher.mockRestore();
+	}
+});
+
+test("secret provide reads only stdin and forwards a redacted value", async () => {
+	const { Redacted } = await import("effect");
+	const respond = vi.fn((input: { value?: unknown }) => {
+		expect(Redacted.isRedacted(input.value)).toBe(true);
+		expect(JSON.stringify(input)).not.toContain("private-test-value");
+		return Effect.succeed({ status: "provided", reference: "private:request" });
+	});
+	const client = {
+		"secrets.respond": respond,
+		"secrets.list": vi.fn(() => Effect.succeed([])),
+	} as never;
+	const result = await __testing.executeSecretCommand(
+		client,
+		__testing.parse([
+			"secret",
+			"provide",
+			"--session",
+			"session",
+			"--request",
+			"request",
+			"--value-file",
+			"-",
+		]),
+		async () => "private-test-value",
+	);
+	expect(result).toEqual({ status: "provided", reference: "private:request" });
+	expect(respond.mock.calls[0]?.[0]).toMatchObject({
+		sessionId: "session",
+		requestId: "request",
+	});
+	await expect(
+		__testing.executeSecretCommand(
+			client,
+			__testing.parse([
+				"secret",
+				"provide",
+				"--session",
+				"session",
+				"--request",
+				"request",
+				"--value",
+				"do-not-echo",
+			]),
+		),
+	).rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("secret submission errors never expose backend input or credentials", async () => {
+	const client = {
+		"secrets.respond": () => Effect.fail(new Error("private-test-value")),
+		"secrets.list": () => Effect.succeed([]),
+	} as never;
+	await expect(
+		__testing.executeSecretCommand(
+			client,
+			__testing.parse([
+				"secret",
+				"provide",
+				"--session",
+				"session",
+				"--request",
+				"request",
+				"--value-file",
+				"-",
+			]),
+			async () => "private-test-value",
+		),
+	).rejects.toMatchObject({
+		code: "secret_request_failed",
+		message:
+			"The private secret request could not be completed. Check the session and request, then retry.",
 	});
 });

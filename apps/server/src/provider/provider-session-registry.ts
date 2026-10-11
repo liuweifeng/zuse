@@ -6,10 +6,15 @@
  * has finished starting, so stop/switch commands defeat late startups.
  */
 export interface ProviderSessionRegistry<SessionId, Entry> {
+	/** Permanently revoke all generations and transfer remaining handles to cleanup. */
+	readonly close: () => ReadonlyArray<Entry>;
 	readonly lookup: (sessionId: SessionId) => Entry | undefined;
 	readonly currentGeneration: (sessionId: SessionId) => number | undefined;
 	readonly isCurrent: (sessionId: SessionId, generation: number) => boolean;
-	readonly begin: (sessionId: SessionId) => number;
+	readonly currentProviderSessionId: (
+		sessionId: SessionId,
+	) => string | undefined;
+	readonly begin: (sessionId: SessionId, providerSessionId?: string) => number;
 	readonly publish: (
 		sessionId: SessionId,
 		generation: number,
@@ -27,31 +32,50 @@ export const makeProviderSessionRegistry = <
 	Entry,
 >(): ProviderSessionRegistry<SessionId, Entry> => {
 	const sessions = new Map<SessionId, Entry>();
-	const generations = new Map<SessionId, number>();
+	let closed = false;
+	const generations = new Map<
+		SessionId,
+		{ generation: number; providerSessionId?: string }
+	>();
 	const invalidate = (sessionId: SessionId): Entry | undefined => {
+		if (closed) return undefined;
 		const entry = sessions.get(sessionId);
 		sessions.delete(sessionId);
-		generations.set(sessionId, (generations.get(sessionId) ?? 0) + 1);
+		generations.set(sessionId, {
+			generation: (generations.get(sessionId)?.generation ?? 0) + 1,
+		});
 		return entry;
 	};
 	return {
+		close: () => {
+			closed = true;
+			const entries = [...sessions.values()];
+			sessions.clear();
+			generations.clear();
+			return entries;
+		},
 		lookup: (sessionId) => sessions.get(sessionId),
-		currentGeneration: (sessionId) => generations.get(sessionId),
+		currentGeneration: (sessionId) => generations.get(sessionId)?.generation,
+		currentProviderSessionId: (sessionId) =>
+			generations.get(sessionId)?.providerSessionId,
 		isCurrent: (sessionId, generation) =>
-			generations.get(sessionId) === generation && sessions.has(sessionId),
-		begin: (sessionId) => {
-			const generation = (generations.get(sessionId) ?? 0) + 1;
-			generations.set(sessionId, generation);
+			generations.get(sessionId)?.generation === generation &&
+			sessions.has(sessionId),
+		begin: (sessionId, providerSessionId) => {
+			if (closed) return -1;
+			const generation = (generations.get(sessionId)?.generation ?? 0) + 1;
+			generations.set(sessionId, { generation, providerSessionId });
 			return generation;
 		},
 		publish: (sessionId, generation, entry) => {
-			if (generations.get(sessionId) !== generation) return false;
+			if (closed || generations.get(sessionId)?.generation !== generation)
+				return false;
 			sessions.set(sessionId, entry);
 			return true;
 		},
 		invalidate,
 		invalidateIfCurrent: (sessionId, generation) =>
-			generations.get(sessionId) === generation
+			generations.get(sessionId)?.generation === generation
 				? invalidate(sessionId)
 				: undefined,
 	};

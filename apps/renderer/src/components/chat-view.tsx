@@ -16,6 +16,9 @@ import {
 } from "../lib/use-preview-servers.ts";
 import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
+import { SessionForkRecovery } from "./session-fork-recovery.tsx";
+import { SessionMergeBack } from "./session-merge-back.tsx";
+import { SessionSecretRequests } from "./session-secret-requests.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -44,10 +47,6 @@ import {
 } from "react";
 import { usePrefersReducedMotion } from "../hooks/use-media-query.ts";
 import { deriveChatAttentionState } from "../lib/chat-attention-state.ts";
-import {
-	CHAT_LIST_ANCHOR_OFFSET,
-	resolveChatListAnchoredEndSpace,
-} from "../lib/chat-list-anchor.ts";
 import {
 	type ChatTimelineRow,
 	createCloudTimelineRows,
@@ -96,6 +95,7 @@ import {
 import {
 	resolveScrollableNodeIsAtEnd,
 	resolveTimelineHasContentBelowViewport,
+	TRANSCRIPT_TURN_INSET_PX,
 } from "../lib/timeline-scroll-anchoring.ts";
 import {
 	TranscriptScrollCoordinator,
@@ -114,7 +114,6 @@ import { DelegationGroup } from "./delegation-group.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
 import { JumpToLatestPill } from "./jump-to-latest-pill.tsx";
 import { MessageRow } from "./message-row.tsx";
-import { NextUnreadButton } from "./next-unread-button.tsx";
 import {
 	ChatCreationFailureActions,
 	ChatCreationPromptBubble,
@@ -433,13 +432,16 @@ export function ChatView({
 	const [timelineAnchorMessageId, setTimelineAnchorMessageId] = useState<
 		string | null
 	>(null);
-	const anchoredEndSpace = useMemo(
-		() =>
-			resolveChatListAnchoredEndSpace(rows, timelineAnchorMessageId, (row) =>
-				rowAnchorMessageId(row),
-			),
-		[rows, timelineAnchorMessageId, uiMessage],
-	);
+	const anchoredEndSpace = useMemo(() => {
+		if (timelineAnchorMessageId === null) return undefined;
+		const anchorIndex = rows.findLastIndex(
+			(row) => rowAnchorMessageId(row) === timelineAnchorMessageId,
+		);
+		return anchorIndex < 0
+			? undefined
+			: { anchorIndex, anchorOffset: TRANSCRIPT_TURN_INSET_PX };
+	}, [rows, timelineAnchorMessageId, uiMessage]);
+
 	const listRef = useRef<LegendListRef | null>(null);
 	const scrollElementRef = useRef<HTMLDivElement | null>(null);
 	const latestUserMessageIdRef = useRef(latestUserMessageId);
@@ -804,7 +806,7 @@ export function ChatView({
 		setTimelineAnchorMessageId(latestUserMessageId);
 		setActiveTurnMessageId(latestUserMessageId);
 		setHasOutOfViewUpdates(false);
-		coordinator.prepareNewTurn(turn.rowIndex, CHAT_LIST_ANCHOR_OFFSET);
+		coordinator.prepareNewTurn(turn.rowIndex, TRANSCRIPT_TURN_INSET_PX);
 	}, [coordinator, inFlight, latestUserMessageId, turns]);
 
 	useLayoutEffect(() => {
@@ -856,6 +858,7 @@ export function ChatView({
 				pendingCommands={timeline.view.pendingCommands}
 				row={item}
 				runtimeState={timeline.runtime}
+				finalizing={timeline.projection?.activeTurn?.status === "finalizing"}
 				sessionId={sessionId}
 			/>
 		),
@@ -866,6 +869,7 @@ export function ChatView({
 			sessionId,
 			timeline.ref.environmentId,
 			timeline.runtime,
+			timeline.projection?.activeTurn?.status,
 			timeline.view.pendingCommands,
 		],
 	);
@@ -893,6 +897,19 @@ export function ChatView({
 			<h1 className="sr-only">
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
+			<SessionSecretRequests sessionRef={sessionRef} />
+			<SessionForkRecovery
+				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+				sessionRef={sessionRef}
+			/>
+			{session.forkedFromSessionId !== null ? (
+				<div className="flex justify-end">
+					<SessionMergeBack
+						key={`merge:${sessionRef.environmentId}:${sessionRef.sessionId}`}
+						sessionRef={sessionRef}
+					/>
+				</div>
+			) : null}
 			<div
 				ref={viewportRef}
 				data-chat-viewport
@@ -1026,7 +1043,7 @@ export function ChatView({
 						onNavigate={(turn) => {
 							setTimelineAnchorMessageId(null);
 							coordinator.jumpToTurn(turn.rowIndex, {
-								viewportOffset: CHAT_LIST_ANCHOR_OFFSET,
+								viewportOffset: TRANSCRIPT_TURN_INSET_PX,
 								animated: !prefersReducedMotion,
 							});
 						}}
@@ -1046,9 +1063,6 @@ export function ChatView({
 									});
 								}}
 							/>
-							<div className="ml-auto">
-								<NextUnreadButton />
-							</div>
 						</div>
 					</div>
 					<p className="sr-only" aria-live="polite" aria-atomic="true">
@@ -1071,6 +1085,7 @@ function TimelineRow({
 	providerId,
 	pendingCommands,
 	runtimeState,
+	finalizing,
 }: {
 	readonly interactions: readonly SessionInteraction[];
 	readonly chatId: import("@zuse/contracts").ChatId | null;
@@ -1080,6 +1095,7 @@ function TimelineRow({
 	readonly providerId: import("@zuse/contracts").ProviderId;
 	readonly pendingCommands: readonly PendingCommand[];
 	readonly runtimeState: SessionRuntimeState;
+	readonly finalizing: boolean;
 }) {
 	let content: ReactNode;
 	switch (row.kind) {
@@ -1141,6 +1157,7 @@ function TimelineRow({
 						pendingCommands={pendingCommands}
 						providerId={providerId}
 						runtimeState={runtimeState}
+						finalizing={finalizing}
 						sessionId={sessionId}
 					/>
 				</Suspense>

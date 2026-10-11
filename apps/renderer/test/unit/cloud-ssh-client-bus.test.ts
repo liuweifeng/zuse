@@ -56,6 +56,7 @@ vi.mock("../../src/lib/control-plane-client.ts", () => ({
 }));
 
 vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
+	waitForEnvironmentGateway: async () => undefined,
 	retainEnvironmentShell: () => ({
 		key: "test-key",
 		lease: { release: () => undefined },

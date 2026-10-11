@@ -1,17 +1,13 @@
-import { secureStorageMasterKey } from "@zusehq/server/secure-storage-master-key";
 import {
 	guardHtmlVisualNavigation,
 	installHtmlVisualNetwork,
 	VISUAL_ASSET_SCHEMES,
 } from "./html-visual-network.ts";
+import { sanitizeNotchItems } from "./notch-tray-items.ts";
 import { CloudSyncFileBridge } from "./sync/cloud-sync-file-bridge.ts";
 import { installTerminalShortcutRouting } from "./terminal-shortcuts.ts";
 import "@zuse/i18n/english/desktop";
-import {
-	type ChildProcessWithoutNullStreams,
-	execFile,
-	spawn,
-} from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash, randomUUID, X509Certificate } from "node:crypto";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
@@ -20,7 +16,6 @@ import { createRequire } from "node:module";
 import {
 	cpus,
 	homedir,
-	hostname,
 	networkInterfaces,
 	arch as osArch,
 	release as osRelease,
@@ -33,8 +28,6 @@ import { monitorEventLoopDelay } from "node:perf_hooks";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import {
-	AGENTS_RUNNING_COUNT_CHANNEL,
-	AuthFlowError,
 	COMPUTER_AWAKE_GET_STATUS_CHANNEL,
 	COMPUTER_AWAKE_SET_MODE_CHANNEL,
 	COMPUTER_AWAKE_STATE_CHANNEL,
@@ -95,13 +88,14 @@ import {
 import { BROWSER_PAGE_HEADERS } from "@zuse/utils/browser-page";
 import { fetchSiteFavicon } from "@zuse/utils/site-favicon";
 import { zuseDesktopProfileName } from "@zuse/utils/zuse-user-data";
+import { readBrowserCredentialFromVault } from "@zusehq/server";
 import {
-	CredentialsServiceLive,
-	makeMainLayer,
-	readBrowserCredentialFromVault,
-	wsServerProtocolLayer,
-} from "@zusehq/server";
-import { Cause, Effect, Fiber, Layer, Schema } from "effect";
+	connectLocalEngine,
+	type DesktopEngineEndpoint,
+	readEngineEndpoint,
+	requestIdleEngineShutdown,
+} from "@zusehq/server/desktop-engine";
+import { Schema } from "effect";
 import {
 	app,
 	BrowserWindow,
@@ -112,7 +106,6 @@ import {
 	powerMonitor as nativePowerMonitor,
 	nativeTheme,
 	net,
-	powerSaveBlocker,
 	protocol,
 	session,
 	shell,
@@ -127,6 +120,9 @@ import {
 	renderAuthCallbackPage,
 	renderNotFoundPage,
 } from "./auth-callback-page.ts";
+import { connectEngineHost } from "./engine-host-connection.ts";
+import { ensureDesktopEngine } from "./engine-launcher.ts";
+import { makeEngineMaintenance } from "./engine-maintenance.ts";
 import {
 	createLocaleController,
 	readLocalePreference,
@@ -173,11 +169,7 @@ import {
 	restoreImportedBrowserCookies,
 	watchImportedBrowserCookies,
 } from "./browser-session-service.ts";
-import { ComputerAwakeController } from "./computer-awake-controller.ts";
-import {
-	readComputerAwakePreference,
-	writeComputerAwakePreference,
-} from "./computer-awake-preference.ts";
+import { writeComputerAwakePreference } from "./computer-awake-preference.ts";
 import {
 	type DeepEnergyProfileHandle,
 	startDeepEnergyProfile,
@@ -193,7 +185,7 @@ import {
 	listPortableOpenTargets,
 	openPathWithPortableTarget,
 } from "./host/open-targets.ts";
-import { electronServerProtocolLayer } from "./ipc/electron-server-protocol.ts";
+import { installEngineServerBridge } from "./ipc/engine-server-bridge.ts";
 import {
 	DEFAULT_MENU_ACCELERATORS,
 	installAppMenu,
@@ -249,6 +241,7 @@ import {
 	installPendingUpdateOnQuit,
 	onStatusChange,
 	registerUpdaterDemo,
+	setEngineUpdateLifecycle,
 	startAutoUpdater,
 } from "./updater.ts";
 
@@ -541,6 +534,7 @@ const focusMainWindow = (): void => {
 };
 
 let authLoopbackServer: http.Server | null = null;
+let authLoopbackReady: Promise<void> | null = null;
 let boundAuthPort: number | null = null;
 let authLoopbackFailure: string | null = null;
 
@@ -727,14 +721,10 @@ const portForwardManager = new PortForwardManager();
 let tailnetEnvironmentManager: TailnetEnvironmentManager | null = null;
 let optionalDesktopReadiness: OptionalDesktopReadiness | null = null;
 let stopBrowserCookieWatch: (() => void) | null = null;
-let runtimeFiber: Fiber.Fiber<void, never> | null = null;
+let engineHost: ReturnType<typeof connectEngineHost> | null = null;
+let engineStartup: Promise<DesktopEngineEndpoint> | null = null;
 let notchTray: NotchTrayController | null = null;
-let localConnectivityHelper: ChildProcessWithoutNullStreams | null = null;
-let localConnectivityRestartTimer: ReturnType<typeof setTimeout> | null = null;
-let localConnectivityRestartAttempt = 0;
-let localConnectivityStopping = false;
-let computerAwakeController: ComputerAwakeController | null = null;
-let remoteComputerAwakeConnections = 0;
+let engineComputerAwakeStatus: ComputerAwakeStatus | null = null;
 const computerAwakeSubscribers = new Set<number>();
 const desktopProcessStartedAt = performance.now();
 
@@ -750,7 +740,7 @@ const unsupportedComputerAwakeStatus = (): ComputerAwakeStatus => ({
 });
 
 const currentComputerAwakeStatus = (): ComputerAwakeStatus =>
-	computerAwakeController?.getStatus() ?? unsupportedComputerAwakeStatus();
+	engineComputerAwakeStatus ?? unsupportedComputerAwakeStatus();
 
 const broadcastComputerAwakeStatus = (status: ComputerAwakeStatus): void => {
 	for (const webContentsId of [...computerAwakeSubscribers]) {
@@ -763,21 +753,6 @@ const broadcastComputerAwakeStatus = (status: ComputerAwakeStatus): void => {
 	}
 };
 
-const retainRemoteComputerAwakeConnection = (): (() => void) => {
-	remoteComputerAwakeConnections += 1;
-	computerAwakeController?.setRemoteClients(remoteComputerAwakeConnections);
-	let retained = true;
-	return () => {
-		if (!retained) return;
-		retained = false;
-		remoteComputerAwakeConnections = Math.max(
-			0,
-			remoteComputerAwakeConnections - 1,
-		);
-		computerAwakeController?.setRemoteClients(remoteComputerAwakeConnections);
-	};
-};
-
 ipcMain.handle(COMPUTER_AWAKE_GET_STATUS_CHANNEL, currentComputerAwakeStatus);
 
 ipcMain.handle(
@@ -787,13 +762,11 @@ ipcMain.handle(
 			throw new Error("Invalid computer-awake mode");
 		}
 		const mode: ComputerAwakeMode = rawMode;
-		const controller = computerAwakeController;
-		if (controller === null || process.platform !== "darwin") {
+		if (process.platform !== "darwin") {
 			return currentComputerAwakeStatus();
 		}
 		await writeComputerAwakePreference(app.getPath("userData"), mode);
-		controller.setMode(mode);
-		return controller.getStatus();
+		return currentComputerAwakeStatus();
 	},
 );
 
@@ -1184,7 +1157,6 @@ ipcMain.on(POWER_UNSUBSCRIBE_CHANNEL, (event) => {
 
 ipcMain.on(POWER_REPORT_WORKLOAD_CHANNEL, (_event, payload: unknown) => {
 	powerWorkload = sanitizePowerWorkload(payload);
-	computerAwakeController?.setActiveAgents(powerWorkload.activeAgents);
 	if (powerMeasurementMonitor?.getState().activeRecording !== null) {
 		powerMeasurementMonitor?.sampleNow();
 	}
@@ -1504,86 +1476,6 @@ const localConnectivityHelperPath = (): string =>
 				"zuse-local-connectivity",
 			);
 
-const startLocalConnectivityHelper = (
-	targetPort: number,
-	serviceName: string,
-	tlsCertificatePin?: string,
-): void => {
-	if (
-		(process.platform !== "darwin" && process.platform !== "linux") ||
-		localConnectivityHelper !== null
-	)
-		return;
-	const executable =
-		process.platform === "linux"
-			? "avahi-publish-service"
-			: localConnectivityHelperPath();
-	if (process.platform === "darwin" && !fsSync.existsSync(executable)) {
-		appendRemoteConnectionLog("local.helper.unavailable", { executable });
-		return;
-	}
-	const args =
-		process.platform === "linux"
-			? [
-					serviceName,
-					"_zuse._tcp",
-					String(targetPort),
-					...(tlsCertificatePin === undefined
-						? []
-						: [`tls=${tlsCertificatePin}`]),
-				]
-			: [
-					String(targetPort),
-					serviceName,
-					...(tlsCertificatePin === undefined ? [] : [tlsCertificatePin]),
-				];
-	const child = spawn(executable, args, {
-		stdio: ["pipe", "pipe", "pipe"],
-	});
-	localConnectivityHelper = child;
-	child.once("spawn", () => {
-		localConnectivityRestartAttempt = 0;
-	});
-	child.once("error", (cause) => {
-		if (localConnectivityHelper === child) localConnectivityHelper = null;
-		appendRemoteConnectionLog("local.helper.unavailable", {
-			executable,
-			cause,
-		});
-	});
-	child.stdout.setEncoding("utf8");
-	child.stderr.setEncoding("utf8");
-	child.stdout.on("data", (chunk: string) => {
-		for (const line of chunk.trim().split("\n")) {
-			if (line.includes('"event":"listener.ready"')) {
-				localConnectivityRestartAttempt = 0;
-			}
-			if (line.length > 0)
-				appendRemoteConnectionLog("local.helper.event", { line });
-		}
-	});
-	child.stderr.on("data", (chunk: string) => {
-		appendRemoteConnectionLog("local.helper.stderr", { message: chunk.trim() });
-	});
-	child.once("exit", (code, signal) => {
-		if (localConnectivityHelper === child) localConnectivityHelper = null;
-		appendRemoteConnectionLog("local.helper.exit", { code, signal });
-		if (localConnectivityStopping) return;
-		localConnectivityRestartAttempt += 1;
-		const delayMs = Math.min(
-			16_000,
-			1_000 * 2 ** Math.max(0, localConnectivityRestartAttempt - 1),
-		);
-		localConnectivityRestartTimer = setTimeout(() => {
-			localConnectivityRestartTimer = null;
-			startLocalConnectivityHelper(targetPort, serviceName, tlsCertificatePin);
-		}, delayMs);
-	});
-	child.once("error", (cause) => {
-		appendRemoteConnectionLog("local.helper.spawn_failed", { cause });
-	});
-};
-
 type NearbyTlsIdentity = {
 	readonly key: string;
 	readonly cert: string;
@@ -1883,77 +1775,187 @@ const openWithApp = (appSpecifier: string, targetPath: string): Promise<void> =>
 		});
 	});
 
-// Electron's dialog is the only host-shell API the server reaches for. Wrap
-// it here so apps/server stays free of any UI-toolkit imports — see ADR 0007.
-//
-// `showHiddenFiles` is critical on macOS: NSOpenPanel hides dotfile dirs
-// (`~/.claude`, `~/.config`, `~/.ssh`, …) by default, so without it the user
-// literally cannot navigate into anything under a hidden parent — they
-// appear stuck in whatever folder the dialog opens in. `defaultPath: home`
-// puts the dialog in a sensible starting place (the user's home dir) instead
-// of the Electron process's cwd, which on a packaged build is the app bundle.
-const folderPicker = {
-	pick: () =>
-		Effect.promise(() =>
-			dialog.showOpenDialog({
-				defaultPath: app.getPath("home"),
-				properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
-			}),
-		).pipe(
-			Effect.map((result) =>
-				result.canceled || result.filePaths.length === 0
-					? null
-					: (result.filePaths[0] ?? null),
-			),
-		),
+/** One shared launch attempt serves native and renderer attachments. */
+const desktopEngine = async (
+	signal?: AbortSignal,
+): Promise<DesktopEngineEndpoint> => {
+	signal?.throwIfAborted();
+	if (engineMaintenance.blocked())
+		throw new Error("The engine is preparing to update.");
+	engineStartup ??= (async () => {
+		const userData = app.getPath("userData");
+		const existing = await readEngineEndpoint(userData);
+		let existingPort: number | undefined;
+		if (existing !== null) {
+			try {
+				const probe = await connectLocalEngine(existing, { receive: () => {} });
+				probe.close();
+				await probe.closed;
+				existingPort = existing.apiPort;
+			} catch {
+				/* An old descriptor is not proof of a running engine. */
+			}
+		}
+		const port =
+			existingPort ??
+			(
+				await resolveDesktopApiPort({
+					configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
+				})
+			).port;
+		const enabled = await readNetworkAccessPreference(userData);
+		let network: ResolvedNetworkAccessState;
+		try {
+			network = resolveNetworkAccessState({
+				enabled,
+				port,
+				interfaces: networkInterfaces(),
+			});
+		} catch {
+			network = resolveNetworkAccessState({
+				enabled: false,
+				port,
+				interfaces: networkInterfaces(),
+			});
+		}
+		const nearbyTls =
+			network.mode === "network-accessible" && process.platform !== "win32"
+				? await ensureNearbyTlsIdentity(userData)
+				: undefined;
+		const endpoint = await ensureDesktopEngine({
+			supervisorPath: Path.join(__dirname, "engine-supervisor.cjs"),
+			config: {
+				userData,
+				appVersion: ZUSE_APP_VERSION,
+				apiPort: port,
+				bindHost: network.bindHost,
+				advertisedHost: network.advertisedHost,
+				apiUrl:
+					process.env.ZUSE_API_URL?.trim() ||
+					(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
+				staticDir: isDevelopment ? undefined : rendererDistDir(),
+				devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
+				cliAccessPath:
+					isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
+						? process.env.ZUSE_DEV_CLI_ACCESS_FILE
+						: Path.join(userData, "cli-access.json"),
+				nearbyTls,
+				nearbyHelperPath: localConnectivityHelperPath(),
+			},
+		});
+		return endpoint;
+	})().finally(() => {
+		engineStartup = null;
+	});
+	const endpoint = await engineStartup;
+	signal?.throwIfAborted();
+	if (engineMaintenance.blocked())
+		throw new Error("The engine is preparing to update.");
+	return endpoint;
 };
 
-// The WorkOS OAuth deep-link seam for the server's AuthService (ADR 0007 keeps
-// apps/server free of electron). `open` launches the system browser; the
-// server hands us its callback sink via `onCallbackUrl`, which we store in the
-// module-level `deliverAuthUrl` and prime with any deep links buffered before
-// the runtime came up.
-const authShell = {
-	get redirectUri() {
-		return `http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/callback`;
-	},
-	open: (url: string) =>
-		Effect.tryPromise({
-			try: async () => {
-				if (boundAuthPort === null) {
-					throw new Error(
-						authLoopbackFailure ??
-							"Sign-in port unavailable. Close other Zuse windows and retry.",
-					);
-				}
-				await shell.openExternal(url);
-			},
-			catch: (cause) =>
-				new AuthFlowError({
-					reason:
-						cause instanceof Error
-							? `Could not open browser: ${cause.message}`
-							: "Could not open browser.",
-				}),
-		}),
-	onCallbackUrl: (handler: (url: string) => void) =>
-		Effect.sync(() => {
-			deliverAuthUrl = handler;
+const engineMaintenance = makeEngineMaintenance({
+	startup: () => engineStartup,
+	endpoint: () => readEngineEndpoint(app.getPath("userData")),
+	shutdown: (endpoint) =>
+		requestIdleEngineShutdown(endpoint, { userData: app.getPath("userData") }),
+});
+setEngineUpdateLifecycle(engineMaintenance.scope());
+
+const attachDesktopHost = () => {
+	if (engineHost !== null) return;
+	engineHost = connectEngineHost({
+		endpoint: async (signal) => {
+			await authLoopbackReady;
+			return desktopEngine(signal);
+		},
+		authRedirectUri: () =>
+			`http://localhost:${boundAuthPort ?? AUTH_LOOPBACK_PORTS[0]}/callback`,
+		request: async (request, signal) => {
+			signal.throwIfAborted();
+			if (request.method === "pickFolder") {
+				const result = await dialog.showOpenDialog({
+					defaultPath: app.getPath("home"),
+					properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
+				});
+				signal.throwIfAborted();
+				return result.canceled ? null : (result.filePaths[0] ?? null);
+			}
+			if (boundAuthPort === null)
+				throw new Error(authLoopbackFailure ?? "Sign-in port unavailable.");
+			if (typeof request.payload !== "string")
+				throw new Error("Invalid browser URL.");
+			const url = new URL(request.payload);
+			if (url.protocol !== "https:" && url.protocol !== "http:")
+				throw new Error("Invalid browser URL.");
+			await shell.openExternal(url.toString());
+			return null;
+		},
+		attached: () => {
+			deliverAuthUrl = (url) => {
+				if (!engineHost?.callback(url)) pendingAuthUrls.push(url);
+			};
 			const queued = pendingAuthUrls;
 			pendingAuthUrls = [];
-			for (const url of queued) handler(url);
-		}),
+			for (const url of queued) deliverAuthUrl(url);
+		},
+		state: (state) => {
+			engineComputerAwakeStatus = state.computerAwake;
+			broadcastComputerAwakeStatus(state.computerAwake);
+		},
+		event: (event) => {
+			const payload = event.payload;
+			if (typeof payload !== "object" || payload === null) return;
+			if (event.name === "diagnostic") {
+				if ("event" in payload && typeof payload.event === "string")
+					appendRemoteConnectionLog(
+						payload.event,
+						"fields" in payload &&
+							typeof payload.fields === "object" &&
+							payload.fields !== null
+							? (payload.fields as Record<string, unknown>)
+							: undefined,
+					);
+			} else if (event.name === "openSession") {
+				if (
+					!("sessionId" in payload) ||
+					typeof payload.sessionId !== "string" ||
+					!("chatId" in payload) ||
+					typeof payload.chatId !== "string"
+				)
+					return;
+				focusMainWindow();
+				mainWindow?.webContents.send("notch:openChat", payload);
+			} else if (event.name === "pairingRequest") {
+				if (
+					!("deviceLabel" in payload) ||
+					typeof payload.deviceLabel !== "string" ||
+					!("deviceIdentifier" in payload) ||
+					typeof payload.deviceIdentifier !== "string"
+				)
+					return;
+				focusMainWindow();
+				if (Notification.isSupported()) {
+					const notification = new Notification({
+						title: uiMessage("desktop:pairingTitle"),
+						body: uiMessage("desktop:pairingBody", {
+							deviceLabel: payload.deviceLabel,
+							deviceIdentifier: payload.deviceIdentifier,
+						}),
+					});
+					notification.on("click", focusMainWindow);
+					notification.show();
+				}
+				mainWindow?.webContents.send("pairing:nearby-request", payload);
+			}
+		},
+	});
 };
 
 async function createMainWindow() {
 	const startupStartedAt = performance.now();
 	const userData = app.getPath("userData");
-	const startupPrerequisites = Promise.all([
-		resolveDesktopApiPort({
-			configuredPort: process.env.ZUSE_DESKTOP_WS_PORT,
-		}),
-		readNetworkAccessPreference(userData),
-	]);
+	const startupPrerequisites = desktopEngine();
 	const isMac = process.platform === "darwin";
 	mainWindow = new BrowserWindow({
 		width: 1280,
@@ -2013,6 +2015,13 @@ async function createMainWindow() {
 
 	// Avoid the white flash that transparent windows show before first paint.
 	mainWindow.once("ready-to-show", () => mainWindow?.show());
+	// Keep macOS's window attachment and native handlers alive between close and Dock reopen.
+	if (isMac)
+		mainWindow.on("close", (event) => {
+			if (sshQuitCleanupInProgress) return;
+			event.preventDefault();
+			mainWindow?.hide();
+		});
 
 	// Renderer needs to know fullscreen state to drop the macOS traffic-light
 	// gutter (the controls hide in native fullscreen, so the 80px reserve is
@@ -2035,19 +2044,11 @@ async function createMainWindow() {
 	// Install the IPC inbox before navigation. The preload bridge can send its
 	// handshake as soon as the renderer starts, and Electron does not replay an
 	// ipcRenderer.send() frame when no ipcMain listener exists yet.
-	const serverProtocol = electronServerProtocolLayer(
-		mainWindow.webContents,
-		(event, fields) =>
-			appendRemoteConnectionLog(event, {
-				...fields,
-				processElapsedMs: Math.round(
-					performance.now() - desktopProcessStartedAt,
-				),
-			}),
-	);
+	installEngineServerBridge(mainWindow.webContents, desktopEngine);
+	attachDesktopHost();
 
 	// Start Chromium as soon as the native window exists. Port selection,
-	// network preferences, TLS identity, and the embedded runtime can settle
+	// network preferences, TLS identity, and the independent engine can settle
 	// behind the lightweight renderer startup surface instead of delaying the
 	// first visible frame after a Dock click.
 	if (isDevelopment) {
@@ -2059,7 +2060,8 @@ async function createMainWindow() {
 		void mainWindow.loadURL(PACKAGED_RENDERER_URL);
 	}
 
-	const [apiPort, networkAccessEnabled] = await startupPrerequisites;
+	const endpoint = await startupPrerequisites;
+	const apiPort = { port: endpoint.apiPort };
 	sshEnvironmentManager ??= new SshEnvironmentManager(userData);
 	tailnetEnvironmentManager ??= new TailnetEnvironmentManager(userData);
 	const sshManager = sshEnvironmentManager;
@@ -2086,26 +2088,24 @@ async function createMainWindow() {
 			}
 		})
 		.catch(() => undefined);
-	const systemHostname = hostname();
-	let networkAccess: ResolvedNetworkAccessState;
-	try {
-		networkAccess = resolveNetworkAccessState({
-			enabled: networkAccessEnabled,
-			port: apiPort.port,
-			interfaces: networkInterfaces(),
-		});
-	} catch (cause) {
-		recordMainDiagnostic("warn", "network-access", [cause]);
-		networkAccess = resolveNetworkAccessState({
-			enabled: false,
-			port: apiPort.port,
-			interfaces: networkInterfaces(),
-		});
-	}
-	const nearbyTls =
-		networkAccess.mode === "network-accessible" && process.platform !== "win32"
-			? await ensureNearbyTlsIdentity(userData)
-			: null;
+	const runningNetwork = endpoint.network;
+	if (runningNetwork === undefined)
+		throw new Error(
+			"The running engine did not report its network configuration.",
+		);
+	const networkAccess: ResolvedNetworkAccessState = {
+		mode:
+			runningNetwork.bindHost === "127.0.0.1"
+				? "local-only"
+				: "network-accessible",
+		bindHost: runningNetwork.bindHost,
+		advertisedHost: runningNetwork.advertisedHost,
+		endpointUrl:
+			runningNetwork.advertisedHost === null
+				? null
+				: `ws://${runningNetwork.advertisedHost}:${apiPort.port}`,
+		port: apiPort.port,
+	};
 
 	// Hand off http(s) URLs to the OS default browser via `shell.openExternal`
 	// — the renderer asked to leave Electron, not to host another Chromium
@@ -2461,13 +2461,31 @@ async function createMainWindow() {
 				port: apiPort.port,
 				interfaces: networkInterfaces(),
 			});
-			await writeNetworkAccessPreference(userData, enabled);
+
 			if (next.mode !== networkAccess.mode) {
-				setTimeout(() => {
-					app.relaunch();
-					app.exit(0);
-				}, 250);
-			}
+				const maintenance = engineMaintenance.scope();
+				try {
+					if ((await maintenance.prepare()) !== "stopped")
+						throw new Error(
+							"Finish active engine work before changing network access.",
+						);
+					await writeNetworkAccessPreference(userData, enabled);
+					setTimeout(() => {
+						try {
+							app.relaunch();
+							app.exit(0);
+						} catch (error) {
+							maintenance.resume();
+							recordMainDiagnostic("error", "desktop.network.relaunch_failed", [
+								error,
+							]);
+						}
+					}, 250);
+				} catch (error) {
+					maintenance.resume();
+					throw error;
+				}
+			} else await writeNetworkAccessPreference(userData, enabled);
 			return {
 				mode: next.mode,
 				advertisedHost: next.advertisedHost,
@@ -3367,212 +3385,8 @@ async function createMainWindow() {
 		}
 	});
 
-	// Boot the Effect runtime after its remaining async prerequisites settle.
-	// The Electron protocol above has already buffered any early renderer frames.
-	const apiWsPort = apiPort.port;
-	const apiWsProtocol = wsServerProtocolLayer({
-		port: apiWsPort,
-		host: networkAccess.bindHost,
-		staticDir: isDevelopment ? undefined : rendererDistDir(),
-		devServerUrl: isDevelopment ? DEV_SERVER_URL : undefined,
-		onDiagnostic: appendRemoteConnectionLog,
-		onAuthenticatedConnection: retainRemoteComputerAwakeConnection,
-	});
-	const nearbyWsProtocol =
-		nearbyTls === null
-			? null
-			: wsServerProtocolLayer({
-					port: 0,
-					host:
-						process.platform === "linux" ? networkAccess.bindHost : "127.0.0.1",
-					tls: { key: nearbyTls.key, cert: nearbyTls.cert },
-					onDiagnostic: appendRemoteConnectionLog,
-					onListening: ({ port }) =>
-						startLocalConnectivityHelper(port, systemHostname, nearbyTls.pin),
-					onAuthenticatedConnection: retainRemoteComputerAwakeConnection,
-				});
-	appendRemoteConnectionLog("desktop.runtime.start", {
-		apiWsPort,
-		userData: app.getPath("userData"),
-		elapsedMs: Math.round(performance.now() - startupStartedAt),
-	});
-	if (apiPort.fellBack) {
-		appendRemoteConnectionLog("desktop.runtime.port_fallback", {
-			apiWsPort,
-		});
-	}
-	process.env.ZUSE_APP_VERSION = ZUSE_APP_VERSION;
-
-	const runtimeStartedAt = performance.now();
-	const launchedRuntime = Effect.runFork(
-		Layer.launch(
-			makeMainLayer({
-				userData,
-				telemetryIdentity: { kind: "desktop", instance: "local" },
-				resumeApiLink: remoteAccessPolicy.resumeLink,
-				retireApiLink: remoteAccessPolicy.retireLink,
-				autoApiLink: remoteAccessPolicy.autoLink
-					? {
-							apiUrl:
-								process.env.ZUSE_API_URL?.trim() ||
-								(isDevelopment ? STAGING_API_URL : PRODUCTION_API_URL),
-						}
-					: undefined,
-				folderPicker,
-				serverProtocol,
-				additionalServerProtocols: [
-					apiWsProtocol,
-					...(nearbyWsProtocol === null ? [] : [nearbyWsProtocol]),
-				],
-				authShell,
-				modelConnectionMasterKey: secureStorageMasterKey,
-				credentialsLayer: CredentialsServiceLive,
-				openHostSession: (sessionId, chatId) => {
-					focusMainWindow();
-					mainWindow?.webContents.send("notch:openChat", {
-						chatId,
-						sessionId,
-					});
-				},
-				lanAuth: {
-					policy: "protected",
-					advertisedHost: networkAccess.advertisedHost,
-					port: apiWsPort,
-					pairingBootstrap: false,
-					transportCertificatePin: nearbyTls?.pin,
-					onNearbyPairingRequest: (request) => {
-						const requestFields = {
-							requestId: request.requestId,
-							deviceIdentifier: request.deviceIdentifier,
-						};
-						const rendererAvailable =
-							mainWindow !== null &&
-							!mainWindow.isDestroyed() &&
-							!mainWindow.webContents.isDestroyed();
-						appendRemoteConnectionLog("pairing.nearby.request_received", {
-							...requestFields,
-							rendererAvailable,
-						});
-						console.info("[zuse:pairing] desktop.request.received", {
-							...requestFields,
-							rendererAvailable,
-						});
-
-						try {
-							focusMainWindow();
-							console.info(
-								"[zuse:pairing] desktop.window.focused",
-								requestFields,
-							);
-						} catch (cause) {
-							appendRemoteConnectionLog("pairing.nearby.window_focus_failed", {
-								...requestFields,
-								cause,
-							});
-							console.error(
-								"[zuse:pairing] desktop.window.focus_failed",
-								cause,
-							);
-						}
-
-						if (Notification.isSupported()) {
-							try {
-								const notification = new Notification({
-									title: uiMessage("desktop:pairingTitle"),
-									body: uiMessage("desktop:pairingBody", {
-										deviceLabel: request.deviceLabel,
-										deviceIdentifier: request.deviceIdentifier,
-									}),
-								});
-								notification.on("click", focusMainWindow);
-								notification.show();
-								console.info(
-									"[zuse:pairing] desktop.notification.shown",
-									requestFields,
-								);
-							} catch (cause) {
-								appendRemoteConnectionLog(
-									"pairing.nearby.notification_failed",
-									{
-										...requestFields,
-										cause,
-									},
-								);
-								console.error(
-									"[zuse:pairing] desktop.notification.failed",
-									cause,
-								);
-							}
-						} else {
-							console.info(
-								"[zuse:pairing] desktop.notification.unsupported",
-								requestFields,
-							);
-						}
-
-						if (!rendererAvailable || mainWindow === null) {
-							console.error(
-								"[zuse:pairing] desktop.renderer.unavailable",
-								requestFields,
-							);
-							return;
-						}
-						try {
-							mainWindow.webContents.send("pairing:nearby-request", request);
-							console.info(
-								"[zuse:pairing] desktop.renderer.sent",
-								requestFields,
-							);
-						} catch (cause) {
-							appendRemoteConnectionLog("pairing.nearby.renderer_send_failed", {
-								...requestFields,
-								cause,
-							});
-							console.error(
-								"[zuse:pairing] desktop.renderer.send_failed",
-								cause,
-							);
-						}
-					},
-				},
-				cliAccess: {
-					path:
-						isDevelopment && process.env.ZUSE_DEV_CLI_ACCESS_FILE
-							? process.env.ZUSE_DEV_CLI_ACCESS_FILE
-							: Path.join(app.getPath("userData"), "cli-access.json"),
-					wsUrl: `ws://127.0.0.1:${apiWsPort}/rpc`,
-				},
-				onStartupPhase: (phase) =>
-					appendRemoteConnectionLog(`desktop.startup.${phase}`, {
-						runtimeElapsedMs: Math.round(performance.now() - runtimeStartedAt),
-						processElapsedMs: Math.round(
-							performance.now() - desktopProcessStartedAt,
-						),
-					}),
-			}),
-		).pipe(
-			Effect.catchCause((cause) =>
-				Effect.gen(function* () {
-					// Boot-time layer failures (sqlite open, migrator, config) are
-					// unrecoverable — surface the cause and bail. Quiet
-					// success-after-restart is preferable to a half-running app.
-					const detail = Cause.pretty(cause);
-					appendRemoteConnectionLog("desktop.runtime.fatal", {
-						cause: detail,
-					});
-					console.error("[zuse] fatal boot error\n", detail);
-					yield* Effect.promise(() => appLogWriter.flush());
-					app.exit(1);
-				}),
-			),
-		),
-	);
-	runtimeFiber = launchedRuntime;
-	appendRemoteConnectionLog("desktop.startup.runtime_launched", {
-		elapsedMs: Math.round(performance.now() - startupStartedAt),
-	});
 	const startup = startOptionalServicesAfterCritical(
-		() => launchedRuntime,
+		() => endpoint,
 		{
 			ssh: async () => {
 				await sshManager.initialize();
@@ -3622,10 +3436,6 @@ async function createMainWindow() {
 
 	mainWindow.on("closed", () => {
 		mainWindow = null;
-		if (runtimeFiber !== null) {
-			void Effect.runPromise(Fiber.interrupt(runtimeFiber));
-			runtimeFiber = null;
-		}
 	});
 }
 
@@ -3883,47 +3693,6 @@ ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 });
 
-const isNotchItemState = (value: unknown): value is NotchTrayItem["state"] =>
-	value === "running" ||
-	value === "completed" ||
-	value === "failed" ||
-	value === "planReady" ||
-	value === "question" ||
-	value === "permission";
-
-const sanitizeNotchItems = (raw: unknown): ReadonlyArray<NotchTrayItem> => {
-	if (!Array.isArray(raw)) return [];
-	const out: NotchTrayItem[] = [];
-	for (const item of raw) {
-		if (item === null || typeof item !== "object") continue;
-		const obj = item as Record<string, unknown>;
-		if (
-			typeof obj.id !== "string" ||
-			typeof obj.chatId !== "string" ||
-			typeof obj.sessionId !== "string" ||
-			typeof obj.title !== "string" ||
-			typeof obj.subtitle !== "string" ||
-			typeof obj.label !== "string" ||
-			typeof obj.updatedAt !== "number" ||
-			!isNotchItemState(obj.state)
-		) {
-			continue;
-		}
-		out.push({
-			id: obj.id,
-			chatId: obj.chatId,
-			sessionId: obj.sessionId,
-			title: obj.title.slice(0, 160),
-			subtitle: obj.subtitle.slice(0, 180),
-			state: obj.state,
-			label: obj.label.slice(0, 80),
-			updatedAt: obj.updatedAt,
-		});
-		if (out.length >= 12) break;
-	}
-	return out;
-};
-
 ipcMain.on("notch:setItems", (_event, payload: unknown) => {
 	notchTray?.setItems(sanitizeNotchItems(payload));
 });
@@ -4030,13 +3799,21 @@ void app.whenReady().then(async () => {
 	// services. The async function reaches its first prerequisite await only
 	// after Chromium navigation has started, so the Dock click gets immediate
 	// visual feedback while the rest of startup continues in parallel.
-	const mainWindowReady = createMainWindow();
+	authLoopbackReady = startAuthLoopback();
+	const mainWindowReady = createMainWindow().catch((error) => {
+		recordMainDiagnostic("error", "desktop.engine.start_failed", [error]);
+		dialog.showErrorBox(
+			"Zuse could not connect to its engine",
+			error instanceof Error ? error.message : "Try reopening the app.",
+		);
+		app.quit();
+	});
 
 	// Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
 	// It's the redirect_uri for both, so the browser finishes on a real HTML
 	// page and no `zuse://` deep-link handoff/prompt is needed. The scheme
 	// handler stays registered below as a fallback.
-	await startAuthLoopback();
+	await authLoopbackReady;
 
 	// Win/Linux cold launch from a deep link: the URL is an argv entry.
 	const initialPairingLink = process.argv.find(isPairingDeepLink);
@@ -4058,16 +3835,6 @@ void app.whenReady().then(async () => {
 	nativePowerMonitor.on("resume", broadcastSystemResume);
 	nativePowerMonitor.on("unlock-screen", broadcastSystemResume);
 
-	if (process.platform === "darwin") {
-		const mode = await readComputerAwakePreference(app.getPath("userData"));
-		computerAwakeController = new ComputerAwakeController({
-			blocker: powerSaveBlocker,
-			initialMode: mode,
-			powerMonitor: nativePowerMonitor,
-		});
-		computerAwakeController.setRemoteClients(remoteComputerAwakeConnections);
-		computerAwakeController.subscribe(broadcastComputerAwakeStatus);
-	}
 	notchTray = new NotchTrayController({
 		preloadPath: Path.join(__dirname, "preload.cjs"),
 		devServerUrl: DEV_SERVER_URL,
@@ -4123,32 +3890,9 @@ app.on("window-all-closed", () => {
 	}
 });
 
-// ---------------------------------------------------------------------------
-// Quit guard. Agents (Claude/Codex/Grok/… turns) run as child processes owned
-// by the embedded server. Quitting mid-turn kills them, so if any are running
-// we confirm first. The renderer store is the source of truth for "how many
-// are running"; it pushes the count here on every change (see preload
-// `updates.reportRunningCount`). We mirror the latest value so the
-// synchronous `before-quit` handler can read it without a round-trip.
-// ---------------------------------------------------------------------------
-let runningAgentCount = 0;
-// Set once the user has confirmed a quit (or an update install begins) so a
-// re-entrant `before-quit` — Electron fires it again after `app.quit()` — does
-// not pop the dialog a second time.
-let quitConfirmed = false;
+// Desktop quit releases UI-owned resources. Engine work keeps running.
 let sshQuitCleanupComplete = false;
 let sshQuitCleanupInProgress = false;
-// Armed by the dialog's "Quit when idle" choice: keep running, then quit
-// automatically the moment the last agent finishes.
-let quitWhenIdle = false;
-
-ipcMain.on(AGENTS_RUNNING_COUNT_CHANNEL, (_event, payload: unknown) => {
-	runningAgentCount = typeof payload === "number" && payload >= 0 ? payload : 0;
-	if (quitWhenIdle && runningAgentCount === 0) {
-		quitConfirmed = true;
-		app.quit();
-	}
-});
 
 /** Close the local port forwards owned by a saved SSH profile's environment. */
 const closeSshProfileForwards = async (profileId: string): Promise<void> => {
@@ -4168,21 +3912,19 @@ const finishQuitAfterSshCleanup = (event: {
 	if (sshQuitCleanupInProgress) return;
 	sshQuitCleanupInProgress = true;
 	const manager = sshEnvironmentManager;
-	const runtime = runtimeFiber;
-	runtimeFiber = null;
+	const host = engineHost;
+	engineHost = null;
+	deliverAuthUrl = null;
 	stopBrowserCookieWatch?.();
 	stopBrowserCookieWatch = null;
 	void Promise.allSettled([
 		cloudSyncManager.dispose(),
+		host?.close() ?? Promise.resolve(),
 		portForwardManager.closeAll(),
 		manager?.close() ?? Promise.resolve(),
-		runtime === null
-			? Promise.resolve()
-			: Effect.runPromise(Fiber.interrupt(runtime)),
 	]).finally(() => {
 		if (sshEnvironmentManager === manager) sshEnvironmentManager = null;
 		sshQuitCleanupComplete = true;
-		quitConfirmed = true;
 		app.quit();
 	});
 };
@@ -4194,64 +3936,19 @@ const beginPendingUpdateInstall = (event: Electron.Event): boolean => {
 };
 
 app.on("before-quit", (event) => {
-	// An update-driven quit (user picked "Restart now") or an already-confirmed
-	// quit passes straight through — the user has opted in, and re-prompting
-	// would strand the relaunch.
-	if (getIsInstallingUpdate()) {
-		finishQuitAfterSshCleanup(event);
+	if (
+		!sshQuitCleanupComplete &&
+		!getIsInstallingUpdate() &&
+		beginPendingUpdateInstall(event)
+	)
 		return;
-	}
-	if (quitConfirmed) {
-		// On macOS, stage only after quit is allowed so a newer release can
-		// supersede an older download without bypassing the running-agent guard.
-		if (beginPendingUpdateInstall(event)) return;
-		finishQuitAfterSshCleanup(event);
-		return;
-	}
-	if (runningAgentCount <= 0) {
-		if (beginPendingUpdateInstall(event)) return;
-		finishQuitAfterSshCleanup(event);
-		return;
-	}
-
-	event.preventDefault();
-
-	const choice = dialog.showMessageBoxSync({
-		type: "warning",
-		buttons: [
-			uiMessage("common:cancel"),
-			uiMessage("desktop:quitAnyway"),
-			uiMessage("desktop:quitWhenIdle"),
-		],
-		defaultId: 0,
-		cancelId: 0,
-		title: uiMessage("desktop:quitTitle"),
-		message: uiMessage("desktop:runningAgents", { count: runningAgentCount }),
-		detail: uiMessage("desktop:quitDetail"),
-	});
-
-	if (choice === 1) {
-		quitConfirmed = true;
-		finishQuitAfterSshCleanup(event);
-	} else if (choice === 2) {
-		quitWhenIdle = true;
-		// Stay open; the running-count handler quits once the count hits zero.
-		// Guard against the race where every agent already finished between the
-		// count push and this click.
-		if (runningAgentCount === 0) {
-			quitConfirmed = true;
-			app.quit();
-		}
-	}
-	// choice === 0 (Cancel): stay open — quit already prevented.
+	finishQuitAfterSshCleanup(event);
 });
 
 // Tear down the macOS notch tray once a quit actually proceeds. `will-quit`
 // fires after an un-prevented `before-quit`, so a cancelled quit leaves the
 // tray untouched.
 app.on("will-quit", () => {
-	computerAwakeController?.dispose();
-	computerAwakeController = null;
 	computerAwakeSubscribers.clear();
 	if (gotSingleInstanceLock) {
 		try {
@@ -4273,13 +3970,6 @@ app.on("will-quit", () => {
 	}
 	eventLoopDelay.disable();
 	void performanceHistoryStore.flush();
-	localConnectivityStopping = true;
-	if (localConnectivityRestartTimer !== null) {
-		clearTimeout(localConnectivityRestartTimer);
-		localConnectivityRestartTimer = null;
-	}
-	localConnectivityHelper?.kill("SIGTERM");
-	localConnectivityHelper = null;
 	notchTray?.destroy();
 	notchTray = null;
 });

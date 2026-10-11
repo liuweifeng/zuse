@@ -1,9 +1,18 @@
 import {
+	ProviderTurnReference,
 	TurnSettlementOutcome,
 	type TurnSettlementOutcome as TurnSettlementOutcomeType,
 } from "@zuse/contracts";
 import { Schema } from "effect";
-import { SessionCreatedFields } from "./session-fields.js";
+import { InputRequestOwner } from "../agent-engine/input-owner.js";
+import { ProviderThreadSeed, SessionCreatedFields } from "./session-fields.js";
+
+export const AttemptProviderTurnFields = {
+	turnId: Schema.String,
+	attemptId: Schema.String,
+	reference: ProviderTurnReference,
+	boundAt: Schema.Number,
+};
 
 export const SegmentKind = Schema.Literals(["assistant", "reasoning", "tool"]);
 export type SegmentKind = typeof SegmentKind.Type;
@@ -11,6 +20,13 @@ export type SegmentKind = typeof SegmentKind.Type;
 /** Domain alias retained for callers; the wire contract is the source of truth. */
 export const SettlementOutcome = TurnSettlementOutcome;
 export type SettlementOutcome = TurnSettlementOutcomeType;
+
+export const AttemptReason = Schema.Literals([
+	"initial",
+	"retry",
+	"provider_recovery",
+]);
+export type AttemptReason = typeof AttemptReason.Type;
 
 export const TurnPhase = Schema.Literals([
 	"running",
@@ -23,11 +39,13 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("CreateSession", {
 		...SessionCreatedFields,
 		providerStartJson: Schema.optional(Schema.String),
+		providerThread: Schema.optional(ProviderThreadSeed),
 	}),
 	Schema.TaggedStruct("CreateSessionWithInitialTurn", {
 		...SessionCreatedFields,
 		/** Legacy startup options retained on the turn, never an eager-start signal. */
 		providerStartJson: Schema.optional(Schema.String),
+		providerThread: Schema.optional(ProviderThreadSeed),
 		turnId: Schema.String,
 		messageId: Schema.String,
 		messageContentJson: Schema.String,
@@ -43,6 +61,8 @@ export const SessionCommand = Schema.Union([
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SetProvider", {
+		resumeThreadId: Schema.optional(Schema.String),
+		expectedProviderThreadId: Schema.optional(Schema.NullOr(Schema.String)),
 		providerId: Schema.String,
 		model: Schema.String,
 		updatedAt: Schema.Number,
@@ -75,11 +95,34 @@ export const SessionCommand = Schema.Union([
 		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
-	Schema.TaggedStruct("SetResume", {
-		cursor: SessionCreatedFields.cursor,
-		resumeStrategy: SessionCreatedFields.resumeStrategy,
-		providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
+	/**
+	 * Bind the provider-native thread the driver reported as the session's
+	 * active provider thread. Idempotent for the same native id and head.
+	 */
+	Schema.TaggedStruct("BindAttemptProviderTurn", AttemptProviderTurnFields),
+	Schema.TaggedStruct("BindProviderThread", {
+		nativeThreadId: Schema.String,
+		nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
+	}),
+	/** Inspect a proven native execution in a fresh attempt, without resending. */
+	Schema.TaggedStruct("ExpireAttempt", {
+		turnId: Schema.String,
+		expectedAttemptId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("RecoverTurn", {
+		turnId: Schema.String,
+		expectedAttemptId: Schema.String,
+		requestedAt: Schema.Number,
+	}),
+	/** Intentional delivery retry. Historical recovery callers used this path. */
+	Schema.TaggedStruct("RetryTurn", {
+		turnId: Schema.String,
+		reason: Schema.Literals(["retry", "provider_recovery"]),
+		providerInputJson: Schema.String,
+		providerStartJson: Schema.optional(Schema.String),
+		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ArchiveSession", { archivedAt: Schema.Number }),
 	Schema.TaggedStruct("UnarchiveSession", { unarchivedAt: Schema.Number }),
@@ -97,6 +140,17 @@ export const SessionCommand = Schema.Union([
 		parentItemId: Schema.NullOr(Schema.String),
 		providerInputJson: Schema.String,
 		createdAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("RollbackTurns", {
+		throughOrdinal: Schema.Number,
+		messageSequence: Schema.Number,
+		removedMessageIds: Schema.Array(Schema.String),
+		rolledBackAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("FinalizeTurn", {
+		turnId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SettleTurn", {
 		turnId: Schema.String,
@@ -148,6 +202,7 @@ export const SessionCommand = Schema.Union([
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("PersistMessage", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		messageId: Schema.String,
 		turnId: Schema.NullOr(Schema.String),
 		role: Schema.String,
@@ -171,6 +226,7 @@ export const SessionCommand = Schema.Union([
 		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestPermission", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		requestId: Schema.String,
 		turnId: Schema.String,
 		payloadJson: Schema.String,
@@ -182,16 +238,43 @@ export const SessionCommand = Schema.Union([
 		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ExpirePermission", {
+		requestId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ExpirePlan", {
+		itemId: Schema.String,
+		reason: Schema.Literals(["expired", "uncertain"]),
+		expiredAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ExpireQuestion", {
+		itemId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ResolveQuestion", {
 		itemId: Schema.String,
 		resolution: Schema.Literal("cancelled"),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ReserveProviderSession", {
+		ownerAttempt: Schema.optional(
+			Schema.Struct({ turnId: Schema.String, attemptId: Schema.String }),
+		),
+		expectedModel: Schema.optional(Schema.String),
+		expectedWorktreeId: Schema.optional(Schema.NullOr(Schema.String)),
+		providerId: Schema.String,
+		providerSessionId: Schema.String,
+		reservedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("AttachProvider", {
 		providerId: Schema.String,
+		providerSessionId: Schema.optional(Schema.String),
 		attachedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("RequestProviderStop", { requestedAt: Schema.Number }),
-	Schema.TaggedStruct("DetachProvider", { detachedAt: Schema.Number }),
+	Schema.TaggedStruct("DetachProvider", {
+		detachedAt: Schema.Number,
+		expectedProviderSessionId: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
 ]);
 export type SessionCommand = typeof SessionCommand.Type;

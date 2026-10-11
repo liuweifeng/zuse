@@ -31,19 +31,29 @@ import type {
 	MessageOrigin,
 	PermissionMode,
 	PlanApprovalOutcome,
+	PlanResolutionError,
 	ProviderId,
+	QuestionResolutionError,
 	QueuedMessage,
 	QueuedMessageCapacityError,
 	QueuedMessageNotFoundError,
 	QueueState,
-	ResumeStrategy,
 	RuntimeMode,
 	Session,
 	SessionAlreadyStartedError,
+	SessionConfigurationError,
+	SessionContextError,
+	SessionContextLink,
+	SessionForkConstruction,
 	SessionId,
+	SessionInputBlockedError,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
 	SessionStartError,
+	SessionWaitError,
+	SessionWaitInput,
+	SessionWaitOptions,
+	SessionWaitResult,
 	SkillRef,
 	ThreadGoal,
 	ThreadGoalSetInput,
@@ -52,6 +62,7 @@ import type {
 	WorkspaceActor,
 	WorktreeId,
 } from "@zuse/contracts";
+import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Context, type Effect, type Stream } from "effect";
 
@@ -67,9 +78,17 @@ import { Context, type Effect, type Stream } from "effect";
  *   (`Started`, `Status`, `Completed`) update the session row but are not
  *   persisted as messages.
  */
+/** Native handle of a provider thread to bind at creation. */
+export interface ProviderThreadSeedInput {
+	readonly nativeThreadId: string;
+	readonly nativeHeadId?: string | null;
+}
+
 export interface CreateSessionInput {
 	readonly actor?: WorkspaceActor;
 	readonly githubSlackMessageId?: string;
+	/** Internal orchestration authority; never accepted directly from a client. */
+	readonly delegation?: DelegationOrigin;
 	/** Stable identity minted by an optimistic client. */
 	readonly sessionId?: SessionId;
 	/** Stable receipt identity for a retry-safe session bootstrap. */
@@ -125,8 +144,8 @@ export interface CreateSessionInput {
 	 * timing is preserved.
 	 */
 	readonly background?: boolean;
-	readonly resumeCursor?: string | null;
-	readonly resumeStrategy?: ResumeStrategy;
+	/** Provider-native thread to continue or fork, keyed by the new session's provider. */
+	readonly providerThread?: ProviderThreadSeedInput;
 	/**
 	 * Fork provenance — set when this session branches from another. Persisted
 	 * to the `forked_from_*` columns. `forkFromResume` tells the driver to fork
@@ -147,6 +166,7 @@ export interface CreateSessionInput {
 export interface CreateChatInput {
 	readonly actor?: WorkspaceActor;
 	readonly githubSlackMessageId?: string;
+	readonly delegation?: DelegationOrigin;
 	/** Stable identities minted by an optimistic client. */
 	readonly chatId?: ChatId;
 	readonly initialSessionId?: SessionId;
@@ -177,8 +197,7 @@ export interface CreateChatInput {
 	 * for user-created chats.
 	 */
 	readonly originSessionId?: SessionId | null;
-	readonly resumeCursor?: string | null;
-	readonly resumeStrategy?: ResumeStrategy;
+	readonly providerThread?: ProviderThreadSeedInput;
 	readonly forkedFromSessionId?: SessionId | null;
 	readonly forkedFromMessageId?: MessageId | null;
 	readonly forkFromResume?: boolean;
@@ -199,6 +218,7 @@ export interface ForkSessionInput {
 	readonly commandId?: string;
 	readonly sourceSessionId: SessionId;
 	readonly fromMessageId: MessageId;
+	readonly nativeChildStepId?: string;
 	readonly destination: ForkDestination;
 	readonly providerId?: ProviderId;
 	readonly model?: string;
@@ -264,19 +284,14 @@ export interface ConversationOperations {
 	readonly setModel: (
 		sessionId: SessionId,
 		model: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionConfigurationError>;
 
-	/**
-	 * Switch a session's provider and model. Allowed only before the first
-	 * user message has been recorded — fails with `SessionAlreadyStartedError`
-	 * otherwise, because the new CLI cannot read the prior CLI's transcript.
-	 * Also clears the resume cursor since it's provider-specific.
-	 */
+	/** Switch an idle conversation, preserving history through an explicit handoff. */
 	readonly setProvider: (
 		sessionId: SessionId,
 		providerId: ProviderId,
 		model: string,
-	) => Effect.Effect<void, SessionNotFoundError | SessionAlreadyStartedError>;
+	) => Effect.Effect<void, SessionNotFoundError | SessionConfigurationError>;
 
 	/**
 	 * Stop an idle session's provider process; the next turn starts a fresh
@@ -317,19 +332,19 @@ export interface ConversationOperations {
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | QuestionResolutionError>;
 	/** Cancel a pending question without encoding cancellation as an answer. */
 	readonly cancelQuestion: (
 		sessionId: SessionId,
 		itemId: AgentItemId,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | QuestionResolutionError>;
 
 	readonly respondToPlan: (
 		sessionId: SessionId,
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void, SessionNotFoundError>;
+	) => Effect.Effect<void, SessionNotFoundError | PlanResolutionError>;
 
 	/**
 	 * Switch the worktree this session runs in. Allowed only before the first
@@ -389,8 +404,7 @@ export interface ConversationOperations {
 
 	readonly continueExternalThread: (
 		input: CreateChatInput & {
-			readonly resumeCursor: string;
-			readonly resumeStrategy: Exclude<ResumeStrategy, "none">;
+			readonly providerThread: ProviderThreadSeedInput;
 		},
 	) => Effect.Effect<
 		{
@@ -413,6 +427,29 @@ export interface ConversationOperations {
 	 * transcript up to the fork message). Records `forked_from_*` on the new
 	 * session.
 	 */
+	readonly forkConstructions: (
+		sessionId: SessionId,
+	) => Effect.Effect<
+		ReadonlyArray<SessionForkConstruction>,
+		SessionContextError
+	>;
+	readonly retryFork: (
+		sessionId: SessionId,
+		forkSessionId: SessionId,
+	) => Effect.Effect<void, SessionContextError>;
+	readonly cancelFork: (
+		sessionId: SessionId,
+		forkSessionId: SessionId,
+	) => Effect.Effect<void, SessionContextError>;
+	readonly mergeBack: (input: {
+		readonly commandId: string;
+		readonly sessionId: SessionId;
+		readonly throughMessageId?: MessageId;
+	}) => Effect.Effect<SessionContextLink, SessionContextError>;
+	readonly contextLinks: (
+		sessionId: SessionId,
+	) => Effect.Effect<ReadonlyArray<SessionContextLink>, SessionContextError>;
+
 	readonly forkSession: (
 		input: ForkSessionInput,
 	) => Effect.Effect<
@@ -556,11 +593,18 @@ export interface ConversationOperations {
 	>;
 
 	/** Internal named-input path for durable transports and other services. */
+	readonly waitSession: (
+		input: SessionWaitInput,
+	) => Effect.Effect<SessionWaitResult, SessionWaitError>;
+	readonly sendMessageAndWait: (
+		input: MessageSendInput,
+		wait: SessionWaitOptions,
+	) => Effect.Effect<SessionWaitResult, SessionWaitError>;
 	readonly sendMessageWithInput: (
 		input: MessageSendInput,
 	) => Effect.Effect<
 		MessageSendResult,
-		SessionNotFoundError | DirectoryUnavailableError
+		SessionNotFoundError | DirectoryUnavailableError | SessionInputBlockedError
 	>;
 
 	readonly sendMessage: (
@@ -577,7 +621,10 @@ export interface ConversationOperations {
 		receiptIdentity?: CommandReceiptIdentity,
 		actor?: WorkspaceActor,
 		githubSlackMessageId?: string,
-	) => Effect.Effect<void, SessionNotFoundError | DirectoryUnavailableError>;
+	) => Effect.Effect<
+		void,
+		SessionNotFoundError | DirectoryUnavailableError | SessionInputBlockedError
+	>;
 
 	readonly interruptSession: (
 		commandId: string,
@@ -597,9 +644,10 @@ export interface ConversationOperations {
 		ready?: boolean,
 		flush?: boolean,
 		actor?: WorkspaceActor,
+		rejectIfBlocked?: boolean,
 	) => Effect.Effect<
 		QueuedMessage,
-		SessionNotFoundError | QueuedMessageCapacityError
+		SessionNotFoundError | QueuedMessageCapacityError | SessionInputBlockedError
 	>;
 
 	readonly updateQueuedMessage: (
@@ -693,13 +741,23 @@ export type TranscriptServiceShape = Pick<
 	| "continueExternalThread"
 	| "importExternalMessages"
 	| "forkSession"
+	| "forkConstructions"
+	| "retryFork"
+	| "cancelFork"
+	| "mergeBack"
+	| "contextLinks"
 	| "exportTranscript"
 	| "latestPlan"
 >;
 
 export type MessageServiceShape = Pick<
 	ConversationOperations,
-	"listMessages" | "sendMessage" | "sendMessageWithInput" | "interruptSession"
+	| "listMessages"
+	| "sendMessage"
+	| "sendMessageWithInput"
+	| "interruptSession"
+	| "waitSession"
+	| "sendMessageAndWait"
 >;
 
 export type QueueServiceShape = Pick<
@@ -722,6 +780,7 @@ export interface QueueTransactionServiceShape {
 		queueId: string,
 		ready: boolean,
 		onCommitted: (item: QueuedMessage) => Effect.Effect<void>,
+		actor?: WorkspaceActor,
 	) => Effect.Effect<void, SessionNotFoundError | QueuedMessageCapacityError>;
 }
 

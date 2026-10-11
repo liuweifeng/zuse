@@ -3,11 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NodeServices } from "@effect/platform-node";
 import { FolderId, PermissionRequest, SessionId } from "@zuse/contracts";
-import { SessionDomain } from "@zuse/domain/engine/session-domain";
+import type { DispatchInput } from "@zuse/domain/engine/dispatch";
+import {
+	SessionDomain,
+	type SessionDomainApi,
+} from "@zuse/domain/engine/session-domain";
 import { layer as sqliteLayer } from "@zuse/sqlite";
-import { Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
+import { Deferred, Effect, Fiber, Layer, ManagedRuntime, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test, vi } from "vitest";
+import { createDomainTestSchema } from "../../../../packages/domain/src/test/sql-schema.ts";
 import { AppPaths } from "../../src/app-paths.ts";
 import { PermissionServiceLive } from "../../src/provider/layers/permission-service.ts";
 import type { PermissionServiceShape } from "../../src/provider/services/permission-service.ts";
@@ -22,15 +27,35 @@ afterEach(() => {
 	}
 });
 
-const makeRuntime = (filename: string, userData: string) => {
+const makeRuntime = (
+	filename: string,
+	userData: string,
+	beforeDispatch?: (
+		input: DispatchInput,
+		domain: SessionDomainApi,
+	) => Effect.Effect<void>,
+) => {
 	const sql = sqliteLayer({ filename });
 	const domain = SessionDomain.layer.pipe(
 		Layer.provide(sql),
 		Layer.provide(NodeServices.layer),
 	);
+	const guardedDomain =
+		beforeDispatch === undefined
+			? domain
+			: Layer.effect(
+					SessionDomain,
+					Effect.map(SessionDomain, (current) => ({
+						...current,
+						dispatch: (input: DispatchInput) =>
+							beforeDispatch(input, current).pipe(
+								Effect.andThen(current.dispatch(input)),
+							),
+					})),
+				).pipe(Layer.provide(domain));
 	return ManagedRuntime.make(
 		PermissionServiceLive.pipe(
-			Layer.provideMerge(domain),
+			Layer.provideMerge(guardedDomain),
 			Layer.provideMerge(sql),
 			Layer.provide(Layer.succeed(AppPaths, { userData })),
 		),
@@ -39,64 +64,7 @@ const makeRuntime = (filename: string, userData: string) => {
 
 const createSchema = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
-	yield* sql`
-		CREATE TABLE chats (
-			id TEXT PRIMARY KEY, project_id TEXT, worktree_id TEXT, title TEXT,
-			title_provenance TEXT NOT NULL DEFAULT 'manual',
-			active_session_id TEXT, origin_session_id TEXT, archived_at TEXT,
-			archived_worktree_json TEXT, last_message_at TEXT, last_user_message_at TEXT, last_read_at TEXT,
-			created_at TEXT, updated_at TEXT
-		)
-	`;
-	yield* sql`
-		CREATE TABLE sessions (
-			id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL,
-			title_provenance TEXT NOT NULL DEFAULT 'manual',
-			provider_id TEXT NOT NULL, model TEXT NOT NULL, status TEXT NOT NULL,
-			archived_at TEXT, cursor TEXT, resume_strategy TEXT NOT NULL,
-			runtime_mode TEXT NOT NULL, agents_json TEXT, worktree_id TEXT,
-			chat_id TEXT NOT NULL, forked_from_session_id TEXT,
-			forked_from_message_id TEXT, permission_mode TEXT NOT NULL,
-			tool_search INTEGER NOT NULL, queue_paused INTEGER NOT NULL DEFAULT 0,
-			current_turn_id TEXT, current_turn_phase TEXT,
-			created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-		)
-	`;
-	yield* sql`
-		CREATE TABLE messages (
-			id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
-			kind TEXT NOT NULL, content_json TEXT NOT NULL, parent_item_id TEXT,
-			turn_id TEXT, created_at TEXT NOT NULL, sequence INTEGER NOT NULL,
-			checkpoint_revision INTEGER, checkpoint_final INTEGER
-		)
-	`;
-	yield* sql`
-		CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)
-	`;
-	yield* sql`
-		CREATE TABLE events (
-			sequence INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE,
-			correlation_id TEXT, causation_event_id TEXT, stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL, stream_version INTEGER NOT NULL, type TEXT NOT NULL,
-			occurred_at TEXT NOT NULL, actor TEXT, payload_json TEXT NOT NULL,
-			UNIQUE (stream_kind, stream_id, stream_version)
-		)
-	`;
-	yield* sql`
-		CREATE TABLE projector_cursors (
-			projector_name TEXT PRIMARY KEY, last_sequence INTEGER NOT NULL,
-			updated_at TEXT NOT NULL
-		)
-	`;
-	yield* sql`
-		CREATE TABLE command_receipts (
-			command_id TEXT PRIMARY KEY, stream_kind TEXT NOT NULL,
-			stream_id TEXT NOT NULL, stream_version INTEGER NOT NULL,
-			event_ids_json TEXT NOT NULL, result_json TEXT,
-			fingerprint TEXT, command_kind TEXT, schema_version INTEGER,
-			storage_incarnation_id TEXT, created_at TEXT NOT NULL
-		)
-	`;
+	yield* createDomainTestSchema();
 	yield* sql`
 		CREATE TABLE permission_decisions (
 			request_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
@@ -126,8 +94,6 @@ const createSession = Effect.gen(function* () {
 			providerId: "claude",
 			model: "model-1",
 			status: "running",
-			cursor: null,
-			resumeStrategy: "none",
 			runtimeMode: "approval-required",
 			agentsJson: null,
 			worktreeId: null,
@@ -159,6 +125,399 @@ describe("PermissionService restart recovery", () => {
 						: Stream.empty,
 			),
 		);
+
+	test("does not expose a callback before its request commits", async () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-admission-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		const entered = await Effect.runPromise(Deferred.make<void>());
+		const release = await Effect.runPromise(Deferred.make<void>());
+		let current = true;
+		const runtime = makeRuntime(filename, directory, (input) =>
+			input.command._tag === "RequestPermission"
+				? Deferred.succeed(entered, undefined).pipe(
+						Effect.andThen(Deferred.await(release)),
+					)
+				: Effect.void,
+		);
+		try {
+			await runtime.runPromise(createSession);
+			const callback = runtime.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "git status" },
+						{
+							projectId: FolderId.make("project-1"),
+							isCurrent: Effect.sync(() => current),
+						},
+					),
+				),
+			);
+			await Effect.runPromise(Deferred.await(entered));
+			current = false;
+			expect(
+				await runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([]);
+			await Effect.runPromise(Deferred.succeed(release, undefined));
+			expect(
+				await Effect.runPromise(
+					Fiber.join(callback).pipe(Effect.timeout("3 seconds")),
+				),
+			).toEqual({ _tag: "Deny" });
+			const pending = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.listPending(SessionId.make("session-1")),
+				),
+			);
+			expect(pending).toEqual([
+				expect.objectContaining({ recoveryState: "expired" }),
+			]);
+			const events = await runtime.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT type FROM events WHERE type IN ('PermissionRequested', 'PermissionExpired') ORDER BY sequence`,
+				),
+			);
+			expect(events.map((event) => event.type)).toEqual([
+				"PermissionRequested",
+				"PermissionExpired",
+			]);
+		} finally {
+			await Effect.runPromise(Deferred.succeed(release, undefined));
+			await runtime.dispose();
+		}
+	});
+
+	test.each([
+		"request",
+		"decision",
+	] as const)("rejects Stop between approval %s preflight and commit", async (boundary) => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-race-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		let armed = false;
+		const runtime = makeRuntime(filename, directory, (input, domain) =>
+			Effect.gen(function* () {
+				if (
+					!armed ||
+					input.command._tag !==
+						(boundary === "request" ? "RequestPermission" : "ResolvePermission")
+				)
+					return;
+				armed = false;
+				yield* domain
+					.dispatch({
+						commandId: "race-stop",
+						streamId: "session-1",
+						command: { _tag: "RequestTurnInterrupt", requestedAt: 4 },
+					})
+					.pipe(Effect.orDie);
+			}),
+		);
+		try {
+			await runtime.runPromise(createSession);
+			const attempt = await runtime.runPromise(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const attempt = yield* domain.activeAttempt("session-1");
+					if (attempt === null) throw new Error("Missing attempt");
+					yield* domain.dispatch({
+						commandId: "reserve",
+						streamId: "session-1",
+						command: {
+							_tag: "ReserveProviderSession",
+							providerId: "claude",
+							expectedModel: "model-1",
+							expectedWorktreeId: null,
+							providerSessionId: "provider-1",
+							ownerAttempt: attempt,
+							reservedAt: 3,
+						},
+					});
+					return attempt;
+				}),
+			);
+			armed = boundary === "request";
+			const callback = runtime.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "git status" },
+						{
+							projectId: FolderId.make("project-1"),
+							owner: { providerSessionId: "provider-1", attempt },
+						},
+					),
+				),
+			);
+			if (boundary === "decision") {
+				const [published] = await runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						permissionRequests(service.requests()).pipe(
+							Stream.take(1),
+							Stream.runCollect,
+						),
+					),
+				);
+				if (published === undefined) throw new Error("Missing request");
+				armed = true;
+				await expect(
+					runtime.runPromise(
+						Effect.flatMap(PermissionService, (service) =>
+							service.decide(published.id, { _tag: "AllowOnce" }),
+						),
+					),
+				).rejects.toMatchObject({ _tag: "PermissionRequestExpiredError" });
+			}
+			expect(
+				await Effect.runPromise(
+					Fiber.join(callback).pipe(Effect.timeout("1 second")),
+				),
+			).toEqual({ _tag: "Deny" });
+			const rows = await runtime.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT type FROM events WHERE type IN ('PermissionRequested', 'PermissionExpired', 'PermissionResolved') ORDER BY sequence`,
+				),
+			);
+			expect(rows.map((row) => row.type)).toEqual(
+				boundary === "request"
+					? []
+					: ["PermissionRequested", "PermissionExpired"],
+			);
+			expect(
+				await runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listDecisions({}),
+					),
+				),
+			).toEqual([]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
+	test.each([
+		"stop",
+		"replacement",
+		"physical-release",
+		"background-expiry",
+		"deleted",
+		"expired-then-deleted",
+		"archived",
+		"retry",
+	] as const)("expires exact approval ownership after %s", async (mode) => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-permission-owner-"));
+		directories.push(directory);
+		const filename = join(directory, "test.sqlite");
+		const schemaRuntime = ManagedRuntime.make(sqliteLayer({ filename }));
+		await schemaRuntime.runPromise(createSchema);
+		await schemaRuntime.dispose();
+		const runtime = makeRuntime(filename, directory);
+		let current = true;
+		try {
+			await runtime.runPromise(createSession);
+			const attempt = await runtime.runPromise(
+				Effect.gen(function* () {
+					const domain = yield* SessionDomain;
+					const attempt = yield* domain.activeAttempt("session-1");
+					if (attempt === null) throw new Error("Missing attempt");
+					yield* domain.dispatch({
+						commandId: "reserve",
+						streamId: "session-1",
+						command: {
+							_tag: "ReserveProviderSession",
+							providerId: "claude",
+							expectedModel: "model-1",
+							expectedWorktreeId: null,
+							providerSessionId: "provider-1",
+							ownerAttempt: attempt,
+							reservedAt: 3,
+						},
+					});
+					return attempt;
+				}),
+			);
+			const requestOptions = {
+				projectId: FolderId.make("project-1"),
+				owner: { providerSessionId: "provider-1", attempt },
+				isCurrent: Effect.sync(() => current),
+			};
+			const callback = runtime.runFork(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "git status" },
+						requestOptions,
+					),
+				),
+			);
+			const [published] = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					permissionRequests(service.requests()).pipe(
+						Stream.take(1),
+						Stream.runCollect,
+					),
+				),
+			);
+			if (published === undefined) throw new Error("Missing request");
+			if (
+				mode === "physical-release" ||
+				mode === "background-expiry" ||
+				mode === "expired-then-deleted"
+			)
+				current = false;
+			else
+				await runtime.runPromise(
+					Effect.flatMap(SessionDomain, (domain) =>
+						domain.dispatch({
+							commandId: "revoke",
+							streamId: "session-1",
+							command:
+								mode === "deleted"
+									? { _tag: "DeleteSession", deletedAt: 4 }
+									: mode === "archived"
+										? { _tag: "ArchiveSession", archivedAt: 4 }
+										: mode === "stop"
+											? { _tag: "RequestTurnInterrupt", requestedAt: 4 }
+											: mode === "retry"
+												? {
+														_tag: "RetryTurn",
+														turnId: attempt.turnId,
+														reason: "retry",
+														providerInputJson: "{}",
+														requestedAt: 4,
+													}
+												: {
+														_tag: "ReserveProviderSession",
+														providerId: "claude",
+														expectedModel: "model-1",
+														expectedWorktreeId: null,
+														providerSessionId: "provider-2",
+														ownerAttempt: attempt,
+														reservedAt: 4,
+													},
+						}),
+					),
+				);
+			if (mode === "background-expiry")
+				expect(
+					await Effect.runPromise(
+						Fiber.join(callback).pipe(Effect.timeout("3 seconds")),
+					),
+				).toEqual({ _tag: "Deny" });
+			const pending = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.listPending(SessionId.make("session-1")),
+				),
+			);
+			if (mode === "deleted") {
+				expect(pending).toEqual([]);
+				expect(
+					await Effect.runPromise(
+						Fiber.join(callback).pipe(Effect.timeout("1 second")),
+					),
+				).toEqual({ _tag: "Deny" });
+				return;
+			}
+			expect(pending).toEqual([
+				expect.objectContaining({ id: published.id, recoveryState: "expired" }),
+			]);
+			expect(
+				await Effect.runPromise(
+					Fiber.join(callback).pipe(Effect.timeout("1 second")),
+				),
+			).toEqual({ _tag: "Deny" });
+			await expect(
+				runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.decide(published.id, {
+							_tag: "AlwaysAllow",
+							scope: "folder",
+						}),
+					),
+				),
+			).rejects.toMatchObject({ _tag: "PermissionRequestExpiredError" });
+			const snapshot = await runtime.runPromise(
+				Effect.flatMap(SessionDomain, (domain) =>
+					domain.timelineSnapshot(SessionId.make("session-1")),
+				),
+			);
+			expect(snapshot.projection.interactions).toEqual([
+				expect.objectContaining({
+					_tag: "Permission",
+					request: expect.objectContaining({ recoveryState: "expired" }),
+				}),
+			]);
+			const late = await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.request(
+						SessionId.make("session-1"),
+						{ _tag: "Bash", command: "git status" },
+						requestOptions,
+					),
+				),
+			);
+			expect(late).toEqual({ _tag: "Deny" });
+			const rows = await runtime.runPromise(
+				Effect.flatMap(
+					SqlClient.SqlClient,
+					(sql) =>
+						sql`SELECT type FROM events WHERE type IN ('PermissionRequested', 'PermissionExpired', 'PermissionResolved') ORDER BY sequence`,
+				),
+			);
+			expect(rows.map((row) => row.type)).toEqual([
+				"PermissionRequested",
+				"PermissionExpired",
+			]);
+			if (mode === "expired-then-deleted") {
+				await runtime.runPromise(
+					Effect.flatMap(SessionDomain, (domain) =>
+						domain.dispatch({
+							commandId: "delete-expired",
+							streamId: "session-1",
+							command: { _tag: "DeleteSession", deletedAt: 5 },
+						}),
+					),
+				);
+				expect(
+					await runtime.runPromise(
+						Effect.flatMap(PermissionService, (service) =>
+							service.listPending(SessionId.make("session-1")),
+						),
+					),
+				).toEqual([]);
+				return;
+			}
+			await runtime.runPromise(
+				Effect.flatMap(PermissionService, (service) =>
+					service.decide(published.id, { _tag: "Deny" }),
+				),
+			);
+			expect(
+				await runtime.runPromise(
+					Effect.flatMap(PermissionService, (service) =>
+						service.listPending(SessionId.make("session-1")),
+					),
+				),
+			).toEqual([]);
+		} finally {
+			await runtime.dispose();
+		}
+	});
 
 	test.each([
 		false,
@@ -221,7 +580,7 @@ describe("PermissionService restart recovery", () => {
 				Effect.flatMap(
 					SqlClient.SqlClient,
 					(sql) =>
-						sql`SELECT current_turn_id FROM sessions WHERE id = 'session-1'`,
+						sql`SELECT t.id AS current_turn_id FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running') WHERE s.id = 'session-1'`,
 				),
 			);
 			expect(rows).toEqual([{ current_turn_id: newer ? "turn-2" : null }]);
@@ -367,7 +726,7 @@ describe("PermissionService restart recovery", () => {
 				Effect.flatMap(
 					SqlClient.SqlClient,
 					(sql) =>
-						sql`SELECT status, current_turn_id FROM sessions WHERE id = 'session-1'`,
+						sql`SELECT s.status, t.id AS current_turn_id FROM sessions s LEFT JOIN session_turns t ON t.session_id = s.id AND t.status IN ('starting', 'running') WHERE s.id = 'session-1'`,
 				),
 			);
 			expect(session).toEqual([{ status: "idle", current_turn_id: null }]);

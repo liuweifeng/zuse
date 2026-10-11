@@ -6,13 +6,13 @@ import {
 } from "../../src/updater-policy.ts";
 
 describe("desktop updater policy", () => {
-	it("keeps macOS downloads replaceable until the app quits", () => {
+	it("requires explicit engine-safe installation on every platform", () => {
 		expect(shouldAutoInstallUpdateOnQuit("darwin")).toBe(false);
-		expect(shouldAutoInstallUpdateOnQuit("win32")).toBe(true);
-		expect(shouldAutoInstallUpdateOnQuit("linux")).toBe(true);
+		expect(shouldAutoInstallUpdateOnQuit("win32")).toBe(false);
+		expect(shouldAutoInstallUpdateOnQuit("linux")).toBe(false);
 	});
 
-	it("stages a ready macOS update when the user quits", () => {
+	it("stages a ready update when the user quits", () => {
 		expect(
 			shouldInstallPendingUpdateOnQuit({
 				platform: "darwin",
@@ -22,7 +22,7 @@ describe("desktop updater policy", () => {
 		).toBe(true);
 	});
 
-	it("does not intercept quit without a ready macOS update", () => {
+	it("intercepts only ready updates that are not already installing", () => {
 		expect(
 			shouldInstallPendingUpdateOnQuit({
 				platform: "darwin",
@@ -36,7 +36,7 @@ describe("desktop updater policy", () => {
 				status: { kind: "ready", version: "0.18.5" },
 				installing: false,
 			}),
-		).toBe(false);
+		).toBe(true);
 		expect(
 			shouldInstallPendingUpdateOnQuit({
 				platform: "darwin",

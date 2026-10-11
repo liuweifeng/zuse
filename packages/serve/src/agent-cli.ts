@@ -11,6 +11,7 @@ import {
 } from "node:path";
 
 import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import { normalizeLegacyRuntimeResponse } from "@zuse/client-runtime/legacy-runtime-response";
 import { wsClientProtocolLayer } from "@zuse/client-runtime/ws-protocol";
 import {
 	AgentItemId,
@@ -33,7 +34,7 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { resolveZuseDesktopUserData } from "@zuse/utils/zuse-user-data";
-import { Effect } from "effect";
+import { Effect, Redacted } from "effect";
 
 type RpcClient = Awaited<ReturnType<typeof connect>>["client"];
 
@@ -41,6 +42,10 @@ const commandId = (kind: string): CommandId =>
 	CommandId.make(`${kind}:${randomUUID()}`);
 
 const GROUPS = new Set([
+	"orchestration",
+	"task",
+	"schedule",
+	"secret",
 	"commands",
 	"help",
 	"workspace",
@@ -286,10 +291,26 @@ const endpoint = async (
 const connect = async (
 	connectionEndpoint: string,
 	protocols?: readonly string[],
+	allowLegacyCloud = false,
 ) => {
-	const layer = wsClientProtocolLayer(connectionEndpoint, { protocols });
+	let protocolVersion: number = WIRE_PROTOCOL_VERSION;
+	const layer = wsClientProtocolLayer(connectionEndpoint, {
+		protocols,
+		...(allowLegacyCloud
+			? {
+					transformResponse: (value: unknown) =>
+						protocolVersion < WIRE_PROTOCOL_VERSION
+							? normalizeLegacyRuntimeResponse(value)
+							: value,
+				}
+			: {}),
+	});
 	return makeRpcClientSession(layer, MemoizeRpcs, {
 		protocolVersion: WIRE_PROTOCOL_VERSION,
+		allowLegacyCloud,
+		onNegotiated: (version) => {
+			protocolVersion = version;
+		},
 		perform: (client, hello) => client["connect.handshake"](hello),
 	});
 };
@@ -375,6 +396,19 @@ const rpc = <A>(effect: Effect.Effect<A, unknown>): Promise<A> =>
 
 const commandManifest = () => ({
 	commands: [
+		"secret list",
+		"secret provide",
+		"secret dismiss",
+		"task delegate",
+		"task status",
+		"task cancel",
+		"schedule create",
+		"schedule list",
+		"schedule update",
+		"schedule delete",
+		"schedule trigger",
+		"orchestration list",
+		"orchestration call",
 		"plugins list",
 		"plugins search",
 		"plugins schema",
@@ -443,6 +477,15 @@ const commandManifest = () => ({
 		"--cloud-workspace",
 	],
 	usage: {
+		agentSession:
+			"Inside a Zuse agent session, use orchestration call --tool orchestrator_capabilities for current session/provider context, --tool list_threads for chats and child session tabs, and --tool list_models for models. These use session permissions; standalone chat/session/model commands use a separate desktop RPC connection. Do not search for tokens or a different CLI build to perform session orchestration.",
+		secret:
+			"secret list --session <id>; secret provide --session <id> --request <id> --value-file - (stdin only); secret dismiss --session <id> --request <id>; supports --cloud-workspace",
+		task: "task delegate --task <text> --request-id <stable-id> [--provider <id>] [--model <id>]; task status|cancel --task-id <id>",
+		schedule:
+			"schedule create|update|delete|trigger --arguments-json <object>; schedule list (current session; use orchestration list for schemas)",
+		orchestration:
+			"orchestration list; orchestration call --tool <name> --arguments-json <object> (current authenticated agent session, including cloud runtimes; list returns live schemas)",
 		plugins:
 			'plugins list; plugins search --query "linear issue"; plugins schema --address <address>; plugins call --address <address> --arguments-json <object> (uses the current agent session and its permissions)',
 		workspace:
@@ -690,10 +733,11 @@ const connectCloudWorkspace = async (
 	const connection = await rpc(
 		client["cloud.workspaces.connect"]({ workspaceId }),
 	);
-	return connect(connection.wsUrl, [
-		connection.protocol,
-		connection.credential,
-	]);
+	return connect(
+		connection.wsUrl,
+		[connection.protocol, connection.credential],
+		true,
+	);
 };
 
 const executeCloudCommand = async (
@@ -828,6 +872,150 @@ const executeCloudCommand = async (
 	}
 };
 
+const executeSecretCommand = async (
+	client: Pick<RpcClient, "secrets.list" | "secrets.respond">,
+	args: Args,
+	stdin: () => Promise<string> = readStdin,
+): Promise<unknown> => {
+	const sessionId = asSessionId(required(one(args, "session"), "--session"));
+	const action = args.positionals[1];
+	if (
+		one(args, "value") !== undefined ||
+		one(args, "arguments-json") !== undefined
+	)
+		throw new CliError(
+			"invalid_input",
+			"Secret values must be provided through stdin, never command arguments.",
+		);
+	if (action === "list") return rpc(client["secrets.list"]({ sessionId }));
+	const requestId = required(one(args, "request"), "--request");
+	if (action === "provide" && one(args, "value-file") !== "-")
+		throw new CliError(
+			"invalid_input",
+			"secret provide requires --value-file - to read the value from stdin.",
+		);
+	try {
+		const value = action === "provide" ? await stdin() : undefined;
+		if (value !== undefined && (value.length === 0 || value.length > 65_536))
+			throw new CliError(
+				"invalid_input",
+				"Secret input must contain between 1 and 65536 characters.",
+			);
+		return await rpc(
+			client["secrets.respond"]({
+				sessionId,
+				requestId,
+				...(value === undefined ? {} : { value: Redacted.make(value) }),
+			}),
+		);
+	} catch {
+		throw new CliError(
+			"secret_request_failed",
+			"The private secret request could not be completed. Check the session and request, then retry.",
+		);
+	}
+};
+
+const executeOrchestrationCommand = async (
+	args: Args,
+	env: NodeJS.ProcessEnv,
+): Promise<unknown> => {
+	for (const selector of ["cloud-workspace", "computer", "ws-url", "token"]) {
+		if (one(args, selector) !== undefined)
+			throw new CliError(
+				"invalid_input",
+				"Orchestration commands use the current agent session; remote overrides are unsupported. Run the command in the target cloud session.",
+			);
+	}
+	const aliases: Record<string, string> = {
+		"task delegate": "delegate_task",
+		"task status": "task_status",
+		"task cancel": "task_cancel",
+		"schedule create": "schedule_task",
+		"schedule list": "list_scheduled_tasks",
+		"schedule update": "update_scheduled_task",
+		"schedule delete": "delete_scheduled_task",
+		"schedule trigger": "trigger_scheduled_task",
+	};
+	const name =
+		aliases[args.positionals.slice(0, 2).join(" ")] ??
+		(args.positionals[1] === "list"
+			? "tools/list"
+			: required(one(args, "tool"), "--tool"));
+	const input = jsonObject(
+		one(args, "arguments-json") ?? "{}",
+		"--arguments-json",
+	);
+	if (input === null || typeof input !== "object" || Array.isArray(input))
+		throw new CliError(
+			"invalid_input",
+			"--arguments-json must contain an object.",
+		);
+	const fields = input as Record<string, unknown>;
+	if (args.positionals[0] === "task") {
+		if (name === "delegate_task") {
+			fields.task = one(args, "task") ?? fields.task ?? (await promptFor(args));
+			fields.clientRequestId =
+				one(args, "request-id") ??
+				fields.clientRequestId ??
+				required(undefined, "--request-id");
+			for (const [flag, field] of [
+				["provider", "providerId"],
+				["model", "model"],
+				["role", "role"],
+				["title", "title"],
+			]) {
+				if (flag && field && one(args, flag) !== undefined)
+					fields[field] = one(args, flag);
+			}
+		} else
+			fields.taskId =
+				one(args, "task-id") ??
+				args.positionals[2] ??
+				fields.taskId ??
+				required(undefined, "--task-id");
+	}
+	if (!env.ZUSE_ORCHESTRATION_URL || !env.ZUSE_ORCHESTRATION_AUTH)
+		throw new CliError(
+			"orchestration_session_required",
+			"Run this command inside an active Zuse agent session with orchestration enabled.",
+		);
+	const response = await fetch(env.ZUSE_ORCHESTRATION_URL, {
+		method: "POST",
+		headers: {
+			authorization: `Bearer ${env.ZUSE_ORCHESTRATION_AUTH}`,
+			"content-type": "application/json",
+		},
+		body: JSON.stringify({ name, args: input }),
+		signal: AbortSignal.timeout(300_000),
+	});
+	if (!response.ok)
+		throw new CliError(
+			"orchestration_request_failed",
+			response.status === 401
+				? "Agent session expired. Retry from an active session."
+				: "Orchestration request failed or was denied. Check tool arguments and session permissions.",
+		);
+	const result = (await response.json()) as {
+		isError?: boolean;
+		content?: Array<{ type: string; text?: string }>;
+	};
+	if (result.isError)
+		throw new CliError(
+			"orchestration_request_failed",
+			"Orchestration request failed.",
+			result,
+		);
+	if (name === "tools/list") return result;
+	const content = result.content?.find((item) => item.type === "text")?.text;
+	if (content === undefined)
+		throw new CliError(
+			"orchestration_request_failed",
+			"Invalid orchestration response.",
+		);
+	return JSON.parse(content);
+};
+
 const executePluginCommand = async (
 	args: Args,
 	env: NodeJS.ProcessEnv,
@@ -918,13 +1106,27 @@ const execute = async (
 			`Unknown command: ${args.positionals.join(" ")}. Run zuse commands.`,
 		);
 	if (group === "plugins") return executePluginCommand(args, env);
+	if (group === "orchestration" || group === "task" || group === "schedule")
+		return executeOrchestrationCommand(args, env);
 	const connectionEndpoint = await endpoint(args, env);
 	let session: Awaited<ReturnType<typeof connect>>;
 	try {
 		session = await connect(connectionEndpoint);
 	} catch (cause) {
-		if (cause instanceof Error && cause.message.includes("SocketOpenError"))
-			throw await socketOpenFailure(connectionEndpoint);
+		if (cause instanceof Error && cause.message.includes("SocketOpenError")) {
+			const failure = await socketOpenFailure(connectionEndpoint);
+			if (
+				failure.code === "unauthorized" &&
+				env.ZUSE_ORCHESTRATION_URL &&
+				env.ZUSE_ORCHESTRATION_AUTH
+			) {
+				throw new CliError(
+					failure.code,
+					"The standalone desktop RPC connection was rejected. This does not check your agent session's orchestration access. Use zuse orchestration call --tool orchestrator_capabilities for current context, zuse orchestration call --tool list_threads for chats and child sessions, or zuse orchestration call --tool list_models for models. Use zuse task delegate to assign child work. These commands use the current session connection; do not search for credentials or another CLI build.",
+				);
+			}
+			throw failure;
+		}
 		throw cause;
 	}
 	try {
@@ -943,6 +1145,7 @@ const execute = async (
 			client = remote.client;
 			await local.dispose();
 		}
+		if (group === "secret") return await executeSecretCommand(client, args);
 		if (group === "preview" && action === "list")
 			return await rpc(client["previews.listServers"]());
 		if (group === "computer" && action === "list") {
@@ -1533,6 +1736,7 @@ export const runAgentCli = async (
 
 export const __testing = {
 	parse,
+	executeSecretCommand,
 	executeCloudCommand,
 	execute,
 	commandManifest,

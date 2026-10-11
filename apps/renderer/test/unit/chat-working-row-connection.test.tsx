@@ -40,4 +40,19 @@ describe("ChatWorkingRow cloud delivery", () => {
 		expect(markup).toContain("Waiting for cloud");
 		expect(timelineRetain).not.toHaveBeenCalled();
 	});
+	it("labels checkpoint finalization separately from provider work", () => {
+		const markup = renderToStaticMarkup(
+			<ChatWorkingRow
+				messages={[]}
+				chatId={null}
+				pendingCommands={[]}
+				runtimeState="running"
+				sessionId={SessionId.make("finalizing")}
+				providerId="codex"
+				finalizing
+			/>,
+		);
+		expect(markup).toContain("Saving checkpoint");
+		expect(markup).not.toContain("is working");
+	});
 });

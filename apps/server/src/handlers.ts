@@ -4,10 +4,13 @@ import { AnalyticsHandlersLayer } from "./analytics/handlers.ts";
 import { ApiHandlersLayer } from "./api/handlers.ts";
 import { AttachmentHandlersLayer } from "./attachment/handlers.ts";
 import { AuthHandlersLayer } from "./auth/handlers.ts";
+import { AutomationHandlersLayer } from "./automation/handlers.ts";
+import { CheckpointHandlersLayer } from "./checkpoint/handlers.ts";
 import { OrganizationHandlersLayer } from "./collaboration/organization-handlers.ts";
 import { ConfigStoreHandlersLayer } from "./config-store/handlers.ts";
 import { DeviceBridgeHandlersLayer } from "./device-bridge/handlers.ts";
 import { DiagnosticsHandlersLayer } from "./diagnostics/handlers.ts";
+import { ExecutionHistoryHandlersLayer } from "./execution-history/handlers.ts";
 import { ExternalThreadHandlersLayer } from "./external-thread/handlers.ts";
 import { FsHandlersLayer } from "./fs/handlers.ts";
 import { GitHandlersLayer } from "./git/handlers.ts";
@@ -35,6 +38,9 @@ import { WorktreeHandlersLayer } from "./worktree/handlers.ts";
  * sneaking into the handler boundary.
  */
 export const HandlersLayer = Layer.mergeAll(
+	AutomationHandlersLayer,
+	ExecutionHistoryHandlersLayer,
+	CheckpointHandlersLayer,
 	ModelConnectionsHandlersLayer,
 	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,

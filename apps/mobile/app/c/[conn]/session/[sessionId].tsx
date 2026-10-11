@@ -10,6 +10,7 @@ import { isWaitingCloudSend } from "@zuse/client-runtime/cloud-send-delivery";
 import {
 	findPendingPlanInteraction,
 	isPlanApprovalRequest,
+	nativePlanRecoveryState,
 } from "@zuse/client-runtime/plan-interactions";
 import { groupTimelineTurns } from "@zuse/client-runtime/timeline";
 import {
@@ -65,7 +66,10 @@ import { GlassSurface } from "~/components/ui/glass-surface";
 import { WorkingIndicator } from "~/components/ui/working-indicator";
 import { UndeliveredMessage } from "~/components/undelivered-message";
 import { useTranscriptScrollCoordinator } from "~/hooks/use-transcript-scroll-coordinator";
-import { coordinateChatBottomState } from "~/lib/chat-bottom-state";
+import {
+	coordinateChatBottomState,
+	selectPendingQuestion,
+} from "~/lib/chat-bottom-state";
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { isFreshChat, summarizeComposerActivity } from "~/lib/composer-state";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -93,6 +97,7 @@ import {
 	forkSessionFromMessage,
 	getWorktree,
 	makeTextInput,
+	mergeSessionBack,
 	openSessionOnHost,
 	renameWorktreeBranch,
 	respondToPlan,
@@ -127,6 +132,9 @@ import {
 	resumeQueue,
 	runQueuedMessageNext,
 	sessionDeliveryAtom,
+	sessionExecutionStepsAtom,
+	sessionHealthAtom,
+	sessionInteractionsAtom,
 	sessionMessagesAtom,
 	sessionMessagesErrorAtom,
 	sessionQueueAtom,
@@ -247,6 +255,9 @@ function ThreadScreen() {
 	const connectionSnapshot = useAtomValue(connectionSnapshotAtom(connKey));
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const rawMessages = useAtomValue(sessionMessagesAtom(stateKey));
+	const interactions = useAtomValue(sessionInteractionsAtom(stateKey));
+	const executionHealth = useAtomValue(sessionHealthAtom(stateKey));
+	const executionSteps = useAtomValue(sessionExecutionStepsAtom(stateKey));
 	const transcriptReady = useAtomValue(sessionTranscriptReadyAtom(stateKey));
 	const [transcriptTimedOut, setTranscriptTimedOut] = useState(false);
 	const [transcriptAttempt, setTranscriptAttempt] = useState(0);
@@ -486,10 +497,12 @@ function ThreadScreen() {
 	const permissionRequests = pending.filter(
 		(request) => !isPlanApprovalRequest(request, normalizedSessionId),
 	);
+	const planRecovery = nativePlanRecoveryState(messages, interactions);
 	const pendingPlanInteraction =
 		detail === null
 			? null
 			: findPendingPlanInteraction({
+					interactions,
 					messages,
 					requests: pending,
 					sessionId: normalizedSessionId,
@@ -498,18 +511,7 @@ function ThreadScreen() {
 					isRunning: sessionActive,
 				});
 	const headPermission = permissionRequests[0] ?? null;
-	const pendingQuestion = (() => {
-		for (let index = messages.length - 1; index >= 0; index -= 1) {
-			const content = messages[index]?.content;
-			if (
-				content?._tag === "user_question" &&
-				!answeredQuestionIds.has(content.itemId)
-			) {
-				return { itemId: content.itemId, questions: content.questions };
-			}
-		}
-		return null;
-	})();
+	const pendingQuestion = selectPendingQuestion(interactions);
 	const bottomState = coordinateChatBottomState({
 		permissions: permissionRequests,
 		question: pendingQuestion,
@@ -527,7 +529,7 @@ function ThreadScreen() {
 		// Nothing runs while the cloud workspace itself is starting or asleep.
 		cloudLifecycleState === null &&
 		headPermission === null &&
-		pendingQuestion === null &&
+		(pendingQuestion === null || pendingQuestion.expired === true) &&
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
 	// Desktop-style wording: "Codex is working", or "Waiting for Codex" while a
@@ -586,12 +588,51 @@ function ThreadScreen() {
 					}),
 				);
 
+	const mergeRequest = useRef<{
+		sessionId: SessionId;
+		commandId: string;
+		busy: boolean;
+	} | null>(null);
+	const onMergeBack = async () => {
+		if (options === null || detail?.session.forkedFromSessionId == null) return;
+		if (mergeRequest.current?.sessionId !== normalizedSessionId)
+			mergeRequest.current = {
+				sessionId: normalizedSessionId,
+				commandId: `merge-back:${crypto.randomUUID()}`,
+				busy: false,
+			};
+		const request = mergeRequest.current;
+		if (request.busy) return;
+		request.busy = true;
+		try {
+			await Effect.runPromise(
+				mergeSessionBack({
+					connection: options,
+					sessionId: request.sessionId,
+					commandId: request.commandId,
+				}),
+			);
+			if (mergeRequest.current === request) mergeRequest.current = null;
+			Alert.alert(
+				"Context merged",
+				"The parent conversation will receive this context on its next turn.",
+			);
+		} catch (cause) {
+			Alert.alert("Could not merge context", connectionErrorMessage(cause));
+		} finally {
+			request.busy = false;
+		}
+	};
+
+	const forkPending = useRef(false);
 	const runFork = async (
 		fromMessageId: MessageId,
 		destination: "tab" | "chat",
 		isolated: boolean,
+		nativeChildStepId?: string,
 	) => {
-		if (detail === null || options === null) return;
+		if (detail === null || options === null || forkPending.current) return;
+		forkPending.current = true;
 		try {
 			const detail = await prepareSessionWorkspace(
 				connKey,
@@ -614,6 +655,7 @@ function ThreadScreen() {
 					connection: options,
 					sourceSessionId: normalizedSessionId,
 					fromMessageId,
+					nativeChildStepId,
 					destination,
 					worktreeId,
 				}),
@@ -639,6 +681,8 @@ function ThreadScreen() {
 			);
 		} catch (cause) {
 			Alert.alert("Could not create fork", connectionErrorMessage(cause));
+		} finally {
+			forkPending.current = false;
 		}
 	};
 
@@ -660,8 +704,12 @@ function ThreadScreen() {
 		questionsByItemId,
 		toolResultsByItemId,
 		sessionRunning: sessionActive,
+		executionSteps,
 		onAnswerQuestion,
 		onForkFromMessage,
+		onForkNativeChild: (messageId, stepId) => {
+			void runFork(messageId, "tab", false, stepId);
+		},
 	};
 
 	useEffect(() => {
@@ -1129,6 +1177,18 @@ function ThreadScreen() {
 							onThreads={openThreads}
 							onChanges={openChanges}
 							onFiles={openFiles}
+							onCheckpoints={() =>
+								router.push({
+									pathname: "/c/[conn]/session/[sessionId]/checkpoints",
+									params: { conn: connKey, sessionId: normalizedSessionId },
+								})
+							}
+							onAttempts={() =>
+								router.push({
+									pathname: "/c/[conn]/session/[sessionId]/attempts",
+									params: { conn: connKey, sessionId: normalizedSessionId },
+								})
+							}
 							onTerminal={
 								mobileReleaseFeatures.terminal &&
 								(options?.cloudWorkspaceId !== undefined ||
@@ -1140,6 +1200,11 @@ function ThreadScreen() {
 								connectionSupports(connectionRecord, "desktop-handoff-v1")
 									? openOnDesktop
 									: undefined
+							}
+							onMergeBack={
+								detail?.session.forkedFromSessionId == null
+									? undefined
+									: () => void onMergeBack()
 							}
 							onArchive={onArchive}
 						/>
@@ -1401,6 +1466,17 @@ function ThreadScreen() {
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
 				>
+					{executionHealth === "stalled" ||
+					executionHealth === "unavailable" ? (
+						<Text
+							accessibilityRole="alert"
+							className="px-3 py-2 text-xs text-muted-foreground"
+						>
+							{executionHealth === "stalled"
+								? "No recent provider activity. You can wait or stop this turn."
+								: "Execution ownership could not be confirmed. Waiting for recovery."}
+						</Text>
+					) : null}
 					{options === null ? null : bottomState.blocking?.kind ===
 						"permission" ? (
 						renderPermissionAccessory(bottomState.blocking.requests)
@@ -1414,6 +1490,7 @@ function ThreadScreen() {
 							<PendingUserInputCard
 								itemId={bottomState.blocking.question.itemId}
 								questions={bottomState.blocking.question.questions}
+								expired={bottomState.blocking.question.expired}
 								onSubmit={onAnswerQuestion}
 								onCancel={onCancelQuestion}
 							/>
@@ -1424,6 +1501,12 @@ function ThreadScreen() {
 							bottomInset={composerBottomInset}
 							onAction={runPlanAction}
 						/>
+					) : planRecovery !== null ? (
+						<Text className="px-3 py-2 text-xs text-muted-foreground">
+							{planRecovery === "uncertain"
+								? "Plan delivery could not be confirmed. Review the conversation before starting another turn."
+								: "This plan request has expired. Send a new message to continue."}
+						</Text>
 					) : null}
 					{options === null ? null : (
 						<View

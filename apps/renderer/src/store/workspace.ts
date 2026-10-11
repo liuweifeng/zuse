@@ -4,7 +4,7 @@ import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
 import { activeEnvironmentShellData } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { newProjectWorkspaceKey } from "../lib/environment-shell-scope.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { getActiveEnvironment } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 

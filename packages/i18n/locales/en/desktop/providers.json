@@ -149,6 +149,7 @@
 	"accounts_open_browser": "Open browser",
 	"accounts_signed_in": "Signed in",
 	"accounts_remove_description": "Removes this account from Settings. Chats using it cannot resume. Login files and transcripts are kept.",
+	"model_picker_switch_pending": "Switches when current work finishes",
 	"accounts_default_detail": "CLI login or API key",
 	"accounts_suggested_name": "Account {{index}}",
 	"accounts_actions": "{{name}} actions",

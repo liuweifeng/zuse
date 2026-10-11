@@ -1,5 +1,6 @@
 import {
 	AgentTurnId,
+	AttemptId,
 	DEFAULT_PERMISSION_MODE,
 	DEFAULT_RUNTIME_MODE,
 	MAX_SESSION_QUEUE_ITEMS,
@@ -9,14 +10,18 @@ import {
 	MessageId,
 	MessageRole,
 	PermissionRequest,
+	ProviderThreadId,
 	QueuedMessage,
 	QueuedMessageInput,
 	QueueState,
 	RuntimeMode,
+	type SessionExecutionStep,
 	type SessionId,
 	type SessionInteraction,
 	SessionTimelineProjection,
 	SessionTimelineTurnPhase,
+	type SessionTurn,
+	TurnStatus,
 } from "@zuse/contracts";
 import { Effect, Result, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
@@ -33,8 +38,16 @@ interface TimelineHeadRow {
 	readonly runtime_mode: string;
 	readonly permission_mode: string;
 	readonly queue_paused: number;
-	readonly current_turn_id: string | null;
-	readonly current_turn_phase: string | null;
+	readonly turn_count: number;
+	readonly turn_id: string | null;
+	readonly turn_ordinal: number | null;
+	readonly turn_status: string | null;
+	readonly turn_phase: string | null;
+	readonly turn_provider_thread_id: string | null;
+	readonly attempt_id: string | null;
+	readonly attempt_ordinal: number | null;
+	readonly attempt_reason: string | null;
+	readonly turn_requested_at: string | null;
 }
 
 interface QueueRow {
@@ -47,12 +60,14 @@ interface QueueRow {
 }
 
 interface PendingQuestionRow {
+	readonly expired: number;
 	readonly content_json: string;
 	readonly created_at: string;
 }
 
 interface PendingPermissionRow {
 	readonly request_json: string;
+	readonly expired: number;
 }
 
 export type SessionTimelineSnapshot = {
@@ -88,50 +103,20 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 	sessionId: SessionId,
 ) {
 	const questionRows = yield* sql<PendingQuestionRow>`
-			SELECT question.content_json, question.created_at
-			FROM messages AS question
-			WHERE question.session_id = ${sessionId}
-				AND question.kind = 'user_question'
-				AND json_valid(question.content_json)
-				AND NOT EXISTS (
-					SELECT 1 FROM messages AS answer
-					WHERE answer.session_id = question.session_id
-						AND answer.kind = 'user_question_answer'
-						AND json_valid(answer.content_json)
-						AND json_extract(answer.content_json, '$.itemId') =
-							json_extract(question.content_json, '$.itemId')
-				)
-				AND NOT EXISTS (
-					SELECT 1 FROM events AS resolution
-					WHERE resolution.stream_kind = 'session'
-						AND resolution.stream_id = question.session_id
-						AND resolution.type = 'QuestionResolved'
-						AND json_valid(resolution.payload_json)
-						AND json_extract(resolution.payload_json, '$.itemId') =
-							json_extract(question.content_json, '$.itemId')
-				)
-			ORDER BY question.sequence ASC
-			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
-		`;
+		SELECT request_json AS content_json, requested_at AS created_at,
+			CASE WHEN status = 'expired' THEN 1 ELSE 0 END AS expired
+		FROM session_inputs
+		WHERE session_id = ${sessionId} AND kind = 'question' AND (status = 'pending' OR (status = 'expired' AND awaiting_dismissal = 1))
+			AND request_json IS NOT NULL
+		ORDER BY requested_sequence LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+	`;
 	const permissionRows = yield* sql<PendingPermissionRow>`
-			SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json
-			FROM events AS requested
-			WHERE requested.stream_kind = 'session'
-				AND requested.stream_id = ${sessionId}
-				AND requested.type = 'PermissionRequested'
-				AND json_valid(requested.payload_json)
-				AND NOT EXISTS (
-					SELECT 1 FROM events AS resolved
-					WHERE resolved.stream_kind = 'session'
-						AND resolved.stream_id = requested.stream_id
-						AND resolved.type = 'PermissionResolved'
-						AND json_valid(resolved.payload_json)
-						AND json_extract(resolved.payload_json, '$.requestId') =
-							json_extract(requested.payload_json, '$.requestId')
-				)
-			ORDER BY requested.stream_version ASC
-			LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
-		`;
+		SELECT request_json, CASE WHEN status = 'expired' THEN 1 ELSE 0 END AS expired
+		FROM session_inputs
+		WHERE session_id = ${sessionId} AND kind = 'permission' AND status IN ('pending', 'expired')
+			AND request_json IS NOT NULL
+		ORDER BY requested_sequence LIMIT ${MAX_PENDING_SESSION_INTERACTIONS + 1}
+	`;
 	if (
 		questionRows.length + permissionRows.length >
 		MAX_PENDING_SESSION_INTERACTIONS
@@ -142,7 +127,25 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 			),
 		);
 	}
-	const interactions: SessionInteraction[] = [];
+	const planRows = yield* sql<{
+		request_id: string;
+		requested_at: string;
+		status: string;
+		awaiting_dismissal: number;
+	}>`SELECT request_id,requested_at,status,awaiting_dismissal FROM session_inputs WHERE session_id=${sessionId} AND kind='plan' AND request_json IS NOT NULL AND status IN ('pending','expired') ORDER BY requested_sequence DESC LIMIT 100`;
+	const interactions: SessionInteraction[] = planRows.map((row) => ({
+		_tag: "Plan",
+		id: row.request_id as import("@zuse/contracts").AgentItemId,
+		requestedAt: new Date(row.requested_at),
+		...(row.status === "expired"
+			? {
+					recoveryState:
+						row.awaiting_dismissal === 2
+							? ("uncertain" as const)
+							: ("expired" as const),
+				}
+			: {}),
+	}));
 	for (const row of questionRows) {
 		const content = decodeContent(row.content_json);
 		const requestedAt = decodeDate(row.created_at);
@@ -156,6 +159,7 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 		interactions.push({
 			_tag: "Question",
 			id: content.success.itemId,
+			...(row.expired === 1 ? { recoveryState: "expired" as const } : {}),
 			questions: content.success.questions,
 			requestedAt: requestedAt.success,
 		});
@@ -166,16 +170,22 @@ const readPendingInteractions = Effect.fn("readPendingInteractions")(function* (
 		interactions.push({
 			_tag: "Permission",
 			id: request.success.id,
-			request: request.success,
+			request:
+				row.expired === 1
+					? PermissionRequest.make({
+							...request.success,
+							recoveryState: "expired",
+						})
+					: request.success,
 		});
 	}
 	interactions.sort((left, right) => {
 		const leftAt =
-			left._tag === "Question"
+			left._tag !== "Permission"
 				? left.requestedAt.getTime()
 				: left.request.requestedAt.getTime();
 		const rightAt =
-			right._tag === "Question"
+			right._tag !== "Permission"
 				? right.requestedAt.getTime()
 				: right.request.requestedAt.getTime();
 		return leftAt - rightAt || left.id.localeCompare(right.id);
@@ -218,6 +228,41 @@ export const readSessionTimelineMessagePage = Effect.fn(
 	return { items, olderMessageSequence: page.olderSequence };
 });
 
+const activeTurnFromHead = (head: TimelineHeadRow): SessionTurn | null => {
+	if (
+		head.turn_id === null ||
+		head.turn_ordinal === null ||
+		head.attempt_id === null ||
+		head.turn_requested_at === null
+	) {
+		return null;
+	}
+	const status = Schema.decodeUnknownResult(TurnStatus)(head.turn_status);
+	const phase = Schema.decodeUnknownResult(SessionTimelineTurnPhase)(
+		head.turn_phase ?? "running",
+	);
+	const reason = Schema.decodeUnknownResult(
+		Schema.Literals(["initial", "retry", "provider_recovery"]),
+	)(head.attempt_reason);
+	return {
+		id: AgentTurnId.make(head.turn_id),
+		ordinal: head.turn_ordinal,
+		status: Result.isSuccess(status) ? status.success : "running",
+		phase: Result.isSuccess(phase) ? phase.success : "running",
+		attempt: {
+			id: AttemptId.make(head.attempt_id),
+			ordinal: head.attempt_ordinal ?? 1,
+			reason: Result.isSuccess(reason) ? reason.success : "initial",
+		},
+		providerThreadId:
+			head.turn_provider_thread_id === null
+				? null
+				: ProviderThreadId.make(head.turn_provider_thread_id),
+		requestedAt: new Date(head.turn_requested_at),
+		completedAt: null,
+	};
+};
+
 /** Read a bounded, fully materialized timeline without folding event history. */
 export const readSessionTimelineSnapshot = Effect.fn(
 	"readSessionTimelineSnapshot",
@@ -227,9 +272,19 @@ export const readSessionTimelineSnapshot = Effect.fn(
 ): Effect.fn.Return<SessionTimelineSnapshot, SqlSessionQueryError> {
 	const queries = makeSqlSessionQueries(sql);
 	const headRows = yield* sql<TimelineHeadRow>`
-		SELECT status, runtime_mode, permission_mode, queue_paused,
-			current_turn_id, current_turn_phase
-		FROM sessions WHERE id = ${sessionId} LIMIT 1
+		SELECT s.status, s.runtime_mode, s.permission_mode, s.queue_paused,
+			(SELECT COALESCE(MAX(ordinal), 0) FROM session_turns
+				WHERE session_id = s.id) AS turn_count,
+			t.id AS turn_id, t.ordinal AS turn_ordinal, t.status AS turn_status,
+			t.phase AS turn_phase, t.provider_thread_id AS turn_provider_thread_id,
+			t.active_attempt_id AS attempt_id, t.attempt_ordinal AS attempt_ordinal,
+			t.attempt_reason AS attempt_reason, t.requested_at AS turn_requested_at
+		FROM sessions s
+		LEFT JOIN session_turns t
+			ON t.session_id = s.id AND t.status IN ('starting', 'running', 'finalizing')
+		WHERE s.id = ${sessionId}
+		ORDER BY t.ordinal DESC
+		LIMIT 1
 	`;
 	const head = headRows[0];
 	if (head === undefined) {
@@ -284,16 +339,7 @@ export const readSessionTimelineSnapshot = Effect.fn(
 			),
 		);
 	}
-	const phase = Schema.decodeUnknownResult(SessionTimelineTurnPhase)(
-		head.current_turn_phase,
-	);
-	const currentTurn =
-		head.current_turn_id === null || Result.isFailure(phase)
-			? null
-			: {
-					turnId: AgentTurnId.make(head.current_turn_id),
-					phase: phase.success,
-				};
+	const activeTurn = activeTurnFromHead(head);
 	const runtimeMode = Schema.decodeUnknownResult(RuntimeMode)(
 		head.runtime_mode,
 	);
@@ -301,12 +347,19 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		Schema.Literals(["default", "plan", "acceptEdits"]),
 	)(head.permission_mode);
 	const interactions = yield* readPendingInteractions(sql, sessionId);
+	const stepRows =
+		yield* sql<SessionExecutionStep>`SELECT 'unsupported' AS checkpointCapability,id,turn_id AS turnId,attempt_id AS attemptId,item_id AS itemId,parent_item_id AS parentItemId,kind,label,status,child_session_id AS childSessionId,native_child_id AS nativeChildId,root_completed_at AS rootCompletedAt,created_at AS createdAt,updated_at AS updatedAt FROM session_execution_steps WHERE session_id=${sessionId} ORDER BY created_at DESC,id LIMIT 201`;
+	const executionSteps = stepRows.slice(0, 200);
+	let executionStepsTruncated = stepRows.length > 200;
 	const makeProjection = () =>
 		SessionTimelineProjection.make({
 			messages: messages.map(({ message }) => message),
+			executionSteps,
+			executionStepsTruncated,
 			olderMessageSequence: null,
 			status: head.status,
-			currentTurn,
+			activeTurn,
+			turnCount: head.turn_count,
 			queue: QueueState.make({
 				items: queueItems,
 				paused: head.queue_paused !== 0,
@@ -333,6 +386,14 @@ export const readSessionTimelineSnapshot = Effect.fn(
 		budgetPageCursor =
 			messages[0]?.sequence ??
 			(omitted === undefined ? budgetPageCursor : omitted.sequence + 1);
+		projection = makeProjection();
+	}
+	while (
+		executionSteps.length > 0 &&
+		projectionBytes() > MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES
+	) {
+		executionSteps.pop();
+		executionStepsTruncated = true;
 		projection = makeProjection();
 	}
 	if (projectionBytes() > MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES) {

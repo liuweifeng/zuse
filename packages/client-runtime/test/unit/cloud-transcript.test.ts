@@ -52,8 +52,7 @@ const session = Session.make({
 	model: "test",
 	status: "idle",
 	archivedAt: null,
-	cursor: null,
-	resumeStrategy: "none",
+	providerThread: null,
 	runtimeMode: "approval-required",
 	worktreeId: null,
 	forkedFromSessionId: null,
@@ -67,6 +66,7 @@ const context = { session, chat, folder };
 
 const checkpoint = async (
 	value?: CloudTranscriptCheckpointPayload["context"],
+	mutate?: (value: Record<string, unknown>) => void,
 ) => {
 	const cursor = { epoch: "epoch", version: 4 };
 	const transcriptKey = bytesToBase64Url(new Uint8Array(32).fill(7));
@@ -79,17 +79,16 @@ const checkpoint = async (
 		projection: SessionTimelineProjection.make({
 			messages: [],
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 0,
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "approval-required",
 		}),
 	});
-	const plaintext = new TextEncoder().encode(
-		JSON.stringify(
-			Schema.encodeSync(CloudTranscriptCheckpointPayload)(payload),
-		),
-	);
+	const encoded = Schema.encodeSync(CloudTranscriptCheckpointPayload)(payload);
+	mutate?.(encoded);
+	const plaintext = new TextEncoder().encode(JSON.stringify(encoded));
 	const ciphertext = await encryptCloudTranscript({
 		encodedKey: transcriptKey,
 		additionalData: cloudTranscriptAdditionalData({
@@ -151,4 +150,72 @@ it.each([
 	await expect(
 		openCloudTranscriptCheckpoint(ref, await checkpoint(value)),
 	).rejects.toThrow("context mismatch");
+});
+
+const legacy = (value: Record<string, unknown>) => {
+	const context = value.context as { session: Record<string, unknown> };
+	const projection = value.projection as Record<string, unknown>;
+	delete context.session.providerThread;
+	context.session.cursor = "native-thread";
+	context.session.resumeStrategy = "codex-thread-id";
+	delete projection.activeTurn;
+	delete projection.turnCount;
+	projection.status = "running";
+	projection.currentTurn = { turnId: "legacy-turn", phase: "running" };
+};
+
+it("reads legacy encrypted context without fabricating engine ownership", async () => {
+	const payload = await openCloudTranscriptCheckpoint(
+		ref,
+		await checkpoint(context, legacy),
+	);
+	expect(payload.context?.session.providerThread).toBeNull();
+	expect(payload.projection.activeTurn).toBeNull();
+	expect(payload.projection.turnCount).toBe(0);
+	expect(payload.projection.currentTurn?.turnId).toBe("legacy-turn");
+	expect(payload.projection.status).toBe("running");
+});
+
+it("still rejects legacy encrypted context with inconsistent identity", async () => {
+	await expect(
+		openCloudTranscriptCheckpoint(
+			ref,
+			await checkpoint(context, (value) => {
+				legacy(value);
+				(value.context as { session: Record<string, unknown> }).session.id =
+					"other";
+			}),
+		),
+	).rejects.toThrow("context mismatch");
+});
+
+it("preserves current model handoffs and generated UI in encrypted history", async () => {
+	const contents = [
+		{
+			_tag: "model_switch",
+			fromProviderId: "codex",
+			fromModel: "old",
+			toProviderId: "claude",
+			toModel: "new",
+			context: "handoff",
+		},
+		{ _tag: "ui_spec", version: 1, spec: "root = Stack([])" },
+	];
+	const payload = await openCloudTranscriptCheckpoint(
+		ref,
+		await checkpoint(context, (value) => {
+			(value.projection as Record<string, unknown>).messages = contents.map(
+				(content, index) => ({
+					id: `message-${index}`,
+					sessionId: ref.sessionId,
+					role: "system",
+					content,
+					createdAt: new Date(0).toISOString(),
+				}),
+			);
+		}),
+	);
+	expect(payload.projection.messages.map((message) => message.content)).toEqual(
+		contents,
+	);
 });

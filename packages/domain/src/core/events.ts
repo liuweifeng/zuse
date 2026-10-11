@@ -1,10 +1,29 @@
 import { Schema } from "effect";
+import { InputRequestOwner } from "../agent-engine/input-owner.js";
 
-import { SegmentKind, SettlementOutcome } from "./commands.js";
+import {
+	AttemptProviderTurnFields,
+	AttemptReason,
+	SegmentKind,
+	SettlementOutcome,
+} from "./commands.js";
 import {
 	SessionConfigurationFields,
 	SessionCreatedEventFields,
 } from "./session-fields.js";
+
+export const ProviderThreadSnapshot = Schema.Struct({
+	id: Schema.String,
+	provider: Schema.String,
+	nativeThreadId: Schema.String,
+	nativeHeadId: Schema.NullOr(Schema.String),
+	status: Schema.Literals(["not_loaded", "idle", "active", "closed", "error"]),
+	firstTurnOrdinal: Schema.NullOr(Schema.Number),
+	lastTurnOrdinal: Schema.NullOr(Schema.Number),
+	createdAt: Schema.Number,
+	updatedAt: Schema.Number,
+});
+export type ProviderThreadSnapshot = typeof ProviderThreadSnapshot.Type;
 
 export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("SessionCreated", {
@@ -45,10 +64,19 @@ export const SessionEvent = Schema.Union([
 		paused: Schema.Boolean,
 		updatedAt: Schema.Number,
 	}),
+	/** Legacy resume token; folded into a provider thread on replay. */
 	Schema.TaggedStruct("SessionResumeSet", {
-		cursor: SessionConfigurationFields.cursor,
+		cursor: Schema.NullOr(Schema.String),
 		resumeStrategy: SessionConfigurationFields.resumeStrategy,
 		providerEventCursor: Schema.optional(Schema.NullOr(Schema.String)),
+		updatedAt: Schema.Number,
+	}),
+	/** Snapshot of a provider-native thread this session owns. */
+	Schema.TaggedStruct("ProviderThreadUpdated", {
+		providerThread: ProviderThreadSnapshot,
+	}),
+	Schema.TaggedStruct("ActiveProviderThreadSet", {
+		providerThreadId: Schema.NullOr(Schema.String),
 		updatedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("SessionArchived", { archivedAt: Schema.Number }),
@@ -57,13 +85,52 @@ export const SessionEvent = Schema.Union([
 	Schema.TaggedStruct("TurnStarted", {
 		turnId: Schema.String,
 		startedAt: Schema.Number,
+		/** Counted position of the turn; derived on replay when absent. */
+		ordinal: Schema.optional(Schema.Number),
+		attemptId: Schema.optional(Schema.String),
+		providerThreadId: Schema.optional(Schema.NullOr(Schema.String)),
+	}),
+	/** A retry or recovery replaced the active attempt of a turn. */
+	Schema.TaggedStruct("AttemptProviderTurnBound", AttemptProviderTurnFields),
+	Schema.TaggedStruct("AttemptStarted", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		ordinal: Schema.Number,
+		reason: AttemptReason,
+		startedAt: Schema.Number,
+		/** Turn facts denormalised so a projection can render without state. */
+		turnOrdinal: Schema.Number,
+		providerThreadId: Schema.NullOr(Schema.String),
+		turnRequestedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("ProviderRecoveryRequested", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		sourceAttemptId: Schema.String,
+		reference: AttemptProviderTurnFields.reference,
+		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ProviderTurnRequested", {
 		turnId: Schema.String,
+		/** Absent only on historical requests written before attempt ownership. */
+		attemptId: Schema.optional(Schema.String),
 		providerInputJson: Schema.String,
 		/** Optional provider startup configuration for an atomic initial turn. */
 		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnsRolledBack", {
+		rolledBackTurnIds: Schema.optional(Schema.Array(Schema.String)),
+		throughOrdinal: Schema.Number,
+		messageSequence: Schema.Number,
+		removedMessageIds: Schema.Array(Schema.String),
+		rolledBackAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("TurnFinalizationRequested", {
+		turnId: Schema.String,
+		attemptId: Schema.String,
+		outcome: SettlementOutcome,
+		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("TurnSettled", {
 		turnId: Schema.String,
@@ -72,6 +139,8 @@ export const SessionEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("TurnInterruptRequested", {
 		turnId: Schema.String,
+		/** Absent only on historical requests written before attempt ownership. */
+		attemptId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("TurnInterruptAcknowledged", {
@@ -123,6 +192,7 @@ export const SessionEvent = Schema.Union([
 		readyAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("MessagePersisted", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		messageId: Schema.String,
 		turnId: Schema.NullOr(Schema.String),
 		role: Schema.String,
@@ -146,6 +216,7 @@ export const SessionEvent = Schema.Union([
 		settledAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("PermissionRequested", {
+		inputOwner: Schema.optional(InputRequestOwner),
 		requestId: Schema.String,
 		turnId: Schema.String,
 		payloadJson: Schema.String,
@@ -157,21 +228,42 @@ export const SessionEvent = Schema.Union([
 		decisionJson: Schema.optional(Schema.String),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("PermissionExpired", {
+		requestId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("PlanExpired", {
+		itemId: Schema.String,
+		reason: Schema.Literals(["expired", "uncertain"]),
+		expiredAt: Schema.Number,
+	}),
+	Schema.TaggedStruct("QuestionExpired", {
+		itemId: Schema.String,
+		expiredAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("QuestionResolved", {
 		itemId: Schema.String,
 		resolution: Schema.Literal("cancelled"),
 		resolvedAt: Schema.Number,
 	}),
+	Schema.TaggedStruct("ProviderSessionReserved", {
+		providerId: Schema.String,
+		providerSessionId: Schema.String,
+		reservedAt: Schema.Number,
+	}),
 	Schema.TaggedStruct("ProviderAttached", {
 		providerId: Schema.String,
+		providerSessionId: Schema.optional(Schema.String),
 		attachedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ProviderStopRequested", {
 		providerId: Schema.String,
+		providerSessionId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
 	Schema.TaggedStruct("ProviderDetached", {
 		providerId: Schema.String,
+		providerSessionId: Schema.optional(Schema.String),
 		detachedAt: Schema.Number,
 	}),
 ]);

@@ -149,6 +149,7 @@
 	"accounts_open_browser": "브라우저 열기",
 	"accounts_signed_in": "로그인됨",
 	"accounts_remove_description": "설정에서 이 계정을 제거합니다. 이 계정을 사용하는 채팅은 재개할 수 없습니다. 로그인 파일과 대화 기록은 유지됩니다.",
+	"model_picker_switch_pending": "현재 작업이 끝나면 전환됩니다",
 	"accounts_default_detail": "CLI 로그인 또는 API 키",
 	"accounts_suggested_name": "계정 {{index}}",
 	"accounts_actions": "{{name}} 작업",

@@ -180,7 +180,7 @@ const transactionFixture = async () => {
 	};
 	const publish = async (
 		version: string,
-		options: { invalidToolchain?: boolean } = {},
+		options: { invalidToolchain?: boolean; protocol?: number } = {},
 	) => {
 		const source = join(directory, `source-${version}`);
 		await mkdir(source);
@@ -190,7 +190,7 @@ const transactionFixture = async () => {
 				schemaVersion: 1,
 				appVersion: "0.25.0",
 				runtimeVersion: version,
-				wireProtocolVersion: 6,
+				wireProtocolVersion: options.protocol ?? 6,
 			}),
 		);
 		await writeFile(join(source, "bin.mjs"), "// fixture runtime\n");
@@ -213,7 +213,7 @@ const transactionFixture = async () => {
 			architecture: "linux-x64",
 			url: "https://runtime.test/archive",
 			sha256: createHash("sha256").update(archive).digest("hex"),
-			wireProtocol: { min: 6, max: 6 },
+			wireProtocol: { min: options.protocol ?? 6, max: options.protocol ?? 6 },
 			toolchain: {
 				version: "2026.10.09.1",
 				sha256: createHash("sha256").update(toolchain).digest("hex"),
@@ -556,6 +556,53 @@ describe("durable runtime transactions", () => {
 				previous: { release: original, signed: false },
 			});
 			expect(journal.candidate.release).not.toBe(original);
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test("image builds replace inherited protocol-six activation with their own protocol-seven transaction", async () => {
+		const fixture = await transactionFixture();
+		try {
+			await fixture.publish("inherited-image-six");
+			await fixture.invoke("", { ZUSE_RUNTIME_INSTALL_ONLY: "1" });
+			const inherited = await fixture.current();
+			await fixture.publish("new-image-seven", { protocol: 7 });
+			const install = {
+				ZUSE_RUNTIME_INSTALL_ONLY: "1",
+				ZUSE_RUNTIME_WIRE_PROTOCOL: "7",
+			};
+			await expect(fixture.invoke("", install)).rejects.toMatchObject({
+				stderr: expect.stringContaining(
+					"expected 7, signed runtime inherited-image-six supports 6..6",
+				),
+			});
+			expect(await fixture.current()).toBe(inherited);
+			await fixture.invoke("", {
+				...install,
+				ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: "new-image-build",
+			});
+			expect(await fixture.current()).not.toBe(inherited);
+			expect(await fixture.journal()).toMatchObject({
+				transactionId: "new-image-build",
+				phase: "activated",
+				generation: null,
+				candidate: { version: "new-image-seven" },
+				previous: { release: inherited, signed: false },
+			});
+			expect(
+				JSON.parse(
+					await readFile(
+						join(await fixture.current(), "runtime-metadata.json"),
+						"utf8",
+					),
+				),
+			).toMatchObject({ wireProtocolVersion: 7 });
+			// A retry of this build keeps the same durable transaction.
+			await fixture.invoke("", {
+				...install,
+				ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: "new-image-build",
+			});
 		} finally {
 			await fixture.close();
 		}

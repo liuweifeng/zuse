@@ -1,12 +1,17 @@
 import {
 	DEFAULT_PERMISSION_MODE,
 	DEFAULT_RUNTIME_MODE,
+	PermissionRequest,
 	QueuedMessage,
 	QueueState,
 	type SessionInteraction,
 	type SessionTimelineEvent,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
+import {
+	applyExecutionMessage,
+	settleExecutionSteps,
+} from "./execution-steps.ts";
 
 /**
  * The one pure reducer for durable session-timeline state. This module is
@@ -18,7 +23,8 @@ export const emptyTimelineProjection = (): SessionTimelineProjection =>
 		messages: [],
 		olderMessageSequence: null,
 		status: "idle",
-		currentTurn: null,
+		activeTurn: null,
+		turnCount: 0,
 		queue: QueueState.make({ items: [], paused: false }),
 		permissionMode: DEFAULT_PERMISSION_MODE,
 		runtimeMode: DEFAULT_RUNTIME_MODE,
@@ -61,8 +67,55 @@ export const applyTimelineEvent = (
 			if (index === -1) messages.push(event.message);
 			else messages[index] = event.message;
 			const content = event.message.content;
+			const turn = projection.activeTurn;
+			const executionSteps =
+				turn === null ||
+				(event.turnId !== undefined && event.turnId !== turn.id)
+					? projection.executionSteps
+					: applyExecutionMessage(
+							projection.executionSteps ?? [],
+							{
+								sessionId: event.message.sessionId,
+								turnId: turn.id,
+								attemptId: turn.attempt.id,
+								at: event.message.createdAt.getTime(),
+							},
+							content,
+						);
 			const interactions = (() => {
+				if (content._tag === "tool_use" && content.tool === "ExitPlanMode") {
+					if (
+						index !== -1 ||
+						projection.interactions.some(
+							(i) => i._tag === "Plan" && i.id === content.itemId,
+						) ||
+						messages.some(
+							(m) =>
+								m.content._tag === "tool_result" &&
+								m.content.itemId === content.itemId,
+						)
+					)
+						return projection.interactions;
+					return upsertInteraction(projection.interactions, {
+						_tag: "Plan",
+						id: content.itemId,
+						requestedAt: event.message.createdAt,
+					});
+				}
+				if (content._tag === "tool_result")
+					return removeInteraction(
+						projection.interactions,
+						"Plan",
+						content.itemId,
+					);
 				if (content._tag === "user_question") {
+					if (index !== -1) return projection.interactions;
+					if (
+						projection.interactions.some(
+							(item) => item._tag === "Question" && item.id === content.itemId,
+						)
+					)
+						return projection.interactions;
 					return upsertInteraction(projection.interactions, {
 						_tag: "Question",
 						id: content.itemId,
@@ -82,34 +135,104 @@ export const applyTimelineEvent = (
 			return SessionTimelineProjection.make({
 				...projection,
 				messages,
+				executionSteps,
+				executionStepsTruncated:
+					projection.executionStepsTruncated ||
+					(content._tag === "tool_use" &&
+						(projection.executionSteps?.length ?? 0) >= 200 &&
+						!projection.executionSteps?.some(
+							(step) =>
+								step.turnId === turn?.id &&
+								step.attemptId === turn.attempt.id &&
+								step.itemId === content.itemId,
+						)),
 				interactions,
 			});
 		}
-		case "StatusSet":
+		case "StatusSet": {
+			// The provider accepted the active turn: it is running, not starting.
+			const activeTurn =
+				event.status === "running" &&
+				projection.activeTurn !== null &&
+				projection.activeTurn.status === "starting"
+					? { ...projection.activeTurn, status: "running" as const }
+					: projection.activeTurn;
 			return SessionTimelineProjection.make({
 				...projection,
 				status: event.status,
+				activeTurn,
 			});
+		}
 		case "TurnStarted":
 			return SessionTimelineProjection.make({
 				...projection,
-				currentTurn: { turnId: event.turnId, phase: event.phase },
+				activeTurn: event.turn,
+				turnCount: Math.max(projection.turnCount, event.turn.ordinal),
 			});
-		case "TurnPhaseSet":
-			return projection.currentTurn?.turnId === event.turnId
+		case "TurnUpdated":
+			return projection.activeTurn?.id === event.turn.id
 				? SessionTimelineProjection.make({
 						...projection,
-						currentTurn: { turnId: event.turnId, phase: event.phase },
+						executionSteps:
+							projection.activeTurn.attempt.id === event.turn.attempt.id
+								? projection.executionSteps
+								: settleExecutionSteps(
+										projection.executionSteps ?? [],
+										event.turn.id,
+										"cancelled",
+										event.updatedAt ?? event.turn.requestedAt.getTime(),
+									),
+						activeTurn: event.turn,
+					})
+				: projection;
+		case "TurnPhaseSet":
+			return projection.activeTurn?.id === event.turnId
+				? SessionTimelineProjection.make({
+						...projection,
+						activeTurn: { ...projection.activeTurn, phase: event.phase },
+					})
+				: projection;
+		case "TranscriptRolledBack": {
+			const removed = new Set(event.removedMessageIds);
+			const rolledBackTurns = new Set(event.rolledBackTurnIds ?? []);
+			return SessionTimelineProjection.make({
+				...projection,
+				executionSteps: projection.executionSteps?.map((step) =>
+					rolledBackTurns.has(step.turnId)
+						? {
+								...step,
+								status: "cancelled",
+								updatedAt: event.rolledBackAt ?? step.updatedAt,
+							}
+						: step,
+				),
+				messages: projection.messages.filter(
+					(message) => !removed.has(message.id),
+				),
+				interactions: [],
+			});
+		}
+		case "TurnFinalizing":
+			return projection.activeTurn?.id === event.turnId
+				? SessionTimelineProjection.make({
+						...projection,
+						activeTurn: { ...projection.activeTurn, status: "finalizing" },
 					})
 				: projection;
 		case "TurnSettled":
 			// Settlement is the authoritative terminal transition for a turn. Keep
 			// the live reducer identical to the SQLite projector: otherwise a client
-			// can clear currentTurn while retaining status="running" until remount.
+			// can clear the active turn while retaining status="running" until remount.
 			return SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				executionSteps: settleExecutionSteps(
+					projection.executionSteps ?? [],
+					event.turnId,
+					event.outcome === "error" ? "failed" : "cancelled",
+					event.settledAt ?? 0,
+				),
+				activeTurn: null,
 			});
 		case "PermissionModeSet":
 			return SessionTimelineProjection.make({
@@ -130,6 +253,22 @@ export const applyTimelineEvent = (
 					request: event.request,
 				}),
 			});
+		case "PermissionExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((interaction) =>
+					interaction._tag === "Permission" &&
+					interaction.id === event.requestId
+						? {
+								...interaction,
+								request: PermissionRequest.make({
+									...interaction.request,
+									recoveryState: "expired",
+								}),
+							}
+						: interaction,
+				),
+			});
 		case "PermissionResolved":
 			return SessionTimelineProjection.make({
 				...projection,
@@ -137,6 +276,24 @@ export const applyTimelineEvent = (
 					projection.interactions,
 					"Permission",
 					event.requestId,
+				),
+			});
+		case "PlanExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((i) =>
+					i._tag === "Plan" && i.id === event.itemId
+						? { ...i, recoveryState: event.reason }
+						: i,
+				),
+			});
+		case "QuestionExpired":
+			return SessionTimelineProjection.make({
+				...projection,
+				interactions: projection.interactions.map((interaction) =>
+					interaction._tag === "Question" && interaction.id === event.itemId
+						? { ...interaction, recoveryState: "expired" as const }
+						: interaction,
 				),
 			});
 		case "QuestionResolved":

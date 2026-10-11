@@ -1,3 +1,4 @@
+import { MessageId } from "@zuse/contracts";
 import { shouldIncludeInTranscript } from "@zuse/domain/conversation/transcript";
 
 export { shouldIncludeInTranscript } from "@zuse/domain/conversation/transcript";
@@ -236,6 +237,7 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 		case "SubagentProgress":
 			return {
 				_tag: "subagent_progress",
+				rootCompleted: event.rootCompleted,
 				childId: event.childId,
 				parentId: event.parentId,
 				childSessionId: event.childSessionId,
@@ -313,3 +315,9 @@ export const eventToContent = (event: AgentEvent): MessageContent | null => {
 			return null;
 	}
 };
+
+/** Stable across live ingestion and recovery of the same native execution. */
+export const providerMessageId = (
+	attemptId: string,
+	providerItemIdentity: string,
+): MessageId => MessageId.make(`provider:${attemptId}:${providerItemIdentity}`);

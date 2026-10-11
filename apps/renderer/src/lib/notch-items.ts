@@ -1,3 +1,4 @@
+import type { SessionPresentation } from "@zuse/client-runtime/session-presentation";
 import type {
 	Chat,
 	Folder,
@@ -11,6 +12,7 @@ import {
 	type ChatAttentionState,
 	deriveChatAttentionState,
 	derivePermissionAttention,
+	executionAttentionLabel,
 	mergeChatAttentionStates,
 } from "./chat-attention-state.ts";
 import {
@@ -35,6 +37,9 @@ export type BuildNotchItemsInput = {
 	readonly sessionsByProject: Record<string, ReadonlyArray<Session>>;
 	readonly messagesBySession: Record<string, ReadonlyArray<Message>>;
 	readonly runtimeBySession: Readonly<Record<string, SessionRuntimeState>>;
+	readonly healthBySession?: Readonly<
+		Record<string, SessionPresentation["health"]>
+	>;
 	readonly interactionsBySession: Readonly<
 		Record<string, ReadonlyArray<SessionInteraction>>
 	>;
@@ -46,11 +51,15 @@ export type BuildNotchItemsInput = {
 
 const statePriority: Record<NotchTrayItemState, number> = {
 	running: 1,
-	completed: 2,
-	failed: 3,
-	planReady: 4,
-	question: 5,
-	permission: 6,
+	checking: 2,
+	quiet: 3,
+	disconnected: 4,
+	unavailable: 5,
+	completed: 6,
+	failed: 7,
+	planReady: 8,
+	question: 9,
+	permission: 10,
 };
 
 const attentionToNotchState = (
@@ -58,7 +67,11 @@ const attentionToNotchState = (
 ): NotchTrayItemState | null => {
 	switch (state) {
 		case "running":
-			return "running";
+		case "quiet":
+		case "unavailable":
+		case "disconnected":
+		case "checking":
+			return state;
 		case "planReady":
 			return "planReady";
 		case "question":
@@ -72,6 +85,11 @@ const attentionToNotchState = (
 
 const labelFor = (state: NotchTrayItemState): string => {
 	switch (state) {
+		case "quiet":
+		case "unavailable":
+		case "disconnected":
+		case "checking":
+			return executionAttentionLabel(state) ?? state;
 		case "permission":
 			return "Permission";
 		case "question":
@@ -93,6 +111,11 @@ const subtitleFor = (
 	session: Session,
 ): string => {
 	switch (state) {
+		case "quiet":
+		case "unavailable":
+		case "disconnected":
+		case "checking":
+			return `${folderName} · ${labelFor(state)}`;
 		case "permission":
 			return `${folderName} needs approval`;
 		case "question":
@@ -157,6 +180,7 @@ export const buildNotchItems = ({
 	sessionsByProject,
 	messagesBySession,
 	runtimeBySession,
+	healthBySession,
 	interactionsBySession,
 	permissionRequests,
 	questionAttachmentsByKey,
@@ -191,6 +215,7 @@ export const buildNotchItems = ({
 						interactionsBySession[session.id] ?? [],
 						questionAttachmentsByKey,
 					),
+					healthBySession?.[session.id],
 				),
 				derivePermissionAttention(permissionRequests, new Set([session.id])),
 			]);

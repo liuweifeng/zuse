@@ -59,6 +59,7 @@ import {
 import { messageFromRecord } from "../conversation/core/conversation-records.ts";
 import { timelineEventFromDomain } from "../conversation/core/conversation-timeline-projection.ts";
 import { handoffToServiceScope } from "../conversation/core/service-scope.ts";
+import { observeSessionRuntime } from "../conversation/core/session-liveness.ts";
 import {
 	ChatService,
 	MessageService,
@@ -67,6 +68,7 @@ import {
 	SessionService,
 	TranscriptService,
 } from "../conversation/services/conversation-services.ts";
+import { SessionWaitHandlers } from "../conversation/session-wait-handlers.ts";
 import { connectionWorkspaceActor } from "../lan-auth/services/connection-identity.ts";
 import {
 	observeUsageAccounts,
@@ -192,7 +194,7 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 						});
 					const accounts = yield* ProviderAccounts;
 					const account = yield* accounts
-						.resolve(providerId, sessionId, session.cursor !== null)
+						.resolve(providerId, sessionId, session.providerThread !== null)
 						.pipe(
 							Effect.mapError(
 								(error) =>
@@ -1770,13 +1772,49 @@ const SessionResume = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(SessionService, (svc) => svc.resumeSession(sessionId)),
 );
 
+const SessionForkConstructions = MemoizeRpcs.toLayerHandler(
+	"session.forkConstructions",
+	({ sessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.forkConstructions(sessionId),
+		),
+);
+const SessionRetryFork = MemoizeRpcs.toLayerHandler(
+	"session.retryFork",
+	({ sessionId, forkSessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.retryFork(sessionId, forkSessionId),
+		),
+);
+const SessionCancelFork = MemoizeRpcs.toLayerHandler(
+	"session.cancelFork",
+	({ sessionId, forkSessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.cancelFork(sessionId, forkSessionId),
+		),
+);
+const SessionMergeBack = MemoizeRpcs.toLayerHandler(
+	"session.mergeBack",
+	(input) =>
+		Effect.flatMap(TranscriptService, (service) => service.mergeBack(input)),
+);
+const SessionContextLinks = MemoizeRpcs.toLayerHandler(
+	"session.contextLinks",
+	({ sessionId }) =>
+		Effect.flatMap(TranscriptService, (service) =>
+			service.contextLinks(sessionId),
+		),
+);
+
 const SessionFork = MemoizeRpcs.toLayerHandler("session.fork", (input) =>
 	Effect.gen(function* () {
 		const svc = yield* TranscriptService;
 		const analytics = yield* AnalyticsService;
 		const result = yield* svc.forkSession({
+			commandId: input.commandId,
 			sourceSessionId: input.sourceSessionId,
 			fromMessageId: input.fromMessageId,
+			nativeChildStepId: input.nativeChildStepId,
 			destination: input.destination,
 			providerId: input.providerId,
 			model: input.model,
@@ -1897,13 +1935,20 @@ const MessagesList = MemoizeRpcs.toLayerHandler(
 
 const SessionEvents = MemoizeRpcs.toLayerHandler(
 	"session.events",
-	({ sessionId, afterVersion, streamEpoch, hasProjection, historyMode }) =>
+	({
+		sessionId,
+		afterVersion,
+		streamEpoch,
+		hasProjection,
+		historyMode,
+		includeRuntime,
+	}) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sessions = yield* SessionService;
 				yield* sessions.getSession(sessionId);
 				const domain = yield* SessionDomain;
-				return domain
+				const events = domain
 					.synchronizedEvents({
 						streamId: sessionId,
 						afterVersion,
@@ -1980,6 +2025,29 @@ const SessionEvents = MemoizeRpcs.toLayerHandler(
 						}),
 						Stream.orDie,
 					);
+				if (!includeRuntime) return events;
+				const sql = yield* SqlClient.SqlClient;
+				const observation = sql
+					.withTransaction(
+						Effect.gen(function* () {
+							const runtime = yield* observeSessionRuntime(sql, sessionId);
+							const version = yield* domain.currentStreamVersion(sessionId);
+							return {
+								kind: "runtime" as const,
+								sessionId,
+								cursor: { epoch: domain.streamEpoch, version },
+								observation: runtime,
+							};
+						}),
+					)
+					.pipe(Effect.orDie);
+				return Stream.merge(
+					events,
+					Stream.fromEffect(observation).pipe(
+						Stream.repeat(Schedule.spaced("5 seconds")),
+					),
+					{ haltStrategy: "left" },
+				);
 			}),
 		),
 );
@@ -2097,7 +2165,7 @@ const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 
 const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 	"messages.queue.add",
-	({ commandId, sessionId, queueId, input, ready, flush }) =>
+	({ commandId, sessionId, queueId, input, ready, flush, rejectIfBlocked }) =>
 		Effect.gen(function* () {
 			const svc = yield* QueueService;
 			const analytics = yield* AnalyticsService;
@@ -2110,6 +2178,7 @@ const MessagesQueueAdd = MemoizeRpcs.toLayerHandler(
 				ready,
 				flush,
 				actor,
+				rejectIfBlocked,
 			);
 			yield* analytics.capture("queue action performed", { action: "add" });
 			return result;
@@ -2326,7 +2395,7 @@ const ProviderAccountHandlers = Layer.mergeAll(
 					providerId,
 					sessionId,
 					id,
-					session.cursor,
+					session.providerThread?.nativeThreadRef.nativeId ?? null,
 				);
 			}),
 	),
@@ -2379,6 +2448,11 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatDelete,
 	SessionResume,
 	SessionFork,
+	SessionForkConstructions,
+	SessionRetryFork,
+	SessionCancelFork,
+	SessionMergeBack,
+	SessionContextLinks,
 	SessionExportTranscript,
 	SessionLatestPlan,
 	SessionSetRuntimeMode,
@@ -2396,6 +2470,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionGoalClear,
 	SessionGoalStream,
 	MessagesList,
+	SessionWaitHandlers,
 	MessagesSend,
 	MessagesInterrupt,
 	MessagesQueueList,

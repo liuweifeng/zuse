@@ -1,13 +1,20 @@
+import "@zuse/i18n/english/chat";
+import type { SessionPresentation } from "@zuse/client-runtime/session-presentation";
 import type {
 	Message,
 	PermissionRequest,
 	SessionId,
 	SessionInteraction,
 } from "@zuse/contracts";
+import { message } from "@zuse/i18n";
 
 export type ChatAttentionState =
 	| "idle"
 	| "running"
+	| "quiet"
+	| "unavailable"
+	| "disconnected"
+	| "checking"
 	| "planReady"
 	| "question"
 	| "permission";
@@ -15,11 +22,52 @@ export type ChatAttentionState =
 const priority: Record<ChatAttentionState, number> = {
 	idle: 0,
 	running: 1,
-	planReady: 2,
-	question: 3,
+	checking: 2,
+	quiet: 3,
+	disconnected: 4,
+	unavailable: 5,
+	planReady: 6,
+	question: 7,
 	// A blocking permission prompt is the most urgent attention state — the
 	// agent is stalled until the user decides.
-	permission: 4,
+	permission: 8,
+};
+
+/** Health comes from the shared server-observation presentation, never elapsed client time. */
+export const executionAttentionState = (
+	running: boolean,
+	health: SessionPresentation["health"] = "healthy",
+): ChatAttentionState => {
+	if (!running) return "idle";
+	switch (health) {
+		case "stalled":
+			return "quiet";
+		case "unavailable":
+			return "unavailable";
+		case "disconnected":
+			return "disconnected";
+		case "unknown":
+			return "checking";
+		default:
+			return "running";
+	}
+};
+
+export const executionAttentionLabel = (
+	state: ChatAttentionState,
+): string | null => {
+	switch (state) {
+		case "quiet":
+			return message("chat:attention_quiet");
+		case "unavailable":
+			return message("chat:attention_unavailable");
+		case "disconnected":
+			return message("chat:attention_disconnected");
+		case "checking":
+			return message("chat:attention_checking");
+		default:
+			return null;
+	}
 };
 
 const itemIdOf = (value: unknown): string | null =>
@@ -37,6 +85,7 @@ export const deriveChatAttentionState = (
 	messages: ReadonlyArray<Pick<Message, "content">>,
 	running: boolean,
 	interactions: ReadonlyArray<SessionInteraction>,
+	health?: SessionPresentation["health"],
 ): ChatAttentionState => {
 	if (interactions.some((interaction) => interaction._tag === "Question")) {
 		return "question";
@@ -58,10 +107,18 @@ export const deriveChatAttentionState = (
 		if (content._tag !== "tool_use") continue;
 		if (content.tool !== "ExitPlanMode") continue;
 		const itemId = itemIdOf(content.itemId);
-		if (itemId !== null && !completedTools.has(itemId)) return "planReady";
+		if (
+			itemId !== null &&
+			!completedTools.has(itemId) &&
+			!interactions.some(
+				(i) =>
+					i._tag === "Plan" && i.id === itemId && i.recoveryState !== undefined,
+			)
+		)
+			return "planReady";
 	}
 
-	return running ? "running" : "idle";
+	return executionAttentionState(running, health);
 };
 
 /**
@@ -105,5 +162,7 @@ export const chatAttentionLabel = (
 			return "Plan ready";
 		case "idle":
 			return "Inactive";
+		default:
+			return executionAttentionLabel(state) ?? "Inactive";
 	}
 };

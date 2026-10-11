@@ -14,6 +14,7 @@ import {
 } from "@zuse/contracts";
 import type { ChatCommand } from "@zuse/domain/chat/commands";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import { makeSqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import type {
 	WorktreeArchiveOutcome,
 	WorktreeServiceShape,
@@ -41,8 +42,7 @@ import type {
 import {
 	type ChatRow,
 	parseArchivedWorktreeSnapshot,
-	type SessionRow,
-	sessionFromRow,
+	sessionFromRecord,
 } from "./conversation-records.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 
@@ -1341,19 +1341,12 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						yield* interruptProviderFiber(sessionId);
 						yield* setStatus(sessionId, "idle");
 					}
-					const sessions = yield* sql<SessionRow>`
-          SELECT id, project_id, title, title_provenance, provider_id, model, status,
-                 archived_at, cursor, resume_strategy, runtime_mode,
-                 agents_json, worktree_id, chat_id, forked_from_session_id,
-                 forked_from_message_id, permission_mode, tool_search,
-                 created_at, updated_at
-          FROM sessions
-          WHERE chat_id = ${chatId} AND archived_at IS NULL
-          ORDER BY updated_at DESC
-        `.pipe(Effect.orDie);
+					const sessions = yield* makeSqlSessionQueries(sql)
+						.listByChat({ chatId })
+						.pipe(Effect.orDie);
 					return {
 						chat: yield* lookupChat(chatId),
-						sessions: sessions.map(sessionFromRow),
+						sessions: sessions.map(sessionFromRecord),
 						worktree: restoredWorktree,
 						directoryStatus: yield* getChatDirectoryStatus(chatId),
 						...(restoreNotice === undefined ? {} : { restoreNotice }),

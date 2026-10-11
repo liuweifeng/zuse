@@ -37,3 +37,11 @@ test("rejects tampering even when the protocol looks compatible", () => {
 		/signature is invalid/,
 	);
 });
+
+test("blocks engine protocol 7 promotion while production publishes legacy session contracts", () => {
+	assert.throws(
+		() => assertRuntimeCompatibility(signed(5, 6), publicJwk, 7),
+		/Publish a compatible signed production runtime/,
+	);
+	assertRuntimeCompatibility(signed(7, 7), publicJwk, 7);
+});

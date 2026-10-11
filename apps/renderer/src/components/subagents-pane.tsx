@@ -1,4 +1,5 @@
 import "@zuse/i18n/english/chat";
+import { completedNativeChildStep } from "@zuse/client-runtime/native-subagent-fork";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { Message, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -11,7 +12,7 @@ import {
 } from "~/lib/group-messages";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks";
 import { rightPaneKey, useUiStore } from "~/store/ui";
-
+import { ForkButton } from "./fork-menu.tsx";
 import { MessageRow } from "./message-row";
 import { SubagentAvatar } from "./subagent-identity";
 
@@ -32,11 +33,13 @@ export function SubagentsPane({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
-	const messages = useOptionalRendererSessionTimeline(
+	const timeline = useOptionalRendererSessionTimeline(
 		sessionId,
 		"connect",
 		chatRef?.environmentId ?? null,
-	).messages;
+	);
+	const messages = timeline.messages;
+	const executionSteps = timeline.projection?.executionSteps;
 	const chatKey = chatRef === null ? null : rightPaneKey(chatRef);
 	const selectedId = useUiStore((state) =>
 		chatKey === null ? null : (state.selectedSubagentByChat[chatKey] ?? null),
@@ -46,13 +49,17 @@ export function SubagentsPane({
 		if (chatRef !== null) selectSubagent(chatRef, id);
 	};
 	const groups = useMemo(
-		() => detachedSubagentGroups(messages),
-		[messages, uiMessage],
+		() => detachedSubagentGroups(messages, executionSteps),
+		[messages, executionSteps, uiMessage],
 	);
 	const selected =
 		groups.find((group) => group.childSessionId === selectedId) ?? null;
 
 	if (selected !== null) {
+		const forkStep = completedNativeChildStep(executionSteps ?? [], {
+			itemId: selected.parentItemId,
+			nativeChildId: selected.childSessionId,
+		});
 		const summaryAlreadyInTranscript =
 			selected.summary !== null &&
 			selected.children.some(
@@ -75,6 +82,14 @@ export function SubagentsPane({
 					<span className="min-w-0 flex-1 truncate text-xs font-medium">
 						{selected.agentName}
 					</span>
+					{forkStep !== null && sessionId !== null ? (
+						<ForkButton
+							sourceSessionId={sessionId}
+							fromMessageId={selected.parent.id}
+							nativeChildStepId={forkStep.id}
+							fixedDestination="tab"
+						/>
+					) : null}
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
 					<SubagentTranscript messages={selected.children} />
@@ -141,7 +156,10 @@ function AgentSection({
 					{groups.map((group) => {
 						const latest =
 							group.children.at(-1)?.createdAt ?? group.parent.createdAt;
-						const detail = group.summary?.text || group.prompt || "Working…";
+						const detail =
+							group.rootCompleted && group.summary === null
+								? uiMessage("chat:native_background_running")
+								: group.summary?.text || group.prompt || "Working…";
 						return (
 							<button
 								key={group.childSessionId}

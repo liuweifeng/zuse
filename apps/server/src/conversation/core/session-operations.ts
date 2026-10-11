@@ -1,6 +1,6 @@
 import {
+	type AgentItemId,
 	AgentTurnId,
-	type AttachmentRef,
 	type Chat,
 	type ChatId,
 	DEFAULT_PERMISSION_MODE,
@@ -9,18 +9,23 @@ import {
 	type MessageContent,
 	MessageId,
 	type MessageOrigin,
+	PlanResolutionError,
 	type ProviderId,
+	ProviderThreadId,
 	providerCapabilities,
-	type ResumeStrategy,
+	QuestionResolutionError,
 	Session,
 	SessionAlreadyStartedError,
+	SessionConfigurationError,
 	SessionId,
 	SessionModeUnsupportedError,
 	SessionNotFoundError,
 	SessionStartError,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { ownsInputRequest } from "@zuse/domain/agent-engine/input-owner";
 import type { SessionCommand } from "@zuse/domain/core/commands";
+import { providerThreadIdFor } from "@zuse/domain/core/state";
 import type { CommandReceipt } from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
@@ -28,16 +33,26 @@ import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
 import { Effect, Schema, type Scope } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
+import { cancelSessionAutomation } from "../../automation/service.ts";
 import type {
 	ConversationOperations,
 	CreateSessionInput,
 } from "../services/conversation-services.ts";
+import { makeContextHandoff } from "./context-handoff.ts";
 import { type ChatRow, sessionFromRecord } from "./conversation-records.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { validateDelegationOrigin } from "./delegation-origin.ts";
+import { makeOrchestrationTaskRuntime } from "./orchestration-task-runtime.ts";
+import { makePlanDelivery } from "./plan-delivery.ts";
+import { makePlanExpiry } from "./plan-expiry.ts";
+import { PlanResponse, readPlanResponse } from "./plan-response.ts";
+import { makeProviderContexts } from "./provider-contexts.ts";
 import {
 	makeProviderSessionRuntime,
 	type ProviderSessionRuntimeOptions,
 } from "./provider-session-runtime.ts";
+import type { ProviderStartRequest } from "./provider-turn-request.ts";
+import { loadQuestionAuthority } from "./question-authority.ts";
 import {
 	makeQuestionAnswerDeliveryPayload,
 	parseQuestionAnswerDeliveryPayload,
@@ -49,24 +64,37 @@ import {
 	settleDurableQuestionResolution,
 } from "./question-resolution-receipt.ts";
 
+const questionResolutionError = (sessionId: SessionId, itemId: AgentItemId) =>
+	new QuestionResolutionError({
+		sessionId,
+		itemId,
+		reason:
+			"The question could not be resolved. It may have expired, or an earlier response may already be recorded.",
+	});
+
 export interface SessionOperationsOptions
 	extends Omit<
 		ProviderSessionRuntimeOptions,
 		"createSession" | "listSessions"
 	> {
+	readonly setStatus: (
+		sessionId: SessionId,
+		status: Session["status"],
+	) => Effect.Effect<void>;
 	readonly serviceScope: Scope.Scope;
 	readonly sql: SqlClient.SqlClient;
 	readonly sessionQueries: SqlSessionQueriesApi;
 	readonly sessionDomain: SessionDomainApi;
 	readonly currentTimestamp: Effect.Effect<number>;
 	readonly broadcastChat: (chat: Chat) => Effect.Effect<void>;
+	readonly persistProviderMessage: import("./conversation-store-runtime.ts").ConversationStoreRuntime["persistProviderMessage"];
 	readonly persistMessage: (
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: import("@zuse/contracts").MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 	) => Effect.Effect<PersistedMessage>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly dispatchSessionCommand: (
 		sessionId: SessionId,
 		command: SessionCommand,
@@ -86,32 +114,6 @@ export interface SessionOperationsOptions
 	) => Effect.Effect<void>;
 	readonly teardownSubscription: (sessionId: SessionId) => Effect.Effect<void>;
 }
-
-export interface OpenProviderSessionOptions {
-	readonly initialPrompt?: string;
-	readonly modelOptions?: Readonly<Record<string, string>>;
-	readonly enableSubagents?: boolean;
-	readonly forkFromResume?: boolean;
-	readonly postBootStatus?: Session["status"];
-	readonly sendAfterOpen?: {
-		readonly turnId: AgentTurnId;
-		readonly text: string;
-		readonly attachments: ReadonlyArray<AttachmentRef>;
-		readonly fileRefs?: ReadonlyArray<import("@zuse/contracts").FileRef>;
-		readonly skillRefs?: ReadonlyArray<import("@zuse/contracts").SkillRef>;
-	};
-}
-
-const ProviderStartRequest = Schema.Struct({
-	initialPrompt: Schema.NullOr(Schema.String),
-	initialTurnId: Schema.optional(Schema.NullOr(AgentTurnId)),
-	modelOptionsJson: Schema.NullOr(Schema.String),
-	enableSubagents: Schema.Boolean,
-	forkFromResume: Schema.Boolean,
-	background: Schema.Boolean,
-	postBootStatus: Schema.Literals(["idle", "running"]),
-});
-type ProviderStartRequest = typeof ProviderStartRequest.Type;
 
 export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const {
@@ -134,11 +136,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		sendMessage,
 		listMessages,
 		listChats,
-		attachProvider,
 		setStatus,
 		startSubscription,
 		broadcastChat,
 		persistMessage,
+		persistProviderMessage,
 		runSessionReactors,
 		dispatchSessionCommand,
 		dispatchSessionCommandWithId,
@@ -147,7 +149,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		interruptProviderFiber,
 		teardownSubscription,
 	} = options;
-	const questionResolutionWorker = new KeyedEffectSerialWorker<string>();
+	const inputResolutionWorker = new KeyedEffectSerialWorker<string>();
 	const listSessions: ConversationOperations["listSessions"] = (
 		projectId,
 		includeArchived,
@@ -194,7 +196,15 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 
 	const { ensureForTurn } = makeProviderSessionRuntime({
 		awaitWorkspaceReady: options.awaitWorkspaceReady,
+		sessionQueries,
+		tasks: makeOrchestrationTaskRuntime(sql, sessionDomain, (id) =>
+			cancelSessionAutomation(sql, SessionId.make(id)),
+		),
+		interruptSession: options.interruptSession,
+		addQueuedMessage: options.addQueuedMessage,
+		runQueuedMessageNext: options.runQueuedMessageNext,
 		state,
+		sessionDomain,
 		agentsFor,
 		cwdForWorktree,
 		runtime,
@@ -206,13 +216,13 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		getChat: lookupChat,
 		getSession: lookupSession,
 		sendMessage,
+		waitSession: options.waitSession,
+		sendMessageAndWait: options.sendMessageAndWait,
 		listMessages,
 		listChats,
 		listSessions,
-		persistMessage,
+		persistProviderMessage,
 		provider,
-		attachProvider,
-		setStatus,
 		startSubscription,
 	});
 
@@ -295,14 +305,19 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const initialMessageId = hasInitial
 				? (input.initialMessageId ?? MessageId.make(crypto.randomUUID()))
 				: null;
-			const resumeCursor = input.resumeCursor ?? null;
-			const resumeStrategy: ResumeStrategy =
-				resumeCursor === null ? "none" : (input.resumeStrategy ?? "none");
+			const providerThreadSeed =
+				input.providerThread === undefined
+					? undefined
+					: {
+							provider: input.providerId,
+							nativeThreadId: input.providerThread.nativeThreadId,
+							nativeHeadId: input.providerThread.nativeHeadId ?? null,
+						};
 			const forkedFromSessionId = input.forkedFromSessionId ?? null;
 			const forkedFromMessageId = input.forkedFromMessageId ?? null;
-			// Only fork the transcript when we actually have a cursor to fork.
+			// Only fork the transcript when there is a provider thread to fork.
 			const forkFromResume =
-				input.forkFromResume === true && resumeCursor !== null;
+				input.forkFromResume === true && providerThreadSeed !== undefined;
 			const postBootStatus: Session["status"] = hasInitial ? "running" : "idle";
 			const providerStart: ProviderStartRequest = {
 				initialPrompt: null,
@@ -313,6 +328,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						: JSON.stringify(input.modelOptions),
 				enableSubagents: effectiveEnableSubagents,
 				forkFromResume,
+				forkSourceThreadId: forkFromResume
+					? providerThreadSeed?.nativeThreadId
+					: undefined,
 				background: true,
 				postBootStatus,
 			};
@@ -320,58 +338,91 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			// never the provider side effect. The reactor owns the transition
 			// from booting to the requested post-boot status.
 			const rowStatus: Session["status"] = hasInitial ? "booting" : "idle";
+			if (input.delegation !== undefined && initialTurnId === null)
+				return yield* new SessionStartError({
+					providerId: input.providerId,
+					reason: "Delegated work requires an initial task.",
+				});
 			const createSessionRecord = sessionDomain
-				.dispatch({
-					commandId: input.commandId ?? `session:create:${sessionId}`,
-					streamId: sessionId,
-					command: {
-						_tag: hasInitial ? "CreateSessionWithInitialTurn" : "CreateSession",
-						sessionId,
-						chatId: input.chatId,
-						projectId,
-						title,
-						titleProvenance: input.title?.trim() ? "manual" : "pending",
-						providerId: input.providerId,
-						model: input.model,
-						status: rowStatus,
-						cursor: resumeCursor,
-						resumeStrategy,
-						runtimeMode: initialRuntimeMode,
-						agentsJson,
-						worktreeId,
-						forkedFromSessionId,
-						forkedFromMessageId,
-						permissionMode: initialPermissionMode,
-						toolSearch: initialToolSearch,
-						queuePaused: input.queuePaused ?? false,
-						providerStartJson: JSON.stringify(providerStart),
-						...(hasInitial &&
-						initialTurnId !== null &&
-						initialMessageId !== null
-							? {
-									turnId: initialTurnId,
-									messageId: initialMessageId,
-									messageContentJson: JSON.stringify({
-										_tag: "user",
-										text: input.initialPrompt ?? "",
-										goal: false,
-										...(origin !== undefined ? { origin } : {}),
+				.dispatchTransactionally(
+					{
+						commandId: input.commandId ?? `session:create:${sessionId}`,
+						streamId: sessionId,
+						command: {
+							_tag: hasInitial
+								? "CreateSessionWithInitialTurn"
+								: "CreateSession",
+							sessionId,
+							...(input.delegation === undefined || initialTurnId === null
+								? {}
+								: {
+										delegation: {
+											...input.delegation,
+											childTurnId: initialTurnId,
+										},
 									}),
-									providerInputJson: JSON.stringify({
-										actor: input.actor,
-										githubSlackMessageId: input.githubSlackMessageId,
-										text: input.initialPrompt ?? "",
-										attachments: [],
-										fileRefs: [],
-										skillRefs: [],
-										annotations: [],
-									}),
-								}
-							: {}),
-						createdAt: now.getTime(),
-					} as SessionCommand,
-				})
-				.pipe(Effect.orDie);
+							chatId: input.chatId,
+							projectId,
+							title,
+							titleProvenance: input.title?.trim() ? "manual" : "pending",
+							providerId: input.providerId,
+							model: input.model,
+							status: rowStatus,
+							runtimeMode: initialRuntimeMode,
+							agentsJson,
+							worktreeId,
+							forkedFromSessionId,
+							forkedFromMessageId,
+							permissionMode: initialPermissionMode,
+							toolSearch: initialToolSearch,
+							queuePaused: input.queuePaused ?? false,
+							providerStartJson: JSON.stringify(providerStart),
+							...(providerThreadSeed === undefined
+								? {}
+								: { providerThread: providerThreadSeed }),
+							...(hasInitial &&
+							initialTurnId !== null &&
+							initialMessageId !== null
+								? {
+										turnId: initialTurnId,
+										messageId: initialMessageId,
+										messageContentJson: JSON.stringify({
+											_tag: "user",
+											text: input.initialPrompt ?? "",
+											goal: false,
+											...(origin !== undefined ? { origin } : {}),
+										}),
+										providerInputJson: JSON.stringify({
+											actor: input.actor,
+											githubSlackMessageId: input.githubSlackMessageId,
+											text: input.initialPrompt ?? "",
+											attachments: [],
+											fileRefs: [],
+											skillRefs: [],
+											annotations: [],
+										}),
+									}
+								: {}),
+							createdAt: now.getTime(),
+						} as SessionCommand,
+					},
+					(receipt) =>
+						input.delegation === undefined
+							? Effect.succeed(receipt)
+							: validateDelegationOrigin(
+									sql,
+									input.delegation,
+									sessionId,
+									input.providerId,
+								).pipe(Effect.as(receipt)),
+				)
+				.pipe(
+					Effect.catch((error) =>
+						error._tag === "SessionStartError"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
+				);
 			yield* createSessionRecord;
 			yield* lookupChat(input.chatId).pipe(
 				Effect.flatMap(broadcastChat),
@@ -380,7 +431,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			if (initialTurnId !== null) {
 				state.rememberActiveTurn(sessionId, initialTurnId);
 				yield* Effect.forkIn(
-					runSessionReactors.pipe(
+					runSessionReactors(sessionId).pipe(
 						Effect.catchCause((cause) =>
 							Effect.logWarning(
 								`[ConversationServices] initial turn reactor failed: ${String(cause)}`,
@@ -393,14 +444,46 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			}
 			return Session.make({
 				id: sessionId,
+				parentSessionId: input.delegation?.parentSessionId
+					? SessionId.make(input.delegation.parentSessionId)
+					: null,
 				projectId,
 				title,
 				providerId: input.providerId,
 				model: input.model,
 				status: rowStatus,
 				archivedAt: null,
-				cursor: resumeCursor,
-				resumeStrategy,
+				providerThread:
+					providerThreadSeed === undefined
+						? null
+						: {
+								id: ProviderThreadId.make(
+									providerThreadIdFor(
+										sessionId,
+										providerThreadSeed.provider,
+										providerThreadSeed.nativeThreadId,
+									),
+								),
+								provider: input.providerId,
+								nativeThreadRef: {
+									provider: input.providerId,
+									nativeId: providerThreadSeed.nativeThreadId,
+									strength: "strong",
+								},
+								nativeHeadRef:
+									providerThreadSeed.nativeHeadId === null
+										? null
+										: {
+												provider: input.providerId,
+												nativeId: providerThreadSeed.nativeHeadId,
+												strength: "weak",
+											},
+								status: "not_loaded",
+								firstTurnOrdinal: null,
+								lastTurnOrdinal: null,
+								createdAt: now,
+								updatedAt: now,
+							},
 				runtimeMode: initialRuntimeMode,
 				worktreeId,
 				chatId: input.chatId,
@@ -512,7 +595,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		itemId,
 		answers,
 	) =>
-		questionResolutionWorker.run(
+		inputResolutionWorker.run(
 			structuralTupleKey(sessionId, itemId),
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
@@ -533,10 +616,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 					if (conflicts) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					return;
 				}
@@ -548,16 +633,25 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				if (receipt._tag === "invalid") {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				const authority = yield* loadQuestionAuthority(
+					sql,
+					sessionId,
+					itemId,
+				).pipe(Effect.orDie);
+				if (authority === null)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				yield* provider
 					.validateQuestionAnswer(sessionId, itemId, answers)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 
 				const rows = yield* sql<{
 					readonly action: "answer" | "cancel";
@@ -571,10 +665,12 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				let delivery = rows[0];
 				if (delivery === undefined) {
 					// A durable question reconstructed from disk has no live provider
-					// callback after process death. Do not even record intent until the
-					// replacement provider reattaches that callback.
+					// callback after process death. Only a currently attached application
+					// question can accept intent; replacements receive a new identity.
 					if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					const now = yield* currentTimestamp;
 					yield* sql`
@@ -590,7 +686,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					};
 				}
 				if (delivery.action !== "answer" || delivery.answers_json === null) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				const durableDelivery = parseQuestionAnswerDeliveryPayload(
 					delivery.answers_json,
@@ -599,7 +695,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					durableDelivery === null ||
 					durableDelivery.answerKey !== requestedDelivery.answerKey
 				) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 
 				const persistReceipt = Effect.gen(function* () {
@@ -611,20 +707,30 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 							answers: durableDelivery.answers,
 						},
 						answerMessageId,
+						authority.turnId,
 					);
 					if (persisted.changed) yield* ndjsonAppend(sessionId, persisted);
 				});
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+
+				if (
+					!(yield* ownsInputRequest(sql, sessionId, authority.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 
 				yield* provider
 					.answerQuestion(sessionId, itemId, durableDelivery.answers)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 				// There is no atomic commit spanning a provider callback and SQLite.
 				// Driver-local settled state makes same-process retries idempotent, but it
 				// intentionally does not survive process death. After restart, an
-				// unreceipted intent still requires the provider to reissue the callback;
+				// unreceipted intent cannot authorize a newly issued replacement callback;
 				// never synthesize a public receipt from an ambiguous delivery marker.
 				yield* persistReceipt;
 				yield* sql`
@@ -645,7 +751,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		sessionId,
 		itemId,
 	) =>
-		questionResolutionWorker.run(
+		inputResolutionWorker.run(
 			structuralTupleKey(sessionId, itemId),
 			Effect.gen(function* () {
 				yield* lookupSession(sessionId);
@@ -662,16 +768,47 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						receipt,
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 					if (receipt._tag === "answer") {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					return;
 				}
 				if (receipt._tag === "invalid") {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				const expired =
+					yield* sql`SELECT 1 FROM session_inputs WHERE session_id = ${sessionId}
+					AND kind = 'question' AND request_id = ${itemId} AND status = 'expired'`.pipe(
+						Effect.orDie,
+					);
+				if (expired.length > 0) {
+					yield* dispatchSessionCommandWithId(
+						sessionId,
+						questionCancellationCommandId(sessionId, itemId),
+						{
+							_tag: "ResolveQuestion",
+							itemId,
+							resolution: "cancelled",
+							resolvedAt: yield* currentTimestamp,
+						},
+					);
+					yield* sql`DELETE FROM question_answer_deliveries WHERE session_id = ${sessionId} AND item_id = ${itemId}`.pipe(
+						Effect.orDie,
+					);
+					return;
+				}
+
+				const authority = yield* loadQuestionAuthority(
+					sql,
+					sessionId,
+					itemId,
+				).pipe(Effect.orDie);
+				if (authority === null)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 
 				/** Record one cancellation receipt for both attached and detached callbacks. */
 				const persistCancellation = Effect.gen(function* () {
@@ -701,7 +838,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					existing !== undefined &&
 					(existing.action !== "cancel" || existing.answers_json !== null)
 				) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
 					// Cancellation does not claim an answer reached the provider. A
@@ -716,7 +853,9 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						LIMIT 1
 					`.pipe(Effect.orDie);
 					if (questions.length === 0) {
-						return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+						return yield* Effect.fail(
+							questionResolutionError(sessionId, itemId),
+						);
 					}
 					yield* persistCancellation;
 					return yield* settleDurableQuestionResolution(
@@ -726,7 +865,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						itemId,
 						{ _tag: "cancel" },
 					).pipe(
-						Effect.mapError(() => new SessionNotFoundError({ sessionId })),
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
 				}
 				if (existing === undefined) {
@@ -739,11 +878,20 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				}
 
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-					return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
+				if (
+					!(yield* ownsInputRequest(sql, sessionId, authority.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
+
 				yield* provider
 					.cancelQuestion(sessionId, itemId)
-					.pipe(Effect.mapError(() => new SessionNotFoundError({ sessionId })));
+					.pipe(
+						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
+					);
 				yield* persistCancellation;
 				yield* sql`
 					DELETE FROM question_answer_deliveries
@@ -753,49 +901,88 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			}),
 		);
 
+	const planDelivery = makePlanDelivery(sql, options);
 	const respondToPlan: ConversationOperations["respondToPlan"] = (
 		sessionId,
 		toolCallId,
 		outcome,
 		feedback,
 	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			const settleUnavailableInteraction = Effect.gen(function* () {
-				const persisted = yield* persistMessage(sessionId, {
-					_tag: "tool_result",
-					itemId: toolCallId,
-					output: {
-						outcome,
-						reason: "provider_session_unavailable",
-						...(feedback === undefined ? {} : { feedback }),
-					},
-					isError: true,
-				});
-				yield* ndjsonAppend(sessionId, persisted);
-				return yield* Effect.fail(new SessionNotFoundError({ sessionId }));
-			});
-			const respond = provider.respondToPlan;
-			if (respond === undefined) {
-				return yield* settleUnavailableInteraction;
-			}
-			yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
-				Effect.catchTag(
-					"AgentSessionNotFoundError",
-					() => settleUnavailableInteraction,
-				),
-			);
-			const persisted = yield* persistMessage(sessionId, {
-				_tag: "tool_result",
-				itemId: toolCallId,
-				output: {
-					outcome,
-					...(feedback === undefined ? {} : { feedback }),
-				},
-				isError: false,
-			});
-			yield* ndjsonAppend(sessionId, persisted);
-		});
+		inputResolutionWorker.run(
+			structuralTupleKey("plan", sessionId, toolCallId),
+			Effect.gen(function* () {
+				yield* lookupSession(sessionId);
+				const unavailable = () =>
+					new PlanResolutionError({
+						sessionId,
+						itemId: toolCallId,
+						reason:
+							"This plan decision is unavailable or conflicts with an accepted response.",
+					});
+				const existing = yield* readPlanResponse(
+					sql,
+					sessionId,
+					toolCallId,
+				).pipe(Effect.orDie);
+				if (existing._tag === "resolved") {
+					if (
+						existing.response.outcome !== outcome ||
+						existing.response.feedback !== feedback
+					)
+						return yield* unavailable();
+					yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+						Effect.void;
+					return;
+				}
+				const delivery = yield* planDelivery.read(sessionId, toolCallId);
+				if (delivery !== undefined) {
+					const response = yield* Schema.decodeUnknownEffect(
+						Schema.fromJsonString(PlanResponse),
+					)(delivery.response_json).pipe(Effect.mapError(unavailable));
+					if (
+						response.outcome !== outcome ||
+						response.feedback !== feedback ||
+						delivery.status === "uncertain"
+					)
+						return yield* unavailable();
+					if (
+						delivery.status === "accepted" ||
+						delivery.status === "committed"
+					) {
+						yield* planDelivery.commit(delivery);
+						yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+							Effect.void;
+						return;
+					}
+				}
+				if (
+					existing._tag !== "pending" ||
+					!(yield* ownsInputRequest(sql, sessionId, existing.owner).pipe(
+						Effect.orDie,
+					))
+				)
+					return yield* unavailable();
+				const respond = provider.respondToPlan;
+				if (respond === undefined) return yield* unavailable();
+				yield* planDelivery.begin(
+					sessionId,
+					toolCallId,
+					existing.turnId,
+					existing.owner,
+					{ outcome, ...(feedback === undefined ? {} : { feedback }) },
+				);
+				yield* respond(sessionId, toolCallId, outcome, feedback).pipe(
+					Effect.tapError(() => planDelivery.uncertain(sessionId, toolCallId)),
+					Effect.mapError(unavailable),
+				);
+				yield* planDelivery.accepted(sessionId, toolCallId);
+				const accepted = yield* planDelivery.read(sessionId, toolCallId);
+				if (accepted === undefined) return yield* unavailable();
+				yield* planDelivery.commit(accepted);
+				yield* provider.acknowledgePlanResponse?.(sessionId, toolCallId) ??
+					Effect.void;
+			}),
+		);
 
 	const ensureSessionNotStarted = (sessionId: SessionId) =>
 		sql<{ readonly id: string }>`
@@ -834,26 +1021,98 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			yield* setStatus(sessionId, "idle");
 		});
 
-	/**
-	 * Persist a new model on the session row and tear down the in-memory
-	 * provider session so the next user turn lazy-restarts the SDK with the
-	 * new model. Existing message history stays attached to the same row.
-	 */
-	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
+	const handoffs = makeContextHandoff(sql);
+	const providerContexts = makeProviderContexts(sql);
+	const configureProvider = (
+		sessionId: SessionId,
+		command: Extract<SessionCommand, { _tag: "SetProvider" | "SetModel" }>,
+	) =>
 		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			// Invalidate any warm or in-flight provider before the new metadata is
-			// visible. A startup that finishes later cannot attach under this model.
-			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
-			yield* interruptProviderFiber(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
-				_tag: "SetModel",
-				model,
-				updatedAt: yield* currentTimestamp,
-			});
-			yield* setStatus(sessionId, "idle");
+			const previous = yield* lookupSession(sessionId);
+			const resume =
+				command._tag === "SetProvider"
+					? yield* providerContexts
+							.returning(sessionId, command.providerId as ProviderId)
+							.pipe(Effect.orDie)
+					: null;
+			const selectedCommand =
+				command._tag === "SetProvider"
+					? {
+							...command,
+							expectedProviderThreadId: previous.providerThread?.id ?? null,
+							resumeThreadId: resume?.threadId,
+						}
+					: command;
+			return yield* sessionDomain
+				.dispatchTransactionally(
+					{
+						commandId: crypto.randomUUID(),
+						streamId: sessionId,
+						command: selectedCommand,
+					},
+					(receipt) =>
+						Effect.gen(function* () {
+							if (
+								receipt.eventIds.length > 0 &&
+								command._tag === "SetProvider"
+							) {
+								if (resume !== null) {
+									const current = yield* providerContexts.returning(
+										sessionId,
+										command.providerId as ProviderId,
+									);
+									if (
+										current?.threadId !== resume.threadId ||
+										current.throughSequence !== resume.throughSequence ||
+										JSON.stringify(current.pendingMessageIds) !==
+											JSON.stringify(resume.pendingMessageIds)
+									)
+										return yield* new SessionConfigurationError({
+											sessionId,
+											reason:
+												"Provider history changed while switching. Retry the provider selection.",
+										});
+								}
+								yield* providerContexts.remember(
+									sessionId,
+									previous.providerThread?.id ?? null,
+								);
+								yield* handoffs.capture(
+									sessionId,
+									command.providerId as ProviderId,
+									receipt.eventIds[0]!,
+									resume ?? undefined,
+								);
+							}
+						}),
+				)
+				.pipe(
+					Effect.catchTag(["SessionNotFound", "SessionDeletedConflict"], () =>
+						Effect.fail(new SessionNotFoundError({ sessionId })),
+					),
+					Effect.catchTag("ValidationFailed", (error) =>
+						Effect.fail(
+							new SessionConfigurationError({
+								sessionId,
+								reason: error.message,
+							}),
+						),
+					),
+					Effect.catch((error) =>
+						error._tag === "SessionNotFoundError" ||
+						error._tag === "SessionConfigurationError"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
+				);
 		});
 
+	const setModel: ConversationOperations["setModel"] = (sessionId, model) =>
+		configureProvider(sessionId, {
+			_tag: "SetModel",
+			model,
+			updatedAt: Date.now(),
+		});
 	/**
 	 * Stop an idle session's provider process so the next turn starts a fresh
 	 * one (e.g. under another account). Returns false, without touching the
@@ -866,37 +1125,21 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const session = yield* lookupSession(sessionId);
 			if (session.status === "running" || session.status === "booting")
 				return false;
-			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
+			yield* closeProvider(sessionId);
 			yield* interruptProviderFiber(sessionId);
 			return true;
 		});
 
-	/**
-	 * Switch a session's provider (and the model it runs under) before any
-	 * user message has been sent. The new CLI can't read the prior CLI's
-	 * transcript, so this is fresh-session-only — mid-chat callers get
-	 * `SessionAlreadyStartedError`. Resets `cursor` / `resume_strategy`
-	 * since both are provider-specific.
-	 */
 	const setProvider: ConversationOperations["setProvider"] = (
 		sessionId,
 		providerId,
 		model,
 	) =>
-		Effect.gen(function* () {
-			yield* lookupSession(sessionId);
-			yield* ensureSessionNotStarted(sessionId);
-			// Invalidate before persisting the selection so an explicit warm-up
-			// cannot attach the previous provider after the metadata switch.
-			yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
-			yield* interruptProviderFiber(sessionId);
-			yield* dispatchSessionCommand(sessionId, {
-				_tag: "SetProvider",
-				providerId,
-				model,
-				updatedAt: yield* currentTimestamp,
-			});
-			yield* setStatus(sessionId, "idle");
+		configureProvider(sessionId, {
+			_tag: "SetProvider",
+			providerId,
+			model,
+			updatedAt: Date.now(),
 		});
 
 	const archiveSession: ConversationOperations["archiveSession"] = (
@@ -923,7 +1166,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				providerInputJson,
 				requestedAt: yield* currentTimestamp,
 			});
-			yield* runSessionReactors;
+			yield* runSessionReactors(sessionId);
 		});
 
 	const unarchiveSession: ConversationOperations["unarchiveSession"] = (
@@ -952,6 +1195,18 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		});
 
 	return {
+		recoverPlanResponses: planDelivery.recover,
+		reconcilePlanInputs: makePlanExpiry(
+			sql,
+			sessionDomain,
+			provider,
+			planDelivery,
+			(sessionId, itemId, work) =>
+				inputResolutionWorker.run(
+					structuralTupleKey("plan", sessionId, itemId),
+					work,
+				),
+		),
 		listSessions,
 		ensureForTurn,
 		createSession,

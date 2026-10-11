@@ -112,3 +112,26 @@ it("kills descendants left behind when the command exits", async () => {
 	await new Promise((resolve) => setTimeout(resolve, 1200));
 	await expect(readFile(join(f.directory, "marker"))).rejects.toThrow();
 });
+
+it("keeps session environment bindings isolated between process owners", async () => {
+	const variable = "ZUSE_TEST_PROCESS_BINDING";
+	const original = process.env[variable];
+	const first = await fixture({
+		rootId: "first",
+		env: { ...process.env, [variable]: "first-only" },
+	});
+	const second = await fixture({
+		rootId: "second",
+		env: { ...process.env, [variable]: "second-only" },
+	});
+	for (const [f, expected] of [
+		[first, "first-only"],
+		[second, "second-only"],
+	] as const) {
+		const child = await f.start('printf "%s" "$ZUSE_TEST_PROCESS_BINDING"');
+		await f.host.wait(child.id, "root", 3000, new AbortController().signal);
+		const result = await f.host.output(child.id, "root");
+		expect(result.text).toBe(expected);
+	}
+	expect(process.env[variable]).toBe(original);
+});

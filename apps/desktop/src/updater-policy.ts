@@ -1,9 +1,10 @@
 import type { UpdateStatus } from "@zuse/contracts";
 
 export function shouldAutoInstallUpdateOnQuit(
-	platform: NodeJS.Platform,
+	_platform: NodeJS.Platform,
 ): boolean {
-	return platform !== "darwin";
+	// Every platform must first drain the independent engine through our install path.
+	return false;
 }
 
 export function shouldInstallPendingUpdateOnQuit(options: {
@@ -11,9 +12,5 @@ export function shouldInstallPendingUpdateOnQuit(options: {
 	status: UpdateStatus;
 	installing: boolean;
 }): boolean {
-	return (
-		options.platform === "darwin" &&
-		options.status.kind === "ready" &&
-		!options.installing
-	);
+	return options.status.kind === "ready" && !options.installing;
 }

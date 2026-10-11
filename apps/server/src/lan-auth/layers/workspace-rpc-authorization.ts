@@ -35,7 +35,11 @@ register("handshake", false, ["connect.handshake", "ping.ping"]);
 register("catalog", false, ["machine.resources.watch"]);
 register("catalog", false, ["permission.requests"]);
 register("catalog", true, ["permission.decide"]);
-register("session", false, ["permission.listPending"]);
+register("session", false, [
+	"schedule.list",
+	"secrets.list",
+	"permission.listPending",
+]);
 register("terminal", false, ["pty.list", "pty.output"]);
 register("terminal", true, [
 	"pty.open",
@@ -63,7 +67,12 @@ register("chat", false, [
 register("chat", true, ["chat.rename", "chat.markRead"]);
 register("session", false, [
 	"session.get",
+	"session.checkpoints.list",
+	"session.attempts.list",
 	"session.latestPlan",
+	"session.contextLinks",
+	"session.wait",
+	"session.forkConstructions",
 	"session.exportTranscript",
 	"messages.list",
 	"messages.queue.list",
@@ -75,7 +84,20 @@ register("session", false, [
 	"attachments.read",
 ]);
 register("session", true, [
+	"schedule.create",
+	"schedule.update",
+	"schedule.delete",
+	"schedule.trigger",
+	"secrets.request",
+	"secrets.respond",
 	"session.rename",
+	"session.mergeBack",
+	"session.sendAndWait",
+	"session.retryFork",
+	"session.cancelFork",
+	"session.checkpoints.preview",
+	"session.checkpoints.restore",
+	"session.checkpoints.retry",
 	"session.setModel",
 	"session.setProvider",
 	"session.setRuntimeMode",
@@ -201,6 +223,23 @@ export const authorizeWorkspaceRpc = Effect.fn("authorizeWorkspaceRpc")(
 				}>`SELECT chat_id FROM sessions WHERE id=${input.sessionId}`;
 				if (sessions[0]?.chat_id !== identity.chatId)
 					return yield* new RpcAccessDeniedError({ code: "access-denied" });
+				if (tag === "session.retryFork" || tag === "session.cancelFork") {
+					const forkInput = yield* Schema.decodeUnknownEffect(
+						Schema.Struct({ forkSessionId: Schema.String }),
+					)(payload);
+					const forks = yield* sql<{
+						chat_id: string;
+					}>`SELECT json_extract(payload_json,'$.chatId') AS chat_id FROM session_fork_constructions WHERE session_id=${forkInput.forkSessionId}`;
+					if (forks[0]?.chat_id !== identity.chatId)
+						return yield* new RpcAccessDeniedError({ code: "access-denied" });
+				}
+				if (tag === "session.mergeBack") {
+					const parents = yield* sql<{
+						chat_id: string;
+					}>`SELECT parent.chat_id FROM sessions child JOIN sessions parent ON parent.id=child.forked_from_session_id WHERE child.id=${input.sessionId}`;
+					if (parents[0]?.chat_id !== identity.chatId)
+						return yield* new RpcAccessDeniedError({ code: "access-denied" });
+				}
 			}
 			if (rule.target === "file") {
 				const input = yield* Schema.decodeUnknownEffect(

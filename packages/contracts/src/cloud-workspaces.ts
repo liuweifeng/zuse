@@ -12,13 +12,14 @@ import {
 	ChatSharingState,
 	ChatSharingUpdate,
 } from "./collaboration.ts";
-import { AgentSessionId, ChatId } from "./ids.ts";
+import { AgentSessionId, AgentTurnId, ChatId } from "./ids.ts";
 import {
 	Chat,
 	Message,
 	Session,
 	SessionStreamCursor,
 	SessionTimelineProjection,
+	SessionTimelineTurnPhase,
 } from "./session.ts";
 import { WorkspaceSettings, WorkspaceSettingsUpdate } from "./settings.ts";
 import { Folder } from "./workspace.ts";
@@ -591,6 +592,38 @@ export class CloudTranscriptCheckpointPayload extends Schema.Class<CloudTranscri
 		Schema.Struct({ chat: Chat, session: Session, folder: Folder }),
 	),
 }) {}
+
+/**
+ * Read-only compatibility for encrypted checkpoints written before engine turns.
+ * Keep legacy turn identity for diagnostics, without inventing an attempt or a
+ * provider thread. Live runtime schemas and the checkpoint writer remain strict.
+ */
+export const CloudTranscriptCheckpointReadPayload = Schema.Struct({
+	...CloudTranscriptCheckpointPayload.fields,
+	projection: Schema.Struct({
+		...SessionTimelineProjection.fields,
+		currentTurn: Schema.optional(
+			Schema.NullOr(
+				Schema.Struct({
+					turnId: AgentTurnId,
+					phase: SessionTimelineTurnPhase,
+				}),
+			),
+		),
+	}),
+	context: Schema.optional(
+		Schema.Struct({
+			chat: Chat,
+			session: Schema.Struct({
+				...Session.fields,
+				providerThread: Session.fields.providerThread.pipe(
+					Schema.withDecodingDefaultKey(Effect.succeed(null)),
+				),
+			}),
+			folder: Folder,
+		}),
+	),
+});
 
 export class CloudTranscriptCheckpointMetadata extends Schema.Class<CloudTranscriptCheckpointMetadata>(
 	"CloudTranscriptCheckpointMetadata",

@@ -26,6 +26,7 @@
 		"./rpc-payload-metrics": "./src/rpc-payload-metrics.ts",
 		"./structural-tuple-key": "./src/structural-tuple-key.ts",
 		"./zuse-user-data": "./src/zuse-user-data.ts",
+		"./owned-process": "./src/owned-process.ts",
 		"./reaper": "./src/reaper.ts",
 		"./linux-memory": "./src/linux-memory.ts",
 		"./canonical-json": "./src/canonical-json.ts",

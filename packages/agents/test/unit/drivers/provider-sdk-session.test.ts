@@ -153,6 +153,62 @@ describe("bundled provider SDK sessions", () => {
 		sdk.resume.mockReset();
 	});
 
+	it.each([
+		false,
+		true,
+	])("closes a late SDK allocation after cancelled startup (resume=%s)", async (resume) => {
+		const fake = makeAgent();
+		const pending = deferred<SDKAgent>();
+		const called = deferred<void>();
+		(resume ? sdk.resume : sdk.create).mockImplementation(() => {
+			called.resolve();
+			return pending.promise;
+		});
+		const fiber = Effect.runFork(
+			startCursorSession(
+				input,
+				"/tmp/workspace",
+				"managed-key",
+				sessionId,
+				resume ? "agent-1" : null,
+			).pipe(Effect.provide(AttachmentsTest)),
+		);
+		await called.promise;
+		await Effect.runPromise(Fiber.interrupt(fiber));
+		pending.resolve(fake.agent);
+		await expect
+			.poll(() => vi.mocked(fake.agent.close).mock.calls.length)
+			.toBe(1);
+	});
+
+	it("does not create a fallback agent when cancelled resume later fails", async () => {
+		const called = deferred<void>();
+		let reject!: (error: Error) => void;
+		const pending = new Promise<SDKAgent>((_, rejectPromise) => {
+			reject = rejectPromise;
+		});
+		sdk.resume.mockImplementation(() => {
+			called.resolve();
+			return pending;
+		});
+		const fiber = Effect.runFork(
+			startCursorSession(
+				input,
+				"/tmp/workspace",
+				"managed-key",
+				sessionId,
+				"agent-1",
+			).pipe(Effect.provide(AttachmentsTest)),
+		);
+		await called.promise;
+		await Effect.runPromise(Fiber.interrupt(fiber));
+		reject(new AgentNotFoundError("Agent not found"));
+		await pending.catch(() => undefined);
+		// Drain the rejected resume and fallback continuations.
+		await new Promise<void>((resolve) => setImmediate(resolve));
+		expect(sdk.create).not.toHaveBeenCalled();
+	});
+
 	it("preserves the captured Cursor plan rejection through the turn boundary", async () => {
 		const message =
 			"Model unavailable on Start Start includes Composer 2.5, Grok 4.7, Grok 4.6, and Grok 4.5 with fixed settings. Switch to an included model to continue.";

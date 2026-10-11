@@ -52,7 +52,8 @@ const snapshot = () =>
 	SessionTimelineProjection.make({
 		messages: [],
 		status: "running",
-		currentTurn: null,
+		activeTurn: null,
+		turnCount: 0,
 		queue: QueueState.make({ items: [], paused: false }),
 		permissionMode: "default",
 		runtimeMode: "approval-required",

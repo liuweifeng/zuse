@@ -1,5 +1,6 @@
 import type {
 	AgentSessionId,
+	JobId,
 	Message,
 	SessionId,
 	SessionTimelineProjection,
@@ -18,8 +19,14 @@ import {
 } from "effect";
 import type { PlatformError } from "effect/PlatformError";
 import { SqlClient } from "effect/unstable/sql";
-
 import {
+	type JobLedger,
+	type JobLedgerError,
+	makeSqlJobLedger,
+} from "../agent-engine/job-ledger.js";
+import { jobsForSessionEvent } from "../agent-engine/jobs.js";
+import {
+	ACTIVE_SESSION_TURN_STATUSES,
 	makeSqlSessionProjector,
 	type SqlSessionProjectorError,
 } from "../projectors/sql-session-projector.js";
@@ -32,6 +39,12 @@ import {
 } from "../queries/session-timeline-snapshot.js";
 import type { SqlSessionQueryError } from "../queries/sql-session-queries.js";
 import {
+	AdmissionClosed,
+	makeSqlAdmission,
+	type SqlAdmission,
+} from "./admission.js";
+import {
+	type AttemptOwnership,
 	type CommandReceipt,
 	DispatchEngine,
 	type DispatchFailure,
@@ -50,6 +63,9 @@ import {
 } from "./sql-dispatch-storage.js";
 
 export type SessionDomainError =
+	| AdmissionClosed
+	| DispatchFailure<SqlDispatchStorageError>
+	| JobLedgerError
 	| DispatchFailure<SqlDispatchStorageError>
 	| SqlConsumerStorageError
 	| SqlSessionProjectorError
@@ -91,6 +107,13 @@ export type SessionSynchronizationRecord =
 	  };
 
 export interface SessionDomainApi {
+	readonly admission: SqlAdmission;
+	readonly providerReservation: (
+		streamId: string,
+	) => Effect.Effect<string | null, SessionDomainError>;
+	readonly activeAttempt: (
+		streamId: string,
+	) => Effect.Effect<AttemptOwnership | null, SessionDomainError>;
 	readonly dispatch: (
 		input: DispatchInput,
 	) => Effect.Effect<CommandReceipt, SessionDomainError>;
@@ -128,6 +151,14 @@ export interface SessionDomainApi {
 		beforeSequence: number,
 		limit?: number,
 	) => Effect.Effect<SessionTimelineMessagePage, SessionDomainError>;
+	/**
+	 * Durable jobs implied by committed session events. Rows are inserted in
+	 * the command transaction; `jobWakeups` fires after commit so a worker can
+	 * claim them without polling.
+	 */
+	readonly jobs: JobLedger;
+	readonly jobWakeups: PubSub.PubSub<void>;
+	readonly jobCancellations: PubSub.PubSub<ReadonlyArray<JobId>>;
 }
 
 export class SessionDomain extends Context.Service<
@@ -159,6 +190,18 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 		makeSqlSessionProjector(sql),
 	);
 	const transactionalProjector = makeSqlSessionProjector(sql);
+	const admission = makeSqlAdmission(sql);
+	const ledger = makeSqlJobLedger(sql);
+	const jobs: JobLedger = {
+		...ledger,
+		enqueue: (input) => admission.run(ledger.enqueue(input)),
+		claimNext: (input) =>
+			admission
+				.run(ledger.claimNext(input))
+				.pipe(Effect.catchTag("AdmissionClosed", () => Effect.succeed(null))),
+	};
+	const jobWakeups = yield* PubSub.sliding<void>(1);
+	const jobCancellations = yield* PubSub.unbounded<ReadonlyArray<JobId>>();
 	const projectorLock = yield* Semaphore.make(1);
 	const catchUp = Semaphore.withPermits(projectorLock, 1, projector.catchUp());
 	const commandLocks = new Map<string, Semaphore.Semaphore>();
@@ -466,36 +509,75 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	const dispatchTransactionally: SessionDomainApi["dispatchTransactionally"] =
 		Effect.fn("SessionDomain.dispatchTransactionally")(
 			function* (input, onCommitted) {
-				const { result, appended } = yield* Semaphore.withPermits(
-					commandLock(input.streamId),
-					1,
-					sql.withTransaction(
-						Effect.gen(function* () {
-							const receipt = yield* dispatch.dispatch(input).pipe(
-								Effect.retry({
-									while: (error) => error._tag === "ConcurrencyConflict",
-									schedule: Schedule.recurs(8),
-								}),
-							);
-							const appended =
-								receipt.eventIds.length === 0
-									? []
-									: yield* dispatchStorage.eventsInVersionRange(
-											input.streamId,
-											receipt.streamVersion - receipt.eventIds.length,
-											receipt.streamVersion,
-										);
-							const cursorRows = yield* sql<{ readonly last_sequence: number }>`
+				const { result, appended, enqueued, cancelled } =
+					yield* Semaphore.withPermits(
+						commandLock(input.streamId),
+						1,
+						admission.run(
+							Effect.gen(function* () {
+								if (
+									input.command._tag !== "CreateSession" &&
+									input.command._tag !== "DeleteSession" &&
+									input.command._tag !== "RequestProviderStop" &&
+									input.command._tag !== "PersistMessage"
+								) {
+									const pending = yield* sql<{
+										pending: number;
+									}>`SELECT EXISTS(SELECT 1 FROM session_fork_constructions WHERE session_id = ${input.streamId} AND completed_at IS NULL) AS pending`;
+									if (pending[0]?.pending === 1)
+										return yield* new AdmissionClosed();
+								}
+								switch (input.command._tag) {
+									case "SubmitTurn":
+									case "StartTurn":
+									case "RetryTurn":
+									case "RecoverTurn":
+									case "CreateSessionWithInitialTurn":
+									case "ReleaseInitialTurn":
+									case "ClaimQueuedTurn":
+									case "SteerQueuedTurn":
+									case "ReserveProviderSession":
+									case "SetProvider":
+									case "SetModel":
+									case "SetWorktree":
+									case "UnarchiveSession": {
+										// A filesystem restore fences execution globally: distinct projects
+										// may refer to the same physical checkout through path aliases.
+										const restoring = yield* sql<{
+											pending: number;
+										}>`SELECT EXISTS(SELECT 1 FROM session_checkpoint_restores WHERE completed_at IS NULL) AS pending`;
+										if (restoring[0]?.pending === 1)
+											return yield* new AdmissionClosed();
+										break;
+									}
+								}
+								const receipt = yield* dispatch.dispatch(input).pipe(
+									Effect.retry({
+										while: (error) => error._tag === "ConcurrencyConflict",
+										schedule: Schedule.recurs(8),
+									}),
+								);
+								const appended =
+									receipt.eventIds.length === 0
+										? []
+										: yield* dispatchStorage.eventsInVersionRange(
+												input.streamId,
+												receipt.streamVersion - receipt.eventIds.length,
+												receipt.streamVersion,
+											);
+								const cursorRows = yield* sql<{
+									readonly last_sequence: number;
+								}>`
 							SELECT last_sequence FROM projector_cursors
 							WHERE projector_name = ${transactionalProjector.name}
 							LIMIT 1
 						`;
-							let cursor = cursorRows[0]?.last_sequence ?? 0;
-							for (const record of appended) {
-								if (record.sequence <= cursor) continue;
-								yield* transactionalProjector.apply(record);
-								cursor = record.sequence;
-								yield* sql`
+								let cursor = cursorRows[0]?.last_sequence ?? 0;
+								for (const record of appended) {
+									if (record.sequence <= cursor) continue;
+									yield* transactionalProjector.apply(record);
+									cursor = record.sequence;
+									yield* sql`
 								INSERT INTO projector_cursors
 									(projector_name, last_sequence, updated_at)
 								VALUES
@@ -504,18 +586,86 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									last_sequence = MAX(projector_cursors.last_sequence, excluded.last_sequence),
 									updated_at = excluded.updated_at
 							`;
-							}
-							const result = yield* onCommitted(receipt);
-							return { result, appended };
-						}),
-					),
-				);
+								}
+								// A new attempt owns the turn's provider send from now on; any earlier
+								// send still parked or pending would double-send.
+								let cancelled: ReadonlyArray<JobId> = [];
+								if (
+									input.command._tag === "ExpireAttempt" ||
+									appended.some(
+										(record) => record.event._tag === "AttemptStarted",
+									)
+								) {
+									cancelled = yield* jobs.cancelUnsettled({
+										sessionId: input.streamId,
+										kinds: [
+											"provider.turn.send",
+											"provider.turn.interrupt",
+											"provider.turn.recover",
+										],
+										reason: "Superseded by a new attempt.",
+									});
+								}
+								if (
+									appended.some(
+										(record) => record.event._tag === "TurnInterruptRequested",
+									)
+								) {
+									cancelled = [
+										...cancelled,
+										...(yield* jobs.cancelUnsettled({
+											sessionId: input.streamId,
+											kinds: ["provider.turn.send", "provider.turn.recover"],
+											reason: "Turn interrupted by the user.",
+										})),
+									];
+								}
+
+								// Jobs are the durable side effects of these events. Inserting them
+
+								// here means a committed event can never lose its side effect and a
+
+								// side effect can never run for an event that did not commit.
+
+								const enqueued = yield* jobs.enqueue(
+									appended.flatMap(jobsForSessionEvent),
+								);
+
+								const result = yield* onCommitted(receipt);
+
+								return { result, appended, enqueued, cancelled };
+							}),
+						),
+					);
+				if (cancelled.length > 0)
+					yield* PubSub.publish(jobCancellations, cancelled);
 				if (appended.length > 0) yield* reconcileDurableEvents();
+				if (enqueued > 0) yield* PubSub.publish(jobWakeups, undefined);
 				return result;
 			},
 		);
 
 	return SessionDomain.of({
+		providerReservation: (streamId) =>
+			sql<{
+				readonly provider_reservation_id: string | null;
+			}>`SELECT provider_reservation_id FROM sessions WHERE id = ${streamId} AND archived_at IS NULL LIMIT 1`.pipe(
+				Effect.map((rows) => rows[0]?.provider_reservation_id ?? null),
+			),
+		activeAttempt: (streamId) =>
+			sql<{ readonly turn_id: string; readonly attempt_id: string }>`
+   SELECT t.id AS turn_id, t.active_attempt_id AS attempt_id FROM session_turns t
+   JOIN sessions s ON s.id = t.session_id
+   WHERE t.session_id = ${streamId} AND t.status IN ${sql.in([...ACTIVE_SESSION_TURN_STATUSES])}
+    AND s.archived_at IS NULL
+   ORDER BY t.ordinal DESC LIMIT 1
+  `.pipe(
+				Effect.map((rows) =>
+					rows[0] === undefined
+						? null
+						: { turnId: rows[0].turn_id, attemptId: rows[0].attempt_id },
+				),
+			),
 		catchUp,
 		events,
 		allEvents,
@@ -529,5 +679,9 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 			readSessionTimelineMessagePage(sql, streamId, beforeSequence, limit),
 		dispatch: (input) => dispatchTransactionally(input, Effect.succeed),
 		dispatchTransactionally,
+		admission,
+		jobs,
+		jobWakeups,
+		jobCancellations,
 	});
 });

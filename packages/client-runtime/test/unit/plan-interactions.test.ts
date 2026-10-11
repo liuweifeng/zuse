@@ -22,6 +22,31 @@ const message = (id: string, content: Message["content"]): Message =>
 	}) as Message;
 
 describe("pending plan interactions", () => {
+	it.each([
+		"expired",
+		"uncertain",
+	] as const)("disables %s plans even while their tool message is visible", (recoveryState) => {
+		const itemId = "plan:old" as import("@zuse/contracts").AgentItemId;
+		const messages = [
+			message("old", {
+				_tag: "tool_use",
+				itemId,
+				tool: "ExitPlanMode",
+				input: { plan: "Old" },
+			}),
+		];
+		expect(
+			findPendingNativePlanApproval(messages, [
+				{ _tag: "Plan", id: itemId, requestedAt: new Date(), recoveryState },
+			]),
+		).toBeNull();
+		expect(findPendingNativePlanApproval(messages, [])).toBeNull();
+		expect(
+			findPendingNativePlanApproval(messages, [
+				{ _tag: "Plan", id: itemId, requestedAt: new Date() },
+			])?.toolCallId,
+		).toBe(itemId);
+	});
 	it("does not route an expired permission into an actionable plan card", () => {
 		const request = PermissionRequest.make({
 			id: "expired-plan",

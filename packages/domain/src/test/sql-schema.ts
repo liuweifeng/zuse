@@ -1,9 +1,16 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { createSessionInputProjection } from "../projectors/sql-input-projector.js";
 
 export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 	function* () {
 		const sql = yield* SqlClient.SqlClient;
+		yield* createSessionInputProjection(sql);
+		yield* sql`CREATE TABLE session_checkpoint_restores (id TEXT PRIMARY KEY,session_id TEXT NOT NULL,project_id TEXT NOT NULL,worktree_id TEXT,cwd TEXT NOT NULL,target_id TEXT NOT NULL,expected_id TEXT NOT NULL,status TEXT NOT NULL,through_ordinal INTEGER NOT NULL DEFAULT 0,removed_message_ids_json TEXT NOT NULL DEFAULT '[]',error TEXT,created_at INTEGER NOT NULL,completed_at INTEGER)`;
+		yield* sql`CREATE TABLE session_execution_steps (id TEXT PRIMARY KEY,session_id TEXT NOT NULL,turn_id TEXT NOT NULL,attempt_id TEXT NOT NULL,item_id TEXT NOT NULL,parent_item_id TEXT,kind TEXT NOT NULL,label TEXT NOT NULL,status TEXT NOT NULL,child_session_id TEXT,native_child_id TEXT,root_completed_at INTEGER,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,UNIQUE(session_id,turn_id,attempt_id,item_id))`;
+		yield* sql`CREATE TABLE session_delegations (child_session_id TEXT PRIMARY KEY,child_turn_id TEXT NOT NULL,parent_session_id TEXT NOT NULL,parent_turn_id TEXT NOT NULL,parent_attempt_id TEXT NOT NULL,provider_session_id TEXT NOT NULL,result_message_id TEXT,result_status TEXT,cancelled_at INTEGER,wake_turn_id TEXT,created_at INTEGER NOT NULL)`;
+		yield* sql`CREATE TABLE session_context_links (id TEXT PRIMARY KEY, kind TEXT NOT NULL, source_session_id TEXT NOT NULL,target_session_id TEXT NOT NULL,target_message_id TEXT NOT NULL,base_message_id TEXT,source_message_id TEXT,source_sequence INTEGER NOT NULL,context_text TEXT NOT NULL,after_turn_ordinal INTEGER NOT NULL,first_turn_id TEXT,invalidated_at INTEGER,origin_turn_id TEXT,origin_attempt_id TEXT,created_at INTEGER NOT NULL)`;
+		yield* sql`CREATE TABLE session_fork_constructions (session_id TEXT PRIMARY KEY,payload_json TEXT NOT NULL,created_at INTEGER NOT NULL,error TEXT,cancelled_at INTEGER,completed_at INTEGER)`;
 		yield* sql`
 		CREATE TABLE app_state (
 			key TEXT PRIMARY KEY,
@@ -38,9 +45,8 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			model TEXT NOT NULL,
 			status TEXT NOT NULL,
 			archived_at TEXT,
-			cursor TEXT,
-			provider_event_cursor TEXT,
-			resume_strategy TEXT NOT NULL,
+			active_provider_thread_id TEXT,
+			provider_reservation_id TEXT,
 			runtime_mode TEXT NOT NULL,
 			agents_json TEXT,
 			worktree_id TEXT,
@@ -50,10 +56,55 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 			permission_mode TEXT NOT NULL,
 			tool_search INTEGER NOT NULL,
 			queue_paused INTEGER NOT NULL DEFAULT 0,
-			current_turn_id TEXT,
-			current_turn_phase TEXT,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE session_provider_threads (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			provider TEXT NOT NULL,
+			native_thread_id TEXT NOT NULL,
+			native_head_id TEXT,
+			status TEXT NOT NULL,
+			first_turn_ordinal INTEGER,
+			last_turn_ordinal INTEGER,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE IF NOT EXISTS session_attempts (
+			session_id TEXT NOT NULL,
+			id TEXT NOT NULL,
+			turn_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL CHECK (ordinal > 0),
+			reason TEXT NOT NULL CHECK (reason IN ('initial', 'retry', 'provider_recovery')),
+			status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'interrupted', 'failed', 'superseded')),
+			started_at TEXT NOT NULL,
+			completed_at TEXT,
+			started_sequence INTEGER NOT NULL,
+			updated_sequence INTEGER NOT NULL,
+			provider_turn_json TEXT,
+			PRIMARY KEY (session_id, id),
+			UNIQUE (session_id, turn_id, ordinal)
+		)
+	`;
+		yield* sql`
+		CREATE TABLE session_turns (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			ordinal INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			phase TEXT,
+			provider_thread_id TEXT,
+			active_attempt_id TEXT NOT NULL,
+			attempt_ordinal INTEGER NOT NULL,
+			attempt_reason TEXT NOT NULL,
+			requested_at TEXT NOT NULL,
+			completed_at TEXT,
+			UNIQUE (session_id, ordinal)
 		)
 	`;
 		yield* sql`
@@ -124,6 +175,26 @@ export const createDomainTestSchema = Effect.fn("createDomainTestSchema")(
 		CREATE TABLE projected_messages (
 			message_id TEXT PRIMARY KEY,
 			content_json TEXT NOT NULL
+		)
+	`;
+		yield* sql`
+		CREATE TABLE jobs (
+			sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+			id TEXT NOT NULL UNIQUE,
+			session_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			request_json TEXT NOT NULL,
+			status TEXT NOT NULL,
+			attempt_count INTEGER NOT NULL DEFAULT 0,
+			available_at TEXT NOT NULL,
+			lease_owner TEXT,
+			lease_expires_at TEXT,
+			causation_event_id TEXT,
+			correlation_id TEXT,
+			last_error TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			completed_at TEXT
 		)
 	`;
 	},

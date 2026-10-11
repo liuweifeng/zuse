@@ -1,6 +1,6 @@
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useUiStore } from "../store/ui.ts";
-import { isHostedProduct } from "./hosted-connect.ts";
+import { isHostedProduct } from "./hosted-session.ts";
 
 type ProjectSetupDialogState = {
 	open: boolean;

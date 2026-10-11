@@ -15,7 +15,6 @@ import type {
 	AttachmentRef,
 	BrowserAnnotation,
 	ComposerAnnotation,
-	EnvironmentId,
 	FileRef,
 	FolderId,
 	ForkDestination,
@@ -25,7 +24,8 @@ import type {
 	SessionId,
 	SkillRef,
 } from "@zuse/contracts";
-import { useMessages as useUiMessages } from "@zuse/i18n/react";
+import { EnvironmentId, findModelDescriptor } from "@zuse/contracts";
+import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { AlertCircleIcon, DashboardSpeedIcon } from "@zuse/icons/solid-rounded";
 import {
 	ChevronDown,
@@ -53,7 +53,7 @@ import {
 	chatSelectionSource,
 } from "~/lib/chat-selection";
 import { spawnDelegationMember } from "~/lib/delegation-display";
-import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
+import { useEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
 import { formatError } from "~/lib/format-error";
 import {
 	orchestrationToolName,
@@ -62,13 +62,16 @@ import {
 import { attachmentUrl } from "~/lib/platform-capabilities";
 import { describeProviderError } from "~/lib/provider-error-notice";
 import { type ChatError, classifyErrorContent } from "~/lib/session-actions";
+import { openSession } from "~/lib/session-navigation";
 import { isSessionTurnActive } from "~/lib/session-runtime-state";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks.ts";
 import { subagentTaskIdForBlockingWait } from "~/lib/subagent-wait";
 import { normalizeToolCallEnvelope } from "~/lib/tool-call-envelope";
 import { cn } from "~/lib/utils";
-import { useChatsStore } from "~/store/chats";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
+import { useModelCatalogStore } from "~/store/model-catalog";
 import { useUiStore } from "~/store/ui";
+import { useWorkspaceStore } from "~/store/workspace";
 import { useRevealAnnotation } from "./annotation/annotation-navigation.ts";
 import { ChatAnnotationChip } from "./annotation/chat-annotation-chip.tsx";
 import {
@@ -212,6 +215,8 @@ function MessageRowImpl({
 				<UserBubble
 					text={message.content.text}
 					origin={message.content.origin}
+					origins={message.content.origins}
+					environmentId={environmentId}
 					goal={message.content.goal}
 					createdAt={message.createdAt}
 				/>
@@ -230,6 +235,8 @@ function MessageRowImpl({
 					skillRefs={message.content.skillRefs}
 					annotations={message.content.annotations}
 					origin={message.content.origin}
+					origins={message.content.origins}
+					environmentId={environmentId}
 					goal={message.content.goal}
 					createdAt={message.createdAt}
 				/>
@@ -343,6 +350,8 @@ function MessageRowImpl({
 				/>
 			);
 		}
+		case "model_switch":
+			return <ModelSwitchRow content={message.content} />;
 		case "interrupted":
 			// The user stopped the turn — a normal action, so render a small muted
 			// badge rather than an error bubble.
@@ -376,6 +385,62 @@ function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
 
 export const MessageRow = memo(SelectableMessageRow);
 MessageRow.displayName = "MessageRow";
+
+function ModelSwitchLabel({
+	providerId,
+	children,
+}: {
+	providerId: ProviderId;
+	children?: ReactNode;
+}) {
+	return (
+		<span className="inline-flex items-center gap-1 align-middle">
+			<ProviderIcon
+				providerId={providerId}
+				className="size-3 shrink-0"
+				aria-hidden="true"
+			/>
+			<span>{children}</span>
+		</span>
+	);
+}
+
+function ModelSwitchRow({
+	content,
+}: {
+	content: MessageContent<"model_switch">;
+}) {
+	const { message } = useUiMessages(["chat"]);
+	const catalog = useModelCatalogStore((state) => state.catalog);
+	const from =
+		findModelDescriptor(catalog, content.fromProviderId, content.fromModel)
+			?.label ?? content.fromModel;
+	const to =
+		findModelDescriptor(catalog, content.toProviderId, content.toModel)
+			?.label ?? content.toModel;
+	return (
+		<div className="flex items-start justify-center gap-1.5 px-4 py-2 text-[11px] leading-5 text-muted-foreground">
+			<p className="min-w-0 text-center [overflow-wrap:anywhere]">
+				<RichMessage
+					id="chat:message_row_model_switched"
+					values={{ from, to }}
+					components={{
+						from: <ModelSwitchLabel providerId={content.fromProviderId} />,
+						to: <ModelSwitchLabel providerId={content.toProviderId} />,
+					}}
+				/>
+				<span className="px-1.5" aria-hidden="true">
+					·
+				</span>
+				{message(
+					content.context === "handoff"
+						? "chat:message_row_context_handed_off"
+						: "chat:message_row_context_preserved",
+				)}
+			</p>
+		</div>
+	);
+}
 
 function ThinkingMessageRow({
 	messageId,
@@ -610,6 +675,8 @@ export function UserBubble({
 	skillRefs,
 	annotations,
 	origin,
+	origins,
+	environmentId,
 	goal = false,
 	createdAt,
 }: {
@@ -621,6 +688,8 @@ export function UserBubble({
 	skillRefs?: ReadonlyArray<SkillRef>;
 	annotations?: ReadonlyArray<ComposerAnnotation>;
 	origin?: MessageOrigin;
+	origins?: ReadonlyArray<MessageOrigin>;
+	environmentId?: EnvironmentId;
 	goal?: boolean;
 	createdAt?: Date;
 }) {
@@ -628,12 +697,16 @@ export function UserBubble({
 
 	const hasAnnotations = annotations !== undefined && annotations.length > 0;
 	const revealAnnotation = useRevealAnnotation();
-	const { chatsByProject } = useActiveEnvironmentEntities();
-	const originChatLoaded =
-		origin !== undefined &&
-		Object.values(chatsByProject).some((list) =>
-			list.some((chat) => chat.id === origin.chatId),
-		);
+	const activeEnvironmentId = useEnvironmentCatalogStore(
+		(state) => state.activeEnvironmentId,
+	);
+	const senderEnvironmentId =
+		environmentId ?? attachmentSession?.environmentId ?? activeEnvironmentId;
+	const sources = origins ?? (origin ? [origin] : []);
+	const { chatsByProject, sessionsByProject } = useEnvironmentEntities(
+		senderEnvironmentId,
+		sources.length > 0,
+	);
 	const hasChips =
 		(attachments !== undefined && attachments.length > 0) ||
 		(fileRefs !== undefined && fileRefs.length > 0) ||
@@ -716,34 +789,60 @@ export function UserBubble({
 					</div>
 				) : null}
 
-				{display.length > 0 || origin !== undefined || goal ? (
+				{display.length > 0 || sources.length > 0 || goal ? (
 					<div data-chat-user-bubble className={userBubbleClass}>
-						{origin !== undefined ? (
-							<button
-								type="button"
-								disabled={!originChatLoaded}
-								onClick={() => useChatsStore.getState().select(origin.chatId)}
-								className="mb-1.5 flex items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
-								title={
-									originChatLoaded
-										? uiMessage("chat:message_row_open_the_sender_s_chat")
-										: uiMessage("chat:message_row_sender_chat_not_loaded")
-								}
-							>
-								<ProviderIcon
-									providerId={origin.providerId}
-									className="size-3"
-								/>
-								<span>
-									{uiMessage(
-										"chat:message_row_sent_by_from_another_chat_sentence",
-										{
-											value: providerDisplayName(origin.providerId),
-										},
-									)}
-								</span>
-							</button>
-						) : null}
+						{sources.map((source) => {
+							const session = Object.values(sessionsByProject)
+								.flat()
+								.find(
+									(candidate) =>
+										candidate.id === source.sessionId &&
+										candidate.chatId === source.chatId,
+								);
+							const chat = Object.values(chatsByProject)
+								.flat()
+								.find((candidate) => candidate.id === source.chatId);
+							const available =
+								session !== undefined &&
+								chat !== undefined &&
+								session.archivedAt === null &&
+								chat.archivedAt === null;
+							const name =
+								session?.title?.trim() ||
+								source.title?.trim() ||
+								providerDisplayName(source.providerId);
+							return (
+								<button
+									key={`${source.chatId}:${source.sessionId}`}
+									type="button"
+									disabled={!available}
+									onClick={() => {
+										void openSession({
+											environmentId: EnvironmentId.make(senderEnvironmentId),
+											sessionId: source.sessionId,
+										}).catch((cause) =>
+											useWorkspaceStore.setState({ error: formatError(cause) }),
+										);
+									}}
+									className="mb-1.5 flex max-w-full items-center gap-1.5 text-[11px] text-user-bubble-foreground/65 hover:text-user-bubble-foreground disabled:cursor-default"
+									title={
+										available
+											? uiMessage("chat:message_row_open_the_sender_s_chat")
+											: uiMessage("chat:message_row_sender_chat_not_loaded")
+									}
+								>
+									<ProviderIcon
+										providerId={source.providerId}
+										className="size-3 shrink-0"
+									/>
+									<span className="truncate">
+										{uiMessage("chat:message_row_sent_by_sender", {
+											value: name,
+										})}
+									</span>
+								</button>
+							);
+						})}
 						{display.length > 0 ? <UserMessageText text={display} /> : null}
 						{goal ? (
 							<div className="mt-2 flex items-center gap-1.5 text-xs text-user-bubble-foreground/65">

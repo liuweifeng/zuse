@@ -278,11 +278,22 @@ const makeRendererRpcSession = async (
 		closed = true;
 		onClose(event);
 	};
+	let negotiatedVersion: number = WIRE_PROTOCOL_VERSION;
+	const legacyCloud =
+		options.kind === "websocket" && options.key.startsWith("workspace:");
+	const normalizeLegacyRuntimeResponse = legacyCloud
+		? (await import("@zuse/client-runtime/legacy-runtime-response"))
+				.normalizeLegacyRuntimeResponse
+		: (response: unknown) => response;
 	const protocolLayer =
 		options.kind === "electron"
-			? electronClientProtocolLayer(options.bridge).pipe(
-					Layer.provide(RpcSerialization.layerJson),
-				)
+			? electronClientProtocolLayer(options.bridge, () =>
+					notifyClose({
+						code: 1006,
+						reason: "Local engine disconnected",
+						wasClean: false,
+					}),
+				).pipe(Layer.provide(RpcSerialization.layerJson))
 			: wsClientProtocolLayer(
 					withWireProtocolVersion(
 						options.wsUrl || (await requestBrowserWebSocketUrl()),
@@ -292,12 +303,20 @@ const makeRendererRpcSession = async (
 						openTimeout: rendererWebSocketOpenTimeout(options.key),
 						protocols: options.protocols,
 						onClose: notifyClose,
+						transformResponse: (response) =>
+							negotiatedVersion < WIRE_PROTOCOL_VERSION
+								? normalizeLegacyRuntimeResponse(response)
+								: response,
 					},
 				);
 	assertConnectionAccount(options);
 	const session = instrumentRendererRpcClient(
 		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
 			protocolVersion: WIRE_PROTOCOL_VERSION,
+			allowLegacyCloud: legacyCloud,
+			onNegotiated: (version) => {
+				negotiatedVersion = version;
+			},
 			perform: (client, hello) => client["connect.handshake"](hello),
 		}),
 	);
@@ -351,7 +370,7 @@ const supervisor = createConnectionSupervisor<
 				reportRendererEntryFailure(
 					options.key,
 					new Error(
-						`WebSocket closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+						`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
 					),
 				);
 			});
@@ -791,13 +810,6 @@ export const reportRendererRpcFailure = (
 	getRendererEntry(environmentId).reportFailure(cause);
 };
 
-/** Report a long-lived stream failure once for the connection that owned it. */
-export const reportRendererRpcStreamFailure = (
-	generation: number,
-	cause: unknown,
-	environmentId = activeEnvironmentId,
-): boolean => getRendererEntry(environmentId).reportFailure(cause, generation);
-
 /**
  * Observe the shared renderer connection lifecycle. Long-lived RPC streams use
  * the generation edge to resubscribe without implementing their own retry loop
@@ -825,13 +837,6 @@ export const retryRendererRpcConnection = (environmentId?: unknown): void =>
 	getRendererEntry(
 		typeof environmentId === "string" ? environmentId : activeEnvironmentId,
 	).retryNow();
-
-export const dispatchRetryableRpcCommand = <A>(
-	commandId: string,
-	operation: () => Promise<A>,
-	environmentId = activeEnvironmentId,
-): Promise<A> =>
-	getRendererEntry(environmentId).dispatchCommand(commandId, () => operation());
 
 export const disposeRpcClient = async (): Promise<void> => {
 	rendererEntries.clear();

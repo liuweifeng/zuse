@@ -117,3 +117,140 @@ it("delivers only the chat's live approvals and enforces edit authority on decis
 		await runtime.dispose();
 	}
 });
+
+it("requires edit access to both the fork and its parent before merging context", async () => {
+	const runtime = ManagedRuntime.make(
+		sqliteLayer({ filename: ":memory:", disableWAL: true }),
+	);
+	let permission: "edit" | "view" = "edit";
+	const identity = {
+		kind: "workspace" as const,
+		subject: "actor",
+		membershipId: "member",
+		workspaceId: "workspace",
+		chatId: ChatId.make("chat"),
+		projectId: FolderId.make("project"),
+		expiresAt: Date.now() + 60_000,
+		authorize: Effect.suspend(() => Effect.succeed(permission)),
+	};
+	const execute = vi.fn();
+	try {
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`CREATE TABLE chats(id TEXT,project_id TEXT,worktree_id TEXT)`;
+				yield* sql`CREATE TABLE sessions(id TEXT,chat_id TEXT,forked_from_session_id TEXT)`;
+				yield* sql`INSERT INTO chats VALUES ('chat','project',NULL)`;
+				yield* sql`INSERT INTO sessions VALUES ('parent','chat',NULL),('private-parent','private',NULL),('child','chat','parent'),('other-child','chat','private-parent')`;
+				yield* sql`CREATE TABLE session_fork_constructions(session_id TEXT,payload_json TEXT)`;
+				yield* sql`INSERT INTO session_fork_constructions VALUES ('local-fork','{"chatId":"chat"}'),('private-fork','{"chatId":"private"}')`;
+			}),
+		);
+		const merge = (sessionId: string) =>
+			runtime.runPromise(
+				authorizeWorkspaceRpc(
+					Effect.sync(execute),
+					identity,
+					"session.mergeBack",
+					{ sessionId },
+				),
+			);
+		await merge("child");
+		await expect(merge("other-child")).rejects.toMatchObject({
+			_tag: "RpcAccessDeniedError",
+		});
+		permission = "view";
+		await expect(merge("child")).rejects.toMatchObject({
+			_tag: "RpcAccessDeniedError",
+		});
+		for (const tag of ["session.retryFork", "session.cancelFork"]) {
+			await expect(
+				runtime.runPromise(
+					authorizeWorkspaceRpc(Effect.sync(execute), identity, tag, {
+						sessionId: "child",
+						forkSessionId: "local-fork",
+					}),
+				),
+			).rejects.toMatchObject({ _tag: "RpcAccessDeniedError" });
+			permission = "edit";
+			await expect(
+				runtime.runPromise(
+					authorizeWorkspaceRpc(Effect.sync(execute), identity, tag, {
+						sessionId: "child",
+						forkSessionId: "private-fork",
+					}),
+				),
+			).rejects.toMatchObject({ _tag: "RpcAccessDeniedError" });
+			await runtime.runPromise(
+				authorizeWorkspaceRpc(Effect.sync(execute), identity, tag, {
+					sessionId: "child",
+					forkSessionId: "local-fork",
+				}),
+			);
+			permission = "view";
+		}
+		expect(execute).toHaveBeenCalledTimes(3);
+	} finally {
+		await runtime.dispose();
+	}
+});
+
+it.each([
+	"session.attempts.list",
+	"session.wait",
+])("allows scoped read-only %s and denies another chat", async (tag) => {
+	const runtime = ManagedRuntime.make(
+		sqliteLayer({ filename: ":memory:", disableWAL: true }),
+	);
+	const identity = {
+		kind: "workspace" as const,
+		subject: "reader",
+		membershipId: "member",
+		workspaceId: "workspace",
+		chatId: ChatId.make("chat"),
+		projectId: FolderId.make("project"),
+		expiresAt: Date.now() + 60_000,
+		authorize: Effect.succeed("view" as const),
+	};
+	const execute = vi.fn();
+	try {
+		await runtime.runPromise(
+			Effect.gen(function* () {
+				const sql = yield* SqlClient.SqlClient;
+				yield* sql`CREATE TABLE chats(id TEXT,project_id TEXT,worktree_id TEXT)`;
+				yield* sql`CREATE TABLE sessions(id TEXT,chat_id TEXT)`;
+				yield* sql`INSERT INTO chats VALUES('chat','project',NULL)`;
+				yield* sql`INSERT INTO sessions VALUES('own','chat'),('private','another-chat')`;
+			}),
+		);
+		const read = (sessionId: string) =>
+			runtime.runPromise(
+				authorizeWorkspaceRpc(Effect.sync(execute), identity, tag, {
+					sessionId,
+					...(tag === "session.attempts.list"
+						? { before: { turnOrdinal: 3, attemptOrdinal: 2 } }
+						: { target: "done" }),
+				}),
+			);
+		await read("own");
+		await expect(read("private")).rejects.toMatchObject({
+			_tag: "RpcAccessDeniedError",
+		});
+		await expect(read("missing")).rejects.toMatchObject({
+			_tag: "RpcAccessDeniedError",
+		});
+		await expect(
+			runtime.runPromise(
+				authorizeWorkspaceRpc(
+					Effect.sync(execute),
+					identity,
+					"session.sendAndWait",
+					{ sessionId: "own" },
+				),
+			),
+		).rejects.toMatchObject({ _tag: "RpcAccessDeniedError" });
+		expect(execute).toHaveBeenCalledTimes(1);
+	} finally {
+		await runtime.dispose();
+	}
+});

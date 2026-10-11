@@ -11,7 +11,7 @@ import {
 import { Schema } from "effect";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
-import { isHostedProduct } from "../lib/hosted-connect.ts";
+import { isHostedProduct } from "../lib/hosted-session.ts";
 import { removeStorageKeys } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";

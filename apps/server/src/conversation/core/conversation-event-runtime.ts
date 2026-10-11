@@ -4,15 +4,21 @@ import type {
 	AgentTurnId,
 	MessageContent,
 	PermissionMode,
-	ProviderEventEnvelope,
 	ProviderId,
-	ResumeStrategy,
+	ProviderTurnReference,
 	SessionId,
 	ThreadGoal,
 } from "@zuse/contracts";
+import type {
+	AttemptOwnership,
+	AttemptOwnershipConflict,
+	ProviderSessionOwnershipConflict,
+} from "@zuse/domain/engine/dispatch";
+import { providerToolReference } from "@zuse/domain/engine/dispatch";
 import {
 	Deferred,
 	Effect,
+	Exit,
 	Fiber,
 	Ref,
 	type Scope,
@@ -20,7 +26,16 @@ import {
 	Stream,
 } from "effect";
 
+import type {
+	ProviderCursorReceipt,
+	ProviderEventDelivery,
+} from "../../provider/provider-event-delivery.ts";
 import { eventToContent } from "./conversation-message-mapping.ts";
+import {
+	INGESTION_HEARTBEAT_MS,
+	type IngestionLease,
+	type IngestionLeaseIdentity,
+} from "./ingestion-lease.ts";
 
 type ApiActivity =
 	| "approval-needed"
@@ -31,41 +46,81 @@ type ApiActivity =
 
 export interface ConversationEventRuntimeOptions {
 	readonly scope: Scope.Scope;
+	readonly ingestionHeartbeatMs?: number;
+	readonly acquireIngestionLease?: (
+		sessionId: SessionId,
+		identity: IngestionLeaseIdentity,
+	) => Effect.Effect<IngestionLease | null>;
 	readonly events: (
 		sessionId: SessionId,
-	) => Stream.Stream<ProviderEventEnvelope, unknown>;
+	) => Stream.Stream<ProviderEventDelivery, unknown>;
+	readonly ownsAttempt: (
+		sessionId: SessionId,
+		ownership: AttemptOwnership,
+	) => Effect.Effect<boolean>;
+	readonly ownsProviderSession: (
+		sessionId: SessionId,
+		providerSessionId: string,
+	) => Effect.Effect<boolean>;
 	readonly providerId: (sessionId: SessionId) => Effect.Effect<ProviderId>;
 	readonly settleTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		boolean,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	/**
 	 * Durably starts a turn the provider opened on its own. Resolves to the
-	 * proposed id, or to the application turn that is already running when the
+	 * attempt, or to the application turn that is already running when the
 	 * two raced (the kernel then adopts the provider turn into it).
 	 */
 	readonly beginProviderTurn: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
-	readonly setResume: (
+		providerSessionId: string,
+	) => Effect.Effect<
+		AttemptOwnership | null,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
+	/** Bind the native execution reported by the owning provider process. */
+	readonly bindAttemptProviderTurn: (
 		sessionId: SessionId,
-		cursor: string,
-		strategy: ResumeStrategy,
-		providerEventCursor?: string,
-	) => Effect.Effect<void>;
-	readonly releaseProviderEventCursor?: (
+		reference: ProviderTurnReference,
+		expectedAttempt: AttemptOwnership,
+		expectedProviderSessionId: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
+	/** Bind the provider-native thread the driver reported for this session. */
+	readonly bindProviderThread: (
 		sessionId: SessionId,
-		cursor: string,
-	) => Effect.Effect<void>;
+		nativeThreadId: string,
+		nativeHeadId?: string,
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 	readonly publishGoal: (
 		sessionId: SessionId,
 		goal: ThreadGoal | null,
+		providerSessionId: string,
+		providerId: ProviderId,
 	) => Effect.Effect<void>;
 	readonly publishApiActivity: (
 		sessionId: SessionId,
@@ -82,14 +137,22 @@ export interface ConversationEventRuntimeOptions {
 	) => Effect.Effect<boolean>;
 	readonly persist: (
 		sessionId: SessionId,
-		turnId: AgentTurnId,
+		turnId: AgentTurnId | null,
 		content: MessageContent,
 		providerItemIdentity?: string,
-	) => Effect.Effect<void>;
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	) => Effect.Effect<
+		void,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
 }
 
 export interface ConversationEventRuntime {
-	readonly start: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly start: (
+		sessionId: SessionId,
+		identity?: IngestionLeaseIdentity,
+	) => Effect.Effect<void>;
 	readonly interrupt: (sessionId: SessionId) => Effect.Effect<void>;
 }
 
@@ -150,7 +213,7 @@ export const makeConversationEventRuntime = Effect.fn(
 				.pipe(Effect.ensuring(release));
 		});
 
-	const start: ConversationEventRuntime["start"] = (sessionId) =>
+	const start: ConversationEventRuntime["start"] = (sessionId, identity) =>
 		withLifecycle(
 			sessionId,
 			Effect.gen(function* () {
@@ -158,36 +221,156 @@ export const makeConversationEventRuntime = Effect.fn(
 				if (existing !== undefined) yield* Fiber.interrupt(existing.fiber);
 				const providerId = yield* options.providerId(sessionId);
 				const token = {};
-				let pendingProviderEventCursor: string | undefined;
+				let ingestionIdentity = identity;
+				let lease =
+					identity === undefined || options.acquireIngestionLease === undefined
+						? null
+						: yield* options.acquireIngestionLease(sessionId, identity);
+				if (
+					identity !== undefined &&
+					options.acquireIngestionLease !== undefined &&
+					lease === null
+				)
+					return yield* Effect.interrupt;
+				let renewLease = true;
+				let lastProviderActivityAt: number | undefined;
+				let lastRenewedAt = Date.now();
+				const heartbeatMs =
+					options.ingestionHeartbeatMs ?? INGESTION_HEARTBEAT_MS;
+				const heartbeat = Effect.suspend(() =>
+					Effect.gen(function* () {
+						if (
+							!renewLease ||
+							lease === null ||
+							Date.now() - lastRenewedAt < heartbeatMs
+						)
+							return;
+						if (yield* lease.renew(lastProviderActivityAt)) {
+							lastRenewedAt = Date.now();
+							return;
+						}
+						renewLease = false;
+						if (
+							ingestionIdentity !== undefined &&
+							(yield* options.ownsAttempt(sessionId, ingestionIdentity)) &&
+							(yield* options.ownsProviderSession(
+								sessionId,
+								ingestionIdentity.providerSessionId,
+							))
+						)
+							return yield* Effect.interrupt;
+					}),
+				);
+
+				const events =
+					options.acquireIngestionLease === undefined
+						? options.events(sessionId)
+						: Stream.merge(
+								options.events(sessionId),
+								Stream.tick(
+									options.ingestionHeartbeatMs ?? INGESTION_HEARTBEAT_MS,
+								).pipe(
+									Stream.filter(() => renewLease),
+									Stream.map(() => null),
+								),
+								{ haltStrategy: "left" },
+							);
+				let pendingReceipt: ProviderCursorReceipt | undefined;
 				// Provider-opened turns that lost the race to an application turn,
 				// mapped onto the application turn that absorbed their events.
 				const absorbedProviderTurns = new Map<AgentTurnId, AgentTurnId>();
+				const providerTurns = new Map<AgentTurnId, AttemptOwnership | null>();
 				const ready = yield* Deferred.make<void>();
 				const fiber = yield* Effect.forkIn(
 					Deferred.await(ready).pipe(
 						Effect.andThen(
-							Stream.runForEach(options.events(sessionId), (envelope) =>
+							Stream.runForEach(events, (envelope) =>
 								Effect.gen(function* () {
+									yield* heartbeat.pipe(
+										Effect.onExit((exit) =>
+											Exit.isFailure(exit)
+												? (envelope?.cursorReceipt?.release ?? Effect.void)
+												: Effect.void,
+										),
+									);
+									if (envelope === null) return;
+									if (
+										envelope.scope === "turn" &&
+										providerTurns.get(envelope.turnId) === null
+									)
+										return;
+									const content = eventToContent(envelope.event);
+									const ownership =
+										envelope.ownership ??
+										(envelope.scope === "turn"
+											? (providerTurns.get(envelope.turnId) ?? undefined)
+											: undefined);
+									const providerSessionId = envelope.providerSessionId;
+									if (
+										!(yield* options.ownsProviderSession(
+											sessionId,
+											providerSessionId,
+										))
+									) {
+										yield* envelope.cursorReceipt?.release ?? Effect.void;
+										return;
+									}
+									if (
+										ownership !== undefined &&
+										envelope.event._tag !== "SessionCursor" &&
+										(content === null ||
+											providerToolReference(content) === undefined) &&
+										!(yield* options.ownsAttempt(sessionId, ownership))
+									) {
+										yield* envelope.cursorReceipt?.release ?? Effect.void;
+										return;
+									}
+									lastProviderActivityAt = Date.now();
 									const event = envelope.event;
 									if (event._tag === "ProviderTurnStarted") {
 										if (envelope.scope !== "turn") return;
+										providerTurns.set(envelope.turnId, null);
 										const started = yield* options.beginProviderTurn(
 											sessionId,
 											envelope.turnId,
+											providerSessionId,
 										);
-										if (started !== envelope.turnId) {
-											absorbedProviderTurns.set(envelope.turnId, started);
+										if (started === null) return;
+										if (
+											options.acquireIngestionLease !== undefined &&
+											(ingestionIdentity?.attemptId !== started.attemptId ||
+												ingestionIdentity?.providerSessionId !==
+													providerSessionId)
+										) {
+											const nextIdentity = { ...started, providerSessionId };
+											const nextLease = yield* options.acquireIngestionLease(
+												sessionId,
+												nextIdentity,
+											);
+											if (nextLease === null) return yield* Effect.interrupt;
+											yield* lease?.expire ?? Effect.void;
+											lease = nextLease;
+											ingestionIdentity = nextIdentity;
+											renewLease = true;
+											lastRenewedAt = Date.now();
+										}
+										providerTurns.set(envelope.turnId, started);
+										if (started.turnId !== envelope.turnId) {
+											absorbedProviderTurns.set(
+												envelope.turnId,
+												started.turnId as AgentTurnId,
+											);
 										}
 										yield* options.publishApiActivity(sessionId, "running");
 										return;
 									}
 									const turnId =
 										envelope.scope === "turn"
-											? (absorbedProviderTurns.get(envelope.turnId) ??
-												envelope.turnId)
+											? ((providerTurns.get(envelope.turnId)?.turnId ??
+													envelope.turnId) as AgentTurnId)
 											: undefined;
 									if (event._tag === "ProviderNotificationMetadata") {
-										pendingProviderEventCursor = event.eventId;
+										pendingReceipt = envelope.cursorReceipt;
 										return;
 									}
 									if (event._tag === "Status") {
@@ -209,37 +392,90 @@ export const makeConversationEventRuntime = Effect.fn(
 												: event.reason === "error"
 													? "error"
 													: "completed";
-										yield* options.settleTurn(sessionId, turnId, outcome);
+										const settled = yield* options.settleTurn(
+											sessionId,
+											turnId,
+											outcome,
+											ownership,
+											providerSessionId,
+										);
+										if (settled === false) return;
 										yield* options.publishApiActivity(
 											sessionId,
 											event.reason === "error" ? "error" : "completed",
 										);
 										return;
 									}
-									if (event._tag === "SessionCursor") {
-										yield* options.setResume(
-											sessionId,
-											event.cursor,
-											event.strategy,
-											event.providerEventCursor,
-										);
+									if (event._tag === "NativeTurnStarted") {
 										if (
-											event.providerEventCursor !== undefined &&
-											event.providerEventCursor === pendingProviderEventCursor
-										)
-											pendingProviderEventCursor = undefined;
+											envelope.scope === "turn" &&
+											ownership !== undefined &&
+											event.reference.provider === providerId
+										) {
+											yield* options.bindAttemptProviderTurn(
+												sessionId,
+												event.reference,
+												ownership,
+												providerSessionId,
+											);
+										}
+										return;
+									}
+									if (event._tag === "SessionCursor") {
+										const receipt = envelope.cursorReceipt;
+										yield* options
+											.bindProviderThread(
+												sessionId,
+												event.cursor,
+												event.providerEventCursor,
+												ownership,
+												providerSessionId,
+											)
+											.pipe(
+												Effect.onExit((exit) =>
+													receipt === undefined
+														? Effect.void
+														: Exit.isSuccess(exit)
+															? receipt.acknowledge
+															: receipt.release,
+												),
+												Effect.ensuring(
+													Effect.sync(() => {
+														if (
+															receipt !== undefined &&
+															pendingReceipt?.cursor === receipt.cursor
+														)
+															pendingReceipt = undefined;
+													}),
+												),
+											);
 										return;
 									}
 									if (event._tag === "PermissionModeChanged") {
-										yield* options.setPermissionMode(sessionId, event.mode);
+										yield* options.setPermissionMode(
+											sessionId,
+											event.mode,
+											ownership,
+											providerSessionId,
+										);
 										return;
 									}
 									if (event._tag === "GoalUpdated") {
-										yield* options.publishGoal(sessionId, event.goal);
+										yield* options.publishGoal(
+											sessionId,
+											event.goal,
+											providerSessionId,
+											providerId,
+										);
 										return;
 									}
 									if (event._tag === "GoalCleared") {
-										yield* options.publishGoal(sessionId, null);
+										yield* options.publishGoal(
+											sessionId,
+											null,
+											providerSessionId,
+											providerId,
+										);
 										return;
 									}
 									if (
@@ -257,20 +493,18 @@ export const makeConversationEventRuntime = Effect.fn(
 									) {
 										return;
 									}
-									if (envelope.scope !== "turn" || turnId === undefined) return;
+									if (
+										envelope.scope !== "turn" &&
+										event._tag !== "UserQuestion" &&
+										event._tag !== "UserQuestionResolved"
+									)
+										return;
 									if (event._tag === "PermissionRequest") {
 										yield* options.publishApiActivity(
 											sessionId,
 											"approval-needed",
 										);
 									}
-									if (event._tag === "UserQuestion") {
-										yield* options.publishApiActivity(
-											sessionId,
-											"question-needed",
-										);
-									}
-									const content = eventToContent(event);
 									if (content === null) return;
 									if (
 										content._tag === "tool_use" &&
@@ -280,33 +514,45 @@ export const makeConversationEventRuntime = Effect.fn(
 									}
 									yield* options.persist(
 										sessionId,
-										turnId,
+										turnId ?? null,
 										content,
 										"itemId" in event && typeof event.itemId === "string"
 											? `${event._tag}:${event.itemId}`
 											: undefined,
+										ownership,
+										providerSessionId,
 									);
+									if (event._tag === "UserQuestion") {
+										yield* options.publishApiActivity(
+											sessionId,
+											"question-needed",
+										);
+									}
 									if (event._tag === "Error") {
 										yield* options.publishApiActivity(sessionId, "error");
 									}
-								}),
+								}).pipe(
+									Effect.catchTag(
+										[
+											"AttemptOwnershipConflict",
+											"ProviderSessionOwnershipConflict",
+										],
+										() => Effect.void,
+									),
+								),
 							),
 						),
 						Effect.catchCause((cause) =>
 							Effect.gen(function* () {
-								if (pendingProviderEventCursor !== undefined) {
-									yield* (
-										options.releaseProviderEventCursor?.(
-											sessionId,
-											pendingProviderEventCursor,
-										) ?? Effect.void
-									).pipe(Effect.catch(() => Effect.void));
-								}
 								yield* Effect.logDebug(
 									"[ConversationEvents] event stream ended",
 								);
 								yield* Effect.logDebug(cause);
 							}),
+						),
+						Effect.ensuring(Effect.suspend(() => lease?.expire ?? Effect.void)),
+						Effect.ensuring(
+							Effect.suspend(() => pendingReceipt?.release ?? Effect.void),
 						),
 						Effect.ensuring(
 							Ref.update(fibers, (current) => {

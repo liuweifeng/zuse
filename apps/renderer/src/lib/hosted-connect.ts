@@ -34,16 +34,12 @@ import {
 
 export {
 	hostedAccountId,
+	hostedAccountUser,
 	hostedAuthState,
+	hostedCacheDatabaseName,
 	subscribeHostedAuth,
 } from "./hosted-session.ts";
 export { isHostedProduct } from "./platform-capabilities.ts";
-
-import { isHostedProduct } from "./platform-capabilities.ts";
-export const hostedAccountUser = (): AuthUser | null =>
-	readSession()?.user ?? null;
-export const hostedCacheDatabaseName = (base: string): string =>
-	isHostedProduct() ? `${base}:hosted:${hostedAccountId()}` : base;
 
 let sessionEpoch = 0;
 

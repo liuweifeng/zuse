@@ -149,6 +149,7 @@
 	"accounts_open_browser": "Ouvrir le navigateur",
 	"accounts_signed_in": "Connecté",
 	"accounts_remove_description": "Supprime ce compte des paramètres. Les conversations utilisant ce compte ne pourront plus reprendre. Les fichiers de connexion et les transcriptions sont conservés.",
+	"model_picker_switch_pending": "Changement après la fin du travail en cours",
 	"accounts_default_detail": "Connexion CLI ou clé API",
 	"accounts_suggested_name": "Compte {{index}}",
 	"accounts_actions": "Actions pour {{name}}",

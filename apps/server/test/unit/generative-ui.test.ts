@@ -43,6 +43,7 @@ const setup = async (fail = false) => {
 		makeConversationOrchestration(
 			{
 				runtime: Context.empty(),
+				captureDelegation: unused,
 				getSettings: () => Effect.fail("unavailable"),
 				getModelCatalog: () => Effect.succeed(bundledResolvedModelCatalog()),
 				createWorktree: unused,

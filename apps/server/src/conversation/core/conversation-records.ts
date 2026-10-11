@@ -11,14 +11,18 @@ import {
 	MessageId,
 	type MessageRole,
 	PermissionMode,
-	ResumeStrategy,
+	ProviderThreadId,
 	RuntimeMode,
 	Session,
 	SessionId,
+	type SessionProviderThread,
 	WorktreeArchiveSnapshot,
 	type WorktreeId,
 } from "@zuse/contracts";
-import type { MessageReadRecord } from "@zuse/domain/projectors/read-model";
+import type {
+	MessageReadRecord,
+	SessionProviderThreadRecord,
+} from "@zuse/domain/projectors/read-model";
 import type { SqlSessionReadRecord } from "@zuse/domain/queries/sql-session-queries";
 import { Option, Schema } from "effect";
 
@@ -33,22 +37,6 @@ interface ConversationRow {
 	readonly updated_at: string;
 }
 
-export interface SessionRow extends ConversationRow {
-	readonly provider_id: string;
-	readonly model: string;
-	readonly status: string;
-	readonly cursor: string | null;
-	readonly provider_event_cursor?: string | null;
-	readonly resume_strategy: string;
-	readonly runtime_mode: string;
-	readonly agents_json: string | null;
-	readonly chat_id: string;
-	readonly forked_from_session_id: string | null;
-	readonly forked_from_message_id: string | null;
-	readonly permission_mode: string;
-	readonly tool_search: number;
-}
-
 export interface ChatRow extends ConversationRow {
 	readonly active_session_id: string | null;
 	readonly origin_session_id: string | null;
@@ -56,16 +44,6 @@ export interface ChatRow extends ConversationRow {
 	readonly last_message_at: string | null;
 	readonly last_user_message_at?: string | null;
 	readonly last_read_at: string | null;
-}
-
-export interface MessageRow {
-	readonly id: string;
-	readonly session_id: string;
-	readonly role: string;
-	readonly kind: string;
-	readonly content_json: string;
-	readonly parent_item_id: string | null;
-	readonly created_at: string;
 }
 
 export type ArchivedWorktreeSnapshot = typeof WorktreeArchiveSnapshot.Type;
@@ -103,46 +81,55 @@ const permissionModeFromRow = (raw: string): typeof PermissionMode.Type =>
 		() => DEFAULT_PERMISSION_MODE,
 	);
 
-const resumeStrategyFromRow = (raw: string): typeof ResumeStrategy.Type =>
-	Option.getOrElse(
-		Schema.decodeUnknownOption(ResumeStrategy)(raw),
-		() => "none" as const,
-	);
+const providerThreadFromParts = (input: {
+	readonly id: string;
+	readonly provider: string;
+	readonly nativeThreadId: string;
+	readonly nativeHeadId: string | null;
+	readonly status: string;
+	readonly firstTurnOrdinal: number | null;
+	readonly lastTurnOrdinal: number | null;
+	readonly createdAt: Date;
+	readonly updatedAt: Date;
+}): SessionProviderThread => {
+	const provider = input.provider as Session["providerId"];
+	return {
+		id: ProviderThreadId.make(input.id),
+		provider,
+		nativeThreadRef: {
+			provider,
+			nativeId: input.nativeThreadId,
+			strength: "strong",
+		},
+		nativeHeadRef:
+			input.nativeHeadId === null
+				? null
+				: { provider, nativeId: input.nativeHeadId, strength: "weak" },
+		status: input.status as SessionProviderThread["status"],
+		firstTurnOrdinal: input.firstTurnOrdinal,
+		lastTurnOrdinal: input.lastTurnOrdinal,
+		createdAt: input.createdAt,
+		updatedAt: input.updatedAt,
+	};
+};
 
-export const sessionFromRow = (row: SessionRow): Session =>
-	Session.make({
-		id: SessionId.make(row.id),
-		projectId: row.project_id as FolderId,
-		title: row.title,
-		titleProvenance: row.title_provenance ?? "manual",
-		providerId: row.provider_id as Session["providerId"],
-		model: row.model,
-		status: row.status as Session["status"],
-		archivedAt: row.archived_at === null ? null : new Date(row.archived_at),
-		cursor: row.cursor,
-		providerEventCursor: row.provider_event_cursor ?? null,
-		resumeStrategy: resumeStrategyFromRow(row.resume_strategy),
-		runtimeMode: runtimeModeFromRow(row.runtime_mode),
-		worktreeId:
-			row.worktree_id === null ? null : (row.worktree_id as WorktreeId),
-		chatId: row.chat_id as ChatId,
-		forkedFromSessionId:
-			row.forked_from_session_id === null
-				? null
-				: SessionId.make(row.forked_from_session_id),
-		forkedFromMessageId:
-			row.forked_from_message_id === null
-				? null
-				: MessageId.make(row.forked_from_message_id),
-		permissionMode: permissionModeFromRow(row.permission_mode),
-		toolSearch: row.tool_search === 1,
-		createdAt: new Date(row.created_at),
-		updatedAt: new Date(row.updated_at),
-	});
+export const providerThreadFromRecord = (
+	record: SessionProviderThreadRecord | null,
+): SessionProviderThread | null =>
+	record === null
+		? null
+		: providerThreadFromParts({
+				...record,
+				createdAt: new Date(record.createdAt),
+				updatedAt: new Date(record.updatedAt),
+			});
 
 export const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
 	Session.make({
 		id: SessionId.make(record.sessionId),
+		parentSessionId: record.parentSessionId
+			? SessionId.make(record.parentSessionId)
+			: null,
 		projectId: record.projectId as FolderId,
 		title: record.title,
 		titleProvenance: record.titleProvenance ?? "manual",
@@ -150,9 +137,7 @@ export const sessionFromRecord = (record: SqlSessionReadRecord): Session =>
 		model: record.model,
 		status: record.status,
 		archivedAt: record.archivedAt === null ? null : new Date(record.archivedAt),
-		cursor: record.cursor,
-		providerEventCursor: record.providerEventCursor,
-		resumeStrategy: resumeStrategyFromRow(record.resumeStrategy),
+		providerThread: providerThreadFromRecord(record.activeProviderThread),
 		runtimeMode: runtimeModeFromRow(record.runtimeMode),
 		worktreeId:
 			record.worktreeId === null ? null : (record.worktreeId as WorktreeId),
@@ -199,23 +184,11 @@ export const chatFromRow = (row: ChatRow): Chat =>
 		updatedAt: new Date(row.updated_at),
 	});
 
-const normalizeMessageContent = (content: MessageContent): MessageContent =>
-	content;
-
-export const messageFromRow = (row: MessageRow): Message =>
-	Message.make({
-		id: MessageId.make(row.id),
-		sessionId: SessionId.make(row.session_id),
-		role: row.role as MessageRole,
-		content: normalizeMessageContent(decodeMessageContent(row.content_json)),
-		createdAt: new Date(row.created_at),
-	});
-
 export const messageFromRecord = (record: MessageReadRecord): Message =>
 	Message.make({
 		id: MessageId.make(record.messageId),
 		sessionId: SessionId.make(record.sessionId),
 		role: record.role as MessageRole,
-		content: normalizeMessageContent(decodeMessageContent(record.contentJson)),
+		content: decodeMessageContent(record.contentJson),
 		createdAt: new Date(record.createdAt),
 	});

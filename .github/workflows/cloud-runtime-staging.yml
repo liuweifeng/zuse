@@ -238,7 +238,7 @@ jobs:
           name: ${{ needs.build.outputs.target }}-cloud-runtime-${{ github.sha }}
           path: dist-cloud
 
-      - name: Publish archive before stable manifest
+      - name: Publish immutable runtime before stable manifest
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -250,9 +250,24 @@ jobs:
               --title "${RELEASE_TARGET^} cloud runtime" \
               --notes "Signed immutable $RELEASE_TARGET runtime from $GITHUB_SHA."
           fi
-          gh release upload "$RELEASE_TAG" \
-            "dist-cloud/$ZUSE_RUNTIME_ASSET_NAME" \
-            --clobber
+          publish_immutable() {
+            local asset="$1" asset_name existing_assets verification_dir
+            asset_name="$(basename "$asset")"
+            existing_assets="$(gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name')"
+            if grep -Fxq "$asset_name" <<< "$existing_assets"; then
+              verification_dir="$(mktemp -d)"
+              gh release download "$RELEASE_TAG" --pattern "$asset_name" --dir "$verification_dir"
+              if ! cmp -s "$asset" "$verification_dir/$asset_name"; then
+                echo "Refusing to replace immutable runtime asset: $asset_name" >&2
+                return 1
+              fi
+            else
+              gh release upload "$RELEASE_TAG" "$asset"
+            fi
+          }
+          publish_immutable "dist-cloud/$ZUSE_RUNTIME_ASSET_NAME"
+          cp dist-cloud/stable-manifest.json "dist-cloud/manifest-$GITHUB_SHA.json"
+          publish_immutable "dist-cloud/manifest-$GITHUB_SHA.json"
           gh release upload "$RELEASE_TAG" \
             "dist-cloud/stable-manifest.json" \
             "dist-cloud/zuse-snapshot-installer.tar.gz" \

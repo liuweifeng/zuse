@@ -1,4 +1,8 @@
 import { spawn } from "node:child_process";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
 
 export type PiFrame = Record<string, unknown>;
 export const piObject = (value: unknown): PiFrame =>
@@ -22,7 +26,6 @@ export class PiRpcClient {
 			timer: ReturnType<typeof setTimeout> | undefined;
 		}
 	>();
-	#exited: Promise<void>;
 	constructor(
 		binary: string,
 		args: string[],
@@ -37,9 +40,8 @@ export class PiRpcClient {
 			detached: process.platform !== "win32",
 			stdio: ["pipe", "pipe", "pipe"],
 		});
-		this.#exited = new Promise((resolve) =>
-			this.child.once("close", () => resolve()),
-		);
+
+		watchProviderProcess(this.child);
 		const fail = (error: Error) => {
 			if (this.#closed) return;
 			this.#closed = true;
@@ -114,13 +116,13 @@ export class PiRpcClient {
 							"Pi emitted malformed RPC output. Check the CLI version and extensions.",
 						),
 					);
-					this.#kill("SIGTERM");
+					void stopProviderProcess(this.child, { processGroup: true });
 					return;
 				}
 			}
 			if (this.#buffer.length > 32 * 1024 * 1024) {
 				fail(new Error("Pi RPC frame exceeded 32 MiB."));
-				this.#kill("SIGTERM");
+				void stopProviderProcess(this.child, { processGroup: true });
 			}
 		});
 	}
@@ -158,17 +160,10 @@ export class PiRpcClient {
 			}
 		});
 	}
-	#kill(signal: NodeJS.Signals): void {
-		try {
-			if (process.platform !== "win32" && this.child.pid)
-				process.kill(-this.child.pid, signal);
-			else this.child.kill(signal);
-		} catch {
-			/* The process may already have exited. */
-		}
-	}
+
 	async close(): Promise<void> {
-		if (this.#closing) return this.#exited;
+		if (this.#closing)
+			return stopProviderProcess(this.child, { processGroup: true });
 		this.#closing = true;
 		for (const pending of this.#pending.values()) {
 			clearTimeout(pending.timer);
@@ -177,9 +172,6 @@ export class PiRpcClient {
 		this.#pending.clear();
 		this.#closed = true;
 		this.child.stdin.end();
-		this.#kill("SIGTERM");
-		const timer = setTimeout(() => this.#kill("SIGKILL"), 1500);
-		await this.#exited;
-		clearTimeout(timer);
+		await stopProviderProcess(this.child, { processGroup: true });
 	}
 }

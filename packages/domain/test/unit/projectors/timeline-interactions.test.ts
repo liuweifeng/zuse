@@ -1,4 +1,4 @@
-import { Message, MessageId, SessionId } from "@zuse/contracts";
+import { AgentItemId, Message, MessageId, SessionId } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 import { timelineEventFromDomain } from "../../../src/projectors/timeline-projection.ts";
 import {
@@ -149,6 +149,20 @@ describe("durable session interactions", () => {
 			}),
 		]);
 
+		const expired = applyTimelineEvent(
+			requested,
+			timelineEventFromDomain(sessionId, {
+				_tag: "PermissionExpired",
+				requestId: request.id,
+				expiredAt: requestedAt + 1,
+			}),
+		);
+		expect(expired.interactions).toEqual([
+			expect.objectContaining({
+				_tag: "Permission",
+				request: expect.objectContaining({ recoveryState: "expired" }),
+			}),
+		]);
 		const resolvedEvent = timelineEventFromDomain(sessionId, {
 			_tag: "PermissionResolved",
 			requestId: request.id,
@@ -160,4 +174,40 @@ describe("durable session interactions", () => {
 
 		expect(resolved.interactions).toEqual([]);
 	});
+});
+
+it("retains expiry through duplicate messages and dismisses without an answer", () => {
+	const itemId = AgentItemId.make("expired-question");
+	const event = {
+		_tag: "MessagePersisted" as const,
+		message: Message.make({
+			id: MessageId.make("expired-message"),
+			sessionId,
+			role: "assistant",
+			content: {
+				_tag: "user_question",
+				itemId,
+				questions: [{ question: "Continue?", options: ["Yes"] }],
+			},
+			createdAt: new Date(1),
+		}),
+	};
+	const requested = applyTimelineEvent(emptyTimelineProjection(), event);
+	const expired = applyTimelineEvent(requested, {
+		_tag: "QuestionExpired",
+		itemId,
+	});
+	expect(expired.interactions).toEqual([
+		expect.objectContaining({ id: itemId, recoveryState: "expired" }),
+	]);
+	expect(applyTimelineEvent(expired, event).interactions).toEqual(
+		expired.interactions,
+	);
+	const dismissed = applyTimelineEvent(expired, {
+		_tag: "QuestionResolved",
+		itemId,
+		resolution: "cancelled",
+	});
+	expect(dismissed.interactions).toEqual([]);
+	expect(applyTimelineEvent(dismissed, event).interactions).toEqual([]);
 });

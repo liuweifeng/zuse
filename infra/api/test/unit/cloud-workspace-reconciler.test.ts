@@ -1,4 +1,18 @@
-import { CLOUD_COMMAND_PROTOCOL_VERSION } from "@zuse/contracts";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+	CLOUD_COMMAND_PROTOCOL_VERSION,
+	WIRE_PROTOCOL_VERSION,
+} from "@zuse/contracts";
 import {
 	SandboxProviderError,
 	SandboxProviders,
@@ -15,6 +29,7 @@ import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
 	cloudWorkspaceHasRetainedRuntimeData,
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
+	PROJECT_IMAGE_BUILD_SCRIPT,
 	RUNTIME_CONNECTION_TIMEOUT_MS,
 	reconcileCloudBuild,
 	reconcileCloudResourceBatch,
@@ -951,7 +966,7 @@ describe("cloud workspace reconciler", () => {
 					expect.objectContaining({
 						env: expect.objectContaining({
 							ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.test/manifest.json",
-							ZUSE_RUNTIME_WIRE_PROTOCOL: "6",
+							ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
 							ZUSE_RUNTIME_PUBLIC_KEY_FILE:
 								"/home/zuse/.zuse-runtime-signing-public.jwk",
 						}),
@@ -2720,4 +2735,213 @@ test("honors an explicit resume after an old session became idle", async () => {
 		state: "resuming",
 		desiredState: "ready",
 	});
+});
+
+test.each([
+	null,
+	"23",
+])("a cloned image's stale ready marker cannot complete a new build (receipt %s)", async (completion) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "stale-image-ready",
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...build,
+				state: "building",
+				snapshotId: undefined,
+				providerSandboxId: workspace.providerSandboxId,
+				createdAtMs: Date.now(),
+				nextActionAtMs: 0,
+			});
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(build.provider);
+			let snapshots = 0;
+			yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...provider,
+							pathExists: () => Effect.succeed(true),
+							readTextFile: (_id, path) =>
+								path.includes("/completed-")
+									? completion === null
+										? Effect.fail(
+												new SandboxProviderError({ code: "not-found" }),
+											)
+										: Effect.succeed(completion)
+									: Effect.succeed(
+											path.endsWith("failure-phase")
+												? "updating-runtime"
+												: "old build output",
+										),
+							snapshot: () =>
+								Effect.sync(() => {
+									snapshots += 1;
+									return "must-not-publish";
+								}),
+						}),
+				}),
+			);
+			const result = yield* store.getBuild(build.buildId);
+			expect(result?.state).toBe(completion === null ? "building" : "failed");
+			if (completion !== null)
+				expect(result?.lastErrorCode).toBe("project-updating-runtime-failed");
+			expect(snapshots).toBe(0);
+		}).pipe(Effect.provide(testLayer)),
+	);
+});
+
+test.each([
+	false,
+	true,
+])("image build receipts follow the current installer result (failure %s)", (fails) => {
+	const root = mkdtempSync(join(tmpdir(), "zuse-image-receipt-"));
+	try {
+		const status = join(root, "var/lib/zuse/project-build");
+		mkdirSync(status, { recursive: true });
+		mkdirSync(join(root, "tmp"));
+		mkdirSync(join(root, "opt/zuse/current"), { recursive: true });
+		writeFileSync(join(status, "ready"), "inherited");
+		writeFileSync(join(status, "completed-old-build"), "0\n");
+		writeFileSync(join(root, "tmp/zuse-project-builder-exited"), "inherited");
+		writeFileSync(
+			join(status, "runtime-updater.mjs"),
+			`import fs from 'node:fs';
+if (fs.existsSync(${JSON.stringify(join(status, "ready"))})) throw new Error('Stale readiness was not cleared');
+if (fs.existsSync(${JSON.stringify(join(status, "completed-new-build"))})) throw new Error('Completion written before install');
+if (process.env.ZUSE_RUNTIME_WIRE_PROTOCOL !== '7') throw new Error('Wrong requested protocol');
+if (${fails}) process.exit(23);
+fs.writeFileSync(${JSON.stringify(join(root, "opt/zuse/current/runtime-metadata.json"))}, JSON.stringify({wireProtocolVersion:7}));`,
+		);
+		writeFileSync(
+			join(status, "builder.sh"),
+			`#!/bin/sh
+touch '${join(status, "ready")}'
+`,
+			{ mode: 0o700 },
+		);
+		const script = PROJECT_IMAGE_BUILD_SCRIPT.replaceAll(
+			"/tmp/zuse-",
+			join(root, "tmp/zuse-"),
+		)
+			.replaceAll("/var/lib/zuse", join(root, "var/lib/zuse"))
+			.replaceAll("/opt/zuse", join(root, "opt/zuse"));
+		const result = spawnSync(
+			"bash",
+			[
+				"-c",
+				`sleep() { :; }
+${script}`,
+			],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					ZUSE_PROJECT_BUILD_ID: "new-build",
+					ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.invalid/pinned.json",
+					ZUSE_RUNTIME_WIRE_PROTOCOL: "7",
+				},
+			},
+		);
+		expect(result.status, result.stderr).toBe(fails ? 23 : 0);
+		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
+			fails ? "23\n" : "0\n",
+		);
+		expect(existsSync(join(status, "ready"))).toBe(!fails);
+	} finally {
+		rmSync(root, { recursive: true, force: true });
+	}
+});
+
+test("a configured runtime channel without its installer fails before allocating an image build", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "missing-image-installer",
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const original = yield* store.getBuild(workspace.buildId);
+			if (original === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...original,
+				state: "queued",
+				snapshotId: undefined,
+				providerSandboxId: undefined,
+				nextActionAtMs: 0,
+			});
+			const control = yield* FakeSandboxProviderControlService;
+			const before = yield* Ref.get(control.createCalls);
+			yield* reconcileCloudBuild(original.buildId).pipe(
+				Effect.provideService(SandboxOfferConfiguration, {
+					port: 47837,
+					createTimeoutSeconds: 3600,
+					keepAliveTimeoutSeconds: 600,
+					runtimeManifestUrl: "https://runtime.invalid/pinned.json",
+				}),
+			);
+			expect((yield* store.getBuild(original.buildId))?.lastErrorCode).toBe(
+				"runtime-installer-unavailable",
+			);
+			expect(yield* Ref.get(control.createCalls)).toBe(before);
+		}).pipe(Effect.provide(testLayer)),
+	);
+});
+
+test("image runtime installation owns a transaction per build", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: "image-transaction",
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const original = yield* store.getBuild(workspace.buildId);
+			if (original === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...original,
+				state: "queued",
+				snapshotId: undefined,
+				providerSandboxId: undefined,
+				nextActionAtMs: 0,
+			});
+			const provider = yield* (yield* SandboxProviders).get(original.provider);
+			const start = vi.spyOn(provider, "startProcess");
+			yield* reconcileCloudBuild(original.buildId).pipe(
+				Effect.provideService(SandboxOfferConfiguration, {
+					port: 47837,
+					createTimeoutSeconds: 3600,
+					keepAliveTimeoutSeconds: 600,
+					runtimeManifestUrl: "https://runtime.invalid/pinned.json",
+					runtimeInstallerSource: "// signed updater",
+					runtimeSigningPublicJwk: "public-key",
+				}),
+			);
+			expect(start).toHaveBeenCalledWith(
+				expect.any(String),
+				expect.objectContaining({
+					env: expect.objectContaining({
+						ZUSE_PROJECT_BUILD_ID: original.buildId,
+						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: original.buildId,
+						ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
+					}),
+				}),
+			);
+		}).pipe(Effect.provide(testLayer)),
+	);
 });

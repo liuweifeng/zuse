@@ -848,7 +848,11 @@ export const startupPhase = (workspace: CloudWorkspaceRecord) => {
 	// Warm resumes can reuse an already-acknowledged launch intent. In that case
 	// the runtime reports repository-ready, so there is no new agent-started
 	// timestamp even though the durable status is already authoritative.
-	if (workspace.statusCode === "agent-running") return "running" as const;
+	if (
+		workspace.statusCode === "agent-running" ||
+		(workspace.statusCode === "ready" && workspace.runtimeState === "online")
+	)
+		return "running" as const;
 	if (startupTimings(workspace).agentStartedAt !== undefined)
 		return "running" as const;
 	if (startupTimings(workspace).repositoryReadyAt !== undefined)

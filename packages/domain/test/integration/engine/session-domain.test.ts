@@ -8,11 +8,14 @@ import {
 	Fiber,
 	Layer,
 	ManagedRuntime,
+	PubSub,
 	type Scope,
 	Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, test } from "vitest";
+import type { SessionCommand } from "../../../src/core/commands.js";
+import { attemptIdFor } from "../../../src/core/state.js";
 import {
 	makeSessionDomain,
 	SessionDomain,
@@ -45,6 +48,598 @@ const makeDomainRuntime = (filename: string, eventPrefix: string) => {
 };
 
 describe("SessionDomain", () => {
+	test("projects reservation ownership through replacement, configuration changes and deletion", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`projection-${++sequence}`),
+				);
+				const reserve = (id: string): SessionCommand => ({
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: id,
+					reservedAt: 2,
+				});
+				const transitions: ReadonlyArray<
+					readonly [SessionCommand, string | null]
+				> = [
+					[createSessionCommand, null],
+					[reserve("first"), "first"],
+					[
+						{
+							_tag: "AttachProvider",
+							providerId: "provider-1",
+							providerSessionId: "first",
+							attachedAt: 3,
+						},
+						"first",
+					],
+					[reserve("second"), "second"],
+					[
+						{
+							_tag: "DetachProvider",
+							expectedProviderSessionId: "first",
+							detachedAt: 4,
+						},
+						"second",
+					],
+					[{ _tag: "SetWorktree", worktreeId: null, updatedAt: 5 }, "second"],
+					[{ _tag: "SetWorktree", worktreeId: "worktree", updatedAt: 6 }, null],
+					[reserve("worktree"), "worktree"],
+					[{ _tag: "SetModel", model: "model-2", updatedAt: 7 }, null],
+					[reserve("model"), "model"],
+					[{ _tag: "ArchiveSession", archivedAt: 8 }, null],
+					[{ _tag: "UnarchiveSession", unarchivedAt: 9 }, null],
+					[reserve("stopping"), "stopping"],
+					[{ _tag: "RequestProviderStop", requestedAt: 10 }, null],
+					[reserve("deleting"), "deleting"],
+					[{ _tag: "DeleteSession", deletedAt: 11 }, null],
+				];
+				for (const [index, [command, expected]] of transitions.entries()) {
+					yield* domain.dispatch({
+						commandId: `command-${index}`,
+						streamId: "session-1",
+						command,
+					});
+					expect(
+						yield* domain.providerReservation("session-1"),
+						command._tag,
+					).toBe(expected);
+				}
+				const restarted = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`reloaded-${++sequence}`),
+				);
+				expect(yield* restarted.providerReservation("session-1")).toBeNull();
+			}),
+		);
+	});
+
+	test("a durable stop revokes unpublished startup and guarded receipt replay", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const make = () =>
+					makeSessionDomain(sql, () =>
+						Effect.succeed(`reservation-${++sequence}`),
+					);
+				const domain = yield* make();
+				yield* domain.dispatch({
+					commandId: "create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					commandId: "reserve",
+					streamId: "session-1",
+					command: {
+						_tag: "ReserveProviderSession",
+						providerId: "provider-1",
+						providerSessionId: "starting",
+						reservedAt: 2,
+					},
+				});
+				const publication = {
+					commandId: "publish-status",
+					streamId: "session-1",
+					expectedProviderSessionId: "starting",
+					command: {
+						_tag: "SetStatus" as const,
+						status: "booting" as const,
+						updatedAt: 3,
+					},
+				};
+				yield* domain.dispatch(publication);
+				yield* domain.dispatch({
+					commandId: "stop",
+					streamId: "session-1",
+					command: { _tag: "RequestProviderStop", requestedAt: 4 },
+				});
+				expect(
+					(yield* domain.jobs.listBySession("session-1")).map(
+						(job) => job.request,
+					),
+				).toEqual([
+					{
+						_tag: "provider.stop",
+						providerSessionId: "starting",
+						requestedAt: 4,
+					},
+				]);
+				const restarted = yield* make();
+				expect(yield* restarted.providerReservation("session-1")).toBeNull();
+				for (const input of [
+					publication,
+					{
+						commandId: "late-attach",
+						streamId: "session-1",
+						expectedProviderSessionId: "starting",
+						command: {
+							_tag: "AttachProvider" as const,
+							providerId: "provider-1",
+							providerSessionId: "starting",
+							attachedAt: 5,
+						},
+					},
+				]) {
+					let callback = false;
+					const result = yield* restarted
+						.dispatchTransactionally(input, () =>
+							Effect.sync(() => {
+								callback = true;
+							}),
+						)
+						.pipe(Effect.result);
+					expect(result._tag).toBe("Failure");
+					if (result._tag === "Failure")
+						expect(result.failure._tag).toBe(
+							"ProviderSessionOwnershipConflict",
+						);
+					expect(callback).toBe(false);
+				}
+			}),
+		);
+	});
+
+	test("retiring the old attachment preserves a replacement startup reservation", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`replacement-${++sequence}`),
+				);
+				const dispatch = (commandId: string, command: SessionCommand) =>
+					domain.dispatch({ commandId, streamId: "session-1", command });
+				yield* dispatch("create", createSessionCommand);
+				yield* dispatch("old-attach", {
+					_tag: "AttachProvider",
+					providerId: "provider-1",
+					providerSessionId: "old",
+					attachedAt: 2,
+				});
+				yield* dispatch("reserve", {
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: "replacement",
+					reservedAt: 3,
+				});
+				yield* dispatch("old-detach", {
+					_tag: "DetachProvider",
+					expectedProviderSessionId: "old",
+					detachedAt: 4,
+				});
+				yield* domain.dispatch({
+					commandId: "new-attach",
+					streamId: "session-1",
+					expectedProviderSessionId: "replacement",
+					command: {
+						_tag: "AttachProvider",
+						providerId: "provider-1",
+						providerSessionId: "replacement",
+						attachedAt: 5,
+					},
+				});
+				yield* dispatch("stop-new", {
+					_tag: "RequestProviderStop",
+					requestedAt: 6,
+				});
+				expect(
+					(yield* domain.jobs.listBySession("session-1")).map(
+						(job) => job.request,
+					),
+				).toEqual([
+					{ _tag: "provider.stop", providerSessionId: "old", requestedAt: 3 },
+					{
+						_tag: "provider.stop",
+						providerSessionId: "replacement",
+						requestedAt: 6,
+					},
+				]);
+			}),
+		);
+	});
+
+	test("replays stop residency and fences detachment after provider replacement", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const make = () =>
+					makeSessionDomain(sql, () =>
+						Effect.succeed(`residency-${++sequence}`),
+					);
+				const domain = yield* make();
+				const dispatch = (commandId: string, command: SessionCommand) =>
+					domain.dispatch({ commandId, streamId: "session-1", command });
+				yield* dispatch("create", createSessionCommand);
+				yield* dispatch("attach-first", {
+					_tag: "AttachProvider",
+					providerId: "claude",
+					providerSessionId: "first",
+					attachedAt: 1,
+				});
+				yield* dispatch("stop-first", {
+					_tag: "RequestProviderStop",
+					requestedAt: 2,
+				});
+				yield* dispatch("attach-second", {
+					_tag: "AttachProvider",
+					providerId: "claude",
+					providerSessionId: "second",
+					attachedAt: 3,
+				});
+				const restarted = yield* make();
+				const jobs = yield* restarted.jobs.listBySession("session-1");
+				expect(jobs.map((job) => job.request)).toEqual([
+					{ _tag: "provider.stop", providerSessionId: "first", requestedAt: 2 },
+				]);
+				const version = yield* restarted.currentStreamVersion("session-1");
+				for (const target of ["first", null]) {
+					const receipt = yield* restarted.dispatch({
+						commandId: `late-${target}`,
+						streamId: "session-1",
+						command: {
+							_tag: "DetachProvider",
+							expectedProviderSessionId: target,
+							detachedAt: 4,
+						},
+					});
+					expect(receipt.eventIds).toEqual([]);
+					expect(yield* restarted.currentStreamVersion("session-1")).toBe(
+						version,
+					);
+				}
+				const receipt = yield* restarted.dispatch({
+					commandId: "detach-second",
+					streamId: "session-1",
+					command: {
+						_tag: "DetachProvider",
+						expectedProviderSessionId: "second",
+						detachedAt: 5,
+					},
+				});
+				expect(receipt.eventIds).toHaveLength(1);
+			}),
+		);
+	});
+
+	test("fences late attempt writes and transactional callbacks after retry and restart", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const make = () =>
+					makeSessionDomain(sql, () => Effect.succeed(`fenced-${++sequence}`));
+				const domain = yield* make();
+				yield* domain.dispatch({
+					commandId: "create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					commandId: "start",
+					streamId: "session-1",
+					command: { _tag: "StartTurn", turnId: "turn-1", startedAt: 2 },
+				});
+				const first = {
+					turnId: "turn-1",
+					attemptId: attemptIdFor("turn-1", 1),
+				};
+				const status = {
+					commandId: "status-before-retry",
+					streamId: "session-1",
+					expectedAttempt: first,
+					command: {
+						_tag: "SetStatus" as const,
+						status: "running" as const,
+						updatedAt: 3,
+					},
+				};
+				yield* domain.dispatch(status);
+				yield* domain.dispatch({
+					commandId: "interrupt",
+					streamId: "session-1",
+					command: { _tag: "RequestTurnInterrupt", requestedAt: 4 },
+				});
+				yield* domain.dispatch({
+					commandId: "retry",
+					streamId: "session-1",
+					command: {
+						_tag: "RetryTurn",
+						turnId: "turn-1",
+						reason: "retry",
+						requestedAt: 5,
+						providerInputJson: "{}",
+					},
+				});
+				const jobs = yield* domain.jobs.listBySession("session-1");
+				expect(
+					jobs.map((job) => [
+						job.request._tag,
+						job.status,
+						"attemptId" in job.request ? job.request.attemptId : null,
+					]),
+				).toEqual([
+					["provider.turn.interrupt", "cancelled", first.attemptId],
+					["provider.turn.send", "pending", attemptIdFor("turn-1", 2)],
+				]);
+				const restarted = yield* make();
+				const version = yield* restarted.currentStreamVersion("session-1");
+				const lateCommands: SessionCommand[] = [
+					{
+						_tag: "SettleTurn",
+						turnId: "turn-1",
+						outcome: "completed",
+						settledAt: 6,
+					},
+					{ _tag: "BindProviderThread", nativeThreadId: "stale", updatedAt: 6 },
+					{ _tag: "SetStatus", status: "error", updatedAt: 6 },
+					{
+						_tag: "PersistMessage",
+						messageId: "stale-message",
+						turnId: "turn-1",
+						role: "assistant",
+						kind: "text",
+						contentJson: "{}",
+						parentItemId: null,
+						createdAt: 6,
+					},
+				];
+				let callbacks = 0;
+				for (const [index, command] of lateCommands.entries()) {
+					const result = yield* restarted
+						.dispatchTransactionally(
+							{
+								commandId: `late-${index}`,
+								streamId: "session-1",
+								expectedAttempt: first,
+								command,
+							},
+							() =>
+								Effect.sync(() => {
+									callbacks++;
+								}),
+						)
+						.pipe(Effect.result);
+					expect(result).toMatchObject({
+						_tag: "Failure",
+						failure: {
+							_tag: "AttemptOwnershipConflict",
+							expectedAttemptId: first.attemptId,
+							actualAttemptId: attemptIdFor("turn-1", 2),
+						},
+					});
+				}
+				const replay = yield* restarted
+					.dispatchTransactionally(status, () =>
+						Effect.sync(() => {
+							callbacks++;
+						}),
+					)
+					.pipe(Effect.result);
+				expect(replay).toMatchObject({
+					_tag: "Failure",
+					failure: { _tag: "AttemptOwnershipConflict" },
+				});
+				expect(callbacks).toBe(0);
+				expect(yield* restarted.currentStreamVersion("session-1")).toBe(
+					version,
+				);
+				yield* restarted.dispatch({
+					commandId: "settle-current",
+					streamId: "session-1",
+					expectedAttempt: {
+						turnId: "turn-1",
+						attemptId: attemptIdFor("turn-1", 2),
+					},
+					command: {
+						_tag: "SettleTurn",
+						turnId: "turn-1",
+						outcome: "completed",
+						settledAt: 7,
+					},
+				});
+				const turns =
+					yield* sql`SELECT status, active_attempt_id FROM session_turns WHERE session_id = 'session-1'`;
+				expect(turns).toEqual([
+					{ status: "completed", active_attempt_id: attemptIdFor("turn-1", 2) },
+				]);
+				const tail = {
+					commandId: "final-cursor",
+					streamId: "session-1",
+					expectedAttempt: {
+						turnId: "turn-1",
+						attemptId: attemptIdFor("turn-1", 2),
+					},
+					command: {
+						_tag: "BindProviderThread" as const,
+						nativeThreadId: "thread-final",
+						nativeHeadId: "head-final",
+						updatedAt: 8,
+					},
+				};
+				yield* restarted.dispatch(tail);
+				yield* restarted.dispatch({
+					commandId: "next-turn",
+					streamId: "session-1",
+					command: { _tag: "StartTurn", turnId: "turn-2", startedAt: 9 },
+				});
+				const obsoleteTail = yield* restarted
+					.dispatch({ ...tail, commandId: "late-cursor" })
+					.pipe(Effect.result);
+				expect(obsoleteTail).toMatchObject({
+					_tag: "Failure",
+					failure: { _tag: "AttemptOwnershipConflict" },
+				});
+			}),
+		);
+	});
+
+	test("forks sharing a native thread keep independent heads and survive sibling deletion", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let event = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`ownership-${++event}`),
+				);
+				for (const sessionId of ["parent", "fork"]) {
+					yield* domain.dispatch({
+						commandId: `create-${sessionId}`,
+						streamId: sessionId,
+						command: {
+							...createSessionCommand,
+							sessionId,
+							providerId: "codex",
+							providerThread: {
+								provider: "codex",
+								nativeThreadId: "shared-native",
+								nativeHeadId: `${sessionId}-head`,
+							},
+						},
+					});
+				}
+				const before = yield* sql<{
+					id: string;
+					session_id: string;
+					native_head_id: string;
+				}>`SELECT id, session_id, native_head_id FROM session_provider_threads ORDER BY session_id`;
+				expect(new Set(before.map((row) => row.id)).size).toBe(2);
+				expect(
+					before.map((row) => [row.session_id, row.native_head_id]),
+				).toEqual([
+					["fork", "fork-head"],
+					["parent", "parent-head"],
+				]);
+				yield* domain.dispatch({
+					commandId: "advance-fork",
+					streamId: "fork",
+					command: {
+						_tag: "BindProviderThread",
+						nativeThreadId: "shared-native",
+						nativeHeadId: "fork-new",
+						updatedAt: 2,
+					},
+				});
+				yield* domain.dispatch({
+					commandId: "delete-fork",
+					streamId: "fork",
+					command: { _tag: "DeleteSession", deletedAt: 3 },
+				});
+				const remaining = yield* sql<{
+					session_id: string;
+					native_head_id: string;
+				}>`SELECT session_id, native_head_id FROM session_provider_threads`;
+				expect(remaining).toEqual([
+					{ session_id: "parent", native_head_id: "parent-head" },
+				]);
+				const replayed = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`replayed-${++event}`),
+				);
+				yield* replayed.dispatch({
+					commandId: "advance-parent",
+					streamId: "parent",
+					command: {
+						_tag: "BindProviderThread",
+						nativeThreadId: "shared-native",
+						nativeHeadId: "parent-new",
+						updatedAt: 4,
+					},
+				});
+				expect(
+					yield* sql`SELECT native_head_id FROM session_provider_threads WHERE session_id = 'parent'`,
+				).toEqual([{ native_head_id: "parent-new" }]);
+			}),
+		);
+	});
+
+	test("publishes retry cancellation only after the replacement attempt commits", async () => {
+		await run(
+			Effect.gen(function* () {
+				yield* createDomainTestSchema();
+				const sql = yield* SqlClient.SqlClient;
+				let sequence = 0;
+				const domain = yield* makeSessionDomain(sql, () =>
+					Effect.succeed(`retry-event-${++sequence}`),
+				);
+				yield* domain.dispatch({
+					commandId: "create",
+					streamId: "session-1",
+					command: createSessionCommand,
+				});
+				yield* domain.dispatch({
+					commandId: "start",
+					streamId: "session-1",
+					command: { _tag: "StartTurn", turnId: "turn-1", startedAt: 2 },
+				});
+				const retry = {
+					streamId: "session-1",
+					command: {
+						_tag: "RetryTurn" as const,
+						turnId: "turn-1",
+						reason: "retry" as const,
+						providerInputJson: "{}",
+						requestedAt: 3,
+					},
+				};
+				yield* domain.dispatch({ ...retry, commandId: "first-send" });
+				const claimed = yield* domain.jobs.claimNext({
+					workerId: "old",
+					leaseMs: 30000,
+				});
+				expect(claimed).not.toBeNull();
+				if (claimed === null) return;
+				const notifications = yield* PubSub.subscribe(domain.jobCancellations);
+				const aborted = yield* domain
+					.dispatchTransactionally(
+						{ ...retry, commandId: "aborted-retry" },
+						() => Effect.die("rollback retry"),
+					)
+					.pipe(Effect.exit);
+				expect(aborted._tag).toBe("Failure");
+				expect((yield* domain.jobs.get(claimed.id))?.status).toBe("running");
+				yield* domain.dispatch({ ...retry, commandId: "committed-retry" });
+				const cancelled = yield* PubSub.take(notifications);
+				expect(cancelled).toEqual([claimed.id]);
+				expect((yield* domain.jobs.get(claimed.id))?.status).toBe("cancelled");
+				expect(
+					(yield* domain.jobs.listBySession("session-1")).map(
+						(job) => job.status,
+					),
+				).toEqual(["cancelled", "pending"]);
+			}),
+		);
+	});
+
 	test("rolls back events and receipts when projection fails", async () => {
 		const result = await run(
 			Effect.gen(function* () {
@@ -171,7 +766,7 @@ describe("SessionDomain", () => {
 		expect(result.cursor).toEqual([{ last_sequence: 1 }]);
 	});
 
-	test("projects provider replay cursors transactionally with resume state", async () => {
+	test("projects the bound provider thread transactionally with the session", async () => {
 		const result = await run(
 			Effect.gen(function* () {
 				yield* createDomainTestSchema();
@@ -190,32 +785,45 @@ describe("SessionDomain", () => {
 					command: createSessionCommand,
 				});
 				yield* domain.dispatch({
-					commandId: "resume-with-provider-event",
+					commandId: "bind-provider-thread",
 					streamId: "session-1",
 					command: {
-						_tag: "SetResume",
-						cursor: "provider-session",
-						resumeStrategy: "grok-session-id",
-						providerEventCursor: "provider-event-7",
+						_tag: "BindProviderThread",
+						nativeThreadId: "provider-session",
+						nativeHeadId: "provider-event-7",
 						updatedAt: 2,
 					},
 				});
-				return yield* sql<{
-					readonly cursor: string | null;
-					readonly resume_strategy: string;
-					readonly provider_event_cursor: string | null;
+				const threads = yield* sql<{
+					readonly id: string;
+					readonly native_thread_id: string;
+					readonly native_head_id: string | null;
+					readonly status: string;
 				}>`
-					SELECT cursor, resume_strategy, provider_event_cursor
-					FROM sessions WHERE id = 'session-1'
+					SELECT id, native_thread_id, native_head_id, status
+					FROM session_provider_threads WHERE session_id = 'session-1'
 				`;
+				const active = yield* sql<{
+					readonly active_provider_thread_id: string | null;
+				}>`
+					SELECT active_provider_thread_id FROM sessions WHERE id = 'session-1'
+				`;
+				return { threads, active };
 			}),
 		);
 
-		expect(result).toEqual([
+		expect(result.threads).toEqual([
 			{
-				cursor: "provider-session",
-				resume_strategy: "grok-session-id",
-				provider_event_cursor: "provider-event-7",
+				id: "provider-thread:session:session-1:provider-thread%3Aprovider%3Aprovider-1%3Anative-thread%3Aprovider-session",
+				native_thread_id: "provider-session",
+				native_head_id: "provider-event-7",
+				status: "idle",
+			},
+		]);
+		expect(result.active).toEqual([
+			{
+				active_provider_thread_id:
+					"provider-thread:session:session-1:provider-thread%3Aprovider%3Aprovider-1%3Anative-thread%3Aprovider-session",
 			},
 		]);
 	});
@@ -901,10 +1509,13 @@ describe("SessionDomain", () => {
 						`;
 						const session = yield* sql<{
 							readonly status: string;
-							readonly current_turn_id: string | null;
+							readonly active_turn_id: string | null;
 						}>`
-							SELECT status, current_turn_id FROM sessions
-							WHERE id = 'session-1'
+							SELECT s.status,
+								(SELECT t.id FROM session_turns t
+									WHERE t.session_id = s.id AND t.status IN ('starting', 'running')
+									LIMIT 1) AS active_turn_id
+							FROM sessions s WHERE s.id = 'session-1'
 						`;
 						return { frames: [...frames], messages, session };
 					}),
@@ -942,7 +1553,7 @@ describe("SessionDomain", () => {
 				},
 			]);
 			expect(result.session).toEqual([
-				{ status: "idle", current_turn_id: null },
+				{ status: "idle", active_turn_id: null },
 			]);
 		} finally {
 			await reconnectRuntime.dispose();
@@ -1031,4 +1642,117 @@ describe("SessionDomain", () => {
 		});
 		expect(result.interruptRows).toEqual([{ turn_id: "turn-2" }]);
 	});
+});
+
+test.each([
+	"current",
+	"unrelated",
+	"replaced-residency",
+	"wrong-attempt",
+	"newer-turn",
+	"no-residency",
+	"old-anchor",
+	"terminal",
+] as const)("fences late completed tool output (%s)", async (mode) => {
+	await run(
+		Effect.gen(function* () {
+			yield* createDomainTestSchema();
+			const sql = yield* SqlClient.SqlClient;
+			let sequence = 0;
+			const domain = yield* makeSessionDomain(sql, () =>
+				Effect.succeed(`tail-${++sequence}`),
+			);
+			const dispatch = (command: SessionCommand) =>
+				domain.dispatch({
+					commandId: `command-${++sequence}`,
+					streamId: "session-1",
+					command,
+				});
+			yield* dispatch(createSessionCommand);
+			yield* dispatch({
+				_tag: "ReserveProviderSession",
+				providerId: "provider-1",
+				providerSessionId: "resident",
+				reservedAt: 1,
+			});
+			yield* dispatch({ _tag: "StartTurn", turnId: "turn-1", startedAt: 2 });
+			yield* dispatch({
+				_tag: "PersistMessage",
+				turnId: "turn-1",
+				messageId: "tool",
+				role: "assistant",
+				kind: "tool_use",
+				contentJson: JSON.stringify({
+					_tag: "tool_use",
+					itemId: "tool-1",
+					tool: "Bash",
+					input: {},
+				}),
+				parentItemId: null,
+				createdAt: 3,
+			});
+			if (mode === "old-anchor")
+				yield* dispatch({
+					_tag: "RetryTurn",
+					turnId: "turn-1",
+					reason: "retry",
+					providerInputJson: "{}",
+					requestedAt: 3,
+				});
+			yield* dispatch({
+				_tag: "SettleTurn",
+				turnId: "turn-1",
+				outcome: "completed",
+				settledAt: 4,
+			});
+			if (mode === "replaced-residency")
+				yield* dispatch({
+					_tag: "ReserveProviderSession",
+					providerId: "provider-1",
+					providerSessionId: "replacement",
+					reservedAt: 5,
+				});
+			if (mode === "newer-turn")
+				yield* dispatch({ _tag: "StartTurn", turnId: "turn-2", startedAt: 5 });
+			const result = yield* domain
+				.dispatch({
+					commandId: "late",
+					streamId: "session-1",
+					expectedProviderSessionId:
+						mode === "no-residency" ? undefined : "resident",
+					expectedAttempt: {
+						turnId: "turn-1",
+						attemptId: attemptIdFor(
+							"turn-1",
+							mode === "wrong-attempt" || mode === "old-anchor" ? 2 : 1,
+						),
+					},
+					command:
+						mode === "terminal"
+							? {
+									_tag: "SettleTurn",
+									turnId: "turn-1",
+									outcome: "error",
+									settledAt: 6,
+								}
+							: {
+									_tag: "PersistMessage",
+									turnId: "turn-1",
+									messageId: "result",
+									role: "tool",
+									kind: "tool_result",
+									contentJson: JSON.stringify({
+										_tag: "tool_result",
+										itemId: mode === "unrelated" ? "unknown" : "tool-1",
+										output: "done",
+										isError: false,
+									}),
+									parentItemId: null,
+									createdAt: 6,
+								},
+				})
+				.pipe(Effect.result);
+			expect(result._tag === "Success").toBe(mode === "current");
+		}),
+	);
 });

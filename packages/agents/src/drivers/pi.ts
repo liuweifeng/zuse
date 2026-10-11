@@ -15,6 +15,7 @@ import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import { createPiPluginExtension } from "./pi-plugin-extension.ts";
 import { type PiFrame, PiRpcClient, piObject } from "./pi-rpc.ts";
@@ -48,7 +49,7 @@ export const startPiSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 		const emit = (event: AgentEvent) => {
@@ -325,6 +326,7 @@ export const startPiSession = (
 				// Validate incrementally so large histories do not get loaded twice in memory.
 				for await (const chunk of createReadStream(resumeCursor, {
 					encoding: "utf8",
+					signal: startup.signal,
 				})) {
 					buffer += chunk;
 					while (true) {
@@ -372,7 +374,12 @@ export const startPiSession = (
 				),
 			));
 		const extension = managedMcp
-			? yield* attempt(() => createPiPluginExtension(managedMcp)).pipe(
+			? yield* attempt(() =>
+					startup.acquire(
+						() => createPiPluginExtension(managedMcp),
+						(extension) => extension.close(),
+					),
+				).pipe(
 					Effect.mapError(
 						(error) =>
 							new AgentSessionStartError({
@@ -408,6 +415,13 @@ export const startPiSession = (
 			},
 			input.executionEnv,
 		);
+		startup.add(async () => {
+			closed = true;
+			cancelDialogs();
+			batcher.cancel();
+			Queue.endUnsafe(events);
+			await rpc.close();
+		});
 		yield* attempt(async () => {
 			const state = await rpc.request("get_state");
 			const file = string(state.sessionFile);
@@ -443,18 +457,6 @@ export const startPiSession = (
 				strategy: "pi-session-file",
 			});
 		}).pipe(
-			Effect.tapError(() =>
-				Effect.promise(async () => {
-					await rpc.close();
-					await extension?.close();
-				}),
-			),
-			Effect.onInterrupt(() =>
-				Effect.promise(async () => {
-					await rpc.close();
-					await extension?.close();
-				}),
-			),
 			Effect.mapError(
 				(error) =>
 					new AgentSessionStartError({

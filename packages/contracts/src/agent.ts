@@ -1,7 +1,13 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-import { AgentItemId, AgentSessionId, AgentTurnId, FolderId } from "./ids.ts";
+import {
+	AgentItemId,
+	AgentSessionId,
+	AgentTurnId,
+	AttemptId,
+	FolderId,
+} from "./ids.ts";
 
 /**
  * Built-in driver identifiers retain their wire values. User-configured ACP
@@ -519,6 +525,8 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
 
 /** Native provider progress for a running child agent. */
 const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
+	/** The native root finished while this child remains active. */
+	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
 	childSessionId: Schema.String,
@@ -635,21 +643,36 @@ const ErrorEvent = Schema.TaggedStruct("Error", {
  * `sessions.cursor` / `sessions.resume_strategy`. Lifecycle-only — never
  * persisted as a chat row.
  */
+export const ProviderResumeStrategy = Schema.Literals([
+	"claude-session-id",
+	"codex-thread-id",
+	"grok-session-id",
+	"cursor-session-id",
+	"gemini-session-id",
+	"opencode-session-id",
+	"opencode2-session-id",
+	"kiro-session-id",
+	"pi-session-file",
+	"zuse-execution-id",
+]);
+export type ProviderResumeStrategy = typeof ProviderResumeStrategy.Type;
+
+/** Strong provider-native identity for one execution; never inferred from prompt text. */
+export const ProviderTurnReference = Schema.Struct({
+	provider: ProviderId,
+	nativeThreadId: Schema.String,
+	nativeTurnId: Schema.String,
+});
+export type ProviderTurnReference = typeof ProviderTurnReference.Type;
+
+const NativeTurnStartedEvent = Schema.TaggedStruct("NativeTurnStarted", {
+	reference: ProviderTurnReference,
+});
+
 const SessionCursorEvent = Schema.TaggedStruct("SessionCursor", {
 	cursor: Schema.String,
 	providerEventCursor: Schema.optional(Schema.String),
-	strategy: Schema.Literals([
-		"claude-session-id",
-		"codex-thread-id",
-		"grok-session-id",
-		"cursor-session-id",
-		"gemini-session-id",
-		"opencode-session-id",
-		"opencode2-session-id",
-		"kiro-session-id",
-		"pi-session-file",
-		"zuse-execution-id",
-	]),
+	strategy: ProviderResumeStrategy,
 });
 
 const ProviderNotificationMetadataEvent = Schema.TaggedStruct(
@@ -766,6 +789,7 @@ export const AgentEvent = Schema.Union([
 	ContextCompactionEvent,
 	UsageLimitEvent,
 	SessionCursorEvent,
+	NativeTurnStartedEvent,
 	ProviderNotificationMetadataEvent,
 	UserQuestionEvent,
 	UserQuestionResolvedEvent,
@@ -786,13 +810,21 @@ export type AgentEvent = typeof AgentEvent.Type;
  * mutate a turn projection carries the exact application turn id supplied to
  * `send`/`interrupt`.
  */
+export const ProviderAttemptOwnership = Schema.Struct({
+	turnId: AgentTurnId,
+	attemptId: AttemptId,
+});
+export type ProviderAttemptOwnership = typeof ProviderAttemptOwnership.Type;
+
 export const ProviderEventEnvelope = Schema.Union([
 	Schema.Struct({
 		scope: Schema.Literal("session"),
+		ownership: Schema.optional(ProviderAttemptOwnership),
 		event: AgentEvent,
 	}),
 	Schema.Struct({
 		scope: Schema.Literal("turn"),
+		ownership: Schema.optional(ProviderAttemptOwnership),
 		turnId: AgentTurnId,
 		event: AgentEvent,
 	}),
@@ -875,6 +907,7 @@ export const StartSessionInput = Schema.Struct({
 	initialPrompt: Schema.optional(Schema.String),
 	/** Exact application turn correlated with `initialPrompt`. */
 	initialTurnId: Schema.optional(AgentTurnId),
+	initialAttemptId: Schema.optional(AttemptId),
 	/**
 	 * Internal Zuse-provided workspace context. The renderer does not set this;
 	 * ProviderService fills it after resolving the project/worktree cwd so

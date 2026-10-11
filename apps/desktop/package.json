@@ -24,6 +24,8 @@
 		"check-types": "tsc --noEmit",
 		"test": "vp test run test && node scripts/sqlite-runtime-smoke.mjs && node scripts/provider-sdk-runtime-smoke.mjs && node --test scripts/*.test.mjs",
 		"test:unit": "vp test run test/unit && node --test scripts/*.test.mjs",
+		"test:engine": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts",
+		"test:engine-reliability": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture --account-outage",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"postinstall": "electron-rebuild -f -o node-pty,keytar",
 		"icon": "node scripts/make-icon.mjs",
@@ -36,7 +38,8 @@
 		"predist:mac:unsigned": "bun run native:build:universal",
 		"dist:mac:unsigned": "electron-builder --mac --universal -c.mac.identity=null --publish never",
 		"dist:linux": "electron-builder --linux AppImage deb --x64 && bun run check-package:linux",
-		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux"
+		"dist:linux:unsigned": "electron-builder --linux AppImage deb --x64 --publish never && bun run check-package:linux",
+		"test:engine-provider": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture"
 	},
 	"dependencies": {
 		"@cursor/sdk": "1.0.32",
@@ -71,6 +74,7 @@
 		"typescript": "catalog:",
 		"vite-plus": "0.2.5",
 		"vitest": "catalog:",
-		"@zuse/i18n": "workspace:*"
+		"@zuse/i18n": "workspace:*",
+		"@effect/platform-node": "catalog:"
 	}
 }

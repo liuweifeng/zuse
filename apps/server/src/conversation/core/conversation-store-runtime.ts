@@ -13,7 +13,12 @@ import {
 	ThreadGoal,
 } from "@zuse/contracts";
 import type { SessionCommand } from "@zuse/domain/core/commands";
-import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
+import type {
+	AttemptOwnership,
+	AttemptOwnershipConflict,
+	CommandReceiptIdentity,
+	ProviderSessionOwnershipConflict,
+} from "@zuse/domain/engine/dispatch";
 import type { SessionDomainApi } from "@zuse/domain/engine/session-domain";
 import type { SqlSessionQueriesApi } from "@zuse/domain/queries/sql-session-queries";
 import { Effect, PubSub, type Scope } from "effect";
@@ -29,15 +34,22 @@ import type { ConversationGoalState } from "./conversation-goal-state.ts";
 import { makeConversationGoalState } from "./conversation-goal-state.ts";
 import {
 	parentItemIdOfContent,
+	providerMessageId,
 	roleForContent,
 } from "./conversation-message-mapping.ts";
 import { parseAgents, sessionFromRecord } from "./conversation-records.ts";
 import type { ConversationStateApi } from "./conversation-state.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { makeCurrentGoalPublisher } from "./current-goal-publisher.ts";
+import {
+	acquireIngestionLease,
+	type IngestionLeaseIdentity,
+} from "./ingestion-lease.ts";
 import {
 	lookupDurableQuestionResolution,
 	settleDurableQuestionResolution,
 } from "./question-resolution-receipt.ts";
+import { dispatchReservedRuntimeCommand } from "./runtime-command.ts";
 
 export interface ConversationStoreRuntimeOptions {
 	readonly isWorkspaceReady?: () => boolean;
@@ -54,16 +66,40 @@ export interface ConversationStoreRuntimeOptions {
 		sessionId: SessionId,
 		command: SessionCommand,
 	) => Effect.Effect<void>;
-	readonly runSessionReactors: Effect.Effect<void>;
+	readonly runSessionReactors: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly flushQueueAfterIdle: (sessionId: SessionId) => Effect.Effect<void>;
 	readonly shutdownQueueSession: (sessionId: SessionId) => Effect.Effect<void>;
 }
 
 export interface ConversationStoreRuntime {
-	readonly beginTurn: (
+	readonly persistProviderMessage: (
 		sessionId: SessionId,
-		turnIdOverride?: AgentTurnId,
-	) => Effect.Effect<AgentTurnId>;
+		content: MessageContent,
+		identity: import("./ingestion-lease.ts").IngestionLeaseIdentity,
+	) => Effect.Effect<
+		PersistedMessage,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	>;
+	readonly completeFinalization: (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		outcome: "completed" | "interrupted" | "error",
+		expectedAttempt: AttemptOwnership,
+	) => Effect.Effect<void>;
+
+	readonly persistAttemptMessage: (
+		sessionId: SessionId,
+		content: MessageContent,
+		id: MessageId | undefined,
+		turnId: AgentTurnId,
+		ownership: AttemptOwnership,
+	) => Effect.Effect<PersistedMessage, AttemptOwnershipConflict>;
+	readonly setAttemptStatus: (
+		sessionId: SessionId,
+		status: "idle" | "running" | "error",
+		ownership: AttemptOwnership,
+	) => Effect.Effect<void, AttemptOwnershipConflict>;
+
 	readonly resolveActiveTurn: (
 		sessionId: SessionId,
 	) => Effect.Effect<AgentTurnId | undefined>;
@@ -71,12 +107,14 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
+		expectedAttempt?: AttemptOwnership,
 	) => Effect.Effect<void>;
 	/** Persist settlement while already inside the serialized reactor runner. */
 	readonly settleTurnFromReactor: (
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
+		expectedAttempt?: AttemptOwnership,
 	) => Effect.Effect<void>;
 	readonly ndjsonAppend: (
 		sessionId: SessionId,
@@ -92,7 +130,7 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 	) => Effect.Effect<PersistedMessage>;
 	readonly submitTurn: (
 		sessionId: SessionId,
@@ -107,7 +145,10 @@ export interface ConversationStoreRuntime {
 		sessionId: SessionId,
 		status: Session["status"],
 	) => Effect.Effect<void>;
-	readonly startSubscription: (sessionId: SessionId) => Effect.Effect<void>;
+	readonly startSubscription: (
+		sessionId: SessionId,
+		identity?: IngestionLeaseIdentity,
+	) => Effect.Effect<void>;
 	readonly interruptProviderFiber: (
 		sessionId: SessionId,
 	) => Effect.Effect<void>;
@@ -157,12 +198,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 		state.rememberActiveTurn(sessionId, turnId);
 		return turnId;
 	});
-	const beginTurn = (
+	const startTurn = (
 		sessionId: SessionId,
 		turnIdOverride?: AgentTurnId,
-	): Effect.Effect<AgentTurnId> => {
+		expectedProviderSessionId?: string,
+	): Effect.Effect<AgentTurnId, ProviderSessionOwnershipConflict> => {
 		const existing = state.activeTurn(sessionId);
-		if (existing !== undefined) return Effect.succeed(existing as AgentTurnId);
+		if (existing !== undefined && expectedProviderSessionId === undefined)
+			return Effect.succeed(existing as AgentTurnId);
 		const turnId =
 			turnIdOverride ?? (`turn_${crypto.randomUUID()}` as AgentTurnId);
 		return Effect.gen(function* () {
@@ -174,6 +217,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				.dispatch({
 					commandId: crypto.randomUUID(),
 					streamId: sessionId,
+					expectedProviderSessionId,
 					command: { _tag: "StartTurn", turnId, startedAt },
 				})
 				.pipe(
@@ -181,9 +225,13 @@ export const makeConversationStoreRuntime = Effect.fn(
 					Effect.catchTag("TurnAlreadyRunning", (error) =>
 						Effect.succeed(error.turnId),
 					),
-					Effect.orDie,
+					Effect.catch((error) =>
+						error._tag === "ProviderSessionOwnershipConflict"
+							? Effect.fail(error)
+							: Effect.die(error),
+					),
 				)) as AgentTurnId;
-			if (resolvedTurnId === turnId) yield* runSessionReactors;
+			if (resolvedTurnId === turnId) yield* runSessionReactors(sessionId);
 			state.rememberActiveTurn(sessionId, resolvedTurnId);
 			return resolvedTurnId;
 		});
@@ -193,48 +241,84 @@ export const makeConversationStoreRuntime = Effect.fn(
 		sessionId: SessionId,
 		turnId: AgentTurnId,
 		outcome: "completed" | "interrupted" | "error",
-	): Effect.Effect<void> =>
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+		finalized = false,
+	): Effect.Effect<boolean> =>
 		Effect.gen(function* () {
-			yield* sessionDomain
+			const settled = yield* sessionDomain
 				.dispatch({
-					commandId: `turn:settle:${sessionId}:${turnId}:${outcome}`,
+					commandId: `turn:${!finalized ? "finalize" : "settle"}:${sessionId}:${turnId}:${expectedAttempt?.attemptId ?? "unfenced"}:${outcome}`,
+					expectedAttempt,
+					expectedProviderSessionId,
 					streamId: sessionId,
 					command: {
-						_tag: "SettleTurn",
+						_tag: !finalized ? "FinalizeTurn" : "SettleTurn",
 						turnId,
 						outcome,
 						settledAt: yield* currentTimestamp,
 					},
 				})
-				.pipe(Effect.asVoid, Effect.orDie);
-			if (state.activeTurn(sessionId) === turnId) {
+				.pipe(
+					Effect.as(true),
+					Effect.catchTag(
+						["AttemptOwnershipConflict", "ProviderSessionOwnershipConflict"],
+						() => Effect.succeed(false),
+					),
+					Effect.orDie,
+				);
+			if (!settled) return false;
+			if (finalized && state.activeTurn(sessionId) === turnId) {
 				state.clearActiveTurn(sessionId);
 			}
+			return true;
 		});
 
+	const completeFinalization: ConversationStoreRuntime["completeFinalization"] =
+		(sessionId, turnId, outcome, expectedAttempt) =>
+			Effect.gen(function* () {
+				const settled = yield* persistTurnSettlement(
+					sessionId,
+					turnId,
+					outcome,
+					expectedAttempt,
+					undefined,
+					true,
+				);
+				if (settled && outcome !== "error")
+					yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
+			});
+
 	const settleTurnFromReactor: ConversationStoreRuntime["settleTurnFromReactor"] =
-		(sessionId, turnId, outcome) =>
-			persistTurnSettlement(sessionId, turnId, outcome).pipe(
-				Effect.andThen(
-					outcome === "error"
-						? Effect.void
-						: Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope),
-				),
+		(sessionId, turnId, outcome, expectedAttempt) =>
+			persistTurnSettlement(sessionId, turnId, outcome, expectedAttempt).pipe(
 				Effect.asVoid,
 			);
 
-	const settleTurn: ConversationStoreRuntime["settleTurn"] = (
-		sessionId,
-		turnId,
-		outcome,
-	) =>
+	const settleTurnWithResult = (
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		outcome: "completed" | "interrupted" | "error",
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	): Effect.Effect<boolean> =>
 		Effect.gen(function* () {
-			yield* persistTurnSettlement(sessionId, turnId, outcome);
-			yield* runSessionReactors;
-			if (outcome !== "error") {
-				yield* Effect.forkIn(flushQueueAfterIdle(sessionId), serviceScope);
-			}
+			if (
+				!(yield* persistTurnSettlement(
+					sessionId,
+					turnId,
+					outcome,
+					expectedAttempt,
+					expectedProviderSessionId,
+				))
+			)
+				return false;
+			yield* runSessionReactors(sessionId);
+			return true;
 		});
+
+	const settleTurn: ConversationStoreRuntime["settleTurn"] = (...args) =>
+		settleTurnWithResult(...args).pipe(Effect.asVoid);
 
 	const ndjsonAppend = (
 		sessionId: SessionId,
@@ -325,6 +409,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 				tool: content.tool,
 				input: canonicalizeToolInput(content.input),
 				parentItemId: content.parentItemId ?? null,
+				subagent: content.subagent ?? null,
+				backgroundTask: content.backgroundTask ?? null,
 			});
 		} catch {
 			return `${content.itemId}:${content.tool}:${String(content.input)}:${content.parentItemId ?? ""}`;
@@ -362,13 +448,18 @@ export const makeConversationStoreRuntime = Effect.fn(
 			return false;
 		});
 
-	const persistMessage = (
+	const persistOwnedMessage = (
 		sessionId: SessionId,
 		content: MessageContent,
 		idOverride?: MessageId,
-		turnIdOverride?: AgentTurnId,
+		turnIdOverride?: AgentTurnId | null,
 		commandIdentityOverride?: string,
-	): Effect.Effect<PersistedMessage> =>
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	): Effect.Effect<
+		PersistedMessage,
+		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
+	> =>
 		Effect.gen(function* () {
 			// `idOverride` is the renderer-minted `clientMessageId` for an
 			// optimistic user message — reuse it so the live-stream echo carries
@@ -382,33 +473,50 @@ export const makeConversationStoreRuntime = Effect.fn(
 				content._tag === "assistant" || content._tag === "thinking"
 					? content.checkpoint
 					: undefined;
-			const receipt = yield* sessionDomain
-				.dispatchTransactionally(
-					{
-						commandId:
-							commandIdentityOverride === undefined
-								? `message:persist:${id}`
-								: `message:persist:${id}:${commandIdentityOverride}`,
-						streamId: sessionId,
-						command: {
-							_tag: "PersistMessage",
-							messageId: id,
-							turnId: turnIdOverride ?? state.activeTurn(sessionId) ?? null,
-							role,
-							kind: content._tag,
-							contentJson: JSON.stringify(content),
-							parentItemId,
-							checkpointRevision: checkpoint?.revision,
-							checkpointFinal: checkpoint?.final,
-							createdAt: now.getTime(),
-						},
-					},
-					(receipt) =>
-						pinHtmlRenderAttachment(sql, sessionId, id, content).pipe(
-							Effect.as(receipt),
+			const receipt = yield* dispatchReservedRuntimeCommand(
+				{
+					dispatch: (input) =>
+						sessionDomain.dispatchTransactionally(input, (receipt) =>
+							pinHtmlRenderAttachment(sql, sessionId, id, content).pipe(
+								Effect.as(receipt),
+							),
 						),
-				)
-				.pipe(Effect.orDie);
+				},
+				{
+					commandId:
+						commandIdentityOverride === undefined
+							? `message:persist:${id}`
+							: `message:persist:${id}:${commandIdentityOverride}`,
+					streamId: sessionId,
+					expectedAttempt,
+					expectedProviderSessionId,
+					command: {
+						_tag: "PersistMessage",
+						inputOwner:
+							(content._tag === "user_question" ||
+								(content._tag === "tool_use" &&
+									content.tool === "ExitPlanMode")) &&
+							expectedProviderSessionId !== undefined
+								? {
+										providerSessionId: expectedProviderSessionId,
+										attempt: expectedAttempt,
+									}
+								: undefined,
+						messageId: id,
+						turnId:
+							turnIdOverride === undefined
+								? (state.activeTurn(sessionId) ?? null)
+								: turnIdOverride,
+						role,
+						kind: content._tag,
+						contentJson: JSON.stringify(content),
+						parentItemId,
+						checkpointRevision: checkpoint?.revision,
+						checkpointFinal: checkpoint?.final,
+						createdAt: now.getTime(),
+					},
+				},
+			);
 			const projected = yield* sql<{
 				readonly sequence: number;
 				readonly role: typeof role;
@@ -437,6 +545,28 @@ export const makeConversationStoreRuntime = Effect.fn(
 				changed: receipt.eventIds.length > 0,
 			};
 		});
+
+	const persistProviderMessage: ConversationStoreRuntime["persistProviderMessage"] =
+		(sessionId, content, identity) =>
+			persistOwnedMessage(
+				sessionId,
+				content,
+				undefined,
+				AgentTurnId.make(identity.turnId),
+				undefined,
+				identity,
+				identity.providerSessionId,
+			).pipe(
+				Effect.tap((persisted) =>
+					persisted.changed !== false
+						? ndjsonAppend(sessionId, persisted)
+						: Effect.void,
+				),
+			);
+
+	const persistMessage: ConversationStoreRuntime["persistMessage"] = (
+		...args
+	) => persistOwnedMessage(...args).pipe(Effect.orDie);
 
 	const submitTurn = (
 		sessionId: SessionId,
@@ -524,10 +654,12 @@ export const makeConversationStoreRuntime = Effect.fn(
 			// in flight. In particular, replaying an old receipt must never clear or
 			// replace a successor turn.
 			const cachedTurnBeforeHeadRead = state.activeTurn(sessionId);
-			const heads = yield* sql<{ readonly current_turn_id: string | null }>`
-				SELECT current_turn_id FROM sessions WHERE id = ${sessionId} LIMIT 1
+			const heads = yield* sql<{ readonly id: string }>`
+				SELECT id FROM session_turns
+				WHERE session_id = ${sessionId} AND status IN ('starting', 'running')
+				ORDER BY ordinal DESC LIMIT 1
 			`.pipe(Effect.orDie);
-			const durableActiveTurn = heads[0]?.current_turn_id ?? null;
+			const durableActiveTurn = heads[0]?.id ?? null;
 			yield* Effect.sync(() => {
 				if (state.activeTurn(sessionId) !== cachedTurnBeforeHeadRead) return;
 				if (durableActiveTurn !== null) {
@@ -543,11 +675,11 @@ export const makeConversationStoreRuntime = Effect.fn(
 			if (options.isWorkspaceReady?.() === false) {
 				// The receipt is already durable. Preparation must not hold the RPC
 				// response open, and its runner belongs to the runtime, not this socket.
-				yield* Effect.forkIn(runSessionReactors, serviceScope, {
+				yield* Effect.forkIn(runSessionReactors(sessionId), serviceScope, {
 					startImmediately: true,
 				});
 			} else {
-				yield* runSessionReactors;
+				yield* runSessionReactors(sessionId);
 			}
 			return {
 				message: Message.make({
@@ -604,51 +736,128 @@ export const makeConversationStoreRuntime = Effect.fn(
 	 * boundary — the alternative is a runaway error that bubbles into the
 	 * RPC server and tears down the whole transport.
 	 */
+	const dispatchProviderCommand = (
+		sessionId: SessionId,
+		command: SessionCommand,
+		expectedAttempt?: AttemptOwnership,
+		expectedProviderSessionId?: string,
+	) =>
+		dispatchReservedRuntimeCommand(sessionDomain, {
+			commandId: crypto.randomUUID(),
+			streamId: sessionId,
+			command,
+			expectedAttempt,
+			expectedProviderSessionId,
+		}).pipe(Effect.asVoid);
+
 	const eventRuntime = yield* makeConversationEventRuntime({
 		scope: serviceScope,
+		acquireIngestionLease: (sessionId, identity) =>
+			acquireIngestionLease(sql, sessionId, identity),
+		ownsProviderSession: (sessionId, providerSessionId) =>
+			sessionDomain.providerReservation(sessionId).pipe(
+				Effect.map((current) => current === providerSessionId),
+				Effect.orDie,
+			),
+		ownsAttempt: (sessionId, ownership) =>
+			sessionDomain.activeAttempt(sessionId).pipe(
+				Effect.map(
+					(current) =>
+						current?.turnId === ownership.turnId &&
+						current.attemptId === ownership.attemptId,
+				),
+				Effect.orDie,
+			),
 		events: (sessionId) => provider.events(sessionId),
 		providerId: (sessionId) =>
 			lookupSession(sessionId).pipe(
 				Effect.orDie,
 				Effect.map((session) => session.providerId),
 			),
-		settleTurn,
-		beginProviderTurn: beginTurn,
-		setResume: (sessionId, cursor, strategy, providerEventCursor) =>
+		beginProviderTurn: (sessionId, turnId, providerSessionId) =>
 			Effect.gen(function* () {
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "SetResume",
-					cursor,
-					resumeStrategy: strategy,
-					...(providerEventCursor === undefined ? {} : { providerEventCursor }),
-					updatedAt: yield* currentTimestamp,
-				});
-				if (providerEventCursor !== undefined) {
-					yield* (
-						provider.acknowledgeProviderEventCursor?.(
-							sessionId,
-							providerEventCursor,
-						) ?? Effect.void
-					).pipe(Effect.catch(() => Effect.void));
-				}
+				const resolved = yield* startTurn(sessionId, turnId, providerSessionId);
+				const attempt = yield* sessionDomain
+					.activeAttempt(sessionId)
+					.pipe(Effect.orDie);
+				if (attempt?.turnId !== resolved) return null;
+				if (resolved === turnId)
+					yield* dispatchProviderCommand(
+						sessionId,
+						{
+							_tag: "SetStatus",
+							status: "running",
+							updatedAt: yield* currentTimestamp,
+						},
+						attempt,
+						providerSessionId,
+					);
+				return attempt;
 			}),
-		releaseProviderEventCursor: (sessionId, cursor) =>
-			(
-				provider.releaseProviderEventCursor?.(sessionId, cursor) ?? Effect.void
-			).pipe(Effect.catch(() => Effect.void)),
-		setPermissionMode: (sessionId, mode) =>
+		settleTurn: settleTurnWithResult,
+		bindAttemptProviderTurn: (
+			sessionId,
+			reference,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
 			Effect.gen(function* () {
-				yield* dispatchSessionCommand(sessionId, {
-					_tag: "SetPermissionMode",
-					permissionMode: mode,
-					updatedAt: yield* currentTimestamp,
-				});
+				yield* dispatchProviderCommand(
+					sessionId,
+					{
+						_tag: "BindAttemptProviderTurn",
+						...expectedAttempt,
+						reference,
+						boundAt: yield* currentTimestamp,
+					},
+					expectedAttempt,
+					expectedProviderSessionId,
+				);
 			}),
-		publishGoal: (sessionId, goal) =>
-			goalState.publish(
+		bindProviderThread: (
+			sessionId,
+			nativeThreadId,
+			nativeHeadId,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
+			Effect.gen(function* () {
+				yield* dispatchProviderCommand(
+					sessionId,
+					{
+						_tag: "BindProviderThread",
+						nativeThreadId,
+						...(nativeHeadId === undefined ? {} : { nativeHeadId }),
+						updatedAt: yield* currentTimestamp,
+					},
+					expectedAttempt,
+					expectedProviderSessionId,
+				);
+			}),
+		setPermissionMode: (
+			sessionId,
+			mode,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
+			Effect.gen(function* () {
+				yield* dispatchProviderCommand(
+					sessionId,
+					{
+						_tag: "SetPermissionMode",
+						permissionMode: mode,
+						updatedAt: yield* currentTimestamp,
+					},
+					expectedAttempt,
+					expectedProviderSessionId,
+				);
+			}),
+		publishGoal: (sessionId, goal, providerSessionId, providerId) =>
+			makeCurrentGoalPublisher(sql, goalState.publish)(
 				sessionId,
+				{ providerSessionId, providerId },
 				goal === null ? null : ThreadGoal.make(goal),
-			),
+			).pipe(Effect.asVoid),
 		publishApiActivity,
 		reconcileQuestionResolution: (sessionId, itemId) =>
 			Effect.gen(function* () {
@@ -691,7 +900,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 			),
 		ignoreError: () => false,
 		isDuplicateToolUse,
-		persist: (sessionId, turnId, content, providerItemIdentity) =>
+		persist: (
+			sessionId,
+			turnId,
+			content,
+			providerItemIdentity,
+			expectedAttempt,
+			expectedProviderSessionId,
+		) =>
 			Effect.gen(function* () {
 				const checkpoint =
 					content._tag === "assistant" || content._tag === "thinking"
@@ -706,8 +922,14 @@ export const makeConversationStoreRuntime = Effect.fn(
 				const stableId =
 					providerItemIdentity === undefined
 						? undefined
-						: MessageId.make(`provider:${turnId}:${providerItemIdentity}`);
-				const persisted = yield* persistMessage(
+						: providerMessageId(
+								expectedAttempt?.attemptId ??
+									turnId ??
+									expectedProviderSessionId ??
+									sessionId,
+								providerItemIdentity,
+							);
+				const persisted = yield* persistOwnedMessage(
 					sessionId,
 					content,
 					stableId,
@@ -717,6 +939,8 @@ export const makeConversationStoreRuntime = Effect.fn(
 						: checkpoint === undefined
 							? (fingerprint >>> 0).toString(16)
 							: `checkpoint:${checkpoint.revision}`,
+					expectedAttempt,
+					expectedProviderSessionId,
 				);
 				if (persisted.changed !== false)
 					yield* ndjsonAppend(sessionId, persisted);
@@ -731,11 +955,35 @@ export const makeConversationStoreRuntime = Effect.fn(
 			yield* shutdownQueueSession(sessionId);
 		});
 
+	const persistAttemptMessage: ConversationStoreRuntime["persistAttemptMessage"] =
+		(sessionId, content, id, turnId, ownership) =>
+			persistOwnedMessage(
+				sessionId,
+				content,
+				id,
+				turnId,
+				undefined,
+				ownership,
+			).pipe(Effect.catchTag("ProviderSessionOwnershipConflict", Effect.die));
+	const setAttemptStatus: ConversationStoreRuntime["setAttemptStatus"] = (
+		sessionId,
+		status,
+		ownership,
+	) =>
+		Effect.gen(function* () {
+			yield* dispatchProviderCommand(
+				sessionId,
+				{ _tag: "SetStatus", status, updatedAt: yield* currentTimestamp },
+				ownership,
+			).pipe(Effect.catchTag("ProviderSessionOwnershipConflict", Effect.die));
+		});
 	return {
-		beginTurn,
+		persistAttemptMessage,
+		setAttemptStatus,
 		resolveActiveTurn,
 		settleTurn,
 		settleTurnFromReactor,
+		completeFinalization,
 		ndjsonAppend,
 		goalState,
 		chatChangesHub,
@@ -744,6 +992,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 		lookupSession,
 		agentsFor,
 		persistMessage,
+		persistProviderMessage,
 		submitTurn,
 		setStatus,
 		startSubscription,

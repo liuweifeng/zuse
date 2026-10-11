@@ -1,10 +1,16 @@
 import type {
 	PermissionMode,
-	ResumeStrategy,
 	RuntimeMode,
 	SessionStatus,
 } from "@zuse/contracts";
 import type { SessionEvent } from "../core/events.js";
+import { providerThreadIdFor } from "../core/state.js";
+
+export type LegacyProviderThreadSnapshot = {
+	readonly provider: string;
+	readonly nativeThreadId: string;
+	readonly nativeHeadId: string | null;
+};
 
 export type LegacySessionSnapshot = {
 	readonly sessionId: string;
@@ -14,8 +20,7 @@ export type LegacySessionSnapshot = {
 	readonly providerId: string;
 	readonly model: string;
 	readonly status: SessionStatus;
-	readonly cursor: string | null;
-	readonly resumeStrategy: ResumeStrategy;
+	readonly providerThread: LegacyProviderThreadSnapshot | null;
 	readonly runtimeMode: RuntimeMode;
 	readonly agentsJson: string | null;
 	readonly worktreeId: string | null;
@@ -68,8 +73,6 @@ export const sessionCreatedEventFromSnapshot = (
 	providerId: session.providerId,
 	model: session.model,
 	status: session.status,
-	cursor: session.cursor,
-	resumeStrategy: session.resumeStrategy,
 	runtimeMode: session.runtimeMode,
 	agentsJson: session.agentsJson,
 	worktreeId: session.worktreeId,
@@ -80,6 +83,40 @@ export const sessionCreatedEventFromSnapshot = (
 	queuePaused: session.queuePaused,
 	createdAt: session.createdAt,
 });
+
+/** Events binding a legacy session's resume token as its provider thread. */
+export const providerThreadEventsFromSnapshot = (
+	session: LegacySessionSnapshot,
+): readonly SessionEvent[] => {
+	const thread = session.providerThread;
+	if (thread === null) return [];
+	const id = providerThreadIdFor(
+		session.sessionId,
+		thread.provider,
+		thread.nativeThreadId,
+	);
+	return [
+		{
+			_tag: "ProviderThreadUpdated",
+			providerThread: {
+				id,
+				provider: thread.provider,
+				nativeThreadId: thread.nativeThreadId,
+				nativeHeadId: thread.nativeHeadId,
+				status: "idle",
+				firstTurnOrdinal: null,
+				lastTurnOrdinal: null,
+				createdAt: session.createdAt,
+				updatedAt: session.updatedAt,
+			},
+		},
+		{
+			_tag: "ActiveProviderThreadSet",
+			providerThreadId: id,
+			updatedAt: session.updatedAt,
+		},
+	];
+};
 
 export const messageEventFromSnapshot = (
 	message: LegacyMessageSnapshot,
@@ -140,6 +177,16 @@ export const synthesizeBackfill = (
 			session.createdAt,
 			sessionCreatedEventFromSnapshot(session),
 		);
+		for (const [index, event] of providerThreadEventsFromSnapshot(
+			session,
+		).entries()) {
+			append(
+				session.sessionId,
+				id(`provider-thread-${index}`, session.sessionId),
+				session.updatedAt,
+				event,
+			);
+		}
 		const messages = [...(messagesBySession.get(session.sessionId) ?? [])].sort(
 			(left, right) =>
 				left.createdAt - right.createdAt || left.rowId - right.rowId,

@@ -31,6 +31,7 @@ import {
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { normalizeNativeToolName } from "../kernel/native-tool-name.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { appendStreamText } from "../kernel/stream-text.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { McpGatewayHttpServer } from "../mcp-gateway/index.ts";
@@ -400,7 +401,7 @@ export const startCursorSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 		const store = new JsonlLocalAgentStore(
@@ -441,14 +442,19 @@ export const startCursorSession = (
 						);
 					if (resumeCursor !== null && resumeCursor.trim().length > 0) {
 						try {
-							const agent = await withTimeout(
-								Agent.resume(resumeCursor, options),
-								SDK_START_TIMEOUT_MS,
-								"Local agent resume",
+							const agent = await startup.acquire(
+								() =>
+									withTimeout(
+										Agent.resume(resumeCursor, options),
+										SDK_START_TIMEOUT_MS,
+										"Local agent resume",
+										(agent) => agent.close(),
+									),
 								(agent) => agent.close(),
 							);
 							return { agent, resumed: true };
 						} catch (cause) {
+							startup.signal.throwIfAborted();
 							if (
 								!(cause instanceof AgentNotFoundError) &&
 								!/(?:stale|corrupt|not found|unknown agent)/i.test(
@@ -457,19 +463,27 @@ export const startCursorSession = (
 							) {
 								throw cause;
 							}
-							const agent = await withTimeout(
-								Agent.create(options),
-								SDK_START_TIMEOUT_MS,
-								"Local agent startup",
+							const agent = await startup.acquire(
+								() =>
+									withTimeout(
+										Agent.create(options),
+										SDK_START_TIMEOUT_MS,
+										"Local agent startup",
+										(agent) => agent.close(),
+									),
 								(agent) => agent.close(),
 							);
 							return { agent, resumed: false };
 						}
 					}
-					const agent = await withTimeout(
-						Agent.create(options),
-						SDK_START_TIMEOUT_MS,
-						"Local agent startup",
+					const agent = await startup.acquire(
+						() =>
+							withTimeout(
+								Agent.create(options),
+								SDK_START_TIMEOUT_MS,
+								"Local agent startup",
+								(agent) => agent.close(),
+							),
 						(agent) => agent.close(),
 					);
 					return { agent, resumed: false };

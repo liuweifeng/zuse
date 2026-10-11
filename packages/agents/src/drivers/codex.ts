@@ -41,13 +41,16 @@ import type {
 import { getBashPolicy, getFsPolicy } from "../kernel/policy.ts";
 import { ProviderCheckpointBatcher } from "../kernel/provider-checkpoint-batcher.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import type { BrowserSend } from "./browser-tools.ts";
+import { makeCodexGoalLifecycle } from "./codex/goal-lifecycle.ts";
 import {
 	CodexAppServerClient,
 	CodexAppServerRequestError,
 } from "./codex-app-server-client.ts";
+import { makeCodexHistoryCheckpoints } from "./codex-history-checkpoint.ts";
 import { resolveCodexNativeMcpIsolation } from "./codex-native-mcp.ts";
 import { reportCodexStderr } from "./codex-stderr-reporter.ts";
 import { mapCodexRateLimits } from "./codex-usage-limits.ts";
@@ -362,6 +365,9 @@ const modelAdvertisesFastTier = (model: Model): boolean =>
 		...model.additionalSpeedTiers,
 	].some((label) => label.toLowerCase().includes("fast"));
 
+const CODEX_STARTUP_RPC_TIMEOUT_MS = 30_000;
+const CODEX_CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
+
 /**
  * Whether the model a session resolved to advertises a fast service tier,
  * from the live `model/list`. Returns `null` when the model isn't in the
@@ -373,9 +379,13 @@ const probeModelFastTier = async (
 	app: CodexAppServerClient,
 	activeModel: string | null,
 ): Promise<boolean | null> => {
-	const response = await app.request<ModelListResponse>("model/list", {
-		includeHidden: true,
-	});
+	const response = await app.request<ModelListResponse>(
+		"model/list",
+		{
+			includeHidden: true,
+		},
+		{ timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS },
+	);
 	const model =
 		response.data.find(
 			(entry) => entry.id === activeModel || entry.model === activeModel,
@@ -403,7 +413,11 @@ const probeNativePlanMode = async (
 	app: CodexAppServerClient,
 ): Promise<boolean> => {
 	try {
-		const response = await app.request<unknown>("collaborationMode/list", {});
+		const response = await app.request<unknown>(
+			"collaborationMode/list",
+			{},
+			{ timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS },
+		);
 		return supportsCodexNativePlanMode(response);
 	} catch (cause) {
 		const message = cause instanceof Error ? cause.message : String(cause);
@@ -1391,7 +1405,7 @@ export const startCodexSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 		const toolTranslationLog = createCodexToolTranslationLogger(cwd, sessionId);
@@ -1403,8 +1417,13 @@ export const startCodexSession = (
 		let activeThreadId = resumeCursor;
 		const cursorLifecycle = new CodexCursorLifecycle(resumeCursor);
 		let currentTurnId: string | null = null;
+		const goalLifecycle = makeCodexGoalLifecycle();
 		let latestDiff = "";
 		let closed = false;
+		startup.add(() => {
+			closed = true;
+			Queue.endUnsafe(events);
+		});
 		let pending: Promise<void> = Promise.resolve();
 		// Runtime fast-tier gate for the model this session resolved to, from the
 		// live `model/list` `serviceTiers`. `null` = unknown (probe not done /
@@ -1471,6 +1490,7 @@ export const startCodexSession = (
 				});
 			}
 		};
+		startup.add(() => releasePendingQuestions("closed"));
 
 		const emitDirect = (event: AgentEvent): void => {
 			if (!closed) Queue.offerUnsafe(events, event);
@@ -1487,7 +1507,7 @@ export const startCodexSession = (
 			mode: "sdk",
 		});
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "codex",
 			sessionId,
 			cwd,
@@ -1521,6 +1541,7 @@ export const startCodexSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 		const handleUnexpectedTermination = (error: Error): void => {
 			if (closed) return;
 			// Publish the concrete transport error before ending the stream. The shared
@@ -1561,56 +1582,57 @@ export const startCodexSession = (
 		);
 		let app = yield* Effect.tryPromise({
 			try: () =>
-				CodexAppServerClient.start({
-					codexPath,
-					apiKey,
-					...(input.providerAccountHome ? { externalAuthProvider: null } : {}),
-					externalAuthConsumerId: sessionId,
-					env: {
-						...childEnv,
-						ZUSE_MCP_TOKEN: mcpGatewaySession.token,
-						...pluginCliEnv(
-							mcpGatewaySession.endpoint,
-							mcpGatewaySession.token,
-						),
-					},
-					mcp: {
-						transport: "http",
-						url: mcpGatewaySession.codexServerConfig.url,
-						bearerTokenEnvVar:
-							mcpGatewaySession.codexServerConfig.bearer_token_env_var,
-						disabledNativeServers: nativeMcp.processServerNames,
-					},
-					onNotification: (notification) => {
-						rawProtocolLog.append("server_notification", notification);
-						for (const event of translateNotification(notification))
-							emit(event);
-					},
-					onServerRequest: (request, respond) => {
-						void handleServerRequest(request)
-							.then(respond)
-							.catch((cause) => {
-								reportCodexStderr(
-									`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-								);
-								respond(defaultServerRequestResponse(request));
-							});
-					},
-					onUnexpectedTermination: handleUnexpectedTermination,
-				}),
+				startup.acquire(
+					() =>
+						CodexAppServerClient.start({
+							startupSignal: startup.signal,
+							startupTimeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+							codexPath,
+							apiKey,
+							...(input.providerAccountHome
+								? { externalAuthProvider: null }
+								: {}),
+							externalAuthConsumerId: sessionId,
+							env: {
+								...childEnv,
+								ZUSE_MCP_TOKEN: mcpGatewaySession.token,
+								...pluginCliEnv(
+									mcpGatewaySession.endpoint,
+									mcpGatewaySession.token,
+								),
+							},
+							mcp: {
+								transport: "http",
+								url: mcpGatewaySession.codexServerConfig.url,
+								bearerTokenEnvVar:
+									mcpGatewaySession.codexServerConfig.bearer_token_env_var,
+								disabledNativeServers: nativeMcp.processServerNames,
+							},
+							onNotification: (notification) => {
+								rawProtocolLog.append("server_notification", notification);
+								for (const event of translateNotification(notification))
+									emit(event);
+							},
+							onServerRequest: (request, respond) => {
+								void handleServerRequest(request)
+									.then(respond)
+									.catch((cause) => {
+										reportCodexStderr(
+											`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+										);
+										respond(defaultServerRequestResponse(request));
+									});
+							},
+							onUnexpectedTermination: handleUnexpectedTermination,
+						}),
+					(client) => client.close(),
+				),
 			catch: (cause) =>
 				new AgentSessionStartError({
 					providerId: "codex",
 					reason: cause instanceof Error ? cause.message : String(cause),
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.promise(async () => {
-					await stdioMcpFallback.close();
-					await mcpGatewaySession.close();
-				}),
-			),
-		);
+		});
 
 		const supportsNativePlanMode = yield* Effect.promise(() =>
 			probeNativePlanMode(app),
@@ -1619,8 +1641,17 @@ export const startCodexSession = (
 		const expectCodexMcpServer = async (
 			candidate: CodexAppServerClient,
 		): Promise<void> => {
-			await candidate.request("config/mcpServer/reload", undefined);
-			const deadline = Date.now() + 5_000;
+			// Loading required tools is startup work, not an optional capability probe.
+			const deadline = Date.now() + CODEX_STARTUP_RPC_TIMEOUT_MS;
+			const requestOptions = () => ({
+				timeoutMs: Math.max(1, deadline - Date.now()),
+				signal: startup.signal,
+			});
+			await candidate.request(
+				"config/mcpServer/reload",
+				undefined,
+				requestOptions(),
+			);
 			let missing: readonly string[] = [];
 			do {
 				const status = await candidate.request<{
@@ -1629,7 +1660,13 @@ export const startCodexSession = (
 						tools?: Readonly<Record<string, unknown>>;
 						authStatus?: string;
 					}>;
-				}>("mcpServerStatus/list", { detail: "toolsAndAuthOnly" });
+				}>(
+					"mcpServerStatus/list",
+					// Global discovery also waits for unrelated user/plugin servers.
+					// Only verify the app server whose readiness is required here.
+					{ detail: "toolsAndAuthOnly", serverName: "zuse" },
+					requestOptions(),
+				);
 				const found = Array.isArray(status.data)
 					? status.data.find((server) => server.name === "zuse")
 					: undefined;
@@ -1660,45 +1697,51 @@ export const startCodexSession = (
 						`[mcp-gateway] session ${sessionId} HTTP setup failed; retrying with stdio compatibility transport`,
 						httpCause,
 					);
-					app.close();
+					await app.close();
 					const fallback = (await stdioMcpFallback.ensure())[0];
 					if (fallback === undefined) {
 						throw new Error("MCP stdio fallback produced no server config.");
 					}
-					app = await CodexAppServerClient.start({
-						codexPath,
-						apiKey,
-						...(input.providerAccountHome
-							? { externalAuthProvider: null }
-							: {}),
-						externalAuthConsumerId: sessionId,
-						env: childEnv,
-						mcp: {
-							transport: "stdio",
-							command: fallback.command,
-							args: fallback.args,
-							env: Object.fromEntries(
-								fallback.env.map(({ name, value }) => [name, value]),
-							),
-							disabledNativeServers: nativeMcp.processServerNames,
-						},
-						onNotification: (notification) => {
-							rawProtocolLog.append("server_notification", notification);
-							for (const event of translateNotification(notification))
-								emit(event);
-						},
-						onServerRequest: (request, respond) => {
-							void handleServerRequest(request)
-								.then(respond)
-								.catch((cause) => {
-									reportCodexStderr(
-										`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-									);
-									respond(defaultServerRequestResponse(request));
-								});
-						},
-						onUnexpectedTermination: handleUnexpectedTermination,
-					});
+					app = await startup.acquire(
+						() =>
+							CodexAppServerClient.start({
+								startupSignal: startup.signal,
+								startupTimeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+								codexPath,
+								apiKey,
+								...(input.providerAccountHome
+									? { externalAuthProvider: null }
+									: {}),
+								externalAuthConsumerId: sessionId,
+								env: childEnv,
+								mcp: {
+									transport: "stdio",
+									command: fallback.command,
+									args: fallback.args,
+									env: Object.fromEntries(
+										fallback.env.map(({ name, value }) => [name, value]),
+									),
+									disabledNativeServers: nativeMcp.processServerNames,
+								},
+								onNotification: (notification) => {
+									rawProtocolLog.append("server_notification", notification);
+									for (const event of translateNotification(notification))
+										emit(event);
+								},
+								onServerRequest: (request, respond) => {
+									void handleServerRequest(request)
+										.then(respond)
+										.catch((cause) => {
+											reportCodexStderr(
+												`request failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+											);
+											respond(defaultServerRequestResponse(request));
+										});
+								},
+								onUnexpectedTermination: handleUnexpectedTermination,
+							}),
+						(client) => client.close(),
+					);
 					await expectCodexMcpServer(app);
 					console.info(
 						`[mcp-gateway] session ${sessionId} connected via stdio-fallback`,
@@ -1712,15 +1755,7 @@ export const startCodexSession = (
 						cause instanceof Error ? cause.message : String(cause)
 					}`,
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.promise(async () => {
-					app.close();
-					await stdioMcpFallback.close();
-					await mcpGatewaySession.close();
-				}),
-			),
-		);
+		});
 
 		const commonThreadParams = {
 			model: input.model ?? null,
@@ -1754,6 +1789,7 @@ export const startCodexSession = (
 			const started = await app.request<ThreadResponse>(
 				"thread/start",
 				commonThreadParams,
+				{ timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal },
 			);
 			activeThreadId = started.thread.id;
 			if (started.model !== undefined) activeModel = started.model;
@@ -1766,17 +1802,28 @@ export const startCodexSession = (
 		): Promise<ThreadResponse> => {
 			const params = { threadId, ...commonThreadParams };
 			try {
-				return await app.request<ThreadResponse>(method, params);
+				return await app.request<ThreadResponse>(method, params, {
+					timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+					signal: startup.signal,
+				});
 			} catch (cause) {
 				if (!isArchivedCodexThread(cause)) throw cause;
 				console.warn(
 					"[codex] thread was archived outside Zuse; unarchiving it",
 				);
-				await app.request("thread/unarchive", { threadId });
-				return app.request<ThreadResponse>(method, params);
+				await app.request(
+					"thread/unarchive",
+					{ threadId },
+					{ timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS, signal: startup.signal },
+				);
+				return app.request<ThreadResponse>(method, params, {
+					timeoutMs: CODEX_STARTUP_RPC_TIMEOUT_MS,
+					signal: startup.signal,
+				});
 			}
 		};
 
+		let nativeResumeFallback = false;
 		const startOrResume = async (): Promise<void> => {
 			if (activeThreadId !== null && input.forkFromResume === true) {
 				// "Fork chat": branch the source thread into a NEW thread so the
@@ -1790,6 +1837,7 @@ export const startCodexSession = (
 					adoptDurableThread(forked);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
+					nativeResumeFallback = true;
 					console.warn(
 						"[codex] source rollout is unavailable; starting a replacement thread",
 					);
@@ -1804,6 +1852,7 @@ export const startCodexSession = (
 					adoptDurableThread(resumed);
 				} catch (cause) {
 					if (!isMissingCodexRollout(cause)) throw cause;
+					nativeResumeFallback = true;
 					console.warn(
 						"[codex] rollout is unavailable; starting a replacement thread",
 					);
@@ -1813,9 +1862,16 @@ export const startCodexSession = (
 				await startFreshThread();
 			}
 			try {
-				const currentGoal = await app.request<unknown>("thread/goal/get", {
-					threadId: activeThreadId,
-				});
+				const currentGoal = await app.request<unknown>(
+					"thread/goal/get",
+					{
+						threadId: activeThreadId,
+					},
+					{
+						timeoutMs: CODEX_CAPABILITY_PROBE_TIMEOUT_MS,
+						signal: startup.signal,
+					},
+				);
 				const goal = goalFromResponse(currentGoal);
 				if (goal !== null) {
 					emit({ _tag: "GoalUpdated", goal: normalizeThreadGoal(goal) });
@@ -2186,7 +2242,7 @@ export const startCodexSession = (
 					emit({ _tag: "Completed", reason: "ended" });
 					releasePendingQuestions("closed");
 					closed = true;
-					app.close();
+					await app.close();
 					return true;
 				default:
 					return false;
@@ -2275,8 +2331,17 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = notification.params.turn.id;
+					goalLifecycle.turnStarted();
 					return [
 						...cursorLifecycle.turnStarted(notification.params.threadId),
+						{
+							_tag: "NativeTurnStarted",
+							reference: {
+								provider: "codex",
+								nativeThreadId: notification.params.threadId,
+								nativeTurnId: notification.params.turn.id,
+							},
+						},
 						{ _tag: "Status", status: "running" },
 					];
 				case "turn/completed":
@@ -2295,7 +2360,19 @@ export const startCodexSession = (
 					}
 					if (notification.params.threadId !== activeThreadId) return [];
 					currentTurnId = null;
-					return [{ _tag: "Status", status: "idle" }];
+					if (
+						!goalLifecycle.turnCompleted(
+							notification.params.turn.status === "failed",
+						)
+					)
+						return [];
+					return [
+						{
+							_tag: "Status",
+							status:
+								notification.params.turn.status === "failed" ? "error" : "idle",
+						},
+					];
 				case "turn/diff/updated":
 					if (notification.params.threadId === activeThreadId) {
 						latestDiff = notification.params.diff;
@@ -2308,10 +2385,20 @@ export const startCodexSession = (
 							_tag: "GoalUpdated",
 							goal: normalizeThreadGoal(notification.params.goal),
 						},
+						...(goalLifecycle.updated(
+							normalizeThreadGoal(notification.params.goal).status,
+						)
+							? [{ _tag: "Status" as const, status: "idle" as const }]
+							: []),
 					];
 				case "thread/goal/cleared":
 					if (notification.params.threadId !== activeThreadId) return [];
-					return [{ _tag: "GoalCleared" }];
+					return [
+						{ _tag: "GoalCleared" },
+						...(goalLifecycle.cleared()
+							? [{ _tag: "Status" as const, status: "idle" as const }]
+							: []),
+					];
 				case "item/started":
 					{
 						const child = detachedAgentsByThread.get(
@@ -2661,7 +2748,37 @@ export const startCodexSession = (
 			enqueueTurn(input.initialPrompt);
 		}
 
+		const historyCheckpoints = makeCodexHistoryCheckpoints({
+			read: async (threadId) =>
+				(
+					await app.request<
+						import("./codex/generated/v2/ThreadReadResponse.ts").ThreadReadResponse
+					>("thread/read", { threadId, includeTurns: true })
+				).thread,
+			rollback: (threadId, numTurns) =>
+				app.request("thread/rollback", { threadId, numTurns }),
+		});
 		return {
+			nativeResumeFallback,
+			captureHistoryCheckpoint: () =>
+				Effect.tryPromise({
+					try: () =>
+						activeThreadId === null || currentTurnId !== null
+							? Promise.resolve(null)
+							: historyCheckpoints.capture(activeThreadId),
+					catch: (error) =>
+						error instanceof Error ? error : new Error(String(error)),
+				}),
+			restoreHistoryCheckpoint: (checkpoint) =>
+				Effect.tryPromise({
+					try: () =>
+						activeThreadId !== checkpoint.nativeThreadId ||
+						currentTurnId !== null
+							? Promise.resolve(false)
+							: historyCheckpoints.restore(checkpoint),
+					catch: (error) =>
+						error instanceof Error ? error : new Error(String(error)),
+				}),
 			events: Stream.fromQueue(events),
 			send: (text, attachmentRefs, fileRefs, skillRefs) =>
 				Effect.sync(() => {
@@ -2683,13 +2800,13 @@ export const startCodexSession = (
 					}
 				}),
 			close: () =>
-				Effect.sync(() => {
+				Effect.promise(async () => {
 					emit({ _tag: "Completed", reason: "ended" });
 					releasePendingQuestions("closed");
 					closed = true;
 					void mcpGatewaySession.close();
 					void stdioMcpFallback.close();
-					app.close();
+					await app.close();
 					Queue.endUnsafe(events);
 				}),
 			setPermissionMode: (mode) =>
@@ -2737,6 +2854,12 @@ export const startCodexSession = (
 					if (activeThreadId === null) {
 						throw new Error("Codex thread is not ready for goals.");
 					}
+					if (
+						goalInput.status === "active" ||
+						(goalInput.objective !== undefined &&
+							goalInput.status === undefined)
+					)
+						goalLifecycle.start();
 					const response = await app.request<unknown>("thread/goal/set", {
 						threadId: activeThreadId,
 						...(goalInput.objective !== undefined
@@ -2755,6 +2878,8 @@ export const startCodexSession = (
 					}
 					const normalized = normalizeThreadGoal(responseGoal);
 					emit({ _tag: "GoalUpdated", goal: normalized });
+					if (goalLifecycle.updated(normalized.status))
+						emit({ _tag: "Status", status: "idle" });
 					return normalized;
 				}),
 			clearGoal: () =>
@@ -2762,6 +2887,7 @@ export const startCodexSession = (
 					if (activeThreadId === null) return;
 					await app.request("thread/goal/clear", { threadId: activeThreadId });
 					emit({ _tag: "GoalCleared" });
+					if (goalLifecycle.cleared()) emit({ _tag: "Status", status: "idle" });
 				}),
 		};
 	});

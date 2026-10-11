@@ -1,5 +1,6 @@
 import {
 	AgentTurnId,
+	AttemptId,
 	EnvironmentId,
 	Message,
 	MessageId,
@@ -8,6 +9,7 @@ import {
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
 	emptySessionTimelineState,
@@ -27,7 +29,17 @@ const cursor = (epoch: string, version: number) => ({ epoch, version });
 const projection = SessionTimelineProjection.make({
 	messages: [],
 	status: "running",
-	currentTurn: { turnId, phase: "running" },
+	activeTurn: {
+		id: turnId,
+		ordinal: 1,
+		status: "running",
+		phase: "running",
+		attempt: { id: AttemptId.make("attempt-1"), ordinal: 1, reason: "initial" },
+		providerThreadId: null,
+		requestedAt: new Date(0),
+		completedAt: null,
+	},
+	turnCount: 1,
 	queue: QueueState.make({ items: [], paused: false }),
 	permissionMode: "default",
 	runtimeMode: "approval-required",
@@ -54,7 +66,8 @@ describe("session timeline reducer", () => {
 
 		expect(settled.projection).toMatchObject({
 			status: "idle",
-			currentTurn: null,
+			activeTurn: null,
+			turnCount: 1,
 		});
 	});
 
@@ -137,7 +150,7 @@ describe("session timeline reducer", () => {
 		expect(next.projection?.messages).toEqual([older, existing]);
 		expect(next.projection?.olderMessageSequence).toBeNull();
 		expect(next.cursor).toEqual(cursor("epoch-a", 9));
-		expect(next.appliedVersion).toBe(9);
+		expect(next.cursor?.version).toBe(9);
 	});
 
 	it("commits projection and cursor atomically before render notification", () => {
@@ -164,7 +177,7 @@ describe("session timeline reducer", () => {
 			event: { _tag: "MessagePersisted", message },
 		});
 
-		expect(next.appliedVersion).toBe(5);
+		expect(next.cursor?.version).toBe(5);
 		expect(next.cursor).toEqual(cursor("epoch-a", 5));
 		expect(next.projection?.messages).toEqual([message]);
 	});
@@ -285,7 +298,7 @@ describe("session timeline reducer", () => {
 			event: { _tag: "Noop" },
 		});
 
-		expect(next.appliedVersion).toBe(4);
+		expect(next.cursor?.version).toBe(4);
 		expect(next.phase).toBe("stale");
 		expect(next.error).toMatch(/expected version 5/i);
 	});
@@ -351,7 +364,6 @@ describe("session timeline reducer", () => {
 		expect(resetSnapshot).toMatchObject({
 			cursor: cursor("epoch-b", 12),
 			resetEpoch: null,
-			appliedVersion: 12,
 			phase: "synchronizing",
 			error: null,
 		});
@@ -395,14 +407,15 @@ describe("session timeline reducer", () => {
 			projection: SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 			}),
 		});
 		expect(resetSnapshot).toMatchObject({
 			cursor: cursor("epoch-a", 3),
 			resetEpoch: null,
 			phase: "synchronizing",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 	});
 
@@ -461,7 +474,8 @@ describe("session timeline reducer", () => {
 			projection: SessionTimelineProjection.make({
 				...projection,
 				status: "idle",
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 			}),
 		});
 		const resetLive = reduceSessionTimelineFrame(resetSnapshot, {
@@ -481,12 +495,12 @@ describe("session timeline reducer", () => {
 		expect(resetLive).toMatchObject({
 			cursor: cursor("epoch-b", 3),
 			phase: "live",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 		expect(lateOldSnapshot).toMatchObject({
 			cursor: cursor("epoch-b", 3),
 			phase: "stale",
-			projection: { status: "idle", currentTurn: null },
+			projection: { status: "idle", activeTurn: null },
 		});
 		expect(lateOldSnapshot.error).toMatch(/changed epoch/i);
 	});
@@ -528,7 +542,8 @@ describe("session timeline cache", () => {
 			cursor: cursor("epoch-cache", 8),
 			projection: SessionTimelineProjection.make({
 				...projection,
-				currentTurn: null,
+				activeTurn: null,
+				turnCount: 0,
 				messages: [message],
 			}),
 			now: 42,
@@ -552,7 +567,7 @@ describe("session timeline cache", () => {
 			sessionId: "session:local:session-1",
 			ref: { environmentId: "local", sessionId },
 			appliedVersion: 7,
-			projection,
+			projection: Schema.encodeSync(SessionTimelineProjection)(projection),
 			savedAt: 40,
 			accessedAt: 41,
 			estimatedBytes: 42,
@@ -569,7 +584,12 @@ describe("session timeline cache", () => {
 			sessionId: "session:local:session-1",
 			ref: { environmentId: "local", sessionId },
 			cursor: cursor("legacy-partial", 7),
-			projection: { ...projection, olderMessageSequence: 20 },
+			projection: Schema.encodeSync(SessionTimelineProjection)(
+				SessionTimelineProjection.make({
+					...projection,
+					olderMessageSequence: 20,
+				}),
+			),
 			savedAt: 40,
 			accessedAt: 41,
 			estimatedBytes: 42,
@@ -627,4 +647,58 @@ it("accepts a cloud head before history completes without weakening legacy count
 		});
 		expect(live.phase).toBe(background ? "live" : "stale");
 	}
+});
+
+it("accepts only live runtime evidence for the same cursor and attempt, without advancing the durable cursor", () => {
+	let state = reduceSessionTimelineFrame(emptySessionTimelineState(), {
+		kind: "snapshot",
+		sessionId,
+		throughVersion: 1,
+		cursor: cursor("engine", 1),
+		projection,
+	});
+	state = reduceSessionTimelineFrame(state, {
+		kind: "synchronized",
+		sessionId,
+		throughVersion: 1,
+		cursor: cursor("engine", 1),
+	});
+	const frame = {
+		kind: "runtime" as const,
+		sessionId,
+		cursor: cursor("engine", 1),
+		observation: {
+			state: "stalled" as const,
+			observedAt: 120000,
+			attemptId: "attempt-1",
+			lastProviderActivityAt: 0,
+		},
+	};
+	const next = reduceSessionTimelineFrame(state, frame);
+	expect(next.projection?.runtimeObservation?.state).toBe("stalled");
+	expect(next.cursor).toBe(state.cursor);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			cursor: cursor("old-engine", 1),
+		}),
+	).toBe(state);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			cursor: cursor("engine", 2),
+		}),
+	).toBe(state);
+	expect(
+		reduceSessionTimelineFrame(state, {
+			...frame,
+			observation: { ...frame.observation, attemptId: "old-attempt" },
+		}),
+	).toBe(state);
+	const cached = makeSessionTimelineCacheEntry({
+		ref: { environmentId: "local" as never, sessionId },
+		cursor: cursor("engine", 1),
+		projection: next.projection!,
+	});
+	expect(cached.projection.runtimeObservation).toBeUndefined();
 });

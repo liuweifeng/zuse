@@ -78,7 +78,13 @@ export const lookupDurableQuestionResolution = (
  */
 export const settleDurableQuestionResolution = (
 	sql: SqlClient.SqlClient,
-	provider: ProviderServiceShape,
+	provider: Pick<
+		ProviderServiceShape,
+		| "hasQuestionAttachment"
+		| "answerQuestion"
+		| "cancelQuestion"
+		| "acknowledgeQuestionResolution"
+	>,
 	sessionId: SessionId,
 	itemId: AgentItemId,
 	resolution: DurableQuestionResolution,

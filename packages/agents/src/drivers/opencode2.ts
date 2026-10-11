@@ -6,7 +6,6 @@ import { createServer } from "node:net";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-
 import {
 	type AgentEvent,
 	type AgentItemId,
@@ -24,11 +23,18 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, Stream } from "effect";
-
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
 import { isSensitivePath } from "../kernel/permission-policy.ts";
 import { CheckpointFlushScheduler } from "../kernel/provider-checkpoint-batcher.ts";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
+import {
+	type ProviderStartup,
+	withProviderStartup,
+} from "../kernel/provider-startup.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
 import type { RequestPermission } from "./claude.ts";
 import {
@@ -239,22 +245,6 @@ const findFreePort = (): Promise<number> =>
 		});
 	});
 
-const stopChild = (child: ChildProcessWithoutNullStreams): void => {
-	try {
-		if (process.platform !== "win32" && child.pid !== undefined) {
-			process.kill(-child.pid, "SIGTERM");
-			return;
-		}
-		child.kill("SIGTERM");
-	} catch {
-		try {
-			child.kill("SIGTERM");
-		} catch {
-			// ignore
-		}
-	}
-};
-
 interface Opencode2ServerProcess {
 	readonly child: ChildProcessWithoutNullStreams;
 	readonly url: string;
@@ -267,10 +257,12 @@ const spawnOpencode2Server = (
 	timeoutMs = SERVE_TIMEOUT_MS,
 	managedMcp?: import("../mcp-gateway/index.ts").McpGatewayHttpServer,
 	executionEnv?: Readonly<Record<string, string>>,
+	startup?: ProviderStartup,
 ): Promise<Opencode2ServerProcess> =>
 	findFreePort().then(
 		(port) =>
 			new Promise<Opencode2ServerProcess>((resolve, reject) => {
+				startup?.signal.throwIfAborted();
 				const args = ["serve", `--hostname=127.0.0.1`, `--port=${port}`];
 				let child: ChildProcessWithoutNullStreams;
 				try {
@@ -304,6 +296,8 @@ const spawnOpencode2Server = (
 					reject(cause);
 					return;
 				}
+				watchProviderProcess(child);
+				startup?.add(() => stopProviderProcess(child, { processGroup: true }));
 				child.stdout.setEncoding("utf-8");
 				child.stderr.setEncoding("utf-8");
 				let stdoutBuf = "";
@@ -312,7 +306,7 @@ const spawnOpencode2Server = (
 				const timer = setTimeout(() => {
 					if (settled) return;
 					settled = true;
-					stopChild(child);
+					stopProviderProcess(child, { processGroup: true });
 					const stderrTail = stderrBuf.trim().slice(-512);
 					reject(
 						new Error(
@@ -896,7 +890,7 @@ export const loadOpencode2Inventory = (
 				);
 				return inventory;
 			} finally {
-				stopChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>
@@ -921,7 +915,7 @@ const withOpencode2Server = <A>(
 				await waitForCatalog(proc.url, proc.password, cwd);
 				return await fn({ url: proc.url, password: proc.password });
 			} finally {
-				stopChild(proc.child);
+				await stopProviderProcess(proc.child, { processGroup: true });
 			}
 		},
 		catch: (cause) =>
@@ -1194,11 +1188,15 @@ export const startOpencode2Session = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
 		let currentMode: PermissionMode = input.permissionMode ?? "default";
 		let closed = false;
+		startup.add(() => {
+			closed = true;
+			Queue.endUnsafe(events);
+		});
 		const deltaState = makeDeltaState();
 		const seenToolUse = new Set<string>();
 		const toolNameById = new Map<string, string>();
@@ -1227,6 +1225,7 @@ export const startOpencode2Session = (
 					emit(event);
 			},
 		});
+		startup.add(() => checkpointScheduler.cancel());
 
 		Queue.offerUnsafe(events, {
 			_tag: "Started",
@@ -1240,349 +1239,337 @@ export const startOpencode2Session = (
 				const server = await spawnOpencode2Server(
 					opencode2Path,
 					cwd,
-					SERVE_TIMEOUT_MS,
+					undefined,
 					managedMcp,
 					input.executionEnv,
+					startup,
 				);
+				startup.signal.throwIfAborted();
 				const eventAbort = new AbortController();
-				try {
-					let opencodeSessionId: string | null = null;
-					const pendingReplies = new Set<string>();
+				startup.add(() => eventAbort.abort());
+				let opencodeSessionId: string | null = null;
+				const pendingReplies = new Set<string>();
 
-					const handleEvent = (event: Record<string, unknown>): void => {
-						if (closed) return;
-						const type = asStr(event["type"]);
-						if (type === null) return;
-						if (type === "server.connected") return;
-						const sid = eventSessionId(event);
-						if (
-							opencodeSessionId !== null &&
-							sid !== null &&
-							sid !== opencodeSessionId
-						) {
+				const handleEvent = (event: Record<string, unknown>): void => {
+					if (closed) return;
+					const type = asStr(event["type"]);
+					if (type === null) return;
+					if (type === "server.connected") return;
+					const sid = eventSessionId(event);
+					if (
+						opencodeSessionId !== null &&
+						sid !== null &&
+						sid !== opencodeSessionId
+					) {
+						return;
+					}
+					const data = eventData(event);
+					switch (type) {
+						case "session.execution.started":
+							deltaState.turnCompleted = false;
+							emit({ _tag: "Status", status: "running" });
+							return;
+						case "session.text.delta": {
+							const ordinal = data["ordinal"];
+							const msgId = asStr(data["assistantMessageID"]) ?? "text";
+							const partId = `${msgId}:text:${String(ordinal ?? 0)}`;
+							const delta = asStr(data["delta"]) ?? "";
+							if (delta.length === 0) return;
+							deltaState.textByPartId.set(
+								partId,
+								(deltaState.textByPartId.get(partId) ?? "") + delta,
+							);
+							checkpointScheduler.update(
+								[...deltaState.textByPartId.values()].reduce(
+									(n, t) => n + t.length,
+									0,
+								),
+							);
 							return;
 						}
-						const data = eventData(event);
-						switch (type) {
-							case "session.execution.started":
-								deltaState.turnCompleted = false;
-								emit({ _tag: "Status", status: "running" });
-								return;
-							case "session.text.delta": {
-								const ordinal = data["ordinal"];
-								const msgId = asStr(data["assistantMessageID"]) ?? "text";
-								const partId = `${msgId}:text:${String(ordinal ?? 0)}`;
-								const delta = asStr(data["delta"]) ?? "";
-								if (delta.length === 0) return;
-								deltaState.textByPartId.set(
-									partId,
-									(deltaState.textByPartId.get(partId) ?? "") + delta,
-								);
-								checkpointScheduler.update(
-									[...deltaState.textByPartId.values()].reduce(
-										(n, t) => n + t.length,
-										0,
-									),
-								);
-								return;
-							}
-							case "session.text.ended": {
-								const ordinal = data["ordinal"];
-								const msgId = asStr(data["assistantMessageID"]) ?? "text";
-								const partId = `${msgId}:text:${String(ordinal ?? 0)}`;
-								const text = asStr(data["text"]);
-								if (text !== null) deltaState.textByPartId.set(partId, text);
-								return;
-							}
-							case "session.reasoning.delta": {
-								const ordinal = data["ordinal"];
-								const msgId = asStr(data["assistantMessageID"]) ?? "think";
-								const partId = `${msgId}:reasoning:${String(ordinal ?? 0)}`;
-								const delta = asStr(data["delta"]) ?? "";
-								if (delta.length === 0) return;
-								deltaState.reasoningByPartId.set(
-									partId,
-									(deltaState.reasoningByPartId.get(partId) ?? "") + delta,
-								);
-								checkpointScheduler.update(
-									[...deltaState.reasoningByPartId.values()].reduce(
-										(n, t) => n + t.length,
-										0,
-									),
-								);
-								return;
-							}
-							case "session.reasoning.ended": {
-								const ordinal = data["ordinal"];
-								const msgId = asStr(data["assistantMessageID"]) ?? "think";
-								const partId = `${msgId}:reasoning:${String(ordinal ?? 0)}`;
-								const text = asStr(data["text"]);
-								if (text !== null)
-									deltaState.reasoningByPartId.set(partId, text);
-								return;
-							}
-							case "session.tool.input.started": {
-								const id = asStr(data["id"]);
-								const name = asStr(data["name"]) ?? "tool";
-								if (id !== null) toolNameById.set(id, name);
-								return;
-							}
-							case "session.tool.called": {
-								const id = asStr(data["id"]);
-								if (id === null || seenToolUse.has(id)) return;
-								seenToolUse.add(id);
-								const name =
-									asStr(data["name"]) ?? toolNameById.get(id) ?? "tool";
-								const tool = canonicalToolName(name);
-								emit({
-									_tag: "ToolUse",
-									itemId: id as AgentItemId,
-									tool,
-									input: canonicalizeToolInput(tool, data["input"], null),
-								});
-								return;
-							}
-							case "session.tool.success": {
-								const id = asStr(data["id"]);
-								if (id === null) return;
-								emit({
-									_tag: "ToolResult",
-									itemId: id as AgentItemId,
-									output: toolContentText(data["content"]),
-									isError: false,
-								});
-								return;
-							}
-							case "session.tool.error":
-							case "session.tool.failed": {
-								const id = asStr(data["id"]);
-								if (id === null) return;
-								const err = data["error"];
-								const message =
-									err !== null && typeof err === "object" && "message" in err
-										? String((err as { message?: unknown }).message ?? "error")
-										: toolContentText(data["content"]) || "Tool failed";
-								emit({
-									_tag: "ToolResult",
-									itemId: id as AgentItemId,
-									output: message,
-									isError: true,
-								});
-								return;
-							}
-							case "session.step.ended": {
-								const tokens = data["tokens"] as
-									| {
-											input?: number;
-											output?: number;
-											reasoning?: number;
-											cache?: { read?: number; write?: number };
-									  }
-									| undefined;
-								const model = data["model"] as
-									| { id?: string; providerID?: string }
-									| undefined;
-								if (tokens !== undefined) {
-									emit({
-										_tag: "UsageDelta",
-										inputTokens: tokens.input ?? 0,
-										outputTokens:
-											(tokens.output ?? 0) + (tokens.reasoning ?? 0),
-										cacheReadTokens: tokens.cache?.read ?? 0,
-										cacheCreationTokens: tokens.cache?.write ?? 0,
-										model:
-											model?.providerID !== undefined && model.id !== undefined
-												? `${model.providerID}/${model.id}`
-												: (asStr(model?.id) ?? input.model ?? "unknown"),
-									});
-								}
-								return;
-							}
-							case "session.execution.succeeded": {
-								checkpointScheduler.cancel();
-								for (const evt of checkpointDeltaState(deltaState, true))
-									emit(evt);
-								if (!deltaState.turnCompleted) {
-									deltaState.turnCompleted = true;
-									emit({ _tag: "Status", status: "idle" });
-									emit({ _tag: "Completed", reason: "ended" });
-								}
-								releaseTurnGate();
-								return;
-							}
-							case "session.execution.failed": {
-								checkpointScheduler.cancel();
-								for (const evt of checkpointDeltaState(deltaState, true))
-									emit(evt);
-								const message =
-									asStr(data["message"]) ??
-									asStr(
-										(data["error"] as { message?: string } | undefined)
-											?.message,
-									) ??
-									"OpenCode 2 reported an error on this turn.";
-								emit({
-									_tag: "Error",
-									message,
-									providerId: PROVIDER_ID,
-								});
-								if (!deltaState.turnCompleted) {
-									deltaState.turnCompleted = true;
-									emit({ _tag: "Status", status: "idle" });
-									emit({ _tag: "Completed", reason: "error" });
-								}
-								releaseTurnGate();
-								return;
-							}
-							case "session.execution.interrupted": {
-								checkpointScheduler.cancel();
-								for (const evt of checkpointDeltaState(deltaState, true))
-									emit(evt);
-								emit({ _tag: "Interrupted" });
-								if (!deltaState.turnCompleted) {
-									deltaState.turnCompleted = true;
-									emit({ _tag: "Status", status: "idle" });
-									emit({ _tag: "Completed", reason: "interrupted" });
-								}
-								releaseTurnGate();
-								return;
-							}
-							case "session.permission.asked":
-							case "session.permission.requested":
-							case "permission.asked":
-							case "permission.updated": {
-								const permId =
-									asStr(permissionPayload(data)["id"]) ?? asStr(data["id"]);
-								const extracted = extractOpencode2Permission(data);
-								if (permId !== null) {
-									emit({
-										_tag: "PermissionRequest",
-										itemId: permId as AgentItemId,
-										kind: extracted.action,
-										details: data,
-									});
-									if (
-										opencodeSessionId !== null &&
-										!pendingReplies.has(permId)
-									) {
-										pendingReplies.add(permId);
-										void (async () => {
-											let reply: "once" | "always" | "reject" = "once";
-											if (requestPermission !== null) {
-												const decision = await requestPermission(
-													sessionId,
-													classifyOpencode2Permission(
-														extracted.action,
-														extracted.resource,
-													),
-													{
-														forcePrompt: extracted.sensitive,
-													},
-												);
-												reply = permissionReplyFor(decision._tag);
-											}
-											await requestJson(
-												server.url,
-												server.password,
-												`/api/session/${opencodeSessionId}/permission/${permId}/reply`,
-												{
-													method: "POST",
-													body: { reply },
-												},
-											);
-										})().catch((cause) => {
-											dlog(
-												`permission reply failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-											);
-										});
-									}
-								}
-								return;
-							}
-							default:
-								return;
+						case "session.text.ended": {
+							const ordinal = data["ordinal"];
+							const msgId = asStr(data["assistantMessageID"]) ?? "text";
+							const partId = `${msgId}:text:${String(ordinal ?? 0)}`;
+							const text = asStr(data["text"]);
+							if (text !== null) deltaState.textByPartId.set(partId, text);
+							return;
 						}
-					};
-
-					subscribeSse(
-						server.url,
-						server.password,
-						"/api/event",
-						handleEvent,
-						(message) => {
-							if (closed) return;
+						case "session.reasoning.delta": {
+							const ordinal = data["ordinal"];
+							const msgId = asStr(data["assistantMessageID"]) ?? "think";
+							const partId = `${msgId}:reasoning:${String(ordinal ?? 0)}`;
+							const delta = asStr(data["delta"]) ?? "";
+							if (delta.length === 0) return;
+							deltaState.reasoningByPartId.set(
+								partId,
+								(deltaState.reasoningByPartId.get(partId) ?? "") + delta,
+							);
+							checkpointScheduler.update(
+								[...deltaState.reasoningByPartId.values()].reduce(
+									(n, t) => n + t.length,
+									0,
+								),
+							);
+							return;
+						}
+						case "session.reasoning.ended": {
+							const ordinal = data["ordinal"];
+							const msgId = asStr(data["assistantMessageID"]) ?? "think";
+							const partId = `${msgId}:reasoning:${String(ordinal ?? 0)}`;
+							const text = asStr(data["text"]);
+							if (text !== null) deltaState.reasoningByPartId.set(partId, text);
+							return;
+						}
+						case "session.tool.input.started": {
+							const id = asStr(data["id"]);
+							const name = asStr(data["name"]) ?? "tool";
+							if (id !== null) toolNameById.set(id, name);
+							return;
+						}
+						case "session.tool.called": {
+							const id = asStr(data["id"]);
+							if (id === null || seenToolUse.has(id)) return;
+							seenToolUse.add(id);
+							const name =
+								asStr(data["name"]) ?? toolNameById.get(id) ?? "tool";
+							const tool = canonicalToolName(name);
+							emit({
+								_tag: "ToolUse",
+								itemId: id as AgentItemId,
+								tool,
+								input: canonicalizeToolInput(tool, data["input"], null),
+							});
+							return;
+						}
+						case "session.tool.success": {
+							const id = asStr(data["id"]);
+							if (id === null) return;
+							emit({
+								_tag: "ToolResult",
+								itemId: id as AgentItemId,
+								output: toolContentText(data["content"]),
+								isError: false,
+							});
+							return;
+						}
+						case "session.tool.error":
+						case "session.tool.failed": {
+							const id = asStr(data["id"]);
+							if (id === null) return;
+							const err = data["error"];
+							const message =
+								err !== null && typeof err === "object" && "message" in err
+									? String((err as { message?: unknown }).message ?? "error")
+									: toolContentText(data["content"]) || "Tool failed";
+							emit({
+								_tag: "ToolResult",
+								itemId: id as AgentItemId,
+								output: message,
+								isError: true,
+							});
+							return;
+						}
+						case "session.step.ended": {
+							const tokens = data["tokens"] as
+								| {
+										input?: number;
+										output?: number;
+										reasoning?: number;
+										cache?: { read?: number; write?: number };
+								  }
+								| undefined;
+							const model = data["model"] as
+								| { id?: string; providerID?: string }
+								| undefined;
+							if (tokens !== undefined) {
+								emit({
+									_tag: "UsageDelta",
+									inputTokens: tokens.input ?? 0,
+									outputTokens: (tokens.output ?? 0) + (tokens.reasoning ?? 0),
+									cacheReadTokens: tokens.cache?.read ?? 0,
+									cacheCreationTokens: tokens.cache?.write ?? 0,
+									model:
+										model?.providerID !== undefined && model.id !== undefined
+											? `${model.providerID}/${model.id}`
+											: (asStr(model?.id) ?? input.model ?? "unknown"),
+								});
+							}
+							return;
+						}
+						case "session.execution.succeeded": {
+							checkpointScheduler.cancel();
+							for (const evt of checkpointDeltaState(deltaState, true))
+								emit(evt);
+							if (!deltaState.turnCompleted) {
+								deltaState.turnCompleted = true;
+								emit({ _tag: "Status", status: "idle" });
+								emit({ _tag: "Completed", reason: "ended" });
+							}
+							releaseTurnGate();
+							return;
+						}
+						case "session.execution.failed": {
+							checkpointScheduler.cancel();
+							for (const evt of checkpointDeltaState(deltaState, true))
+								emit(evt);
+							const message =
+								asStr(data["message"]) ??
+								asStr(
+									(data["error"] as { message?: string } | undefined)?.message,
+								) ??
+								"OpenCode 2 reported an error on this turn.";
 							emit({
 								_tag: "Error",
 								message,
 								providerId: PROVIDER_ID,
 							});
+							if (!deltaState.turnCompleted) {
+								deltaState.turnCompleted = true;
+								emit({ _tag: "Status", status: "idle" });
+								emit({ _tag: "Completed", reason: "error" });
+							}
 							releaseTurnGate();
-						},
-						eventAbort.signal,
-					);
-
-					const createBody: Record<string, unknown> = {
-						title: "Zuse session",
-						location: { directory: cwd },
-					};
-					const agentOpt = input.modelOptions?.["agent"];
-					const initialAgent =
-						currentMode === "plan"
-							? "plan"
-							: agentOpt && agentOpt.length > 0
-								? agentOpt
-								: "build";
-					createBody["agent"] = initialAgent;
-					const { providerID, modelID } = splitModelSlug(input.model);
-					const variantOpt = input.modelOptions?.["reasoning"];
-					if (providerID !== null && modelID !== null) {
-						createBody["model"] = {
-							id: modelID,
-							providerID,
-							...(variantOpt && variantOpt.length > 0
-								? { variant: variantOpt }
-								: {}),
-						};
-					}
-
-					let sid: string | null = null;
-					if (resumeCursor !== null && resumeCursor.startsWith("ses")) {
-						try {
-							const existing = await requestJson(
-								server.url,
-								server.password,
-								`/api/session/${resumeCursor}`,
-							);
-							const info = unwrapData(existing) as { id?: unknown };
-							sid = asStr(info.id);
-						} catch {
-							sid = null;
+							return;
 						}
+						case "session.execution.interrupted": {
+							checkpointScheduler.cancel();
+							for (const evt of checkpointDeltaState(deltaState, true))
+								emit(evt);
+							emit({ _tag: "Interrupted" });
+							if (!deltaState.turnCompleted) {
+								deltaState.turnCompleted = true;
+								emit({ _tag: "Status", status: "idle" });
+								emit({ _tag: "Completed", reason: "interrupted" });
+							}
+							releaseTurnGate();
+							return;
+						}
+						case "session.permission.asked":
+						case "session.permission.requested":
+						case "permission.asked":
+						case "permission.updated": {
+							const permId =
+								asStr(permissionPayload(data)["id"]) ?? asStr(data["id"]);
+							const extracted = extractOpencode2Permission(data);
+							if (permId !== null) {
+								emit({
+									_tag: "PermissionRequest",
+									itemId: permId as AgentItemId,
+									kind: extracted.action,
+									details: data,
+								});
+								if (opencodeSessionId !== null && !pendingReplies.has(permId)) {
+									pendingReplies.add(permId);
+									void (async () => {
+										let reply: "once" | "always" | "reject" = "once";
+										if (requestPermission !== null) {
+											const decision = await requestPermission(
+												sessionId,
+												classifyOpencode2Permission(
+													extracted.action,
+													extracted.resource,
+												),
+												{
+													forcePrompt: extracted.sensitive,
+												},
+											);
+											reply = permissionReplyFor(decision._tag);
+										}
+										await requestJson(
+											server.url,
+											server.password,
+											`/api/session/${opencodeSessionId}/permission/${permId}/reply`,
+											{
+												method: "POST",
+												body: { reply },
+											},
+										);
+									})().catch((cause) => {
+										dlog(
+											`permission reply failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+										);
+									});
+								}
+							}
+							return;
+						}
+						default:
+							return;
 					}
-					if (sid === null) {
-						const created = await requestJson(
+				};
+
+				subscribeSse(
+					server.url,
+					server.password,
+					"/api/event",
+					handleEvent,
+					(message) => {
+						if (closed) return;
+						emit({
+							_tag: "Error",
+							message,
+							providerId: PROVIDER_ID,
+						});
+						releaseTurnGate();
+					},
+					eventAbort.signal,
+				);
+
+				const createBody: Record<string, unknown> = {
+					title: "Zuse session",
+					location: { directory: cwd },
+				};
+				const agentOpt = input.modelOptions?.["agent"];
+				const initialAgent =
+					currentMode === "plan"
+						? "plan"
+						: agentOpt && agentOpt.length > 0
+							? agentOpt
+							: "build";
+				createBody["agent"] = initialAgent;
+				const { providerID, modelID } = splitModelSlug(input.model);
+				const variantOpt = input.modelOptions?.["reasoning"];
+				if (providerID !== null && modelID !== null) {
+					createBody["model"] = {
+						id: modelID,
+						providerID,
+						...(variantOpt && variantOpt.length > 0
+							? { variant: variantOpt }
+							: {}),
+					};
+				}
+
+				let sid: string | null = null;
+				if (resumeCursor !== null && resumeCursor.startsWith("ses")) {
+					try {
+						const existing = await requestJson(
 							server.url,
 							server.password,
-							"/api/session",
-							{ method: "POST", body: createBody },
+							`/api/session/${resumeCursor}`,
 						);
-						const info = unwrapData(created) as { id?: unknown };
+						const info = unwrapData(existing) as { id?: unknown };
 						sid = asStr(info.id);
-					}
-					if (sid === null) {
-						throw new Error("opencode2 session.create returned no session id");
-					}
-					opencodeSessionId = sid;
-					return { server, eventAbort, sid };
-				} catch (cause) {
-					try {
-						eventAbort.abort();
 					} catch {
-						// ignore
+						sid = null;
 					}
-					stopChild(server.child);
-					throw cause;
 				}
+				if (sid === null) {
+					startup.signal.throwIfAborted();
+					const created = await requestJson(
+						server.url,
+						server.password,
+						"/api/session",
+						{ method: "POST", body: createBody },
+					);
+					const info = unwrapData(created) as { id?: unknown };
+					sid = asStr(info.id);
+				}
+				if (sid === null) {
+					throw new Error("opencode2 session.create returned no session id");
+				}
+				opencodeSessionId = sid;
+				return { server, eventAbort, sid };
 			},
 			catch: (cause) =>
 				new AgentSessionStartError({
@@ -1815,7 +1802,9 @@ export const startOpencode2Session = (
 					} catch {
 						// ignore
 					}
-					stopChild(server.child);
+					yield* Effect.promise(() =>
+						stopProviderProcess(server.child, { processGroup: true }),
+					);
 					yield* Queue.end(events);
 				}),
 			setPermissionMode: (mode) =>

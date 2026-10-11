@@ -1,3 +1,4 @@
+import { nativePlanRecoveryState } from "@zuse/client-runtime/plan-interactions";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { EnvironmentId, SessionId } from "@zuse/contracts";
@@ -101,8 +102,13 @@ export function PlanApprovalTray({
 	const messages = timeline.messages;
 	const nativeRequest = useMemo(
 		() =>
-			pendingRequest === null ? findPendingNativePlanApproval(messages) : null,
-		[messages, pendingRequest, uiMessage],
+			pendingRequest === null
+				? findPendingNativePlanApproval(
+						messages,
+						timeline.presentation.interactions.map((i) => i.interaction),
+					)
+				: null,
+		[messages, pendingRequest, timeline.presentation.interactions, uiMessage],
 	);
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
 	const sourceSession = useActiveSessionById(sessionId);
@@ -196,8 +202,21 @@ export function PlanApprovalTray({
 		});
 	};
 
-	if (pendingRequest === null && nativeRequest === null && !emulatedPlanReady)
-		return null;
+	if (pendingRequest === null && nativeRequest === null && !emulatedPlanReady) {
+		const recovery = nativePlanRecoveryState(
+			messages,
+			timeline.presentation.interactions.map((i) => i.interaction),
+		);
+		return recovery === null ? null : (
+			<div role="status" className="px-3 py-2 text-xs text-muted-foreground">
+				{uiMessage(
+					recovery === "uncertain"
+						? "chat:plan_delivery_uncertain"
+						: "chat:plan_expired",
+				)}
+			</div>
+		);
+	}
 	const isPermissionBacked = pendingRequest !== null;
 	const permissionSubmitting = pendingRequest?.submission === "submitting";
 	const interactionSubmitting = submitting || permissionSubmitting;

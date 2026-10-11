@@ -27,6 +27,11 @@ import type {
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
 import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	stopProviderProcess,
+	watchProviderProcess,
+} from "../kernel/provider-process.ts";
+import { withProviderStartup } from "../kernel/provider-startup.ts";
 import { makeStdioMcpFallback } from "../kernel/stdio-mcp-fallback.ts";
 import { makeBoundedQuestionCallbackRegistry } from "../kernel/user-question-answer.ts";
 import { prefixFirstPromptWithWorkspaceInstructions } from "../kernel/workspace-instructions.ts";
@@ -118,13 +123,16 @@ export interface GrokSessionHandle extends GoalCapableSessionHandle {
 		toolCallId: AgentItemId,
 		outcome: PlanApprovalOutcome,
 		feedback?: string,
-	) => Effect.Effect<void>;
+	) => Effect.Effect<void, Error>;
 	/**
 	 * Goal control is sent through native slash commands; state is sourced only
 	 * from typed `goal_updated` notifications.
 	 */
 	readonly getGoal: () => Effect.Effect<ThreadGoal | null>;
-	readonly setGoal: (goal: ThreadGoalSetInput) => Effect.Effect<ThreadGoal>;
+	readonly setGoal: (
+		goal: ThreadGoalSetInput,
+		options?: { readonly execute?: boolean },
+	) => Effect.Effect<ThreadGoal>;
 	readonly clearGoal: () => Effect.Effect<void>;
 }
 
@@ -205,7 +213,7 @@ export const startGrokSession = (
 	AgentSessionStartError,
 	AttachmentService
 > =>
-	Effect.gen(function* () {
+	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
@@ -228,8 +236,9 @@ export const startGrokSession = (
 				});
 			}
 		};
+		startup.add(() => releaseGatewayQuestions("closed"));
 
-		const mcpGatewaySession = yield* issueProviderMcpSession({
+		const mcpGatewaySession = yield* issueProviderMcpSession(startup, {
 			providerId: "grok",
 			sessionId,
 			cwd,
@@ -283,6 +292,7 @@ export const startGrokSession = (
 			endpoint: mcpGatewaySession.endpoint,
 			token: mcpGatewaySession.token,
 		});
+		startup.add(() => stdioMcpFallback.close());
 		let acpSessionId: string | null = null;
 		const configuredHome = process.env.GROK_HOME?.trim();
 		const providerHome =
@@ -403,6 +413,7 @@ export const startGrokSession = (
 			lifecycle.transition(
 				lifecycle.current() === "start" ? "authentication" : "reconnecting",
 			);
+			startup.signal.throwIfAborted();
 			const generation = ++connectionGeneration;
 			const nextChild = spawn(grokPath, grokAgentArgs(getRuntimeMode()), {
 				cwd,
@@ -416,12 +427,16 @@ export const startGrokSession = (
 					...GROK_NATIVE_MCP_DISABLED_ENV,
 					...(apiKey !== null ? { GROK_CODE_XAI_API_KEY: apiKey } : {}),
 				},
+				detached: process.platform !== "win32",
 				stdio: ["pipe", "pipe", "pipe"],
 			});
+			watchProviderProcess(nextChild);
+			startup.add(() => stopProviderProcess(nextChild, { processGroup: true }));
 			stderrTail = "";
 			nextChild.stdout.setEncoding("utf-8");
 			nextChild.stderr.setEncoding("utf-8");
 			const nextRl = readline.createInterface({ input: nextChild.stdout });
+			startup.add(() => nextRl.close());
 			child = nextChild;
 			rl = nextRl;
 			attachListeners(nextChild, nextRl, generation);
@@ -429,7 +444,7 @@ export const startGrokSession = (
 				return await runHandshake(cursor);
 			} catch (cause) {
 				nextRl.close();
-				nextChild.kill("SIGTERM");
+				await stopProviderProcess(nextChild, { processGroup: true });
 				throw cause;
 			}
 		};
@@ -446,6 +461,11 @@ export const startGrokSession = (
 		};
 
 		const rpc = new AcpRpcClient(writeMessage);
+		startup.add(() => {
+			closed = true;
+			rpc.rejectAll(new Error("Provider startup cancelled"));
+			Queue.endUnsafe(events);
+		});
 		const userQuestions = makeAcpUserQuestionRegistry({
 			send: writeMessage,
 			emit: (event) => Queue.offerUnsafe(events, event),
@@ -455,6 +475,9 @@ export const startGrokSession = (
 					itemId,
 					reason,
 				}),
+		});
+		startup.add(() => {
+			userQuestions.discardAll();
 		});
 		const request = (
 			method: string,
@@ -975,19 +998,7 @@ export const startGrokSession = (
 					providerId: "grok",
 					reason: cause instanceof Error ? cause.message : String(cause),
 				}),
-		}).pipe(
-			Effect.tapError(() =>
-				Effect.sync(() => {
-					try {
-						child?.kill("SIGTERM");
-					} catch {
-						// ignore — child may not be alive
-					}
-					void mcpGatewaySession.close();
-					void stdioMcpFallback.close();
-				}),
-			),
-		);
+		});
 		acpSessionId = initialAcquisition.sessionId;
 		Queue.offerUnsafe(events, {
 			_tag: "SessionCursor",
@@ -1157,7 +1168,7 @@ export const startGrokSession = (
 							// reloads the same durable ACP conversation.
 							dead = true;
 							try {
-								child.kill("SIGTERM");
+								await stopProviderProcess(child, { processGroup: true });
 							} catch {
 								// Child may already be closing after the auth failure.
 							}
@@ -1268,7 +1279,9 @@ export const startGrokSession = (
 					} catch {
 						// ignore — stdin may already be closed by the child
 					}
-					child.kill("SIGTERM");
+					yield* Effect.promise(() =>
+						stopProviderProcess(child, { processGroup: true }),
+					);
 					rl.close();
 					yield* Effect.promise(() => mcpGatewaySession.close());
 					yield* Effect.promise(() => stdioMcpFallback.close());
@@ -1316,29 +1329,33 @@ export const startGrokSession = (
 					userQuestions.acknowledge(itemId);
 				}),
 			respondToPlan: (toolCallId, outcome, feedback) =>
-				Effect.sync(() => {
-					const pending = pendingPlanResponses.get(toolCallId);
-					if (pending === undefined)
-						throw new Error(`No pending Grok plan approval ${toolCallId}.`);
-					writeMessage({
-						jsonrpc: "2.0",
-						id: pending.rpcId,
-						result: {
-							outcome,
-							...(feedback === undefined || feedback.trim().length === 0
-								? {}
-								: { feedback: feedback.trim() }),
-						},
-					});
-					pendingPlanResponses.delete(toolCallId);
-					lifecycle.transition("running");
+				Effect.try({
+					try: () => {
+						const pending = pendingPlanResponses.get(toolCallId);
+						if (pending === undefined)
+							throw new Error(`No pending Grok plan approval ${toolCallId}.`);
+						writeMessage({
+							jsonrpc: "2.0",
+							id: pending.rpcId,
+							result: {
+								outcome,
+								...(feedback === undefined || feedback.trim().length === 0
+									? {}
+									: { feedback: feedback.trim() }),
+							},
+						});
+						pendingPlanResponses.delete(toolCallId);
+						lifecycle.transition("running");
+					},
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
 				}),
 			acknowledgeProviderEventCursor: (cursor) =>
 				Effect.sync(() => eventCursor.commit(cursor)),
 			releaseProviderEventCursor: (cursor) =>
 				Effect.sync(() => eventCursor.release(cursor)),
 			getGoal: () => Effect.sync(() => currentGoal),
-			setGoal: (goalInput) =>
+			setGoal: (goalInput, options) =>
 				Effect.sync(() => {
 					const now = Date.now();
 					const objective = (
@@ -1362,14 +1379,22 @@ export const startGrokSession = (
 						createdAt: currentGoal?.createdAt ?? now,
 						updatedAt: now,
 					});
-					if (currentGoal === null && objective.length > 0) {
+					if (
+						objective.length > 0 &&
+						(currentGoal === null ||
+							(goalInput.objective !== undefined &&
+								objective !== currentGoal.objective))
+					) {
 						const budget = goal.tokenBudget;
 						enqueuePrompt(
 							`/goal ${objective}${budget === null ? "" : ` --budget ${budget}`}`,
 						);
 					} else if (status === "paused" && previousStatus !== "paused") {
 						enqueuePrompt("/goal pause");
-					} else if (status === "active" && previousStatus === "paused") {
+					} else if (
+						status === "active" &&
+						(options?.execute === true || previousStatus === "paused")
+					) {
 						enqueuePrompt("/goal resume");
 					}
 					return goal;

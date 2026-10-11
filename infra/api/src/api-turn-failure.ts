@@ -1,7 +1,7 @@
 import {
 	CLOUD_TRANSCRIPT_CHECKPOINT_SCHEMA_VERSION,
 	CloudAuthProvider,
-	CloudTranscriptCheckpointPayload,
+	CloudTranscriptCheckpointReadPayload,
 } from "@zuse/contracts";
 import {
 	cloudTranscriptAdditionalData,
@@ -54,7 +54,7 @@ export const readApiTurnFailure = Effect.fn("readApiTurnFailure")(function* (
 		workspace.wrappedTranscriptKey,
 	);
 	const payload = yield* Effect.tryPromise(async () =>
-		Schema.decodeUnknownSync(CloudTranscriptCheckpointPayload)(
+		Schema.decodeUnknownSync(CloudTranscriptCheckpointReadPayload)(
 			JSON.parse(
 				new TextDecoder().decode(
 					await decryptCloudTranscript({
@@ -82,7 +82,9 @@ export const readApiTurnFailure = Effect.fn("readApiTurnFailure")(function* (
 	const projection = payload.projection;
 	if (
 		projection.status !== "error" ||
-		(projection.currentTurn !== null &&
+		(projection.activeTurn != null &&
+			projection.activeTurn.id !== submitted.turnId) ||
+		(projection.currentTurn != null &&
 			projection.currentTurn.turnId !== submitted.turnId)
 	)
 		return undefined;
@@ -97,7 +99,8 @@ export const readApiTurnFailure = Effect.fn("readApiTurnFailure")(function* (
 	if (
 		(user
 			? user.id !== submitted.messageId && user.id !== launchMessageId
-			: projection.currentTurn?.turnId !== submitted.turnId) ||
+			: (projection.activeTurn?.id ?? projection.currentTurn?.turnId) !==
+				submitted.turnId) ||
 		!error ||
 		error.createdAt < new Date(submitted.createdAtMs) ||
 		error.role !== "system" ||

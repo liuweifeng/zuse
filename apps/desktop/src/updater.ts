@@ -94,10 +94,24 @@ let updateCheckInFlight: Promise<void> | null = null;
 let automaticCheckRetryTimer: NodeJS.Timeout | null = null;
 
 // Set for the brief window between "the app is quitting to install an update"
-// and process exit. The `before-quit` agent guard in main.ts reads this so an
-// update-driven quit doesn't pop the "N agents are running — quit anyway?"
-// confirmation (the user already opted into restarting from the toast).
+// and process exit. The desktop quit handler uses this to avoid starting a
+// second installation while the native updater owns shutdown.
 let installingUpdate = false;
+let preparingEngine = false;
+let enginePreparationFailure: { readonly error: unknown } | null = null;
+let skipPendingInstallOnce = false;
+let engineUpdateLifecycle: {
+	prepare: () => Promise<"stopped" | "busy">;
+	resume: () => void;
+} | null = null;
+
+/** All update entry points must release the independent engine before replacing its files. */
+export function setEngineUpdateLifecycle(
+	lifecycle: NonNullable<typeof engineUpdateLifecycle>,
+): void {
+	engineUpdateLifecycle = lifecycle;
+}
+
 // Native checks cannot be cancelled. Keep ownership of the feed through a
 // timeout and, once staged, until restart: Squirrel cannot replace that bundle.
 let nativeStage: {
@@ -106,19 +120,20 @@ let nativeStage: {
 } | null = null;
 
 function updateFeedLocked(): boolean {
-	return installingUpdate || nativeStage !== null;
+	return preparingEngine || installingUpdate || nativeStage !== null;
 }
 
 /**
  * True once `installUpdate()` has kicked off the quit-and-install sequence.
- * The main-process quit guard checks this to skip its agent confirmation.
+ * The main-process quit handler uses this to finish native resource cleanup.
  */
 export function getIsInstallingUpdate(): boolean {
 	return installingUpdate;
 }
 
 /**
- * On macOS we deliberately do not let electron-updater hand a download to
+ * All platforms wait for a safe engine shutdown before installation. On
+ * macOS we deliberately do not let electron-updater hand a download to
  * Squirrel until the app is actually quitting. Squirrel keeps the first
  * staged update for the lifetime of the process, which otherwise means a
  * newer release discovered later cannot replace it.
@@ -127,6 +142,11 @@ export function getIsInstallingUpdate(): boolean {
  * updater will start a fresh quit after Squirrel has staged the latest file.
  */
 export function installPendingUpdateOnQuit(): boolean {
+	if (skipPendingInstallOnce) {
+		skipPendingInstallOnce = false;
+		return false;
+	}
+	if (preparingEngine) return true;
 	if (
 		!shouldInstallPendingUpdateOnQuit({
 			platform: process.platform,
@@ -137,25 +157,59 @@ export function installPendingUpdateOnQuit(): boolean {
 		return false;
 	}
 
-	installUpdate();
+	void installUpdate(true);
 	return true;
 }
 
 /**
  * Single entry point for "quit, install the downloaded update, relaunch".
  * Both the renderer IPC (`UPDATE_INSTALL_CHANNEL`) and the native menu route
- * through here so the `installingUpdate` guard is always set before the app
- * begins tearing down — otherwise the `before-quit` handler would treat the
- * install as a user quit and block it behind the agent confirmation.
+ * through here so engine shutdown finishes before any native installer can
+ * replace the executable files. Busy engines continue independently of the UI.
  */
-export function installUpdate(): void {
+export async function installUpdate(quitIfBusy = false): Promise<void> {
 	if (
 		coordinator.switching ||
+		preparingEngine ||
 		lastStatus.kind !== "ready" ||
 		installingUpdate ||
 		(nativeStage !== null && nativeStage.kind !== "ready")
 	)
 		return;
+	preparingEngine = true;
+	enginePreparationFailure = null;
+	try {
+		if (engineUpdateLifecycle === null)
+			throw new Error("The engine update lifecycle is unavailable.");
+		const result = await engineUpdateLifecycle.prepare();
+		const failure = readEnginePreparationFailure();
+		if (failure !== null) throw failure.error;
+		if (result === "busy") {
+			engineUpdateLifecycle.resume();
+			if (quitIfBusy) {
+				preparingEngine = false;
+				skipPendingInstallOnce = true;
+				app.quit();
+			} else
+				emit({
+					kind: "error",
+					message:
+						"Active engine work must finish before this update can be installed.",
+					retryable: true,
+				});
+			return;
+		}
+	} catch (error) {
+		preparingEngine = false;
+		if (quitIfBusy) {
+			engineUpdateLifecycle?.resume();
+			skipPendingInstallOnce = true;
+			app.quit();
+		} else failUpdateInstall(error);
+		return;
+	} finally {
+		preparingEngine = false;
+	}
 	installingUpdate = true;
 	clearAutomaticCheckRetry();
 	try {
@@ -195,6 +249,7 @@ function nativeStagingTimedOut(): void {
 	if (nativeStage?.kind !== "pending") return;
 	nativeStage.kind = "timed-out";
 	installingUpdate = false;
+	engineUpdateLifecycle?.resume();
 	nativeUpdater.removeListener(
 		"before-quit-for-update",
 		armInstallExitWatchdog,
@@ -256,7 +311,17 @@ function quitAfterNativeStaging(): void {
 }
 
 /** Release timers and callbacks so an unsuccessful install can be retried. */
+function readEnginePreparationFailure(): { readonly error: unknown } | null {
+	return enginePreparationFailure;
+}
+
 function failUpdateInstall(error: unknown): void {
+	if (preparingEngine) {
+		// A background updater error cannot release the attachment barrier while
+		// engine shutdown is still in flight, or a reconnect could create a new owner.
+		enginePreparationFailure = { error };
+		return;
+	}
 	clearNativeStagingTimer();
 	if (nativeStage?.kind !== "ready") nativeStage = null;
 	if (installExitTimer !== null) clearTimeout(installExitTimer);
@@ -273,6 +338,7 @@ function failUpdateInstall(error: unknown): void {
 		);
 	}
 	installingUpdate = false;
+	engineUpdateLifecycle?.resume();
 	console.error("[zuse:updater] install failed", error);
 	emit({
 		kind: "error",

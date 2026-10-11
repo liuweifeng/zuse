@@ -149,7 +149,10 @@ describe("cloud workspace runtime ready status", () => {
 		expect(JSON.stringify(summary)).not.toContain("private");
 	});
 
-	it("publishes an acknowledged warm resume as fully running", () => {
+	it.each([
+		"agent-running",
+		"ready",
+	])("publishes an acknowledged runtime as fully running (%s)", (statusCode) => {
 		const summary = publicCloudWorkspaceSummary(
 			{
 				workspaceId: "workspace-1",
@@ -160,7 +163,7 @@ describe("cloud workspace runtime ready status", () => {
 				state: "ready",
 				desiredState: "ready",
 				runtimeState: "online",
-				statusCode: "agent-running",
+				statusCode,
 				chatId: "chat-1",
 				initialSessionId: "session-1",
 				branch: "zuse/workspace-1",

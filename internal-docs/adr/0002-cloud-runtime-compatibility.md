@@ -27,10 +27,11 @@ would instead turn an ordinary desktop or Relay release into a reconnect loop.
    account image is not proof that the sandbox is gone.
 3. **Gateway framing and runtime RPC compatibility are distinct.** Relay accepts
    `zuse-workspace-v2` plus legacy `zuse-workspace-v1` gateway envelopes, but it
-   does not translate Effect RPC schemas. When a retained sandbox has an
-   incompatible runtime wire version, resume installs the signed compatible
-   runtime in place before attaching the desktop. Normal resumes read local
-   runtime metadata and skip the updater entirely.
+   does not translate Effect RPC schemas. The client translates retained protocol-5/6 session contracts after an
+   authenticated handshake. Unsupported protocol versions report update-required.
+   Startup validates the pinned installation; changing its release requires an
+   explicit update operation using a signed compatible artifact. Normal resumes
+   read local runtime metadata and skip the updater entirely.
 4. **Compatible runtime updates are transactional.** Before an in-place update,
    the runtime commits SQLite and attempts an encrypted transcript checkpoint.
    It downloads a signed, checksummed artifact into a versioned release
@@ -81,3 +82,58 @@ would instead turn an ordinary desktop or Relay release into a reconnect loop.
 - Downloading or installing a runtime on every resume.
 - Retrying an unavailable gateway indefinitely.
 - Removing a protocol bridge before existing sandboxes have a durable migration.
+
+## Agent Engine protocol boundary
+
+The Agent Engine uses RPC protocol 7. The server still requires protocol 7:
+its provider-thread, turn, and attempt structures cannot be sent directly to old
+clients. The current desktop and CLI can also attach to retained protocol-5/6
+cloud runtimes through a client-side compatibility adapter.
+
+Only authenticated cloud gateway connections enable negotiation. The client first
+sends its current handshake. A typed rejection identifying protocol 5 or 6 permits
+one handshake with that exact version on the same connection; generic transport
+failures never cause a downgrade. No application commands are sent until the
+handshake succeeds, and negotiation never retries a mutation. Direct/local
+connections remain strict. Existing gateway and mailbox protocols need no API
+rollout for this adapter.
+
+Before current schemas decode a legacy response, the shared client adapter
+translates session rows and timeline frames. Real chat, session, and turn IDs,
+messages, queues, and provider-owned continuation state are retained. Legacy turn
+ordinal/time/attempt fields are presentation sentinels, not durable engine state;
+no provider thread is fabricated. No runtime installation or database migration
+occurs when attaching. Protocol-7 responses remain unchanged.
+
+Engine-only RPCs are blocked before transmission; their background UI is hidden
+on older runtimes. Ordinary chat reads, sends, streaming, queue operations,
+interrupts, and same-provider model changes use the old runtime's existing RPCs.
+Cross-provider switching after a conversation starts, engine checkpoints, and
+other new engine features still require an updated runtime. Protocol 5 also lacks
+chunked uploads and later account/plugin APIs. Organization ownership checks
+remain mandatory: a runtime lacking workspace authorization cannot gain
+organization access through this adapter.
+
+Verification on 2026-10-11: a retained protocol-6 Boxd workspace was unarchived
+and resumed without updating its image/runtime. The current client read its
+original chat, continued the original Codex conversation (including recall of the
+prior assistant response), and decoded the idle timeline snapshot. Serialized
+protocol-5/6 transport regressions cover handshake, session decoding, stream
+settlement, exact-turn interruption, and an accepted send losing its connection
+without retransmission. Protocol 5 has fixture coverage, not a live retained
+machine check. This does not establish compatibility for every optional API
+added within a historical protocol version.
+
+Cloud upgrades retain the authoritative `ZUSE_USER_DATA/zuse.sqlite` and apply
+versioned SQLite migrations in place. Migrations 65–86 add engine and automation
+state after main's migration 64, preserving chat/session IDs, messages, queued
+inputs, and provider-account records. No replacement database or sandbox is
+created. Follow the runtime data recovery runbook before any path change.
+
+The runtime updater rolls back release binaries, not SQLite history. Once the
+engine has written new event shapes, returning to a legacy runtime is not a
+verified database rollback. Before production promotion, verify a populated
+workspace upgrade, interrupted startup, pause/resume, provider continuation,
+and queued-message delivery without duplication. Preserve a SQLite-consistent
+backup and provider state for any planned storage rollback. Publishing an
+artifact or rebasing a branch does not establish these live checks.

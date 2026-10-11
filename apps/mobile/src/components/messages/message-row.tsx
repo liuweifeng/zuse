@@ -1,3 +1,6 @@
+import { useAtomValue } from "@effect/atom-react";
+import { completedNativeChildStep } from "@zuse/client-runtime/native-subagent-fork";
+import { Button } from "~/components/ui/button";
 import "@zuse/i18n/english/chat";
 import type { FileChange } from "@zuse/client-runtime/timeline";
 import {
@@ -8,10 +11,11 @@ import type {
 	AttachmentRef,
 	Message,
 	MessageContent,
+	SessionExecutionStep,
 	SessionId,
 	UserQuestion,
 } from "@zuse/contracts";
-import { useMessages } from "@zuse/i18n/react";
+import { RichMessage, useMessages } from "@zuse/i18n/react";
 import { proposedPlanMarkdownFromContent } from "@zuse/utils/proposed-plan";
 import * as Clipboard from "expo-clipboard";
 import { Image } from "expo-image";
@@ -46,12 +50,14 @@ import {
 	summarizeValue,
 	type ToolResultRecord,
 } from "~/lib/message-presentation";
+import { modelLabelFor } from "~/lib/model-options";
 import {
 	buildToolPresentation,
 	type MobileToolIcon,
 } from "~/lib/tool-presentation";
 import { workspaceDisplayPath } from "~/lib/workspace-path";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
+import { connectionModelCatalogAtom } from "~/store/model-catalog";
 import { colors } from "~/theme";
 import { AttachmentMedia } from "./attachment-media";
 import { ForkFromMessageMenu } from "./fork-from-message-menu";
@@ -69,11 +75,13 @@ export type MessageRowContext = {
 	toolResultsByItemId: ReadonlyMap<string, ToolResultRecord>;
 	/** Whether the session is actively running (drives the shimmer on the last row). */
 	sessionRunning?: boolean;
+	executionSteps?: readonly SessionExecutionStep[];
 	lastAssistantMessageId?: Message["id"];
 	onAnswerQuestion: (
 		itemId: string,
 		answers: readonly QuestionAnswer[],
 	) => void | Promise<void>;
+	onForkNativeChild?: (messageId: Message["id"], stepId: string) => void;
 	onForkFromMessage?: (
 		messageId: Message["id"],
 		destination: "tab" | "chat",
@@ -178,14 +186,24 @@ const MessageRowContent = ({
 				);
 			}
 			return (
-				<ToolUseRow
-					content={content}
-					result={ctx.toolResultsByItemId.get(content.itemId)}
-					shimmer={shimmerActive}
-					connectionKey={ctx.connectionKey}
-					sessionId={ctx.sessionId}
-					workspaceRoot={ctx.workspaceRoot}
-				/>
+				<View>
+					<ToolUseRow
+						content={content}
+						result={ctx.toolResultsByItemId.get(content.itemId)}
+						shimmer={shimmerActive}
+						connectionKey={ctx.connectionKey}
+						sessionId={ctx.sessionId}
+						workspaceRoot={ctx.workspaceRoot}
+					/>
+					{content.subagent !== undefined ? (
+						<NativeChildFork
+							messageId={message.id}
+							itemId={content.itemId}
+							nativeChildId={content.subagent.childSessionId}
+							context={ctx}
+						/>
+					) : null}
+				</View>
 			);
 		}
 		case "tool_result":
@@ -196,6 +214,10 @@ const MessageRowContent = ({
 			return <ErrorRow message={content.message} />;
 		case "usage_limit":
 			return <UsageLimitRow content={content} />;
+		case "model_switch":
+			return (
+				<ModelSwitchRow content={content} connectionKey={ctx.connectionKey} />
+			);
 		case "interrupted":
 			return <InlineSystemRow label="Interrupted by user" />;
 		case "context_compaction":
@@ -694,6 +716,41 @@ const UsageLimitRow = ({
 	);
 };
 
+const ModelSwitchRow = ({
+	content,
+	connectionKey,
+}: {
+	content: Extract<MessageContent, { _tag: "model_switch" }>;
+	connectionKey: string;
+}) => {
+	const { message } = useMessages(["chat"]);
+	const catalog = useAtomValue(connectionModelCatalogAtom(connectionKey));
+	return (
+		<View className="items-center px-4 py-2">
+			<Text className="text-center font-sans text-[11px] leading-5 text-muted-foreground">
+				<RichMessage
+					id="chat:message_row_model_switched"
+					values={{
+						from: modelLabelFor(
+							catalog,
+							content.fromProviderId,
+							content.fromModel,
+						),
+						to: modelLabelFor(catalog, content.toProviderId, content.toModel),
+					}}
+					components={{ from: <Text />, to: <Text /> }}
+				/>
+				{" · "}
+				{message(
+					content.context === "handoff"
+						? "chat:message_row_context_handed_off"
+						: "chat:message_row_context_preserved",
+				)}
+			</Text>
+		</View>
+	);
+};
+
 const InlineSystemRow = ({ label }: { label: string }) => (
 	<View className="items-center px-2 py-1">
 		<Text className="rounded-full bg-muted px-2.5 py-1 font-sans text-[11px] text-muted-foreground">
@@ -1108,3 +1165,34 @@ const planResultStatus = (
 	if (text.includes("abandon")) return "Abandoned";
 	return "Resolved";
 };
+
+function NativeChildFork({
+	messageId,
+	itemId,
+	nativeChildId,
+	context,
+}: {
+	messageId: Message["id"];
+	itemId: string;
+	nativeChildId?: string;
+	context: MessageRowContext;
+}) {
+	const { message } = useMessages(["chat"]);
+	const step =
+		nativeChildId === undefined
+			? null
+			: completedNativeChildStep(context.executionSteps ?? [], {
+					itemId,
+					nativeChildId,
+				});
+	if (step === null || context.onForkNativeChild === undefined) return null;
+	return (
+		<Button
+			className="h-7 self-start"
+			variant="ghost"
+			onPress={() => context.onForkNativeChild?.(messageId, step.id)}
+		>
+			{message("chat:fork_menu_fork_in_new_tab")}
+		</Button>
+	);
+}

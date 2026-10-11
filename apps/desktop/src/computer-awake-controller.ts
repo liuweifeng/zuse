@@ -39,7 +39,8 @@ type SpawnCaffeinate = (
 ) => CaffeinateProcess;
 
 export interface ComputerAwakeControllerOptions {
-	readonly blocker: PowerSaveBlockerLike;
+	/** Omitted by the standalone Node engine; caffeinate owns its native assertion. */
+	readonly blocker?: PowerSaveBlockerLike;
 	readonly initialMode?: ComputerAwakeMode;
 	readonly logger?: Logger;
 	readonly platform?: NodeJS.Platform;
@@ -177,7 +178,7 @@ export class ComputerAwakeController {
 	private isElectronBlockerActive(): boolean {
 		if (this.blockerId === null) return false;
 		try {
-			if (this.options.blocker.isStarted(this.blockerId)) {
+			if (this.options.blocker?.isStarted(this.blockerId)) {
 				this.electronWarning = null;
 				return true;
 			}
@@ -194,6 +195,7 @@ export class ComputerAwakeController {
 	}
 
 	private startElectronBlocker(reason: string): void {
+		if (this.options.blocker === undefined) return;
 		if (this.isElectronBlockerActive()) return;
 		try {
 			this.blockerId = this.options.blocker.start("prevent-app-suspension");
@@ -218,7 +220,7 @@ export class ComputerAwakeController {
 		if (this.blockerId === null) return;
 		const id = this.blockerId;
 		try {
-			this.options.blocker.stop(id);
+			this.options.blocker?.stop(id);
 		} catch (cause) {
 			this.logger.warn("[computer-awake] failed to stop Electron blocker", {
 				cause,
@@ -231,10 +233,14 @@ export class ComputerAwakeController {
 		if (this.caffeinate !== null || this.retryTimer !== null) return;
 		let child: CaffeinateProcess;
 		try {
-			child = this.spawn("/usr/bin/caffeinate", ["-i", "-s"], {
-				stdio: "ignore",
-				windowsHide: true,
-			});
+			child = this.spawn(
+				"/usr/bin/caffeinate",
+				["-i", "-s", "-w", String(process.pid)],
+				{
+					stdio: "ignore",
+					windowsHide: true,
+				},
+			);
 		} catch (cause) {
 			this.handleCaffeinateFailure(reason, cause);
 			return;

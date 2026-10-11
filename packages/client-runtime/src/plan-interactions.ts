@@ -51,6 +51,7 @@ export interface PendingNativePlanApproval {
 /** Find the newest unresolved native ExitPlanMode interaction. */
 export const findPendingNativePlanApproval = (
 	messages: ReadonlyArray<Message>,
+	interactions?: ReadonlyArray<import("@zuse/contracts").SessionInteraction>,
 ): PendingNativePlanApproval | null => {
 	const settledToolCalls = new Set<string>();
 	for (const message of messages) {
@@ -67,7 +68,14 @@ export const findPendingNativePlanApproval = (
 			message === undefined ||
 			content?._tag !== "tool_use" ||
 			content.tool !== "ExitPlanMode" ||
-			settledToolCalls.has(content.itemId)
+			settledToolCalls.has(content.itemId) ||
+			(interactions !== undefined &&
+				!interactions.some(
+					(i) =>
+						i._tag === "Plan" &&
+						i.id === content.itemId &&
+						i.recoveryState === undefined,
+				))
 		) {
 			continue;
 		}
@@ -165,6 +173,7 @@ export type PendingPlanInteraction =
 
 /** Resolve one authoritative pending plan interaction for a session. */
 export const findPendingPlanInteraction = ({
+	interactions,
 	messages,
 	requests,
 	sessionId,
@@ -174,13 +183,16 @@ export const findPendingPlanInteraction = ({
 }: {
 	readonly messages: ReadonlyArray<Message>;
 	readonly requests: ReadonlyArray<PermissionRequest>;
+	readonly interactions?: ReadonlyArray<
+		import("@zuse/contracts").SessionInteraction
+	>;
 	readonly sessionId: SessionId;
 	readonly providerId: ProviderId;
 	readonly permissionMode: PermissionMode;
 	readonly isRunning: boolean;
 }): PendingPlanInteraction | null => {
 	const request = findPendingPlanApprovalRequest(requests, sessionId);
-	const native = findPendingNativePlanApproval(messages);
+	const native = findPendingNativePlanApproval(messages, interactions);
 	if (request !== null) {
 		return {
 			kind: "permission",
@@ -304,3 +316,24 @@ export const chooseComposerSubmitRoute = ({
 	if (goalSendMode) return "goal";
 	return "send";
 };
+
+/** The latest unresolved transcript plan may remain visible after its authority expires. */
+export const nativePlanRecoveryState = (
+	messages: ReadonlyArray<Message>,
+	interactions: ReadonlyArray<import("@zuse/contracts").SessionInteraction>,
+): "expired" | "uncertain" | null => {
+	const request = findPendingNativePlanApproval(messages);
+	if (request === null) return null;
+	const interaction = interactions.find(
+		(i) => i._tag === "Plan" && i.id === request.toolCallId,
+	);
+	return interaction?._tag === "Plan"
+		? (interaction.recoveryState ?? null)
+		: null;
+};
+
+/** Answering a native plan is an input response; all other ordinary sends wait. */
+export const composerSendBlocked = (
+	health: string,
+	answeringPlan = false,
+): boolean => health === "blocked" && !answeringPlan;

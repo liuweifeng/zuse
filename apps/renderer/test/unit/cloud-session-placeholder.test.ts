@@ -98,8 +98,8 @@ const hostedMode = vi.hoisted(() => ({
 	enabled: false,
 	summaries: [] as unknown[],
 }));
-vi.mock("../../src/lib/hosted-connect.ts", async (original) => ({
-	...(await original<typeof import("../../src/lib/hosted-connect.ts")>()),
+vi.mock("../../src/lib/hosted-session.ts", async (original) => ({
+	...(await original<typeof import("../../src/lib/hosted-session.ts")>()),
 	isHostedProduct: () => hostedMode.enabled,
 }));
 vi.mock("../../src/lib/rpc-client.ts", async (original) => ({

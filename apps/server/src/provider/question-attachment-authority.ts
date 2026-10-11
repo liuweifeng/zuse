@@ -11,25 +11,19 @@ import {
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
 import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
-import { Deferred, type Duration, Effect, Exit } from "effect";
-
-type DeliveryState<DeliveryError> =
-	| { readonly _tag: "pending" }
-	| {
-			readonly _tag: "delivering";
-			readonly deliveryKey: string;
-			readonly completion: Deferred.Deferred<
-				void,
-				AgentSessionNotFoundError | DeliveryError
-			>;
-	  }
-	| { readonly _tag: "delivered"; readonly deliveryKey: string };
+import { type Duration, Effect } from "effect";
+import {
+	type InputCallbackDelivery,
+	makeInputCallbackDelivery,
+} from "./input-callback-delivery.ts";
 
 type AttachmentEntry<DeliveryError> = {
 	readonly attachment: QuestionAttachment;
 	readonly questions: ReadonlyArray<UserQuestion>;
 	readonly questionKey: string;
-	state: DeliveryState<DeliveryError>;
+	readonly delivery: InputCallbackDelivery<
+		AgentSessionNotFoundError | DeliveryError
+	>;
 };
 
 type QuestionAttachmentAuthorityOptions = {
@@ -51,8 +45,8 @@ export type QuestionAttachmentAdmission =
  *
  * The delivered answer key deliberately lives only in memory: it makes a
  * post-provider/pre-database retry idempotent in the same process. Across a
- * restart, delivery resumes only after the provider reissues the callback;
- * an existing durable receipt is then replayed automatically.
+ * restart, the provider boundary allocates fresh application question IDs;
+ * a durable receipt cannot authorize a replacement callback.
  */
 export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 	options: QuestionAttachmentAuthorityOptions = {},
@@ -81,6 +75,10 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 		);
 	const missingAttachment = (sessionId: AgentSessionId) =>
 		new AgentSessionNotFoundError({ sessionId });
+	const revoke = (key: string, entry: AttachmentEntry<DeliveryError>) => {
+		entries.delete(key);
+		entry.delivery.revoke();
+	};
 	const isValidAnswer = (
 		entry: AttachmentEntry<DeliveryError>,
 		answers: ReadonlyArray<UserQuestionAnswer>,
@@ -93,56 +91,12 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 		invokeProvider: Effect.Effect<void, DeliveryError, R>,
 		validateEntry: (entry: AttachmentEntry<DeliveryError>) => boolean,
 	): Effect.Effect<void, AgentSessionNotFoundError | DeliveryError, R> =>
-		Effect.uninterruptibleMask((restore) =>
-			Effect.gen(function* () {
-				const key = keyOf(sessionId, itemId);
-				const entry = entries.get(key);
-				if (entry === undefined || !validateEntry(entry)) {
-					return yield* missingAttachment(sessionId);
-				}
-				if (entry.state._tag === "delivered") {
-					if (entry.state.deliveryKey !== deliveryKey) {
-						return yield* missingAttachment(sessionId);
-					}
-					return;
-				}
-				if (entry.state._tag === "delivering") {
-					if (entry.state.deliveryKey !== deliveryKey) {
-						return yield* missingAttachment(sessionId);
-					}
-					return yield* restore(Deferred.await(entry.state.completion));
-				}
-
-				const completion = yield* Deferred.make<
-					void,
-					AgentSessionNotFoundError | DeliveryError
-				>();
-				entry.state = { _tag: "delivering", deliveryKey, completion };
-				const boundedProviderDelivery = invokeProvider.pipe(
-					Effect.timeoutOrElse({
-						duration: deliveryTimeout,
-						orElse: () => Effect.fail(missingAttachment(sessionId)),
-					}),
-				);
-				const completeDelivery = Effect.exit(boundedProviderDelivery).pipe(
-					Effect.flatMap((exit) =>
-						Effect.sync(() => {
-							// Detach/reattach creates a new authority entry. Never let an old
-							// callback completion mutate the replacement callback's state.
-							if (entries.get(key) !== entry) return;
-							entry.state = Exit.isSuccess(exit)
-								? { _tag: "delivered", deliveryKey }
-								: { _tag: "pending" };
-						}).pipe(Effect.andThen(Deferred.done(completion, exit))),
-					),
-				);
-				// Provider invocation is owned by this authority rather than the RPC
-				// caller. An interrupted/lost caller can retry and join the same result
-				// without opening a second callback invocation window.
-				yield* Effect.forkDetach(completeDelivery);
-				return yield* restore(Deferred.await(completion));
-			}),
-		);
+		Effect.suspend(() => {
+			const entry = entries.get(keyOf(sessionId, itemId));
+			if (entry === undefined || !validateEntry(entry))
+				return Effect.fail(missingAttachment(sessionId));
+			return entry.delivery.run(deliveryKey, invokeProvider);
+		});
 
 	return {
 		attach: (
@@ -158,23 +112,36 @@ export const makeQuestionAttachmentAuthority = <DeliveryError = never>(
 					: "conflict";
 			}
 			if (entries.size >= maxEntries) return "full";
-			entries.set(key, {
+			const entry: AttachmentEntry<DeliveryError> = {
 				attachment,
 				questions,
 				questionKey: nextQuestionKey,
-				state: { _tag: "pending" },
-			});
+				delivery: makeInputCallbackDelivery<
+					AgentSessionNotFoundError | DeliveryError
+				>({
+					isCurrent: () => entries.get(key) === entry,
+					unavailable: () => missingAttachment(attachment.sessionId),
+					timeout: deliveryTimeout,
+					retryFailures: true,
+				}),
+			};
+			entries.set(key, entry);
 			return "attached";
 		},
-		detach: (sessionId: AgentSessionId, itemId: AgentItemId): boolean =>
-			entries.delete(keyOf(sessionId, itemId)),
+		detach: (sessionId: AgentSessionId, itemId: AgentItemId): boolean => {
+			const key = keyOf(sessionId, itemId);
+			const entry = entries.get(key);
+			if (entry === undefined) return false;
+			revoke(key, entry);
+			return true;
+		},
 		detachSession: (
 			sessionId: AgentSessionId,
 		): ReadonlyArray<QuestionAttachment> => {
 			const detached: QuestionAttachment[] = [];
 			for (const [key, entry] of entries) {
 				if (entry.attachment.sessionId !== sessionId) continue;
-				entries.delete(key);
+				revoke(key, entry);
 				detached.push(entry.attachment);
 			}
 			return detached;

@@ -70,6 +70,7 @@ it.each([
 		runtime: "starting",
 		presentation: {
 			runtime: "idle",
+			health: "unknown",
 			busy: false,
 			turnActive: false,
 			turnInFlight: false,

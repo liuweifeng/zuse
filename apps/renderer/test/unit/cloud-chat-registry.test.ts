@@ -1,6 +1,7 @@
 import {
 	AgentSessionId,
 	AgentTurnId,
+	AttemptId,
 	ChatId,
 	CloudChatSummary,
 	CommandId,
@@ -107,7 +108,21 @@ it.each([
 		data: SessionTimelineProjection.make({
 			messages: [],
 			status,
-			currentTurn: { turnId: AgentTurnId.make("slack-turn"), phase: "running" },
+			turnCount: 1,
+			activeTurn: {
+				id: AgentTurnId.make("slack-turn"),
+				ordinal: 1,
+				status: "running",
+				phase: "running",
+				attempt: {
+					id: AttemptId.make("attempt-1"),
+					ordinal: 1,
+					reason: "initial",
+				},
+				providerThreadId: null,
+				requestedAt: new Date(0),
+				completedAt: null,
+			},
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "approval-required",
@@ -353,7 +368,21 @@ describe("cloud chat catalog", () => {
 		const projection = SessionTimelineProjection.make({
 			messages: [],
 			status: "running",
-			currentTurn: { turnId: AgentTurnId.make("turn-a"), phase: "running" },
+			activeTurn: {
+				id: AgentTurnId.make("turn-a"),
+				ordinal: 1,
+				status: "running",
+				phase: "running",
+				attempt: {
+					id: AttemptId.make("attempt-1"),
+					ordinal: 1,
+					reason: "initial",
+				},
+				providerThreadId: null,
+				requestedAt: new Date(0),
+				completedAt: null,
+			},
+			turnCount: 1,
 			queue: QueueState.make({ items: [], paused: false }),
 			permissionMode: "default",
 			runtimeMode: "approval-required",
@@ -419,7 +448,7 @@ describe("cloud chat catalog", () => {
 					...input,
 					timeline: {
 						...timeline,
-						data: { ...projection, currentTurn: null, status: "idle" },
+						data: { ...projection, activeTurn: null, status: "idle" },
 					},
 				}),
 			).not.toBe("running");
