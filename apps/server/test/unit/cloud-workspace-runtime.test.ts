@@ -43,6 +43,9 @@ import {
 	keepCloudRuntimeActive,
 	makeCloudRuntimeCheckpointPublisher,
 	makeCloudRuntimeSummaryPublisher,
+	ProviderReadySignal,
+	prepareSelectedAgentCredential,
+	providerCredentialFailureIsTerminal,
 	recoverCloudMailboxReadiness,
 	renewRuntimeCredential,
 	resolveCloudRuntimeActiveSession,
@@ -2289,4 +2292,127 @@ it.each([
 		}),
 	);
 	expect(access.get("codex")?.state).toBe("verified");
+});
+
+describe("launch agent credential readiness", () => {
+	const failure = (reason: string) =>
+		Effect.fail(new CloudWorkspaceRuntimeError({ reason }));
+
+	it("is ready immediately for agents without cloud-managed credentials", async () => {
+		const prepare = vi.fn(() => Effect.never);
+		const recovery = new ProviderReadySignal();
+		for (const agent of ["gemini", "acp-custom", undefined]) {
+			expect(
+				await Effect.runPromise(
+					prepareSelectedAgentCredential({
+						workspaceId: "workspace-1",
+						agent,
+						prepare,
+						recovery,
+					}),
+				),
+			).toBeNull();
+		}
+		expect(prepare).not.toHaveBeenCalled();
+	});
+
+	it("prepares exactly the selected agent once", async () => {
+		const prepare = vi.fn((_: string) => Effect.void);
+		const selected = await Effect.runPromise(
+			prepareSelectedAgentCredential({
+				workspaceId: "workspace-1",
+				runtimeGeneration: 4,
+				agent: "claude",
+				prepare,
+				recovery: new ProviderReadySignal(),
+			}),
+		);
+		expect(selected).toBe("claude");
+		expect(prepare.mock.calls).toEqual([["claude"]]);
+	});
+
+	it("keeps waiting through a refused grant until that provider recovers", async () => {
+		const recovery = new ProviderReadySignal();
+		let attempts = 0;
+		const prepare = vi.fn((_: string) => {
+			attempts += 1;
+			return attempts === 1
+				? failure("claude-auth-reconnect-required")
+				: Effect.void;
+		});
+		const selected = await Effect.runPromise(
+			Effect.gen(function* () {
+				const fiber = yield* prepareSelectedAgentCredential({
+					workspaceId: "workspace-1",
+					agent: "claude",
+					prepare,
+					recovery,
+				}).pipe(Effect.forkScoped({ startImmediately: true }));
+				yield* TestClock.adjust("10 minutes");
+				// No readiness and no retry storm while the provider stays refused.
+				expect(fiber.pollUnsafe()).toBeUndefined();
+				expect(attempts).toBe(1);
+				// Another provider recovering is not evidence for the selected one.
+				recovery.notify("cursor");
+				yield* TestClock.adjust("1 second");
+				expect(fiber.pollUnsafe()).toBeUndefined();
+				recovery.notify("claude");
+				return yield* Fiber.join(fiber);
+			}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+		);
+		expect(selected).toBe("claude");
+		expect(attempts).toBe(2);
+	});
+
+	it("does not miss a recovery that lands while the failed attempt settles", async () => {
+		const recovery = new ProviderReadySignal();
+		let attempts = 0;
+		const prepare = vi.fn((_: string) => {
+			attempts += 1;
+			if (attempts === 1) {
+				recovery.notify("codex");
+				return failure("codex-auth-reconnecting");
+			}
+			return Effect.void;
+		});
+		expect(
+			await Effect.runPromise(
+				prepareSelectedAgentCredential({
+					workspaceId: "workspace-1",
+					agent: "codex",
+					prepare,
+					recovery,
+				}),
+			),
+		).toBe("codex");
+		expect(attempts).toBe(2);
+	});
+
+	it("fails the launch for a credential this runtime can never obtain", async () => {
+		await expect(
+			Effect.runPromise(
+				prepareSelectedAgentCredential({
+					workspaceId: "workspace-1",
+					agent: "codex",
+					prepare: () => failure("codex-auth-update-required"),
+					recovery: new ProviderReadySignal(),
+				}),
+			),
+		).rejects.toMatchObject({ reason: "codex-auth-update-required" });
+		expect(
+			providerCredentialFailureIsTerminal("provider-auth-legacy-workspace"),
+		).toBe(true);
+		// A snapshot-native tool has no recovery notification; retry rechecks it.
+		expect(
+			providerCredentialFailureIsTerminal(
+				"claude-snapshot-authentication-required",
+			),
+		).toBe(true);
+		expect(
+			providerCredentialFailureIsTerminal("claude-auth-reconnect-required"),
+		).toBe(false);
+		expect(
+			providerCredentialFailureIsTerminal("provider-auth-reconnecting"),
+		).toBe(false);
+	});
 });

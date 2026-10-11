@@ -743,6 +743,59 @@ describe("cloud workspace reconciler", () => {
 		expect(result?.runtimeCredentialHash).toBeUndefined();
 	});
 
+	test("an online runtime still preparing is never timed out; it follows the idle policy", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const now = Date.now();
+				const workspace = yield* seedWorkspace({
+					workspaceId: "preparing-online",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "preparing-credentials",
+					runtimeState: "online",
+					lastActivityAtMs: now,
+					requestConfig: {
+						startupTimings: { enrolledAt: now - 60_000 },
+						runtimeCredentialExpiresAtMs: now + 60_000,
+					},
+				});
+				yield* store.saveWorkspace({
+					...workspace,
+					runtimeCredentialHash: "live-runtime",
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const preparing = yield* store.getWorkspace(workspace.workspaceId);
+				if (preparing === null) throw new Error("workspace missing");
+				yield* store.saveWorkspace({
+					...preparing,
+					lastActivityAtMs: now - 365 * 24 * 60 * 60_000,
+					nextActionAtMs: now,
+					revision: preparing.revision + 1,
+					updatedAtMs: preparing.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					preparing,
+					idle: yield* store.getWorkspace(workspace.workspaceId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.preparing).toMatchObject({
+			state: "setup",
+			runtimeState: "online",
+			statusCode: "preparing-credentials",
+			runtimeCredentialHash: "live-runtime",
+		});
+		expect(result.preparing?.nextActionAtMs).toBeGreaterThan(Date.now());
+		expect(result.idle).toMatchObject({
+			state: "paused",
+			statusCode: "paused",
+		});
+	});
+
 	test("recognizes established runtime storage before provider replacement", () => {
 		expect(
 			cloudWorkspaceHasRetainedRuntimeData({
@@ -2801,8 +2854,9 @@ test.each([
 });
 
 test.each([
-	false,
-	true,
+	"none",
+	"runtime",
+	"toolchain",
 ])("image build receipts follow the current installer result (failure %s)", (fails) => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-image-receipt-"));
 	try {
@@ -2819,12 +2873,20 @@ test.each([
 if (fs.existsSync(${JSON.stringify(join(status, "ready"))})) throw new Error('Stale readiness was not cleared');
 if (fs.existsSync(${JSON.stringify(join(status, "completed-new-build"))})) throw new Error('Completion written before install');
 if (process.env.ZUSE_RUNTIME_WIRE_PROTOCOL !== '7') throw new Error('Wrong requested protocol');
-if (${fails}) process.exit(23);
+if (${JSON.stringify(fails)} === "runtime") process.exit(23);
 fs.writeFileSync(${JSON.stringify(join(root, "opt/zuse/current/runtime-metadata.json"))}, JSON.stringify({wireProtocolVersion:7}));`,
+		);
+		writeFileSync(
+			join(root, "opt/zuse/current/toolchain-reconciler.mjs"),
+			`import fs from 'node:fs';
+if (process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES !== '1') throw new Error('Must not reinstall system packages');
+if (${JSON.stringify(fails)} === 'toolchain') process.exit(24);
+fs.writeFileSync(${JSON.stringify(join(status, "tools-ready"))}, 'ready');`,
 		);
 		writeFileSync(
 			join(status, "builder.sh"),
 			`#!/bin/sh
+test -f '${join(status, "tools-ready")}' || exit 25
 touch '${join(status, "ready")}'
 `,
 			{ mode: 0o700 },
@@ -2840,6 +2902,7 @@ touch '${join(status, "ready")}'
 			[
 				"-c",
 				`sleep() { :; }
+sudo() { shift; "$@"; }
 ${script}`,
 			],
 			{
@@ -2852,11 +2915,13 @@ ${script}`,
 				},
 			},
 		);
-		expect(result.status, result.stderr).toBe(fails ? 23 : 0);
-		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
-			fails ? "23\n" : "0\n",
+		expect(result.status, result.stderr).toBe(
+			fails === "runtime" ? 23 : fails === "toolchain" ? 24 : 0,
 		);
-		expect(existsSync(join(status, "ready"))).toBe(!fails);
+		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
+			fails === "runtime" ? "23\n" : fails === "toolchain" ? "24\n" : "0\n",
+		);
+		expect(existsSync(join(status, "ready"))).toBe(fails === "none");
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

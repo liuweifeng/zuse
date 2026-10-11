@@ -141,6 +141,51 @@ describe("CloudProviderAuth", () => {
 		auth.close();
 	});
 
+	test("a startup grant serves the launch session's initial resolve once, then session starts refresh again", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		let issueCount = 0;
+		const auth = new CloudProviderAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: async (providerId, request) => {
+				issueCount += 1;
+				return seal({
+					providerId,
+					request,
+					publicKey: pair.publicKey,
+					keyThumbprint,
+				});
+			},
+		});
+		try {
+			await auth.prepare("claude");
+			expect(issueCount).toBe(1);
+			const first = await auth.resolve("claude");
+			expect(issueCount).toBe(1);
+			expect(first.secret).toBe("claude-access-only-token");
+			await auth.resolve("claude");
+			expect(issueCount).toBe(2);
+			// Seeding is per provider: another provider's session still refreshes.
+			await auth.prepare("cursor");
+			expect(issueCount).toBe(3);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(4);
+			// A grant refreshed moments ago (recovery, proactive) seeds without a
+			// further round trip, and the launch session still consumes it once.
+			await auth.prepare("claude");
+			expect(issueCount).toBe(4);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(4);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(5);
+		} finally {
+			auth.close();
+		}
+	});
+
 	test("serves Grok's official external-provider command without a refresh token", async () => {
 		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
 		const auth = new CloudProviderAuth({

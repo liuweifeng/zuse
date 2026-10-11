@@ -31,6 +31,7 @@ import { describe, expect, test } from "vitest";
 import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
+	AUTH_READINESS_SOURCE,
 	CODEX_GRANT_SOURCE,
 	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
@@ -884,5 +885,40 @@ describe("cloud auth device-login output", () => {
 			verificationUrl: "https://auth.x.ai/device",
 			verificationCode: "WXYZ-1234",
 		});
+	});
+});
+
+describe("authority bootstrap readiness", () => {
+	test("requires matching scripts, storage identity, and both key files", () => {
+		const home = mkdtempSync(join(tmpdir(), "zuse-auth-readiness-"));
+		const ready = () =>
+			execFileSync(
+				process.execPath,
+				["-e", AUTH_READINESS_SOURCE, home, "v1", "incarnation"],
+				{ encoding: "utf8" },
+			);
+		try {
+			expect(ready()).toBe("repair");
+			for (const [name, value] of Object.entries({
+				"bootstrap-version": "v1",
+				"storage-incarnation-id": "incarnation",
+				"key-id": "key",
+				"public.jwk.json": "public",
+				"private.pem": "private",
+			})) {
+				writeFileSync(join(home, name), value);
+			}
+			expect(ready()).toBe("ready");
+			writeFileSync(join(home, "storage-incarnation-id"), "other");
+			expect(ready()).toBe("repair");
+			writeFileSync(join(home, "storage-incarnation-id"), "incarnation");
+			writeFileSync(join(home, "bootstrap-version"), "old");
+			expect(ready()).toBe("repair");
+			writeFileSync(join(home, "bootstrap-version"), "v1");
+			rmSync(join(home, "private.pem"));
+			expect(ready()).toBe("repair");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
 	});
 });

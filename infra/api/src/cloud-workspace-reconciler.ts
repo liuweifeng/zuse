@@ -166,6 +166,9 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
     exit "$code"
   fi
   node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync("/opt/zuse/current/runtime-metadata.json", "utf8")); if (metadata.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) throw new Error("Installed image runtime protocol mismatch");' >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  # Install the signed release's agent tools once in the reusable image, never on wake.
+  printf 'preparing-agent-tools\\n' >/var/lib/zuse/project-build/failure-phase
+  sudo -n env ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
 fi
 ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1
 `;
@@ -452,7 +455,15 @@ fi
 phase=runtime-compatibility
 ensure_workspace_runtime
 if [ ! -f "$status_dir/repository-ready" ]; then
+# Cold recovery of an unprepared checkout waits for the runtime's launch-agent
+# credential evidence, exactly like initial bootstrap, before touching Git.
+credentials_event="$status_dir/credentials-ready-event"
+mkfifo -m 600 "$credentials_event"
 (
+  phase=preparing-credentials
+  IFS= read -r _ <"$credentials_event"
+  rm -f "$credentials_event"
+  [ -f "$status_dir/credentials-ready" ] || workspace_runtime_launch_failed 1
   phase=syncing-repository
   if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
 ${WORKSPACE_REPOSITORY_SOURCE}
@@ -520,6 +531,10 @@ const workspaceStartupDeadlineMs = (
 					: RUNTIME_CONNECTION_TIMEOUT_MS);
 };
 
+/** An enrolled runtime that is online reports its own preparation outcome. */
+const workspacePreparingOnline = (workspace: CloudWorkspaceRecord): boolean =>
+	workspace.state === "setup" && workspace.runtimeState === "online";
+
 const workspaceStartupTimedOut = (
 	workspace: CloudWorkspaceRecord,
 	nowMs: number,
@@ -528,6 +543,7 @@ const workspaceStartupTimedOut = (
 		(workspace.state === "queued" ||
 			workspace.state === "provisioning" ||
 			workspace.state === "setup") &&
+		!workspacePreparingOnline(workspace) &&
 		nowMs >= workspaceStartupDeadlineMs(workspace)
 	);
 };
@@ -3212,6 +3228,27 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				return;
 			}
 
+			// A connected runtime still preparing credentials or the repository
+			// is bounded by the same idle policy as a ready workspace, so a
+			// provider that is never reconnected cannot keep compute awake.
+			if (workspacePreparingOnline(workspace)) {
+				const idleAtMs =
+					workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs;
+				if (nowMs >= idleAtMs)
+					return yield* pauseWorkspace(
+						workspace,
+						provider,
+						nowMs,
+						false,
+						saveWorkspace,
+					);
+				yield* saveWorkspace({
+					...workspace,
+					nextActionAtMs: idleAtMs,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			// Successful startup is advanced only by authenticated runtime callbacks.
 			yield* saveWorkspace({
 				...workspace,

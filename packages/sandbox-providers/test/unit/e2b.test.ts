@@ -505,6 +505,41 @@ describe("E2B sandbox provider", () => {
 		).rejects.toMatchObject({ code: "transient" });
 	});
 
+	test("runs a short operation through exit and returns all stdout chunks", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: {
+					sandboxID: "sbx_1",
+					state: "running",
+					envdAccessToken: "secret",
+				},
+			},
+			{
+				status: 200,
+				rawBody: Buffer.concat([
+					connectJsonResponse({ event: { start: { pid: 42 } } }),
+					connectJsonResponse({
+						event: { data: { stdout: btoa("first\xc3") } },
+					}),
+					connectJsonResponse({
+						event: { data: { stdout: btoa("\xa9second") } },
+					}),
+					connectJsonResponse({
+						event: { end: { exited: true, exitCode: 7 } },
+					}),
+				]),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+		await Effect.runPromise(adapter.inspect("sbx_1"));
+		const run = adapter.runProcess;
+		if (!run) throw new Error("missing short process support");
+		await expect(
+			Effect.runPromise(run("sbx_1", { command: "node", user: "zuse" })),
+		).resolves.toEqual({ exitCode: 7, stdout: "firstésecond" });
+	});
+
 	test("reads guest inspection from a complete process stream", async () => {
 		const http = makeHttp([
 			{

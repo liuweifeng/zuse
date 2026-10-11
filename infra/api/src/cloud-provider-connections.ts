@@ -158,23 +158,32 @@ export const resolveConnectedProvider = Effect.fn("resolveConnectedProvider")(
 		);
 		if (record === undefined || base.withCredentials === undefined)
 			return yield* serviceUnavailable("cloud_provider_connection_unavailable");
-		const apiKey = yield* openApiString(
-			context(accountId, providerId, connectionId),
-			record.envelope,
-		);
-		return {
-			...base.withCredentials({
-				apiKey: Redacted.make(apiKey),
-				templateId: record.templateId,
-				organization: record.organization,
-				runtimeUser,
-			}),
-			connectionId,
-			// Prevent snapshots being reused across provider accounts or credential versions.
-			templateVersion: `${base.templateVersion}:connection:${connectionId}`,
-		};
+		return yield* providerFromConnection(base, record, runtimeUser);
 	},
 );
+const providerFromConnection = Effect.fn("providerFromConnection")(function* (
+	base: SandboxProviderAdapter,
+	record: ProviderConnectionRecord,
+	runtimeUser?: string,
+): Effect.fn.Return<ConnectedSandboxProvider, ApiError, ApiConfiguration> {
+	if (base.withCredentials === undefined)
+		return yield* serviceUnavailable("cloud_provider_connection_unavailable");
+	const apiKey = yield* openApiString(
+		context(record.accountId, record.providerId, record.connectionId),
+		record.envelope,
+	);
+	return {
+		...base.withCredentials({
+			apiKey: Redacted.make(apiKey),
+			templateId: record.templateId,
+			organization: record.organization,
+			runtimeUser,
+		}),
+		connectionId: record.connectionId,
+		// Prevent snapshots being reused across provider accounts or credential versions.
+		templateVersion: `${base.templateVersion}:connection:${record.connectionId}`,
+	};
+});
 const resourceRuntimeUser = (
 	resource: CloudProjectBuildRecord | CloudWorkspaceRecord,
 ) => {
@@ -261,15 +270,13 @@ export const accountSandboxProviders = Effect.fn("accountSandboxProviders")(
 	function* (accountId: string) {
 		const providers = yield* SandboxProviders;
 		const records = yield* listProviderConnections(accountId);
-		return yield* Effect.forEach(providers.availableProviders, (provider) =>
-			resolveConnectedProvider(
-				accountId,
-				provider.providerId,
-				records.find(
-					(record) =>
-						record.active && record.providerId === provider.providerId,
-				)?.connectionId,
-			),
-		);
+		return yield* Effect.forEach(providers.availableProviders, (provider) => {
+			const record = records.find(
+				(record) => record.active && record.providerId === provider.providerId,
+			);
+			return record === undefined
+				? Effect.succeed<ConnectedSandboxProvider>(provider)
+				: providerFromConnection(provider, record);
+		});
 	},
 );

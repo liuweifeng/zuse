@@ -357,6 +357,9 @@ export const makeE2bSandboxProvider = (
 			`/sandboxes/${encodeURIComponent(providerSandboxId)}`,
 			SandboxDetail,
 		).pipe(
+			Effect.tap((detail) =>
+				Effect.sync(() => rememberControlConnection(detail)),
+			),
 			Effect.map(toProviderSandbox),
 			Effect.catchTag("SandboxProviderError", (error) =>
 				error.code === "not-found" ? Effect.succeed(null) : Effect.fail(error),
@@ -457,6 +460,8 @@ export const makeE2bSandboxProvider = (
 					const reader = response.body.getReader();
 					let started = false;
 					let stdout = "";
+					let stdoutBytes = 0;
+					const decoder = new TextDecoder();
 					try {
 						for await (const value of readConnectJsonEvents(reader)) {
 							if (!started) {
@@ -467,13 +472,21 @@ export const makeE2bSandboxProvider = (
 							}
 							const { event } = Schema.decodeUnknownSync(ProcessEvent)(value);
 							if (event.data?.stdout !== undefined) {
-								stdout += atob(event.data.stdout);
-								if (stdout.length > 65_536)
+								const bytes = Uint8Array.from(
+									atob(event.data.stdout),
+									(character) => character.charCodeAt(0),
+								);
+								stdoutBytes += bytes.byteLength;
+								if (stdoutBytes > 65_536)
 									throw new Error("Process output exceeded limit");
+								stdout += decoder.decode(bytes, { stream: true });
 							}
 							if (event.end !== undefined) {
 								if (!event.end.exited) throw new Error("Process did not exit");
-								return { exitCode: event.end.exitCode ?? 0, stdout };
+								return {
+									exitCode: event.end.exitCode ?? 0,
+									stdout: stdout + decoder.decode(),
+								};
 							}
 						}
 						throw new Error("Process missing exit receipt");
@@ -688,6 +701,7 @@ export const makeE2bSandboxProvider = (
 				}),
 			),
 		startProcess,
+		runProcess: (id, input) => executeProcess(id, input, true),
 		replaceProcess,
 		inspectProcess,
 		pathExists,

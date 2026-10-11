@@ -15,6 +15,7 @@ import {
 	type SandboxProviderAdapter,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Schedule } from "effect";
 import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
@@ -730,33 +731,76 @@ const AUTH_BOOTSTRAP_FILES = [
 ] as const;
 const AUTH_BOOTSTRAP_VERSION = `${AUTH_HOME}/bootstrap-version`;
 
+export const AUTH_READINESS_SOURCE = `
+const { readFileSync, accessSync, constants } = require("node:fs");
+const [home, version, incarnation] = process.argv.slice(1);
+const read = name => { try { return readFileSync(home + "/" + name, "utf8").trim(); } catch (error) { if (error.code === "ENOENT") return ""; throw error; } };
+let privateKey = false;
+try { accessSync(home + "/private.pem", constants.R_OK); privateKey = true; } catch (error) { if (error.code !== "ENOENT") throw error; }
+process.stdout.write(read("bootstrap-version") === version && read("storage-incarnation-id") === incarnation && read("key-id") && read("public.jwk.json") && privateKey ? "ready" : "repair");
+`;
+
 const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 	function* (authority: Authority) {
+		const timed = (stage: string) =>
+			measureCloudStage(
+				{ providerSandboxId: authority.sandboxId },
+				`auth.${stage}`,
+			);
 		const version = yield* sha256Hex(JSON.stringify(AUTH_BOOTSTRAP_FILES));
-		const [
-			installedVersion,
-			existingIncarnation,
-			existingKey,
-			existingPublicKey,
-		] = yield* Effect.all(
-			[
-				AUTH_BOOTSTRAP_VERSION,
-				AUTH_STORAGE_INCARNATION_ID,
-				AUTH_KEY_ID,
-				AUTH_PUBLIC_JWK,
-			].map((path) => readOptional(authority, path)),
-			{ concurrency: 4 },
-		);
-		if (
-			installedVersion === version &&
-			existingIncarnation === authority.storageIncarnationId &&
-			existingKey &&
-			existingPublicKey &&
-			(yield* authority.provider
-				.pathExists(authority.sandboxId, `${AUTH_HOME}/private.pem`, "zuse")
-				.pipe(Effect.orElseSucceed(() => false)))
-		)
-			return authority;
+		const ready = yield* Effect.gen(function* () {
+			if (authority.provider.runProcess !== undefined) {
+				const result = yield* authority.provider
+					.runProcess(authority.sandboxId, {
+						command: "node",
+						args: [
+							"-e",
+							AUTH_READINESS_SOURCE,
+							AUTH_HOME,
+							version,
+							authority.storageIncarnationId,
+						],
+						user: "zuse",
+					})
+					.pipe(
+						timed("inspect-bootstrap"),
+						Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")),
+					);
+				if (
+					result.exitCode !== 0 ||
+					!["ready", "repair"].includes(result.stdout)
+				)
+					return yield* serviceUnavailable("cloud_auth_unavailable");
+				return result.stdout === "ready";
+			}
+			const [
+				installedVersion,
+				existingIncarnation,
+				existingKey,
+				existingPublicKey,
+			] = yield* Effect.all(
+				[
+					AUTH_BOOTSTRAP_VERSION,
+					AUTH_STORAGE_INCARNATION_ID,
+					AUTH_KEY_ID,
+					AUTH_PUBLIC_JWK,
+				].map((path) => readOptional(authority, path)),
+				{ concurrency: 4 },
+			).pipe(timed("inspect-bootstrap"));
+			return Boolean(
+				installedVersion === version &&
+					existingIncarnation === authority.storageIncarnationId &&
+					existingKey &&
+					existingPublicKey &&
+					(yield* authority.provider
+						.pathExists(authority.sandboxId, `${AUTH_HOME}/private.pem`, "zuse")
+						.pipe(
+							timed("inspect-private-key"),
+							Effect.orElseSucceed(() => false),
+						)),
+			);
+		});
+		if (ready) return authority;
 		// A failed repair must not leave a previously valid readiness marker behind.
 		yield* authority.provider
 			.writeTextFile(authority.sandboxId, AUTH_BOOTSTRAP_VERSION, "", "zuse")
@@ -866,6 +910,10 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 		yield* authority.provider
 			.extendTimeout(authority.sandboxId, AUTH_TIMEOUT_SECONDS)
 			.pipe(
+				measureCloudStage(
+					{ providerSandboxId: authority.sandboxId },
+					"auth.extend-timeout",
+				),
 				Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")),
 			);
 		return authority;
@@ -952,13 +1000,15 @@ const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (
 					serviceUnavailable("cloud_auth_provision_failed"),
 				),
 			));
-	const initialized = yield* initializeAuthority({
-		provider,
-		sandboxId: created.providerSandboxId,
-		state: created.state,
-		storageIncarnationId: claim.record.storageIncarnationId,
-		authEpoch: claim.record.authEpoch,
-	});
+	const initialized = yield* initializeAuthority(
+		yield* ensureRunning({
+			provider,
+			sandboxId: created.providerSandboxId,
+			state: created.state,
+			storageIncarnationId: claim.record.storageIncarnationId,
+			authEpoch: claim.record.authEpoch,
+		}),
+	);
 	const record = yield* store.completeCloudAuthAuthorityProvisioning({
 		accountId,
 		providerSandboxId: created.providerSandboxId,
@@ -1218,7 +1268,7 @@ export const configureCloudAuth = Effect.fn("configureCloudAuth")(function* (
 		})()
 	)
 		return yield* Effect.fail(badRequest("invalid_cloud_auth_base_url"));
-	const authority = yield* ensureRunning(yield* provisionAuthority(accountId));
+	const authority = yield* provisionAuthority(accountId);
 	const operationId = crypto.randomUUID();
 	const requestPath = `${AUTH_HOME}/operations/configure-${operationId}.request.json`;
 	const resultPath = `${AUTH_HOME}/operations/configure-${operationId}.result.json`;
@@ -1268,9 +1318,7 @@ export const startCloudAuthLogin = Effect.fn("startCloudAuthLogin")(function* (
 	accountId: string,
 	providerId: "codex" | "grok",
 ) {
-	const authority = yield* ensureRunning(
-		yield* provisionAuthority(accountId, true),
-	);
+	const authority = yield* provisionAuthority(accountId, true);
 	if (providerId === "codex") {
 		yield* (yield* CloudWorkspaceStore).advanceCloudAuthEpoch({
 			accountId,
@@ -1461,67 +1509,102 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		return yield* Effect.fail(
 			badRequest(`invalid_${input.providerId}_grant_request`),
 		);
-	const authority = yield* ensureRunning(
-		yield* provisionAuthority(input.accountId),
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	const authority = yield* provisionAuthority(input.accountId).pipe(
+		timed("prepare-authority"),
 	);
 	const operationId = crypto.randomUUID();
 	const requestPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`;
 	const resultPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`;
 	const cachePath = `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`;
-	yield* authority.provider
-		.writeTextFile(
-			authority.sandboxId,
-			requestPath,
-			JSON.stringify({
-				protocolVersion: 1,
-				...(input.bindProviderId ? { providerId: input.providerId } : {}),
-				requestId: input.requestId,
-				accountId: input.accountId,
-				workspaceId: input.workspaceId,
-				runtimeGeneration: input.runtimeGeneration,
-				credentialPublicJwk: input.recipientPublicJwk,
-				keyThumbprint: input.recipientKeyThumbprint,
-				reason: input.reason,
-				...(input.previousProviderAccountId === undefined
-					? {}
-					: input.bindProviderId
-						? {
-								previousProviderAccountId: input.previousProviderAccountId,
-							}
-						: {
-								previousChatgptAccountId: input.previousProviderAccountId,
-							}),
-				authorityIncarnationId: authority.storageIncarnationId,
-				authorityEpoch: authority.authEpoch,
-			}),
-			"zuse",
-		)
-		.pipe(
-			Effect.mapError(() =>
-				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-			),
+	const request = JSON.stringify({
+		protocolVersion: 1,
+		...(input.bindProviderId ? { providerId: input.providerId } : {}),
+		requestId: input.requestId,
+		accountId: input.accountId,
+		workspaceId: input.workspaceId,
+		runtimeGeneration: input.runtimeGeneration,
+		credentialPublicJwk: input.recipientPublicJwk,
+		keyThumbprint: input.recipientKeyThumbprint,
+		reason: input.reason,
+		...(input.previousProviderAccountId === undefined
+			? {}
+			: input.bindProviderId
+				? {
+						previousProviderAccountId: input.previousProviderAccountId,
+					}
+				: {
+						previousChatgptAccountId: input.previousProviderAccountId,
+					}),
+		authorityIncarnationId: authority.storageIncarnationId,
+		authorityEpoch: authority.authEpoch,
+	});
+	const value = yield* Effect.gen(function* () {
+		if (authority.provider.runProcess !== undefined) {
+			// Keep the same durable request/cache and refresh lock, but execute the
+			// short operation directly instead of installing a service and polling.
+			const result = yield* authority.provider
+				.runProcess(authority.sandboxId, {
+					command: "/bin/bash",
+					args: [
+						"-c",
+						'umask 077; printf %s "$1" > "$2" && flock -x "$3" node "$4" "$2" "$5" "$6" && cat "$5"',
+						"zuse-auth-grant",
+						request,
+						requestPath,
+						`${AUTH_HOME}/${input.providerId}-refresh.lock`,
+						AUTH_CODEX_GRANT,
+						resultPath,
+						cachePath,
+					],
+					user: "zuse",
+				})
+				.pipe(
+					timed("execute-grant"),
+					Effect.mapError(() =>
+						serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+					),
+				);
+			if (result.exitCode !== 0)
+				return yield* serviceUnavailable(
+					`${input.providerId}-auth-reconnecting`,
+				);
+			return result.stdout;
+		}
+		yield* authority.provider
+			.writeTextFile(authority.sandboxId, requestPath, request, "zuse")
+			.pipe(
+				timed("write-grant-request"),
+				Effect.mapError(() =>
+					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+				),
+			);
+		yield* authority.provider
+			.startProcess(authority.sandboxId, {
+				command: "flock",
+				args: [
+					"-x",
+					`${AUTH_HOME}/${input.providerId}-refresh.lock`,
+					"node",
+					AUTH_CODEX_GRANT,
+					requestPath,
+					resultPath,
+					cachePath,
+				],
+				user: "zuse",
+				tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
+			})
+			.pipe(
+				timed("start-grant"),
+				Effect.mapError(() =>
+					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+				),
+			);
+		return yield* waitForFile(authority, resultPath, 350).pipe(
+			timed("receive-grant"),
 		);
-	yield* authority.provider
-		.startProcess(authority.sandboxId, {
-			command: "flock",
-			args: [
-				"-x",
-				`${AUTH_HOME}/${input.providerId}-refresh.lock`,
-				"node",
-				AUTH_CODEX_GRANT,
-				requestPath,
-				resultPath,
-				cachePath,
-			],
-			user: "zuse",
-			tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
-		})
-		.pipe(
-			Effect.mapError(() =>
-				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
-			),
-		);
-	const value = yield* waitForFile(authority, resultPath, 350);
+	});
 	let parsed: { readonly errorCode?: unknown; readonly sealed?: unknown };
 	try {
 		parsed = JSON.parse(value) as typeof parsed;

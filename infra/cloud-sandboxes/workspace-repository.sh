@@ -49,6 +49,20 @@ if [[ "$(git -C "$workspace" branch --show-current)" != "$branch" ]]; then
       git -C "$workspace" fetch --no-tags origin "$base_ref"
       progress switching-branch
       base_ref=FETCH_HEAD
+    elif [[ "${ZUSE_FORK_CHECKOUT:-}" != 1 && "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]]; then
+      # The image checkout is a cache of unknown age. A fresh managed branch
+      # starts from the latest requested base; the updated remote-tracking ref
+      # keeps the same upstream relationship as before. A failed fetch fails
+      # preparation visibly; retry recreates the branch from a fresh fetch.
+      progress fetching-repository
+      remote_base="${base_ref#origin/}"
+      git -C "$workspace" fetch --no-tags origin "$remote_base"
+      if git -C "$workspace" rev-parse --verify "refs/remotes/origin/$remote_base^{commit}" >/dev/null 2>&1; then
+        base_ref="origin/$remote_base"
+      else
+        base_ref=FETCH_HEAD
+      fi
+      progress switching-branch
     fi
     git -C "$workspace" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || \
       base_ref="origin/${base_ref#origin/}"

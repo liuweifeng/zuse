@@ -110,6 +110,8 @@ export class CloudProviderAuth {
 		NodeJS.Timeout
 	>();
 	private readonly recovering = new Set<CloudAuthProvider>();
+	/** Providers whose startup grant may serve the first session's initial resolve. */
+	private readonly seeded = new Set<CloudAuthProvider>();
 	private grokBridge: Server | null = null;
 	private readonly keyThumbprint: Promise<string>;
 
@@ -124,10 +126,16 @@ export class CloudProviderAuth {
 		reason: ProviderGrantRefreshReason = "initial",
 	): Promise<ProviderCredential> => {
 		const cached = this.cached.get(providerId);
+		// A session start deliberately refreshes so a changed account connection
+		// is observed promptly. The one exception is a grant obtained during
+		// workspace startup: the launch session consumes it instead of paying a
+		// second authority round trip for the same credential.
+		const seededForInitial =
+			reason === "initial" && this.seeded.delete(providerId);
 		if (
 			reason !== "unauthorized" &&
 			!this.recovering.has(providerId) &&
-			(reason !== "initial" || providerId === "grok") &&
+			(reason !== "initial" || providerId === "grok" || seededForInitial) &&
 			cached !== undefined &&
 			cached.expiresAt > Date.now() + PROACTIVE_REFRESH_WINDOW_MS
 		)
@@ -141,6 +149,24 @@ export class CloudProviderAuth {
 		this.inFlight.set(providerId, refresh);
 		return refresh;
 	};
+
+	/**
+	 * Obtain the launch agent's grant before execution is released. The grant
+	 * is cached for the launch session's own initial resolve, so startup
+	 * readiness and the first turn share a single authority refresh.
+	 */
+	async prepare(providerId: CloudAuthProvider): Promise<void> {
+		const cached = this.cached.get(providerId);
+		// A grant recovered moments ago is already fresh; seeding it avoids a
+		// third round trip after the recovery refresh.
+		if (
+			cached === undefined ||
+			this.recovering.has(providerId) ||
+			cached.expiresAt <= Date.now() + PROACTIVE_REFRESH_WINDOW_MS
+		)
+			await this.resolve(providerId, "initial");
+		this.seeded.add(providerId);
+	}
 
 	async startGrokBridge(): Promise<void> {
 		if (this.grokBridge !== null) return;
@@ -192,6 +218,7 @@ export class CloudProviderAuth {
 		this.proactiveTimers.clear();
 		this.recoveryTimers.clear();
 		this.recovering.clear();
+		this.seeded.clear();
 		this.cached.clear();
 		this.inFlight.clear();
 		if (this.grokBridge !== null) this.grokBridge.close();

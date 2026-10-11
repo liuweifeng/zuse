@@ -394,10 +394,11 @@ export const makeBoxSandboxProvider = (
 
 	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
 		[
-			// Boat advertises ready while system paths may still use its temporary
-			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
-			// handover. Do not modify the layout or start Zuse until disk mounts win.
-			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
+			// Wait for authoritative runtime storage and the user database.
+			// Executables in /usr and /opt can load lazily during restore; waiting
+			// for every installed tool needlessly gates the workspace runtime.
+			// Mutable runtime data and ownership journals remain behind /srv.
+			'for root in /etc /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			rootProcessCommand(
 				[
 					boatProcessStorageScript(),

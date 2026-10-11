@@ -27,10 +27,35 @@ const fixture = () => {
 	writeFileSync(join(root, "file"), "original");
 	git("add", ".");
 	git("commit", "-m", "initial");
-	git("remote", "add", "origin", "https://example.com/repo.git");
+	// The image checkout points at a reachable origin; an unreachable path
+	// stands in for network failure without waiting on DNS or TLS.
+	const remote = join(root, "origin.git");
+	execFileSync("git", ["init", "--bare", "-b", "main", remote], {
+		stdio: "pipe",
+	});
+	git("remote", "add", "origin", remote);
+	git("push", "origin", "main");
+	const unreachable = "/nonexistent/zuse-unreachable/repo.git";
+	/** Advance origin's main from a separate clone, leaving the checkout stale. */
+	const advanceRemoteMain = (content: string): string => {
+		const clone = mkdtempSync(join(tmpdir(), "zuse cloud remote-"));
+		roots.push(clone);
+		const cloneGit = (...args: string[]) =>
+			execFileSync("git", ["-C", clone, ...args], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			}).trim();
+		execFileSync("git", ["clone", "-q", remote, clone], { stdio: "pipe" });
+		cloneGit("config", "user.name", "Test");
+		cloneGit("config", "user.email", "test@example.com");
+		writeFileSync(join(clone, "file"), content);
+		cloneGit("commit", "-am", "remote work");
+		cloneGit("push", "-q", "origin", "main");
+		return cloneGit("rev-parse", "HEAD");
+	};
 	const run = (
 		base = "main",
-		repositoryUrl = "https://example.com/repo.git",
+		repositoryUrl = remote,
 		fork = false,
 		native = false,
 	) =>
@@ -47,11 +72,11 @@ const fixture = () => {
 			},
 			stdio: "pipe",
 		});
-	return { root, git, run };
+	return { root, git, run, remote, unreachable, advanceRemoteMain };
 };
 describe("cloud workspace branch initialization", () => {
 	test("machine forks preserve detached commits, staged edits and untracked files", () => {
-		const { root, git, run } = fixture();
+		const { root, git, run, unreachable } = fixture();
 		git("checkout", "--detach");
 		writeFileSync(join(root, "file"), "fork commit");
 		git("commit", "-am", "local commit");
@@ -60,8 +85,8 @@ describe("cloud workspace branch initialization", () => {
 		git("add", "file");
 		writeFileSync(join(root, "file"), "unstaged");
 		writeFileSync(join(root, "untracked"), "keep");
-		run("main", "https://example.com/repo.git", true);
-		run("main", "https://example.com/repo.git", true);
+		run("main", unreachable, true);
+		run("main", unreachable, true);
 		expect(git("rev-parse", "HEAD")).toBe(head);
 		expect(git("show", ":file")).toBe("staged");
 		expect(readFileSync(join(root, "file"), "utf8")).toBe("unstaged");
@@ -84,6 +109,64 @@ describe("cloud workspace branch initialization", () => {
 		expect(git("branch", "--show-current")).toBe("vileplume");
 		expect(readFileSync(join(root, "file"), "utf8")).toBe("user edits");
 		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
+	});
+	test("a fresh managed branch starts from the latest fetched base, not the cached checkout", () => {
+		const { root, git, run, advanceRemoteMain } = fixture();
+		const stale = git("rev-parse", "HEAD");
+		const latest = advanceRemoteMain("remote progress");
+		expect(latest).not.toBe(stale);
+		writeFileSync(join(root, "untracked"), "keep");
+		run();
+		expect(git("branch", "--show-current")).toBe("vileplume");
+		expect(git("rev-parse", "HEAD")).toBe(latest);
+		expect(git("rev-parse", "origin/main")).toBe(latest);
+		expect(git("config", "--get", "branch.vileplume.remote")).toBe("origin");
+		expect(git("rev-parse", "main")).toBe(stale);
+		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
+		expect(readFileSync(join(root, "file"), "utf8")).toBe("remote progress");
+	});
+	test("an origin-qualified base fetches the same branch and tracks it", () => {
+		const { git, run, advanceRemoteMain } = fixture();
+		const latest = advanceRemoteMain("origin qualified");
+		run("origin/main");
+		expect(git("rev-parse", "HEAD")).toBe(latest);
+		expect(git("config", "--get", "branch.vileplume.merge")).toBe(
+			"refs/heads/main",
+		);
+	});
+	test("a recovered branch never fetches again, even when origin is unreachable", () => {
+		const { root, git, run, unreachable, advanceRemoteMain } = fixture();
+		run();
+		const created = git("rev-parse", "HEAD");
+		advanceRemoteMain("later remote work");
+		writeFileSync(join(root, "file"), "local edits");
+		run("main", unreachable);
+		expect(git("rev-parse", "HEAD")).toBe(created);
+		expect(readFileSync(join(root, "file"), "utf8")).toBe("local edits");
+		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
+			"checking-repository",
+		);
+	});
+	test("a failed base fetch fails visibly and a retry starts from the fresh fetch", () => {
+		const { root, git, run, unreachable, advanceRemoteMain } = fixture();
+		writeFileSync(join(root, "untracked"), "keep");
+		expect(() => run("main", unreachable)).toThrow();
+		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
+			"fetching-repository",
+		);
+		// Nothing was created from the stale cache, and local files are intact.
+		expect(git("branch", "--show-current")).toBe("main");
+		expect(() => git("rev-parse", "--verify", "vileplume")).toThrow();
+		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
+		const latest = advanceRemoteMain("after outage");
+		run();
+		expect(git("branch", "--show-current")).toBe("vileplume");
+		expect(git("rev-parse", "HEAD")).toBe(latest);
+	});
+	test("an unreachable origin with no cached base still fails", () => {
+		const { git, run, unreachable } = fixture();
+		expect(() => run("missing", unreachable)).toThrow();
+		expect(git("branch", "--show-current")).toBe("main");
 	});
 	test("does not reset existing branch commits", () => {
 		const { root, git, run } = fixture();
@@ -129,7 +212,7 @@ describe("cloud workspace branch initialization", () => {
 		expect(git("branch", "--show-current")).toBe("main");
 	});
 	test("recovers the target branch with conflicting edits intact", () => {
-		const { root, git, run } = fixture();
+		const { root, git, run, remote } = fixture();
 		run();
 		writeFileSync(join(root, "file"), "target branch work\n");
 		git("commit", "-am", "target work");
@@ -148,9 +231,7 @@ describe("cloud workspace branch initialization", () => {
 		expect(content).toContain("local edits");
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");
-		expect(git("remote", "get-url", "origin")).toBe(
-			"https://example.com/repo.git",
-		);
+		expect(git("remote", "get-url", "origin")).toBe(remote);
 	});
 	test("does not discard staged edits when switching would conflict", () => {
 		const { root, git, run } = fixture();

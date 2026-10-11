@@ -372,8 +372,8 @@ describe("Box sandbox provider", () => {
 				.slice(1)
 				.map((call) => JSON.parse(String(call.init?.body)).command),
 		).toEqual([
-			expect.stringContaining("for root in /usr /etc /opt /srv"),
-			expect.stringContaining("for root in /usr /etc /opt /srv"),
+			expect.stringContaining("for root in /etc /srv"),
+			expect.stringContaining("for root in /etc /srv"),
 		]);
 	});
 
@@ -877,6 +877,11 @@ describe("Box sandbox provider", () => {
 			await promisify(execFile)("bash", [
 				"-c",
 				`${shim}; node() { exit 95; }; export -f node; ${command}`,
+			]);
+			// Executables may still be lazily restored after all writable state is on disk.
+			await promisify(execFile)("bash", [
+				"-c",
+				`${shim}; findmnt() { if [[ "\${*: -1}" == /usr || "\${*: -1}" == /opt ]]; then echo fuse; else echo ext4; fi; }; ${command}`,
 			]);
 			await expect(
 				promisify(execFile)("bash", [

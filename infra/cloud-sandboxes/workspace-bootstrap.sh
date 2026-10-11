@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-status_dir=/var/lib/zuse/workspace
+status_dir="${ZUSE_WORKSPACE_RUNTIME_STATUS_DIR:-/var/lib/zuse/workspace}"
+repository_script="${ZUSE_WORKSPACE_REPOSITORY_SCRIPT:-/var/lib/zuse/project-build/workspace-repository.sh}"
 runtime_launcher=/var/lib/zuse/project-build/workspace-runtime.sh
 [[ -f "$runtime_launcher" ]] || runtime_launcher=/usr/local/lib/zuse/workspace-runtime.sh
 source "$runtime_launcher"
@@ -120,10 +121,10 @@ runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &
 credentials_wait_pid=$!
 
-# Both initial startup and interrupted-startup recovery use the same safe setup.
-bash /var/lib/zuse/project-build/workspace-repository.sh >>"$status_dir/runtime.log" 2>&1 &
-repository_pid=$!
-
+# The runtime signals credentials-ready only once the launch agent's
+# credential evidence is settled. Repository preparation starts after that,
+# so the visible preparation phases follow the real order.
+phase=preparing-credentials
 set +e
 wait -n "$runtime_pid" "$credentials_wait_pid"
 set -e
@@ -134,7 +135,10 @@ fi
 [[ ! -f "$status_dir/failed" ]]
 rm -f "$credentials_event"
 
+# Both initial startup and interrupted-startup recovery use the same safe setup.
 phase=syncing-repository
+bash "$repository_script" >>"$status_dir/runtime.log" 2>&1 &
+repository_pid=$!
 wait "$repository_pid"
 phase=ready
 touch "$status_dir/ready"

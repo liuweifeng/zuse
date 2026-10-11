@@ -1453,6 +1453,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	nowMs: number,
 	creator?: { readonly subject: string; readonly membershipId: string },
 ) {
+	const workspaceId = yield* randomToken("workspace", 12);
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId }, `create.${stage}`);
 	const store = yield* CloudWorkspaceStore;
 	const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 	const scope = workspaceScopeForOwner(accountId);
@@ -1467,7 +1470,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 					grants: [],
 				}
 			: undefined;
-	yield* requireCloudWorkspaceEntitlement(accountId, nowMs);
+	yield* requireCloudWorkspaceEntitlement(accountId, nowMs).pipe(
+		timed("entitlement"),
+	);
 	const apiConfiguration = yield* ApiConfiguration;
 	if (body.localDeviceId !== undefined) {
 		const devices = yield* ApiStore;
@@ -1479,11 +1484,17 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		)
 			return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
 	}
-	const project = yield* store.getProject(body.projectId);
+	const project = yield* store
+		.getProject(body.projectId)
+		.pipe(timed("read-project"));
 	if (project === null || project.accountId !== accountId)
 		return yield* Effect.fail(notFound("cloud_project_not_found"));
-	const provider = yield* selectedProvider(accountId, body.providerId);
-	yield* requirePlacementAccess(accountId, nowMs, provider);
+	const provider = yield* selectedProvider(accountId, body.providerId).pipe(
+		timed("resolve-provider"),
+	);
+	yield* requirePlacementAccess(accountId, nowMs, provider).pipe(
+		timed("placement-access"),
+	);
 	const forkSource =
 		body.forkSource === undefined
 			? null
@@ -1527,7 +1538,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const accountBuild =
 		forkSource !== null
 			? yield* store.getBuild(forkSource.buildId)
-			: yield* store.getActiveAccountBuild(accountId, provider.providerId);
+			: yield* store
+					.getActiveAccountBuild(accountId, provider.providerId)
+					.pipe(timed("read-image"));
 	if (
 		project.state !== "ready" ||
 		accountBuild === null ||
@@ -1546,7 +1559,11 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		build.snapshotId !== undefined &&
 		connectionIdFor(build) === undefined
 	)
-		yield* assertSnapshotUsable(accountId, build.provider, build.snapshotId);
+		yield* assertSnapshotUsable(
+			accountId,
+			build.provider,
+			build.snapshotId,
+		).pipe(timed("verify-snapshot"));
 	if (
 		importedSnapshot(build) &&
 		snapshotRepositoryLayout(build, project.projectId) === undefined
@@ -1582,7 +1599,6 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 				build,
 				apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled,
 			);
-	const workspaceId = yield* randomToken("workspace", 12);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
 	// Workspace records cannot tell us which names were used by local chats,
@@ -1634,6 +1650,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		Effect.mapError(() =>
 			serviceUnavailable("cloud_transcript_key_unavailable"),
 		),
+		timed("transcript-key"),
 	);
 	const workspace: CloudWorkspaceRecord = {
 		workspaceId,
@@ -1726,6 +1743,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 				...(machineFork === undefined ? {} : { forkSource: machineFork }),
 			})
 			.pipe(
+				timed("seal-launch-intent"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_workspace_launch_intent_unavailable"),
 				),
@@ -1733,7 +1751,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		expiresAtMs: nowMs + 24 * 60 * 60 * 1_000,
 		createdAtMs: nowMs,
 	};
-	const outcome = yield* store.createWorkspace(workspace, launchIntentRecord);
+	const outcome = yield* store
+		.createWorkspace(workspace, launchIntentRecord)
+		.pipe(timed("persist-workspace"));
 	if (outcome.kind === "branch-in-use")
 		return yield* Effect.fail(
 			conflict(
