@@ -3387,7 +3387,14 @@ export const reconcileCloudBuild = (buildId: string) =>
 		);
 		if (build !== null) yield* reconcileBuildRecord(build);
 	});
-export const reconcileCloudWorkspace = (workspaceId: string) =>
+export const reconcileCloudWorkspace = (
+	workspaceId: string,
+	options?: {
+		readonly leaseMs?: number;
+		/** Evaluated on the claimed row; a rejected row releases the lease untouched. */
+		readonly onlyIf?: (workspace: CloudWorkspaceRecord) => boolean;
+	},
+) =>
 	Effect.gen(function* () {
 		const store = yield* CloudWorkspaceStore;
 		const nowMs = yield* Clock.currentTimeMillis;
@@ -3395,9 +3402,10 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 		// Native forks include readiness and a stopped-writer import preparation.
 		const pending = yield* store.getWorkspace(workspaceId);
 		const leaseMs =
-			pending?.requestConfig.machineFork === undefined
+			options?.leaseMs ??
+			(pending?.requestConfig.machineFork === undefined
 				? RECONCILE_LEASE_MS
-				: 10 * 60_000;
+				: 10 * 60_000);
 		const workspace = yield* store.claimWorkspace(
 			workspaceId,
 			leaseOwner,
@@ -3405,6 +3413,12 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 			nowMs + leaseMs,
 		);
 		if (workspace === null) return;
+		if (options?.onlyIf !== undefined && !options.onlyIf(workspace)) {
+			yield* store
+				.releaseWorkspaceLease(workspaceId, leaseOwner)
+				.pipe(Effect.ignore);
+			return;
+		}
 		let expectedRevision = workspace.revision;
 		let expectedUpdatedAtMs = workspace.updatedAtMs;
 		let currentWorkspace = workspace;
@@ -3594,3 +3608,75 @@ export const reconcileCloudWorkspaceStartup = Effect.fn(
 	const workspace = yield* store.getWorkspace(workspaceId);
 	return workspaceStartupOutcome(workspace, yield* Clock.currentTimeMillis);
 });
+
+/** Short enough that a hard worker termination cannot hold the alarm back for long. */
+export const INLINE_STARTUP_LEASE_MS = 15_000;
+export const INLINE_STARTUP_TIMEOUT_MS = 10_000;
+
+/**
+ * Only a fresh managed creation on a provider with idempotent allocation
+ * qualifies: a lost response is adopted by label, never duplicated, and no
+ * recovery or fork path is involved.
+ */
+export const cloudWorkspaceStartupInlineEligible = (
+	workspace: CloudWorkspaceRecord | null,
+	provider: Pick<SandboxProviderAdapter, "supportsIdempotentAllocation">,
+): workspace is CloudWorkspaceRecord =>
+	workspace !== null &&
+	workspace.state === "queued" &&
+	workspace.desiredState === "ready" &&
+	workspace.providerSandboxId === undefined &&
+	workspace.requestConfig.allocationProtocol === "provider-idempotent-v1" &&
+	workspace.requestConfig.machineFork === undefined &&
+	runtimeActivation(workspace) === null &&
+	provider.supportsIdempotentAllocation === true;
+
+/**
+ * Run the first startup step from the creating request instead of waiting
+ * for the durable object's first contact. The durable scheduler remains the
+ * owner: the same lease fences both, the step is bounded, and the caller
+ * re-schedules the alarm afterwards so no handoff is lost. Returns whether a
+ * step ran; it never fails.
+ */
+export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
+	function* (workspaceId: string) {
+		const outcome = yield* Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null) return false;
+			const provider = yield* resolveResourceProvider(workspace).pipe(
+				Effect.option,
+			);
+			if (
+				provider._tag === "None" ||
+				!cloudWorkspaceStartupInlineEligible(workspace, provider.value)
+			)
+				return false;
+			const adapter = provider.value;
+			// Eligibility is re-proven on the claimed row: a transition between the
+			// read and the claim must not put other work under the short lease.
+			yield* reconcileCloudWorkspace(workspaceId, {
+				leaseMs: INLINE_STARTUP_LEASE_MS,
+				onlyIf: (claimed) =>
+					cloudWorkspaceStartupInlineEligible(claimed, adapter),
+			}).pipe(measureCloudStage({ workspaceId }, "startup.inline"));
+			return true;
+		}).pipe(
+			Effect.timeoutOption(Duration.millis(INLINE_STARTUP_TIMEOUT_MS)),
+			Effect.result,
+		);
+		if (outcome._tag === "Failure") {
+			console.warn("[cloud-workspace] inline startup step failed", {
+				workspaceId,
+			});
+			return true;
+		}
+		if (outcome.success._tag === "None") {
+			console.warn("[cloud-workspace] inline startup step timed out", {
+				workspaceId,
+			});
+			return true;
+		}
+		return outcome.success.value;
+	},
+);

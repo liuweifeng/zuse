@@ -18,6 +18,7 @@ import {
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
+	startCloudWorkspaceInline,
 } from "./cloud-workspace-reconciler.ts";
 import {
 	type CloudMailboxLifecycleFence,
@@ -90,6 +91,8 @@ export const makeApi = (
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
 	) => Promise<WorkspaceStartupOutcome>;
+	/** First startup step from the creating request; true when a step ran. */
+	readonly startCloudWorkspaceInline: (workspaceId: string) => Promise<boolean>;
 	readonly requestCloudMailboxWake: (
 		workspaceId: string,
 		accountId: string,
@@ -189,6 +192,8 @@ export const makeApi = (
 					options?.scheduleWorkspaceStartup,
 				),
 			),
+		startCloudWorkspaceInline: (workspaceId) =>
+			runtime.runPromise(startCloudWorkspaceInline(workspaceId)),
 		requestCloudMailboxWake: (workspaceId, accountId) =>
 			runtime.runPromise(
 				Effect.gen(function* () {

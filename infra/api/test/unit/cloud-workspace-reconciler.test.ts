@@ -45,6 +45,7 @@ import {
 	sanitizeProjectBuildDiagnostic,
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
+	startCloudWorkspaceInline,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 	workspaceRuntimeProcessSelector,
 	workspaceRuntimeReconnectTarget,
@@ -3130,5 +3131,238 @@ describe("managed image launch assets", () => {
 			),
 		);
 		expect(new Set([withKey, otherKey, withoutKey]).size).toBe(3);
+	});
+});
+
+describe("inline first startup step", () => {
+	const withIdempotentAllocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+		Effect.gen(function* () {
+			const providers = yield* SandboxProviders;
+			return yield* effect.pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								supportsIdempotentAllocation: true,
+							})),
+						),
+				}),
+			);
+		});
+
+	test("a fresh managed creation runs allocation and launch from the request under the lease", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-fresh",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* store.getWorkspace(workspace.workspaceId);
+				// The lease is released; the durable scheduler can claim immediately.
+				const claimed = yield* store.claimWorkspace(
+					workspace.workspaceId,
+					"alarm",
+					Date.now(),
+					Date.now() + 1_000,
+				);
+				return { ran, after, claimed };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.after).toMatchObject({
+			state: "provisioning",
+			statusCode: "runtime-starting",
+		});
+		expect(result.after?.providerSandboxId).toBeDefined();
+		expect(result.claimed).not.toBeNull();
+	});
+
+	test.each([
+		{
+			name: "recovered sandbox",
+			requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+			providerSandboxId: "existing",
+			state: "queued" as const,
+		},
+		{
+			name: "machine fork",
+			requestConfig: {
+				allocationProtocol: "provider-idempotent-v1",
+				machineFork: {
+					workspaceId: "source",
+					chatId: "c",
+					sessionId: "s",
+					messageId: "m",
+				},
+			},
+			providerSandboxId: undefined,
+			state: "queued" as const,
+		},
+		{
+			name: "legacy allocation protocol",
+			requestConfig: {},
+			providerSandboxId: undefined,
+			state: "queued" as const,
+		},
+		{
+			name: "resume of a paused workspace",
+			requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+			providerSandboxId: "existing",
+			state: "paused" as const,
+		},
+	])("does not run for a $name", async ({
+		requestConfig,
+		providerSandboxId,
+		state,
+	}) => {
+		const ran = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: `inline-skip-${state}-${Object.keys(requestConfig).length}-${providerSandboxId ?? "none"}`,
+					state,
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig,
+					providerSandboxId,
+				});
+				const store = yield* CloudWorkspaceStore;
+				if (providerSandboxId === undefined)
+					yield* store.saveWorkspace({
+						...workspace,
+						providerSandboxId: undefined,
+						revision: workspace.revision + 1,
+						updatedAtMs: workspace.updatedAtMs + 1,
+					});
+				return yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(ran).toBe(false);
+	});
+
+	test("re-checks eligibility on the claimed row so a transition cannot run other work under the short lease", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-race",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const create = vi.spyOn(provider, "create");
+				// Between the eligibility read and the claim, the row moves on.
+				const racing: typeof store = {
+					...store,
+					claimWorkspace: (id, owner, nowMs, leaseExpiresAtMs) =>
+						store.getWorkspace(id).pipe(
+							Effect.flatMap((current) =>
+								current === null
+									? Effect.void
+									: store.saveWorkspace({
+											...current,
+											desiredState: "deleted",
+											statusCode: "delete-queued",
+											revision: current.revision + 1,
+											updatedAtMs: current.updatedAtMs + 1,
+										}),
+							),
+							Effect.andThen(
+								store.claimWorkspace(id, owner, nowMs, leaseExpiresAtMs),
+							),
+						),
+				};
+				try {
+					const ran = yield* withIdempotentAllocation(
+						startCloudWorkspaceInline(workspace.workspaceId),
+					).pipe(Effect.provideService(CloudWorkspaceStore, racing));
+					const after = yield* store.getWorkspace(workspace.workspaceId);
+					const released = yield* store.claimWorkspace(
+						workspace.workspaceId,
+						"alarm",
+						Date.now(),
+						Date.now() + 1_000,
+					);
+					return { ran, after, released, creates: create.mock.calls.length };
+				} finally {
+					create.mockRestore();
+				}
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.creates).toBe(0);
+		expect(result.after).toMatchObject({
+			state: "queued",
+			desiredState: "deleted",
+			statusCode: "delete-queued",
+		});
+		expect(result.released).not.toBeNull();
+	});
+
+	test("skips providers without idempotent allocation and leases held by the scheduler", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-no-capability",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const withoutCapability = yield* startCloudWorkspaceInline(
+					workspace.workspaceId,
+				);
+				const held = yield* store.claimWorkspace(
+					workspace.workspaceId,
+					"alarm",
+					Date.now(),
+					Date.now() + 60_000,
+				);
+				const collided = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* store.getWorkspace(workspace.workspaceId);
+				return { withoutCapability, held, collided, after };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.withoutCapability).toBe(false);
+		expect(result.held).not.toBeNull();
+		// Eligible, so it reports having run, but the held lease fenced any work.
+		expect(result.collided).toBe(true);
+		expect(result.after?.state).toBe("queued");
+		expect(result.after?.providerSandboxId).toBeUndefined();
 	});
 });

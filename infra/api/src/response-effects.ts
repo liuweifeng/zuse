@@ -7,6 +7,7 @@ export type ResponseEffectsApi = Pick<
 	| "reconcileMachine"
 	| "reconcileCloudBuild"
 	| "reconcileCloudWorkspaceStartup"
+	| "startCloudWorkspaceInline"
 	| "deliverApiWebhooks"
 >;
 
@@ -40,11 +41,24 @@ export const applyResponseEffects = async (
 		"x-zuse-nudge-cloud-workspace",
 		"x-zuse-deliver-cloud-webhooks",
 	]);
+	let inlineStartup: Promise<unknown> | null = null;
 	if (cloudWorkspaceId !== null) {
+		// A fresh creation runs its first step now, fenced by the same lease the
+		// alarm uses, while the durable enqueue proceeds; it re-arms the alarm
+		// afterwards so a lease collision cannot lose the handoff.
+		inlineStartup = api
+			.startCloudWorkspaceInline(cloudWorkspaceId)
+			.then((ran) =>
+				ran ? api.reconcileCloudWorkspaceStartup(cloudWorkspaceId) : undefined,
+			)
+			.catch((error) => {
+				console.error("[api] inline workspace startup failed", error);
+			});
 		try {
 			// This awaits durable enqueue only. The alarm owns provider execution.
 			await api.reconcileCloudWorkspaceStartup(cloudWorkspaceId);
 		} catch (error) {
+			await inlineStartup;
 			await api.dispose();
 			throw error;
 		}
@@ -53,13 +67,15 @@ export const applyResponseEffects = async (
 		machineId === null &&
 		cloudBuildId === null &&
 		gatewayNudgeTarget === null &&
-		webhookDeliveryAccountId === null
+		webhookDeliveryAccountId === null &&
+		inlineStartup === null
 	) {
 		await api.dispose();
 		return response;
 	}
 	context.waitUntil(
 		Promise.allSettled([
+			inlineStartup ?? Promise.resolve(),
 			machineId === null
 				? Promise.resolve()
 				: api.reconcileMachine(machineId, `webhook-${crypto.randomUUID()}`),
