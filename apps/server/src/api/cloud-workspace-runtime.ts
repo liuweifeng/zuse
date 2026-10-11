@@ -3166,10 +3166,22 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								});
 							return Effect.void;
 						};
+						// Cold recovery has no new launch intent. The retained session still
+						// identifies the credential that must be usable before Git resumes.
+						const selectedAgent =
+							bootstrap.launchIntent?.agent ??
+							(yield* sessions
+								.getSession(AgentSessionId.make(bootstrap.initialSessionId))
+								.pipe(
+									Effect.map((session) => session.providerId),
+									Effect.catchTag("SessionNotFoundError", () =>
+										Effect.succeed(undefined),
+									),
+								));
 						const selectedProvider = yield* prepareSelectedAgentCredential({
 							workspaceId: config.workspaceId,
 							runtimeGeneration: runtimeCredential.generation,
-							agent: bootstrap.launchIntent?.agent,
+							agent: selectedAgent,
 							prepare: prepareSelectedCredential,
 							recovery: providerRecovery,
 						}).pipe(
