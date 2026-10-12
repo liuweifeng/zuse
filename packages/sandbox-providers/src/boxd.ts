@@ -15,6 +15,7 @@ import {
 	NotFoundError,
 	PermissionDeniedError,
 	type Proxy as ProxyRoute,
+	RateLimitError,
 	type ResizeResult,
 	type Snapshot,
 	type UploadSource,
@@ -228,6 +229,13 @@ const previousBoxdMachineNames = (label: string): ReadonlyArray<string> => [
 ];
 
 const errorForCause = (cause: unknown): SandboxProviderError => {
+	// Boxd uses RESOURCE_EXHAUSTED for both request throttling and the VM cap.
+	// The latter requires account action; retrying it cannot allocate a machine.
+	if (
+		cause instanceof RateLimitError &&
+		/^Org VM limit reached\b/u.test(cause.message)
+	)
+		return providerError("quota-exceeded");
 	if (cause instanceof NotFoundError) return providerError("not-found");
 	if (
 		cause instanceof AuthenticationError ||
