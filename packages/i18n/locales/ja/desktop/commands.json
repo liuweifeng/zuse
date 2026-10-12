@@ -72,5 +72,7 @@
 	"command_group_navigation": "ナビゲーション",
 	"command_group_editor": "編集者",
 	"command_group_composer": "作曲家",
-	"command_group_application": "アプリケーション"
+	"command_group_application": "アプリケーション",
+	"new_chat_without_project": "プロジェクトなしで新しいチャット",
+	"new_chat_without_project_description": "専用の作業フォルダーで新しいチャットを開始"
 }

@@ -16,7 +16,7 @@ type WorkspaceState = {
 	load: () => Promise<void>;
 	add: () => Promise<void>;
 	remove: (folderId: FolderId) => Promise<void>;
-	select: (folderId: FolderId) => Promise<void>;
+	select: (folderId: FolderId | null) => Promise<void>;
 };
 
 export const registerFolder = (
@@ -90,7 +90,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 					: get().selectedFolderId !== null &&
 							folders.some((folder) => folder.id === get().selectedFolderId)
 						? get().selectedFolderId
-						: (folders[0]?.id ?? null);
+						: (folders.find((folder) => folder.kind !== "scratch")?.id ?? null);
 			set({ folders, selectedFolderId: selected, loading: false });
 			if (selected !== persisted) await persistSelection(selected);
 		} catch (cause) {

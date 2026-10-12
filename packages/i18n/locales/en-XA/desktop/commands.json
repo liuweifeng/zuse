@@ -72,5 +72,7 @@
 	"command_group_navigation": "⟦Nààvïïgààtïïôôn⟧",
 	"command_group_editor": "⟦ËËdïïtôôr⟧",
 	"command_group_composer": "⟦Côômpôôsëër⟧",
-	"command_group_application": "⟦ÀÀpplïïcààtïïôôn⟧"
+	"command_group_application": "⟦ÀÀpplïïcààtïïôôn⟧",
+	"new_chat_without_project": "⟦Nëëw chààt wïïthôôüüt àà prôôjëëct⟧",
+	"new_chat_without_project_description": "⟦Stààrt àà nëëw chààt ïïn ïïts ôôwn scrààtch fôôldëër⟧"
 }

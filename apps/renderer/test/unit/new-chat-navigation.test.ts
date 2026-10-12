@@ -1,4 +1,10 @@
-import { ChatId, CloudProject, FolderId, SessionId } from "@zuse/contracts";
+import {
+	ChatId,
+	CloudProject,
+	Folder,
+	FolderId,
+	SessionId,
+} from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeCloudProjectFolders } from "../../src/lib/cloud-project-folders.ts";
 import {
@@ -14,6 +20,7 @@ import {
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
+import { projectEnvironmentShell } from "../../src/store/environment-catalog.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useUiStore } from "../../src/store/ui.ts";
 import { useWorkspaceStore } from "../../src/store/workspace.ts";
@@ -66,6 +73,77 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("New Chat navigation", () => {
+	it("opens a projectless landing from an existing project and clears its selected session", () => {
+		openNewChatLanding(null);
+		expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+		expect(useSessionsStore.getState().selectedSessionId).toBeNull();
+		expect(captureNewChatLanding()()).toBe(true);
+	});
+
+	it("keeps an explicitly projectless draft selected when a folder stream changes", () => {
+		openNewChatLanding(null);
+		const scratch = Folder.make({
+			id: second,
+			name: "Task",
+			kind: "scratch",
+			path: "/scratch/task",
+			addedAt: new Date(),
+		});
+		projectEnvironmentShell({
+			folders: [scratch],
+			originsByFolder: {},
+			chatsByProject: {},
+			sessionsByProject: {},
+			creationOperationsByProject: {},
+		});
+		expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
+		expect(useChatsStore.getState().selectedChatId).toBeNull();
+	});
+
+	it("dispatches the projectless shortcut from an existing project", async () => {
+		vi.stubGlobal("document", { body: { dataset: {} } });
+		const { dispatchCommand } = await import(
+			"../../src/lib/command-handlers.ts"
+		);
+		dispatchCommand("new-chat-without-project");
+		expect(useWorkspaceStore.getState().selectedFolderId).toBeNull();
+		expect(useUiStore.getState().view).toBe("chat");
+	});
+
+	it("keeps scratch threads out of project choices while retaining their thread groups", () => {
+		const project = Folder.make({
+			id: first,
+			name: "Project",
+			path: "/project",
+			addedAt: new Date(),
+		});
+		const scratch = Folder.make({
+			id: second,
+			name: "Task",
+			path: "/scratch/task",
+			kind: "scratch",
+			addedAt: new Date(),
+		});
+		const input = {
+			entries: [],
+			activeEnvironmentId: "local",
+			localEnvironmentId: "local",
+			activeFolders: [project, scratch],
+			activeOrigins: {},
+			activeChatsByProject: {},
+			shellsByEnvironment: {},
+		};
+		expect(
+			buildLogicalProjectGroups(input).map((group) => group.displayName),
+		).toEqual(["Project"]);
+		expect(
+			buildLogicalProjectGroups({ ...input, folderKind: "scratch" }).map(
+				(group) => group.members[0]?.folderId,
+			),
+		).toEqual([second]);
+	});
+
 	it("opens an organization cloud repository arriving after New Chat without a local checkout", () => {
 		selectRendererWorkspace({ kind: "organization", organizationId: "legion" });
 		useWorkspaceStore.setState({ selectedFolderId: null, folders: [] });

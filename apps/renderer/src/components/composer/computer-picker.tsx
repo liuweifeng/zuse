@@ -88,8 +88,13 @@ export function ComputerPicker({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
-	if (group === null) return null;
 	const model = computerPickerItems(group, target, entries);
+	if (
+		model.kind === "menu" &&
+		model.items.length === 0 &&
+		cloudItems.length === 0
+	)
+		return null;
 	if (model.kind === "hidden" && cloudItems.length === 0) return null;
 
 	if (model.kind === "static" && cloudItems.length === 0) {

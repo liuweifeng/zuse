@@ -16,6 +16,7 @@ import { Rpc } from "effect/unstable/rpc";
 export const Command = Schema.Literals([
 	// menu / global
 	"new-chat",
+	"new-chat-without-project",
 	"open-project",
 	"settings",
 	"close-tab",

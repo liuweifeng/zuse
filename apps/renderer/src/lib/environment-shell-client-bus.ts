@@ -190,6 +190,12 @@ const originInput = (
 	client: EnvironmentShellDriverClient,
 	folder: Folder,
 ): Stream.Stream<EnvironmentShellInput> => {
+	if (folder.kind === "scratch")
+		return Stream.succeed({
+			type: "origin",
+			projectId: folder.id,
+			origin: null,
+		});
 	const attempt = () =>
 		client["git.origin"]({ folderId: folder.id }).pipe(
 			Effect.timeout("1 second"),

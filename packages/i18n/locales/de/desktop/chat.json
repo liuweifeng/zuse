@@ -774,5 +774,7 @@
 	"switch_account_compact_detail": "Fasst zuerst zusammen, damit Antworten schnell bleiben",
 	"switch_account_compact_first": "Zuerst komprimieren",
 	"switch_account_compact_first_detail": "Den Chat vor dem Fortfahren zusammenfassen. Frühere Details können verloren gehen.",
-	"switch_account_choose": "Konto auswählen"
+	"switch_account_choose": "Konto auswählen",
+	"no_project": "Kein Projekt",
+	"start_without_project": "Ohne Projekt starten"
 }

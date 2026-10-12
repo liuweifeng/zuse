@@ -35,6 +35,7 @@ const makeRuntime = (
 	const SqlLive = sqliteLayer({ filename: ":memory:" });
 	const WorkspaceLive = Layer.succeed(WorkspaceService, {
 		add: () => Effect.die("not used"),
+		createScratch: () => Effect.die("not used"),
 		list: () => Effect.succeed([]),
 		streamChanges: () => Stream.die("not used"),
 		remove: () => Effect.die("not used"),

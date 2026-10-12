@@ -264,6 +264,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["workspace.remove"](payload as never),
 				);
 				break;
+			case "workspace.createScratch":
+				result = await Effect.runPromise(
+					client["workspace.createScratch"](payload as never),
+				);
+				break;
 			case "workspace.add":
 				result = await Effect.runPromise(
 					client["workspace.add"](payload as never),

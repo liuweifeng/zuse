@@ -16,6 +16,18 @@ export interface CommandMeta {
 }
 
 export const COMMAND_META: Record<Command, CommandMeta> = {
+	"new-chat-without-project": {
+		labelKey: "commands:new_chat_without_project",
+		get label() {
+			return uiMessage("commands:new_chat_without_project");
+		},
+		get description() {
+			return uiMessage("commands:new_chat_without_project_description");
+		},
+		get group() {
+			return uiMessage("commands:command_group_application");
+		},
+	},
 	"new-chat": {
 		labelKey: "commands:default_keybindings_new_chat",
 		get label() {
@@ -502,6 +514,7 @@ export const COMMANDS_IN_ORDER: ReadonlyArray<Command> = Object.keys(
  */
 export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "mod+n", command: "new-chat" },
+	{ key: "mod+alt+n", command: "new-chat-without-project" },
 	{ key: "mod+o", command: "open-project" },
 	{ key: "mod+,", command: "settings" },
 	{ key: "mod+w", command: "close-tab" },

@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "以列表显示",
 	"pr_pane_show_more": "显示更多",
 	"pr_pane_show_less": "收起",
-	"pr_pane_merge_blocked_stale": "GitHub 状态可能已过期。请先刷新再合并。"
+	"pr_pane_merge_blocked_stale": "GitHub 状态可能已过期。请先刷新再合并。",
+	"no_project": "无项目",
+	"new_chat_without_project": "新建无项目聊天"
 }

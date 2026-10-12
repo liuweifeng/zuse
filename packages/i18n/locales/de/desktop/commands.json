@@ -72,5 +72,7 @@
 	"command_group_navigation": "Navigation",
 	"command_group_editor": "Herausgeber",
 	"command_group_composer": "Komponist",
-	"command_group_application": "Bewerbung"
+	"command_group_application": "Bewerbung",
+	"new_chat_without_project": "Neuer Chat ohne Projekt",
+	"new_chat_without_project_description": "Einen neuen Chat in einem eigenen Arbeitsordner starten"
 }

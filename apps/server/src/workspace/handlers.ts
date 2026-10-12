@@ -1,7 +1,9 @@
+import { homedir } from "node:os";
 import { MemoizeRpcs } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { AnalyticsService } from "../analytics/services/analytics-service.ts";
 import { filterCatalog } from "../collaboration/services/catalog-visibility.ts";
+import { projectlessThreadsRoot } from "./scratch-directory.ts";
 import { FileSearchService } from "./services/file-search.ts";
 import { FolderPicker } from "./services/folder-picker.ts";
 import { ProjectScaffold } from "./services/project-scaffold.ts";
@@ -18,6 +20,20 @@ const Add = MemoizeRpcs.toLayerHandler(
 				source: "folder",
 			});
 			return result;
+		}),
+);
+
+const CreateScratch = MemoizeRpcs.toLayerHandler(
+	"workspace.createScratch",
+	({ id, title, workspaceKey }) =>
+		Effect.gen(function* () {
+			const ws = yield* WorkspaceService;
+			return yield* ws.createScratch(
+				projectlessThreadsRoot(homedir()),
+				id,
+				title,
+				workspaceKey,
+			);
 		}),
 );
 
@@ -132,6 +148,7 @@ const GhAuthStatus = MemoizeRpcs.toLayerHandler("workspace.ghAuthStatus", () =>
 
 export const WorkspaceHandlersLayer = Layer.mergeAll(
 	Add,
+	CreateScratch,
 	List,
 	StreamChanges,
 	Remove,

@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "Als Liste anzeigen",
 	"pr_pane_show_more": "Mehr anzeigen",
 	"pr_pane_show_less": "Weniger anzeigen",
-	"pr_pane_merge_blocked_stale": "Der GitHub-Status ist möglicherweise veraltet. Vor dem Zusammenführen aktualisieren."
+	"pr_pane_merge_blocked_stale": "Der GitHub-Status ist möglicherweise veraltet. Vor dem Zusammenführen aktualisieren.",
+	"no_project": "Kein Projekt",
+	"new_chat_without_project": "Neuer Chat ohne Projekt"
 }

@@ -699,6 +699,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			const initialPrompt = opts?.startupInput?.text.trim();
 			try {
 				const commandId = nextChatCreateCommandId(remoteOperationId);
+				const workspacePolicy = await opts?.workspacePolicy;
 				const { result } = await dispatchChatCommand<unknown, ChatCreateResult>(
 					{
 						environmentId: targetEnvironmentId,
@@ -720,6 +721,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 							permissionMode: opts?.permissionMode,
 							toolSearch: opts?.toolSearch,
 							background: true,
+							workspacePolicy,
 						},
 						retry: "safe",
 					},
@@ -866,6 +868,12 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 								[projectId]: chatId,
 							},
 			}));
+			if (
+				opts?.preserveFocus !== true &&
+				useWorkspaceStore.getState().selectedFolderId !== projectId
+			) {
+				void useWorkspaceStore.getState().select(projectId);
+			}
 			useSessionsStore.setState((s) => ({
 				selectedSessionId:
 					opts?.preserveFocus === true ? s.selectedSessionId : initialSessionId,

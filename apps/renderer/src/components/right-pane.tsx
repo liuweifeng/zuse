@@ -323,7 +323,11 @@ export function RightPane({
 		shell.data?.folders.find((folder) => folder.id === executionFolderId) ??
 			null,
 	);
-	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
+	const scratch = selected?.kind === "scratch";
+	const workspaceView = useGitWorkspaceResource(
+		scratch ? null : executionRef,
+		"connect",
+	);
 	const prDetailsView = useGitPrDetailsResource(executionRef, "cache-only");
 	const status = workspaceView.data?.status ?? null;
 	const pr = workspaceView.data?.pr ?? null;
@@ -682,6 +686,7 @@ export function RightPane({
 		})();
 	};
 	const addablePanels = addableKinds(panels)
+		.filter((kind) => !scratch || kind !== "changes")
 		.filter(
 			(kind) =>
 				kind !== "browser" || rendererPlatformCapabilities().integratedBrowser,

@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "Show as list",
 	"pr_pane_show_more": "Show more",
 	"pr_pane_show_less": "Show less",
-	"pr_pane_merge_blocked_stale": "GitHub status may be out of date. Refresh before merging."
+	"pr_pane_merge_blocked_stale": "GitHub status may be out of date. Refresh before merging.",
+	"no_project": "No project",
+	"new_chat_without_project": "New chat without a project"
 }

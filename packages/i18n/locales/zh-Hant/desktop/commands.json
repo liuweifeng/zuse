@@ -72,5 +72,7 @@
 	"command_group_navigation": "導航",
 	"command_group_editor": "編輯",
 	"command_group_composer": "作曲家",
-	"command_group_application": "應用"
+	"command_group_application": "應用",
+	"new_chat_without_project": "新增無專案聊天",
+	"new_chat_without_project_description": "在獨立工作目錄中開始新聊天"
 }

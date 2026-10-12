@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "リスト表示",
 	"pr_pane_show_more": "さらに表示",
 	"pr_pane_show_less": "表示を減らす",
-	"pr_pane_merge_blocked_stale": "GitHub のステータスが古い可能性があります。マージする前に更新してください。"
+	"pr_pane_merge_blocked_stale": "GitHub のステータスが古い可能性があります。マージする前に更新してください。",
+	"no_project": "プロジェクトなし",
+	"new_chat_without_project": "プロジェクトなしで新しいチャット"
 }

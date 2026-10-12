@@ -87,6 +87,7 @@ import { Migration0081ProviderContexts } from "./migrations/0081_provider_contex
 import { Migration0082ExecutionSteps } from "./migrations/0082_execution_steps.ts";
 import { Migration0083NativeCheckpointHistory } from "./migrations/0083_native_checkpoint_history.ts";
 import { Migration0086Automation } from "./migrations/0086_automation.ts";
+import { Migration0087ScratchFolders } from "./migrations/0087_scratch_folders.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -246,6 +247,7 @@ const MigrationDefinitions = {
 	"0084_execution_steps": Migration0082ExecutionSteps,
 	"0085_native_checkpoint_history": Migration0083NativeCheckpointHistory,
 	"0086_automation": Migration0086Automation,
+	"0087_scratch_folders": Migration0087ScratchFolders,
 } as const;
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */

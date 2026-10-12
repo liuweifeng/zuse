@@ -72,5 +72,7 @@
 	"command_group_navigation": "Navigation",
 	"command_group_editor": "Éditeur",
 	"command_group_composer": "Compositeur",
-	"command_group_application": "Demande"
+	"command_group_application": "Demande",
+	"new_chat_without_project": "Nouvelle discussion sans projet",
+	"new_chat_without_project_description": "Commencer une nouvelle discussion dans son propre dossier temporaire"
 }

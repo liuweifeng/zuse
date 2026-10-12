@@ -152,7 +152,11 @@ export function SettingsPage() {
 	const setView = useUiStore((s) => s.setView);
 	const section = useUiStore((s) => s.settingsSection);
 	const setSection = useUiStore((s) => s.setSettingsSection);
-	const folders = useWorkspaceStore((s) => s.folders);
+	const storedFolders = useWorkspaceStore((s) => s.folders);
+	const folders = useMemo(
+		() => storedFolders.filter((folder) => folder.kind !== "scratch"),
+		[storedFolders],
+	);
 	const loadFolders = useWorkspaceStore((s) => s.load);
 	const desktop = rendererPlatformCapabilities().desktop;
 	const organizations = useOrganizationWorkspaces(

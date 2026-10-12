@@ -349,5 +349,7 @@
 	"diff_pane_list_view": "Afficher en liste",
 	"pr_pane_show_more": "Afficher plus",
 	"pr_pane_show_less": "Afficher moins",
-	"pr_pane_merge_blocked_stale": "Le statut GitHub n’est peut-être pas à jour. Actualisez avant de fusionner."
+	"pr_pane_merge_blocked_stale": "Le statut GitHub n’est peut-être pas à jour. Actualisez avant de fusionner.",
+	"no_project": "Aucun projet",
+	"new_chat_without_project": "Nouvelle discussion sans projet"
 }

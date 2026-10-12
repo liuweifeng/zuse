@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "목록으로 보기",
 	"pr_pane_show_more": "더 보기",
 	"pr_pane_show_less": "간단히 보기",
-	"pr_pane_merge_blocked_stale": "GitHub 상태가 오래되었을 수 있습니다. 병합하기 전에 새로 고치세요."
+	"pr_pane_merge_blocked_stale": "GitHub 상태가 오래되었을 수 있습니다. 병합하기 전에 새로 고치세요.",
+	"no_project": "프로젝트 없음",
+	"new_chat_without_project": "프로젝트 없이 새 채팅"
 }

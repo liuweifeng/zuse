@@ -774,5 +774,7 @@
 	"switch_account_compact_detail": "先摘要，讓回覆保持快速",
 	"switch_account_compact_first": "先壓縮",
 	"switch_account_compact_first_detail": "繼續之前先摘要聊天。部分較早的細節可能會遺失。",
-	"switch_account_choose": "選擇帳戶"
+	"switch_account_choose": "選擇帳戶",
+	"no_project": "無專案",
+	"start_without_project": "不關聯專案開始"
 }

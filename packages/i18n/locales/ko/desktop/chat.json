@@ -774,5 +774,7 @@
 	"switch_account_compact_detail": "먼저 요약해 응답을 빠르게 유지",
 	"switch_account_compact_first": "먼저 압축",
 	"switch_account_compact_first_detail": "계속하기 전에 채팅을 요약합니다. 이전의 일부 세부 정보가 사라질 수 있습니다.",
-	"switch_account_choose": "계정 선택"
+	"switch_account_choose": "계정 선택",
+	"no_project": "프로젝트 없음",
+	"start_without_project": "프로젝트 없이 시작"
 }

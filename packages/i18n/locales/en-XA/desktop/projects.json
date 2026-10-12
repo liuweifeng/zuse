@@ -343,5 +343,7 @@
 	"diff_pane_list_view": "⟦Shôôw ààs lïïst⟧",
 	"pr_pane_show_more": "⟦Shôôw môôrëë⟧",
 	"pr_pane_show_less": "⟦Shôôw lëëss⟧",
-	"pr_pane_merge_blocked_stale": "⟦GïïtHüüb stààtüüs màày bëë ôôüüt ôôf dààtëë. Rëëfrëësh bëëfôôrëë mëërgïïng.⟧"
+	"pr_pane_merge_blocked_stale": "⟦GïïtHüüb stààtüüs màày bëë ôôüüt ôôf dààtëë. Rëëfrëësh bëëfôôrëë mëërgïïng.⟧",
+	"no_project": "⟦Nôô prôôjëëct⟧",
+	"new_chat_without_project": "⟦Nëëw chààt wïïthôôüüt àà prôôjëëct⟧"
 }

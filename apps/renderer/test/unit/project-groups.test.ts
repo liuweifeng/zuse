@@ -316,6 +316,49 @@ describe("buildLogicalProjectGroups", () => {
 });
 
 describe("computerPickerItems", () => {
+	it("offers connected computers without requiring any registered project", () => {
+		const model = computerPickerItems(
+			null,
+			{ environmentId: "remote", folderId: null },
+			[
+				entry({
+					environmentId: "local",
+					label: "Laptop",
+					connectionKind: "local",
+				}),
+				entry({ environmentId: "remote", label: "Server" }),
+				entry({
+					environmentId: "offline",
+					label: "Offline",
+					status: "offline",
+				}),
+				entry({
+					environmentId: "connecting",
+					label: "Connecting",
+					status: "connecting",
+				}),
+			],
+		);
+		expect(model.kind).toBe("menu");
+		if (model.kind !== "menu") throw new Error("Expected computer menu");
+		expect(model.items).toEqual([
+			expect.objectContaining({
+				environmentId: "local",
+				folderId: null,
+				projectAvailable: true,
+				disabled: false,
+			}),
+			expect.objectContaining({
+				environmentId: "remote",
+				folderId: null,
+				selected: true,
+				disabled: false,
+			}),
+			expect.objectContaining({ environmentId: "offline", retryable: true }),
+			expect.objectContaining({ environmentId: "connecting", disabled: true }),
+		]);
+	});
+
 	const mixedGroup = (): LogicalProjectGroup => {
 		const groups = build({
 			entries: [

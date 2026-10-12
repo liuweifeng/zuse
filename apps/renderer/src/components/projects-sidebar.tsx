@@ -479,11 +479,37 @@ export function ProjectsSidebar() {
 			uiMessage,
 		],
 	);
+	const scratchGroups = useMemo(
+		() =>
+			buildLogicalProjectGroups({
+				entries: catalogEntries,
+				activeEnvironmentId,
+				localEnvironmentId: getLocalEnvironmentId(),
+				activeFolders: folders,
+				folderKind: "scratch",
+				activeOrigins: origins,
+				activeChatsByProject: chatsByProject,
+				shellsByEnvironment: Object.fromEntries(
+					Object.entries(shellViews).map(([id, view]) => [id, view.data]),
+				),
+			}),
+		[
+			catalogEntries,
+			activeEnvironmentId,
+			folders,
+			origins,
+			chatsByProject,
+			shellViews,
+		],
+	);
+
 	const projectKeys = useMemo(
 		() =>
 			desktopCatalogEnabled
 				? logicalGroups.map((group) => group.key)
-				: folders.map((folder) => folder.id),
+				: folders
+						.filter((folder) => folder.kind !== "scratch")
+						.map((folder) => folder.id),
 		[desktopCatalogEnabled, folders, logicalGroups, uiMessage],
 	);
 	const ungroupedCloudChats = useMemo(() => {
@@ -524,7 +550,7 @@ export function ProjectsSidebar() {
 						chatsByProject,
 						folders,
 						remoteChats: desktopCatalogEnabled
-							? logicalGroups.flatMap((group) =>
+							? [...logicalGroups, ...scratchGroups].flatMap((group) =>
 									remoteChatRows(group).map((row) => ({
 										...row,
 										repositoryName: group.displayName,
@@ -543,8 +569,31 @@ export function ProjectsSidebar() {
 			logicalGroups,
 			cloudChats,
 			hiddenArchivedChatIds,
+			scratchGroups,
 		],
 	);
+	const scratchEntries = useMemo(
+		() =>
+			buildThreadList({
+				folders: folders
+					.filter((folder) => folder.kind === "scratch")
+					.map((folder) => ({
+						...folder,
+						name: uiMessage("projects:no_project"),
+					})),
+				chatsByProject,
+				remoteChats: scratchGroups.flatMap((group) =>
+					remoteChatRows(group).map((row) => ({
+						...row,
+						repositoryName: uiMessage("projects:no_project"),
+					})),
+				),
+				cloudChats: [],
+				hiddenChatIds: hiddenArchivedChatIds,
+			}),
+		[folders, chatsByProject, scratchGroups, hiddenArchivedChatIds],
+	);
+
 	const catalogViewState = environmentCatalogViewState({
 		initialized: catalogInitialized,
 		initializing: catalogInitializing,
@@ -598,6 +647,29 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
+				{!isHostedProduct() ? (
+					<li>
+						<button
+							type="button"
+							onClick={() => openNewChatLanding(null)}
+							className="flex h-7 w-full items-center rounded-md px-2 text-left text-[12px] text-muted-foreground hover:bg-sidebar-accent/40"
+						>
+							{uiMessage("projects:new_chat_without_project")}
+						</button>
+					</li>
+				) : null}
+				{!threadListSidebar && scratchEntries.length > 0 ? (
+					<>
+						<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
+							{uiMessage("projects:no_project")}
+						</li>
+						<ThreadListSection
+							entries={scratchEntries}
+							origins={{}}
+							loading={loading}
+						/>
+					</>
+				) : null}
 				{threadListSidebar
 					? null
 					: ungroupedCloudChats.map((summary) => (
@@ -605,38 +677,41 @@ export function ProjectsSidebar() {
 						))}
 				{threadListSidebar ? (
 					<>
-						{folders.map((folder) => {
-							const origin = origins[folder.id];
-							const name = origin?.repo ?? folder.name;
-							const avatarUrl = avatarUrlFor(origin ?? null);
-							return (
-								<li key={folder.id}>
-									<button
-										type="button"
-										aria-pressed={selectedFolderId === folder.id}
-										title={folder.path}
-										onClick={() => {
-											if (isHostedProduct()) selectHostedCloudHome(folder.id);
-											else openNewChatLanding(folder.id);
-										}}
-										className={cn(
-											"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-											selectedFolderId === folder.id && "bg-sidebar-accent/40",
-										)}
-									>
-										<Avatar className="size-5 rounded">
-											{avatarUrl !== null && (
-												<AvatarImage src={avatarUrl} alt="" />
+						{folders
+							.filter((folder) => folder.kind !== "scratch")
+							.map((folder) => {
+								const origin = origins[folder.id];
+								const name = origin?.repo ?? folder.name;
+								const avatarUrl = avatarUrlFor(origin ?? null);
+								return (
+									<li key={folder.id}>
+										<button
+											type="button"
+											aria-pressed={selectedFolderId === folder.id}
+											title={folder.path}
+											onClick={() => {
+												if (isHostedProduct()) selectHostedCloudHome(folder.id);
+												else openNewChatLanding(folder.id);
+											}}
+											className={cn(
+												"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+												selectedFolderId === folder.id &&
+													"bg-sidebar-accent/40",
 											)}
-											<AvatarFallback className="rounded text-[10px]">
-												{initialsOf(origin?.owner ?? folder.name)}
-											</AvatarFallback>
-										</Avatar>
-										<span className="truncate">{name}</span>
-									</button>
-								</li>
-							);
-						})}
+										>
+											<Avatar className="size-5 rounded">
+												{avatarUrl !== null && (
+													<AvatarImage src={avatarUrl} alt="" />
+												)}
+												<AvatarFallback className="rounded text-[10px]">
+													{initialsOf(origin?.owner ?? folder.name)}
+												</AvatarFallback>
+											</Avatar>
+											<span className="truncate">{name}</span>
+										</button>
+									</li>
+								);
+							})}
 						<li className="px-2 pb-1 pt-3 text-[12px] text-muted-foreground">
 							{uiMessage("projects:projects_sidebar_threads")}
 						</li>
@@ -780,7 +855,7 @@ export function ProjectsSidebar() {
 					</>
 				) : (
 					<>
-						{folders.length === 0 &&
+						{folders.every((folder) => folder.kind === "scratch") &&
 						ungroupedCloudChats.length === 0 &&
 						!loading ? (
 							<li>
