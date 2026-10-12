@@ -1790,6 +1790,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
 			allocationProtocol: "provider-idempotent-v1",
+			allocationAttempted: false,
 			providerConnectionId: provider.connectionId,
 			...(importedSnapshot(build)
 				? snapshotRepositoryLayout(build, project.projectId)

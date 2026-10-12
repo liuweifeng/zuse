@@ -1071,6 +1071,130 @@ describe("cloud workspace reconciler", () => {
 	});
 
 	test.each([
+		false,
+		true,
+		undefined,
+	])("only a durably unattempted allocation skips recovery: %s", async (attempted) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-first-allocation",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig:
+						attempted === undefined ? {} : { allocationAttempted: attempted },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				const original = provider.fork;
+				const fork = vi.spyOn(provider, "fork").mockImplementation((input) =>
+					Effect.gen(function* () {
+						if (attempted === false)
+							expect(
+								(yield* store.getWorkspace(workspace.workspaceId))
+									?.requestConfig.allocationAttempted,
+							).toBe(true);
+						return yield* original(input);
+					}),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(recover).toHaveBeenCalledTimes(attempted === false ? 0 : 1);
+				expect(fork).toHaveBeenCalledTimes(1);
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test("a lost first allocation response recovers the created machine without a second fork", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-lost-allocation",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: { allocationAttempted: false },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				const original = provider.fork;
+				const fork = vi
+					.spyOn(provider, "fork")
+					.mockImplementationOnce((input) =>
+						original(input).pipe(
+							Effect.andThen(
+								Effect.fail(new SandboxProviderError({ code: "transient" })),
+							),
+						),
+					);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const failed = yield* store.getWorkspace(workspace.workspaceId);
+				expect(failed?.requestConfig.allocationAttempted).toBe(true);
+				expect(failed?.providerSandboxId).toBeUndefined();
+				if (failed === null) throw new Error("workspace missing");
+				yield* store.saveWorkspace({
+					...failed,
+					nextActionAtMs: 0,
+					revision: failed.revision + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(recover).toHaveBeenCalledTimes(1);
+				expect(fork).toHaveBeenCalledTimes(1);
+				expect(
+					(yield* store.getWorkspace(workspace.workspaceId))?.providerSandboxId,
+				).toBe("fake-workspace-lost-allocation");
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test("a rejected allocation marker commit performs no provider mutation", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-allocation-cas",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: { allocationAttempted: false },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const fork = vi.spyOn(provider, "fork");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				vi.spyOn(store, "saveClaimedWorkspace").mockImplementation(() =>
+					Effect.succeed(false),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(fork).not.toHaveBeenCalled();
+				expect(recover).not.toHaveBeenCalled();
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test.each([
 		true,
 		false,
 	])("idempotent allocation skips lookup only for new protocol requests: %s", async (newProtocol) => {

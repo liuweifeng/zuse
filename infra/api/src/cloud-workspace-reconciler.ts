@@ -2758,7 +2758,28 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"provider-idempotent-v1" &&
 				workspace.providerSandboxId === undefined &&
 				runtimeActivation(workspace) === null;
+			const firstAllocationAttempt =
+				!directAllocation &&
+				!replacingFailedSandbox &&
+				machineFork === undefined &&
+				workspace.providerSandboxId === undefined &&
+				runtimeActivation(workspace) === null &&
+				workspace.requestConfig.allocationAttempted === false;
 			const allocate = Effect.gen(function* () {
+				if (firstAllocationAttempt) {
+					// Commit before contacting the provider. A lost create response or
+					// interrupted request must perform label recovery on the next attempt.
+					workspace = {
+						...workspace,
+						requestConfig: {
+							...workspace.requestConfig,
+							allocationAttempted: true,
+						},
+						revision: workspace.revision + 1,
+						updatedAtMs: yield* Clock.currentTimeMillis,
+					};
+					yield* saveWorkspace(workspace);
+				}
 				if (
 					replacingFailedSandbox &&
 					workspace.providerSandboxId !== undefined
@@ -2777,7 +2798,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				const recovered =
 					!replacingFailedSandbox &&
 					machineFork === undefined &&
-					!directAllocation
+					!directAllocation &&
+					!firstAllocationAttempt
 						? yield* provider.recoverByLabel(label).pipe(
 								withSnapshotLeaseCheck,
 								measureCloudStage(
