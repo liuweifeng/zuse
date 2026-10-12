@@ -25,7 +25,11 @@ export type AuthorityGrantRequest = typeof AuthorityGrantRequest.Type;
 export type AuthorityGrant = SealedCodexGrant | SealedProviderGrant;
 export type AuthorityPreparation = "ready" | "absent" | "stale";
 
-export interface CloudAuthExecutor {
+export interface CloudAccountExecutor {
+	readonly startWorkspace?: (
+		accountId: string,
+		workspaceId: string,
+	) => Effect.Effect<boolean | null, ApiError>;
 	readonly grant: (
 		input: AuthorityGrantRequest,
 	) => Effect.Effect<AuthorityGrant | null, ApiError>;
@@ -35,22 +39,31 @@ export interface CloudAuthExecutor {
 }
 
 /** Affinity is optional. SQL and the guest still own every credential fence. */
-export const CloudAuthExecution = Context.Reference<
-	CloudAuthExecutor | undefined
->("CloudAuthExecution", { defaultValue: () => undefined });
+export const CloudAccountExecution = Context.Reference<
+	CloudAccountExecutor | undefined
+>("CloudAccountExecution", { defaultValue: () => undefined });
 
 export const AuthorityOperation = Schema.Union([
 	Schema.Struct({ op: Schema.Literal("grant"), input: AuthorityGrantRequest }),
 	Schema.Struct({ op: Schema.Literal("prepare"), accountId: Schema.String }),
 ]);
 export type AuthorityOperation = typeof AuthorityOperation.Type;
+export const AccountOperation = Schema.Union([
+	AuthorityOperation,
+	Schema.Struct({
+		op: Schema.Literal("start-workspace"),
+		accountId: Schema.String,
+		workspaceId: Schema.String,
+	}),
+]);
+export type AccountOperation = typeof AccountOperation.Type;
 const RemoteFailure = Schema.Struct({
 	error: Schema.String,
 	status: Schema.Number,
 });
 const Preparation = Schema.Literals(["ready", "absent", "stale"]);
 
-export interface CloudAuthExecutorNamespace {
+export interface CloudAccountExecutorNamespace {
 	readonly idFromName: (name: string) => unknown;
 	readonly get: (
 		id: unknown,
@@ -61,13 +74,13 @@ export interface CloudAuthExecutorNamespace {
 }
 
 /** Only transport/protocol failures fall back; credential errors remain final. */
-export const makeCloudAuthExecutor = (
-	namespace: CloudAuthExecutorNamespace,
+export const makeCloudAccountExecutor = (
+	namespace: CloudAccountExecutorNamespace,
 	locationHint?: DurableObjectLocationHint,
-): CloudAuthExecutor => {
-	const call = Effect.fn("cloudAuthExecutor.call")(function* <A>(
+): CloudAccountExecutor => {
+	const call = Effect.fn("cloudAccountExecutor.call")(function* <A>(
 		accountId: string,
-		operation: AuthorityOperation,
+		operation: AccountOperation,
 		decode: (value: unknown) => A,
 	) {
 		const received = yield* Effect.tryPromise(async (signal) => {
@@ -79,20 +92,26 @@ export const makeCloudAuthExecutor = (
 			const response = await namespace
 				.get(namespace.idFromName(name), { locationHint })
 				.fetch(
-					new Request("https://cloud-auth.internal/execute", {
+					new Request("https://cloud-account.internal/execute", {
 						method: "POST",
 						signal,
 						body: JSON.stringify(operation),
 					}),
 				);
-			if (operation.op === "grant") {
+			if (operation.op !== "prepare") {
 				const serverMs = Number(
 					response.headers.get("x-zuse-executor-duration-ms"),
 				);
 				const roundTripMs = performance.now() - started;
 				console.info("[cloud-timing]", {
-					workspaceId: operation.input.workspaceId,
-					stage: "auth.executor-transport",
+					workspaceId:
+						operation.op === "grant"
+							? operation.input.workspaceId
+							: operation.workspaceId,
+					stage:
+						operation.op === "grant"
+							? "auth.executor-transport"
+							: "startup.executor-transport",
 					atMs: Date.now(),
 					roundTripMs,
 					...(Number.isFinite(serverMs) && serverMs > 0
@@ -101,21 +120,32 @@ export const makeCloudAuthExecutor = (
 				});
 			}
 			if (response.status === 502)
-				throw new Error("authority executor unavailable");
+				throw new Error("account executor unavailable");
 			const body: unknown = await response.json();
 			return response.ok
 				? ({ value: decode(body) } as const)
 				: ({ failure: Schema.decodeUnknownSync(RemoteFailure)(body) } as const);
 		}).pipe(
-			Effect.timeout(operation.op === "grant" ? "2 seconds" : "8 seconds"),
+			Effect.timeout(
+				operation.op === "grant"
+					? "2 seconds"
+					: operation.op === "start-workspace"
+						? "11 seconds"
+						: "8 seconds",
+			),
 			Effect.catch(() => Effect.succeed(null)),
 		);
 		if (received === null) {
 			console.info("[cloud-timing]", {
 				...(operation.op === "grant"
 					? { workspaceId: operation.input.workspaceId }
-					: {}),
-				stage: "auth.executor-fallback",
+					: operation.op === "start-workspace"
+						? { workspaceId: operation.workspaceId }
+						: {}),
+				stage:
+					operation.op === "start-workspace"
+						? "startup.executor-fallback"
+						: "auth.executor-fallback",
 				operation: operation.op,
 				atMs: Date.now(),
 			});
@@ -131,6 +161,12 @@ export const makeCloudAuthExecutor = (
 		return received.value;
 	});
 	return {
+		startWorkspace: (accountId, workspaceId) =>
+			call(
+				accountId,
+				{ op: "start-workspace", accountId, workspaceId },
+				Schema.decodeUnknownSync(Schema.Boolean),
+			).pipe(measureCloudStage({ workspaceId }, "startup.account-executor")),
 		grant: (input) =>
 			call(
 				input.accountId,
@@ -151,10 +187,10 @@ export const makeCloudAuthExecutor = (
 };
 
 /** No local credential state: eviction merely makes the provider cache cold. */
-export class CloudAuthExecutorTask {
+export class CloudAccountExecutorTask {
 	constructor(
 		private readonly execute: (
-			operation: AuthorityOperation,
+			operation: AccountOperation,
 		) => Promise<Response>,
 	) {}
 
@@ -164,9 +200,9 @@ export class CloudAuthExecutorTask {
 			new URL(request.url).pathname !== "/execute"
 		)
 			return new Response(null, { status: 404 });
-		let operation: AuthorityOperation;
+		let operation: AccountOperation;
 		try {
-			operation = Schema.decodeUnknownSync(AuthorityOperation)(
+			operation = Schema.decodeUnknownSync(AccountOperation)(
 				await request.json(),
 			);
 		} catch {

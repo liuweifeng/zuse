@@ -3,16 +3,16 @@ import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
 import { describe, expect, test, vi } from "vitest";
 import {
+	type AuthorityGrantRequest,
+	CloudAccountExecution,
+	CloudAccountExecutorTask,
+	makeCloudAccountExecutor,
+} from "../../src/cloud-account-execution.ts";
+import {
 	executeCloudAuthOperationDirect,
 	issueAuthorityGrant,
 	prepareExistingCloudAuthAuthority,
 } from "../../src/cloud-auth-authority.ts";
-import {
-	type AuthorityGrantRequest,
-	CloudAuthExecution,
-	CloudAuthExecutorTask,
-	makeCloudAuthExecutor,
-} from "../../src/cloud-auth-execution.ts";
 import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
 import * as Config from "../../src/config.ts";
 import { serviceUnavailable } from "../../src/errors.ts";
@@ -55,7 +55,7 @@ const transport = (fetch: (request: Request) => Promise<Response>) => {
 	const names: string[] = [];
 	return {
 		names,
-		executor: makeCloudAuthExecutor({
+		executor: makeCloudAccountExecutor({
 			idFromName: (name) => {
 				names.push(name);
 				return name;
@@ -66,6 +66,27 @@ const transport = (fetch: (request: Request) => Promise<Response>) => {
 };
 
 describe("account authority execution", () => {
+	test("startup and grants share account affinity without storing a workspace dispatch pointer", async () => {
+		const operations: unknown[] = [];
+		const { names, executor } = transport(async (request) => {
+			operations.push(await request.json());
+			return Response.json(operations.length === 1 ? true : sealed);
+		});
+		if (executor.startWorkspace === undefined)
+			throw new Error("missing executor");
+		expect(
+			await Effect.runPromise(
+				executor.startWorkspace("account-a", "workspace-a"),
+			),
+		).toBe(true);
+		await Effect.runPromise(executor.grant(input));
+		expect(names).toEqual(["account-a", "account-a"]);
+		expect(operations[0]).toEqual({
+			op: "start-workspace",
+			accountId: "account-a",
+			workspaceId: "workspace-a",
+		});
+	});
 	test("preparation and grants use account affinity and preserve the request fence", async () => {
 		const requests: unknown[] = [];
 		const { names, executor } = transport(async (request) => {
@@ -85,7 +106,7 @@ describe("account authority execution", () => {
 	test("an explicit location uses the same account venue for preparation and grants", async () => {
 		const names: string[] = [];
 		const get = vi.fn(() => ({ fetch: async () => Response.json("ready") }));
-		const executor = makeCloudAuthExecutor(
+		const executor = makeCloudAccountExecutor(
 			{
 				idFromName: (name) => {
 					names.push(name);
@@ -157,14 +178,14 @@ describe("account authority execution", () => {
 			await Effect.runPromise(
 				issueAuthorityGrant(input).pipe(
 					Effect.provide(layer),
-					Effect.provideService(CloudAuthExecution, executor),
+					Effect.provideService(CloudAccountExecution, executor),
 				),
 			),
 		).toEqual(sealed);
 		const invalid = await Effect.runPromise(
 			issueAuthorityGrant({ ...input, requestId: "invalid" }).pipe(
 				Effect.provide(layer),
-				Effect.provideService(CloudAuthExecution, executor),
+				Effect.provideService(CloudAccountExecution, executor),
 				Effect.result,
 			),
 		);
@@ -180,7 +201,7 @@ describe("account authority execution", () => {
 		const result = await Effect.runPromise(
 			prepareExistingCloudAuthAuthority("account-a").pipe(
 				Effect.provide(layer),
-				Effect.provideService(CloudAuthExecution, {
+				Effect.provideService(CloudAccountExecution, {
 					prepare,
 					grant: () => Effect.succeed(null),
 				}),
@@ -200,7 +221,7 @@ describe("account authority execution", () => {
 				accountId: "account-a",
 			}).pipe(
 				Effect.provide(layer),
-				Effect.provideService(CloudAuthExecution, {
+				Effect.provideService(CloudAccountExecution, {
 					prepare,
 					grant: () => Effect.succeed(null),
 				}),
@@ -214,7 +235,7 @@ describe("account authority execution", () => {
 		const execute = vi.fn(async () => {
 			throw new Error("private failure details");
 		});
-		const task = new CloudAuthExecutorTask(execute);
+		const task = new CloudAccountExecutorTask(execute);
 		const request = (body: unknown) =>
 			new Request("https://cloud-auth.internal/execute", {
 				method: "POST",

@@ -7,12 +7,12 @@ import {
 	deliverPendingApiWebhooks,
 	sweepApiCommands,
 } from "./api-webhook-dispatch.ts";
-import { executeCloudAuthOperationDirect } from "./cloud-auth-authority.ts";
 import {
-	type AuthorityOperation,
-	CloudAuthExecution,
-	type CloudAuthExecutor,
-} from "./cloud-auth-execution.ts";
+	type AccountOperation,
+	CloudAccountExecution,
+	type CloudAccountExecutor,
+} from "./cloud-account-execution.ts";
+import { executeCloudAuthOperationDirect } from "./cloud-auth-authority.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -24,6 +24,7 @@ import {
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
+	startCloudWorkspaceForAccountDirect,
 	startCloudWorkspaceInline,
 } from "./cloud-workspace-reconciler.ts";
 import {
@@ -68,15 +69,15 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
-		readonly cloudAuthExecutor?: CloudAuthExecutor;
+		readonly cloudAccountExecutor?: CloudAccountExecutor;
 		readonly scheduleWorkspaceStartup?: (workspaceId: string) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
 ): {
 	readonly fetch: (request: Request) => Promise<Response>;
-	readonly executeCloudAuthDirect: (
-		operation: AuthorityOperation,
+	readonly executeCloudAccountDirect: (
+		operation: AccountOperation,
 	) => Promise<Response>;
 	readonly consumeSlackJobs: (batch: {
 		readonly messages: ReadonlyArray<QueueMessage>;
@@ -166,7 +167,7 @@ export const makeApi = (
 		Layer.mergeAll(
 			layer,
 			internalWebhooks,
-			Layer.succeed(CloudAuthExecution, options?.cloudAuthExecutor),
+			Layer.succeed(CloudAccountExecution, options?.cloudAccountExecutor),
 		),
 	);
 	const slack = () => {
@@ -174,9 +175,17 @@ export const makeApi = (
 		return runtime.runPromise(makeSlackModule(options.slack));
 	};
 	return {
-		executeCloudAuthDirect: (operation) =>
+		executeCloudAccountDirect: (operation) =>
 			runtime.runPromise(
-				executeCloudAuthOperationDirect(operation).pipe(
+				Effect.gen(function* () {
+					if (operation.op !== "start-workspace")
+						return yield* executeCloudAuthOperationDirect(operation);
+					return yield* startCloudWorkspaceForAccountDirect(
+						operation.accountId,
+						operation.workspaceId,
+					);
+				}).pipe(
+					Effect.provideService(CloudAccountExecution, undefined),
 					Effect.map((value) => Response.json(value)),
 					Effect.catchTag("ApiError", (error) =>
 						Effect.succeed(

@@ -20,8 +20,8 @@ import { Effect, Schedule } from "effect";
 import {
 	type AuthorityGrantRequest,
 	type AuthorityOperation,
-	CloudAuthExecution,
-} from "./cloud-auth-execution.ts";
+	CloudAccountExecution,
+} from "./cloud-account-execution.ts";
 import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
@@ -973,7 +973,7 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 export const prepareExistingCloudAuthAuthority = Effect.fn(
 	"prepareExistingCloudAuthAuthority",
 )(function* (accountId: string) {
-	const executor = yield* CloudAuthExecution;
+	const executor = yield* CloudAccountExecution;
 	if (executor !== undefined) {
 		const prepared = yield* executor.prepare(accountId);
 		if (prepared !== null) return prepared;
@@ -1799,7 +1799,7 @@ export const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		);
 	const timed = (stage: string) =>
 		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
-	const executor = yield* CloudAuthExecution;
+	const executor = yield* CloudAccountExecution;
 	if (executor !== undefined) {
 		const sealed = yield* executor.grant(input);
 		if (sealed !== null) return sealed;
@@ -2052,5 +2052,5 @@ export const executeCloudAuthOperationDirect = Effect.fn(
 			? yield* issueAuthorityGrant(operation.input)
 			: yield* prepareExistingCloudAuthAuthority(operation.accountId);
 	},
-	Effect.provideService(CloudAuthExecution, undefined),
+	Effect.provideService(CloudAccountExecution, undefined),
 );

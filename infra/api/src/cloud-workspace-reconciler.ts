@@ -15,6 +15,7 @@ import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-prepare.sh";
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import WORKSPACE_RUNTIME_SOURCE from "../../cloud-sandboxes/workspace-runtime.sh";
+import { CloudAccountExecution } from "./cloud-account-execution.ts";
 import {
 	prepareExistingCloudAuthAuthority,
 	snapshotCloudAuthAuthority,
@@ -3749,6 +3750,14 @@ export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
 				return false;
 			}
 			const adapter = provider.value;
+			const executor = yield* CloudAccountExecution;
+			if (executor?.startWorkspace !== undefined) {
+				const remote = yield* executor.startWorkspace(
+					workspace.accountId,
+					workspaceId,
+				);
+				if (remote !== null) return remote;
+			}
 			// Eligibility is re-proven on the claimed row: a transition between the
 			// read and the claim must not put other work under the short lease.
 			const allocate = reconcileCloudWorkspace(workspaceId, {
@@ -3776,4 +3785,17 @@ export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
 		}
 		return outcome.success.value;
 	},
+);
+
+/** Account affinity changes execution placement, never workspace ownership. */
+export const startCloudWorkspaceForAccountDirect = Effect.fn(
+	"startCloudWorkspaceForAccountDirect",
+)(
+	function* (accountId: string, workspaceId: string) {
+		const store = yield* CloudWorkspaceStore;
+		const workspace = yield* store.getWorkspace(workspaceId);
+		if (workspace === null || workspace.accountId !== accountId) return false;
+		return yield* startCloudWorkspaceInline(workspaceId);
+	},
+	Effect.provideService(CloudAccountExecution, undefined),
 );

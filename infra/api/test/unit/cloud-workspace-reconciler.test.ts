@@ -23,6 +23,7 @@ import {
 } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test, vi } from "vitest";
+import { CloudAccountExecution } from "../../src/cloud-account-execution.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
 import {
 	launchAssetFiles,
@@ -45,6 +46,7 @@ import {
 	sanitizeProjectBuildDiagnostic,
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
+	startCloudWorkspaceForAccountDirect,
 	startCloudWorkspaceInline,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 	workspaceRuntimeProcessSelector,
@@ -3313,6 +3315,66 @@ describe("inline first startup step", () => {
 				}),
 			);
 		});
+
+	test.each([
+		"success",
+		"unavailable",
+		"lost-response",
+	] as const)("account execution preserves one allocation on %s", async (mode) => {
+		let delegated = 0;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: `account-execution-${mode}`,
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* Ref.set(control.createCalls, 0);
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const wrongOwner = yield* startCloudWorkspaceForAccountDirect(
+					"another-account",
+					workspace.workspaceId,
+				);
+				expect(wrongOwner).toBe(false);
+				expect(yield* Ref.get(control.createCalls)).toBe(0);
+				const services =
+					yield* Effect.context<
+						Effect.Services<
+							ReturnType<typeof startCloudWorkspaceForAccountDirect>
+						>
+					>();
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId).pipe(
+						Effect.provideService(CloudAccountExecution, {
+							grant: () => Effect.succeed(null),
+							prepare: () => Effect.succeed(null),
+							startWorkspace: (accountId, workspaceId) =>
+								Effect.gen(function* () {
+									delegated++;
+									if (mode === "unavailable") return null;
+									const accepted = yield* withIdempotentAllocation(
+										startCloudWorkspaceForAccountDirect(accountId, workspaceId),
+									);
+									return mode === "lost-response" ? null : accepted;
+								}).pipe(Effect.provide(services)),
+						}),
+					),
+				);
+				return { ran, creates: yield* Ref.get(control.createCalls) };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result).toEqual({ ran: true, creates: 1 });
+		expect(delegated).toBe(1);
+	});
 
 	test("a fresh managed creation runs allocation and launch from the request under the lease", async () => {
 		const result = await Effect.runPromise(

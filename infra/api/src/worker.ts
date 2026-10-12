@@ -22,10 +22,10 @@ import {
 } from "./billing-config.ts";
 import { readBoatEnvironment } from "./boat-environment.ts";
 import {
-	type CloudAuthExecutorNamespace,
-	CloudAuthExecutorTask,
-	makeCloudAuthExecutor,
-} from "./cloud-auth-execution.ts";
+	type CloudAccountExecutorNamespace,
+	CloudAccountExecutorTask,
+	makeCloudAccountExecutor,
+} from "./cloud-account-execution.ts";
 import { CloudBillingStorePg } from "./cloud-billing-store.ts";
 import type { BillingUsageRecovery } from "./cloud-billing-usage-source.ts";
 import { billingUsageSourceModules } from "./cloud-billing-usage-source-config.ts";
@@ -137,7 +137,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly PLUGIN_ENCRYPTION_KEY?: string;
 	readonly PLUGIN_APP_ORIGIN?: string;
 	readonly PLUGIN_VAULT: DurableObjectNamespace;
-	readonly CLOUD_AUTH_EXECUTOR?: CloudAuthExecutorNamespace;
+	readonly CLOUD_AUTH_EXECUTOR?: CloudAccountExecutorNamespace;
 	readonly CLOUD_AUTH_EXECUTOR_LOCATION_HINT?: DurableObjectLocationHint;
 	readonly GITHUB_APP_ID?: string;
 	readonly GITHUB_APP_SLUG?: string;
@@ -623,8 +623,8 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		isConfigured(cloudDataEncryptionKey),
 	);
 	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
-		cloudAuthExecutor: env.CLOUD_AUTH_EXECUTOR
-			? makeCloudAuthExecutor(
+		cloudAccountExecutor: env.CLOUD_AUTH_EXECUTOR
+			? makeCloudAccountExecutor(
 					env.CLOUD_AUTH_EXECUTOR,
 					env.CLOUD_AUTH_EXECUTOR_LOCATION_HINT,
 				)
@@ -821,12 +821,12 @@ export class WorkspaceMailbox extends WorkspaceMailboxTask {
 }
 
 /** Account affinity reuses provider connections; authority SQL/guest own all state. */
-export class CloudAuthExecutor extends CloudAuthExecutorTask {
+export class CloudAuthExecutor extends CloudAccountExecutorTask {
 	constructor(_state: DurableObjectState, env: Env) {
 		super(async (operation) => {
 			const api = build(env);
 			try {
-				return await api.executeCloudAuthDirect(operation);
+				return await api.executeCloudAccountDirect(operation);
 			} finally {
 				await api.dispose();
 			}
