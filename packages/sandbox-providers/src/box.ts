@@ -495,11 +495,19 @@ export const makeBoxSandboxProvider = (
 					),
 				),
 			);
-			yield* pollUntilUsable(created.sandbox.id, readyDeadlineMs);
+			const timed = (stage: string) =>
+				measureCloudStage(
+					{ provider: "box", providerSandboxId: created.sandbox.id },
+					stage,
+				);
+			yield* pollUntilUsable(created.sandbox.id, readyDeadlineMs).pipe(
+				timed("box.create.usable"),
+			);
 			yield* ensureRuntimeLayout(
 				created.sandbox.id,
 				input.requirePersistedLayout,
 			).pipe(
+				timed("box.create.prepare"),
 				Effect.catchTag("SandboxProviderError", (error) =>
 					kill(created.sandbox.id).pipe(
 						Effect.ignore,

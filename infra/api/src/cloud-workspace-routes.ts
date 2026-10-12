@@ -1303,7 +1303,10 @@ export const codexGrantRuntimeBindingError = (
 };
 
 /** Bootstrap must answer promptly even when the account authority is slow or disconnected. */
-export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 1_500;
+// A cold control connection can take more than 1.5 s even for a ready
+// authority. Allow that normal path to finish rather than paying its latency
+// again through the runtime's fallback request.
+export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 3_000;
 
 /**
  * Issue the launch agent's grant to the key that just enrolled. Only the
