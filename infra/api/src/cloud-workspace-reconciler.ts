@@ -1683,6 +1683,7 @@ const workspaceRuntimeLaunchInput = Effect.fn("workspaceRuntimeLaunchInput")(
 				ZUSE_BRANCH: workspace.branch,
 				ZUSE_PROJECT_CACHE_ID: project.projectId,
 				ZUSE_BASE_REF: workspace.baseRef,
+				ZUSE_GITHUB_AUTH_BIN: GITHUB_AUTH_FILE,
 				ZUSE_GITHUB_STARTUP_CONTEXT: JSON.stringify(
 					workspace.requestConfig.initialGithubContext ?? {},
 				),

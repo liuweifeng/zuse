@@ -10,6 +10,13 @@ base_ref="${ZUSE_BASE_REF:?}"
 if [[ -n "${ZUSE_GITHUB_STARTUP_CONTEXT:-}" && "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]]; then
   export ZUSE_GITHUB_CONTEXT_DIR="${ZUSE_USER_DATA:?}/github-executions/repository-setup"
   (umask 077; mkdir -p "$ZUSE_GITHUB_CONTEXT_DIR"; printf '%s\n' "$ZUSE_GITHUB_STARTUP_CONTEXT" >"$ZUSE_GITHUB_CONTEXT_DIR/request.json")
+  # File delivery uses owner-only 0600 permissions. Invoke the current helper
+  # with Bash, overriding helpers inherited from older images for this fetch.
+  export GIT_CONFIG_COUNT=2
+  export GIT_CONFIG_KEY_0=credential.https://github.com.helper GIT_CONFIG_VALUE_0=''
+  export GIT_CONFIG_KEY_1=credential.https://github.com.helper
+  printf -v GIT_CONFIG_VALUE_1 '/bin/bash %q credential' "${ZUSE_GITHUB_AUTH_BIN:?}"
+  export GIT_CONFIG_VALUE_1
 fi
 progress() {
   local progress_dir="${ZUSE_WORKSPACE_RUNTIME_STATUS_DIR:-/var/lib/zuse/workspace}"

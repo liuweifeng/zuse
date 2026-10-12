@@ -89,6 +89,7 @@ describe("cloud workspace branch initialization", () => {
 			`#!/bin/bash
 if [[ "$*" == *" fetch "* ]]; then
   cat "$ZUSE_GITHUB_CONTEXT_DIR/request.json" > "$CAPTURE_CONTEXT"
+  /usr/bin/git config --get-all credential.https://github.com.helper > "$CAPTURE_HELPER"
 fi
 exec /usr/bin/git "$@"
 `,
@@ -96,13 +97,20 @@ exec /usr/bin/git "$@"
 		);
 		run("main", undefined, false, false, {
 			PATH: `${bin}:${process.env.PATH}`,
+			GIT_CONFIG_GLOBAL: join(root, "empty-gitconfig"),
+			GIT_CONFIG_NOSYSTEM: "1",
 			ZUSE_USER_DATA: root,
 			ZUSE_GITHUB_STARTUP_CONTEXT: JSON.stringify(context),
+			ZUSE_GITHUB_AUTH_BIN: "/current/non-executable-github-auth.sh",
 			CAPTURE_CONTEXT: join(root, "captured.json"),
+			CAPTURE_HELPER: join(root, "captured-helper"),
 		});
 		expect(
 			JSON.parse(readFileSync(join(root, "captured.json"), "utf8")),
 		).toEqual(context);
+		expect(readFileSync(join(root, "captured-helper"), "utf8")).toBe(
+			"\n/bin/bash /current/non-executable-github-auth.sh credential\n",
+		);
 	});
 	test("machine forks preserve detached commits, staged edits and untracked files", () => {
 		const { root, git, run, unreachable } = fixture();
