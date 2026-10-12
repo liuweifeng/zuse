@@ -1,3 +1,4 @@
+import type { DurableObjectLocationHint } from "@cloudflare/workers-types";
 import {
 	CloudAuthProvider,
 	ProviderGrantRefreshReason,
@@ -51,7 +52,10 @@ const Preparation = Schema.Literals(["ready", "absent", "stale"]);
 
 export interface CloudAuthExecutorNamespace {
 	readonly idFromName: (name: string) => unknown;
-	readonly get: (id: unknown) => {
+	readonly get: (
+		id: unknown,
+		options?: { locationHint?: DurableObjectLocationHint },
+	) => {
 		readonly fetch: (request: Request) => Promise<Response>;
 	};
 }
@@ -59,6 +63,7 @@ export interface CloudAuthExecutorNamespace {
 /** Only transport/protocol failures fall back; credential errors remain final. */
 export const makeCloudAuthExecutor = (
 	namespace: CloudAuthExecutorNamespace,
+	locationHint?: DurableObjectLocationHint,
 ): CloudAuthExecutor => {
 	const call = Effect.fn("cloudAuthExecutor.call")(function* <A>(
 		accountId: string,
@@ -66,8 +71,13 @@ export const makeCloudAuthExecutor = (
 		decode: (value: unknown) => A,
 	) {
 		const received = yield* Effect.tryPromise(async (signal) => {
+			const started = performance.now();
+			// Objects are stateless; a placement change gets a fresh execution venue,
+			// while SQL and guest identity remain untouched.
+			const name =
+				locationHint === undefined ? accountId : `${locationHint}:${accountId}`;
 			const response = await namespace
-				.get(namespace.idFromName(accountId))
+				.get(namespace.idFromName(name), { locationHint })
 				.fetch(
 					new Request("https://cloud-auth.internal/execute", {
 						method: "POST",
@@ -75,6 +85,21 @@ export const makeCloudAuthExecutor = (
 						body: JSON.stringify(operation),
 					}),
 				);
+			if (operation.op === "grant") {
+				const serverMs = Number(
+					response.headers.get("x-zuse-executor-duration-ms"),
+				);
+				const roundTripMs = performance.now() - started;
+				console.info("[cloud-timing]", {
+					workspaceId: operation.input.workspaceId,
+					stage: "auth.executor-transport",
+					atMs: Date.now(),
+					roundTripMs,
+					...(Number.isFinite(serverMs) && serverMs > 0
+						? { serverMs, overheadMs: Math.max(0, roundTripMs - serverMs) }
+						: {}),
+				});
+			}
 			if (response.status === 502)
 				throw new Error("authority executor unavailable");
 			const body: unknown = await response.json();
@@ -151,7 +176,13 @@ export class CloudAuthExecutorTask {
 			);
 		}
 		try {
-			return await this.execute(operation);
+			const started = performance.now();
+			const response = await this.execute(operation);
+			response.headers.set(
+				"x-zuse-executor-duration-ms",
+				String(performance.now() - started),
+			);
+			return response;
 		} catch {
 			return new Response(null, { status: 502 });
 		}

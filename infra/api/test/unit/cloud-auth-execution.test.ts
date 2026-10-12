@@ -82,6 +82,27 @@ describe("account authority execution", () => {
 		expect(requests[1]).toEqual({ op: "grant", input });
 	});
 
+	test("an explicit location uses the same account venue for preparation and grants", async () => {
+		const names: string[] = [];
+		const get = vi.fn(() => ({ fetch: async () => Response.json("ready") }));
+		const executor = makeCloudAuthExecutor(
+			{
+				idFromName: (name) => {
+					names.push(name);
+					return name;
+				},
+				get,
+			},
+			"apac-ne",
+		);
+		await Effect.runPromise(executor.prepare("account-a"));
+		await Effect.runPromise(executor.prepare("account-b"));
+		expect(names).toEqual(["apac-ne:account-a", "apac-ne:account-b"]);
+		expect(get).toHaveBeenCalledWith("apac-ne:account-a", {
+			locationHint: "apac-ne",
+		});
+	});
+
 	test("credential failures propagate without taking the transport fallback", async () => {
 		const { executor } = transport(async () =>
 			Response.json(

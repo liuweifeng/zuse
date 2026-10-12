@@ -1,4 +1,5 @@
 import type {
+	DurableObjectLocationHint,
 	DurableObjectNamespace,
 	DurableObjectState,
 } from "@cloudflare/workers-types";
@@ -137,6 +138,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly PLUGIN_APP_ORIGIN?: string;
 	readonly PLUGIN_VAULT: DurableObjectNamespace;
 	readonly CLOUD_AUTH_EXECUTOR?: CloudAuthExecutorNamespace;
+	readonly CLOUD_AUTH_EXECUTOR_LOCATION_HINT?: DurableObjectLocationHint;
 	readonly GITHUB_APP_ID?: string;
 	readonly GITHUB_APP_SLUG?: string;
 	readonly GITHUB_APP_CLIENT_ID?: string;
@@ -622,7 +624,10 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 	);
 	const api: ReturnType<typeof makeApi> = makeApi(appLayer, {
 		cloudAuthExecutor: env.CLOUD_AUTH_EXECUTOR
-			? makeCloudAuthExecutor(env.CLOUD_AUTH_EXECUTOR)
+			? makeCloudAuthExecutor(
+					env.CLOUD_AUTH_EXECUTOR,
+					env.CLOUD_AUTH_EXECUTOR_LOCATION_HINT,
+				)
 			: undefined,
 		scheduleWorkspaceStartup: directStartup
 			? undefined

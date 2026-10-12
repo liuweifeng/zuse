@@ -52,6 +52,8 @@
 		]
 	},
 	"vars": {
+		// Keep account execution near the staging database in Seoul.
+		"CLOUD_AUTH_EXECUTOR_LOCATION_HINT": "apac-ne",
 		// Staging test rollout; production remains disabled pending multi-user verification.
 		"ORGANIZATION_WORKSPACES_ENABLED": "true",
 		"PLUGIN_APP_ORIGIN": "https://code-staging.zuse.sh",
