@@ -344,6 +344,10 @@
 	"pr_pane_show_more": "더 보기",
 	"pr_pane_show_less": "간단히 보기",
 	"pr_pane_merge_blocked_stale": "GitHub 상태가 오래되었을 수 있습니다. 병합하기 전에 새로 고치세요.",
-	"no_project": "프로젝트 없음",
-	"new_chat_without_project": "프로젝트 없이 새 채팅"
+	"projects_sidebar_star_on_github": "GitHub에서 스타 남기기",
+	"projects_sidebar_dismiss_star_prompt": "GitHub 스타 안내 닫기",
+	"projects_sidebar_github_open_failed": "GitHub를 열 수 없습니다",
+	"projects_sidebar_github_starring": "스타 추가 중…",
+	"new_chat_without_project": "프로젝트 없이 새 채팅",
+	"no_project": "프로젝트 없음"
 }

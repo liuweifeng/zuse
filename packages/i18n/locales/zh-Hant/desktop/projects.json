@@ -344,6 +344,10 @@
 	"pr_pane_show_more": "顯示更多",
 	"pr_pane_show_less": "收合",
 	"pr_pane_merge_blocked_stale": "GitHub 狀態可能已過期。請先重新整理再合併。",
-	"no_project": "無專案",
-	"new_chat_without_project": "新增無專案聊天"
+	"projects_sidebar_star_on_github": "在 GitHub 上加星",
+	"projects_sidebar_dismiss_star_prompt": "關閉 GitHub 加星提示",
+	"projects_sidebar_github_open_failed": "無法開啟 GitHub",
+	"projects_sidebar_github_starring": "正在加星…",
+	"new_chat_without_project": "新增無專案聊天",
+	"no_project": "無專案"
 }

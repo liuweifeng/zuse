@@ -17,6 +17,7 @@ import {
 import { buildThreadList, type ThreadListEntry } from "../lib/thread-list.ts";
 import { useChatAttention } from "../lib/use-chat-attention.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
+import { GithubStarPrompt } from "./github-star-prompt.tsx";
 import { HostedLaptopSection } from "./hosted-sidebar.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
@@ -956,6 +957,7 @@ export function ProjectsSidebar() {
 			{isHostedProduct() && workspaceScope.scope.kind === "personal" && (
 				<HostedLaptopSection />
 			)}
+			<GithubStarPrompt />
 			<SidebarFooter />
 			{organize.groupDialog !== null ? (
 				<Suspense fallback={null}>

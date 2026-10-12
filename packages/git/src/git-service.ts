@@ -9,6 +9,7 @@ import type {
 	GitDiffResult,
 	GitFailingChecksArtifact,
 	GitFolderNotFoundError,
+	GitHubStarError,
 	GitIssueSummary,
 	GitMergeMethod,
 	GitNotARepoError,
@@ -147,6 +148,8 @@ export interface GitServiceShape {
 		{ readonly name: string; readonly avatarUrl: string | null } | null,
 		GitFailure
 	>;
+	/** Stars Zuse with this computer's GitHub sign-in (`gh` or a token). */
+	readonly starZuse: () => Effect.Effect<void, GitHubStarError>;
 	/**
 	 * Open PRs via `gh pr list`, most-recently-updated first. Degrades to `[]`
 	 * when `gh` is missing / unauthenticated / there's no GitHub remote.

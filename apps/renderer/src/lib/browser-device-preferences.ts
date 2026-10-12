@@ -14,6 +14,8 @@ const BrowserPreferences = Schema.Struct({
 	 * setting must not live in (or follow) any computer's settings file.
 	 */
 	experimentalThreadListSidebar: Schema.optional(Schema.Boolean),
+	/** Whether this install has dismissed the sidebar GitHub star prompt. */
+	githubStarPromptDismissed: Schema.optional(Schema.Boolean),
 });
 const storage = () =>
 	typeof window === "undefined" ? null : window.localStorage;
