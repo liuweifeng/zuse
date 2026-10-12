@@ -66,8 +66,12 @@ chmod 700 "$ZUSE_USER_DATA"
 # /usr/local/bin first. The API ships the current script with the project
 # build, so prefer that copy over whatever the base image happens to hold.
 github_auth=/var/lib/zuse/project-build/github-auth.sh
-[[ -x "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth
-if [[ -x "$github_auth" ]]; then
+[[ -r "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth
+if [[ -r "$github_auth" ]]; then
+  # Provider file delivery deliberately uses mode 0600. Make the delivered
+  # helper runnable before linking gh; do not select an obsolete image helper
+  # just because that older file already has its executable bit set.
+  [[ -x "$github_auth" ]] || chmod u+x "$github_auth"
   export ZUSE_GITHUB_AUTH_BIN="$github_auth"
   mkdir -p /home/zuse/.local/bin
   ln -sf "$github_auth" /home/zuse/.local/bin/gh

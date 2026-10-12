@@ -358,6 +358,46 @@ describe("cloud chat catalog", () => {
 		).toBe("failed");
 	});
 
+	it("shows startup progress instead of a retained connection failure during fresh allocation", () => {
+		const row = CloudChatSummary.make({
+			...summary({
+				workspaceId: "environment-a",
+				chatId: "chat-a",
+				sessionId: "session-a",
+				revision: 1,
+			}),
+			state: "provisioning",
+			desiredState: "ready",
+			runtimeState: "offline",
+			statusCode: "runtime-starting",
+			startupPhase: "booting",
+		});
+		const activity = deriveCloudChatActivity({
+			summary: row,
+			connection: "failed",
+			runtime: "idle",
+		});
+		expect(activity).toBe("resuming");
+		expect(cloudConnectionPresentation(row, activity, "failed")).toBe(
+			"resuming",
+		);
+		for (const connection of [
+			"blocked-auth",
+			"revoked",
+			"update-required",
+		] as const)
+			expect(
+				deriveCloudChatActivity({ summary: row, connection, runtime: "idle" }),
+			).toBe("failed");
+		expect(
+			deriveCloudChatActivity({
+				summary: { ...row, state: "failed" },
+				connection: "failed",
+				runtime: "idle",
+			}),
+		).toBe("failed");
+	});
+
 	it("retains an observed live turn through reconnect and history synchronization", () => {
 		const row = summary({
 			workspaceId: "environment-a",
