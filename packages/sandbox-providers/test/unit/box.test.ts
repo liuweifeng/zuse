@@ -825,7 +825,6 @@ describe("Box sandbox provider", () => {
 		);
 		expect(command).toContain("test -f /srv/zuse/.layout-v1");
 		expect(command).not.toMatch(/firewall|nft|systemctl/);
-		expect(command).not.toContain("sleep");
 	});
 
 	test("waits for system disk handover before completing resume", async () => {
@@ -849,6 +848,40 @@ describe("Box sandbox provider", () => {
 			makeAdapter(http.client).setNetwork("bx_1", { kind: "open" }),
 		);
 		expect(http.calls).toHaveLength(0);
+	});
+
+	test("observes writable disk handover inside one bounded guest command", async () => {
+		const http = makeHttp([
+			{ status: 202, body: {} },
+			{ status: 200, body: readyBox("bx_1") },
+			{ status: 200, body: commandResult(0) },
+			{ status: 200, body: readyBox("bx_1") },
+		]);
+		const adapter = makeBoxSandboxProvider(
+			{
+				apiKey: Redacted.make("secret-key"),
+				templateSnapshot: "zuse-base-v1",
+				templateVersion: "v1",
+				readyDeadlineMs: 200,
+			},
+			http.client,
+		);
+		await Effect.runPromise(adapter.resume("bx_1", 600, "pause"));
+		const command: string = JSON.parse(
+			String(http.calls[2]?.init?.body),
+		).command;
+		const observation = command.slice(0, command.indexOf("sudo -n -E bash -c"));
+		const { stdout } = await promisify(execFile)("bash", [
+			"-c",
+			`hydrated=0; findmnt() { if [ "$hydrated" = 1 ]; then echo ext4; else echo fuse; fi; }; sleep() { [ "$1" = 0.1 ] || exit 90; hydrated=1; }; ${observation} printf ready`,
+		]);
+		expect(stdout).toBe("ready");
+		await expect(
+			promisify(execFile)("bash", [
+				"-c",
+				`findmnt() { echo fuse; }; sleep() { :; }; ${observation} exit 90`,
+			]),
+		).rejects.toMatchObject({ code: 75 });
 	});
 
 	test("healthy persisted layout resumes without copying or recursively changing ownership", async () => {
