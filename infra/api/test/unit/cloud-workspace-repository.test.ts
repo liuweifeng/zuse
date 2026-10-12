@@ -58,6 +58,7 @@ const fixture = () => {
 		repositoryUrl = remote,
 		fork = false,
 		native = false,
+		extraEnv: Record<string, string> = {},
 	) =>
 		execFileSync("bash", [script.pathname], {
 			env: {
@@ -69,12 +70,40 @@ const fixture = () => {
 				ZUSE_FORK_CHECKOUT: fork ? "1" : "",
 				ZUSE_SNAPSHOT_NATIVE: native ? "1" : "",
 				ZUSE_REPOSITORY_URL: repositoryUrl,
+				...extraEnv,
 			},
 			stdio: "pipe",
 		});
 	return { root, git, run, remote, unreachable, advanceRemoteMain };
 };
 describe("cloud workspace branch initialization", () => {
+	test("initial organization fetch carries its creator identity only in the repository process", () => {
+		const { root, run } = fixture();
+		const context = {
+			actor: { subject: "member", membershipId: "membership" },
+		};
+		const bin = join(root, "bin");
+		execFileSync("mkdir", [bin]);
+		writeFileSync(
+			join(bin, "git"),
+			`#!/bin/bash
+if [[ "$*" == *" fetch "* ]]; then
+  cat "$ZUSE_GITHUB_CONTEXT_DIR/request.json" > "$CAPTURE_CONTEXT"
+fi
+exec /usr/bin/git "$@"
+`,
+			{ mode: 0o755 },
+		);
+		run("main", undefined, false, false, {
+			PATH: `${bin}:${process.env.PATH}`,
+			ZUSE_USER_DATA: root,
+			ZUSE_GITHUB_STARTUP_CONTEXT: JSON.stringify(context),
+			CAPTURE_CONTEXT: join(root, "captured.json"),
+		});
+		expect(
+			JSON.parse(readFileSync(join(root, "captured.json"), "utf8")),
+		).toEqual(context);
+	});
 	test("machine forks preserve detached commits, staged edits and untracked files", () => {
 		const { root, git, run, unreachable } = fixture();
 		git("checkout", "--detach");

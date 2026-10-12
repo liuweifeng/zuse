@@ -4,6 +4,13 @@ set -euo pipefail
 workspace="${ZUSE_CLOUD_WORKSPACE_ROOT:?}"
 branch="${ZUSE_BRANCH:?}"
 base_ref="${ZUSE_BASE_REF:?}"
+# Repository setup runs outside the agent's per-turn Git environment. Give
+# only this process the initiating member/Slack identity; never install it as
+# a workspace-wide fallback for later users' commands.
+if [[ -n "${ZUSE_GITHUB_STARTUP_CONTEXT:-}" && "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]]; then
+  export ZUSE_GITHUB_CONTEXT_DIR="${ZUSE_USER_DATA:?}/github-executions/repository-setup"
+  (umask 077; mkdir -p "$ZUSE_GITHUB_CONTEXT_DIR"; printf '%s\n' "$ZUSE_GITHUB_STARTUP_CONTEXT" >"$ZUSE_GITHUB_CONTEXT_DIR/request.json")
+fi
 progress() {
   local progress_dir="${ZUSE_WORKSPACE_RUNTIME_STATUS_DIR:-/var/lib/zuse/workspace}"
   if [[ -d "$progress_dir" ]]; then

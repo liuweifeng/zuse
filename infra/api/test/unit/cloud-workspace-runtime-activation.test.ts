@@ -451,6 +451,39 @@ describe("workspace runtime activation orchestration", () => {
 			}).pipe(Effect.provide(testLayer)),
 		);
 	});
+	test.each([
+		"launching",
+		"verification-needed",
+	] as const)("reports a failed initial repository setup instead of holding activation in %s", async (phase) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const f = yield* fixture();
+				yield* f.installOperation({
+					mode: "restart-installed",
+					bootstrap: true,
+					phase,
+				});
+				yield* f.save({
+					state: "setup",
+					runtimeState: "online",
+					statusCode: "fetching-repository",
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(
+					control.pathsBySandbox,
+					new Map([["machine", new Set(["/var/lib/zuse/workspace/failed"])]]),
+				);
+				yield* f.reconcile;
+				const after = yield* f.read;
+				expect(after.state).toBe("failed");
+				expect(after.statusCode).toBe("setup-failed");
+				expect(after.runtimeState).toBe("offline");
+				expect(runtimeActivation(after)?.phase).toBe("failed");
+				expect(after.chatId).toBe("original-chat");
+				expect(f.replacements).toHaveLength(0);
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
 
 	test("startup returns the durable deadline while preparation outlives the former request observer", async () => {
 		await Effect.runPromise(
