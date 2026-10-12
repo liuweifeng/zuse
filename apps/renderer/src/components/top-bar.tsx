@@ -343,7 +343,8 @@ export function TopBarMain() {
 		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
 
 	const refreshBranches = async (): Promise<void> => {
-		if (readOnly || executionRef === null || folderId === null) return;
+		if (scratch || readOnly || executionRef === null || folderId === null)
+			return;
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
@@ -367,7 +368,7 @@ export function TopBarMain() {
 	useEffect(() => {
 		void refreshBranches();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [folderId, worktreeId, branchLabel, readOnly]);
+	}, [folderId, worktreeId, branchLabel, readOnly, scratch]);
 
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
 		if (

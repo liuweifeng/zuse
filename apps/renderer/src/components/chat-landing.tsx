@@ -1382,6 +1382,7 @@ function WorkspaceChatLanding({
 				setSubmitError(
 					"Attachments, context files, goals, and Create-from aren't supported yet when starting a chat on another computer.",
 				);
+				setSubmitting(false);
 				return;
 			}
 			setSubmitError(null);
