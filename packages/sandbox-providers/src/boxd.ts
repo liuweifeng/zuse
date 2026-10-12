@@ -596,10 +596,13 @@ export const makeBoxdSandboxProvider = (
 		if (input.onTimeout === "pause")
 			yield* call("machines.setAutoHibernateTimeout", () =>
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
-			);
+			).pipe(timing(created.id, "boxd.create.idle-policy"));
 		let usable = created;
 		if (input.snapshotVersion !== undefined) {
-			if (usable.source?.id == null) usable = yield* machine(created.id);
+			if (usable.source?.id == null)
+				usable = yield* machine(created.id).pipe(
+					timing(created.id, "boxd.create.verify-source"),
+				);
 			if (
 				usable.source?.id !== input.snapshot ||
 				usable.source.version !== input.snapshotVersion
