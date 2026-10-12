@@ -8,7 +8,8 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, test } from "vitest";
 
 test.each([
@@ -84,7 +85,12 @@ fs.cpSync(${JSON.stringify(join(fixtureRelease, "node_modules"))}, dest + "/node
 		const run = () =>
 			spawnSync(
 				process.execPath,
-				[resolve("apps/server/scripts/toolchain-reconciler.mjs"), manifestPath],
+				[
+					fileURLToPath(
+						new URL("../../scripts/toolchain-reconciler.mjs", import.meta.url),
+					),
+					manifestPath,
+				],
 				{
 					encoding: "utf8",
 					env: {

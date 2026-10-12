@@ -102,6 +102,22 @@ describe("api deployment safety", () => {
 		expect(staging.vars.ORGANIZATION_ROLLOUT_ENABLED).not.toBe("true");
 	});
 
+	test("production keeps account execution near its own database", async () => {
+		const config = parse(
+			await readFile(productionWranglerConfigUrl, "utf8"),
+		) as WranglerTarget;
+		expect(config.placement).toEqual({ region: "aws:us-east-1" });
+		expect(config.vars.CLOUD_AUTH_EXECUTOR_LOCATION_HINT).toBe("enam");
+		expect(config.durable_objects.bindings).toContainEqual({
+			name: "CLOUD_AUTH_EXECUTOR",
+			class_name: "CloudAuthExecutor",
+		});
+		expect(config.migrations).toContainEqual({
+			tag: "cloud-auth-executor-v1",
+			new_sqlite_classes: ["CloudAuthExecutor"],
+		});
+	});
+
 	// Production once shipped without API_PUBLIC_ORIGIN: every plugin OAuth
 	// redirect_uri became "undefined/v1/plugins/callback/…" and was rejected.
 	test.each([
@@ -413,7 +429,7 @@ else process.exit(2);
 		expect(config.vars.E2B_TEMPLATE_VERSION).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
 		);
-		expect(config.placement).toEqual({ region: "aws:ap-southeast-1" });
+		expect(config.placement).toEqual({ region: "aws:ap-northeast-2" });
 		expect(config.vars.E2B_VCPU_COUNT).toBe("2");
 		expect(config.vars.E2B_MEMORY_MIB).toBe("4096");
 		expect(config.vars.POLAR_PRODUCT_PERSISTENT_STANDARD_V1).toBe(
