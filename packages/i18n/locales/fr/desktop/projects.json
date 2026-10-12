@@ -349,5 +349,9 @@
 	"diff_pane_list_view": "Afficher en liste",
 	"pr_pane_show_more": "Afficher plus",
 	"pr_pane_show_less": "Afficher moins",
-	"pr_pane_merge_blocked_stale": "Le statut GitHub n’est peut-être pas à jour. Actualisez avant de fusionner."
+	"pr_pane_merge_blocked_stale": "Le statut GitHub n’est peut-être pas à jour. Actualisez avant de fusionner.",
+	"projects_sidebar_star_on_github": "Ajouter une étoile sur GitHub",
+	"projects_sidebar_dismiss_star_prompt": "Masquer l’invitation GitHub",
+	"projects_sidebar_github_open_failed": "Impossible d’ouvrir GitHub",
+	"projects_sidebar_github_starring": "Ajout de l’étoile…"
 }

@@ -407,33 +407,33 @@ export const startCursorSession = (
 	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
-		// First real Cursor use in this process loads the SDK; others never do.
-		const { Agent, getDefaultSdkStateRoot, JsonlLocalAgentStore } =
-			yield* Effect.promise(loadCursorSdk);
-		const store = new JsonlLocalAgentStore(
-			join(getDefaultSdkStateRoot(cwd), STORE_DIRECTORY),
-		);
 		const selection = modelSelection(input.model);
-		const options: AgentOptions = {
-			...(apiKey === null ? {} : { apiKey }),
-			model: selection,
-			local: {
-				cwd,
-				store,
-				autoReview: true,
-				sandboxOptions: { enabled: true },
-				settingSources: ["project"],
-				enableAgentRetries: true,
-			},
-			mode:
-				input.permissionMode === "plan"
-					? ("plan" as const)
-					: ("agent" as const),
-		};
 
 		const result = yield* Effect.result(
 			Effect.tryPromise({
 				try: async () => {
+					// First real Cursor use in this process loads the SDK; others never do.
+					const { Agent, getDefaultSdkStateRoot, JsonlLocalAgentStore } =
+						await loadCursorSdk();
+					const store = new JsonlLocalAgentStore(
+						join(getDefaultSdkStateRoot(cwd), STORE_DIRECTORY),
+					);
+					const options: AgentOptions = {
+						...(apiKey === null ? {} : { apiKey }),
+						model: selection,
+						local: {
+							cwd,
+							store,
+							autoReview: true,
+							sandboxOptions: { enabled: true },
+							settingSources: ["project"],
+							enableAgentRetries: true,
+						},
+						mode:
+							input.permissionMode === "plan"
+								? ("plan" as const)
+								: ("agent" as const),
+					};
 					if (input.executionEnv !== undefined)
 						return await withTimeout(
 							startIsolatedCursorAgent(

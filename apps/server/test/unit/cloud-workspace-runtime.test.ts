@@ -2392,6 +2392,23 @@ describe("launch agent credential readiness", () => {
 		expect(attempts).toBe(2);
 	});
 
+	it.each([
+		"authentication-required",
+		"expired",
+		"unavailable",
+	])("keeps snapshot workspaces accessible when native access is %s", async (state) => {
+		await expect(
+			Effect.runPromise(
+				prepareSelectedAgentCredential({
+					workspaceId: "workspace-1",
+					agent: "claude",
+					prepare: () => failure(`claude-snapshot-${state}`),
+					recovery: new ProviderReadySignal(),
+				}),
+			),
+		).resolves.toBe("claude");
+	});
+
 	it("fails the launch for a credential this runtime can never obtain", async () => {
 		await expect(
 			Effect.runPromise(
@@ -2408,9 +2425,7 @@ describe("launch agent credential readiness", () => {
 		).toBe(true);
 		// A snapshot-native tool has no recovery notification; retry rechecks it.
 		expect(
-			providerCredentialFailureIsTerminal(
-				"claude-snapshot-authentication-required",
-			),
+			providerCredentialFailureIsTerminal("claude-snapshot-missing-tool"),
 		).toBe(true);
 		expect(
 			providerCredentialFailureIsTerminal("claude-auth-reconnect-required"),
@@ -2442,8 +2457,10 @@ describe("bootstrap launch grant startup identity", () => {
 	const make = (
 		agent: string | undefined,
 		sealedGrant: SealedProviderGrant | SealedCodexGrant | undefined,
+		freshBootstrap = true,
 	) =>
 		makeStartupLaunchGrant({
+			freshBootstrap,
 			workspaceId: "workspace-1",
 			runtimeGeneration: 4,
 			agent,
@@ -2487,6 +2504,20 @@ describe("bootstrap launch grant startup identity", () => {
 			await Effect.runPromise(
 				make("claude", undefined).requestId("codex", thumbprint),
 			),
+		).toBeUndefined();
+	});
+
+	it.each([
+		"claude",
+		"codex",
+	] as const)("does not replay a persisted bootstrap request for %s after restart", async (agent) => {
+		const initial = make(agent, undefined);
+		expect(
+			await Effect.runPromise(initial.requestId(agent, thumbprint)),
+		).toBeDefined();
+		const restarted = make(agent, undefined, false);
+		expect(
+			await Effect.runPromise(restarted.requestId(agent, thumbprint)),
 		).toBeUndefined();
 	});
 

@@ -1316,6 +1316,8 @@ export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 3_000;
  * that still completes in the authority is served from its cache later.
  */
 export interface BootstrapLaunchGrantInput {
+	readonly codexServingEnabled: boolean;
+	readonly providerServingEnabled: boolean;
 	readonly accountId: string;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
@@ -1354,8 +1356,9 @@ export const issueBootstrapLaunchGrantWith = <R>(
 		const providerId = selected.value;
 		const brokered =
 			providerId === "codex"
-				? input.codexAuthMode === "broker-v1"
-				: input.providerAuthMode === "broker-v1";
+				? input.codexAuthMode === "broker-v1" && input.codexServingEnabled
+				: input.providerAuthMode === "broker-v1" &&
+					input.providerServingEnabled;
 		if (!brokered) return undefined;
 		const requestId = yield* Effect.promise(() =>
 			launchGrantRequestId({
@@ -2264,6 +2267,10 @@ const routeCloudWorkspaceRequestWithAccess = (
 					}),
 					// Enrollment succeeded above; the launch agent's grant rides along.
 					issueBootstrapLaunchGrant({
+						codexServingEnabled:
+							apiConfiguration.cloudCodexAuthBrokerServingEnabled,
+						providerServingEnabled:
+							apiConfiguration.cloudProviderAuthBrokerServingEnabled,
 						accountId: workspace.accountId,
 						workspaceId,
 						runtimeGeneration: enrolled.receipt.generation,

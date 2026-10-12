@@ -343,5 +343,9 @@
 	"diff_pane_list_view": "⟦Shôôw ààs lïïst⟧",
 	"pr_pane_show_more": "⟦Shôôw môôrëë⟧",
 	"pr_pane_show_less": "⟦Shôôw lëëss⟧",
-	"pr_pane_merge_blocked_stale": "⟦GïïtHüüb stààtüüs màày bëë ôôüüt ôôf dààtëë. Rëëfrëësh bëëfôôrëë mëërgïïng.⟧"
+	"pr_pane_merge_blocked_stale": "⟦GïïtHüüb stààtüüs màày bëë ôôüüt ôôf dààtëë. Rëëfrëësh bëëfôôrëë mëërgïïng.⟧",
+	"projects_sidebar_star_on_github": "⟦Stààr ôôn GïïtHüüb⟧",
+	"projects_sidebar_dismiss_star_prompt": "⟦Dïïsmïïss GïïtHüüb stààr prôômpt⟧",
+	"projects_sidebar_github_open_failed": "⟦Côôüüld nôôt ôôpëën GïïtHüüb⟧",
+	"projects_sidebar_github_starring": "⟦Stààrrïïng…⟧"
 }

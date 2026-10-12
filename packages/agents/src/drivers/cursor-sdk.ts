@@ -12,10 +12,15 @@ let loaded: CursorSdkModule | null = null;
  * in-flight import serves every caller.
  */
 export const loadCursorSdk = (): Promise<CursorSdkModule> => {
-	pending ??= import("@cursor/sdk").then((module) => {
-		loaded = module;
-		return module;
-	});
+	pending ??= import("@cursor/sdk")
+		.then((module) => {
+			loaded = module;
+			return module;
+		})
+		.catch((cause) => {
+			pending = null;
+			throw cause;
+		});
 	return pending;
 };
 

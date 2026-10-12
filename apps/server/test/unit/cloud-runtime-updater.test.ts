@@ -158,6 +158,17 @@ const transactionFixture = async () => {
 		fetchShim,
 		`import fs from "node:fs/promises";
 		import { syncBuiltinESMExports } from "node:module";
+		const originalStatfs = fs.statfs;
+		if (process.env.ZUSE_TEST_FILESYSTEM) {
+			const realNow = Date.now;
+			let ticks = 0;
+			Date.now = () => realNow() + ticks++ * 120001;
+			fs.statfs = async (path) => {
+				if (path !== process.env.ZUSE_RELEASES_ROOT) return originalStatfs(path);
+				if (process.env.ZUSE_TEST_FILESYSTEM === "error") throw new Error("filesystem probe failed");
+				return { type: 0x65735546 };
+			};
+		}
 		const originalRename = fs.rename;
 		fs.rename = async (source, destination) => {
 			await originalRename(source, destination);
@@ -251,6 +262,33 @@ const transactionFixture = async () => {
 };
 
 describe("durable runtime transactions", () => {
+	test.each([
+		"fuse",
+		"error",
+	])("records release-root filesystem failures (%s) without activating", async (filesystem) => {
+		const fixture = await transactionFixture();
+		try {
+			const original = join(fixture.directory, "legacy");
+			await mkdir(original);
+			await mkdir(fixture.env.ZUSE_RELEASES_ROOT);
+			await symlink(original, fixture.env.ZUSE_CURRENT_LINK);
+			await fixture.publish("candidate");
+			await expect(
+				fixture.invoke("prepare", { ZUSE_TEST_FILESYSTEM: filesystem }),
+			).rejects.toThrow();
+			expect(await fixture.status()).toMatchObject({
+				state: "failed",
+				diagnostic:
+					filesystem === "fuse"
+						? "Runtime update filesystem is still restoring"
+						: "filesystem probe failed",
+			});
+			expect(await fixture.current()).toBe(original);
+		} finally {
+			await fixture.close();
+		}
+	});
+
 	test("prepares signed bytes without changing the installed runtime and only confirms the exact activated generation/version", async () => {
 		const fixture = await transactionFixture();
 		try {

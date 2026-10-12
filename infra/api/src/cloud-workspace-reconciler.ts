@@ -471,7 +471,10 @@ mkfifo -m 600 "$credentials_event"
   phase=preparing-credentials
   IFS= read -r _ <"$credentials_event"
   rm -f "$credentials_event"
-  [ -f "$status_dir/credentials-ready" ] || workspace_runtime_launch_failed 1
+  if [ ! -f "$status_dir/credentials-ready" ]; then
+    workspace_runtime_launch_failed 1
+    exit 1
+  fi
   phase=syncing-repository
   if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
 ${WORKSPACE_REPOSITORY_SOURCE}
