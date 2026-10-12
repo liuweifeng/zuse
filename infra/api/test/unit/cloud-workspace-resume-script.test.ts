@@ -41,7 +41,10 @@ vi.mock("../../../cloud-sandboxes/workspace-runtime.sh", () => ({
 	),
 }));
 
-test("repository recovery failure is reported while the early runtime is connected", () => {
+test.each([
+	true,
+	false,
+])("repository recovery requires credential evidence (present: %s)", (credentialReady) => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-resume-script-"));
 	try {
 		const state = join(root, "workspace");
@@ -57,7 +60,7 @@ test("repository recovery failure is reported while the early runtime is connect
 		const status = process.env.ZUSE_WORKSPACE_RUNTIME_STATUS_DIR;
 		// Repository recovery must not have started before credential evidence.
 		writeFileSync(status + "/repository-before-credentials", String(existsSync(status + "/repository-progress")));
-		writeFileSync(status + "/credentials-ready", "ready\\n");
+		${credentialReady ? 'writeFileSync(status + "/credentials-ready", "ready\\n");' : ""}
 		writeFileSync(status + "/credentials-ready-event", "ready\\n");
 		const timer = setInterval(() => { if (existsSync(status + "/failed")) { clearInterval(timer); process.exit(128); } }, 10);`,
 		);
@@ -94,11 +97,13 @@ test("repository recovery failure is reported while the early runtime is connect
 		).toBe("false");
 		expect(existsSync(join(state, "credentials-ready-event"))).toBe(false);
 		expect(readFileSync(join(state, "failure-phase"), "utf8").trim()).toBe(
-			"syncing-repository",
+			credentialReady ? "syncing-repository" : "preparing-credentials",
 		);
-		expect(readFileSync(join(state, "runtime.log"), "utf8")).toContain(
-			"not a git repository",
-		);
+		expect(
+			readFileSync(join(state, "runtime.log"), "utf8").includes(
+				"not a git repository",
+			),
+		).toBe(credentialReady);
 		expect(readFileSync(join(state, "runtime.log"), "utf8")).toContain(
 			"runtime.exec",
 		);

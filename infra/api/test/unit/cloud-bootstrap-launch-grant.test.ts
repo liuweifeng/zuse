@@ -22,6 +22,8 @@ const sealedFields = {
 };
 
 const input = {
+	codexServingEnabled: true,
+	providerServingEnabled: true,
 	accountId: "account-1",
 	workspaceId: "workspace-1",
 	runtimeGeneration: 3,
@@ -119,6 +121,33 @@ describe("bootstrap launch grant", () => {
 		}
 		expect(fakes.provider).not.toHaveBeenCalled();
 		expect(fakes.codex).not.toHaveBeenCalled();
+	});
+
+	test.each([
+		"claude",
+		"codex",
+	])("respects the %s serving switch independently", async (agent) => {
+		const fakes = issuers();
+		const flags =
+			agent === "codex"
+				? { codexServingEnabled: false, providerServingEnabled: true }
+				: { codexServingEnabled: true, providerServingEnabled: false };
+		expect(
+			await Effect.runPromise(
+				issueBootstrapLaunchGrantWith(fakes)({ ...input, ...flags, agent }),
+			),
+		).toBeUndefined();
+		expect(fakes.codex).not.toHaveBeenCalled();
+		expect(fakes.provider).not.toHaveBeenCalled();
+		expect(
+			await Effect.runPromise(
+				issueBootstrapLaunchGrantWith(fakes)({
+					...input,
+					...flags,
+					agent: agent === "codex" ? "claude" : "codex",
+				}),
+			),
+		).toBeDefined();
 	});
 
 	test("a failing or slow authority never blocks bootstrap", async () => {
