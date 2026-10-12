@@ -657,6 +657,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	prDetails: () => Effect.die("not used"),
 	createReviewComment: () => Effect.succeed({ url: null }),
 	reviewIdentity: () => Effect.succeed(null),
+	starZuse: () => Effect.void,
 	listPrs: () => Effect.die("not used"),
 	listIssues: () => Effect.die("not used"),
 	issueMarkdown: () => Effect.die("not used"),
