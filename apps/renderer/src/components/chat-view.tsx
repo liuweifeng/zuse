@@ -1103,6 +1103,7 @@ function TimelineRow({
 			content = (
 				<ToolActivityTree
 					messages={row.messages}
+					live={row.live}
 					sessionId={sessionId}
 					environmentId={environmentId}
 					providerId={providerId}

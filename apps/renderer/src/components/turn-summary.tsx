@@ -11,14 +11,16 @@ import type {
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { BubbleChatIcon, Wrench01Icon } from "@zuse/icons/solid-rounded";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { cn } from "~/lib/utils";
 import {
 	findFinalAssistantMessage,
 	isToolTreeBranch,
+	isVisualMessage,
 } from "../lib/chat-timeline-rows.ts";
 import { groupDelegations } from "../lib/delegation-display.ts";
 import { groupMessages } from "../lib/group-messages.ts";
+import { useTranscriptDisclosure } from "../store/transcript-disclosures.ts";
 
 import { AssistantMessageActions } from "./assistant-message-actions.tsx";
 import { DelegationGroup } from "./delegation-group.tsx";
@@ -108,8 +110,16 @@ function TurnSummaryImpl({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 
-	const [expanded, setExpanded] = useState(false);
-	const [filesExpanded, setFilesExpanded] = useState(false);
+	const disclosureKey = JSON.stringify([
+		environmentId,
+		sessionId ?? body[0]?.sessionId,
+		body[0]?.id,
+		"summary",
+	]);
+	const [expanded, toggleExpanded] = useTranscriptDisclosure(disclosureKey);
+	const [filesExpanded, toggleFilesExpanded] = useTranscriptDisclosure(
+		`${disclosureKey}:files`,
+	);
 
 	const toolUses = useMemo(
 		() => body.filter((m) => m.content._tag === "tool_use"),
@@ -143,7 +153,7 @@ function TurnSummaryImpl({
 	}, [body, uiMessage]);
 
 	const detailRows = useMemo(
-		() => body.filter((m) => m !== finalAssistant),
+		() => body.filter((m) => m !== finalAssistant && !isVisualMessage(m)),
 		[body, finalAssistant, uiMessage],
 	);
 
@@ -199,7 +209,8 @@ function TurnSummaryImpl({
 		<div className="flex flex-col">
 			<button
 				type="button"
-				onClick={() => setExpanded((e) => !e)}
+				aria-expanded={expanded}
+				onClick={toggleExpanded}
 				className={cn(
 					"flex w-full items-center gap-2 rounded px-3 py-0.5 text-left text-[11px] transition-colors hover:bg-muted/40",
 					mutedWhenOpen,
@@ -328,7 +339,7 @@ function TurnSummaryImpl({
 				{hasFileOverflow ? (
 					<button
 						type="button"
-						onClick={() => setFilesExpanded((e) => !e)}
+						onClick={toggleFilesExpanded}
 						className="inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground"
 					>
 						{filesExpanded ? (

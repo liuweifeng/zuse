@@ -10,8 +10,7 @@ import type {
 import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronDown } from "lucide-react";
-import { memo, useMemo, useState } from "react";
-
+import { memo, useMemo } from "react";
 import {
 	type DelegationMember,
 	type DelegationView,
@@ -28,6 +27,7 @@ import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { useSessionsStore } from "~/store/sessions";
 import { useUiStore } from "~/store/ui";
+import { useTranscriptDisclosure } from "../store/transcript-disclosures.ts";
 
 import {
 	DelegationElapsed,
@@ -172,10 +172,18 @@ export const DelegationGroup = memo(function DelegationGroup({
 
 	const views = entries.map((entry) => entry.view);
 	const working = views.filter((view) => view.status === "working").length;
-	const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
+	const [expanded, toggleExpanded] = useTranscriptDisclosure(
+		JSON.stringify([
+			environmentId ?? chatRef?.environmentId,
+			chatRef?.chatId,
+			members[0]?.id,
+			"delegations",
+			working > 0 ? "live" : "settled",
+		]),
+		working > 0,
+	);
 	if (members.length === 1) return <div className="px-2">{rows}</div>;
 
-	const expanded = userExpanded ?? true;
 	const failed = views.some((view) => view.status === "failed");
 	const label = message("chat:delegation_group_count", {
 		count: members.length,
@@ -198,7 +206,7 @@ export const DelegationGroup = memo(function DelegationGroup({
 				aria-label={label}
 				aria-description={summary}
 				aria-expanded={expanded}
-				onClick={() => setUserExpanded(!expanded)}
+				onClick={toggleExpanded}
 				className="flex h-7 w-fit min-w-0 max-w-full items-center gap-2 ps-3 pe-4 text-left text-xs text-muted-foreground hover:text-foreground"
 			>
 				<span className="flex shrink-0 items-center -space-x-1">

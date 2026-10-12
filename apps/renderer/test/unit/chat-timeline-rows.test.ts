@@ -588,11 +588,20 @@ it("keeps inline visuals outside collapsed activity with stable identities after
 			inFlight,
 			awaitingPlanApproval: false,
 		});
-		expect(rows.find((row) => row.id === "message:visual")?.kind).toBe(
-			"message",
-		);
-		expect(rows.some((row) => row.kind === "tool-activity")).toBe(true);
-		expect(rows.some((row) => row.kind === "turn-summary")).toBe(false);
+		if (inFlight) {
+			expect(rows.find((row) => row.id === "message:visual")?.kind).toBe(
+				"message",
+			);
+			expect(rows.some((row) => row.kind === "tool-activity")).toBe(true);
+		} else {
+			const summary = rows.find((row) => row.kind === "turn-summary");
+			expect(summary?.body.some((m) => m.id === "visual")).toBe(false);
+			expect(rows.at(-1)).toMatchObject({
+				kind: "message",
+				id: "message:visual",
+			});
+			expect(rows.some((row) => row.kind === "tool-activity")).toBe(false);
+		}
 	}
 });
 
@@ -756,14 +765,96 @@ it("shows generated UI inline instead of under its tool call", () => {
 		awaitingPlanApproval: false,
 	});
 	const tools = rows.flatMap((row) =>
-		row.kind === "tool-activity" ? row.messages.map((m) => m.id) : [],
+		row.kind === "tool-activity"
+			? row.messages.map((m) => m.id)
+			: row.kind === "turn-summary"
+				? row.body
+						.filter(
+							(m) =>
+								m.content._tag === "tool_use" ||
+								m.content._tag === "tool_result",
+						)
+						.map((m) => m.id)
+				: [],
 	);
 	// The failed call stays visible; the successful one is the block itself.
 	expect(tools).toEqual(["tool-bad", "result-bad"]);
 	const interactive = (id: string) => {
 		const row = rows.find((candidate) => candidate.id === `message:${id}`);
-		return row?.kind === "message" ? row.interactive === true : undefined;
+		if (row?.kind === "message") return row.interactive === true;
+		return undefined;
 	};
 	expect(interactive("ui-1")).toBe(false);
 	expect(interactive("ui-2")).toBe(true);
+});
+
+it.each([
+	false,
+	true,
+])("collapses completed activity into one summary while keeping visual output (cloud: %s)", (cloud) => {
+	const visual = message("summary-visual", {
+		_tag: "ui_spec",
+		spec: 'root = Stat("Tests", "12")',
+		version: 1,
+	});
+	const derive = cloud ? createCloudTimelineRows() : deriveChatTimelineRows;
+	const rows = derive({
+		messages: [
+			message("summary-user", { _tag: "user", text: "Check" }),
+			message("summary-tool", {
+				_tag: "tool_use",
+				itemId: AgentItemId.make("summary-read"),
+				tool: "Read",
+				input: {},
+			}),
+			visual,
+			message("summary-final", { _tag: "assistant", text: "Done" }),
+		],
+		inFlight: false,
+		awaitingPlanApproval: false,
+	});
+	expect(rows.map((row) => row.kind)).toEqual([
+		"message",
+		"turn-summary",
+		"message",
+	]);
+	expect(rows.at(-1)).toMatchObject({
+		kind: "message",
+		id: "message:summary-visual",
+		interactive: true,
+	});
+	const summary = rows[1];
+	expect(
+		summary?.kind === "turn-summary" &&
+			summary.body.some((m) => m.id === visual.id),
+	).toBe(false);
+});
+
+it("puts settled visual-only replies after final text without creating an empty tool summary", () => {
+	const input = {
+		messages: [
+			message("tail-user", { _tag: "user", text: "Show results" }),
+			message("tail-visual", {
+				_tag: "ui_spec",
+				spec: 'root = Text("Result")',
+				version: 1,
+			}),
+			message("tail-final", { _tag: "assistant", text: "Complete" }),
+		],
+		awaitingPlanApproval: false,
+	};
+	const live = deriveChatTimelineRows({ ...input, inFlight: true });
+	expect(live.map((row) => row.id)).toEqual([
+		"message:tail-user",
+		"message:tail-visual",
+		"message:tail-final",
+		"working",
+	]);
+	const settled = deriveChatTimelineRows({ ...input, inFlight: false });
+	expect(settled.map((row) => row.id)).toEqual([
+		"message:tail-user",
+		"message:tail-final",
+		"message:tail-visual",
+	]);
+	expect(settled.at(-1)).toMatchObject({ kind: "message", interactive: true });
 });
