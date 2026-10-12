@@ -1,4 +1,4 @@
-import { Cursor } from "@cursor/sdk";
+import { loadCursorSdk } from "./cursor-sdk.ts";
 
 export interface CursorListedModel {
 	readonly id: string;
@@ -13,6 +13,7 @@ export interface CursorListedModel {
 export const listCursorModels = async (
 	apiKey: string,
 ): Promise<ReadonlyArray<CursorListedModel>> => {
+	const { Cursor } = await loadCursorSdk();
 	const models = await Cursor.models.list({ apiKey });
 	return models.map((model) => ({
 		id: model.id,

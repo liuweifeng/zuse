@@ -1,16 +1,10 @@
 import { join } from "node:path";
-import {
-	Agent,
-	AgentNotFoundError,
-	type AgentOptions,
-	AuthenticationError,
-	CursorSdkError,
-	getDefaultSdkStateRoot,
-	JsonlLocalAgentStore,
-	type McpServerConfig,
-	type ModelSelection,
-	type SDKMessage,
-	type SDKUserMessage,
+import type {
+	AgentOptions,
+	McpServerConfig,
+	ModelSelection,
+	SDKMessage,
+	SDKUserMessage,
 } from "@cursor/sdk";
 import {
 	type AgentEvent,
@@ -39,6 +33,12 @@ import {
 	type CursorRun,
 	startIsolatedCursorAgent,
 } from "./cursor-isolated-agent.ts";
+import {
+	cursorSdkErrorOf,
+	isCursorAgentNotFoundError,
+	isCursorAuthenticationError,
+	loadCursorSdk,
+} from "./cursor-sdk.ts";
 
 const SDK_START_TIMEOUT_MS = 30_000;
 const SDK_SEND_TIMEOUT_MS = 30_000;
@@ -73,20 +73,23 @@ const errorMessage = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
 
 const isAuthenticationFailure = (cause: unknown): boolean =>
-	cause instanceof AuthenticationError ||
-	(cause instanceof CursorSdkError && cause.status === 401) ||
+	isCursorAuthenticationError(cause) ||
 	/(?:invalid|expired|revoked).*api key|api key.*(?:invalid|expired|revoked)|unauthori[sz]ed|\b401\b/i.test(
 		errorMessage(cause),
 	);
 
-const isNetworkFailure = (cause: unknown): boolean =>
-	(cause instanceof CursorSdkError &&
-		(cause.isRetryable ||
-			cause.status === 408 ||
-			(cause.status ?? 0) >= 500)) ||
-	/network|fetch failed|timed?\s*out|econn|enotfound|socket|offline|service unavailable/i.test(
-		errorMessage(cause),
+const isNetworkFailure = (cause: unknown): boolean => {
+	const sdkError = cursorSdkErrorOf(cause);
+	return (
+		(sdkError !== null &&
+			(sdkError.isRetryable ||
+				sdkError.status === 408 ||
+				(sdkError.status ?? 0) >= 500)) ||
+		/network|fetch failed|timed?\s*out|econn|enotfound|socket|offline|service unavailable/i.test(
+			errorMessage(cause),
+		)
 	);
+};
 
 const formatToolResult = (result: unknown): string => {
 	if (typeof result === "string") return result;
@@ -404,6 +407,9 @@ export const startCursorSession = (
 	withProviderStartup(function* (startup) {
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<AgentEvent, Cause.Done>();
+		// First real Cursor use in this process loads the SDK; others never do.
+		const { Agent, getDefaultSdkStateRoot, JsonlLocalAgentStore } =
+			yield* Effect.promise(loadCursorSdk);
 		const store = new JsonlLocalAgentStore(
 			join(getDefaultSdkStateRoot(cwd), STORE_DIRECTORY),
 		);
@@ -456,7 +462,7 @@ export const startCursorSession = (
 						} catch (cause) {
 							startup.signal.throwIfAborted();
 							if (
-								!(cause instanceof AgentNotFoundError) &&
+								!isCursorAgentNotFoundError(cause) &&
 								!/(?:stale|corrupt|not found|unknown agent)/i.test(
 									errorMessage(cause),
 								)
