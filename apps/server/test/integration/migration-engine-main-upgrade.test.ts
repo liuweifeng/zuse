@@ -81,7 +81,7 @@ it("upgrades main while preserving harness executions and encrypted model record
 					).toEqual([{ envelope: "encrypted" }]);
 					expect(
 						yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
-					).toHaveLength(26);
+					).toHaveLength(28);
 					expect(yield* sql`SELECT * FROM jobs`).toEqual([]);
 					expect(yield* sql`SELECT workspace_key FROM projects`).toEqual([
 						{ workspace_key: "organization:retained" },

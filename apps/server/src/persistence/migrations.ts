@@ -88,6 +88,7 @@ import { Migration0082ExecutionSteps } from "./migrations/0082_execution_steps.t
 import { Migration0083NativeCheckpointHistory } from "./migrations/0083_native_checkpoint_history.ts";
 import { Migration0086Automation } from "./migrations/0086_automation.ts";
 import { Migration0087ScratchFolders } from "./migrations/0087_scratch_folders.ts";
+import { Migration0088ScratchFoldersRepair } from "./migrations/0088_scratch_folders_repair.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -223,7 +224,7 @@ const MigrationDefinitionsThrough0064 = {
 
 // Keep historical module names for development database fixtures; only these
 // registry IDs identify the current migration ledger. Main owns slots 63 and 64.
-const MigrationDefinitions = {
+const MigrationDefinitionsThrough0086 = {
 	...MigrationDefinitionsThrough0064,
 	"0065_jobs": Migration0063Jobs,
 	"0066_session_graph": Migration0064SessionGraph,
@@ -247,8 +248,20 @@ const MigrationDefinitions = {
 	"0084_execution_steps": Migration0082ExecutionSteps,
 	"0085_native_checkpoint_history": Migration0083NativeCheckpointHistory,
 	"0086_automation": Migration0086Automation,
-	"0087_scratch_folders": Migration0087ScratchFolders,
 } as const;
+
+const MigrationDefinitions = {
+	...MigrationDefinitionsThrough0086,
+	"0087_scratch_folders": Migration0087ScratchFolders,
+	"0088_scratch_folders_repair": Migration0088ScratchFoldersRepair,
+} as const;
+
+/** Schema before projectless threads, retained for populated upgrade fixtures. */
+export const MigrationsThrough0086Live = Layer.effectDiscard(
+	Migrator.make({})({
+		loader: Migrator.fromRecord(MigrationDefinitionsThrough0086),
+	}),
+);
 
 /** Shipped 0.16 schema boundary, exported for upgrade compatibility tests. */
 export const MigrationsThrough0045Live = Layer.effectDiscard(
