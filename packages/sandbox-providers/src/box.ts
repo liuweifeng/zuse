@@ -392,20 +392,13 @@ export const makeBoxSandboxProvider = (
 			),
 		);
 
-	const layoutObservationAttempts = Math.max(
-		1,
-		Math.ceil(Math.min(readyDeadlineMs, 30_000) / 100),
-	);
 	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
 		[
 			// Wait for authoritative runtime storage and the user database.
 			// Executables in /usr and /opt can load lazily during restore; waiting
 			// for every installed tool needlessly gates the workspace runtime.
 			// Mutable runtime data and ownership journals remain behind /srv.
-			// Observe hydration in the guest: repeated provider calls plus their
-			// two-second backoff otherwise delay an already-writable filesystem.
-			// Keep each command bounded and retain the outer recovery deadline.
-			`attempt=0; while :; do writable=1; for root in /etc /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) writable=0 ;; "") exit 1 ;; esac; done; [ "$writable" = 1 ] && break; attempt=$((attempt + 1)); [ "$attempt" -lt ${layoutObservationAttempts} ] || exit 75; sleep 0.1; done`,
+			'for root in /etc /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			rootProcessCommand(
 				[
 					boatProcessStorageScript(),
