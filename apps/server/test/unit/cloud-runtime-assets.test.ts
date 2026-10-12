@@ -268,7 +268,10 @@ describe("cloud runtime assets", () => {
 			"github_auth=/var/lib/zuse/project-build/github-auth.sh",
 		);
 		expect(bootstrap).toContain(
-			'[[ -x "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth',
+			'[[ -r "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth',
+		);
+		expect(bootstrap).toContain(
+			'[[ -x "$github_auth" ]] || chmod u+x "$github_auth"',
 		);
 
 		// The shim has to win PATH resolution, and the credential helper has to be
