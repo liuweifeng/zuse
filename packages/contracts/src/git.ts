@@ -426,6 +426,17 @@ export const GitCreateReviewCommentRpc = Rpc.make("git.createReviewComment", {
 	error: GitErrors,
 });
 
+export class GitHubStarError extends Schema.TaggedErrorClass<GitHubStarError>()(
+	"GitHubStarError",
+	{ reason: Schema.String },
+) {}
+
+/** Stars Zuse with this computer's GitHub sign-in (`gh` or a token). */
+export const GitStarZuseRpc = Rpc.make("git.starZuse", {
+	payload: Schema.Void,
+	error: GitHubStarError,
+});
+
 /** Identity used to author review comments from the current GitHub account. */
 export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
 	payload: Schema.Struct({

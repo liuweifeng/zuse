@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { homedir } from "node:os";
 import {
 	type FolderId,
 	GitBranchInfo,
@@ -10,6 +11,7 @@ import {
 	type GitDiffMode,
 	GitDiffResult,
 	GitFailingChecksArtifact,
+	GitHubStarError,
 	GitIssueSummary,
 	GitNotARepoError,
 	GitNotInstalledError,
@@ -1288,6 +1290,31 @@ export const GitServiceLive = Layer.effect(
 					}).pipe(Effect.catch(() => Effect.succeed(null)));
 				}),
 			);
+
+		// Fixed target so this action can never star an arbitrary repository.
+		const starZuse: GitService["Service"]["starZuse"] = () =>
+			Effect.tryPromise({
+				try: async (signal) => {
+					const credential = await github.credential(
+						{
+							host: "github.com",
+							owner: "swarajbachu",
+							repo: "zuse",
+							cwd: homedir(),
+						},
+						signal,
+					);
+					await github.rest(
+						credential,
+						"user/starred/swarajbachu/zuse",
+						signal,
+						{
+							method: "PUT",
+						},
+					);
+				},
+				catch: (error) => new GitHubStarError({ reason: String(error) }),
+			});
 
 		const prDetails: GitService["Service"]["prDetails"] = (
 			folderId,
@@ -3088,6 +3115,7 @@ export const GitServiceLive = Layer.effect(
 			prDetails,
 			createReviewComment,
 			reviewIdentity,
+			starZuse,
 			listPrs,
 			listIssues,
 			issueMarkdown,

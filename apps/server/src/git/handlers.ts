@@ -270,6 +270,10 @@ const ReviewIdentity = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const StarZuse = MemoizeRpcs.toLayerHandler("git.starZuse", () =>
+	Effect.flatMap(GitService, (svc) => svc.starZuse()),
+);
+
 const ListPrs = MemoizeRpcs.toLayerHandler("git.listPrs", ({ folderId }) =>
 	withGitHubActor(Effect.flatMap(GitService, (svc) => svc.listPrs(folderId))),
 );
@@ -548,6 +552,7 @@ export const GitHandlersLayer = Layer.mergeAll(
 	PrDetails,
 	CreateReviewComment,
 	ReviewIdentity,
+	StarZuse,
 	ListPrs,
 	ListIssues,
 	IssueMarkdown,

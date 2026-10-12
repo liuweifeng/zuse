@@ -343,5 +343,9 @@
 	"diff_pane_list_view": "Als Liste anzeigen",
 	"pr_pane_show_more": "Mehr anzeigen",
 	"pr_pane_show_less": "Weniger anzeigen",
-	"pr_pane_merge_blocked_stale": "Der GitHub-Status ist möglicherweise veraltet. Vor dem Zusammenführen aktualisieren."
+	"pr_pane_merge_blocked_stale": "Der GitHub-Status ist möglicherweise veraltet. Vor dem Zusammenführen aktualisieren.",
+	"projects_sidebar_star_on_github": "Auf GitHub einen Stern geben",
+	"projects_sidebar_dismiss_star_prompt": "GitHub-Sternhinweis ausblenden",
+	"projects_sidebar_github_open_failed": "GitHub konnte nicht geöffnet werden",
+	"projects_sidebar_github_starring": "Stern wird vergeben…"
 }
