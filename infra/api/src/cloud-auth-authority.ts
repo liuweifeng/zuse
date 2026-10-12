@@ -338,6 +338,10 @@ const resultPath = process.argv[3];
 const cachePath = process.argv[4];
 const input = JSON.parse(await readFile(requestPath, "utf8"));
 const writeResult = (value) => writeFile(resultPath, JSON.stringify(value), { mode: 0o600 });
+// Secret-free numeric timing only; the control plane forwards an allowlist.
+const timing = { grantNodeBootMs: Math.round(process.uptime() * 1000), cacheHit: 0, refreshed: 0 };
+const timingStartedAt = Date.now();
+const emitTiming = () => { timing.grantScriptMs = Date.now() - timingStartedAt; process.stdout.write("@zuse-auth-timing " + JSON.stringify(timing) + "\n"); };
 const providerId = input.providerId ?? "codex";
 const supportedProviders = new Set(["claude", "codex", "cursor", "grok"]);
 const providerError = (suffix) => providerId + "-auth-" + suffix;
@@ -362,8 +366,10 @@ const wasRefreshedForRequest = async () => {
 const markRefreshedForRequest = () => writeFile(refreshMarkerPath, "refreshed", { mode: 0o600 });
 try {
   const cached = JSON.parse(await readFile(cachePath, "utf8"));
+  timing.cacheHit = 1;
   if (cached.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
   else await writeResult(cached);
+  emitTiming();
   process.exit(0);
 } catch {}
 const record = (value) => typeof value === "object" && value !== null ? value : {};
@@ -491,7 +497,9 @@ try {
 	if (credential.native === true) {
 	  auth = await readManagedAuth();
 	  if ((input.reason === "unauthorized" && !(await wasRefreshedForRequest())) || auth.expiresAt <= Date.now() + 5 * 60 * 1000) {
-		await refreshCodexAuth();
+		const refreshStartedAt = Date.now();
+		timing.refreshAttempted = 1;
+		try { await refreshCodexAuth(); timing.refreshed = 1; } finally { timing.refreshMs = Date.now() - refreshStartedAt; }
 		await markRefreshedForRequest();
 		auth = await readManagedAuth();
 	  }
@@ -501,7 +509,9 @@ try {
     if (credential.native === true) {
       auth = await readGrokAuth();
       if ((input.reason === "unauthorized" && !(await wasRefreshedForRequest())) || auth.expiresAt <= Date.now() + 5 * 60 * 1000) {
-        await refreshGrokAuth(input.reason === "unauthorized");
+        const refreshStartedAt = Date.now();
+        timing.refreshAttempted = 1;
+        try { await refreshGrokAuth(input.reason === "unauthorized"); timing.refreshed = 1; } finally { timing.refreshMs = Date.now() - refreshStartedAt; }
         await markRefreshedForRequest();
         auth = await readGrokAuth();
       }
@@ -512,12 +522,16 @@ try {
   }
 } catch {
   await writeResult({ errorCode: providerError("reconnect-required") });
+  emitTiming();
   process.exit(0);
 }
+timing.remainingLifetimeMs = Math.max(0, auth.expiresAt - Date.now());
 if (auth.expiresAt <= Date.now() + 60 * 1000) {
   await writeResult({ errorCode: providerError("reconnect-required") });
+  emitTiming();
   process.exit(0);
 }
+const sealStartedAt = Date.now();
 const publicJwk = JSON.parse(input.credentialPublicJwk);
 const key = createPublicKey({ key: publicJwk, format: "jwk" });
 const issuedAt = Date.now();
@@ -531,11 +545,13 @@ const cipher = createCipheriv("aes-256-gcm", contentKey, iv);
 cipher.setAAD(aad);
 const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
 const sealed = { ...aadObject, wrappedKey: publicEncrypt({ key, oaepHash: "sha256", padding: constants.RSA_PKCS1_OAEP_PADDING }, contentKey).toString("base64url"), iv: iv.toString("base64url"), ciphertext: ciphertext.toString("base64url"), tag: cipher.getAuthTag().toString("base64url") };
+timing.sealMs = Date.now() - sealStartedAt;
 const output = { fingerprint, sealed };
 await writeFile(cachePath, JSON.stringify(output), { mode: 0o600, flag: "wx" }).catch(async (error) => { if (error.code !== "EEXIST") throw error; });
 const committed = JSON.parse(await readFile(cachePath, "utf8"));
 if (committed.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
 else await writeResult(committed);
+emitTiming();
 `;
 
 /** Compatibility name retained for the Codex-only grant contract test. */
@@ -1541,13 +1557,101 @@ const grantRequestJson = (
 
 // Keep the same durable request/cache and refresh lock, but execute the
 // short operation directly instead of installing a service and polling.
-const GRANT_SHELL =
-	'umask 077; printf %s "$1" > "$2" && flock -x "$3" node "$4" "$2" "$5" "$6" && cat "$5"';
+// Guest timing rides on stdout as sentinel lines the control plane strips and
+// allowlists before the existing JSON parse; the result value and exit status
+// are unchanged. Numbers only; the adapter returns no stderr.
+const GUEST_TIMING_PREFIX = "@zuse-auth-timing ";
+const GRANT_SHELL = `umask 077; printf %s "$1" > "$2" || exit $?; g0=$(date +%s%3N); flock -x "$3" node "$4" "$2" "$5" "$6"; code=$?; g1=$(date +%s%3N); printf '\n${GUEST_TIMING_PREFIX}{"grantNodeMs":%s}\n' "$((g1-g0))"; [ "$code" -eq 0 ] || exit "$code"; cat "$5"`;
 // Readiness is proven in the same guest run; a stale or missing bootstrap
 // reports "repair" and exits before any request is written or lock taken.
 const READINESS_REPAIR_EXIT = 75;
 const READINESS_CHECK_FAILED_EXIT = 70;
-const READY_GRANT_SHELL = `state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
+const READY_GRANT_SHELL = `r0=$(date +%s%3N); state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; r1=$(date +%s%3N); printf '${GUEST_TIMING_PREFIX}{"readinessNodeMs":%s}\n' "$((r1-r0))"; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
+
+const GUEST_TIMING_FIELDS = new Set([
+	"readinessNodeMs",
+	"grantNodeMs",
+	"grantNodeBootMs",
+	"grantScriptMs",
+	"cacheHit",
+	"refreshAttempted",
+	"refreshed",
+	"refreshMs",
+	"sealMs",
+	"remainingLifetimeMs",
+]);
+const GUEST_TIMING_MAX_LINES = 8;
+const GUEST_TIMING_MAX_LINE_LENGTH = 512;
+const GUEST_TIMING_MAX_VALUE = 1_000_000_000;
+
+/**
+ * Separate the grant protocol value from guest timing lines. Only allowlisted
+ * finite non-negative numbers survive; strings, unknown keys, malformed or
+ * oversized lines are dropped, so nothing from the guest reaches logs except
+ * these numbers. The remaining text is the exact grant output.
+ */
+export const parseAuthorityGrantOutput = (
+	stdout: string,
+): {
+	readonly value: string;
+	readonly timing: Readonly<Record<string, number>>;
+} => {
+	const timing: Record<string, number> = {};
+	const rest: string[] = [];
+	let seen = 0;
+	for (const line of stdout.split("\n")) {
+		if (!line.startsWith(GUEST_TIMING_PREFIX)) {
+			rest.push(line);
+			continue;
+		}
+		seen += 1;
+		if (
+			seen > GUEST_TIMING_MAX_LINES ||
+			line.length > GUEST_TIMING_MAX_LINE_LENGTH
+		)
+			continue;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line.slice(GUEST_TIMING_PREFIX.length));
+		} catch {
+			continue;
+		}
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+			continue;
+		for (const [key, value] of Object.entries(parsed)) {
+			if (
+				GUEST_TIMING_FIELDS.has(key) &&
+				typeof value === "number" &&
+				Number.isFinite(value) &&
+				value >= 0 &&
+				value <= GUEST_TIMING_MAX_VALUE
+			)
+				timing[key] = Math.round(value);
+		}
+	}
+	return { value: rest.join("\n").trim(), timing };
+};
+
+const logAuthorityGuestTiming = (
+	context: {
+		readonly workspaceId: string;
+		readonly providerSandboxId: string;
+		readonly providerId: CloudAuthProvider;
+		readonly path: "fast" | "provisioned";
+	},
+	timing: Readonly<Record<string, number>>,
+): void => {
+	if (Object.keys(timing).length === 0) return;
+	console.info("[cloud-timing]", {
+		workspaceId: context.workspaceId,
+		providerSandboxId: context.providerSandboxId,
+		provider: context.providerId,
+		reason: context.path,
+		stage: "auth.guest-grant",
+		atMs: Date.now(),
+		...timing,
+	});
+};
 
 const grantShellArgs = (
 	request: string,
@@ -1623,12 +1727,22 @@ const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 	};
 	if (executed._tag === "Failure") return fallback("authority-unreachable");
 	const result = executed.success;
+	const { value, timing } = parseAuthorityGrantOutput(result.stdout);
+	logAuthorityGuestTiming(
+		{
+			workspaceId: input.workspaceId,
+			providerSandboxId: location.sandboxId,
+			providerId: input.providerId,
+			path: "fast",
+		},
+		timing,
+	);
 	if (
 		result.exitCode === READINESS_REPAIR_EXIT ||
 		result.exitCode === READINESS_CHECK_FAILED_EXIT
 	)
 		return fallback(
-			result.stdout === "repair" ? "stale-bootstrap" : "readiness-unproven",
+			value === "repair" ? "stale-bootstrap" : "readiness-unproven",
 		);
 	if (extended._tag === "Failure")
 		console.warn("[cloud-auth] authority timeout extension failed", {
@@ -1638,7 +1752,7 @@ const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 	// reason to run a second refresh through the provisioning path.
 	if (result.exitCode !== 0)
 		return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
-	return { authority: location, value: result.stdout };
+	return { authority: location, value };
 });
 
 const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
@@ -1714,9 +1828,19 @@ const executeProvisionedGrant = Effect.fn("executeProvisionedGrant")(function* (
 					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
 				),
 			);
+		const { value, timing } = parseAuthorityGrantOutput(result.stdout);
+		logAuthorityGuestTiming(
+			{
+				workspaceId: input.workspaceId,
+				providerSandboxId: authority.sandboxId,
+				providerId: input.providerId,
+				path: "provisioned",
+			},
+			timing,
+		);
 		if (result.exitCode !== 0)
 			return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
-		return result.stdout;
+		return value;
 	}
 	yield* authority.provider
 		.writeTextFile(authority.sandboxId, requestPath, request, "zuse")

@@ -28,7 +28,7 @@ import {
 } from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
@@ -38,6 +38,7 @@ import {
 	cloudAuthAuthorityLabel,
 	cloudAuthStatus,
 	issueProviderGrant,
+	parseAuthorityGrantOutput,
 	parseDeviceLoginOutput,
 	pollCloudAuthLogin,
 	provisionCloudAuth,
@@ -475,9 +476,23 @@ describe("cloud auth authority Codex grants", () => {
 							ZUSE_CLOUD_AUTH_HOME: authHome,
 							ZUSE_CODEX_AUTH_FILE: authFile,
 						},
+						encoding: "utf8",
 					},
 				);
-			run();
+			const firstStdout = run();
+			// Guest timing is numeric only and never carries token or account data.
+			const firstTiming = parseAuthorityGrantOutput(firstStdout);
+			expect(firstTiming.value).toBe("");
+			expect(firstTiming.timing).toMatchObject({
+				cacheHit: 0,
+				refreshed: 0,
+			});
+			expect(firstTiming.timing.sealMs).toBeGreaterThanOrEqual(0);
+			expect(firstTiming.timing.remainingLifetimeMs).toBeGreaterThan(0);
+			expect(firstTiming.timing.grantNodeBootMs).toBeGreaterThanOrEqual(0);
+			expect(firstStdout).not.toContain(accessToken);
+			expect(firstStdout).not.toContain("authority-only-refresh-token");
+			expect(firstStdout).not.toContain("chatgpt-account");
 			const firstText = readFileSync(resultPath, "utf8");
 			expect(firstText).not.toContain(accessToken);
 			expect(firstText).not.toContain("authority-only-refresh-token");
@@ -512,7 +527,9 @@ describe("cloud auth authority Codex grants", () => {
 				runtimeGeneration: 3,
 				accessToken,
 			});
-			run();
+			const secondTiming = parseAuthorityGrantOutput(run());
+			expect(secondTiming.timing).toMatchObject({ cacheHit: 1 });
+			expect(secondTiming.timing.sealMs).toBeUndefined();
 			expect(readFileSync(resultPath, "utf8")).toBe(firstText);
 
 			writeFileSync(
@@ -1097,29 +1114,66 @@ describe("cloud auth authority grant fast path", () => {
 		);
 
 	test("a ready authority grants in one guest run without a separate inspect or readiness call", async () => {
+		const logged: Record<string, unknown>[] = [];
+		const info = vi
+			.spyOn(console, "info")
+			.mockImplementation((...args: unknown[]) => {
+				if (typeof args[1] === "object" && args[1] !== null)
+					logged.push(args[1] as Record<string, unknown>);
+			});
+		const sealedFor = (input: RunProcessInput) =>
+			JSON.stringify({
+				sealed: {
+					protocolVersion: 1,
+					providerId: "claude",
+					requestId,
+					keyThumbprint: "runtime-thumbprint",
+					authorityIncarnationId: "incarnation",
+					authorityEpoch: JSON.parse(input.args?.[3] ?? "{}").authorityEpoch,
+					wrappedKey: "wrapped",
+					iv: "iv",
+					ciphertext: "ciphertext",
+					tag: "tag",
+				},
+			});
 		const { result, calls, counters } = await Effect.runPromise(
 			harness({
+				// Guest timing lines surround the result, including malformed and
+				// hostile ones; only allowlisted numbers may reach the log.
 				readyGrant: (input) =>
 					Effect.succeed({
 						exitCode: 0,
-						stdout: JSON.stringify({
-							sealed: {
-								protocolVersion: 1,
-								providerId: "claude",
-								requestId,
-								keyThumbprint: "runtime-thumbprint",
-								authorityIncarnationId: "incarnation",
-								authorityEpoch: JSON.parse(input.args?.[3] ?? "{}")
-									.authorityEpoch,
-								wrappedKey: "wrapped",
-								iv: "iv",
-								ciphertext: "ciphertext",
-								tag: "tag",
-							},
-						}),
+						stdout: [
+							'@zuse-auth-timing {"readinessNodeMs":120}',
+							'@zuse-auth-timing {"grantNodeBootMs":45,"cacheHit":0,"refreshed":1,"refreshMs":900,"sealMs":3,"remainingLifetimeMs":3500000,"accessToken":"sk-leak","note":"x"}',
+							"@zuse-auth-timing not json at all",
+							'@zuse-auth-timing {"sealMs":"12","grantNodeMs":-5,"refreshMs":1e12}',
+							"",
+							'@zuse-auth-timing {"grantNodeMs":640}',
+							sealedFor(input),
+						].join("\n"),
 					}),
 			}),
+		).finally(() => info.mockRestore());
+		const guestTiming = logged.find(
+			(entry) => entry.stage === "auth.guest-grant",
 		);
+		expect(guestTiming).toMatchObject({
+			workspaceId: "workspace-1",
+			provider: "claude",
+			reason: "fast",
+			readinessNodeMs: 120,
+			grantNodeBootMs: 45,
+			cacheHit: 0,
+			refreshed: 1,
+			refreshMs: 900,
+			sealMs: 3,
+			remainingLifetimeMs: 3500000,
+			grantNodeMs: 640,
+		});
+		expect(JSON.stringify(guestTiming)).not.toContain("sk-leak");
+		expect(guestTiming).not.toHaveProperty("accessToken");
+		expect(guestTiming).not.toHaveProperty("note");
 		expect(result._tag).toBe("Success");
 		if (result._tag === "Success")
 			expect(result.success).toMatchObject({
@@ -1144,7 +1198,11 @@ describe("cloud auth authority grant fast path", () => {
 	test("a stale bootstrap falls back to provisioning and repairs before granting with the same request", async () => {
 		const { result, calls, counters } = await Effect.runPromise(
 			harness({
-				readyGrant: () => Effect.succeed({ exitCode: 75, stdout: "repair" }),
+				readyGrant: () =>
+					Effect.succeed({
+						exitCode: 75,
+						stdout: '@zuse-auth-timing {"readinessNodeMs":88}\nrepair',
+					}),
 			}),
 		);
 		expect(result._tag).toBe("Success");
@@ -1198,5 +1256,40 @@ describe("cloud auth authority grant fast path", () => {
 		if (result._tag === "Failure")
 			expect(result.failure.code).toBe("codex-auth-reconnect-required");
 		expect(counters.creations).toBe(0);
+	});
+});
+
+describe("authority guest timing parsing", () => {
+	test("strips only valid timing lines and keeps the grant output byte for byte", () => {
+		const sealed = '{"sealed":{"protocolVersion":1}}';
+		const parsed = parseAuthorityGrantOutput(
+			`@zuse-auth-timing {"readinessNodeMs":10}\n\n@zuse-auth-timing {"grantNodeMs":20}\n${sealed}`,
+		);
+		expect(parsed.value).toBe(sealed);
+		expect(parsed.timing).toEqual({ readinessNodeMs: 10, grantNodeMs: 20 });
+		expect(parseAuthorityGrantOutput("repair").value).toBe("repair");
+		expect(parseAuthorityGrantOutput("").timing).toEqual({});
+	});
+
+	test("drops strings, unknown keys, bad numbers, malformed, oversized and excess lines", () => {
+		const long = `@zuse-auth-timing {"sealMs":1,"pad":"${"x".repeat(600)}"}`;
+		const excess = Array.from(
+			{ length: 12 },
+			(_, index) => `@zuse-auth-timing {"sealMs":${index + 100}}`,
+		);
+		const parsed = parseAuthorityGrantOutput(
+			[
+				'@zuse-auth-timing {"accessToken":"secret","refreshToken":"secret","sealMs":"7","grantNodeMs":-1,"refreshMs":null,"cacheHit":true,"remainingLifetimeMs":1e12}',
+				"@zuse-auth-timing [1,2,3]",
+				"@zuse-auth-timing {broken",
+				long,
+				...excess,
+				"value",
+			].join("\n"),
+		);
+		expect(parsed.value).toBe("value");
+		// Only the first eight sentinel lines are considered; all later ones are ignored.
+		expect(parsed.timing).toEqual({ sealMs: 103 });
+		expect(JSON.stringify(parsed.timing)).not.toContain("secret");
 	});
 });
