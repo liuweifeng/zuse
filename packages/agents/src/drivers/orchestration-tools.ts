@@ -17,6 +17,7 @@ import {
 	buildAutomationTools,
 	callAutomationTool,
 } from "./automation-tools.ts";
+import { generativeUiResponseInstructions } from "./generative-ui-instructions.ts";
 import {
 	booleanProp,
 	type JsonSchemaObject,
@@ -372,14 +373,9 @@ const WHOAMI_DESCRIPTION =
 
 const EMIT_UI_DESCRIPTION = `Render visuals inline in your reply: diagrams, comparisons, charts, dashboards, and plans. This is Zuse's default way to show anything visual; prefer it over HTML. Input spec is OpenUI Lang text. It renders directly in the chat (no card or background), between your text messages.
 
-The UI is for explaining, not for actions. Do not add buttons or suggested next-step prompts; mention next steps in a sentence of prose instead. A Form submission sends the answers as the user's next message; only use a Form when you are blocked on several answers from the user. Nothing else runs — no tools, callbacks, or live data.
+Display-only snapshots: no tools, callbacks, or live data. A Form submission sends its answers as the user's next message.
 
-When to use (proactively; the user does not need to ask for UI):
-- How parts connect — architecture, data flow, request paths, handoffs → Flow.
-- Compare options across attributes → Table, or Tabs for alternatives.
-- Show data → Stat, Table, BarChart, LineChart; a plan or progress → Steps; risks or the key takeaway → Callout.
-- Blocked on several answers from the user → Form (Select, RadioGroup, Checkbox, Slider, Input, TextArea).
-- Use ordinary text for short answers. Do not invent data. Do not repeat the UI's content in prose.
+${generativeUiResponseInstructions}
 
 Syntax rules:
 - One statement per line: name = Expression
@@ -399,8 +395,17 @@ compare = Table(["Area", "This PR", "Reference"], [["Trigger", "Webhook", "User 
 takeaway = Callout("The PR adds a hosted pipeline; the reference stays interactive and local.", "neutral", "Key difference")
 
 Example — a dashboard:
-root = Card([Grid([Stat("Tests", "428 passed"), Stat("Median build", "8.1 s")], 2), trend], "Build health")
-trend = LineChart("Build duration", [{label: "Mon", value: 12}, {label: "Tue", value: 9}], "s")
+root = Card([metrics, caveat, breakdown, trend], "Usage · Oct 1–2 · USD")
+metrics = Grid([Stat("Recorded spend", "$120", "Request records"), Stat("Requests", "3,000", "Two days")], 2)
+caveat = Callout("Budget data is unavailable; no budget projection is shown.", "warn", "Missing source")
+breakdown = DonutChart("Spend by model", [{label: "Model A", value: 80}, {label: "Model B", value: 40}], "USD")
+trend = LineChart("Daily spend", [{label: "Oct 1", value: 50}, {label: "Oct 2", value: 70}], "USD")
+
+Example — a final coding summary (replace the example facts with actual results):
+root = Card([changes, checks, caveat], "Reconnect recovery")
+changes = List(["Keeps partial replies after reconnect", "Resumes the existing session"])
+checks = KeyValue([{key: "Biome", value: "Passed"}, {key: "Types", value: "Passed"}, {key: "Recovery tests", value: "12 passed"}])
+caveat = Callout("Desktop smoke test not run: this environment has no desktop session.", "warn", "Verification limit")
 
 Components (signature — purpose):
 ${generativeUiComponentLines()}

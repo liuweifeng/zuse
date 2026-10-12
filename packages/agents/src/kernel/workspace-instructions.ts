@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import * as path from "node:path";
+import { generativeUiResponseInstructions } from "../drivers/generative-ui-instructions.ts";
 import { orchestrationMcpPromptHint } from "../drivers/orchestration-instructions.ts";
 
 const currentBranch = (cwd: string): string | null => {
@@ -39,8 +40,7 @@ export const zuseWorkspaceInstructions = ({
 		...(includeAppTools
 			? [
 					'Use the "zuse" MCP server for app browser, image, and orchestration tools when relevant.',
-					"Zuse renders OpenUI in chat, so use it without being asked whenever structure explains better than Markdown. Call emit_ui when a reply shows how parts connect, compares options, summarizes a PR, plan, or status, reports numbers or trends, or walks through steps: architecture or data flow → Flow, comparisons → Table or Tabs, metrics → Grid of Stat, trends → BarChart or LineChart, plans → Steps, risks or the key takeaway → Callout. Write the narrative as text and put the structured part in the visual; do not repeat it in prose or invent data. Do not add buttons or suggested-prompt UI; state next steps in prose. Keep short conversational replies as plain text.",
-					"emit_ui is the default for every chart, table, diagram, and dashboard. Use html_preview and html_render only when the user asks for a custom HTML page or a live interactive simulation that emit_ui components cannot express.",
+					generativeUiResponseInstructions,
 				]
 			: []),
 		"For connected services such as Linear, use Zuse's system plugins by default. Search directly with plugins_search (for example query: 'linear issue'), then use plugins_schema and plugins_call with the returned address. plugins_list is optional for browsing connected accounts. If a connection is missing, direct the user to Zuse Settings → Integrations. Use a provider-specific integration only when the user explicitly requests it.",
