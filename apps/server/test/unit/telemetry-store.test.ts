@@ -299,7 +299,9 @@ describe("telemetry store", () => {
 				Effect.scoped(
 					Effect.gen(function* () {
 						const store = yield* TelemetryStore;
-						yield* Effect.sleep("50 millis");
+						yield* Effect.promise(() =>
+							expect.poll(() => existsSync(offlinePath)).toBe(false),
+						);
 						return store.snapshot();
 					}).pipe(Effect.provide(layer)),
 				),
