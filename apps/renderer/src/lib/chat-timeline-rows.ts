@@ -39,7 +39,6 @@ export type ChatTimelineRow =
 			readonly kind: "turn-summary";
 			readonly id: string;
 			readonly body: ReadonlyArray<Message>;
-			readonly interactive?: boolean;
 			readonly showAssistantCommands: boolean;
 	  }
 	| {
@@ -231,7 +230,8 @@ export function deriveChatTimelineRows({
 						(message) => !isDelegationMessage(message, delegatedItemIds),
 					);
 		const hasToolCalls = undelegatedBody.some(
-			(message) => message.content._tag === "tool_use",
+			(message) =>
+				message.content._tag === "tool_use" && !isVisualMessage(message),
 		);
 		const hasFinalText = undelegatedBody.some(
 			(message) =>
@@ -271,7 +271,28 @@ export function deriveChatTimelineRows({
 						return true;
 					});
 
+		const appendVisualRows = (visuals: ReadonlyArray<Message>) => {
+			for (const message of visuals) {
+				rows.push({
+					kind: "message",
+					id: `message:${message.id}`,
+					message,
+					enterUser: false,
+					showAssistantCommands: false,
+					...(isLastTurn && message.content._tag === "ui_spec"
+						? { interactive: true }
+						: {}),
+				});
+			}
+		};
+
 		if (showSummary) {
+			const visuals = summaryBody.filter(isVisualMessage);
+			const visualItemIds = new Set(
+				visuals.flatMap((message) =>
+					message.content._tag === "tool_use" ? [message.content.itemId] : [],
+				),
+			);
 			for (const message of planMessages) {
 				rows.push({
 					kind: "message",
@@ -287,15 +308,23 @@ export function deriveChatTimelineRows({
 			rows.push({
 				kind: "turn-summary",
 				id: `summary:${turn.user?.id ?? `turn-${index}`}`,
-				body: summaryBody,
-				interactive: isLastTurn,
+				body: summaryBody.filter(
+					(message) =>
+						!isVisualMessage(message) &&
+						!(
+							message.content._tag === "tool_result" &&
+							visualItemIds.has(message.content.itemId)
+						),
+				),
 				showAssistantCommands: finalAssistant !== null,
 			});
+			appendVisualRows(visuals);
 			continue;
 		}
 
 		for (const group of bodyGroups) {
 			if (group.kind === "single") {
+				if (!isLive && isVisualMessage(group.message)) continue;
 				rows.push({
 					kind: "message",
 					id: `message:${group.message.id}`,
@@ -311,6 +340,14 @@ export function deriveChatTimelineRows({
 				rows.push({ kind: "delegation", id: group.id, members: group.members });
 			}
 		}
+		if (!isLive)
+			appendVisualRows(
+				bodyGroups.flatMap((group) =>
+					group.kind === "single" && isVisualMessage(group.message)
+						? [group.message]
+						: [],
+				),
+			);
 	}
 
 	if (inFlight && !awaitingPlanApproval) {

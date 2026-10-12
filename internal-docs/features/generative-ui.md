@@ -150,8 +150,8 @@ browser rendering when upgrading them. Reference: https://www.openui.com/docs/op
 ## Completed-turn disclosure
 
 Completed turns retain the tool-count summary even when they include generated UI
-or HTML output. Visual messages render outside the summary's collapsed activity,
-followed by the final assistant reply. Only the latest turn's generated UI accepts
+or HTML output. Visual messages are excluded from the summary body and render as independent
+message rows at the end of the turn, after the summary and final assistant text. Only the latest turn's generated UI accepts
 responses. Live tool groups start open and settled groups start closed, including
 stopped turns without final text. Tool, turn-summary, and delegation disclosure
 choices are stored by transcript identity and live/settled phase in a bounded UI

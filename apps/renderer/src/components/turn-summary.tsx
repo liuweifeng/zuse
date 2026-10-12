@@ -93,7 +93,6 @@ const MAX_FILE_CHIPS = 4;
  */
 function TurnSummaryImpl({
 	body,
-	interactive = false,
 	sessionId,
 	chatId,
 	environmentId,
@@ -102,7 +101,6 @@ function TurnSummaryImpl({
 	sourceProjectId,
 }: {
 	body: ReadonlyArray<Message>;
-	interactive?: boolean;
 	sessionId?: SessionId;
 	chatId?: ChatId;
 	environmentId?: EnvironmentId;
@@ -302,17 +300,6 @@ function TurnSummaryImpl({
 					)}
 				</div>
 			) : null}
-
-			{body.filter(isVisualMessage).map((visual) => (
-				<MessageRow
-					key={visual.id}
-					message={visual}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					readOnly={environmentId === undefined}
-					interactive={interactive}
-				/>
-			))}
 
 			{finalAssistant !== null &&
 			finalAssistant.content._tag === "assistant" ? (

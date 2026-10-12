@@ -595,7 +595,11 @@ it("keeps inline visuals outside collapsed activity with stable identities after
 			expect(rows.some((row) => row.kind === "tool-activity")).toBe(true);
 		} else {
 			const summary = rows.find((row) => row.kind === "turn-summary");
-			expect(summary?.body.some((m) => m.id === "visual")).toBe(true);
+			expect(summary?.body.some((m) => m.id === "visual")).toBe(false);
+			expect(rows.at(-1)).toMatchObject({
+				kind: "message",
+				id: "message:visual",
+			});
 			expect(rows.some((row) => row.kind === "tool-activity")).toBe(false);
 		}
 	}
@@ -778,14 +782,7 @@ it("shows generated UI inline instead of under its tool call", () => {
 	const interactive = (id: string) => {
 		const row = rows.find((candidate) => candidate.id === `message:${id}`);
 		if (row?.kind === "message") return row.interactive === true;
-		const summary = rows.find(
-			(candidate) =>
-				candidate.kind === "turn-summary" &&
-				candidate.body.some((m) => m.id === id),
-		);
-		return summary?.kind === "turn-summary"
-			? summary.interactive === true
-			: undefined;
+		return undefined;
 	};
 	expect(interactive("ui-1")).toBe(false);
 	expect(interactive("ui-2")).toBe(true);
@@ -816,10 +813,48 @@ it.each([
 		inFlight: false,
 		awaitingPlanApproval: false,
 	});
-	expect(rows.map((row) => row.kind)).toEqual(["message", "turn-summary"]);
+	expect(rows.map((row) => row.kind)).toEqual([
+		"message",
+		"turn-summary",
+		"message",
+	]);
+	expect(rows.at(-1)).toMatchObject({
+		kind: "message",
+		id: "message:summary-visual",
+		interactive: true,
+	});
 	const summary = rows[1];
 	expect(
 		summary?.kind === "turn-summary" &&
 			summary.body.some((m) => m.id === visual.id),
-	).toBe(true);
+	).toBe(false);
+});
+
+it("puts settled visual-only replies after final text without creating an empty tool summary", () => {
+	const input = {
+		messages: [
+			message("tail-user", { _tag: "user", text: "Show results" }),
+			message("tail-visual", {
+				_tag: "ui_spec",
+				spec: 'root = Text("Result")',
+				version: 1,
+			}),
+			message("tail-final", { _tag: "assistant", text: "Complete" }),
+		],
+		awaitingPlanApproval: false,
+	};
+	const live = deriveChatTimelineRows({ ...input, inFlight: true });
+	expect(live.map((row) => row.id)).toEqual([
+		"message:tail-user",
+		"message:tail-visual",
+		"message:tail-final",
+		"working",
+	]);
+	const settled = deriveChatTimelineRows({ ...input, inFlight: false });
+	expect(settled.map((row) => row.id)).toEqual([
+		"message:tail-user",
+		"message:tail-final",
+		"message:tail-visual",
+	]);
+	expect(settled.at(-1)).toMatchObject({ kind: "message", interactive: true });
 });

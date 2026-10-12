@@ -38,7 +38,7 @@ it("starts settled tool groups collapsed", () => {
 	expect(html).not.toContain("Tool detail");
 });
 
-it("keeps visuals and the final reply visible outside the collapsed turn details", () => {
+it("never renders visual output as part of the turn summary", () => {
 	const tool = messages[0];
 	if (!tool) throw new Error("Missing tool fixture");
 	const visual: Message = {
@@ -55,7 +55,7 @@ it("keeps visuals and the final reply visible outside the collapsed turn details
 		<TurnSummary body={[tool, visual, final]} />,
 	);
 	expect(html).toContain('aria-expanded="false"');
-	expect(html).toContain("Visual result");
+	expect(html).not.toContain("Visual result");
 	expect(html).toContain("Final reply");
 	expect(html).not.toContain("Tool detail");
 });
