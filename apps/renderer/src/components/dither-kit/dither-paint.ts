@@ -53,8 +53,9 @@ export function paintColumn(
 	top: number,
 	floor: number,
 	seed: Seed,
-	{ variant, intensity, dim, stacked, sparse = 0 }: PaintOpts,
+	options: PaintOpts,
 ) {
+	const { dim } = options;
 	const t = Math.round(top);
 	const f = Math.round(floor);
 	const depth = f - t;
@@ -63,23 +64,9 @@ export function paintColumn(
 		octx.fillRect(x, t, 1, 1);
 		return;
 	}
-	const bias = (variant === "dotted" ? 0.12 : 0) + (stacked ? 0.2 : 0) - sparse;
 	for (let y = t; y < f; y++) {
-		// Inverted falloff: 0 at the top line, 1 at the floor — dense at the
-		// bottom, thinning as it rises toward the outline.
-		let density = (y - t) / depth;
-		if (stacked) density = 0.5 + 0.5 * density;
-		if (variant === "hatched" && ((x + y) & 3) >= 2) continue;
-		const lit =
-			variant === "solid" ||
-			density > (BAYER[y & 3]?.[x & 3] ?? 0) - 0.1 * intensity - bias;
-		// "dotted" keeps real gaps for its open look; every other variant covers
-		// the cell and lets the dither ride the alpha (on = full tier, off = a
-		// faint tint) so nothing shows the background through as white.
-		if (variant === "dotted" && !lit) continue;
-		// Density → alpha (see the colour-vs-opacity note above).
-		const k = (0.3 + density * 0.7) * (1 + 0.22 * intensity);
-		const alpha = clamp01((lit ? k : k * OFF_TIER) * dim);
+		const alpha = ditherCellAlpha(x, y, (y - t) / depth, options);
+		if (alpha === 0) continue;
 		octx.fillStyle = rgb(seed.fill, 1, alpha);
 		octx.fillRect(x, y, 1, 1);
 	}
@@ -92,6 +79,25 @@ export function paintColumn(
 		octx.fillStyle = rgb(seed.fill, 1, BORDER_ALPHA * 0.5 * dim);
 		octx.fillRect(x, t + 1, 1, 1);
 	}
+}
+
+/** Shared density-to-alpha scatter for Cartesian and radial chart fills. */
+export function ditherCellAlpha(
+	x: number,
+	y: number,
+	depth: number,
+	{ variant, intensity, dim, stacked, sparse = 0 }: PaintOpts,
+): number {
+	let density = depth;
+	if (stacked) density = 0.5 + 0.5 * density;
+	if (variant === "hatched" && ((x + y) & 3) >= 2) return 0;
+	const bias = (variant === "dotted" ? 0.12 : 0) + (stacked ? 0.2 : 0) - sparse;
+	const lit =
+		variant === "solid" ||
+		density > (BAYER[y & 3]?.[x & 3] ?? 0) - 0.1 * intensity - bias;
+	if (variant === "dotted" && !lit) return 0;
+	const k = (0.3 + density * 0.7) * (1 + 0.22 * intensity);
+	return clamp01((lit ? k : k * OFF_TIER) * dim);
 }
 
 /** Linear-resample a per-index fraction array to `cols` columns. */

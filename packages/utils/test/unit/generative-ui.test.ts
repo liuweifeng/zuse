@@ -10,6 +10,28 @@ import {
 } from "../../src/generative-ui.ts";
 
 describe("generative UI spec", () => {
+	it("validates part-to-whole charts including zero totals", () => {
+		for (const values of ["80, 40", "0, 0"]) {
+			const [a, b] = values.split(", ");
+			expect(
+				validateGenerativeUiSpec(
+					`root = DonutChart("Spend", [{label: "A", value: ${a}}, {label: "B", value: ${b}}], "USD")`,
+				),
+			).toEqual({ ok: true });
+		}
+		for (const points of [
+			'[{label: "A", value: -1}]',
+			'[{label: "A", value: 1e308}, {label: "B", value: 1e308}]',
+			"[]",
+			JSON.stringify(
+				Array.from({ length: 13 }, (_, i) => ({ label: String(i), value: 1 })),
+			),
+		]) {
+			expect(
+				validateGenerativeUiSpec(`root = DonutChart("Spend", ${points})`).ok,
+			).toBe(false);
+		}
+	});
 	it("exposes the stable component catalogue", () => {
 		expect(generativeUiComponentNames).toEqual([
 			"Card",
@@ -23,6 +45,7 @@ describe("generative UI spec", () => {
 			"Grid",
 			"BarChart",
 			"LineChart",
+			"DonutChart",
 			"Callout",
 			"Steps",
 			"Flow",

@@ -11,6 +11,31 @@ const followUps =
 	'root = FollowUps([{label: "Run tests", prompt: "Run the full test suite."}])';
 
 describe("generated UI transcript blocks", () => {
+	it("renders donut values and percentages as accessible text", () => {
+		const html = render(
+			'root = DonutChart("Spend", [{label: "Model A", value: 80}, {label: "Model B", value: 20}], "USD")',
+		);
+		for (const text of [
+			"Spend",
+			"Model A",
+			"80 USD",
+			"80%",
+			"Model B",
+			"20 USD",
+			"20%",
+		])
+			expect(html).toContain(text);
+		expect(html).toContain("<canvas");
+		expect(html).not.toContain("<pre");
+	});
+	it("renders a zero-total donut without invalid geometry or percentages", () => {
+		const html = render(
+			'root = DonutChart("Spend", [{label: "No requests", value: 0}])',
+		);
+		expect(html).toContain("0%");
+		expect(html).not.toMatch(/NaN|Infinity/);
+		expect(html).not.toContain("<pre");
+	});
 	it("renders nested dashboard components and accessible progress", () => {
 		const html = render(
 			'root = Card([Grid([Stat("Tests", "428", "All passing"), Progress("Complete", 80)], 2), Table(["File", "Status"], [["app.ts", "passed"]]), Badge("Ready", "good")], "Build health")',

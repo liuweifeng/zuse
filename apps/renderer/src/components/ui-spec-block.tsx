@@ -37,6 +37,8 @@ import { useUiSpecResponses } from "~/store/ui-spec-responses";
 import { Line } from "./dither-kit/area.tsx";
 import { LineChart } from "./dither-kit/area-chart.tsx";
 import { Grid } from "./dither-kit/grid.tsx";
+import { PALETTE, rgb } from "./dither-kit/palette.ts";
+import { DONUT_COLORS, StaticDitherFill } from "./dither-kit/static-fill.tsx";
 import { Tooltip } from "./dither-kit/tooltip.tsx";
 import { XAxis } from "./dither-kit/x-axis.tsx";
 import { YAxis } from "./dither-kit/y-axis.tsx";
@@ -112,7 +114,7 @@ const renderChildren = (
 	));
 
 const UiCard: SpecComponent<"Card"> = ({ props, renderNode }) => (
-	<section className="flex min-w-0 flex-col gap-3">
+	<section className="flex min-w-0 flex-col gap-4">
 		{props.title ? (
 			<h3 className="font-semibold text-foreground text-sm">{props.title}</h3>
 		) : null}
@@ -127,11 +129,13 @@ const UiText: SpecComponent<"Text"> = ({ props }) => (
 );
 
 const UiStat: SpecComponent<"Stat"> = ({ props }) => (
-	<div className="flex min-w-0 flex-col gap-0.5">
-		<span className="truncate font-semibold text-foreground text-xl tabular-nums tracking-tight">
+	<div className="flex min-w-0 flex-col gap-1 rounded-xl bg-muted/40 px-4 py-3">
+		<span className="break-words text-muted-foreground text-xs">
+			{props.label}
+		</span>
+		<span className="break-words font-semibold text-foreground text-2xl tabular-nums tracking-tight">
 			{props.value}
 		</span>
-		<span className="text-muted-foreground text-xs">{props.label}</span>
 		{props.hint ? (
 			<span className="text-[11px] text-muted-foreground/70">{props.hint}</span>
 		) : null}
@@ -139,11 +143,14 @@ const UiStat: SpecComponent<"Stat"> = ({ props }) => (
 );
 
 const UiKeyValue: SpecComponent<"KeyValue"> = ({ props }) => (
-	<dl className="divide-y divide-border/60">
+	<dl className="divide-y divide-border/40 rounded-xl bg-muted/25 px-3">
 		{props.pairs.map((pair, index) => (
 			// eslint-disable-next-line react/no-array-index-key -- spec order is stable
-			<div key={index} className="flex items-baseline gap-3 py-1.5 text-sm">
-				<dt className="min-w-0 flex-1 truncate text-muted-foreground">
+			<div
+				key={index}
+				className="flex items-baseline gap-3 py-2 text-xs leading-5"
+			>
+				<dt className="min-w-0 flex-1 break-words text-muted-foreground">
 					{pair.key}
 				</dt>
 				<dd className="min-w-0 flex-1 break-words text-right text-foreground/90 tabular-nums">
@@ -154,33 +161,79 @@ const UiKeyValue: SpecComponent<"KeyValue"> = ({ props }) => (
 	</dl>
 );
 
-const UiTable: SpecComponent<"Table"> = ({ props }) => (
-	<Table>
-		<TableHeader>
-			<TableRow>
-				{props.columns.map((column, index) => (
-					// eslint-disable-next-line react/no-array-index-key -- spec order is stable
-					<TableHead key={index} className="h-7 text-[11px]">
-						{column}
-					</TableHead>
-				))}
-			</TableRow>
-		</TableHeader>
-		<TableBody>
-			{props.rows.map((row, rowIndex) => (
-				// eslint-disable-next-line react/no-array-index-key -- spec order is stable
-				<TableRow key={rowIndex}>
-					{row.map((cell, cellIndex) => (
+const UiTable: SpecComponent<"Table"> = ({ props }) => {
+	// Give prose columns more room while retaining a bounded, wrapping layout.
+	const weights = props.columns.map((column, index) =>
+		Math.min(
+			48,
+			Math.max(
+				12,
+				column.length,
+				...props.rows.map((row) => (row[index] ?? "").length),
+			),
+		),
+	);
+	const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+	return (
+		<div className="@container min-w-0">
+			<Table className="table-fixed overflow-hidden rounded-xl bg-muted/20">
+				<colgroup className="@max-sm:hidden">
+					{weights.map((weight, index) => (
 						// eslint-disable-next-line react/no-array-index-key -- spec order is stable
-						<TableCell key={cellIndex} className="h-7">
-							{cell}
-						</TableCell>
+						<col
+							key={index}
+							style={{ width: `${(weight / totalWeight) * 100}%` }}
+						/>
 					))}
-				</TableRow>
-			))}
-		</TableBody>
-	</Table>
-);
+				</colgroup>
+				<TableHeader className="@max-sm:sr-only">
+					<TableRow className="border-border/40 bg-muted/40">
+						{props.columns.map((column, index) => (
+							// eslint-disable-next-line react/no-array-index-key -- spec order is stable
+							<TableHead
+								key={index}
+								scope="col"
+								className="h-7 whitespace-normal break-words px-3 py-2 text-[11px] leading-4"
+							>
+								{column}
+							</TableHead>
+						))}
+					</TableRow>
+				</TableHeader>
+				<TableBody className="@max-sm:block">
+					{props.rows.map((row, rowIndex) => (
+						// eslint-disable-next-line react/no-array-index-key -- spec order is stable
+						<TableRow
+							key={rowIndex}
+							className="border-border/40 @max-sm:grid @max-sm:grid-cols-2 @max-sm:py-2"
+						>
+							{row.map((cell, cellIndex) => (
+								// eslint-disable-next-line react/no-array-index-key -- spec order is stable
+								<TableCell
+									key={cellIndex}
+									className={cn(
+										"h-7 whitespace-normal break-words px-3 py-2 align-top text-xs leading-5 tabular-nums [overflow-wrap:anywhere] @max-sm:h-auto @max-sm:min-w-0",
+										(cellIndex === 0 || cell.length > 40) &&
+											"@max-sm:col-span-2",
+										cellIndex === 0 && "font-medium text-foreground",
+									)}
+								>
+									<span
+										aria-hidden="true"
+										className="hidden font-normal text-muted-foreground text-[11px] @max-sm:block"
+									>
+										{props.columns[cellIndex]}
+									</span>
+									{cell}
+								</TableCell>
+							))}
+						</TableRow>
+					))}
+				</TableBody>
+			</Table>
+		</div>
+	);
+};
 
 const UiProgress: SpecComponent<"Progress"> = ({ props }) => {
 	const percent = Math.min(100, Math.max(0, props.percent));
@@ -235,16 +288,26 @@ const UiList: SpecComponent<"List"> = ({ props }) => (
 	</ul>
 );
 
-const UiGrid: SpecComponent<"Grid"> = ({ props, renderNode }) => (
-	<div
-		className="grid min-w-0 gap-x-6 gap-y-4"
-		style={{
-			gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, max(9rem, calc((100% - ${(props.columns ?? 2) - 1} * 1.5rem) / ${props.columns ?? 2}))), 1fr))`,
-		}}
-	>
-		{renderChildren(renderNode, props.children)}
-	</div>
-);
+const UiGrid: SpecComponent<"Grid"> = ({ props, renderNode }) => {
+	// Metrics fit in compact tiles; charts and text need room for their content.
+	const minimum = props.children.every(
+		(child) =>
+			isElementNode(child) &&
+			["Stat", "Badge", "Progress"].includes(child.typeName),
+	)
+		? "9rem"
+		: "16rem";
+	return (
+		<div
+			className="grid min-w-0 gap-3"
+			style={{
+				gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, max(${minimum}, calc((100% - ${(props.columns ?? 2) - 1} * 0.75rem) / ${props.columns ?? 2}))), 1fr))`,
+			}}
+		>
+			{renderChildren(renderNode, props.children)}
+		</div>
+	);
+};
 
 const chartValue = (value: number, unit?: string) =>
 	`${value}${unit ? ` ${unit}` : ""}`;
@@ -258,7 +321,7 @@ const UiBarChart: SpecComponent<"BarChart"> = ({ props }) => {
 	const span = high - low || 1;
 	const zero = (-low / span) * 100;
 	return (
-		<figure className="min-w-0 space-y-3">
+		<figure className="min-w-0 space-y-3 rounded-xl bg-muted/30 p-4">
 			<figcaption className="font-medium text-sm">{props.title}</figcaption>
 			<dl className="space-y-2.5">
 				{props.points.map((point, index) => (
@@ -274,18 +337,20 @@ const UiBarChart: SpecComponent<"BarChart"> = ({ props }) => {
 						</div>
 						<div
 							aria-hidden="true"
-							className="relative h-1.5 rounded-full bg-muted"
+							className="relative h-4 overflow-hidden rounded-sm bg-muted"
 						>
 							<div
 								className="absolute inset-y-0 w-px bg-foreground/30"
 								style={{ left: `${zero}%` }}
 							/>
-							<div
-								className="absolute inset-y-0 rounded-full bg-primary/80"
-								style={{
-									left: `${Math.min(zero, ((point.value / scale - low) / span) * 100)}%`,
-									width: `${(Math.abs(point.value / scale) / span) * 100}%`,
-								}}
+							<StaticDitherFill
+								shape="bar"
+								color="green"
+								start={
+									Math.min(zero, ((point.value / scale - low) / span) * 100) /
+									100
+								}
+								fraction={Math.abs(point.value / scale) / span}
 							/>
 						</div>
 					</div>
@@ -301,7 +366,7 @@ const UiLineChart: SpecComponent<"LineChart"> = ({ props }) => {
 		[props.title],
 	);
 	return (
-		<figure className="min-w-0 space-y-2">
+		<figure className="min-w-0 space-y-2 rounded-xl bg-muted/30 p-4">
 			<figcaption className="font-medium text-sm">{props.title}</figcaption>
 			<LineChart
 				data={props.points}
@@ -331,17 +396,98 @@ const UiLineChart: SpecComponent<"LineChart"> = ({ props }) => {
 	);
 };
 
+const compactNumber = new Intl.NumberFormat("en", {
+	notation: "compact",
+	maximumFractionDigits: 1,
+});
+
+const UiDonutChart: SpecComponent<"DonutChart"> = ({ props }) => {
+	const total = props.points.reduce((sum, point) => sum + point.value, 0);
+	const values = useMemo(
+		() => props.points.map((point) => point.value),
+		[props.points],
+	);
+	return (
+		<figure className="min-w-0 space-y-4 rounded-xl bg-muted/30 p-4">
+			<figcaption className="font-medium text-sm">{props.title}</figcaption>
+			<div className="flex flex-wrap items-center gap-5">
+				<div className="relative mx-auto size-36 shrink-0">
+					<svg
+						viewBox="0 0 120 120"
+						aria-hidden="true"
+						className="size-full -rotate-90"
+					>
+						<circle
+							cx="60"
+							cy="60"
+							r="50"
+							fill="none"
+							strokeWidth="12"
+							className={total === 0 ? "stroke-muted" : "stroke-transparent"}
+						/>
+					</svg>
+					<StaticDitherFill shape="donut" values={values} />
+					<div
+						className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center px-6 text-center"
+						aria-hidden="true"
+					>
+						<span className="font-semibold text-xl tabular-nums tracking-tight">
+							{compactNumber.format(total)}
+						</span>
+						{props.unit ? (
+							<span className="text-muted-foreground text-xs">
+								{props.unit}
+							</span>
+						) : null}
+					</div>
+				</div>
+				<dl className="min-w-0 flex-1 basis-40 divide-y divide-border/40">
+					{props.points.map((point, index) => (
+						// eslint-disable-next-line react/no-array-index-key -- spec order is stable
+						<div
+							key={index}
+							className="flex items-baseline gap-3 py-2 text-xs leading-5"
+						>
+							<dt className="flex min-w-0 flex-1 items-baseline gap-2 text-muted-foreground">
+								<span
+									aria-hidden="true"
+									className="size-2 shrink-0 rounded-sm"
+									style={{
+										backgroundColor: rgb(
+											PALETTE[
+												DONUT_COLORS[index % DONUT_COLORS.length] ?? "blue"
+											].fill,
+										),
+									}}
+								/>
+								<span className="break-words">{point.label}</span>
+							</dt>
+							<dd className="text-right tabular-nums">
+								{chartValue(point.value, props.unit)}
+								<span className="ms-3 text-muted-foreground">
+									{" "}
+									{total === 0 ? 0 : Math.round((point.value / total) * 100)}%
+								</span>
+							</dd>
+						</div>
+					))}
+				</dl>
+			</div>
+		</figure>
+	);
+};
+
 const CALLOUT_ACCENT = {
-	neutral: "border-border",
-	good: "border-success",
-	warn: "border-warning",
-	bad: "border-destructive",
+	neutral: "border-border bg-muted/30",
+	good: "border-success bg-success/5",
+	warn: "border-warning bg-warning/5",
+	bad: "border-destructive bg-destructive/5",
 } as const;
 
 const UiCallout: SpecComponent<"Callout"> = ({ props }) => (
 	<aside
 		className={cn(
-			"border-s-2 ps-3 text-sm leading-6",
+			"rounded-r-lg border-s-2 px-3 py-2.5 text-xs leading-5",
 			CALLOUT_ACCENT[props.tone ?? "neutral"],
 		)}
 	>
@@ -367,7 +513,7 @@ const STEP_MARKERS = {
 } as const;
 
 const UiSteps: SpecComponent<"Steps"> = ({ props }) => (
-	<ol className="space-y-1.5 text-sm">
+	<ol className="space-y-3 rounded-xl bg-muted/25 p-3 text-sm">
 		{props.items.map((item, index) => (
 			// eslint-disable-next-line react/no-array-index-key -- spec order is stable
 			<li key={index} className="flex gap-2.5" data-status={item.status}>
@@ -784,6 +930,7 @@ const components: { [Name in GenerativeUiComponentName]: SpecComponent<Name> } =
 		Grid: UiGrid,
 		BarChart: UiBarChart,
 		LineChart: UiLineChart,
+		DonutChart: UiDonutChart,
 		Callout: UiCallout,
 		Steps: UiSteps,
 		Flow: UiFlow,
