@@ -644,9 +644,18 @@ const providerForAuthority = (locator: { readonly provider: string } | null) =>
 
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
+	options?: {
+		/** Only a persisted ready locator qualifies; never adopt a sandbox by label. */
+		readonly existingOnly?: boolean;
+	},
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
+	if (
+		options?.existingOnly === true &&
+		(locator?.state !== "ready" || locator.providerSandboxId === undefined)
+	)
+		return null;
 	const provider = yield* providerForAuthority(locator);
 	if (locator?.providerSandboxId !== undefined) {
 		const sandbox = yield* provider
@@ -946,6 +955,27 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 		.resume(authority.sandboxId, AUTH_TIMEOUT_SECONDS, "pause")
 		.pipe(Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")));
 	return { ...authority, state: resumed.state } satisfies Authority;
+});
+
+/**
+ * Best-effort preparation of an account's EXISTING authority so a fresh
+ * workspace's first grant finds it running and ready. It only ever acts on a
+ * persisted ready locator: it resumes, extends and repairs through the same
+ * code every grant uses, and never creates, adopts by label, or replaces a
+ * sandbox. A missing or storage-mismatched authority is reported, not fixed;
+ * the normal bootstrap path keeps its own fences and fallbacks.
+ */
+export const prepareExistingCloudAuthAuthority = Effect.fn(
+	"prepareExistingCloudAuthAuthority",
+)(function* (accountId: string) {
+	const recovered = yield* recoverAuthority(accountId, { existingOnly: true });
+	if (recovered === null) return "absent" as const;
+	const initialized = yield* initializeAuthority(
+		yield* ensureRunning(recovered),
+	);
+	return initialized.storageIncarnationId === recovered.storageIncarnationId
+		? ("ready" as const)
+		: ("stale" as const);
 });
 
 const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (

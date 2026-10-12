@@ -10,12 +10,15 @@ import {
 	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 } from "@zuse/sandbox-providers";
 import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
-import { Cause, Clock, Data, Duration, Effect } from "effect";
+import { Cause, Clock, Data, Duration, Effect, Exit } from "effect";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
 import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-prepare.sh";
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import WORKSPACE_RUNTIME_SOURCE from "../../cloud-sandboxes/workspace-runtime.sh";
-import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
+import {
+	prepareExistingCloudAuthAuthority,
+	snapshotCloudAuthAuthority,
+} from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
@@ -3649,12 +3652,60 @@ export const cloudWorkspaceStartupInlineEligible = (
 	runtimeActivation(workspace) === null &&
 	provider.supportsIdempotentAllocation === true;
 
+/** Bound for best-effort authority preparation; the alarm's own cadence covers any delay. */
+export const INLINE_AUTHORITY_PREWARM_TIMEOUT_MS = 8_000;
+
+/**
+ * A fresh broker-authenticated launch will ask the account authority for its
+ * first grant at bootstrap. Preparing an existing authority now overlaps its
+ * resume and repair with allocation instead of paying them inside bootstrap.
+ * Native and custom image auth never involve the authority.
+ */
+export const cloudWorkspaceAuthorityPrewarmEligible = (
+	workspace: CloudWorkspaceRecord | null,
+): workspace is CloudWorkspaceRecord =>
+	workspace !== null &&
+	workspace.state === "queued" &&
+	workspace.desiredState === "ready" &&
+	workspace.providerSandboxId === undefined &&
+	workspace.requestConfig.machineFork === undefined &&
+	(workspace.requestConfig.providerAuthMode === "broker-v1" ||
+		workspace.requestConfig.codexAuthMode === "broker-v1");
+
+/** Best effort: any failure or defect is logged and never reaches the caller. */
+const prewarmWorkspaceAuthority = (workspace: CloudWorkspaceRecord) =>
+	prepareExistingCloudAuthAuthority(workspace.accountId).pipe(
+		Effect.timeoutOption(Duration.millis(INLINE_AUTHORITY_PREWARM_TIMEOUT_MS)),
+		measureCloudStage(
+			{ workspaceId: workspace.workspaceId },
+			"startup.authority-prewarm",
+		),
+		Effect.exit,
+		Effect.map((exit) =>
+			Exit.isSuccess(exit)
+				? exit.value._tag === "None"
+					? "timeout"
+					: exit.value.value
+				: "failed",
+		),
+		Effect.tap((result) =>
+			Effect.sync(() =>
+				cloudTimingEvent(
+					{ workspaceId: workspace.workspaceId, reason: result },
+					"startup.authority-prewarm-outcome",
+				),
+			),
+		),
+		Effect.asVoid,
+	);
+
 /**
  * Run the first startup step from the creating request instead of waiting
  * for the durable object's first contact. The durable scheduler remains the
  * owner: the same lease fences both, the step is bounded, and the caller
  * re-schedules the alarm afterwards so no handoff is lost. Returns whether a
- * step ran; it never fails.
+ * step ran; it never fails. An existing account authority is prepared
+ * alongside, best effort, whether or not allocation itself runs inline.
  */
 export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
 	function* (workspaceId: string) {
@@ -3662,22 +3713,28 @@ export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
 			const store = yield* CloudWorkspaceStore;
 			const workspace = yield* store.getWorkspace(workspaceId);
 			if (workspace === null) return false;
+			const prewarm = cloudWorkspaceAuthorityPrewarmEligible(workspace)
+				? prewarmWorkspaceAuthority(workspace)
+				: Effect.void;
 			const provider = yield* resolveResourceProvider(workspace).pipe(
 				Effect.option,
 			);
 			if (
 				provider._tag === "None" ||
 				!cloudWorkspaceStartupInlineEligible(workspace, provider.value)
-			)
+			) {
+				yield* prewarm;
 				return false;
+			}
 			const adapter = provider.value;
 			// Eligibility is re-proven on the claimed row: a transition between the
 			// read and the claim must not put other work under the short lease.
-			yield* reconcileCloudWorkspace(workspaceId, {
+			const allocate = reconcileCloudWorkspace(workspaceId, {
 				leaseMs: INLINE_STARTUP_LEASE_MS,
 				onlyIf: (claimed) =>
 					cloudWorkspaceStartupInlineEligible(claimed, adapter),
 			}).pipe(measureCloudStage({ workspaceId }, "startup.inline"));
+			yield* Effect.all([allocate, prewarm], { concurrency: "unbounded" });
 			return true;
 		}).pipe(
 			Effect.timeoutOption(Duration.millis(INLINE_STARTUP_TIMEOUT_MS)),

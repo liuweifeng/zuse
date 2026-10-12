@@ -41,6 +41,7 @@ import {
 	parseAuthorityGrantOutput,
 	parseDeviceLoginOutput,
 	pollCloudAuthLogin,
+	prepareExistingCloudAuthAuthority,
 	provisionCloudAuth,
 	snapshotCloudAuthAuthority,
 	startCloudAuthLogin,
@@ -1291,5 +1292,200 @@ describe("authority guest timing parsing", () => {
 		// Only the first eight sentinel lines are considered; all later ones are ignored.
 		expect(parsed.timing).toEqual({ sealMs: 103 });
 		expect(JSON.stringify(parsed.timing)).not.toContain("secret");
+	});
+});
+
+describe("existing authority preparation", () => {
+	const home = "/home/zuse/.zuse/cloud-auth";
+	const layer = Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
+		SandboxProvidersFake,
+		Config.layer({
+			apiIssuer: "https://api.test",
+			workosJwksUrl: "https://unused.test/jwks",
+			workosIssuer: "https://unused.test",
+			mintPrivateKey: Redacted.make("{}"),
+			mintPublicKey: "{}",
+			cloudAuthProviderId: "fake",
+		}),
+	);
+	const prepare = (options: {
+		readonly locator: boolean | "provisioning";
+		readonly state: "running" | "paused";
+		readonly ready: boolean;
+		readonly initializedIncarnation?: string;
+	}) =>
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			if (options.locator !== false) {
+				yield* store.claimCloudAuthAuthority({
+					accountId: "account",
+					provider: "fake",
+					candidateStorageIncarnationId: "incarnation",
+					toolchainVersion: "test",
+					leaseOwner: "worker",
+					nowMs: 100,
+					leaseExpiresAtMs: 200,
+				});
+				if (options.locator === true)
+					yield* store.completeCloudAuthAuthorityProvisioning({
+						accountId: "account",
+						providerSandboxId: "authority",
+						storageIncarnationId: "incarnation",
+						toolchainVersion: "test",
+						leaseOwner: "worker",
+						nowMs: 150,
+					});
+			}
+			const files = new Map<string, string>();
+			const counters = {
+				inspections: 0,
+				resumes: 0,
+				extensions: 0,
+				initializations: 0,
+				creations: 0,
+				labelLookups: 0,
+			};
+			const fake = yield* (yield* SandboxProviders).get("fake");
+			const registry = yield* makeSandboxProviders({
+				registrations: [
+					{
+						adapter: {
+							...fake,
+							inspect: () => {
+								counters.inspections++;
+								return Effect.succeed({
+									providerSandboxId: "authority",
+									providerLabel: "authority",
+									state: options.state,
+								});
+							},
+							resume: () => {
+								counters.resumes++;
+								return Effect.succeed({
+									providerSandboxId: "authority",
+									providerLabel: "authority",
+									state: "running" as const,
+								});
+							},
+							extendTimeout: () =>
+								Effect.sync(() => {
+									counters.extensions++;
+								}),
+							create: () => {
+								counters.creations++;
+								return Effect.fail(
+									new SandboxProviderError({ code: "rejected" }),
+								);
+							},
+							recoverByLabel: () => {
+								counters.labelLookups++;
+								return Effect.succeed(null);
+							},
+							runProcess: () =>
+								Effect.succeed({
+									exitCode: 0,
+									stdout: options.ready ? "ready" : "repair",
+								}),
+							pathExists: (_id, path) => Effect.succeed(files.has(path)),
+							readTextFile: (_id, path) =>
+								Effect.succeed(files.get(path) ?? ""),
+							writeTextFile: (_id, path, contents) =>
+								Effect.sync(() => {
+									files.set(path, contents);
+								}),
+							startProcess: (_id, spec) =>
+								Effect.sync(() => {
+									if (spec.tag !== "zuse-cloud-auth-initialize") return;
+									counters.initializations++;
+									files.set(spec.args?.at(-1) ?? "", "ready");
+									files.set(`${home}/key-id`, "key");
+									files.set(`${home}/private.pem`, "private");
+									files.set(
+										`${home}/grok-toolchain-version`,
+										GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+									files.set(`${home}/public.jwk.json`, "{}");
+									files.set(
+										`${home}/storage-incarnation-id`,
+										options.initializedIncarnation ?? "incarnation",
+									);
+									files.set(
+										`${home}/codex-toolchain-version`,
+										CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+								}),
+						},
+					},
+				],
+				defaultProviderId: "fake",
+			});
+			const outcome = yield* prepareExistingCloudAuthAuthority("account").pipe(
+				Effect.provideService(SandboxProviders, registry),
+				Effect.result,
+			);
+			const locator = yield* store.getCloudAuthAuthority("account");
+			return { outcome, counters, locator };
+		}).pipe(Effect.provide(layer));
+
+	test("a ready running authority is confirmed without any provisioning call", async () => {
+		const { outcome, counters } = await Effect.runPromise(
+			prepare({ locator: true, state: "running", ready: true }),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "ready" });
+		expect(counters).toMatchObject({
+			inspections: 1,
+			extensions: 1,
+			resumes: 0,
+			initializations: 0,
+			creations: 0,
+			labelLookups: 0,
+		});
+	});
+
+	test("a paused authority is resumed and a stale bootstrap repaired through the normal path", async () => {
+		const { outcome, counters } = await Effect.runPromise(
+			prepare({ locator: true, state: "paused", ready: false }),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "ready" });
+		expect(counters).toMatchObject({
+			resumes: 1,
+			initializations: 1,
+			creations: 0,
+			labelLookups: 0,
+		});
+	});
+
+	test("a missing or still-provisioning authority is never created, adopted, or inspected", async () => {
+		for (const locator of [false, "provisioning"] as const) {
+			const { outcome, counters } = await Effect.runPromise(
+				prepare({ locator, state: "running", ready: true }),
+			);
+			expect(outcome).toMatchObject({ _tag: "Success", success: "absent" });
+			expect(counters).toMatchObject({
+				inspections: 0,
+				creations: 0,
+				labelLookups: 0,
+				initializations: 0,
+			});
+		}
+	});
+
+	test("replaced authority storage is reported, never replaced", async () => {
+		const { outcome, counters, locator } = await Effect.runPromise(
+			prepare({
+				locator: true,
+				state: "running",
+				ready: false,
+				initializedIncarnation: "other-storage",
+			}),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "stale" });
+		expect(counters.creations).toBe(0);
+		expect(locator).toMatchObject({
+			state: "ready",
+			storageIncarnationId: "incarnation",
+			providerSandboxId: "authority",
+		});
 	});
 });

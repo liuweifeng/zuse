@@ -60,6 +60,26 @@ import {
 import * as Config from "../../src/config.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
 
+const authorityPrewarm = vi.hoisted(() => ({
+	calls: [] as string[],
+	outcome: null as null | "fail",
+}));
+
+vi.mock("../../src/cloud-auth-authority.ts", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/cloud-auth-authority.ts")>();
+	const { Effect } = await import("effect");
+	return {
+		...actual,
+		prepareExistingCloudAuthAuthority: (accountId: string) => {
+			authorityPrewarm.calls.push(accountId);
+			return authorityPrewarm.outcome === "fail"
+				? Effect.die(new Error("authority unavailable"))
+				: Effect.succeed("ready" as const);
+		},
+	};
+});
+
 vi.mock("../../../cloud-sandboxes/workspace-runtime.sh", async () => {
 	const { readFile } = await import("node:fs/promises");
 	return {
@@ -3382,5 +3402,120 @@ describe("inline first startup step", () => {
 		expect(result.collided).toBe(true);
 		expect(result.after?.state).toBe("queued");
 		expect(result.after?.providerSandboxId).toBeUndefined();
+	});
+});
+
+describe("inline authority prewarm", () => {
+	const withIdempotentAllocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+		Effect.gen(function* () {
+			const providers = yield* SandboxProviders;
+			return yield* effect.pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								supportsIdempotentAllocation: true,
+							})),
+						),
+				}),
+			);
+		});
+	const fresh = (
+		workspaceId: string,
+		requestConfig: Readonly<Record<string, unknown>>,
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provisioning-queued",
+				requestConfig,
+			});
+			const store = yield* CloudWorkspaceStore;
+			yield* store.saveWorkspace({
+				...workspace,
+				providerSandboxId: undefined,
+				revision: workspace.revision + 1,
+				updatedAtMs: workspace.updatedAtMs + 1,
+			});
+			return workspace;
+		});
+
+	test("prepares the account authority for a fresh broker launch even when allocation is not inline", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = null;
+		const ran = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* fresh("prewarm-no-inline", {
+					providerAuthMode: "broker-v1",
+				});
+				return yield* startCloudWorkspaceInline(workspace.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(ran).toBe(false);
+		expect(authorityPrewarm.calls).toEqual(["account-prewarm-no-inline"]);
+	});
+
+	test("runs alongside inline allocation and never changes its outcome, even when it fails", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = "fail";
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* fresh("prewarm-with-inline", {
+					allocationProtocol: "provider-idempotent-v1",
+					codexAuthMode: "broker-v1",
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* (yield* CloudWorkspaceStore).getWorkspace(
+					workspace.workspaceId,
+				);
+				return { ran, after };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.after?.state).toBe("provisioning");
+		expect(authorityPrewarm.calls).toEqual(["account-prewarm-with-inline"]);
+	});
+
+	test("never touches the authority for native, custom image, fork, or non-fresh launches", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = null;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const native = yield* fresh("prewarm-native", {
+					providerAuthMode: "snapshot-native",
+					codexAuthMode: "snapshot-native",
+				});
+				yield* startCloudWorkspaceInline(native.workspaceId);
+				const legacy = yield* fresh("prewarm-legacy", {});
+				yield* startCloudWorkspaceInline(legacy.workspaceId);
+				const fork = yield* fresh("prewarm-fork", {
+					providerAuthMode: "broker-v1",
+					machineFork: {
+						workspaceId: "source",
+						chatId: "c",
+						sessionId: "s",
+						messageId: "m",
+					},
+				});
+				yield* startCloudWorkspaceInline(fork.workspaceId);
+				const paused = yield* seedWorkspace({
+					workspaceId: "prewarm-paused",
+					state: "paused",
+					desiredState: "ready",
+					statusCode: "paused",
+					requestConfig: { providerAuthMode: "broker-v1" },
+				});
+				yield* startCloudWorkspaceInline(paused.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(authorityPrewarm.calls).toEqual([]);
 	});
 });
