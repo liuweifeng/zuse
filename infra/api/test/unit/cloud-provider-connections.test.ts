@@ -36,11 +36,15 @@ const required = <T>(value: T | undefined): T => {
 const setup = () => {
 	const records = new Map<string, ProviderConnectionRecord>();
 	const calls: string[] = [];
+	const listCalls: string[] = [];
 	const storage = CloudProviderConnections.of({
 		list: (account) =>
-			Effect.sync(() =>
-				[...records.values()].filter((record) => record.accountId === account),
-			),
+			Effect.sync(() => {
+				listCalls.push(account);
+				return [...records.values()].filter(
+					(record) => record.accountId === account,
+				);
+			}),
 		save: (record) =>
 			Effect.sync(() => {
 				for (const [id, previous] of records)
@@ -107,7 +111,7 @@ const setup = () => {
 			}),
 		),
 	);
-	return { records, calls, storage, runtime };
+	return { records, calls, listCalls, storage, runtime };
 };
 const build = (connectionId: string): CloudProjectBuildRecord => ({
 	buildId: "build",
@@ -127,6 +131,31 @@ const build = (connectionId: string): CloudProjectBuildRecord => ({
 });
 
 describe("BYOK ownership and billing", () => {
+	test("resolves placement from one account connection snapshot", async () => {
+		const { runtime, listCalls } = setup();
+		try {
+			for (const providerId of ["boxd", "box"] as const) {
+				await runtime.runPromise(
+					saveProviderConnection(
+						"alice",
+						{ providerId, apiKey: `${providerId}-key` },
+						1,
+					),
+				);
+			}
+			listCalls.length = 0;
+			const providers = await runtime.runPromise(
+				accountSandboxProviders("alice"),
+			);
+			expect(listCalls).toEqual(["alice"]);
+			expect(
+				providers.filter((provider) => provider.connectionId !== undefined),
+			).toHaveLength(2);
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test.each([
 		"e2b",
 		"boxd",

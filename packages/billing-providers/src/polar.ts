@@ -1,5 +1,4 @@
-import { Polar } from "@polar-sh/sdk";
-import { validateEvent } from "@polar-sh/sdk/webhooks";
+import type { Polar } from "@polar-sh/sdk";
 import { Effect, Predicate, Redacted } from "effect";
 import {
 	type BillingProviderAdapter,
@@ -96,8 +95,25 @@ export interface PolarBillingDependencies {
 		body: string,
 		headers: Readonly<Record<string, string>>,
 		secret: string,
-	) => { readonly subscriptionId: string };
+	) =>
+		| { readonly subscriptionId: string }
+		| Promise<{ readonly subscriptionId: string }>;
 }
+
+// The Polar SDK builds every request and webhook schema when its module
+// evaluates, which is too much work for Worker startup. Both entry points are
+// loaded on first real use and shared afterwards; construction stays free.
+let sdkModule: Promise<typeof import("@polar-sh/sdk")> | null = null;
+const loadPolarSdk = () => {
+	sdkModule ??= import("@polar-sh/sdk");
+	return sdkModule;
+};
+let webhooksModule: Promise<typeof import("@polar-sh/sdk/webhooks")> | null =
+	null;
+const loadPolarWebhooks = () => {
+	webhooksModule ??= import("@polar-sh/sdk/webhooks");
+	return webhooksModule;
+};
 
 const isNotFound = (error: unknown): boolean =>
 	Predicate.isObject(error) &&
@@ -105,13 +121,20 @@ const isNotFound = (error: unknown): boolean =>
 	error.statusCode === 404;
 
 const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
-	const polar = new Polar({
-		accessToken: Redacted.value(config.accessToken),
-		server: config.environment,
-	});
+	let client: Promise<Polar> | null = null;
+	const polar = () => {
+		client ??= loadPolarSdk().then(
+			({ Polar: PolarClient }) =>
+				new PolarClient({
+					accessToken: Redacted.value(config.accessToken),
+					server: config.environment,
+				}),
+		);
+		return client;
+	};
 	return {
-		createCheckout: (input) =>
-			polar.checkouts.create({
+		createCheckout: async (input) =>
+			(await polar()).checkouts.create({
 				products: [...input.products],
 				externalCustomerId: input.externalCustomerId,
 				successUrl: input.successUrl,
@@ -120,7 +143,7 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 			}),
 		getCheckout: async (checkoutId) => {
 			try {
-				return await polar.checkouts.get({ id: checkoutId });
+				return await (await polar()).checkouts.get({ id: checkoutId });
 			} catch (error) {
 				if (isNotFound(error)) return null;
 				throw error;
@@ -128,14 +151,15 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 		},
 		getSubscription: async (subscriptionId) => {
 			try {
-				return await polar.subscriptions.get({ id: subscriptionId });
+				return await (await polar()).subscriptions.get({ id: subscriptionId });
 			} catch (error) {
 				if (isNotFound(error)) return null;
 				throw error;
 			}
 		},
 		claimSubscriptions: async ({ accountId, email, productIds }) => {
-			const customers = await polar.customers.list({
+			const sdk = await polar();
+			const customers = await sdk.customers.list({
 				email,
 				active: true,
 				limit: 2,
@@ -148,12 +172,12 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 			)
 				return [];
 			if (customer.externalId === null) {
-				await polar.customers.update({
+				await sdk.customers.update({
 					id: customer.id,
 					customerUpdate: { externalId: accountId },
 				});
 			}
-			const subscriptions = await polar.subscriptions.list({
+			const subscriptions = await sdk.subscriptions.list({
 				customerId: customer.id,
 				productId: [...productIds],
 				active: true,
@@ -162,12 +186,12 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 			return subscriptions.result.items.map((subscription) => subscription.id);
 		},
 		revokeSubscription: async (subscriptionId) => {
-			await polar.subscriptions.revoke({ id: subscriptionId });
+			await (await polar()).subscriptions.revoke({ id: subscriptionId });
 		},
-		createCustomerSession: (externalCustomerId) =>
-			polar.customerSessions.create({ externalCustomerId }),
+		createCustomerSession: async (externalCustomerId) =>
+			(await polar()).customerSessions.create({ externalCustomerId }),
 		ingestMeterEvent: async (input) => {
-			await polar.events.ingest({
+			await (await polar()).events.ingest({
 				events: [
 					{
 						name: input.eventName,
@@ -183,7 +207,7 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 			});
 		},
 		getCustomerMeterUnits: async (input) => {
-			const page = await polar.customerMeters.list({
+			const page = await (await polar()).customerMeters.list({
 				externalCustomerId: input.externalCustomerId,
 				meterId: input.meterId,
 				limit: 1,
@@ -193,11 +217,12 @@ const makeSdkClient = (config: PolarBillingConfig): PolarBillingClient => {
 	};
 };
 
-const verifySubscriptionWebhook = (
+const verifySubscriptionWebhook = async (
 	body: string,
 	headers: Readonly<Record<string, string>>,
 	secret: string,
-): { readonly subscriptionId: string } => {
+): Promise<{ readonly subscriptionId: string }> => {
+	const { validateEvent } = await loadPolarWebhooks();
 	const event = validateEvent(body, { ...headers }, secret);
 	switch (event.type) {
 		case "subscription.active":
@@ -335,13 +360,15 @@ export const makePolarBillingProvider = (
 					try: () => request.text(),
 					catch: () => new BillingProviderError({ code: "invalid-event" }),
 				});
-				const verified = yield* Effect.try({
-					try: () => {
+				// Signature failures, verifier load failures and unsupported events all
+				// surface as one invalid-event rejection, exactly as before.
+				const verified = yield* Effect.tryPromise({
+					try: async () => {
 						const headers: Record<string, string> = {};
 						request.headers.forEach((value, key) => {
 							headers[key] = value;
 						});
-						return verifyWebhook(
+						return await verifyWebhook(
 							body,
 							headers,
 							Redacted.value(config.webhookSecret),

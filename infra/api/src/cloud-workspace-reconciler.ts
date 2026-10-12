@@ -10,14 +10,16 @@ import {
 	WORKSPACE_RUNTIME_PROCESS_SELECTOR,
 } from "@zuse/sandbox-providers";
 import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
-import { Cause, Clock, Data, Duration, Effect } from "effect";
-import GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh";
+import { Cause, Clock, Data, Duration, Effect, Exit } from "effect";
 import PROJECT_BUILDER_SOURCE from "../../cloud-sandboxes/project-builder.sh";
-import WORKSPACE_BOOTSTRAP_SOURCE from "../../cloud-sandboxes/workspace-bootstrap.sh";
 import WORKSPACE_FORK_PREPARE_SOURCE from "../../cloud-sandboxes/workspace-fork-prepare.sh";
 import WORKSPACE_REPOSITORY_SOURCE from "../../cloud-sandboxes/workspace-repository.sh";
 import WORKSPACE_RUNTIME_SOURCE from "../../cloud-sandboxes/workspace-runtime.sh";
-import { snapshotCloudAuthAuthority } from "./cloud-auth-authority.ts";
+import { CloudAccountExecution } from "./cloud-account-execution.ts";
+import {
+	prepareExistingCloudAuthAuthority,
+	snapshotCloudAuthAuthority,
+} from "./cloud-auth-authority.ts";
 import { allocatedComputeCostMicros } from "./cloud-billing.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
 import { githubInstallationGrants } from "./cloud-github-app.ts";
@@ -40,6 +42,16 @@ import {
 	forkCloudWorkspaceMachine,
 	machineForkSource,
 } from "./cloud-workspace-fork.ts";
+import {
+	GITHUB_AUTH_FILE,
+	imageLaunchAssetsMatch,
+	launchAssetFiles,
+	launchAssetsDigest,
+	promoteLaunchAssetsDigest,
+	runtimeSigningKeyPath,
+	WORKSPACE_BOOTSTRAP_FILE,
+	withPendingLaunchAssetsDigest,
+} from "./cloud-workspace-launch-assets.ts";
 import {
 	MAX_MEMORY_RESTARTS,
 	MEMORY_PRESSURE_WAIT_MS,
@@ -85,6 +97,7 @@ import {
 } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 import { randomToken, sha256Hex } from "./crypto.ts";
+import { IMAGE_MEMORY_PREPARATION_SCRIPT } from "./image-memory-preparation.ts";
 import {
 	type SandboxOfferConfig,
 	SandboxOfferConfiguration,
@@ -112,10 +125,6 @@ export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
 	CLOUD_COMMAND_LEASE_TTL_MS + 5_000;
 const ARCHIVE_QUIESCE_GRACE_MS = 1_500;
 const BILLING_RESERVATION_REFRESH_MS = 60_000;
-const runtimeSigningKeyPath = (snapshot = false) =>
-	snapshot
-		? "/var/lib/zuse/runtime-signing-public.jwk"
-		: "/home/zuse/.zuse-runtime-signing-public.jwk";
 const runtimeUpdateEnvironment = (
 	config: SandboxOfferConfig,
 	snapshot = false,
@@ -128,31 +137,13 @@ const runtimeUpdateEnvironment = (
 				ZUSE_RUNTIME_WIRE_PROTOCOL: String(WIRE_PROTOCOL_VERSION),
 			};
 
-const writeRuntimeSigningKey = (
-	provider: SandboxProviderAdapter,
-	providerSandboxId: string,
-	config: SandboxOfferConfig,
-	user = "zuse",
-	snapshot = false,
-) =>
-	config.runtimeSigningPublicJwk === undefined
-		? Effect.void
-		: provider.writeTextFile(
-				providerSandboxId,
-				runtimeSigningKeyPath(snapshot),
-				config.runtimeSigningPublicJwk,
-				user,
-			);
-
 const PROJECT_BUILD_DIAGNOSTIC_MAX_LENGTH = 2_048;
+
 const PROJECT_BUILD_LOG_FILE = "/var/lib/zuse/project-build/build.log";
 const PROJECT_BUILD_LOG_MAX_LENGTH = 256 * 1_024;
 export const PROJECT_RUNTIME_UPDATE_RETRY_DELAYS_SECONDS = [0, 5, 15] as const;
 const PROJECT_BUILDER_FILE = "/var/lib/zuse/project-build/builder.sh";
-export const PROJECT_IMAGE_BUILD_SCRIPT = `set -e
-completion="/var/lib/zuse/project-build/completed-\${ZUSE_PROJECT_BUILD_ID:?}"
-rm -f "$completion" /var/lib/zuse/project-build/ready /var/lib/zuse/project-build/failed /var/lib/zuse/project-build/failure-phase /tmp/zuse-project-builder-exited
-trap 'code=$?; printf "%s\\n" "$code" >"$completion.tmp-$$" && mv "$completion.tmp-$$" "$completion"; exit "$code"' EXIT
+const PROJECT_IMAGE_USER_BUILD_SCRIPT = `set -e
 : >${PROJECT_BUILD_LOG_FILE}
 if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
   printf 'updating-runtime\\n' >/var/lib/zuse/project-build/failure-phase
@@ -166,20 +157,40 @@ if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
     exit "$code"
   fi
   node -e 'const fs = require("node:fs"); const metadata = JSON.parse(fs.readFileSync("/opt/zuse/current/runtime-metadata.json", "utf8")); if (metadata.wireProtocolVersion !== Number(process.env.ZUSE_RUNTIME_WIRE_PROTOCOL)) throw new Error("Installed image runtime protocol mismatch");' >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  # Install the signed release's agent tools once in the reusable image, never on wake.
+  printf 'preparing-agent-tools\\n' >/var/lib/zuse/project-build/failure-phase
+  env ZUSE_GH_BINARY=/usr/bin/gh ZUSE_TOOLCHAIN_BIN_DIR=/home/zuse/.local/bin ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES=1 ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL=1 node /opt/zuse/current/toolchain-reconciler.mjs /opt/zuse/current/toolchain-manifest.json >>${PROJECT_BUILD_LOG_FILE} 2>&1
 fi
 ${PROJECT_BUILDER_FILE} >>${PROJECT_BUILD_LOG_FILE} 2>&1
+if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
+  # Warm last: cloning and sanitization must not evict runtime pages before
+  # the provider captures memory. This process exits before snapshotting and
+  # never opens workspace storage or creates an enrolled runtime identity.
+  printf 'preparing-runtime-cache\\n' >/var/lib/zuse/project-build/failure-phase
+  mkdir -p /opt/zuse/node-compile-cache
+  NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache node --input-type=module -e 'await import("/opt/zuse/current/bin.mjs")' >>${PROJECT_BUILD_LOG_FILE} 2>&1
+  rm -f /var/lib/zuse/project-build/failure-phase
+fi
 `;
 
-const WORKSPACE_BOOTSTRAP_FILE =
-	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
-const WORKSPACE_RUNTIME_FILE =
-	"/var/lib/zuse/project-build/workspace-runtime.sh";
-// GitHub auth ships with the build for the same reason the bootstrap does:
-// base images are republished by hand, so an image older than the `gh` shim
-// would otherwise leave every workspace with an unauthenticated `gh`.
-const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
-const WORKSPACE_REPOSITORY_FILE =
-	"/var/lib/zuse/project-build/workspace-repository.sh";
+export const PROJECT_IMAGE_BUILD_SCRIPT = `set -e
+completion="/var/lib/zuse/project-build/completed-\${ZUSE_PROJECT_BUILD_ID:?}"
+rm -f "$completion" /var/lib/zuse/project-build/ready /var/lib/zuse/project-build/failed /var/lib/zuse/project-build/failure-phase /tmp/zuse-project-builder-exited
+trap 'code=$?; printf "%s\\n" "$code" >"$completion.tmp-$$" && mv "$completion.tmp-$$" "$completion"; exit "$code"' EXIT
+if [ "\${ZUSE_PROJECT_IMAGE_PROVIDER:-}" = e2b ]; then
+  # The provider runs this wrapper as root; installs and Git still run as zuse.
+  sudo -n -E -H -u zuse bash <<'ZUSE_IMAGE_USER_BUILD'
+${PROJECT_IMAGE_USER_BUILD_SCRIPT}
+ZUSE_IMAGE_USER_BUILD
+  if [ -n "\${ZUSE_RUNTIME_MANIFEST_URL:-}" ]; then
+    printf 'preparing-snapshot-memory\\n' >/var/lib/zuse/project-build/failure-phase
+    { ${IMAGE_MEMORY_PREPARATION_SCRIPT} } >>${PROJECT_BUILD_LOG_FILE} 2>&1
+    rm -f /var/lib/zuse/project-build/failure-phase
+  fi
+else
+${PROJECT_IMAGE_USER_BUILD_SCRIPT}
+fi
+`;
 const WORKSPACE_CREDENTIALS_READY_MARKER =
 	"/var/lib/zuse/workspace/credentials-ready";
 export const reserveProviderCost = Effect.fn("reserveProviderCost")(
@@ -452,7 +463,15 @@ fi
 phase=runtime-compatibility
 ensure_workspace_runtime
 if [ ! -f "$status_dir/repository-ready" ]; then
+# Cold recovery of an unprepared checkout waits for the runtime's launch-agent
+# credential evidence, exactly like initial bootstrap, before touching Git.
+credentials_event="$status_dir/credentials-ready-event"
+mkfifo -m 600 "$credentials_event"
 (
+  phase=preparing-credentials
+  IFS= read -r _ <"$credentials_event"
+  rm -f "$credentials_event"
+  [ -f "$status_dir/credentials-ready" ] || workspace_runtime_launch_failed 1
   phase=syncing-repository
   if bash <<'ZUSE_WORKSPACE_REPOSITORY' >> "$log" 2>&1
 ${WORKSPACE_REPOSITORY_SOURCE}
@@ -474,7 +493,9 @@ initialize_workspace_runtime_attempt
 acquire_workspace_runtime_lock
 ${WORKSPACE_RUNTIME_UPDATE_SCRIPT}
 phase=runtime-compatibility
+workspace_runtime_timing runtime.compatibility-start
 ensure_workspace_runtime
+workspace_runtime_timing runtime.compatibility-end
 exec /bin/bash ${WORKSPACE_BOOTSTRAP_FILE}`;
 const providerLabel = (kind: "build" | "workspace", id: string): string =>
 	`zuse-cloud-${kind}-${id.replace(/[^A-Za-z0-9-]/gu, "-")}`.slice(0, 63);
@@ -520,6 +541,10 @@ const workspaceStartupDeadlineMs = (
 					: RUNTIME_CONNECTION_TIMEOUT_MS);
 };
 
+/** An enrolled runtime that is online reports its own preparation outcome. */
+const workspacePreparingOnline = (workspace: CloudWorkspaceRecord): boolean =>
+	workspace.state === "setup" && workspace.runtimeState === "online";
+
 const workspaceStartupTimedOut = (
 	workspace: CloudWorkspaceRecord,
 	nowMs: number,
@@ -528,6 +553,7 @@ const workspaceStartupTimedOut = (
 		(workspace.state === "queued" ||
 			workspace.state === "provisioning" ||
 			workspace.state === "setup") &&
+		!workspacePreparingOnline(workspace) &&
 		nowMs >= workspaceStartupDeadlineMs(workspace)
 	);
 };
@@ -917,6 +943,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
+			// The image carries the workspace launch files; their digest is recorded
+			// so fresh restores can skip rewriting unchanged scripts.
+			const imageAssets = launchAssetFiles(config);
+			const imageAssetsDigest = yield* launchAssetsDigest(imageAssets);
 			yield* Effect.all(
 				[
 					provider.writeTextFile(
@@ -925,29 +955,13 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						PROJECT_BUILDER_SOURCE,
 						"zuse",
 					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_REPOSITORY_FILE,
-						WORKSPACE_REPOSITORY_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_BOOTSTRAP_FILE,
-						WORKSPACE_BOOTSTRAP_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						WORKSPACE_RUNTIME_FILE,
-						WORKSPACE_RUNTIME_SOURCE,
-						"zuse",
-					),
-					provider.writeTextFile(
-						sandbox.providerSandboxId,
-						GITHUB_AUTH_FILE,
-						GITHUB_AUTH_SOURCE,
-						"zuse",
+					...imageAssets.map(({ path, contents }) =>
+						provider.writeTextFile(
+							sandbox.providerSandboxId,
+							path,
+							contents,
+							"zuse",
+						),
 					),
 					...(config.runtimeManifestUrl === undefined
 						? []
@@ -959,7 +973,6 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 									"zuse",
 								),
 							]),
-					writeRuntimeSigningKey(provider, sandbox.providerSandboxId, config),
 				],
 				{ concurrency: "unbounded", discard: true },
 			).pipe(Effect.orDie);
@@ -1043,6 +1056,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					args: ["-c", PROJECT_IMAGE_BUILD_SCRIPT],
 					env: {
 						ZUSE_PROJECT_BUILD_ID: build.buildId,
+						ZUSE_PROJECT_IMAGE_PROVIDER: build.provider,
 						ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: build.buildId,
 						ZUSE_TEMPLATE_VERSION: build.templateVersion,
 						ZUSE_CONFIGURATION_DIGEST: build.configurationDigest,
@@ -1062,12 +1076,16 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						),
 						...runtimeUpdateEnvironment(config),
 					},
-					user: "zuse",
+					user: build.provider === "e2b" ? "root" : "zuse",
 				})
 				.pipe(Effect.orDie);
 			yield* store.saveBuild({
 				...build,
 				providerSandboxId: sandbox.providerSandboxId,
+				settings: withPendingLaunchAssetsDigest(
+					build.settings,
+					imageAssetsDigest,
+				),
 				state: "building",
 				nextActionAtMs: nowMs + RETRY_MS,
 				revision: build.revision + 1,
@@ -1285,6 +1303,10 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const sanitizing = {
 				...build,
 				sourceCommit,
+				settings: promoteLaunchAssetsDigest(
+					build.settings,
+					yield* launchAssetsDigest(launchAssetFiles(config)),
+				),
 				logText: [
 					logText,
 					"Repository preparation completed. Publishing snapshot…",
@@ -1586,39 +1608,39 @@ const prepareWorkspaceRuntimeLaunch = Effect.fn(
 	workspace: CloudWorkspaceRecord,
 	provider: SandboxProviderAdapter,
 	sandboxId: string,
+	// Only a fresh restore of a managed image whose recorded digest matches the
+	// current sources may skip the writes; every recovery path repairs them.
+	imageAssets: "write" | "reuse" = "write",
 ) {
 	const config = yield* SandboxOfferConfiguration;
 	const layout = cloudWorkspaceLayout(workspace);
-	const files = [
-		{ path: WORKSPACE_REPOSITORY_FILE, contents: WORKSPACE_REPOSITORY_SOURCE },
-		{ path: GITHUB_AUTH_FILE, contents: GITHUB_AUTH_SOURCE },
-		{ path: WORKSPACE_BOOTSTRAP_FILE, contents: WORKSPACE_BOOTSTRAP_SOURCE },
-		{ path: WORKSPACE_RUNTIME_FILE, contents: WORKSPACE_RUNTIME_SOURCE },
-		...(config.runtimeSigningPublicJwk === undefined
-			? []
-			: [
-					{
-						path: runtimeSigningKeyPath(layout.snapshot),
-						contents: config.runtimeSigningPublicJwk,
-					},
-				]),
-	];
+	const files = launchAssetFiles(config, layout.snapshot);
 	yield* Effect.all(
 		[
-			provider.setNetwork(sandboxId, { kind: "open" }),
-			provider.writeTextFiles !== undefined
-				? provider.writeTextFiles(sandboxId, files, layout.user)
-				: Effect.all(
-						files.map(({ path, contents }) =>
-							provider.writeTextFile(sandboxId, path, contents, layout.user),
+			// Reuse is restricted to a fresh managed fork, allocated with open
+			// networking. Recovered and native machines still need policy repair.
+			imageAssets === "reuse"
+				? Effect.void
+				: provider.setNetwork(sandboxId, { kind: "open" }),
+			imageAssets === "reuse"
+				? Effect.void
+				: provider.writeTextFiles !== undefined
+					? provider.writeTextFiles(sandboxId, files, layout.user)
+					: Effect.all(
+							files.map(({ path, contents }) =>
+								provider.writeTextFile(sandboxId, path, contents, layout.user),
+							),
+							{ concurrency: "unbounded", discard: true },
 						),
-						{ concurrency: "unbounded", discard: true },
-					),
 		],
 		{ concurrency: "unbounded", discard: true },
 	).pipe(
 		measureCloudStage(
-			{ workspaceId: workspace.workspaceId, provider: provider.providerId },
+			{
+				workspaceId: workspace.workspaceId,
+				provider: provider.providerId,
+				reason: imageAssets === "reuse" ? "image-assets" : "written",
+			},
 			"runtime.prepare-launch-assets",
 		),
 	);
@@ -2737,7 +2759,28 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					"provider-idempotent-v1" &&
 				workspace.providerSandboxId === undefined &&
 				runtimeActivation(workspace) === null;
+			const firstAllocationAttempt =
+				!directAllocation &&
+				!replacingFailedSandbox &&
+				machineFork === undefined &&
+				workspace.providerSandboxId === undefined &&
+				runtimeActivation(workspace) === null &&
+				workspace.requestConfig.allocationAttempted === false;
 			const allocate = Effect.gen(function* () {
+				if (firstAllocationAttempt) {
+					// Commit before contacting the provider. A lost create response or
+					// interrupted request must perform label recovery on the next attempt.
+					workspace = {
+						...workspace,
+						requestConfig: {
+							...workspace.requestConfig,
+							allocationAttempted: true,
+						},
+						revision: workspace.revision + 1,
+						updatedAtMs: yield* Clock.currentTimeMillis,
+					};
+					yield* saveWorkspace(workspace);
+				}
 				if (
 					replacingFailedSandbox &&
 					workspace.providerSandboxId !== undefined
@@ -2756,7 +2799,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				const recovered =
 					!replacingFailedSandbox &&
 					machineFork === undefined &&
-					!directAllocation
+					!directAllocation &&
+					!firstAllocationAttempt
 						? yield* provider.recoverByLabel(label).pipe(
 								withSnapshotLeaseCheck,
 								measureCloudStage(
@@ -3041,15 +3085,34 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				updatedAtMs: allocatedAtMs,
 			};
 			yield* saveWorkspace(authorizedWorkspace);
+			const freshManagedRestore =
+				recovered === null &&
+				machineFork === undefined &&
+				!replacingFailedSandbox &&
+				preparedSnapshotAvailable &&
+				!importedSnapshot(build) &&
+				!cloudWorkspaceLayout(authorizedWorkspace).snapshot;
 			yield* prepareWorkspaceRuntimeLaunch(
 				authorizedWorkspace,
 				provider,
 				sandbox.providerSandboxId,
+				freshManagedRestore &&
+					imageLaunchAssetsMatch(
+						build,
+						yield* launchAssetsDigest(launchAssetFiles(config)),
+					)
+					? "reuse"
+					: "write",
 			);
 			const runtimeOptions = yield* workspaceRuntimeLaunchInput(
 				authorizedWorkspace,
 				boot.token,
 				true,
+			).pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: workspace.provider },
+					"runtime.launch-input",
+				),
 			);
 			if (runtimeOptions === null) return;
 			if (provider.supportsFencedProcessReplacement !== true) {
@@ -3063,7 +3126,12 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				workspaceRuntimeProcessSelector(),
 				activationProcessInput(runtimeOptions, operation),
 			);
-			yield* startRuntime;
+			yield* startRuntime.pipe(
+				measureCloudStage(
+					{ workspaceId: workspace.workspaceId, provider: workspace.provider },
+					"runtime.launch-process",
+				),
+			);
 			return;
 		}
 
@@ -3212,6 +3280,27 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				return;
 			}
 
+			// A connected runtime still preparing credentials or the repository
+			// is bounded by the same idle policy as a ready workspace, so a
+			// provider that is never reconnected cannot keep compute awake.
+			if (workspacePreparingOnline(workspace)) {
+				const idleAtMs =
+					workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs;
+				if (nowMs >= idleAtMs)
+					return yield* pauseWorkspace(
+						workspace,
+						provider,
+						nowMs,
+						false,
+						saveWorkspace,
+					);
+				yield* saveWorkspace({
+					...workspace,
+					nextActionAtMs: idleAtMs,
+					updatedAtMs: nowMs,
+				});
+				return;
+			}
 			// Successful startup is advanced only by authenticated runtime callbacks.
 			yield* saveWorkspace({
 				...workspace,
@@ -3342,7 +3431,14 @@ export const reconcileCloudBuild = (buildId: string) =>
 		);
 		if (build !== null) yield* reconcileBuildRecord(build);
 	});
-export const reconcileCloudWorkspace = (workspaceId: string) =>
+export const reconcileCloudWorkspace = (
+	workspaceId: string,
+	options?: {
+		readonly leaseMs?: number;
+		/** Evaluated on the claimed row; a rejected row releases the lease untouched. */
+		readonly onlyIf?: (workspace: CloudWorkspaceRecord) => boolean;
+	},
+) =>
 	Effect.gen(function* () {
 		const store = yield* CloudWorkspaceStore;
 		const nowMs = yield* Clock.currentTimeMillis;
@@ -3350,9 +3446,10 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 		// Native forks include readiness and a stopped-writer import preparation.
 		const pending = yield* store.getWorkspace(workspaceId);
 		const leaseMs =
-			pending?.requestConfig.machineFork === undefined
+			options?.leaseMs ??
+			(pending?.requestConfig.machineFork === undefined
 				? RECONCILE_LEASE_MS
-				: 10 * 60_000;
+				: 10 * 60_000);
 		const workspace = yield* store.claimWorkspace(
 			workspaceId,
 			leaseOwner,
@@ -3360,6 +3457,12 @@ export const reconcileCloudWorkspace = (workspaceId: string) =>
 			nowMs + leaseMs,
 		);
 		if (workspace === null) return;
+		if (options?.onlyIf !== undefined && !options.onlyIf(workspace)) {
+			yield* store
+				.releaseWorkspaceLease(workspaceId, leaseOwner)
+				.pipe(Effect.ignore);
+			return;
+		}
 		let expectedRevision = workspace.revision;
 		let expectedUpdatedAtMs = workspace.updatedAtMs;
 		let currentWorkspace = workspace;
@@ -3549,3 +3652,150 @@ export const reconcileCloudWorkspaceStartup = Effect.fn(
 	const workspace = yield* store.getWorkspace(workspaceId);
 	return workspaceStartupOutcome(workspace, yield* Clock.currentTimeMillis);
 });
+
+/** Short enough that a hard worker termination cannot hold the alarm back for long. */
+export const INLINE_STARTUP_LEASE_MS = 15_000;
+export const INLINE_STARTUP_TIMEOUT_MS = 10_000;
+
+/**
+ * Only a fresh managed creation on a provider with idempotent allocation
+ * qualifies: a lost response is adopted by label, never duplicated, and no
+ * recovery or fork path is involved.
+ */
+export const cloudWorkspaceStartupInlineEligible = (
+	workspace: CloudWorkspaceRecord | null,
+	provider: Pick<SandboxProviderAdapter, "supportsIdempotentAllocation">,
+): workspace is CloudWorkspaceRecord =>
+	workspace !== null &&
+	workspace.state === "queued" &&
+	workspace.desiredState === "ready" &&
+	workspace.providerSandboxId === undefined &&
+	workspace.requestConfig.allocationProtocol === "provider-idempotent-v1" &&
+	workspace.requestConfig.machineFork === undefined &&
+	runtimeActivation(workspace) === null &&
+	provider.supportsIdempotentAllocation === true;
+
+/** Bound for best-effort authority preparation; the alarm's own cadence covers any delay. */
+export const INLINE_AUTHORITY_PREWARM_TIMEOUT_MS = 8_000;
+
+/**
+ * A fresh broker-authenticated launch will ask the account authority for its
+ * first grant at bootstrap. Preparing an existing authority now overlaps its
+ * resume and repair with allocation instead of paying them inside bootstrap.
+ * Native and custom image auth never involve the authority.
+ */
+export const cloudWorkspaceAuthorityPrewarmEligible = (
+	workspace: CloudWorkspaceRecord | null,
+): workspace is CloudWorkspaceRecord =>
+	workspace !== null &&
+	workspace.state === "queued" &&
+	workspace.desiredState === "ready" &&
+	workspace.providerSandboxId === undefined &&
+	workspace.requestConfig.machineFork === undefined &&
+	(workspace.requestConfig.providerAuthMode === "broker-v1" ||
+		workspace.requestConfig.codexAuthMode === "broker-v1");
+
+/** Best effort: any failure or defect is logged and never reaches the caller. */
+const prewarmWorkspaceAuthority = (workspace: CloudWorkspaceRecord) =>
+	prepareExistingCloudAuthAuthority(workspace.accountId).pipe(
+		Effect.timeoutOption(Duration.millis(INLINE_AUTHORITY_PREWARM_TIMEOUT_MS)),
+		measureCloudStage(
+			{ workspaceId: workspace.workspaceId },
+			"startup.authority-prewarm",
+		),
+		Effect.exit,
+		Effect.map((exit) =>
+			Exit.isSuccess(exit)
+				? exit.value._tag === "None"
+					? "timeout"
+					: exit.value.value
+				: "failed",
+		),
+		Effect.tap((result) =>
+			Effect.sync(() =>
+				cloudTimingEvent(
+					{ workspaceId: workspace.workspaceId, reason: result },
+					"startup.authority-prewarm-outcome",
+				),
+			),
+		),
+		Effect.asVoid,
+	);
+
+/**
+ * Run the first startup step from the creating request instead of waiting
+ * for the durable object's first contact. The durable scheduler remains the
+ * owner: the same lease fences both, the step is bounded, and the caller
+ * re-schedules the alarm afterwards so no handoff is lost. Returns whether a
+ * step ran; it never fails. An existing account authority is prepared
+ * alongside, best effort, whether or not allocation itself runs inline.
+ */
+export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
+	function* (workspaceId: string) {
+		const outcome = yield* Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const workspace = yield* store.getWorkspace(workspaceId);
+			if (workspace === null) return false;
+			const prewarm = cloudWorkspaceAuthorityPrewarmEligible(workspace)
+				? prewarmWorkspaceAuthority(workspace)
+				: Effect.void;
+			const provider = yield* resolveResourceProvider(workspace).pipe(
+				Effect.option,
+			);
+			if (
+				provider._tag === "None" ||
+				!cloudWorkspaceStartupInlineEligible(workspace, provider.value)
+			) {
+				yield* prewarm;
+				return false;
+			}
+			const adapter = provider.value;
+			const executor = yield* CloudAccountExecution;
+			if (executor?.startWorkspace !== undefined) {
+				const remote = yield* executor.startWorkspace(
+					workspace.accountId,
+					workspaceId,
+				);
+				if (remote !== null) return remote;
+			}
+			// Eligibility is re-proven on the claimed row: a transition between the
+			// read and the claim must not put other work under the short lease.
+			const allocate = reconcileCloudWorkspace(workspaceId, {
+				leaseMs: INLINE_STARTUP_LEASE_MS,
+				onlyIf: (claimed) =>
+					cloudWorkspaceStartupInlineEligible(claimed, adapter),
+			}).pipe(measureCloudStage({ workspaceId }, "startup.inline"));
+			yield* Effect.all([allocate, prewarm], { concurrency: "unbounded" });
+			return true;
+		}).pipe(
+			Effect.timeoutOption(Duration.millis(INLINE_STARTUP_TIMEOUT_MS)),
+			Effect.result,
+		);
+		if (outcome._tag === "Failure") {
+			console.warn("[cloud-workspace] inline startup step failed", {
+				workspaceId,
+			});
+			return true;
+		}
+		if (outcome.success._tag === "None") {
+			console.warn("[cloud-workspace] inline startup step timed out", {
+				workspaceId,
+			});
+			return true;
+		}
+		return outcome.success.value;
+	},
+);
+
+/** Account affinity changes execution placement, never workspace ownership. */
+export const startCloudWorkspaceForAccountDirect = Effect.fn(
+	"startCloudWorkspaceForAccountDirect",
+)(
+	function* (accountId: string, workspaceId: string) {
+		const store = yield* CloudWorkspaceStore;
+		const workspace = yield* store.getWorkspace(workspaceId);
+		if (workspace === null || workspace.accountId !== accountId) return false;
+		return yield* startCloudWorkspaceInline(workspaceId);
+	},
+	Effect.provideService(CloudAccountExecution, undefined),
+);

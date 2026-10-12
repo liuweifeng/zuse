@@ -232,7 +232,7 @@ describe("cloud runtime assets", () => {
 		}
 	});
 
-	test("uses the image checkout directly without launch-time Git networking", async () => {
+	test("starts repository preparation after usable launch credentials", async () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",
 		);
@@ -240,7 +240,7 @@ describe("cloud runtime assets", () => {
 		expect(bootstrap).not.toContain("worktree add --force");
 		expect(bootstrap).not.toContain("git clone --no-hardlinks");
 		expect(bootstrap).not.toContain("git fetch");
-		expect(bootstrap.indexOf("repository_pid=$!")).toBeLessThan(
+		expect(bootstrap.indexOf("repository_pid=$!")).toBeGreaterThan(
 			bootstrap.indexOf('wait -n "$runtime_pid" "$credentials_wait_pid"'),
 		);
 		expect(bootstrap.indexOf('wait "$repository_pid"')).toBeGreaterThan(
@@ -252,17 +252,17 @@ describe("cloud runtime assets", () => {
 		const bootstrap = await readWorkspaceFile(
 			"infra/cloud-sandboxes/workspace-bootstrap.sh",
 		);
-		const reconciler = await readWorkspaceFile(
-			"infra/api/src/cloud-workspace-reconciler.ts",
+		const assets = await readWorkspaceFile(
+			"infra/api/src/cloud-workspace-launch-assets.ts",
 		);
 
 		// The API ships the current auth script with the project build, so a base
 		// image older than the `gh` shim cannot strand a workspace.
-		expect(reconciler).toContain(
+		expect(assets).toContain(
 			'GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh"',
 		);
-		expect(reconciler).toContain(
-			'const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh"',
+		expect(assets).toContain(
+			'export const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh"',
 		);
 		expect(bootstrap).toContain(
 			"github_auth=/var/lib/zuse/project-build/github-auth.sh",
@@ -520,7 +520,7 @@ printf '%s\n' '{"token":"lazy-installation-token","expiresAtMs":4102444800000}'
 		expect(bootstrap).not.toContain("runtime-updater.mjs");
 		expect(reconciler).toContain("ZUSE_RUNTIME_INSTALL_ONLY=1");
 		expect(reconciler).toContain("ZUSE_RUNTIME_SKIP_TOOLCHAIN=1");
-		expect(reconciler).toContain("WORKSPACE_BOOTSTRAP_SOURCE");
+		expect(reconciler).toContain("launchAssetFiles(config, layout.snapshot)");
 		expect(reconciler).toContain('command: "/bin/bash"');
 		expect(reconciler).toContain("replacingFailedSandbox");
 		expect(reconciler).toMatch(

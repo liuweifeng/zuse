@@ -346,6 +346,18 @@ export const isProcessEntrypoint = (
 const entry = process.argv[1];
 if (isProcessEntrypoint(entry)) {
 	try {
+		if (process.env.ZUSE_CLOUD_WORKSPACE_ID) {
+			const usage = process.resourceUsage();
+			console.info("[cloud-timing]", {
+				workspaceId: process.env.ZUSE_CLOUD_WORKSPACE_ID,
+				stage: "runtime.process-loaded",
+				atMs: Date.now(),
+				processUptimeMs: Math.round(process.uptime() * 1_000),
+				userCpuMs: Math.round(usage.userCPUTime / 1_000),
+				systemCpuMs: Math.round(usage.systemCPUTime / 1_000),
+				majorPageFaults: usage.majorPageFault,
+			});
+		}
 		runHeadlessServer(parseServeOptions(process.argv.slice(2)));
 	} catch (error) {
 		console.error(error instanceof Error ? error.message : String(error));

@@ -171,6 +171,14 @@ export interface SandboxProviderAdapter {
 		providerSandboxId: string,
 		input: SandboxProcessInput,
 	) => Effect.Effect<void, SandboxProviderError>;
+	/** Short guest operation: wait for exit and return bounded stdout (at most 64 KiB). */
+	readonly runProcess?: (
+		providerSandboxId: string,
+		input: SandboxProcessInput,
+	) => Effect.Effect<
+		{ readonly exitCode: number; readonly stdout: string },
+		SandboxProviderError
+	>;
 	readonly replaceProcess: (
 		providerSandboxId: string,
 		selector: SandboxProcessSelector,

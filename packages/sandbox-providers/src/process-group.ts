@@ -14,6 +14,9 @@ import {
 import { PROCESS_SUPERVISOR } from "./process-supervisor.ts";
 
 // Read identity without exposing argv or environment. A PID alone is reusable.
+const processTiming = (stage: string) =>
+	`printf 'zuse-process-stage=${stage} atMs=%s\\n' "$(date +%s%3N)"`;
+
 const processIdentity = [
 	'process_file="$activation_dir/process"',
 	"current_boot=$(cat /proc/sys/kernel/random/boot_id)",
@@ -54,9 +57,9 @@ export const processGroupCommand = (
 		"boot=$(cat /proc/sys/kernel/random/boot_id)",
 		"start=$(sed \"s/.*) //\" /proc/$$/stat | awk '{print $20}')",
 		`printf '%s %s %s %s %s\\n' "$boot" "$$" "$start" ${input.activation?.generation ?? 0} ${quote(input.activation?.operationId ?? "legacy")} > "$activation_dir/process.next"`,
-		'sync -f "$activation_dir/process.next"',
+		'sync -- "$activation_dir/process.next"',
 		'mv -f "$activation_dir/process.next" "$activation_dir/process"',
-		'sync -f "$activation_dir"',
+		'sync -- "$activation_dir"',
 		// The child shares the launch lock until its identity is durable. Even
 		// if envd/parent dies here, another launch cannot miss this process.
 		"exec 9>&-",
@@ -64,7 +67,9 @@ export const processGroupCommand = (
 	].join("\n");
 	return rootProcessCommand(
 		[
+			processTiming("entry"),
 			...processActivationGuard(input, unit, observation),
+			processTiming("ownership-persisted"),
 			...processIdentity,
 			...(selector === undefined
 				? []
@@ -77,6 +82,7 @@ export const processGroupCommand = (
 						`sudo -n -E -H -u ${quote(user)} bash -c ${quote(boxProcessCleanupScript(selector))}`,
 						...boxProcessStoppedChecks(selector),
 					]),
+			processTiming("previous-process-retired"),
 			// A live group may not be overwritten by a start-only call.
 			'if process_alive; then exit 1; else [ "$?" = 1 ]; fi',
 			'rm -f -- "$process_file"',

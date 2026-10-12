@@ -20,6 +20,8 @@ const toolchainsRoot =
 	process.env.ZUSE_TOOLCHAINS_ROOT ?? "/opt/zuse/toolchains";
 const currentLink =
 	process.env.ZUSE_TOOLCHAIN_CURRENT_LINK ?? "/opt/zuse/toolchain-current";
+const binDirectory = process.env.ZUSE_TOOLCHAIN_BIN_DIR ?? "/usr/local/bin";
+process.env.PATH = `${binDirectory}:${process.env.PATH ?? "/usr/bin:/bin"}`;
 const skipSystemPackages =
 	process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES === "1";
 const skipInstall = process.env.ZUSE_TOOLCHAIN_SKIP_INSTALL === "1";
@@ -109,18 +111,49 @@ if (skipInstall && !releaseReady) {
 }
 if (!skipInstall && !releaseReady) {
 	await mkdir(staging, { recursive: true, mode: 0o755 });
-	const packageSpecs = Object.entries(manifest.npmPackages).map(
-		([name, version]) => `${name}@${version}`,
+	await writeFile(
+		join(staging, "package.json"),
+		JSON.stringify({
+			private: true,
+			dependencies: manifest.npmPackages,
+			trustedDependencies: Object.keys(manifest.npmPackages),
+		}),
 	);
-	await run("/usr/local/bin/npm", [
-		"install",
-		"--no-audit",
-		"--no-fund",
-		"--omit=dev",
-		"--prefix",
-		staging,
-		...packageSpecs,
-	]);
+	// Managed bases already carry Bun. Its standalone installer does not depend
+	// on the provider's global npm dependency tree. Custom snapshots may only
+	// have npm; select once, never retry a failed install with another manager.
+	let hasBun = true;
+	try {
+		await run("bun", ["--version"], { capture: true });
+	} catch (cause) {
+		if (cause.code !== "ENOENT") throw cause;
+		hasBun = false;
+	}
+	await run(
+		hasBun ? "bun" : "npm",
+		hasBun
+			? [
+					"install",
+					"--production",
+					"--cwd",
+					staging,
+					"--cache-dir",
+					join(staging, ".install-cache"),
+				]
+			: [
+					"install",
+					"--no-audit",
+					"--no-fund",
+					"--omit=dev",
+					"--prefix",
+					staging,
+					"--cache",
+					join(staging, ".install-cache"),
+				],
+	);
+	// Do not snapshot download caches: duplicated tool binaries in the user's
+	// home delay writable-data hydration by tens of seconds on disk restores.
+	await rm(join(staging, ".install-cache"), { recursive: true, force: true });
 	await writeFile(
 		join(staging, "zuse-toolchain.json"),
 		`${JSON.stringify(manifest, null, 2)}\n`,
@@ -171,7 +204,7 @@ try {
 	}
 	for (const [command, args] of [
 		["git", ["--version"]],
-		["gh", ["--version"]],
+		[process.env.ZUSE_GH_BINARY ?? "gh", ["--version"]],
 		["git-lfs", ["--version"]],
 		["ssh", ["-V"]],
 		["tmux", ["-V"]],
@@ -180,7 +213,20 @@ try {
 		["jq", ["--version"]],
 		["python3", ["--version"]],
 	]) {
-		await run(command, args, { capture: true });
+		try {
+			await run(command, args, { capture: true });
+		} catch (cause) {
+			// Debian ships fd-find as fdfind. Image builds install aliases in the
+			// same user-owned directory as agent tools, without requiring sudo.
+			if (command !== "fd" || cause.code !== "ENOENT") throw cause;
+			await run("fdfind", args, { capture: true });
+			await mkdir(binDirectory, { recursive: true, mode: 0o755 });
+			const temporary = join(binDirectory, `fd.next-${randomUUID()}`);
+			await writeFile(temporary, '#!/bin/sh\nexec fdfind "$@"\n', {
+				mode: 0o755,
+			});
+			await rename(temporary, join(binDirectory, "fd"));
+		}
 	}
 } catch (cause) {
 	if (previousTarget === undefined) await rm(currentLink, { force: true });
@@ -192,8 +238,9 @@ try {
 	throw cause;
 }
 
+await mkdir(binDirectory, { recursive: true, mode: 0o755 });
 for (const name of ["bun", "corepack", "claude", "codex"]) {
-	const destination = `/usr/local/bin/${name}`;
+	const destination = join(binDirectory, name);
 	const temporary = `${destination}.next-${randomUUID()}`;
 	await symlink(bin(name), temporary);
 	await rename(temporary, destination);
@@ -203,7 +250,7 @@ if (
 	process.getuid?.() === 0 &&
 	process.env.ZUSE_RUNTIME_SKIP_TRIGGER_INSTALL !== "1"
 ) {
-	await run("/usr/local/bin/node", [
+	await run(process.execPath, [
 		join(dirname(manifestFile), "runtime-update-trigger.mjs"),
 	]);
 }

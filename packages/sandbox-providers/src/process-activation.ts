@@ -63,9 +63,11 @@ export const processActivationGuard = (
 					'temporary="$activation_dir/owner.next.$$"',
 					"trap 'rm -f \"$temporary\"' EXIT",
 					'printf "%s %s\\n" "$generation" "$operation" > "$temporary"',
-					'sync -f "$temporary"',
+					// fsync this record and its rename, not every dirty file in a
+					// freshly restored filesystem (sync -f invokes syncfs).
+					'sync -- "$temporary"',
 					'mv -f "$temporary" "$journal"',
-					'sync -f "$activation_dir"',
+					'sync -- "$activation_dir" /var/lib/zuse-process-activations /var/lib',
 				]),
 	];
 };

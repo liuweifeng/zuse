@@ -23,7 +23,13 @@ import {
 } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted, Ref } from "effect";
 import { describe, expect, test, vi } from "vitest";
+import { CloudAccountExecution } from "../../src/cloud-account-execution.ts";
 import { CloudBillingStoreMemory } from "../../src/cloud-billing-store-memory.ts";
+import {
+	launchAssetFiles,
+	launchAssetsDigest,
+	WORKSPACE_BOOTSTRAP_FILE,
+} from "../../src/cloud-workspace-launch-assets.ts";
 import { cloudRepositoryWorkspacePath } from "../../src/cloud-workspace-paths.ts";
 import {
 	ARCHIVED_WORKSPACE_RETENTION_MS,
@@ -40,6 +46,8 @@ import {
 	sanitizeProjectBuildDiagnostic,
 	sanitizeProjectBuildLog,
 	snapshotSanitizationFailures,
+	startCloudWorkspaceForAccountDirect,
+	startCloudWorkspaceInline,
 	WORKSPACE_RUNTIME_RESUME_SCRIPT,
 	workspaceRuntimeProcessSelector,
 	workspaceRuntimeReconnectTarget,
@@ -53,6 +61,26 @@ import {
 } from "../../src/cloud-workspace-store.ts";
 import * as Config from "../../src/config.ts";
 import { SandboxOfferConfiguration } from "../../src/sandbox-provider-module.ts";
+
+const authorityPrewarm = vi.hoisted(() => ({
+	calls: [] as string[],
+	outcome: null as null | "fail",
+}));
+
+vi.mock("../../src/cloud-auth-authority.ts", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("../../src/cloud-auth-authority.ts")>();
+	const { Effect } = await import("effect");
+	return {
+		...actual,
+		prepareExistingCloudAuthAuthority: (accountId: string) => {
+			authorityPrewarm.calls.push(accountId);
+			return authorityPrewarm.outcome === "fail"
+				? Effect.die(new Error("authority unavailable"))
+				: Effect.succeed("ready" as const);
+		},
+	};
+});
 
 vi.mock("../../../cloud-sandboxes/workspace-runtime.sh", async () => {
 	const { readFile } = await import("node:fs/promises");
@@ -743,6 +771,59 @@ describe("cloud workspace reconciler", () => {
 		expect(result?.runtimeCredentialHash).toBeUndefined();
 	});
 
+	test("an online runtime still preparing is never timed out; it follows the idle policy", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const now = Date.now();
+				const workspace = yield* seedWorkspace({
+					workspaceId: "preparing-online",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "preparing-credentials",
+					runtimeState: "online",
+					lastActivityAtMs: now,
+					requestConfig: {
+						startupTimings: { enrolledAt: now - 60_000 },
+						runtimeCredentialExpiresAtMs: now + 60_000,
+					},
+				});
+				yield* store.saveWorkspace({
+					...workspace,
+					runtimeCredentialHash: "live-runtime",
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const preparing = yield* store.getWorkspace(workspace.workspaceId);
+				if (preparing === null) throw new Error("workspace missing");
+				yield* store.saveWorkspace({
+					...preparing,
+					lastActivityAtMs: now - 365 * 24 * 60 * 60_000,
+					nextActionAtMs: now,
+					revision: preparing.revision + 1,
+					updatedAtMs: preparing.updatedAtMs + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					preparing,
+					idle: yield* store.getWorkspace(workspace.workspaceId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.preparing).toMatchObject({
+			state: "setup",
+			runtimeState: "online",
+			statusCode: "preparing-credentials",
+			runtimeCredentialHash: "live-runtime",
+		});
+		expect(result.preparing?.nextActionAtMs).toBeGreaterThan(Date.now());
+		expect(result.idle).toMatchObject({
+			state: "paused",
+			statusCode: "paused",
+		});
+	});
+
 	test("recognizes established runtime storage before provider replacement", () => {
 		expect(
 			cloudWorkspaceHasRetainedRuntimeData({
@@ -980,11 +1061,137 @@ describe("cloud workspace reconciler", () => {
 				);
 				const args = start.mock.calls[0]?.[2].args?.join(" ") ?? "";
 				expect(args).not.toContain("runtime-updater.mjs");
-				expect(args).toContain("ensure_workspace_runtime\nexec /bin/bash");
+				expect(args).toMatch(
+					/ensure_workspace_runtime\n(?:workspace_runtime_timing[^\n]*\n)*exec \/bin\/bash/u,
+				);
 				const saved = yield* (yield* CloudWorkspaceStore).getWorkspace(
 					workspace.workspaceId,
 				);
 				expect(saved?.requestConfig.runtimeInstallPending).toBe(false);
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test.each([
+		false,
+		true,
+		undefined,
+	])("only a durably unattempted allocation skips recovery: %s", async (attempted) => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-first-allocation",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig:
+						attempted === undefined ? {} : { allocationAttempted: attempted },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				const original = provider.fork;
+				const fork = vi.spyOn(provider, "fork").mockImplementation((input) =>
+					Effect.gen(function* () {
+						if (attempted === false)
+							expect(
+								(yield* store.getWorkspace(workspace.workspaceId))
+									?.requestConfig.allocationAttempted,
+							).toBe(true);
+						return yield* original(input);
+					}),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(recover).toHaveBeenCalledTimes(attempted === false ? 0 : 1);
+				expect(fork).toHaveBeenCalledTimes(1);
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test("a lost first allocation response recovers the created machine without a second fork", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-lost-allocation",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: { allocationAttempted: false },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				const original = provider.fork;
+				const fork = vi
+					.spyOn(provider, "fork")
+					.mockImplementationOnce((input) =>
+						original(input).pipe(
+							Effect.andThen(
+								Effect.fail(new SandboxProviderError({ code: "transient" })),
+							),
+						),
+					);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				const failed = yield* store.getWorkspace(workspace.workspaceId);
+				expect(failed?.requestConfig.allocationAttempted).toBe(true);
+				expect(failed?.providerSandboxId).toBeUndefined();
+				if (failed === null) throw new Error("workspace missing");
+				yield* store.saveWorkspace({
+					...failed,
+					nextActionAtMs: 0,
+					revision: failed.revision + 1,
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(recover).toHaveBeenCalledTimes(1);
+				expect(fork).toHaveBeenCalledTimes(1);
+				expect(
+					(yield* store.getWorkspace(workspace.workspaceId))?.providerSandboxId,
+				).toBe("fake-workspace-lost-allocation");
+			}).pipe(Effect.provide(testLayer)),
+		);
+	});
+
+	test("a rejected allocation marker commit performs no provider mutation", async () => {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const control = yield* FakeSandboxProviderControlService;
+				const workspace = yield* seedWorkspace({
+					workspaceId: "workspace-allocation-cas",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "start-queued",
+					requestConfig: { allocationAttempted: false },
+				});
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const fork = vi.spyOn(provider, "fork");
+				const recover = vi.spyOn(provider, "recoverByLabel");
+				vi.spyOn(store, "saveClaimedWorkspace").mockImplementation(() =>
+					Effect.succeed(false),
+				);
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				expect(fork).not.toHaveBeenCalled();
+				expect(recover).not.toHaveBeenCalled();
 			}).pipe(Effect.provide(testLayer)),
 		);
 	});
@@ -2801,8 +3008,10 @@ test.each([
 });
 
 test.each([
-	false,
-	true,
+	"none",
+	"runtime",
+	"toolchain",
+	"memory",
 ])("image build receipts follow the current installer result (failure %s)", (fails) => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-image-receipt-"));
 	try {
@@ -2819,15 +3028,28 @@ test.each([
 if (fs.existsSync(${JSON.stringify(join(status, "ready"))})) throw new Error('Stale readiness was not cleared');
 if (fs.existsSync(${JSON.stringify(join(status, "completed-new-build"))})) throw new Error('Completion written before install');
 if (process.env.ZUSE_RUNTIME_WIRE_PROTOCOL !== '7') throw new Error('Wrong requested protocol');
-if (${fails}) process.exit(23);
+if (${JSON.stringify(fails)} === "runtime") process.exit(23);
 fs.writeFileSync(${JSON.stringify(join(root, "opt/zuse/current/runtime-metadata.json"))}, JSON.stringify({wireProtocolVersion:7}));`,
+		);
+		writeFileSync(
+			join(root, "opt/zuse/current/toolchain-reconciler.mjs"),
+			`import fs from 'node:fs';
+if (process.env.ZUSE_TOOLCHAIN_SKIP_SYSTEM_PACKAGES !== '1') throw new Error('Must not reinstall system packages');
+if (${JSON.stringify(fails)} === 'toolchain') process.exit(24);
+if (process.env.ZUSE_TOOLCHAIN_BIN_DIR !== '/home/zuse/.local/bin') throw new Error('Must install user-owned tools');
+fs.writeFileSync(${JSON.stringify(join(status, "tools-ready"))}, 'ready');`,
 		);
 		writeFileSync(
 			join(status, "builder.sh"),
 			`#!/bin/sh
+test -f '${join(status, "tools-ready")}' || exit 25
 touch '${join(status, "ready")}'
 `,
 			{ mode: 0o700 },
+		);
+		writeFileSync(
+			join(root, "opt/zuse/current/bin.mjs"),
+			"// import-safe runtime fixture\n",
 		);
 		const script = PROJECT_IMAGE_BUILD_SCRIPT.replaceAll(
 			"/tmp/zuse-",
@@ -2840,6 +3062,8 @@ touch '${join(status, "ready")}'
 			[
 				"-c",
 				`sleep() { :; }
+sudo() { if [ ${JSON.stringify(fails)} != memory ]; then return 99; fi; while [[ "$1" == -* ]]; do if [ "$1" = -u ]; then shift; fi; shift; done; "$@"; }
+python3() { return 26; }
 ${script}`,
 			],
 			{
@@ -2847,16 +3071,34 @@ ${script}`,
 				env: {
 					...process.env,
 					ZUSE_PROJECT_BUILD_ID: "new-build",
+					ZUSE_PROJECT_IMAGE_PROVIDER: fails === "memory" ? "e2b" : "boxd",
 					ZUSE_RUNTIME_MANIFEST_URL: "https://runtime.invalid/pinned.json",
 					ZUSE_RUNTIME_WIRE_PROTOCOL: "7",
 				},
 			},
 		);
-		expect(result.status, result.stderr).toBe(fails ? 23 : 0);
-		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
-			fails ? "23\n" : "0\n",
+		expect(result.status, result.stderr).toBe(
+			fails === "runtime"
+				? 23
+				: fails === "toolchain"
+					? 24
+					: fails === "memory"
+						? 26
+						: 0,
 		);
-		expect(existsSync(join(status, "ready"))).toBe(!fails);
+		expect(readFileSync(join(status, "completed-new-build"), "utf8")).toBe(
+			fails === "runtime"
+				? "23\n"
+				: fails === "toolchain"
+					? "24\n"
+					: fails === "memory"
+						? "26\n"
+						: "0\n",
+		);
+		// A post-builder failure must win even when the builder wrote ready.
+		expect(existsSync(join(status, "ready"))).toBe(
+			fails === "none" || fails === "memory",
+		);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -2944,4 +3186,522 @@ test("image runtime installation owns a transaction per build", async () => {
 			);
 		}).pipe(Effect.provide(testLayer)),
 	);
+});
+
+describe("managed image launch assets", () => {
+	const offer = {
+		port: 47837,
+		createTimeoutSeconds: 3600,
+		keepAliveTimeoutSeconds: 600,
+		runtimeManifestUrl: "https://runtime.test/manifest.json",
+		runtimeSigningPublicJwk: "public-key",
+	};
+	const launch = (
+		workspaceId: string,
+		input: {
+			readonly digest: string | undefined;
+			readonly recovered: boolean;
+		},
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "start-queued",
+				requestConfig: {},
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing fixture build");
+			yield* store.saveBuild({
+				...build,
+				settings: { launchAssetsDigest: input.digest },
+				revision: build.revision + 1,
+			});
+			const control = yield* FakeSandboxProviderControlService;
+			if (!input.recovered) yield* Ref.set(control.sandboxes, new Map());
+			const provider = yield* (yield* SandboxProviders).get("fake");
+			const write = vi.spyOn(provider, "writeTextFile");
+			const network = vi.spyOn(provider, "setNetwork");
+			const start = vi.spyOn(provider, "replaceProcess");
+			try {
+				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+					Effect.provideService(SandboxOfferConfiguration, offer),
+				);
+				return {
+					bootstrapWritten: write.mock.calls.some(
+						([, path]) => path === WORKSPACE_BOOTSTRAP_FILE,
+					),
+					networkOpened: network.mock.calls.length > 0,
+					started: start.mock.calls.length,
+					workspace: yield* store.getWorkspace(workspaceId),
+				};
+			} finally {
+				write.mockRestore();
+				network.mockRestore();
+				start.mockRestore();
+			}
+		}).pipe(Effect.provide(testLayer));
+
+	test("a fresh restore of an image with the current digest launches without rewriting scripts", async () => {
+		const digest = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const result = await Effect.runPromise(
+			launch("assets-match", { digest, recovered: false }),
+		);
+		expect(result.bootstrapWritten).toBe(false);
+		expect(result.networkOpened).toBe(false);
+		expect(result.started).toBe(1);
+		expect(result.workspace?.state).toBe("provisioning");
+	});
+
+	test("a missing or stale image digest writes the current scripts", async () => {
+		for (const digest of [undefined, "stale-digest"]) {
+			const result = await Effect.runPromise(
+				launch(`assets-${digest ?? "missing"}`, { digest, recovered: false }),
+			);
+			expect(result.bootstrapWritten).toBe(true);
+			expect(result.networkOpened).toBe(true);
+			expect(result.started).toBe(1);
+		}
+	});
+
+	test("a recovered sandbox repairs its scripts even when the image digest matches", async () => {
+		const digest = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const result = await Effect.runPromise(
+			launch("assets-recovered", { digest, recovered: true }),
+		);
+		expect(result.bootstrapWritten).toBe(true);
+		expect(result.networkOpened).toBe(true);
+		expect(result.started).toBe(1);
+	});
+
+	test("the digest covers the signing key", async () => {
+		const withKey = await Effect.runPromise(
+			launchAssetsDigest(launchAssetFiles(offer)),
+		);
+		const otherKey = await Effect.runPromise(
+			launchAssetsDigest(
+				launchAssetFiles({ ...offer, runtimeSigningPublicJwk: "other-key" }),
+			),
+		);
+		const withoutKey = await Effect.runPromise(
+			launchAssetsDigest(
+				launchAssetFiles({ ...offer, runtimeSigningPublicJwk: undefined }),
+			),
+		);
+		expect(new Set([withKey, otherKey, withoutKey]).size).toBe(3);
+	});
+});
+
+describe("inline first startup step", () => {
+	const withIdempotentAllocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+		Effect.gen(function* () {
+			const providers = yield* SandboxProviders;
+			return yield* effect.pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								supportsIdempotentAllocation: true,
+							})),
+						),
+				}),
+			);
+		});
+
+	test.each([
+		"success",
+		"unavailable",
+		"lost-response",
+	] as const)("account execution preserves one allocation on %s", async (mode) => {
+		let delegated = 0;
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: `account-execution-${mode}`,
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				yield* Ref.set(control.createCalls, 0);
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+				});
+				const wrongOwner = yield* startCloudWorkspaceForAccountDirect(
+					"another-account",
+					workspace.workspaceId,
+				);
+				expect(wrongOwner).toBe(false);
+				expect(yield* Ref.get(control.createCalls)).toBe(0);
+				const services =
+					yield* Effect.context<
+						Effect.Services<
+							ReturnType<typeof startCloudWorkspaceForAccountDirect>
+						>
+					>();
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId).pipe(
+						Effect.provideService(CloudAccountExecution, {
+							grant: () => Effect.succeed(null),
+							prepare: () => Effect.succeed(null),
+							startWorkspace: (accountId, workspaceId) =>
+								Effect.gen(function* () {
+									delegated++;
+									if (mode === "unavailable") return null;
+									const accepted = yield* withIdempotentAllocation(
+										startCloudWorkspaceForAccountDirect(accountId, workspaceId),
+									);
+									return mode === "lost-response" ? null : accepted;
+								}).pipe(Effect.provide(services)),
+						}),
+					),
+				);
+				return { ran, creates: yield* Ref.get(control.createCalls) };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result).toEqual({ ran: true, creates: 1 });
+		expect(delegated).toBe(1);
+	});
+
+	test("a fresh managed creation runs allocation and launch from the request under the lease", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-fresh",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* store.getWorkspace(workspace.workspaceId);
+				// The lease is released; the durable scheduler can claim immediately.
+				const claimed = yield* store.claimWorkspace(
+					workspace.workspaceId,
+					"alarm",
+					Date.now(),
+					Date.now() + 1_000,
+				);
+				return { ran, after, claimed };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.after).toMatchObject({
+			state: "provisioning",
+			statusCode: "runtime-starting",
+		});
+		expect(result.after?.providerSandboxId).toBeDefined();
+		expect(result.claimed).not.toBeNull();
+	});
+
+	test.each([
+		{
+			name: "recovered sandbox",
+			requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+			providerSandboxId: "existing",
+			state: "queued" as const,
+		},
+		{
+			name: "machine fork",
+			requestConfig: {
+				allocationProtocol: "provider-idempotent-v1",
+				machineFork: {
+					workspaceId: "source",
+					chatId: "c",
+					sessionId: "s",
+					messageId: "m",
+				},
+			},
+			providerSandboxId: undefined,
+			state: "queued" as const,
+		},
+		{
+			name: "legacy allocation protocol",
+			requestConfig: {},
+			providerSandboxId: undefined,
+			state: "queued" as const,
+		},
+		{
+			name: "resume of a paused workspace",
+			requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+			providerSandboxId: "existing",
+			state: "paused" as const,
+		},
+	])("does not run for a $name", async ({
+		requestConfig,
+		providerSandboxId,
+		state,
+	}) => {
+		const ran = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: `inline-skip-${state}-${Object.keys(requestConfig).length}-${providerSandboxId ?? "none"}`,
+					state,
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig,
+					providerSandboxId,
+				});
+				const store = yield* CloudWorkspaceStore;
+				if (providerSandboxId === undefined)
+					yield* store.saveWorkspace({
+						...workspace,
+						providerSandboxId: undefined,
+						revision: workspace.revision + 1,
+						updatedAtMs: workspace.updatedAtMs + 1,
+					});
+				return yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(ran).toBe(false);
+	});
+
+	test("re-checks eligibility on the claimed row so a transition cannot run other work under the short lease", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-race",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const provider = yield* (yield* SandboxProviders).get("fake");
+				const create = vi.spyOn(provider, "create");
+				// Between the eligibility read and the claim, the row moves on.
+				const racing: typeof store = {
+					...store,
+					claimWorkspace: (id, owner, nowMs, leaseExpiresAtMs) =>
+						store.getWorkspace(id).pipe(
+							Effect.flatMap((current) =>
+								current === null
+									? Effect.void
+									: store.saveWorkspace({
+											...current,
+											desiredState: "deleted",
+											statusCode: "delete-queued",
+											revision: current.revision + 1,
+											updatedAtMs: current.updatedAtMs + 1,
+										}),
+							),
+							Effect.andThen(
+								store.claimWorkspace(id, owner, nowMs, leaseExpiresAtMs),
+							),
+						),
+				};
+				try {
+					const ran = yield* withIdempotentAllocation(
+						startCloudWorkspaceInline(workspace.workspaceId),
+					).pipe(Effect.provideService(CloudWorkspaceStore, racing));
+					const after = yield* store.getWorkspace(workspace.workspaceId);
+					const released = yield* store.claimWorkspace(
+						workspace.workspaceId,
+						"alarm",
+						Date.now(),
+						Date.now() + 1_000,
+					);
+					return { ran, after, released, creates: create.mock.calls.length };
+				} finally {
+					create.mockRestore();
+				}
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.creates).toBe(0);
+		expect(result.after).toMatchObject({
+			state: "queued",
+			desiredState: "deleted",
+			statusCode: "delete-queued",
+		});
+		expect(result.released).not.toBeNull();
+	});
+
+	test("skips providers without idempotent allocation and leases held by the scheduler", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* seedWorkspace({
+					workspaceId: "inline-no-capability",
+					state: "queued",
+					desiredState: "ready",
+					statusCode: "provisioning-queued",
+					requestConfig: { allocationProtocol: "provider-idempotent-v1" },
+				});
+				const store = yield* CloudWorkspaceStore;
+				yield* store.saveWorkspace({
+					...workspace,
+					providerSandboxId: undefined,
+					revision: workspace.revision + 1,
+					updatedAtMs: workspace.updatedAtMs + 1,
+				});
+				const withoutCapability = yield* startCloudWorkspaceInline(
+					workspace.workspaceId,
+				);
+				const held = yield* store.claimWorkspace(
+					workspace.workspaceId,
+					"alarm",
+					Date.now(),
+					Date.now() + 60_000,
+				);
+				const collided = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* store.getWorkspace(workspace.workspaceId);
+				return { withoutCapability, held, collided, after };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.withoutCapability).toBe(false);
+		expect(result.held).not.toBeNull();
+		// Eligible, so it reports having run, but the held lease fenced any work.
+		expect(result.collided).toBe(true);
+		expect(result.after?.state).toBe("queued");
+		expect(result.after?.providerSandboxId).toBeUndefined();
+	});
+});
+
+describe("inline authority prewarm", () => {
+	const withIdempotentAllocation = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+		Effect.gen(function* () {
+			const providers = yield* SandboxProviders;
+			return yield* effect.pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: (id) =>
+						providers.get(id).pipe(
+							Effect.map((adapter) => ({
+								...adapter,
+								supportsIdempotentAllocation: true,
+							})),
+						),
+				}),
+			);
+		});
+	const fresh = (
+		workspaceId: string,
+		requestConfig: Readonly<Record<string, unknown>>,
+	) =>
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId,
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provisioning-queued",
+				requestConfig,
+			});
+			const store = yield* CloudWorkspaceStore;
+			yield* store.saveWorkspace({
+				...workspace,
+				providerSandboxId: undefined,
+				revision: workspace.revision + 1,
+				updatedAtMs: workspace.updatedAtMs + 1,
+			});
+			return workspace;
+		});
+
+	test("prepares the account authority for a fresh broker launch even when allocation is not inline", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = null;
+		const ran = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* fresh("prewarm-no-inline", {
+					providerAuthMode: "broker-v1",
+				});
+				return yield* startCloudWorkspaceInline(workspace.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(ran).toBe(false);
+		expect(authorityPrewarm.calls).toEqual(["account-prewarm-no-inline"]);
+	});
+
+	test("runs alongside inline allocation and never changes its outcome, even when it fails", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = "fail";
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const workspace = yield* fresh("prewarm-with-inline", {
+					allocationProtocol: "provider-idempotent-v1",
+					codexAuthMode: "broker-v1",
+				});
+				const control = yield* FakeSandboxProviderControlService;
+				yield* Ref.set(control.sandboxes, new Map());
+				const ran = yield* withIdempotentAllocation(
+					startCloudWorkspaceInline(workspace.workspaceId),
+				);
+				const after = yield* (yield* CloudWorkspaceStore).getWorkspace(
+					workspace.workspaceId,
+				);
+				return { ran, after };
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.ran).toBe(true);
+		expect(result.after?.state).toBe("provisioning");
+		expect(authorityPrewarm.calls).toEqual(["account-prewarm-with-inline"]);
+	});
+
+	test("never touches the authority for native, custom image, fork, or non-fresh launches", async () => {
+		authorityPrewarm.calls.length = 0;
+		authorityPrewarm.outcome = null;
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const native = yield* fresh("prewarm-native", {
+					providerAuthMode: "snapshot-native",
+					codexAuthMode: "snapshot-native",
+				});
+				yield* startCloudWorkspaceInline(native.workspaceId);
+				const legacy = yield* fresh("prewarm-legacy", {});
+				yield* startCloudWorkspaceInline(legacy.workspaceId);
+				const fork = yield* fresh("prewarm-fork", {
+					providerAuthMode: "broker-v1",
+					machineFork: {
+						workspaceId: "source",
+						chatId: "c",
+						sessionId: "s",
+						messageId: "m",
+					},
+				});
+				yield* startCloudWorkspaceInline(fork.workspaceId);
+				const paused = yield* seedWorkspace({
+					workspaceId: "prewarm-paused",
+					state: "paused",
+					desiredState: "ready",
+					statusCode: "paused",
+					requestConfig: { providerAuthMode: "broker-v1" },
+				});
+				yield* startCloudWorkspaceInline(paused.workspaceId);
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(authorityPrewarm.calls).toEqual([]);
+	});
 });

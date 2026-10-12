@@ -32,6 +32,11 @@ import {
 	boxSystemdProcessCommand,
 	boxSystemdProcessInspectionCommand,
 } from "./box-process.ts";
+import {
+	boundedCache,
+	credentialCacheKey,
+	credentialScoped,
+} from "./credential-cache.ts";
 import type {
 	ProviderSandbox,
 	SandboxNetworkPolicy,
@@ -279,7 +284,8 @@ const validateCreateEnv = (env: Readonly<Record<string, string>>) =>
 const clampIdleSeconds = (timeoutSeconds: number): number =>
 	clampSeconds(timeoutSeconds, MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
 
-const clients = new Map<string, Boxd>();
+// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
+const clients = boundedCache<Boxd>(64);
 
 /**
  * The API constructs its provider registry per request, and every SDK client
@@ -298,21 +304,16 @@ export const boxdSandboxClientFor = (
 	config: Pick<BoxdSandboxConfig, "apiKey" | "baseUrl">,
 ): Boxd => {
 	const baseURL = boxdBaseUrl(config.baseUrl);
-	const key = `${baseURL}\u0000${Redacted.value(config.apiKey)}`;
-	const existing = clients.get(key);
-	if (existing !== undefined) return existing;
-	const created = new Boxd({
-		apiKey: Redacted.value(config.apiKey),
-		baseURL,
-		timeout: 30_000,
-	});
-	// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
-	if (clients.size >= 64) {
-		const oldest = clients.keys().next().value;
-		if (oldest !== undefined) clients.delete(oldest);
-	}
-	clients.set(key, created);
-	return created;
+	return credentialScoped(
+		clients,
+		credentialCacheKey(baseURL, config.apiKey),
+		() =>
+			new Boxd({
+				apiKey: Redacted.value(config.apiKey),
+				baseURL,
+				timeout: 30_000,
+			}),
+	);
 };
 
 export const makeBoxdSandboxProvider = (
@@ -595,10 +596,13 @@ export const makeBoxdSandboxProvider = (
 		if (input.onTimeout === "pause")
 			yield* call("machines.setAutoHibernateTimeout", () =>
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
-			);
+			).pipe(timing(created.id, "boxd.create.idle-policy"));
 		let usable = created;
 		if (input.snapshotVersion !== undefined) {
-			if (usable.source?.id == null) usable = yield* machine(created.id);
+			if (usable.source?.id == null)
+				usable = yield* machine(created.id).pipe(
+					timing(created.id, "boxd.create.verify-source"),
+				);
 			if (
 				usable.source?.id !== input.snapshot ||
 				usable.source.version !== input.snapshotVersion

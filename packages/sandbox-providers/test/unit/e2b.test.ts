@@ -1,8 +1,11 @@
-import { Effect, Redacted } from "effect";
+import { Effect, Fiber, Redacted } from "effect";
 import { afterEach, describe, expect, test } from "vitest";
+import { boundedCache } from "../../src/credential-cache.ts";
 import {
 	E2B_PROVIDER_ID,
+	type E2bControlConnectionCache,
 	type E2bHttpClient,
+	e2bControlConnectionsFor,
 	makeE2bSandboxProvider,
 } from "../../src/e2b.ts";
 
@@ -44,7 +47,10 @@ const makeHttp = (
 	};
 };
 
-const makeAdapter = (http: E2bHttpClient) =>
+const makeAdapter = (
+	http: E2bHttpClient,
+	controlConnections?: E2bControlConnectionCache,
+) =>
 	makeE2bSandboxProvider(
 		{
 			apiKey: Redacted.make("secret-key"),
@@ -52,6 +58,7 @@ const makeAdapter = (http: E2bHttpClient) =>
 			apiBaseUrl: "https://sandbox.test",
 		},
 		http,
+		controlConnections,
 	);
 
 const createInput = {
@@ -505,6 +512,93 @@ describe("E2B sandbox provider", () => {
 		).rejects.toMatchObject({ code: "transient" });
 	});
 
+	test.each([
+		"headers",
+		"stream",
+	])("closes an interrupted process request while waiting for %s", async (phase) => {
+		const connections = boundedCache<{ accessToken: string; domain: string }>(
+			1,
+		);
+		connections.set("sbx_1", { accessToken: "token", domain: "guest.test" });
+		let notifyWaiting: () => void = () => {};
+		const waiting = new Promise<void>((resolve) => {
+			notifyWaiting = resolve;
+		});
+		let requestSignal: AbortSignal | null | undefined;
+		const adapter = makeAdapter(
+			{
+				fetch: async (_url, init) => {
+					requestSignal = init?.signal;
+					if (phase === "headers") {
+						notifyWaiting();
+						return new Promise<Response>((_resolve, reject) => {
+							requestSignal?.addEventListener("abort", () =>
+								reject(new Error("aborted")),
+							);
+						});
+					}
+					return new Response(
+						new ReadableStream<Uint8Array>({
+							start(controller) {
+								controller.enqueue(
+									connectJsonResponse({ event: { start: { pid: 42 } } }),
+								);
+								requestSignal?.addEventListener("abort", () =>
+									controller.error(new Error("aborted")),
+								);
+							},
+							pull() {
+								notifyWaiting();
+							},
+						}),
+					);
+				},
+			},
+			connections,
+		);
+		const run = adapter.runProcess;
+		if (!run) throw new Error("missing short process support");
+		const fiber = Effect.runFork(run("sbx_1", { command: "node" }));
+		await waiting;
+		await Effect.runPromise(Fiber.interrupt(fiber));
+		expect(requestSignal?.aborted).toBe(true);
+	});
+
+	test("runs a short operation through exit and returns all stdout chunks", async () => {
+		const http = makeHttp([
+			{
+				status: 200,
+				body: {
+					sandboxID: "sbx_1",
+					state: "running",
+					envdAccessToken: "secret",
+				},
+			},
+			{
+				status: 200,
+				rawBody: Buffer.concat([
+					connectJsonResponse({ event: { start: { pid: 42 } } }),
+					connectJsonResponse({
+						event: { data: { stdout: btoa("first\xc3") } },
+					}),
+					connectJsonResponse({
+						event: { data: { stdout: btoa("\xa9second") } },
+					}),
+					connectJsonResponse({
+						event: { end: { exited: true, exitCode: 7 } },
+					}),
+				]),
+			},
+		]);
+		const adapter = makeAdapter(http.client);
+		await Effect.runPromise(adapter.inspect("sbx_1"));
+		const run = adapter.runProcess;
+		if (!run) throw new Error("missing short process support");
+		await expect(
+			Effect.runPromise(run("sbx_1", { command: "node", user: "zuse" })),
+		).resolves.toEqual({ exitCode: 7, stdout: "firstésecond" });
+	});
+
 	test("reads guest inspection from a complete process stream", async () => {
 		const http = makeHttp([
 			{
@@ -816,5 +910,215 @@ describe("E2B sandbox provider", () => {
 			_tag: "Failure",
 			failure: { code: "transient" },
 		});
+	});
+});
+
+test.each([
+	"timeout",
+	"stat",
+	"write",
+	"missing-stat",
+	"failed-process",
+])("releases an unread %s response instead of holding a Worker connection", async (operation) => {
+	let cancelled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode("unused response"));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	const http = makeHttp([
+		...(operation === "timeout"
+			? []
+			: [
+					{
+						status: 200,
+						body: {
+							sandboxID: "sbx_1",
+							state: "running",
+							envdAccessToken: "envd-secret",
+						},
+					},
+				]),
+		{
+			status:
+				operation === "missing-stat"
+					? 404
+					: operation === "failed-process"
+						? 503
+						: 200,
+			rawBody: body,
+		},
+	]);
+	const adapter = makeAdapter(http.client);
+	const action =
+		operation === "timeout"
+			? adapter.extendTimeout("sbx_1", 300)
+			: operation === "write"
+				? adapter.writeTextFile("sbx_1", "/tmp/receipt", "ready")
+				: operation === "failed-process"
+					? adapter.startProcess("sbx_1", { command: "true" })
+					: adapter.pathExists("sbx_1", "/tmp/receipt").pipe(Effect.asVoid);
+	const result = await Effect.runPromise(action.pipe(Effect.result));
+	expect(result._tag).toBe(
+		operation === "failed-process" ? "Failure" : "Success",
+	);
+	expect(cancelled).toBe(true);
+});
+
+describe("E2B shared control connections", () => {
+	const detail = (envdAccessToken: string) => ({
+		status: 200,
+		body: {
+			sandboxID: "sbx_1",
+			state: "running",
+			domain: "custom.e2b.app",
+			envdAccessToken,
+		},
+	});
+
+	test("a later adapter instance reaches envd without refetching sandbox detail", async () => {
+		const shared = boundedCache<{
+			readonly accessToken: string;
+			readonly domain: string;
+		}>(8);
+		const first = makeHttp([
+			{
+				status: 201,
+				body: {
+					sandboxID: "sbx_1",
+					domain: "custom.e2b.app",
+					envdAccessToken: "envd-secret",
+				},
+			},
+		]);
+		await Effect.runPromise(
+			makeAdapter(first.client, shared).create(createInput),
+		);
+		const second = makeHttp([{ status: 200 }]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(second.client, shared).pathExists("sbx_1", "/tmp/ready"),
+			),
+		).resolves.toBe(true);
+		expect(second.calls.map((call) => call.url)).toEqual([
+			"https://49983-sbx_1.custom.e2b.app/filesystem.Filesystem/Stat",
+		]);
+		expect(second.calls[0]?.init?.headers).toMatchObject({
+			"X-Access-Token": "envd-secret",
+		});
+	});
+
+	test("isolate caches are keyed by API origin and credential, and custom transports stay private", () => {
+		const key = Redacted.make("key-1");
+		const base = e2bControlConnectionsFor({
+			apiKey: key,
+			apiBaseUrl: "https://sandbox.test",
+		});
+		expect(
+			e2bControlConnectionsFor({
+				apiKey: key,
+				apiBaseUrl: "https://sandbox.test/",
+			}),
+		).toBe(base);
+		expect(
+			e2bControlConnectionsFor({
+				apiKey: Redacted.make("key-2"),
+				apiBaseUrl: "https://sandbox.test",
+			}),
+		).not.toBe(base);
+		expect(
+			e2bControlConnectionsFor({
+				apiKey: key,
+				apiBaseUrl: "https://other.test",
+			}),
+		).not.toBe(base);
+		// Two adapters on a custom transport never see each other's tokens.
+		const a = makeHttp([detail("token-a"), { status: 200 }]);
+		const b = makeHttp([detail("token-b"), { status: 200 }]);
+		return Promise.all([
+			Effect.runPromise(makeAdapter(a.client).pathExists("sbx_1", "/x")),
+			Effect.runPromise(makeAdapter(b.client).pathExists("sbx_1", "/x")),
+		]).then(() => {
+			expect(a.calls[1]?.init?.headers).toMatchObject({
+				"X-Access-Token": "token-a",
+			});
+			expect(b.calls[1]?.init?.headers).toMatchObject({
+				"X-Access-Token": "token-b",
+			});
+		});
+	});
+
+	test("an externally rotated token is refreshed once after an authentication rejection", async () => {
+		const shared = boundedCache<{
+			readonly accessToken: string;
+			readonly domain: string;
+		}>(8);
+		shared.set("sbx_1", { accessToken: "stale", domain: "custom.e2b.app" });
+		const http = makeHttp([
+			{ status: 401 },
+			detail("rotated"),
+			{ status: 200 },
+		]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(http.client, shared).pathExists("sbx_1", "/tmp/ready"),
+			),
+		).resolves.toBe(true);
+		expect(http.calls.map((call) => call.url)).toEqual([
+			"https://49983-sbx_1.custom.e2b.app/filesystem.Filesystem/Stat",
+			"https://sandbox.test/sandboxes/sbx_1",
+			"https://49983-sbx_1.custom.e2b.app/filesystem.Filesystem/Stat",
+		]);
+		expect(http.calls[0]?.init?.headers).toMatchObject({
+			"X-Access-Token": "stale",
+		});
+		expect(http.calls[2]?.init?.headers).toMatchObject({
+			"X-Access-Token": "rotated",
+		});
+		expect(shared.get("sbx_1")?.accessToken).toBe("rotated");
+	});
+
+	test("retries authentication exactly once and never retries transport or guest failures", async () => {
+		const twice = boundedCache<{
+			readonly accessToken: string;
+			readonly domain: string;
+		}>(8);
+		twice.set("sbx_1", { accessToken: "stale", domain: "custom.e2b.app" });
+		const rejected = makeHttp([
+			{ status: 403 },
+			detail("still-bad"),
+			{ status: 403 },
+		]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(rejected.client, twice).pathExists("sbx_1", "/tmp/ready"),
+			),
+		).rejects.toMatchObject({ code: "rejected" });
+		expect(rejected.calls).toHaveLength(3);
+
+		const failing = boundedCache<{
+			readonly accessToken: string;
+			readonly domain: string;
+		}>(8);
+		failing.set("sbx_1", { accessToken: "token", domain: "custom.e2b.app" });
+		const guestError = makeHttp([{ status: 500 }]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(guestError.client, failing).pathExists("sbx_1", "/tmp"),
+			),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(guestError.calls).toHaveLength(1);
+		expect(failing.get("sbx_1")?.accessToken).toBe("token");
+
+		const transport = makeHttp([]);
+		await expect(
+			Effect.runPromise(
+				makeAdapter(transport.client, failing).readTextFile("sbx_1", "/tmp/a"),
+			),
+		).rejects.toMatchObject({ code: "transient" });
+		expect(transport.calls).toHaveLength(1);
 	});
 });

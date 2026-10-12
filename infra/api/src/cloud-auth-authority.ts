@@ -15,7 +15,13 @@ import {
 	type SandboxProviderAdapter,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
+import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Schedule } from "effect";
+import {
+	type AuthorityGrantRequest,
+	type AuthorityOperation,
+	CloudAccountExecution,
+} from "./cloud-account-execution.ts";
 import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
@@ -337,6 +343,10 @@ const resultPath = process.argv[3];
 const cachePath = process.argv[4];
 const input = JSON.parse(await readFile(requestPath, "utf8"));
 const writeResult = (value) => writeFile(resultPath, JSON.stringify(value), { mode: 0o600 });
+// Secret-free numeric timing only; the control plane forwards an allowlist.
+const timing = { grantNodeBootMs: Math.round(process.uptime() * 1000), cacheHit: 0, refreshed: 0 };
+const timingStartedAt = Date.now();
+const emitTiming = () => { timing.grantScriptMs = Date.now() - timingStartedAt; process.stdout.write("@zuse-auth-timing " + JSON.stringify(timing) + "\n"); };
 const providerId = input.providerId ?? "codex";
 const supportedProviders = new Set(["claude", "codex", "cursor", "grok"]);
 const providerError = (suffix) => providerId + "-auth-" + suffix;
@@ -361,8 +371,10 @@ const wasRefreshedForRequest = async () => {
 const markRefreshedForRequest = () => writeFile(refreshMarkerPath, "refreshed", { mode: 0o600 });
 try {
   const cached = JSON.parse(await readFile(cachePath, "utf8"));
+  timing.cacheHit = 1;
   if (cached.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
   else await writeResult(cached);
+  emitTiming();
   process.exit(0);
 } catch {}
 const record = (value) => typeof value === "object" && value !== null ? value : {};
@@ -490,7 +502,9 @@ try {
 	if (credential.native === true) {
 	  auth = await readManagedAuth();
 	  if ((input.reason === "unauthorized" && !(await wasRefreshedForRequest())) || auth.expiresAt <= Date.now() + 5 * 60 * 1000) {
-		await refreshCodexAuth();
+		const refreshStartedAt = Date.now();
+		timing.refreshAttempted = 1;
+		try { await refreshCodexAuth(); timing.refreshed = 1; } finally { timing.refreshMs = Date.now() - refreshStartedAt; }
 		await markRefreshedForRequest();
 		auth = await readManagedAuth();
 	  }
@@ -500,7 +514,9 @@ try {
     if (credential.native === true) {
       auth = await readGrokAuth();
       if ((input.reason === "unauthorized" && !(await wasRefreshedForRequest())) || auth.expiresAt <= Date.now() + 5 * 60 * 1000) {
-        await refreshGrokAuth(input.reason === "unauthorized");
+        const refreshStartedAt = Date.now();
+        timing.refreshAttempted = 1;
+        try { await refreshGrokAuth(input.reason === "unauthorized"); timing.refreshed = 1; } finally { timing.refreshMs = Date.now() - refreshStartedAt; }
         await markRefreshedForRequest();
         auth = await readGrokAuth();
       }
@@ -511,12 +527,16 @@ try {
   }
 } catch {
   await writeResult({ errorCode: providerError("reconnect-required") });
+  emitTiming();
   process.exit(0);
 }
+timing.remainingLifetimeMs = Math.max(0, auth.expiresAt - Date.now());
 if (auth.expiresAt <= Date.now() + 60 * 1000) {
   await writeResult({ errorCode: providerError("reconnect-required") });
+  emitTiming();
   process.exit(0);
 }
+const sealStartedAt = Date.now();
 const publicJwk = JSON.parse(input.credentialPublicJwk);
 const key = createPublicKey({ key: publicJwk, format: "jwk" });
 const issuedAt = Date.now();
@@ -530,22 +550,28 @@ const cipher = createCipheriv("aes-256-gcm", contentKey, iv);
 cipher.setAAD(aad);
 const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
 const sealed = { ...aadObject, wrappedKey: publicEncrypt({ key, oaepHash: "sha256", padding: constants.RSA_PKCS1_OAEP_PADDING }, contentKey).toString("base64url"), iv: iv.toString("base64url"), ciphertext: ciphertext.toString("base64url"), tag: cipher.getAuthTag().toString("base64url") };
+timing.sealMs = Date.now() - sealStartedAt;
 const output = { fingerprint, sealed };
 await writeFile(cachePath, JSON.stringify(output), { mode: 0o600, flag: "wx" }).catch(async (error) => { if (error.code !== "EEXIST") throw error; });
 const committed = JSON.parse(await readFile(cachePath, "utf8"));
 if (committed.fingerprint !== fingerprint) await writeResult({ errorCode: providerId + "_grant_request_id_reused" });
 else await writeResult(committed);
+emitTiming();
 `;
 
 /** Compatibility name retained for the Codex-only grant contract test. */
 export const CODEX_GRANT_SOURCE = AUTH_GRANT_SOURCE;
 
-type Authority = {
+/** Where a persisted authority lives; carries no observed power state. */
+type AuthorityLocation = {
 	readonly provider: SandboxProviderAdapter;
 	readonly sandboxId: string;
-	readonly state: "running" | "paused";
 	readonly storageIncarnationId: string;
 	readonly authEpoch: number;
+};
+
+type Authority = AuthorityLocation & {
+	readonly state: "running" | "paused";
 };
 
 export const cloudAuthAuthorityLabel = (input: {
@@ -623,9 +649,18 @@ const providerForAuthority = (locator: { readonly provider: string } | null) =>
 
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
+	options?: {
+		/** Only a persisted ready locator qualifies; never adopt a sandbox by label. */
+		readonly existingOnly?: boolean;
+	},
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
+	if (
+		options?.existingOnly === true &&
+		(locator?.state !== "ready" || locator.providerSandboxId === undefined)
+	)
+		return null;
 	const provider = yield* providerForAuthority(locator);
 	if (locator?.providerSandboxId !== undefined) {
 		const sandbox = yield* provider
@@ -730,33 +765,80 @@ const AUTH_BOOTSTRAP_FILES = [
 ] as const;
 const AUTH_BOOTSTRAP_VERSION = `${AUTH_HOME}/bootstrap-version`;
 
+export const AUTH_READINESS_SOURCE = `
+const { readFileSync, accessSync, constants } = require("node:fs");
+const [home, version, incarnation] = process.argv.slice(1);
+const read = name => { try { return readFileSync(home + "/" + name, "utf8").trim(); } catch (error) { if (error.code === "ENOENT") return ""; throw error; } };
+let privateKey = false;
+try { accessSync(home + "/private.pem", constants.R_OK); privateKey = true; } catch (error) { if (error.code !== "ENOENT") throw error; }
+process.stdout.write(read("bootstrap-version") === version && read("storage-incarnation-id") === incarnation && read("key-id") && read("public.jwk.json") && privateKey ? "ready" : "repair");
+`;
+
+const authorityBootstrapVersion = sha256Hex(
+	JSON.stringify(AUTH_BOOTSTRAP_FILES),
+);
+
 const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 	function* (authority: Authority) {
-		const version = yield* sha256Hex(JSON.stringify(AUTH_BOOTSTRAP_FILES));
-		const [
-			installedVersion,
-			existingIncarnation,
-			existingKey,
-			existingPublicKey,
-		] = yield* Effect.all(
-			[
-				AUTH_BOOTSTRAP_VERSION,
-				AUTH_STORAGE_INCARNATION_ID,
-				AUTH_KEY_ID,
-				AUTH_PUBLIC_JWK,
-			].map((path) => readOptional(authority, path)),
-			{ concurrency: 4 },
-		);
-		if (
-			installedVersion === version &&
-			existingIncarnation === authority.storageIncarnationId &&
-			existingKey &&
-			existingPublicKey &&
-			(yield* authority.provider
-				.pathExists(authority.sandboxId, `${AUTH_HOME}/private.pem`, "zuse")
-				.pipe(Effect.orElseSucceed(() => false)))
-		)
-			return authority;
+		const timed = (stage: string) =>
+			measureCloudStage(
+				{ providerSandboxId: authority.sandboxId },
+				`auth.${stage}`,
+			);
+		const version = yield* authorityBootstrapVersion;
+		const ready = yield* Effect.gen(function* () {
+			if (authority.provider.runProcess !== undefined) {
+				const result = yield* authority.provider
+					.runProcess(authority.sandboxId, {
+						command: "node",
+						args: [
+							"-e",
+							AUTH_READINESS_SOURCE,
+							AUTH_HOME,
+							version,
+							authority.storageIncarnationId,
+						],
+						user: "zuse",
+					})
+					.pipe(
+						timed("inspect-bootstrap"),
+						Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")),
+					);
+				if (
+					result.exitCode !== 0 ||
+					!["ready", "repair"].includes(result.stdout)
+				)
+					return yield* serviceUnavailable("cloud_auth_unavailable");
+				return result.stdout === "ready";
+			}
+			const [
+				installedVersion,
+				existingIncarnation,
+				existingKey,
+				existingPublicKey,
+			] = yield* Effect.all(
+				[
+					AUTH_BOOTSTRAP_VERSION,
+					AUTH_STORAGE_INCARNATION_ID,
+					AUTH_KEY_ID,
+					AUTH_PUBLIC_JWK,
+				].map((path) => readOptional(authority, path)),
+				{ concurrency: 4 },
+			).pipe(timed("inspect-bootstrap"));
+			return Boolean(
+				installedVersion === version &&
+					existingIncarnation === authority.storageIncarnationId &&
+					existingKey &&
+					existingPublicKey &&
+					(yield* authority.provider
+						.pathExists(authority.sandboxId, `${AUTH_HOME}/private.pem`, "zuse")
+						.pipe(
+							timed("inspect-private-key"),
+							Effect.orElseSucceed(() => false),
+						)),
+			);
+		});
+		if (ready) return authority;
 		// A failed repair must not leave a previously valid readiness marker behind.
 		yield* authority.provider
 			.writeTextFile(authority.sandboxId, AUTH_BOOTSTRAP_VERSION, "", "zuse")
@@ -866,6 +948,10 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 		yield* authority.provider
 			.extendTimeout(authority.sandboxId, AUTH_TIMEOUT_SECONDS)
 			.pipe(
+				measureCloudStage(
+					{ providerSandboxId: authority.sandboxId },
+					"auth.extend-timeout",
+				),
 				Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")),
 			);
 		return authority;
@@ -874,6 +960,32 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 		.resume(authority.sandboxId, AUTH_TIMEOUT_SECONDS, "pause")
 		.pipe(Effect.mapError(() => serviceUnavailable("cloud_auth_unavailable")));
 	return { ...authority, state: resumed.state } satisfies Authority;
+});
+
+/**
+ * Best-effort preparation of an account's EXISTING authority so a fresh
+ * workspace's first grant finds it running and ready. It only ever acts on a
+ * persisted ready locator: it resumes, extends and repairs through the same
+ * code every grant uses, and never creates, adopts by label, or replaces a
+ * sandbox. A missing or storage-mismatched authority is reported, not fixed;
+ * the normal bootstrap path keeps its own fences and fallbacks.
+ */
+export const prepareExistingCloudAuthAuthority = Effect.fn(
+	"prepareExistingCloudAuthAuthority",
+)(function* (accountId: string) {
+	const executor = yield* CloudAccountExecution;
+	if (executor !== undefined) {
+		const prepared = yield* executor.prepare(accountId);
+		if (prepared !== null) return prepared;
+	}
+	const recovered = yield* recoverAuthority(accountId, { existingOnly: true });
+	if (recovered === null) return "absent" as const;
+	const initialized = yield* initializeAuthority(
+		yield* ensureRunning(recovered),
+	);
+	return initialized.storageIncarnationId === recovered.storageIncarnationId
+		? ("ready" as const)
+		: ("stale" as const);
 });
 
 const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (
@@ -952,13 +1064,15 @@ const provisionAuthority = Effect.fn("provisionCloudAuthAuthority")(function* (
 					serviceUnavailable("cloud_auth_provision_failed"),
 				),
 			));
-	const initialized = yield* initializeAuthority({
-		provider,
-		sandboxId: created.providerSandboxId,
-		state: created.state,
-		storageIncarnationId: claim.record.storageIncarnationId,
-		authEpoch: claim.record.authEpoch,
-	});
+	const initialized = yield* initializeAuthority(
+		yield* ensureRunning({
+			provider,
+			sandboxId: created.providerSandboxId,
+			state: created.state,
+			storageIncarnationId: claim.record.storageIncarnationId,
+			authEpoch: claim.record.authEpoch,
+		}),
+	);
 	const record = yield* store.completeCloudAuthAuthorityProvisioning({
 		accountId,
 		providerSandboxId: created.providerSandboxId,
@@ -1218,7 +1332,7 @@ export const configureCloudAuth = Effect.fn("configureCloudAuth")(function* (
 		})()
 	)
 		return yield* Effect.fail(badRequest("invalid_cloud_auth_base_url"));
-	const authority = yield* ensureRunning(yield* provisionAuthority(accountId));
+	const authority = yield* provisionAuthority(accountId);
 	const operationId = crypto.randomUUID();
 	const requestPath = `${AUTH_HOME}/operations/configure-${operationId}.request.json`;
 	const resultPath = `${AUTH_HOME}/operations/configure-${operationId}.result.json`;
@@ -1268,9 +1382,7 @@ export const startCloudAuthLogin = Effect.fn("startCloudAuthLogin")(function* (
 	accountId: string,
 	providerId: "codex" | "grok",
 ) {
-	const authority = yield* ensureRunning(
-		yield* provisionAuthority(accountId, true),
-	);
+	const authority = yield* provisionAuthority(accountId, true);
 	if (providerId === "codex") {
 		yield* (yield* CloudWorkspaceStore).advanceCloudAuthEpoch({
 			accountId,
@@ -1435,20 +1547,244 @@ export interface IssueProviderGrantInput {
 	readonly previousProviderAccountId?: string;
 }
 
-interface IssueAuthorityGrantInput {
-	readonly accountId: string;
-	readonly workspaceId: string;
-	readonly runtimeGeneration: number;
-	readonly providerId: CloudAuthProvider;
-	readonly bindProviderId: boolean;
-	readonly recipientPublicJwk: string;
-	readonly recipientKeyThumbprint: string;
-	readonly requestId: string;
-	readonly reason: ProviderGrantRefreshReason;
-	readonly previousProviderAccountId?: string;
-}
+type IssueAuthorityGrantInput = AuthorityGrantRequest;
 
-const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
+/** The durable request, lock, and cache identity shared by every grant attempt. */
+const grantPaths = (input: IssueAuthorityGrantInput, operationId: string) => ({
+	requestPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`,
+	resultPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`,
+	cachePath: `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`,
+	lockPath: `${AUTH_HOME}/${input.providerId}-refresh.lock`,
+});
+
+const grantRequestJson = (
+	input: IssueAuthorityGrantInput,
+	authority: Pick<AuthorityLocation, "storageIncarnationId" | "authEpoch">,
+) =>
+	JSON.stringify({
+		protocolVersion: 1,
+		...(input.bindProviderId ? { providerId: input.providerId } : {}),
+		requestId: input.requestId,
+		accountId: input.accountId,
+		workspaceId: input.workspaceId,
+		runtimeGeneration: input.runtimeGeneration,
+		credentialPublicJwk: input.recipientPublicJwk,
+		keyThumbprint: input.recipientKeyThumbprint,
+		reason: input.reason,
+		...(input.previousProviderAccountId === undefined
+			? {}
+			: input.bindProviderId
+				? {
+						previousProviderAccountId: input.previousProviderAccountId,
+					}
+				: {
+						previousChatgptAccountId: input.previousProviderAccountId,
+					}),
+		authorityIncarnationId: authority.storageIncarnationId,
+		authorityEpoch: authority.authEpoch,
+	});
+
+// Keep the same durable request/cache and refresh lock, but execute the
+// short operation directly instead of installing a service and polling.
+// Guest timing rides on stdout as sentinel lines the control plane strips and
+// allowlists before the existing JSON parse; the result value and exit status
+// are unchanged. Numbers only; the adapter returns no stderr.
+const GUEST_TIMING_PREFIX = "@zuse-auth-timing ";
+const GRANT_SHELL = `umask 077; printf %s "$1" > "$2" || exit $?; g0=$(date +%s%3N); flock -x "$3" node "$4" "$2" "$5" "$6"; code=$?; g1=$(date +%s%3N); printf '\n${GUEST_TIMING_PREFIX}{"grantNodeMs":%s}\n' "$((g1-g0))"; [ "$code" -eq 0 ] || exit "$code"; cat "$5"`;
+// Readiness is proven in the same guest run; a stale or missing bootstrap
+// reports "repair" and exits before any request is written or lock taken.
+const READINESS_REPAIR_EXIT = 75;
+const READINESS_CHECK_FAILED_EXIT = 70;
+const READY_GRANT_SHELL = `r0=$(date +%s%3N); state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; r1=$(date +%s%3N); printf '${GUEST_TIMING_PREFIX}{"readinessNodeMs":%s}\n' "$((r1-r0))"; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
+
+const GUEST_TIMING_FIELDS = new Set([
+	"readinessNodeMs",
+	"grantNodeMs",
+	"grantNodeBootMs",
+	"grantScriptMs",
+	"cacheHit",
+	"refreshAttempted",
+	"refreshed",
+	"refreshMs",
+	"sealMs",
+	"remainingLifetimeMs",
+]);
+const GUEST_TIMING_MAX_LINES = 8;
+const GUEST_TIMING_MAX_LINE_LENGTH = 512;
+const GUEST_TIMING_MAX_VALUE = 1_000_000_000;
+
+/**
+ * Separate the grant protocol value from guest timing lines. Only allowlisted
+ * finite non-negative numbers survive; strings, unknown keys, malformed or
+ * oversized lines are dropped, so nothing from the guest reaches logs except
+ * these numbers. The remaining text is the exact grant output.
+ */
+export const parseAuthorityGrantOutput = (
+	stdout: string,
+): {
+	readonly value: string;
+	readonly timing: Readonly<Record<string, number>>;
+} => {
+	const timing: Record<string, number> = {};
+	const rest: string[] = [];
+	let seen = 0;
+	for (const line of stdout.split("\n")) {
+		if (!line.startsWith(GUEST_TIMING_PREFIX)) {
+			rest.push(line);
+			continue;
+		}
+		seen += 1;
+		if (
+			seen > GUEST_TIMING_MAX_LINES ||
+			line.length > GUEST_TIMING_MAX_LINE_LENGTH
+		)
+			continue;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(line.slice(GUEST_TIMING_PREFIX.length));
+		} catch {
+			continue;
+		}
+		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+			continue;
+		for (const [key, value] of Object.entries(parsed)) {
+			if (
+				GUEST_TIMING_FIELDS.has(key) &&
+				typeof value === "number" &&
+				Number.isFinite(value) &&
+				value >= 0 &&
+				value <= GUEST_TIMING_MAX_VALUE
+			)
+				timing[key] = Math.round(value);
+		}
+	}
+	return { value: rest.join("\n").trim(), timing };
+};
+
+const logAuthorityGuestTiming = (
+	context: {
+		readonly workspaceId: string;
+		readonly providerSandboxId: string;
+		readonly providerId: CloudAuthProvider;
+		readonly path: "fast" | "provisioned";
+	},
+	timing: Readonly<Record<string, number>>,
+): void => {
+	if (Object.keys(timing).length === 0) return;
+	console.info("[cloud-timing]", {
+		workspaceId: context.workspaceId,
+		providerSandboxId: context.providerSandboxId,
+		provider: context.providerId,
+		reason: context.path,
+		stage: "auth.guest-grant",
+		atMs: Date.now(),
+		...timing,
+	});
+};
+
+const grantShellArgs = (
+	request: string,
+	paths: ReturnType<typeof grantPaths>,
+) => [
+	"zuse-auth-grant",
+	request,
+	paths.requestPath,
+	paths.lockPath,
+	AUTH_CODEX_GRANT,
+	paths.resultPath,
+	paths.cachePath,
+];
+
+/**
+ * One guest run for a persisted ready authority: verify the exact bootstrap,
+ * incarnation and keys, then execute the grant, while the idle timeout is
+ * extended concurrently. Anything short of a proven-ready execution returns
+ * null so the caller takes the existing provisioning path with the same
+ * request identity; the grant cache makes a lost response idempotent.
+ */
+const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	operationId: string,
+) {
+	const store = yield* CloudWorkspaceStore;
+	const locator = yield* store.getCloudAuthAuthority(input.accountId);
+	if (locator?.state !== "ready" || locator.providerSandboxId === undefined)
+		return null;
+	const provider = yield* providerForAuthority(locator);
+	const runProcess = provider.runProcess;
+	if (runProcess === undefined) return null;
+	const location: AuthorityLocation = {
+		provider,
+		sandboxId: locator.providerSandboxId,
+		storageIncarnationId: locator.storageIncarnationId,
+		authEpoch: locator.authEpoch,
+	};
+	const paths = grantPaths(input, operationId);
+	const version = yield* authorityBootstrapVersion;
+	const timed = (stage: string) =>
+		measureCloudStage(
+			{ workspaceId: input.workspaceId, providerSandboxId: location.sandboxId },
+			`auth.${stage}`,
+		);
+	const [extended, executed] = yield* Effect.all(
+		[
+			provider
+				.extendTimeout(location.sandboxId, AUTH_TIMEOUT_SECONDS)
+				.pipe(timed("extend-timeout"), Effect.result),
+			runProcess(location.sandboxId, {
+				command: "/bin/bash",
+				args: [
+					"-c",
+					READY_GRANT_SHELL,
+					...grantShellArgs(grantRequestJson(input, location), paths),
+					AUTH_READINESS_SOURCE,
+					AUTH_HOME,
+					version,
+					location.storageIncarnationId,
+				],
+				user: "zuse",
+			}).pipe(timed("ready-grant"), Effect.result),
+		],
+		{ concurrency: "unbounded" },
+	);
+	const fallback = (reason: string) => {
+		console.info("[cloud-auth] fast grant fallback", {
+			sandboxId: location.sandboxId,
+			reason,
+		});
+		return null;
+	};
+	if (executed._tag === "Failure") return fallback("authority-unreachable");
+	const result = executed.success;
+	const { value, timing } = parseAuthorityGrantOutput(result.stdout);
+	logAuthorityGuestTiming(
+		{
+			workspaceId: input.workspaceId,
+			providerSandboxId: location.sandboxId,
+			providerId: input.providerId,
+			path: "fast",
+		},
+		timing,
+	);
+	if (
+		result.exitCode === READINESS_REPAIR_EXIT ||
+		result.exitCode === READINESS_CHECK_FAILED_EXIT
+	)
+		return fallback(
+			value === "repair" ? "stale-bootstrap" : "readiness-unproven",
+		);
+	if (extended._tag === "Failure")
+		console.warn("[cloud-auth] authority timeout extension failed", {
+			sandboxId: location.sandboxId,
+		});
+	// Readiness was proven, so a failing grant is this attempt's answer, never a
+	// reason to run a second refresh through the provisioning path.
+	if (result.exitCode !== 0)
+		return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
+	return { authority: location, value };
+});
+
+export const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 	input: IssueAuthorityGrantInput,
 ) {
 	if (
@@ -1461,42 +1797,89 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		return yield* Effect.fail(
 			badRequest(`invalid_${input.providerId}_grant_request`),
 		);
-	const authority = yield* ensureRunning(
-		yield* provisionAuthority(input.accountId),
-	);
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	const executor = yield* CloudAccountExecution;
+	if (executor !== undefined) {
+		const sealed = yield* executor.grant(input);
+		if (sealed !== null) return sealed;
+	}
 	const operationId = crypto.randomUUID();
-	const requestPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`;
-	const resultPath = `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`;
-	const cachePath = `${AUTH_HOME}/grant-cache/${input.bindProviderId ? `${input.providerId}-` : ""}${input.requestId}.json`;
-	yield* authority.provider
-		.writeTextFile(
-			authority.sandboxId,
-			requestPath,
-			JSON.stringify({
-				protocolVersion: 1,
-				...(input.bindProviderId ? { providerId: input.providerId } : {}),
-				requestId: input.requestId,
-				accountId: input.accountId,
+	const fast = yield* fastAuthorityGrant(input, operationId);
+	const { authority, value } =
+		fast ??
+		(yield* Effect.gen(function* () {
+			const authority = yield* provisionAuthority(input.accountId).pipe(
+				timed("prepare-authority"),
+			);
+			const paths = grantPaths(input, operationId);
+			const request = grantRequestJson(input, authority);
+			const value = yield* executeProvisionedGrant(
+				input,
+				authority,
+				operationId,
+				request,
+				paths,
+			);
+			return { authority, value };
+		}));
+	return yield* parseSealedGrant(input, authority, value);
+});
+
+const executeProvisionedGrant = Effect.fn("executeProvisionedGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	authority: Authority,
+	operationId: string,
+	request: string,
+	{
+		requestPath,
+		resultPath,
+		cachePath,
+		lockPath,
+	}: ReturnType<typeof grantPaths>,
+) {
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	if (authority.provider.runProcess !== undefined) {
+		const result = yield* authority.provider
+			.runProcess(authority.sandboxId, {
+				command: "/bin/bash",
+				args: [
+					"-c",
+					GRANT_SHELL,
+					...grantShellArgs(request, {
+						requestPath,
+						resultPath,
+						cachePath,
+						lockPath,
+					}),
+				],
+				user: "zuse",
+			})
+			.pipe(
+				timed("execute-grant"),
+				Effect.mapError(() =>
+					serviceUnavailable(`${input.providerId}-auth-reconnecting`),
+				),
+			);
+		const { value, timing } = parseAuthorityGrantOutput(result.stdout);
+		logAuthorityGuestTiming(
+			{
 				workspaceId: input.workspaceId,
-				runtimeGeneration: input.runtimeGeneration,
-				credentialPublicJwk: input.recipientPublicJwk,
-				keyThumbprint: input.recipientKeyThumbprint,
-				reason: input.reason,
-				...(input.previousProviderAccountId === undefined
-					? {}
-					: input.bindProviderId
-						? {
-								previousProviderAccountId: input.previousProviderAccountId,
-							}
-						: {
-								previousChatgptAccountId: input.previousProviderAccountId,
-							}),
-				authorityIncarnationId: authority.storageIncarnationId,
-				authorityEpoch: authority.authEpoch,
-			}),
-			"zuse",
-		)
+				providerSandboxId: authority.sandboxId,
+				providerId: input.providerId,
+				path: "provisioned",
+			},
+			timing,
+		);
+		if (result.exitCode !== 0)
+			return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
+		return value;
+	}
+	yield* authority.provider
+		.writeTextFile(authority.sandboxId, requestPath, request, "zuse")
 		.pipe(
+			timed("write-grant-request"),
 			Effect.mapError(() =>
 				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
 			),
@@ -1506,7 +1889,7 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 			command: "flock",
 			args: [
 				"-x",
-				`${AUTH_HOME}/${input.providerId}-refresh.lock`,
+				lockPath,
 				"node",
 				AUTH_CODEX_GRANT,
 				requestPath,
@@ -1517,11 +1900,21 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 			tag: `zuse-cloud-auth-${input.providerId}-grant-${operationId}`,
 		})
 		.pipe(
+			timed("start-grant"),
 			Effect.mapError(() =>
 				serviceUnavailable(`${input.providerId}-auth-reconnecting`),
 			),
 		);
-	const value = yield* waitForFile(authority, resultPath, 350);
+	return yield* waitForFile(authority, resultPath, 350).pipe(
+		timed("receive-grant"),
+	);
+});
+
+const parseSealedGrant = Effect.fn("parseSealedGrant")(function* (
+	input: IssueAuthorityGrantInput,
+	authority: Pick<AuthorityLocation, "storageIncarnationId" | "authEpoch">,
+	value: string,
+) {
 	let parsed: { readonly errorCode?: unknown; readonly sealed?: unknown };
 	try {
 		parsed = JSON.parse(value) as typeof parsed;
@@ -1648,4 +2041,16 @@ export const availableCloudAgents = Effect.fn("availableCloudAgents")(
 					.map((provider) => provider.providerId)
 			: [];
 	},
+);
+
+/** The account object uses the same implementation with delegation disabled. */
+export const executeCloudAuthOperationDirect = Effect.fn(
+	"executeCloudAuthOperationDirect",
+)(
+	function* (operation: AuthorityOperation) {
+		return operation.op === "grant"
+			? yield* issueAuthorityGrant(operation.input)
+			: yield* prepareExistingCloudAuthAuthority(operation.accountId);
+	},
+	Effect.provideService(CloudAccountExecution, undefined),
 );

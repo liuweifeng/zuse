@@ -372,8 +372,8 @@ describe("Box sandbox provider", () => {
 				.slice(1)
 				.map((call) => JSON.parse(String(call.init?.body)).command),
 		).toEqual([
-			expect.stringContaining("for root in /usr /etc /opt /srv"),
-			expect.stringContaining("for root in /usr /etc /opt /srv"),
+			expect.stringContaining("for root in /etc /srv"),
+			expect.stringContaining("for root in /etc /srv"),
 		]);
 	});
 
@@ -792,6 +792,22 @@ describe("Box sandbox provider", () => {
 		expect(http.calls[0]?.url).toBe("https://box.test/sandboxes/bx_1/stop");
 	});
 
+	test.each([
+		"archived",
+		"running",
+	])("verifies the state after a rejected stop (%s)", async (state) => {
+		const http = makeHttp([
+			{ status: 400, body: { code: "stop_failed" } },
+			{
+				status: 200,
+				body: { sandbox: { ...readyBox("bx_1").sandbox, state } },
+			},
+		]);
+		const result = Effect.runPromise(makeAdapter(http.client).pause("bx_1"));
+		if (state === "archived") await expect(result).resolves.toBeUndefined();
+		else await expect(result).rejects.toMatchObject({ code: "rejected" });
+	});
+
 	test("resumes with only persisted layout preparation", async () => {
 		const http = makeHttp([
 			{ status: 202, body: {} },
@@ -877,6 +893,11 @@ describe("Box sandbox provider", () => {
 			await promisify(execFile)("bash", [
 				"-c",
 				`${shim}; node() { exit 95; }; export -f node; ${command}`,
+			]);
+			// Executables may still be lazily restored after all writable state is on disk.
+			await promisify(execFile)("bash", [
+				"-c",
+				`${shim}; findmnt() { if [[ "\${*: -1}" == /usr || "\${*: -1}" == /opt ]]; then echo fuse; else echo ext4; fi; }; ${command}`,
 			]);
 			await expect(
 				promisify(execFile)("bash", [
@@ -1243,4 +1264,21 @@ describe("Box provider-reported usage", () => {
 		).rejects.toBeDefined();
 		expect(http.calls).toHaveLength(0);
 	});
+});
+
+test("releases tolerated deletion responses without retaining a Worker connection", async () => {
+	let cancelled = false;
+	const body = new ReadableStream<Uint8Array>({
+		start(controller) {
+			controller.enqueue(new TextEncoder().encode("not found"));
+		},
+		cancel() {
+			cancelled = true;
+		},
+	});
+	const adapter = makeAdapter({
+		fetch: async () => new Response(body, { status: 404 }),
+	});
+	await Effect.runPromise(adapter.kill("already-deleted"));
+	expect(cancelled).toBe(true);
 });

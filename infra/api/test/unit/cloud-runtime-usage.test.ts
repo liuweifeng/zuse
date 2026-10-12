@@ -21,7 +21,10 @@ import {
 	runtimeUsageInterval,
 } from "../../src/cloud-usage-store.ts";
 import { reserveProviderCost } from "../../src/cloud-workspace-reconciler.ts";
-import { CloudWorkspaceStoreMemory } from "../../src/cloud-workspace-store.ts";
+import {
+	CloudWorkspaceStore,
+	CloudWorkspaceStoreMemory,
+} from "../../src/cloud-workspace-store.ts";
 import { layer as configLayer } from "../../src/config.ts";
 
 const observation: RuntimeObservation = {
@@ -211,6 +214,32 @@ it("exports runtime independently of invoice export, preserving event identity a
 	} finally {
 		warn.mockRestore();
 	}
+});
+
+it("records a stopped observation without resolving provider credentials", async () => {
+	const store = Effect.runSync(
+		CloudBillingStore.pipe(Effect.provide(CloudBillingStoreMemory)),
+	);
+	const workspaces = Effect.runSync(
+		CloudWorkspaceStore.pipe(Effect.provide(CloudWorkspaceStoreMemory)),
+	);
+	const record = vi.spyOn(store, "recordRuntimeObservation");
+	const readWorkspace = vi.spyOn(workspaces, "getWorkspace");
+	const stopped = { ...observation, runningSinceMs: undefined };
+	await Effect.runPromise(
+		observeCloudRuntimeUsage(stopped).pipe(
+			Effect.provide(
+				Layer.mergeAll(
+					config(true),
+					Layer.succeed(CloudBillingStore, store),
+					Layer.succeed(CloudWorkspaceStore, workspaces),
+					makeSandboxProvidersFake(),
+				),
+			),
+		),
+	);
+	expect(readWorkspace).not.toHaveBeenCalled();
+	expect(record).toHaveBeenCalledWith(stopped);
 });
 
 it("does not observe or export when the usage switch is disabled", async () => {

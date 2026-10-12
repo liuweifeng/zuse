@@ -277,6 +277,16 @@ export const extraWellKnownCliPaths = (
  */
 const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode", "opencode2"]);
 
+const executableCliPath = (path: string): string | null => {
+	try {
+		if (!isAbsolute(path) || !statSync(path).isFile()) return null;
+		accessSync(path, constants.X_OK);
+		return path;
+	} catch {
+		return null;
+	}
+};
+
 /**
  * Resolve the absolute path to a provider's CLI binary on PATH, or `null` if
  * not found. Used by `ProviderService.start` to feed the SDK's
@@ -295,13 +305,15 @@ export const resolveCliPath = (
 			? overrides[provider.providerId]?.trim()
 			: undefined;
 		if (override) {
-			try {
-				if (!isAbsolute(override) || !statSync(override).isFile()) return null;
-				accessSync(override, constants.X_OK);
-				return override;
-			} catch {
-				return null;
-			}
+			return executableCliPath(override);
+		}
+		// Managed images already validated their pinned tools at build time.
+		// Cold filesystem reads can time out a version probe and incorrectly
+		// select an older global CLI. Prefer that known toolchain directly.
+		const toolchain = process.env.ZUSE_MANAGED_TOOLCHAIN_BIN;
+		if (toolchain) {
+			const pinned = executableCliPath(join(toolchain, cliBinary));
+			if (pinned !== null) return pinned;
 		}
 		const result = yield* runCapture(
 			Command.make("which", ["-a", cliBinary]),

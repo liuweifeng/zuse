@@ -13,6 +13,7 @@
 		"./github-installation": "./src/github-installation.ts",
 		"./site-favicon": "./src/site-favicon.ts",
 		"./cloud-timing": "./src/cloud-timing.ts",
+		"./cloud-launch-grant": "./src/cloud-launch-grant.ts",
 		"./cloud-api": "./src/cloud-api.ts",
 		"./cloud-transcript-crypto": "./src/cloud-transcript-crypto.ts",
 		"./cloud-command-crypto": "./src/cloud-command-crypto.ts",

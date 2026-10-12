@@ -10,6 +10,7 @@ import {
 	boxSystemdProcessCommand,
 	boxSystemdProcessInspectionCommand,
 } from "./box-process.ts";
+import { discardResponseBody } from "./http-response.ts";
 import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
@@ -238,7 +239,6 @@ export const makeBoxSandboxProvider = (
 
 	const responseErrorCode = (response: Response): Promise<string | undefined> =>
 		response
-			.clone()
 			.json()
 			.then((payload: unknown) =>
 				typeof payload === "object" &&
@@ -305,7 +305,7 @@ export const makeBoxSandboxProvider = (
 		send(method, path, body, headers).pipe(
 			Effect.flatMap((response) =>
 				response.ok || toleratedStatuses.includes(response.status)
-					? Effect.void
+					? discardResponseBody(response)
 					: failForResponse(method, response),
 			),
 		);
@@ -394,10 +394,11 @@ export const makeBoxSandboxProvider = (
 
 	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
 		[
-			// Boat advertises ready while system paths may still use its temporary
-			// FUSE restore view. Writes there can acquire uid 1000 or disappear at
-			// handover. Do not modify the layout or start Zuse until disk mounts win.
-			'for root in /usr /etc /opt /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
+			// Wait for authoritative runtime storage and the user database.
+			// Executables in /usr and /opt can load lazily during restore; waiting
+			// for every installed tool needlessly gates the workspace runtime.
+			// Mutable runtime data and ownership journals remain behind /srv.
+			'for root in /etc /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			rootProcessCommand(
 				[
 					boatProcessStorageScript(),
@@ -494,11 +495,19 @@ export const makeBoxSandboxProvider = (
 					),
 				),
 			);
-			yield* pollUntilUsable(created.sandbox.id, readyDeadlineMs);
+			const timed = (stage: string) =>
+				measureCloudStage(
+					{ provider: "box", providerSandboxId: created.sandbox.id },
+					stage,
+				);
+			yield* pollUntilUsable(created.sandbox.id, readyDeadlineMs).pipe(
+				timed("box.create.usable"),
+			);
 			yield* ensureRuntimeLayout(
 				created.sandbox.id,
 				input.requirePersistedLayout,
 			).pipe(
+				timed("box.create.prepare"),
 				Effect.catchTag("SandboxProviderError", (error) =>
 					kill(created.sandbox.id).pipe(
 						Effect.ignore,
@@ -806,6 +815,20 @@ export const makeBoxSandboxProvider = (
 				{},
 				// 409 covers an already archived box or an in-flight stop.
 				[409],
+			).pipe(
+				Effect.catchTag("SandboxProviderError", (error) =>
+					error.code !== "rejected"
+						? Effect.fail(error)
+						: inspect(providerSandboxId).pipe(
+								// Boat also returns 400 stop_failed after TTL archival.
+								// Confirm retained paused storage instead of failing a retry.
+								Effect.flatMap((sandbox) =>
+									sandbox?.state === "paused"
+										? Effect.void
+										: Effect.fail(error),
+								),
+							),
+				),
 			),
 		resume: Effect.fn("BoxSandboxProvider.resume")(
 			function* (providerSandboxId, timeoutSeconds, _onTimeout, sizeId) {

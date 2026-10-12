@@ -22,21 +22,26 @@ import {
 } from "@zuse/contracts";
 import {
 	makeSandboxProviders,
+	type SandboxProviderAdapter,
 	SandboxProviderError,
 	SandboxProviders,
 } from "@zuse/sandbox-providers";
 import { SandboxProvidersFake } from "@zuse/sandbox-providers/testing";
 import { Effect, Layer, Redacted } from "effect";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
+	AUTH_READINESS_SOURCE,
 	CODEX_GRANT_SOURCE,
 	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
 	cloudAuthStatus,
+	issueProviderGrant,
+	parseAuthorityGrantOutput,
 	parseDeviceLoginOutput,
 	pollCloudAuthLogin,
+	prepareExistingCloudAuthAuthority,
 	provisionCloudAuth,
 	snapshotCloudAuthAuthority,
 	startCloudAuthLogin,
@@ -472,9 +477,23 @@ describe("cloud auth authority Codex grants", () => {
 							ZUSE_CLOUD_AUTH_HOME: authHome,
 							ZUSE_CODEX_AUTH_FILE: authFile,
 						},
+						encoding: "utf8",
 					},
 				);
-			run();
+			const firstStdout = run();
+			// Guest timing is numeric only and never carries token or account data.
+			const firstTiming = parseAuthorityGrantOutput(firstStdout);
+			expect(firstTiming.value).toBe("");
+			expect(firstTiming.timing).toMatchObject({
+				cacheHit: 0,
+				refreshed: 0,
+			});
+			expect(firstTiming.timing.sealMs).toBeGreaterThanOrEqual(0);
+			expect(firstTiming.timing.remainingLifetimeMs).toBeGreaterThan(0);
+			expect(firstTiming.timing.grantNodeBootMs).toBeGreaterThanOrEqual(0);
+			expect(firstStdout).not.toContain(accessToken);
+			expect(firstStdout).not.toContain("authority-only-refresh-token");
+			expect(firstStdout).not.toContain("chatgpt-account");
 			const firstText = readFileSync(resultPath, "utf8");
 			expect(firstText).not.toContain(accessToken);
 			expect(firstText).not.toContain("authority-only-refresh-token");
@@ -509,7 +528,9 @@ describe("cloud auth authority Codex grants", () => {
 				runtimeGeneration: 3,
 				accessToken,
 			});
-			run();
+			const secondTiming = parseAuthorityGrantOutput(run());
+			expect(secondTiming.timing).toMatchObject({ cacheHit: 1 });
+			expect(secondTiming.timing.sealMs).toBeUndefined();
 			expect(readFileSync(resultPath, "utf8")).toBe(firstText);
 
 			writeFileSync(
@@ -883,6 +904,588 @@ describe("cloud auth device-login output", () => {
 		).toEqual({
 			verificationUrl: "https://auth.x.ai/device",
 			verificationCode: "WXYZ-1234",
+		});
+	});
+});
+
+describe("authority bootstrap readiness", () => {
+	test("requires matching scripts, storage identity, and both key files", () => {
+		const home = mkdtempSync(join(tmpdir(), "zuse-auth-readiness-"));
+		const ready = () =>
+			execFileSync(
+				process.execPath,
+				["-e", AUTH_READINESS_SOURCE, home, "v1", "incarnation"],
+				{ encoding: "utf8" },
+			);
+		try {
+			expect(ready()).toBe("repair");
+			for (const [name, value] of Object.entries({
+				"bootstrap-version": "v1",
+				"storage-incarnation-id": "incarnation",
+				"key-id": "key",
+				"public.jwk.json": "public",
+				"private.pem": "private",
+			})) {
+				writeFileSync(join(home, name), value);
+			}
+			expect(ready()).toBe("ready");
+			writeFileSync(join(home, "storage-incarnation-id"), "other");
+			expect(ready()).toBe("repair");
+			writeFileSync(join(home, "storage-incarnation-id"), "incarnation");
+			writeFileSync(join(home, "bootstrap-version"), "old");
+			expect(ready()).toBe("repair");
+			writeFileSync(join(home, "bootstrap-version"), "v1");
+			rmSync(join(home, "private.pem"));
+			expect(ready()).toBe("repair");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("cloud auth authority grant fast path", () => {
+	const home = "/home/zuse/.zuse/cloud-auth";
+	const requestId = "550e8400-e29b-41d4-a716-446655440000";
+	const grantInput = {
+		accountId: "account",
+		workspaceId: "workspace-1",
+		runtimeGeneration: 3,
+		providerId: "claude" as const,
+		recipientPublicJwk: "{}",
+		recipientKeyThumbprint: "runtime-thumbprint",
+		requestId,
+		reason: "initial" as const,
+	};
+	type RunProcessInput = Parameters<
+		NonNullable<SandboxProviderAdapter["runProcess"]>
+	>[1];
+	const scriptOf = (input: RunProcessInput) =>
+		input.command === "node"
+			? "readiness"
+			: input.args?.[1]?.includes('"$7"')
+				? "ready-grant"
+				: "grant";
+	const requestArg = (input: RunProcessInput) =>
+		JSON.parse(input.args?.[3] ?? "{}") as { readonly requestId?: string };
+
+	const harness = (options: {
+		readonly readyGrant: (
+			input: RunProcessInput,
+		) => Effect.Effect<
+			{ readonly exitCode: number; readonly stdout: string },
+			SandboxProviderError
+		>;
+		readonly inspectState?: "running" | null;
+	}) =>
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			yield* store.claimCloudAuthAuthority({
+				accountId: "account",
+				provider: "fake",
+				candidateStorageIncarnationId: "incarnation",
+				toolchainVersion: "test",
+				leaseOwner: "worker",
+				nowMs: 100,
+				leaseExpiresAtMs: 200,
+			});
+			yield* store.completeCloudAuthAuthorityProvisioning({
+				accountId: "account",
+				providerSandboxId: "authority",
+				storageIncarnationId: "incarnation",
+				toolchainVersion: "test",
+				leaseOwner: "worker",
+				nowMs: 150,
+			});
+			const locator = yield* store.getCloudAuthAuthority("account");
+			const sealed = JSON.stringify({
+				sealed: {
+					protocolVersion: 1,
+					providerId: "claude",
+					requestId,
+					keyThumbprint: "runtime-thumbprint",
+					authorityIncarnationId: "incarnation",
+					authorityEpoch: locator?.authEpoch,
+					wrappedKey: "wrapped",
+					iv: "iv",
+					ciphertext: "ciphertext",
+					tag: "tag",
+				},
+			});
+			const files = new Map<string, string>();
+			const calls: RunProcessInput[] = [];
+			const counters = {
+				inspections: 0,
+				extensions: 0,
+				initializations: 0,
+				creations: 0,
+			};
+			const fake = yield* (yield* SandboxProviders).get("fake");
+			const registry = yield* makeSandboxProviders({
+				registrations: [
+					{
+						adapter: {
+							...fake,
+							inspect: () => {
+								counters.inspections++;
+								return Effect.succeed(
+									options.inspectState === null
+										? null
+										: {
+												providerSandboxId: "authority",
+												providerLabel: "authority",
+												state: "running" as const,
+											},
+								);
+							},
+							create: () => {
+								counters.creations++;
+								return Effect.fail(
+									new SandboxProviderError({ code: "rejected" }),
+								);
+							},
+							recoverByLabel: () => Effect.succeed(null),
+							extendTimeout: () =>
+								Effect.sync(() => {
+									counters.extensions++;
+								}),
+							pathExists: (_id, path) => Effect.succeed(files.has(path)),
+							readTextFile: (_id, path) =>
+								Effect.succeed(files.get(path) ?? ""),
+							writeTextFile: (_id, path, contents) =>
+								Effect.sync(() => {
+									files.set(path, contents);
+								}),
+							startProcess: (_id, spec) =>
+								Effect.sync(() => {
+									if (spec.tag !== "zuse-cloud-auth-initialize") return;
+									counters.initializations++;
+									files.set(spec.args?.at(-1) ?? "", "ready");
+									files.set(`${home}/key-id`, "key");
+									files.set(`${home}/private.pem`, "private");
+									files.set(
+										`${home}/grok-toolchain-version`,
+										GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+									files.set(`${home}/public.jwk.json`, "{}");
+									files.set(`${home}/storage-incarnation-id`, "incarnation");
+									files.set(
+										`${home}/codex-toolchain-version`,
+										CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+								}),
+							runProcess: (_id, input) => {
+								calls.push(input);
+								switch (scriptOf(input)) {
+									case "readiness":
+										return Effect.succeed({
+											exitCode: 0,
+											stdout: files.has(`${home}/key-id`) ? "ready" : "repair",
+										});
+									case "ready-grant":
+										return options.readyGrant(input);
+									default:
+										return Effect.succeed({ exitCode: 0, stdout: sealed });
+								}
+							},
+						},
+					},
+				],
+				defaultProviderId: "fake",
+			});
+			const result = yield* issueProviderGrant(grantInput).pipe(
+				Effect.provideService(SandboxProviders, registry),
+				Effect.result,
+			);
+			return { result, calls, counters };
+		}).pipe(
+			Effect.provide(
+				Layer.mergeAll(
+					CloudWorkspaceStoreMemory,
+					SandboxProvidersFake,
+					Config.layer({
+						apiIssuer: "https://api.test",
+						workosJwksUrl: "https://unused.test/jwks",
+						workosIssuer: "https://unused.test",
+						mintPrivateKey: Redacted.make("{}"),
+						mintPublicKey: "{}",
+						cloudAuthProviderId: "fake",
+					}),
+				),
+			),
+		);
+
+	test("a ready authority grants in one guest run without a separate inspect or readiness call", async () => {
+		const logged: Record<string, unknown>[] = [];
+		const info = vi
+			.spyOn(console, "info")
+			.mockImplementation((...args: unknown[]) => {
+				if (typeof args[1] === "object" && args[1] !== null)
+					logged.push(args[1] as Record<string, unknown>);
+			});
+		const sealedFor = (input: RunProcessInput) =>
+			JSON.stringify({
+				sealed: {
+					protocolVersion: 1,
+					providerId: "claude",
+					requestId,
+					keyThumbprint: "runtime-thumbprint",
+					authorityIncarnationId: "incarnation",
+					authorityEpoch: JSON.parse(input.args?.[3] ?? "{}").authorityEpoch,
+					wrappedKey: "wrapped",
+					iv: "iv",
+					ciphertext: "ciphertext",
+					tag: "tag",
+				},
+			});
+		const { result, calls, counters } = await Effect.runPromise(
+			harness({
+				// Guest timing lines surround the result, including malformed and
+				// hostile ones; only allowlisted numbers may reach the log.
+				readyGrant: (input) =>
+					Effect.succeed({
+						exitCode: 0,
+						stdout: [
+							'@zuse-auth-timing {"readinessNodeMs":120}',
+							'@zuse-auth-timing {"grantNodeBootMs":45,"cacheHit":0,"refreshed":1,"refreshMs":900,"sealMs":3,"remainingLifetimeMs":3500000,"accessToken":"sk-leak","note":"x"}',
+							"@zuse-auth-timing not json at all",
+							'@zuse-auth-timing {"sealMs":"12","grantNodeMs":-5,"refreshMs":1e12}',
+							"",
+							'@zuse-auth-timing {"grantNodeMs":640}',
+							sealedFor(input),
+						].join("\n"),
+					}),
+			}),
+		).finally(() => info.mockRestore());
+		const guestTiming = logged.find(
+			(entry) => entry.stage === "auth.guest-grant",
+		);
+		expect(guestTiming).toMatchObject({
+			workspaceId: "workspace-1",
+			provider: "claude",
+			reason: "fast",
+			readinessNodeMs: 120,
+			grantNodeBootMs: 45,
+			cacheHit: 0,
+			refreshed: 1,
+			refreshMs: 900,
+			sealMs: 3,
+			remainingLifetimeMs: 3500000,
+			grantNodeMs: 640,
+		});
+		expect(JSON.stringify(guestTiming)).not.toContain("sk-leak");
+		expect(guestTiming).not.toHaveProperty("accessToken");
+		expect(guestTiming).not.toHaveProperty("note");
+		expect(result._tag).toBe("Success");
+		if (result._tag === "Success")
+			expect(result.success).toMatchObject({
+				providerId: "claude",
+				requestId,
+				authorityIncarnationId: "incarnation",
+			});
+		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
+		// The exact readiness program, bootstrap hash and incarnation ride along.
+		const args = calls[0]?.args ?? [];
+		expect(args).toContain(AUTH_READINESS_SOURCE);
+		expect(args.at(-1)).toBe("incarnation");
+		expect(requestArg(calls[0] as RunProcessInput).requestId).toBe(requestId);
+		expect(counters).toEqual({
+			inspections: 0,
+			extensions: 1,
+			initializations: 0,
+			creations: 0,
+		});
+	});
+
+	test("a stale bootstrap falls back to provisioning and repairs before granting with the same request", async () => {
+		const { result, calls, counters } = await Effect.runPromise(
+			harness({
+				readyGrant: () =>
+					Effect.succeed({
+						exitCode: 75,
+						stdout: '@zuse-auth-timing {"readinessNodeMs":88}\nrepair',
+					}),
+			}),
+		);
+		expect(result._tag).toBe("Success");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant", "readiness", "grant"]);
+		expect(counters.inspections).toBe(1);
+		expect(counters.initializations).toBe(1);
+		expect(counters.creations).toBe(0);
+		expect(requestArg(calls[2] as RunProcessInput).requestId).toBe(requestId);
+	});
+
+	test("a lost grant response retries the same durable request identity instead of a second refresh", async () => {
+		const { result, calls } = await Effect.runPromise(
+			harness({
+				readyGrant: () =>
+					Effect.fail(new SandboxProviderError({ code: "transient" })),
+			}),
+		);
+		expect(result._tag).toBe("Success");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant", "readiness", "grant"]);
+		const [first, , retry] = calls as [
+			RunProcessInput,
+			RunProcessInput,
+			RunProcessInput,
+		];
+		expect(requestArg(retry).requestId).toBe(requestArg(first).requestId);
+		// Same cache path: the grant script serves the cached result if the first run completed.
+		expect(retry.args?.at(-1)).toBe(first.args?.[8]);
+	});
+
+	test("a proven-ready authority whose grant fails reports the failure rather than refreshing again", async () => {
+		const { result, calls } = await Effect.runPromise(
+			harness({
+				readyGrant: () => Effect.succeed({ exitCode: 1, stdout: "" }),
+			}),
+		);
+		expect(result._tag).toBe("Failure");
+		if (result._tag === "Failure")
+			expect(result.failure.code).toBe("claude-auth-reconnecting");
+		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
+	});
+
+	test("a lost authority is never silently replaced from the fast path", async () => {
+		const { result, counters } = await Effect.runPromise(
+			harness({
+				inspectState: null,
+				readyGrant: () =>
+					Effect.fail(new SandboxProviderError({ code: "not-found" })),
+			}),
+		);
+		expect(result._tag).toBe("Failure");
+		if (result._tag === "Failure")
+			expect(result.failure.code).toBe("codex-auth-reconnect-required");
+		expect(counters.creations).toBe(0);
+	});
+});
+
+describe("authority guest timing parsing", () => {
+	test("strips only valid timing lines and keeps the grant output byte for byte", () => {
+		const sealed = '{"sealed":{"protocolVersion":1}}';
+		const parsed = parseAuthorityGrantOutput(
+			`@zuse-auth-timing {"readinessNodeMs":10}\n\n@zuse-auth-timing {"grantNodeMs":20}\n${sealed}`,
+		);
+		expect(parsed.value).toBe(sealed);
+		expect(parsed.timing).toEqual({ readinessNodeMs: 10, grantNodeMs: 20 });
+		expect(parseAuthorityGrantOutput("repair").value).toBe("repair");
+		expect(parseAuthorityGrantOutput("").timing).toEqual({});
+	});
+
+	test("drops strings, unknown keys, bad numbers, malformed, oversized and excess lines", () => {
+		const long = `@zuse-auth-timing {"sealMs":1,"pad":"${"x".repeat(600)}"}`;
+		const excess = Array.from(
+			{ length: 12 },
+			(_, index) => `@zuse-auth-timing {"sealMs":${index + 100}}`,
+		);
+		const parsed = parseAuthorityGrantOutput(
+			[
+				'@zuse-auth-timing {"accessToken":"secret","refreshToken":"secret","sealMs":"7","grantNodeMs":-1,"refreshMs":null,"cacheHit":true,"remainingLifetimeMs":1e12}',
+				"@zuse-auth-timing [1,2,3]",
+				"@zuse-auth-timing {broken",
+				long,
+				...excess,
+				"value",
+			].join("\n"),
+		);
+		expect(parsed.value).toBe("value");
+		// Only the first eight sentinel lines are considered; all later ones are ignored.
+		expect(parsed.timing).toEqual({ sealMs: 103 });
+		expect(JSON.stringify(parsed.timing)).not.toContain("secret");
+	});
+});
+
+describe("existing authority preparation", () => {
+	const home = "/home/zuse/.zuse/cloud-auth";
+	const layer = Layer.mergeAll(
+		CloudWorkspaceStoreMemory,
+		SandboxProvidersFake,
+		Config.layer({
+			apiIssuer: "https://api.test",
+			workosJwksUrl: "https://unused.test/jwks",
+			workosIssuer: "https://unused.test",
+			mintPrivateKey: Redacted.make("{}"),
+			mintPublicKey: "{}",
+			cloudAuthProviderId: "fake",
+		}),
+	);
+	const prepare = (options: {
+		readonly locator: boolean | "provisioning";
+		readonly state: "running" | "paused";
+		readonly ready: boolean;
+		readonly initializedIncarnation?: string;
+	}) =>
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			if (options.locator !== false) {
+				yield* store.claimCloudAuthAuthority({
+					accountId: "account",
+					provider: "fake",
+					candidateStorageIncarnationId: "incarnation",
+					toolchainVersion: "test",
+					leaseOwner: "worker",
+					nowMs: 100,
+					leaseExpiresAtMs: 200,
+				});
+				if (options.locator === true)
+					yield* store.completeCloudAuthAuthorityProvisioning({
+						accountId: "account",
+						providerSandboxId: "authority",
+						storageIncarnationId: "incarnation",
+						toolchainVersion: "test",
+						leaseOwner: "worker",
+						nowMs: 150,
+					});
+			}
+			const files = new Map<string, string>();
+			const counters = {
+				inspections: 0,
+				resumes: 0,
+				extensions: 0,
+				initializations: 0,
+				creations: 0,
+				labelLookups: 0,
+			};
+			const fake = yield* (yield* SandboxProviders).get("fake");
+			const registry = yield* makeSandboxProviders({
+				registrations: [
+					{
+						adapter: {
+							...fake,
+							inspect: () => {
+								counters.inspections++;
+								return Effect.succeed({
+									providerSandboxId: "authority",
+									providerLabel: "authority",
+									state: options.state,
+								});
+							},
+							resume: () => {
+								counters.resumes++;
+								return Effect.succeed({
+									providerSandboxId: "authority",
+									providerLabel: "authority",
+									state: "running" as const,
+								});
+							},
+							extendTimeout: () =>
+								Effect.sync(() => {
+									counters.extensions++;
+								}),
+							create: () => {
+								counters.creations++;
+								return Effect.fail(
+									new SandboxProviderError({ code: "rejected" }),
+								);
+							},
+							recoverByLabel: () => {
+								counters.labelLookups++;
+								return Effect.succeed(null);
+							},
+							runProcess: () =>
+								Effect.succeed({
+									exitCode: 0,
+									stdout: options.ready ? "ready" : "repair",
+								}),
+							pathExists: (_id, path) => Effect.succeed(files.has(path)),
+							readTextFile: (_id, path) =>
+								Effect.succeed(files.get(path) ?? ""),
+							writeTextFile: (_id, path, contents) =>
+								Effect.sync(() => {
+									files.set(path, contents);
+								}),
+							startProcess: (_id, spec) =>
+								Effect.sync(() => {
+									if (spec.tag !== "zuse-cloud-auth-initialize") return;
+									counters.initializations++;
+									files.set(spec.args?.at(-1) ?? "", "ready");
+									files.set(`${home}/key-id`, "key");
+									files.set(`${home}/private.pem`, "private");
+									files.set(
+										`${home}/grok-toolchain-version`,
+										GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+									files.set(`${home}/public.jwk.json`, "{}");
+									files.set(
+										`${home}/storage-incarnation-id`,
+										options.initializedIncarnation ?? "incarnation",
+									);
+									files.set(
+										`${home}/codex-toolchain-version`,
+										CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION,
+									);
+								}),
+						},
+					},
+				],
+				defaultProviderId: "fake",
+			});
+			const outcome = yield* prepareExistingCloudAuthAuthority("account").pipe(
+				Effect.provideService(SandboxProviders, registry),
+				Effect.result,
+			);
+			const locator = yield* store.getCloudAuthAuthority("account");
+			return { outcome, counters, locator };
+		}).pipe(Effect.provide(layer));
+
+	test("a ready running authority is confirmed without any provisioning call", async () => {
+		const { outcome, counters } = await Effect.runPromise(
+			prepare({ locator: true, state: "running", ready: true }),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "ready" });
+		expect(counters).toMatchObject({
+			inspections: 1,
+			extensions: 1,
+			resumes: 0,
+			initializations: 0,
+			creations: 0,
+			labelLookups: 0,
+		});
+	});
+
+	test("a paused authority is resumed and a stale bootstrap repaired through the normal path", async () => {
+		const { outcome, counters } = await Effect.runPromise(
+			prepare({ locator: true, state: "paused", ready: false }),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "ready" });
+		expect(counters).toMatchObject({
+			resumes: 1,
+			initializations: 1,
+			creations: 0,
+			labelLookups: 0,
+		});
+	});
+
+	test("a missing or still-provisioning authority is never created, adopted, or inspected", async () => {
+		for (const locator of [false, "provisioning"] as const) {
+			const { outcome, counters } = await Effect.runPromise(
+				prepare({ locator, state: "running", ready: true }),
+			);
+			expect(outcome).toMatchObject({ _tag: "Success", success: "absent" });
+			expect(counters).toMatchObject({
+				inspections: 0,
+				creations: 0,
+				labelLookups: 0,
+				initializations: 0,
+			});
+		}
+	});
+
+	test("replaced authority storage is reported, never replaced", async () => {
+		const { outcome, counters, locator } = await Effect.runPromise(
+			prepare({
+				locator: true,
+				state: "running",
+				ready: false,
+				initializedIncarnation: "other-storage",
+			}),
+		);
+		expect(outcome).toMatchObject({ _tag: "Success", success: "stale" });
+		expect(counters.creations).toBe(0);
+		expect(locator).toMatchObject({
+			state: "ready",
+			storageIncarnationId: "incarnation",
+			providerSandboxId: "authority",
 		});
 	});
 });

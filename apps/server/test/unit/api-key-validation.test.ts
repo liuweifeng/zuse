@@ -26,6 +26,7 @@ vi.mock("@cursor/sdk", async (importOriginal) => {
 	};
 });
 
+import { loadCursorSdk } from "@zuse/agents/drivers/cursor-sdk";
 import {
 	classifyApiKeyValidationError,
 	validateApiKey,
@@ -57,6 +58,11 @@ const successfulProbeAgent = () => {
 };
 
 describe("API-key validation classification", () => {
+	// Classification uses SDK classes only after the SDK is loaded, which the
+	// real probe guarantees; direct classification cases load it explicitly.
+	beforeEach(async () => {
+		await loadCursorSdk();
+	});
 	beforeEach(() => {
 		sdk.create.mockReset();
 		sdk.listModels.mockReset();

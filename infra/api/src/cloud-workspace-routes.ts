@@ -7,6 +7,7 @@ import {
 	CLOUD_COMMAND_PROTOCOL_VERSION,
 	CLOUD_RUNTIME_API_ASSETS_CAPABILITY,
 	CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
+	CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY,
 	CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY,
 	CLOUD_RUNTIME_TURN_REPLY_MAX_LENGTH,
 	CLOUD_RUNTIME_WORKSPACE_AUTHORIZATION_CAPABILITY,
@@ -38,18 +39,21 @@ import {
 	ProviderGrantRequest,
 	RuntimeAcknowledgment,
 	RuntimeMode,
+	type SealedCodexGrant,
+	type SealedProviderGrant,
 	WorkspaceSettingsUpdate,
 } from "@zuse/contracts";
 import { POKEMON_BRANCH_CATALOG } from "@zuse/pokemon-data/branch-catalog";
 import { allocatePokemonName } from "@zuse/pokemon-data/name-allocator";
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { cloudRuntimeCommandTurnId } from "@zuse/utils/cloud-api";
+import { launchGrantRequestId } from "@zuse/utils/cloud-launch-grant";
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import {
 	bytesToBase64Url,
 	sha256Base64Url,
 } from "@zuse/utils/cloud-transcript-crypto";
-import { Clock, Effect, Option, Redacted, Schema } from "effect";
+import { Clock, Duration, Effect, Option, Redacted, Schema } from "effect";
 import { CompactEncrypt, importJWK, type JWK } from "jose";
 import { getApiAsset } from "./api-assets.ts";
 import { decodeApiMessageContent } from "./api-message-content.ts";
@@ -67,6 +71,8 @@ import {
 	cloudAuthStatus,
 	configureCloudAuth,
 	disconnectCloudAuth,
+	type IssueCodexGrantInput,
+	type IssueProviderGrantInput,
 	issueCodexGrant,
 	issueProviderGrant,
 	pollCloudAuthLogin,
@@ -1296,6 +1302,114 @@ export const codexGrantRuntimeBindingError = (
 	return null;
 };
 
+/** Bootstrap must answer promptly even when the account authority is slow or disconnected. */
+// A cold control connection can take more than 1.5 s even for a ready
+// authority. Allow that normal path to finish rather than paying its latency
+// again through the runtime's fallback request.
+export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 3_000;
+
+/**
+ * Issue the launch agent's grant to the key that just enrolled. Only the
+ * selected agent, only under its broker mode, and never blocking enrollment:
+ * a failure or timeout yields nothing and the runtime initializes as before.
+ * The request id is deterministic, so a lost response or a timed-out issuance
+ * that still completes in the authority is served from its cache later.
+ */
+export interface BootstrapLaunchGrantInput {
+	readonly accountId: string;
+	readonly workspaceId: string;
+	readonly runtimeGeneration: number;
+	readonly agent: string | undefined;
+	/** Only runtimes that seed the grant receive one; older ones keep their own refresh. */
+	readonly capabilities: ReadonlyArray<string> | undefined;
+	readonly codexAuthMode: ReturnType<typeof workspaceAuthMode>;
+	readonly providerAuthMode: ReturnType<typeof workspaceAuthMode>;
+	readonly recipientPublicJwk: string;
+	readonly recipientKeyThumbprint: string;
+}
+
+export interface BootstrapLaunchGrantIssuers<R> {
+	readonly provider: (
+		input: IssueProviderGrantInput,
+	) => Effect.Effect<SealedProviderGrant, ApiError, R>;
+	readonly codex: (
+		input: IssueCodexGrantInput,
+	) => Effect.Effect<SealedCodexGrant, ApiError, R>;
+}
+
+export const issueBootstrapLaunchGrantWith = <R>(
+	issuers: BootstrapLaunchGrantIssuers<R>,
+	timeoutMs = BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS,
+) =>
+	Effect.fn("issueBootstrapLaunchGrant")(function* (
+		input: BootstrapLaunchGrantInput,
+	) {
+		if (
+			input.capabilities?.includes(CLOUD_RUNTIME_LAUNCH_GRANT_CAPABILITY) !==
+			true
+		)
+			return undefined;
+		const selected = Schema.decodeUnknownOption(CloudAuthProvider)(input.agent);
+		if (selected._tag === "None") return undefined;
+		const providerId = selected.value;
+		const brokered =
+			providerId === "codex"
+				? input.codexAuthMode === "broker-v1"
+				: input.providerAuthMode === "broker-v1";
+		if (!brokered) return undefined;
+		const requestId = yield* Effect.promise(() =>
+			launchGrantRequestId({
+				workspaceId: input.workspaceId,
+				runtimeGeneration: input.runtimeGeneration,
+				keyThumbprint: input.recipientKeyThumbprint,
+				providerId,
+				protocolVersion: 1,
+			}),
+		);
+		const common = {
+			accountId: input.accountId,
+			workspaceId: input.workspaceId,
+			runtimeGeneration: input.runtimeGeneration,
+			recipientPublicJwk: input.recipientPublicJwk,
+			recipientKeyThumbprint: input.recipientKeyThumbprint,
+			requestId,
+			reason: "initial" as const,
+		};
+		const issued = yield* (
+			providerId === "codex"
+				? issuers.codex(common)
+				: issuers.provider({ ...common, providerId })
+		).pipe(
+			Effect.timeoutOption(Duration.millis(timeoutMs)),
+			measureCloudStage(
+				{ workspaceId: input.workspaceId },
+				"auth.bootstrap-grant",
+			),
+			Effect.result,
+		);
+		if (issued._tag === "Failure") {
+			console.warn("[cloud-workspace] bootstrap launch grant unavailable", {
+				workspaceId: input.workspaceId,
+				providerId,
+				code: issued.failure.code,
+			});
+			return undefined;
+		}
+		if (issued.success._tag === "None") {
+			console.warn("[cloud-workspace] bootstrap launch grant timed out", {
+				workspaceId: input.workspaceId,
+				providerId,
+			});
+			return undefined;
+		}
+		return issued.success.value;
+	});
+
+export const issueBootstrapLaunchGrant = issueBootstrapLaunchGrantWith({
+	provider: issueProviderGrant,
+	codex: issueCodexGrant,
+});
+
 export const launchFailureNextActionAt = (input: {
 	readonly errorCode?: string;
 	readonly nowMs: number;
@@ -1453,6 +1567,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	nowMs: number,
 	creator?: { readonly subject: string; readonly membershipId: string },
 ) {
+	const workspaceId = yield* randomToken("workspace", 12);
+	const timed = (stage: string) =>
+		measureCloudStage({ workspaceId }, `create.${stage}`);
 	const store = yield* CloudWorkspaceStore;
 	const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 	const scope = workspaceScopeForOwner(accountId);
@@ -1467,7 +1584,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 					grants: [],
 				}
 			: undefined;
-	yield* requireCloudWorkspaceEntitlement(accountId, nowMs);
+	yield* requireCloudWorkspaceEntitlement(accountId, nowMs).pipe(
+		timed("entitlement"),
+	);
 	const apiConfiguration = yield* ApiConfiguration;
 	if (body.localDeviceId !== undefined) {
 		const devices = yield* ApiStore;
@@ -1479,11 +1598,17 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		)
 			return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
 	}
-	const project = yield* store.getProject(body.projectId);
+	const project = yield* store
+		.getProject(body.projectId)
+		.pipe(timed("read-project"));
 	if (project === null || project.accountId !== accountId)
 		return yield* Effect.fail(notFound("cloud_project_not_found"));
-	const provider = yield* selectedProvider(accountId, body.providerId);
-	yield* requirePlacementAccess(accountId, nowMs, provider);
+	const provider = yield* selectedProvider(accountId, body.providerId).pipe(
+		timed("resolve-provider"),
+	);
+	yield* requirePlacementAccess(accountId, nowMs, provider).pipe(
+		timed("placement-access"),
+	);
 	const forkSource =
 		body.forkSource === undefined
 			? null
@@ -1527,7 +1652,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	const accountBuild =
 		forkSource !== null
 			? yield* store.getBuild(forkSource.buildId)
-			: yield* store.getActiveAccountBuild(accountId, provider.providerId);
+			: yield* store
+					.getActiveAccountBuild(accountId, provider.providerId)
+					.pipe(timed("read-image"));
 	if (
 		project.state !== "ready" ||
 		accountBuild === null ||
@@ -1546,7 +1673,11 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		build.snapshotId !== undefined &&
 		connectionIdFor(build) === undefined
 	)
-		yield* assertSnapshotUsable(accountId, build.provider, build.snapshotId);
+		yield* assertSnapshotUsable(
+			accountId,
+			build.provider,
+			build.snapshotId,
+		).pipe(timed("verify-snapshot"));
 	if (
 		importedSnapshot(build) &&
 		snapshotRepositoryLayout(build, project.projectId) === undefined
@@ -1582,7 +1713,6 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 				build,
 				apiConfiguration.cloudProviderAuthBrokerEnrollmentEnabled,
 			);
-	const workspaceId = yield* randomToken("workspace", 12);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
 	// Workspace records cannot tell us which names were used by local chats,
@@ -1634,6 +1764,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		Effect.mapError(() =>
 			serviceUnavailable("cloud_transcript_key_unavailable"),
 		),
+		timed("transcript-key"),
 	);
 	const workspace: CloudWorkspaceRecord = {
 		workspaceId,
@@ -1659,6 +1790,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		idempotencyKey: body.idempotencyKey,
 		requestConfig: {
 			allocationProtocol: "provider-idempotent-v1",
+			allocationAttempted: false,
 			providerConnectionId: provider.connectionId,
 			...(importedSnapshot(build)
 				? snapshotRepositoryLayout(build, project.projectId)
@@ -1726,6 +1858,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 				...(machineFork === undefined ? {} : { forkSource: machineFork }),
 			})
 			.pipe(
+				timed("seal-launch-intent"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_workspace_launch_intent_unavailable"),
 				),
@@ -1733,7 +1866,9 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 		expiresAtMs: nowMs + 24 * 60 * 60 * 1_000,
 		createdAtMs: nowMs,
 	};
-	const outcome = yield* store.createWorkspace(workspace, launchIntentRecord);
+	const outcome = yield* store
+		.createWorkspace(workspace, launchIntentRecord)
+		.pipe(timed("persist-workspace"));
 	if (outcome.kind === "branch-in-use")
 		return yield* Effect.fail(
 			conflict(
@@ -2112,19 +2247,40 @@ const routeCloudWorkspaceRequestWithAccess = (
 								),
 							);
 			const api = yield* ApiConfiguration;
-			const runtimeGatewayCredential = yield* signWorkspaceRuntimeTicket({
-				mintPrivateJwk: yield* parseJwk(Redacted.value(api.mintPrivateKey)),
-				issuer: api.apiIssuer,
-				accountId: workspace.accountId,
-				workspaceId,
-				protocol: WORKSPACE_GATEWAY_PROTOCOL,
-				generation: enrolled.receipt.generation,
-				gatewayEpoch: enrolled.receipt.gatewayEpoch,
-				ttlMs: RUNTIME_CREDENTIAL_TTL_MS,
-				nowMs:
-					enrolled.receipt.runtimeCredentialExpiresAtMs -
-					RUNTIME_CREDENTIAL_TTL_MS,
-			});
+			const [runtimeGatewayCredential, sealedLaunchGrant] = yield* Effect.all(
+				[
+					signWorkspaceRuntimeTicket({
+						mintPrivateJwk: yield* parseJwk(Redacted.value(api.mintPrivateKey)),
+						issuer: api.apiIssuer,
+						accountId: workspace.accountId,
+						workspaceId,
+						protocol: WORKSPACE_GATEWAY_PROTOCOL,
+						generation: enrolled.receipt.generation,
+						gatewayEpoch: enrolled.receipt.gatewayEpoch,
+						ttlMs: RUNTIME_CREDENTIAL_TTL_MS,
+						nowMs:
+							enrolled.receipt.runtimeCredentialExpiresAtMs -
+							RUNTIME_CREDENTIAL_TTL_MS,
+					}),
+					// Enrollment succeeded above; the launch agent's grant rides along.
+					issueBootstrapLaunchGrant({
+						accountId: workspace.accountId,
+						workspaceId,
+						runtimeGeneration: enrolled.receipt.generation,
+						agent: launchIntent?.agent,
+						capabilities: body.capabilities,
+						codexAuthMode: workspaceAuthMode(
+							enrolled.workspace.requestConfig.codexAuthMode,
+						),
+						providerAuthMode: workspaceAuthMode(
+							enrolled.workspace.requestConfig.providerAuthMode,
+						),
+						recipientPublicJwk: body.credentialPublicJwk,
+						recipientKeyThumbprint: credentialKeyThumbprint,
+					}),
+				],
+				{ concurrency: "unbounded" },
+			);
 			return json({
 				workspaceId,
 				zuseAccountId: workspace.accountId,
@@ -2157,6 +2313,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					enrolled.receipt.runtimeCredentialExpiresAtMs,
 				...(launchIntent === undefined ? {} : { launchIntent }),
 				sealedTranscriptKey: enrolled.receipt.sealedTranscriptKey,
+				...(sealedLaunchGrant === undefined ? {} : { sealedLaunchGrant }),
 			});
 		}
 

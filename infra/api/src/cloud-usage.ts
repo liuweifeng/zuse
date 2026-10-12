@@ -19,19 +19,22 @@ export const observeCloudRuntimeUsage = Effect.fn("observeCloudRuntimeUsage")(
 			input.providerSandboxId === undefined
 		)
 			return;
-		const provider = yield* resolveConnectedProvider(
-			input.accountId,
-			input.provider,
-			yield* resourceProviderConnectionId(input.resourceKind, input.resourceId),
-		);
-		const running =
-			input.runningSinceMs !== undefined
-				? yield* provider.inspect(input.providerSandboxId).pipe(
-						Effect.timeout("2 seconds"),
-						Effect.map((sandbox) => sandbox?.state === "running"),
-						Effect.catch(() => Effect.succeed(false)),
-					)
-				: false;
+		let running = false;
+		if (input.runningSinceMs !== undefined) {
+			const provider = yield* resolveConnectedProvider(
+				input.accountId,
+				input.provider,
+				yield* resourceProviderConnectionId(
+					input.resourceKind,
+					input.resourceId,
+				),
+			);
+			running = yield* provider.inspect(input.providerSandboxId).pipe(
+				Effect.timeout("2 seconds"),
+				Effect.map((sandbox) => sandbox?.state === "running"),
+				Effect.catch(() => Effect.succeed(false)),
+			);
+		}
 		yield* (yield* CloudBillingStore).recordRuntimeObservation({
 			...input,
 			providerSandboxId: input.providerSandboxId,

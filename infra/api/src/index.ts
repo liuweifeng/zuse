@@ -7,6 +7,12 @@ import {
 	deliverPendingApiWebhooks,
 	sweepApiCommands,
 } from "./api-webhook-dispatch.ts";
+import {
+	type AccountOperation,
+	CloudAccountExecution,
+	type CloudAccountExecutor,
+} from "./cloud-account-execution.ts";
+import { executeCloudAuthOperationDirect } from "./cloud-auth-authority.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -18,6 +24,8 @@ import {
 	reconcileCloudResources,
 	reconcileCloudWorkspace,
 	reconcileCloudWorkspaceStartup,
+	startCloudWorkspaceForAccountDirect,
+	startCloudWorkspaceInline,
 } from "./cloud-workspace-reconciler.ts";
 import {
 	type CloudMailboxLifecycleFence,
@@ -61,12 +69,16 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
+		readonly cloudAccountExecutor?: CloudAccountExecutor;
 		readonly scheduleWorkspaceStartup?: (workspaceId: string) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
 ): {
 	readonly fetch: (request: Request) => Promise<Response>;
+	readonly executeCloudAccountDirect: (
+		operation: AccountOperation,
+	) => Promise<Response>;
 	readonly consumeSlackJobs: (batch: {
 		readonly messages: ReadonlyArray<QueueMessage>;
 	}) => Promise<void>;
@@ -90,6 +102,8 @@ export const makeApi = (
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
 	) => Promise<WorkspaceStartupOutcome>;
+	/** First startup step from the creating request; true when a step ran. */
+	readonly startCloudWorkspaceInline: (workspaceId: string) => Promise<boolean>;
 	readonly requestCloudMailboxWake: (
 		workspaceId: string,
 		accountId: string,
@@ -149,12 +163,40 @@ export const makeApi = (
 				? (await slack()).fetch(request)
 				: new Response("Slack integration is not enabled.", { status: 503 }),
 	});
-	const runtime = ManagedRuntime.make(Layer.merge(layer, internalWebhooks));
+	const runtime = ManagedRuntime.make(
+		Layer.mergeAll(
+			layer,
+			internalWebhooks,
+			Layer.succeed(CloudAccountExecution, options?.cloudAccountExecutor),
+		),
+	);
 	const slack = () => {
 		if (!options?.slack) throw new Error("slack_not_configured");
 		return runtime.runPromise(makeSlackModule(options.slack));
 	};
 	return {
+		executeCloudAccountDirect: (operation) =>
+			runtime.runPromise(
+				Effect.gen(function* () {
+					if (operation.op !== "start-workspace")
+						return yield* executeCloudAuthOperationDirect(operation);
+					return yield* startCloudWorkspaceForAccountDirect(
+						operation.accountId,
+						operation.workspaceId,
+					);
+				}).pipe(
+					Effect.provideService(CloudAccountExecution, undefined),
+					Effect.map((value) => Response.json(value)),
+					Effect.catchTag("ApiError", (error) =>
+						Effect.succeed(
+							Response.json(
+								{ error: error.code, status: error.status },
+								{ status: error.status },
+							),
+						),
+					),
+				),
+			),
 		fetch: async (request) => {
 			const path = new URL(request.url).pathname;
 			if (path === "/slack" || path.startsWith("/slack/")) {
@@ -189,6 +231,8 @@ export const makeApi = (
 					options?.scheduleWorkspaceStartup,
 				),
 			),
+		startCloudWorkspaceInline: (workspaceId) =>
+			runtime.runPromise(startCloudWorkspaceInline(workspaceId)),
 		requestCloudMailboxWake: (workspaceId, accountId) =>
 			runtime.runPromise(
 				Effect.gen(function* () {

@@ -26,6 +26,15 @@ export class CloudRuntimeWake {
 		this.lastMonotonic = monotonic;
 		if (wallElapsed < 2500 && monotonicElapsed < 2500 && wallElapsed >= -1000)
 			return false;
+		const workspaceId = process.env.ZUSE_CLOUD_WORKSPACE_ID;
+		if (workspaceId !== undefined)
+			console.info("[cloud-timing]", {
+				workspaceId,
+				stage: "runtime.wake-detected",
+				atMs: Date.now(),
+				wallElapsedMs: wallElapsed,
+				monotonicElapsedMs: Math.round(monotonicElapsed),
+			});
 		this.revision++;
 		this.nudgeMailbox();
 		this.signalController.abort();

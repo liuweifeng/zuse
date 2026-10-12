@@ -25,6 +25,7 @@ const responseEffectsApi = (
 	reconcileMachine: async () => ({ claimed: 0, processed: 0 }),
 	reconcileCloudBuild: async () => undefined,
 	reconcileCloudWorkspaceStartup: async () => ({ kind: "complete" }),
+	startCloudWorkspaceInline: async () => false,
 	deliverApiWebhooks: async () => 0,
 	...overrides,
 });
@@ -40,7 +41,10 @@ describe("public workspace response scheduling", () => {
 			entered = resolve;
 		});
 		const dispose = vi.fn(async () => {});
-		const waitUntil = vi.fn();
+		const background: Promise<unknown>[] = [];
+		const waitUntil = vi.fn((work: Promise<unknown>) => {
+			background.push(work);
+		});
 		let acknowledged = false;
 		const response = applyResponseEffects(
 			new Response("accepted", {
@@ -69,6 +73,8 @@ describe("public workspace response scheduling", () => {
 		const result = await response;
 		expect(result.status).toBe(202);
 		expect(result.headers.has("x-zuse-reconcile-cloud-workspace")).toBe(false);
+		// The runtime is retained only for the background inline step, then disposed.
+		await Promise.all(background);
 		expect(dispose).toHaveBeenCalledOnce();
 	});
 	test("propagates enqueue failure and disposes the request instead of acknowledging", async () => {
@@ -92,6 +98,79 @@ describe("public workspace response scheduling", () => {
 		).rejects.toThrow("durable queue unavailable");
 		expect(dispose).toHaveBeenCalledOnce();
 		expect(waitUntil).not.toHaveBeenCalled();
+	});
+	test("runs the inline first step in the background and re-arms the scheduler after it", async () => {
+		let finishInline!: () => void;
+		const inline = new Promise<boolean>((resolve) => {
+			finishInline = () => resolve(true);
+		});
+		const dispose = vi.fn(async () => {});
+		const background: Promise<unknown>[] = [];
+		const schedule = vi.fn(async () => ({ kind: "complete" as const }));
+		const startInline = vi.fn(() => inline);
+		const response = await applyResponseEffects(
+			new Response(null, {
+				status: 201,
+				headers: { "x-zuse-reconcile-cloud-workspace": "workspace-1" },
+			}),
+			responseEffectsApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: schedule,
+				startCloudWorkspaceInline: startInline,
+			}),
+			async () => undefined,
+			{ waitUntil: (work) => background.push(work) },
+		);
+		// Durable enqueue is acknowledged before the inline step completes.
+		expect(response.status).toBe(201);
+		expect(startInline).toHaveBeenCalledExactlyOnceWith("workspace-1");
+		expect(schedule).toHaveBeenCalledTimes(1);
+		expect(dispose).not.toHaveBeenCalled();
+		expect(background).toHaveLength(1);
+		finishInline();
+		await Promise.all(background);
+		expect(schedule).toHaveBeenCalledTimes(2);
+		expect(dispose).toHaveBeenCalledOnce();
+	});
+	test("an ineligible or failing inline step never affects the response or the durable enqueue", async () => {
+		const background: Promise<unknown>[] = [];
+		const schedule = vi.fn(async () => ({ kind: "complete" as const }));
+		const dispose = vi.fn(async () => {});
+		const skipped = await applyResponseEffects(
+			new Response(null, {
+				status: 202,
+				headers: { "x-zuse-reconcile-cloud-workspace": "workspace-1" },
+			}),
+			responseEffectsApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: schedule,
+				startCloudWorkspaceInline: async () => false,
+			}),
+			async () => undefined,
+			{ waitUntil: (work) => background.push(work) },
+		);
+		expect(skipped.status).toBe(202);
+		await Promise.all(background);
+		expect(schedule).toHaveBeenCalledTimes(1);
+		const failed = await applyResponseEffects(
+			new Response(null, {
+				status: 201,
+				headers: { "x-zuse-reconcile-cloud-workspace": "workspace-2" },
+			}),
+			responseEffectsApi({
+				dispose,
+				reconcileCloudWorkspaceStartup: schedule,
+				startCloudWorkspaceInline: async () => {
+					throw new Error("provider hiccup");
+				},
+			}),
+			async () => undefined,
+			{ waitUntil: (work) => background.push(work) },
+		);
+		expect(failed.status).toBe(201);
+		await Promise.all(background);
+		expect(schedule).toHaveBeenCalledTimes(2);
+		expect(dispose).toHaveBeenCalledTimes(2);
 	});
 	test("retains background ownership for unrelated build work after durable workspace enqueue", async () => {
 		let completeBuild!: () => void;

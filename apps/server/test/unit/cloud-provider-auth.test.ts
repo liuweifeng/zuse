@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { promisify } from "node:util";
 import {
 	type CloudAuthProvider,
-	type ProviderGrantRequest,
+	ProviderGrantRequest,
 	SealedProviderGrant,
 } from "@zuse/contracts";
 import {
@@ -26,6 +26,7 @@ const seal = async (input: {
 	readonly publicKey: CryptoKey;
 	readonly keyThumbprint: string;
 	readonly workspaceId?: string;
+	readonly expiresAt?: number;
 }): Promise<SealedProviderGrant> => {
 	const authorityIncarnationId = "authority-storage-1";
 	const authorityEpoch = 3;
@@ -64,7 +65,7 @@ const seal = async (input: {
 			providerAccountId: `${input.providerId}-account-1`,
 			issuer: input.providerId === "grok" ? "https://auth.x.ai" : null,
 			issuedAt: now,
-			expiresAt: now + 60 * 60_000,
+			expiresAt: input.expiresAt ?? now + 60 * 60_000,
 		}),
 	);
 	const encrypted = new Uint8Array(
@@ -139,6 +140,51 @@ describe("CloudProviderAuth", () => {
 			secret: "claude-access-only-token",
 		});
 		auth.close();
+	});
+
+	test("a startup grant serves the launch session's initial resolve once, then session starts refresh again", async () => {
+		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
+		let issueCount = 0;
+		const auth = new CloudProviderAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk,
+			credentialPrivateKey: pair.privateKey,
+			issueGrant: async (providerId, request) => {
+				issueCount += 1;
+				return seal({
+					providerId,
+					request,
+					publicKey: pair.publicKey,
+					keyThumbprint,
+				});
+			},
+		});
+		try {
+			await auth.prepare("claude");
+			expect(issueCount).toBe(1);
+			const first = await auth.resolve("claude");
+			expect(issueCount).toBe(1);
+			expect(first.secret).toBe("claude-access-only-token");
+			await auth.resolve("claude");
+			expect(issueCount).toBe(2);
+			// Seeding is per provider: another provider's session still refreshes.
+			await auth.prepare("cursor");
+			expect(issueCount).toBe(3);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(4);
+			// A grant refreshed moments ago (recovery, proactive) seeds without a
+			// further round trip, and the launch session still consumes it once.
+			await auth.prepare("claude");
+			expect(issueCount).toBe(4);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(4);
+			await auth.resolve("claude");
+			expect(issueCount).toBe(5);
+		} finally {
+			auth.close();
+		}
 	});
 
 	test("serves Grok's official external-provider command without a refresh token", async () => {
@@ -234,4 +280,99 @@ test("recovery bypasses an unexpired cached grant after authorization fails", as
 	} finally {
 		auth.close();
 	}
+});
+
+describe("CloudProviderAuth bootstrap seeding", () => {
+	const launchRequest = (requestId: string) =>
+		new ProviderGrantRequest({
+			requestId,
+			protocolVersion: 1,
+			runtimeGeneration: 4,
+			credentialPublicJwk: "{}",
+			reason: "initial",
+		});
+	const make = async (
+		issue: (
+			providerId: CloudAuthProvider,
+			request: ProviderGrantRequest,
+		) => Promise<SealedProviderGrant>,
+	) => {
+		const f = await fixture();
+		const auth = new CloudProviderAuth({
+			zuseAccountId: "account-1",
+			workspaceId: "workspace-1",
+			runtimeGeneration: 4,
+			credentialPublicJwk: f.credentialPublicJwk,
+			credentialPrivateKey: f.pair.privateKey,
+			issueGrant: issue,
+		});
+		return { ...f, auth };
+	};
+
+	test("a valid seeded grant serves the launch session without any grant request", async () => {
+		let issued = 0;
+		const { auth, pair, keyThumbprint } = await make(async () => {
+			issued += 1;
+			throw new Error("should not refresh");
+		});
+		try {
+			await auth.seed(
+				await seal({
+					providerId: "claude",
+					request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+					publicKey: pair.publicKey,
+					keyThumbprint,
+				}),
+			);
+			const credential = await auth.resolve("claude", "initial");
+			expect(credential.secret).toBe("claude-access-only-token");
+			expect(issued).toBe(0);
+		} finally {
+			auth.close();
+		}
+	});
+
+	test("rejects a seed bound to another workspace or already expiring, leaving the cache empty", async () => {
+		const requests: string[] = [];
+		const { auth, pair, keyThumbprint } = await make(
+			async (providerId, request) => {
+				requests.push(request.requestId);
+				return seal({
+					providerId,
+					request,
+					publicKey: pair.publicKey,
+					keyThumbprint,
+				});
+			},
+		);
+		try {
+			await expect(
+				auth.seed(
+					await seal({
+						providerId: "claude",
+						request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+						publicKey: pair.publicKey,
+						keyThumbprint,
+						workspaceId: "workspace-2",
+					}),
+				),
+			).rejects.toThrow("update-required");
+			await expect(
+				auth.seed(
+					await seal({
+						providerId: "claude",
+						request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+						publicKey: pair.publicKey,
+						keyThumbprint,
+						expiresAt: Date.now() + 30_000,
+					}),
+				),
+			).rejects.toThrow("update-required");
+			// Nothing was cached; the launch request id still drives the first refresh.
+			await auth.prepare("claude", "11111111-2222-8333-9444-555555555555");
+			expect(requests).toEqual(["11111111-2222-8333-9444-555555555555"]);
+		} finally {
+			auth.close();
+		}
+	});
 });

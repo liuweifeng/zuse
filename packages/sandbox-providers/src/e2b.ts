@@ -1,4 +1,12 @@
+import { cloudTimingEvent, measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Redacted, Schema } from "effect";
+import {
+	type BoundedCache,
+	boundedCache,
+	credentialCacheKey,
+	credentialScoped,
+} from "./credential-cache.ts";
+import { discardResponseBody } from "./http-response.ts";
 import {
 	type ProviderSandbox,
 	type SandboxNetworkPolicy,
@@ -204,9 +212,37 @@ export const E2B_PROVIDER_ID = "e2b" as const;
 const LABEL_METADATA_KEY = "zuse-label";
 const SANDBOX_ID_METADATA_KEY = "zuse-sandbox-id";
 
+/** A guest control credential: envd access token plus the sandbox domain. */
+export type E2bControlConnectionCache = BoundedCache<{
+	readonly accessToken: string;
+	readonly domain: string;
+}>;
+
+const E2B_CONTROL_CONNECTION_LIMIT = 256;
+const sharedControlConnections = boundedCache<E2bControlConnectionCache>(64);
+
+/**
+ * The API constructs adapters per request. Guest control credentials are kept
+ * per API origin and key across requests so a warm isolate reaches envd
+ * without first fetching sandbox detail. One credential never sees another's.
+ */
+export const e2bControlConnectionsFor = (
+	config: Pick<E2bSandboxConfig, "apiKey" | "apiBaseUrl">,
+): E2bControlConnectionCache =>
+	credentialScoped(
+		sharedControlConnections,
+		credentialCacheKey(config.apiBaseUrl ?? E2B_API_BASE_URL, config.apiKey),
+		() => boundedCache(E2B_CONTROL_CONNECTION_LIMIT),
+	);
+
 export const makeE2bSandboxProvider = (
 	config: E2bSandboxConfig,
 	http: E2bHttpClient = defaultHttpClient,
+	// A custom transport keeps a private cache so tests and alternative
+	// transports never share credentials with the live isolate cache.
+	controlConnections: E2bControlConnectionCache = http === defaultHttpClient
+		? e2bControlConnectionsFor(config)
+		: boundedCache(E2B_CONTROL_CONNECTION_LIMIT),
 ): SandboxProviderAdapter => {
 	const apiBaseUrl = (config.apiBaseUrl ?? E2B_API_BASE_URL).replace(
 		/\/+$/,
@@ -214,10 +250,6 @@ export const makeE2bSandboxProvider = (
 	);
 	const endpointDomain = (domain: string | null | undefined): string =>
 		domain ?? config.sandboxDomain ?? E2B_DEFAULT_SANDBOX_DOMAIN;
-	const controlConnections = new Map<
-		string,
-		{ readonly accessToken: string; readonly domain: string }
-	>();
 	const rememberControlConnection = (detail: {
 		readonly sandboxID: string;
 		readonly domain?: string | null;
@@ -236,9 +268,10 @@ export const makeE2bSandboxProvider = (
 		body?: unknown,
 	): Effect.Effect<Response, SandboxProviderError> =>
 		Effect.tryPromise({
-			try: () =>
+			try: (signal) =>
 				http.fetch(`${apiBaseUrl}${path}`, {
 					method,
+					signal,
 					headers: {
 						"x-api-key": Redacted.value(config.apiKey),
 						...(body === undefined
@@ -262,7 +295,10 @@ export const makeE2bSandboxProvider = (
 				phase: "response",
 				status: response.status,
 			});
-		}).pipe(Effect.andThen(Effect.fail(errorForStatus(response.status))));
+		}).pipe(
+			Effect.andThen(discardResponseBody(response)),
+			Effect.andThen(Effect.fail(errorForStatus(response.status))),
+		);
 
 	const request = <A, I>(
 		method: string,
@@ -301,6 +337,7 @@ export const makeE2bSandboxProvider = (
 		toleratedStatuses: ReadonlyArray<number> = [],
 	): Effect.Effect<void, SandboxProviderError> =>
 		send(method, path, body).pipe(
+			Effect.tap(discardResponseBody),
 			Effect.flatMap((response) =>
 				response.ok || toleratedStatuses.includes(response.status)
 					? Effect.void
@@ -357,6 +394,9 @@ export const makeE2bSandboxProvider = (
 			`/sandboxes/${encodeURIComponent(providerSandboxId)}`,
 			SandboxDetail,
 		).pipe(
+			Effect.tap((detail) =>
+				Effect.sync(() => rememberControlConnection(detail)),
+			),
 			Effect.map(toProviderSandbox),
 			Effect.catchTag("SandboxProviderError", (error) =>
 				error.code === "not-found" ? Effect.succeed(null) : Effect.fail(error),
@@ -379,6 +419,14 @@ export const makeE2bSandboxProvider = (
 	const processConnection = Effect.fn("E2bSandboxProvider.processConnection")(
 		function* (providerSandboxId: string) {
 			const cached = controlConnections.get(providerSandboxId);
+			cloudTimingEvent(
+				{
+					provider: "e2b",
+					providerSandboxId,
+					reason: cached === undefined ? "fetched" : "cached",
+				},
+				"e2b.control-connection",
+			);
 			if (cached !== undefined)
 				return {
 					accessToken: cached.accessToken,
@@ -417,16 +465,57 @@ export const makeE2bSandboxProvider = (
 			: { Authorization: `Basic ${btoa(`${user}:`)}` }),
 	});
 
+	/**
+	 * Every authenticated guest request goes through here. A cached control
+	 * credential may have been rotated by an external pause or resume; an
+	 * authentication rejection clears it, refetches sandbox detail, and retries
+	 * exactly once. Transport failures and any other status are returned as is,
+	 * because the guest may already have acted on the request.
+	 */
+	const guestFetch = Effect.fn("E2bSandboxProvider.guestFetch")(function* (
+		providerSandboxId: string,
+		send: (connection: {
+			readonly accessToken: string;
+			readonly host: string;
+		}) => Promise<Response>,
+		onNetworkFailure?: () => void,
+	) {
+		const attempt = Effect.gen(function* () {
+			const connection = yield* processConnection(providerSandboxId);
+			return yield* Effect.tryPromise({
+				try: () => send(connection),
+				catch: () => {
+					onNetworkFailure?.();
+					return providerError("transient");
+				},
+			});
+		});
+		const response = yield* attempt;
+		if (response.status !== 401 && response.status !== 403) return response;
+		yield* discardResponseBody(response);
+		controlConnections.delete(providerSandboxId);
+		return yield* attempt;
+	});
+
 	const executeProcess = Effect.fn("E2bSandboxProvider.executeProcess")(
 		function* (
 			providerSandboxId: string,
 			input: SandboxProcessInput,
 			waitForExit = false,
 		) {
+			// A bounded authority request may stop waiting before the guest exits.
+			// Close its HTTP stream on interruption as well as normal completion;
+			// the remote operation retains its own idempotency and process lifetime.
+			const controller = yield* Effect.acquireRelease(
+				Effect.sync(() => new AbortController()),
+				(controller) => Effect.sync(() => controller.abort()),
+			);
 			yield* validatedEnv(input.env ?? {});
-			const { accessToken, host } = yield* processConnection(providerSandboxId);
-			const response = yield* Effect.tryPromise({
-				try: () =>
+			const timed = (stage: string) =>
+				measureCloudStage({ provider: "e2b", providerSandboxId }, stage);
+			const response = yield* guestFetch(
+				providerSandboxId,
+				({ accessToken, host }) =>
 					http.fetch(`https://${host}/process.Process/Start`, {
 						method: "POST",
 						headers: {
@@ -434,7 +523,10 @@ export const makeE2bSandboxProvider = (
 							"Content-Type": "application/connect+json",
 							...envdHeaders(providerSandboxId, accessToken, input.user),
 						},
-						signal: AbortSignal.timeout(60_000),
+						signal: AbortSignal.any([
+							controller.signal,
+							AbortSignal.timeout(60_000),
+						]),
 						body: connectJsonEnvelope({
 							process: {
 								cmd: input.command,
@@ -446,10 +538,12 @@ export const makeE2bSandboxProvider = (
 							stdin: false,
 						}),
 					}),
-				catch: () => providerError("transient"),
-			});
+			).pipe(timed("e2b.process-request"));
 
-			if (!response.ok) return yield* errorForStatus(response.status);
+			if (!response.ok) {
+				yield* discardResponseBody(response);
+				return yield* errorForStatus(response.status);
+			}
 			return yield* Effect.tryPromise({
 				try: async () => {
 					if (response.body === null)
@@ -457,6 +551,8 @@ export const makeE2bSandboxProvider = (
 					const reader = response.body.getReader();
 					let started = false;
 					let stdout = "";
+					let stdoutBytes = 0;
+					const decoder = new TextDecoder();
 					try {
 						for await (const value of readConnectJsonEvents(reader)) {
 							if (!started) {
@@ -467,13 +563,21 @@ export const makeE2bSandboxProvider = (
 							}
 							const { event } = Schema.decodeUnknownSync(ProcessEvent)(value);
 							if (event.data?.stdout !== undefined) {
-								stdout += atob(event.data.stdout);
-								if (stdout.length > 65_536)
+								const bytes = Uint8Array.from(
+									atob(event.data.stdout),
+									(character) => character.charCodeAt(0),
+								);
+								stdoutBytes += bytes.byteLength;
+								if (stdoutBytes > 65_536)
 									throw new Error("Process output exceeded limit");
+								stdout += decoder.decode(bytes, { stream: true });
 							}
 							if (event.end !== undefined) {
 								if (!event.end.exited) throw new Error("Process did not exit");
-								return { exitCode: event.end.exitCode ?? 0, stdout };
+								return {
+									exitCode: event.end.exitCode ?? 0,
+									stdout: stdout + decoder.decode(),
+								};
 							}
 						}
 						throw new Error("Process missing exit receipt");
@@ -482,8 +586,9 @@ export const makeE2bSandboxProvider = (
 					}
 				},
 				catch: () => providerError("transient"),
-			});
+			}).pipe(timed("e2b.process-receipt"));
 		},
+		Effect.scoped,
 	);
 
 	const guestCommand = (providerSandboxId: string, command: string) =>
@@ -507,6 +612,16 @@ export const makeE2bSandboxProvider = (
 				providerSandboxId,
 				processGroupCommand(input, selector),
 			);
+			for (const line of result.stdout.split("\n")) {
+				const match = /^zuse-process-stage=([a-z-]+) atMs=(\d+)$/u.exec(line);
+				if (match)
+					console.info("[cloud-timing]", {
+						provider: "e2b",
+						providerSandboxId,
+						stage: `e2b.activation.${match[1]}`,
+						atMs: Number(match[2]),
+					});
+			}
 			if (result.exitCode !== 0) return yield* providerError("transient");
 		},
 	);
@@ -536,9 +651,9 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const { accessToken, host } = yield* processConnection(providerSandboxId);
-		const response = yield* Effect.tryPromise({
-			try: () =>
+		const response = yield* guestFetch(
+			providerSandboxId,
+			({ accessToken, host }) =>
 				http.fetch(`https://${host}/filesystem.Filesystem/Stat`, {
 					method: "POST",
 					headers: {
@@ -548,8 +663,8 @@ export const makeE2bSandboxProvider = (
 					},
 					body: JSON.stringify({ path }),
 				}),
-			catch: () => providerError("transient"),
-		});
+		);
+		yield* discardResponseBody(response);
 		if (response.status === 404) return false;
 		if (!response.ok) return yield* errorForStatus(response.status);
 		return true;
@@ -560,21 +675,26 @@ export const makeE2bSandboxProvider = (
 		path: string,
 		user?: string,
 	) {
-		const { accessToken, host } = yield* processConnection(providerSandboxId);
 		const query = new URLSearchParams({ path });
 		if (user !== undefined) query.set("username", user);
-		const response = yield* Effect.tryPromise({
-			try: () =>
+		const response = yield* guestFetch(
+			providerSandboxId,
+			({ accessToken, host }) =>
 				http.fetch(`https://${host}/files?${query.toString()}`, {
 					headers: {
 						...envdHeaders(providerSandboxId, accessToken),
 					},
 				}),
-			catch: () => providerError("transient"),
-		});
-		if (!response.ok) return yield* errorForStatus(response.status);
+		);
+		if (!response.ok) {
+			yield* discardResponseBody(response);
+			return yield* errorForStatus(response.status);
+		}
 		const contentLength = Number(response.headers.get("content-length") ?? "0");
-		if (contentLength > 65_536) return yield* providerError("rejected");
+		if (contentLength > 65_536) {
+			yield* discardResponseBody(response);
+			return yield* providerError("rejected");
+		}
 		const text = yield* Effect.tryPromise({
 			try: () => response.text(),
 			catch: () => providerError("transient"),
@@ -593,32 +713,35 @@ export const makeE2bSandboxProvider = (
 		) {
 			if (new TextEncoder().encode(contents).byteLength > 65_536)
 				return yield* providerError("rejected");
-			const { accessToken, host } = yield* processConnection(providerSandboxId);
 			const query = new URLSearchParams({ path });
 			if (user !== undefined) query.set("username", user);
-			const form = new FormData();
-			form.append(
-				"file",
-				new Blob([contents], { type: "text/plain" }),
-				path.split("/").at(-1) ?? "file",
-			);
-			const response = yield* Effect.tryPromise({
-				try: () =>
+			// Built per attempt: a form body cannot be sent twice.
+			const form = () => {
+				const data = new FormData();
+				data.append(
+					"file",
+					new Blob([contents], { type: "text/plain" }),
+					path.split("/").at(-1) ?? "file",
+				);
+				return data;
+			};
+			const response = yield* guestFetch(
+				providerSandboxId,
+				({ accessToken, host }) =>
 					http.fetch(`https://${host}/files?${query.toString()}`, {
 						method: "POST",
 						headers: {
 							...envdHeaders(providerSandboxId, accessToken),
 						},
-						body: form,
+						body: form(),
 					}),
-				catch: () => {
+				() =>
 					reportRequestFailure({
 						method: "POST /files",
 						phase: "network",
-					});
-					return providerError("transient");
-				},
-			});
+					}),
+			);
+			yield* discardResponseBody(response);
 			if (!response.ok) {
 				reportRequestFailure({
 					method: "POST /files",
@@ -688,6 +811,7 @@ export const makeE2bSandboxProvider = (
 				}),
 			),
 		startProcess,
+		runProcess: (id, input) => executeProcess(id, input, true),
 		replaceProcess,
 		inspectProcess,
 		pathExists,

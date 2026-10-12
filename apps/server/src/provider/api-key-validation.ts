@@ -2,15 +2,12 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import {
-	Agent,
-	AuthenticationError,
-	CursorSdkError,
-	JsonlLocalAgentStore,
-	type Run,
-	type SDKAgent,
-} from "@cursor/sdk";
+import type { Run, SDKAgent } from "@cursor/sdk";
 import { listCursorModels } from "@zuse/agents/drivers/cursor-models";
+import {
+	isCursorAuthenticationError,
+	loadCursorSdk,
+} from "@zuse/agents/drivers/cursor-sdk";
 import { Effect } from "effect";
 
 export type ApiKeyValidationResult =
@@ -47,8 +44,7 @@ export const classifyApiKeyValidationError = (
 		};
 	}
 	const explicitAuthenticationFailure =
-		cause instanceof AuthenticationError ||
-		(cause instanceof CursorSdkError && cause.status === 401) ||
+		isCursorAuthenticationError(cause) ||
 		/(?:invalid|expired|revoked).*api key|api key.*(?:invalid|expired|revoked)|unauthori[sz]ed|\b401\b/i.test(
 			message,
 		);
@@ -95,6 +91,8 @@ const runMessageProbe = async (apiKey: string): Promise<void> => {
 	};
 
 	const probe = async () => {
+		const { Agent, AuthenticationError, JsonlLocalAgentStore } =
+			await loadCursorSdk();
 		const models = await listCursorModels(apiKey);
 		ensureWithinDeadline();
 		const selected =

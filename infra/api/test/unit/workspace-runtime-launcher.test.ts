@@ -218,3 +218,96 @@ test("bootstrap loads native snapshot paths before selecting and locking storage
 		"uncheckpointed WAL",
 	);
 });
+
+const bootstrapTail = () => {
+	const bootstrap = readFileSync(
+		new URL("../../../cloud-sandboxes/workspace-bootstrap.sh", import.meta.url),
+		"utf8",
+	);
+	const boundary = bootstrap.indexOf("\ncredentials_event=");
+	expect(boundary).toBeGreaterThan(0);
+	return bootstrap.slice(boundary + 1);
+};
+
+/** Run the real bootstrap launch tail with a fake runtime and repository step. */
+const bootstrapHarness = (runtimeBehavior: "credentials" | "exit-early") => {
+	const root = mkdtempSync(join(tmpdir(), "zuse-bootstrap-order-"));
+	roots.push(root);
+	const status = join(root, "status");
+	const bin = join(root, "bin");
+	mkdirSync(status, { recursive: true });
+	mkdirSync(bin, { recursive: true });
+	const repository = join(root, "repository.sh");
+	writeFileSync(
+		repository,
+		[
+			"#!/usr/bin/env bash",
+			"set -euo pipefail",
+			`if [[ -f '${status}/credentials-ready' ]]; then echo after-credentials >'${root}/repository-order'; else echo before-credentials >'${root}/repository-order'; fi`,
+			`cat '${status}/credentials-ready' >'${root}/repository-saw-marker'`,
+			"",
+		].join("\n"),
+		{ mode: 0o755 },
+	);
+	writeFileSync(
+		join(bin, "zuse"),
+		[
+			"#!/usr/bin/env bash",
+			"set -euo pipefail",
+			`echo started >'${root}/runtime-started'`,
+			...(runtimeBehavior === "exit-early"
+				? ["exit 3"]
+				: [
+						"sleep 0.2",
+						`printf 'ready\\n' >'${status}/credentials-ready'`,
+						`printf 'ready\\n' >'${status}/credentials-ready-event'`,
+						`for _ in $(seq 1 100); do [[ -f '${status}/ready' ]] && break; sleep 0.05; done`,
+						`echo exited >'${root}/runtime-exited'`,
+					]),
+			"",
+		].join("\n"),
+		{ mode: 0o755 },
+	);
+	const prelude = [
+		"set -euo pipefail",
+		`status_dir='${status}'`,
+		`repository_script='${repository}'`,
+		'exec_workspace_runtime() { "$@"; }',
+		"workspace_runtime_timing() { :; }",
+		"phase=initializing",
+	].join("\n");
+	const result = spawnSync("bash", ["-c", `${prelude}\n${bootstrapTail()}`], {
+		env: {
+			...process.env,
+			PATH: `${bin}:${process.env.PATH ?? ""}`,
+			ZUSE_CLOUD_WORKSPACE_ID: "workspace-1",
+		},
+		encoding: "utf8",
+		timeout: 20_000,
+	});
+	return { root, status, result };
+};
+
+test("bootstrap starts repository preparation only after the runtime settles launch credentials", () => {
+	const { root, status, result } = bootstrapHarness("credentials");
+	expect(result.status, result.stderr).toBe(0);
+	expect(readFileSync(join(root, "repository-order"), "utf8").trim()).toBe(
+		"after-credentials",
+	);
+	expect(readFileSync(join(root, "repository-saw-marker"), "utf8").trim()).toBe(
+		"ready",
+	);
+	expect(existsSync(join(status, "ready"))).toBe(true);
+	expect(existsSync(join(status, "repository-ready"))).toBe(true);
+	expect(existsSync(join(status, "credentials-ready-event"))).toBe(false);
+	expect(existsSync(join(root, "runtime-exited"))).toBe(true);
+});
+
+test("bootstrap fails without running repository preparation when the runtime exits before credentials", () => {
+	const { root, status, result } = bootstrapHarness("exit-early");
+	expect(result.status).not.toBe(0);
+	expect(existsSync(join(root, "runtime-started"))).toBe(true);
+	expect(existsSync(join(root, "repository-order"))).toBe(false);
+	expect(existsSync(join(status, "ready"))).toBe(false);
+	expect(existsSync(join(status, "repository-ready"))).toBe(false);
+});

@@ -53,8 +53,13 @@ test("repository recovery failure is reported while the early runtime is connect
 		mkdirSync(release);
 		writeFileSync(
 			join(release, "bin.mjs"),
-			`import { existsSync } from "node:fs";
-		const timer = setInterval(() => { if (existsSync(process.env.ZUSE_WORKSPACE_RUNTIME_STATUS_DIR + "/failed")) { clearInterval(timer); process.exit(128); } }, 10);`,
+			`import { existsSync, writeFileSync } from "node:fs";
+		const status = process.env.ZUSE_WORKSPACE_RUNTIME_STATUS_DIR;
+		// Repository recovery must not have started before credential evidence.
+		writeFileSync(status + "/repository-before-credentials", String(existsSync(status + "/repository-progress")));
+		writeFileSync(status + "/credentials-ready", "ready\\n");
+		writeFileSync(status + "/credentials-ready-event", "ready\\n");
+		const timer = setInterval(() => { if (existsSync(status + "/failed")) { clearInterval(timer); process.exit(128); } }, 10);`,
 		);
 		const repository = join(root, "not-a-repository");
 		mkdirSync(repository);
@@ -84,6 +89,10 @@ test("repository recovery failure is reported while the early runtime is connect
 		expect(result.status).toBe(128);
 		expect(existsSync(join(state, "failed"))).toBe(true);
 		expect(existsSync(join(state, "repository-ready"))).toBe(false);
+		expect(
+			readFileSync(join(state, "repository-before-credentials"), "utf8"),
+		).toBe("false");
+		expect(existsSync(join(state, "credentials-ready-event"))).toBe(false);
 		expect(readFileSync(join(state, "failure-phase"), "utf8").trim()).toBe(
 			"syncing-repository",
 		);
