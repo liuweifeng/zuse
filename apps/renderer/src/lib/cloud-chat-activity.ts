@@ -1,3 +1,4 @@
+import { cloudWorkspaceIsStarting } from "@zuse/client-runtime/cloud-startup-presentation";
 import type {
 	ConnectionPhase,
 	PendingCommand,
@@ -107,13 +108,14 @@ export const deriveCloudChatActivity = ({
 		!computeReady &&
 		connection !== "connected" &&
 		(summary.state === "resuming" ||
+			cloudWorkspaceIsStarting(summary) ||
 			summary.runtimeState === "connecting" ||
 			summary.statusCode.startsWith("resume-"))
 	)
 		return "resuming";
 
-	// A retained socket failure is expected while compute wakes. Only surface
-	// transport/turn failures after the durable resume lifecycle has finished.
+	// A retained socket failure is expected while compute starts or wakes. Only
+	// surface transport/turn failures after the durable startup has finished.
 	if (connection === "failed" || runtime === "failed") return "failed";
 
 	// Cached turn state is not evidence that a disconnected runtime is working.

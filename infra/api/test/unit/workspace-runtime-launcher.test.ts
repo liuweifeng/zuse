@@ -229,6 +229,39 @@ const bootstrapTail = () => {
 	return bootstrap.slice(boundary + 1);
 };
 
+test("fresh bootstrap selects a delivered 0600 GitHub helper over the old executable image helper", () => {
+	const f = fixture();
+	const home = join(f.root, "home");
+	mkdirSync(home);
+	const delivered = join(f.root, "github-auth.sh");
+	const legacy = join(f.root, "old-github-auth.sh");
+	const capture = join(f.root, "selected-helper");
+	writeFileSync(
+		delivered,
+		`#!/bin/bash\nprintf '%s' "$ZUSE_GITHUB_AUTH_BIN" > '${capture}'\n`,
+		{ mode: 0o600 },
+	);
+	writeFileSync(legacy, "#!/bin/bash\nexit 0\n", { mode: 0o755 });
+	const source = readFileSync(
+		new URL("../../../cloud-sandboxes/workspace-bootstrap.sh", import.meta.url),
+		"utf8",
+	);
+	const block = source
+		.slice(
+			source.indexOf("github_auth="),
+			source.indexOf("# The SSH host identity"),
+		)
+		.replaceAll("/var/lib/zuse/project-build/github-auth.sh", delivered)
+		.replaceAll("/usr/local/bin/zuse-github-auth", legacy)
+		.replaceAll("/home/zuse", home);
+	const result = spawnSync("bash", ["-c", `set -euo pipefail\n${block}`], {
+		env: f.env,
+		encoding: "utf8",
+	});
+	expect(result.status, result.stderr).toBe(0);
+	expect(readFileSync(capture, "utf8")).toBe(delivered);
+});
+
 /** Run the real bootstrap launch tail with a fake runtime and repository step. */
 const bootstrapHarness = (runtimeBehavior: "credentials" | "exit-early") => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-bootstrap-order-"));
