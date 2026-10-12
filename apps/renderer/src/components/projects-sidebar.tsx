@@ -648,17 +648,6 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{!isHostedProduct() ? (
-					<li>
-						<button
-							type="button"
-							onClick={() => openNewChatLanding(null)}
-							className="flex h-7 w-full items-center rounded-md px-2 text-left text-[12px] text-muted-foreground hover:bg-sidebar-accent/40"
-						>
-							{uiMessage("projects:new_chat_without_project")}
-						</button>
-					</li>
-				) : null}
 				{!threadListSidebar && scratchEntries.length > 0 ? (
 					<>
 						<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">

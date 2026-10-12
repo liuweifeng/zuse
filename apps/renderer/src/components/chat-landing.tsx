@@ -1634,6 +1634,7 @@ function WorkspaceChatLanding({
 									<ProjectPicker
 										groups={projectGroups}
 										selectedFolderId={selectedFolderId}
+										noProjectSelected={noProject}
 										selectedName={
 											noProject
 												? uiMessage("chat:no_project")
@@ -2219,6 +2220,7 @@ function QueuedComposerPreview({
 function ProjectPicker({
 	groups,
 	selectedFolderId,
+	noProjectSelected,
 	selectedName,
 	onPickGroup,
 	onNoProject,
@@ -2226,6 +2228,7 @@ function ProjectPicker({
 }: {
 	groups: ReadonlyArray<LogicalProjectGroup>;
 	selectedFolderId: FolderId | null;
+	noProjectSelected: boolean;
 	selectedName: string | null;
 	onPickGroup: (group: LogicalProjectGroup) => void;
 	onNoProject?: () => void;
@@ -2272,10 +2275,23 @@ function ProjectPicker({
 				<div className="max-h-48 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]">
 					{onNoProject ? (
 						<MenuItem
+							role="menuitemradio"
+							aria-checked={noProjectSelected}
 							onClick={onNoProject}
-							className="h-7 rounded-md px-2 text-xs"
+							className={cn(
+								"grid min-h-8 grid-cols-[1fr_auto] items-center gap-x-2 rounded-md px-2 py-1 text-xs",
+								noProjectSelected
+									? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
+									: undefined,
+							)}
 						>
-							{uiMessage("chat:no_project")}
+							<span className="col-start-1 row-start-1 truncate">
+								{uiMessage("chat:no_project")}
+							</span>
+							<MenuSelectionIndicator
+								checked={noProjectSelected}
+								className="col-start-2 row-start-1 justify-self-end"
+							/>
 						</MenuItem>
 					) : null}
 					{groups.length === 0 ? (
