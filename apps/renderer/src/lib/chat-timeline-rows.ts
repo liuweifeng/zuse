@@ -18,6 +18,7 @@ export type ChatTimelineRow =
 			readonly kind: "tool-activity";
 			readonly id: string;
 			readonly messages: readonly Message[];
+			readonly live?: boolean;
 	  }
 	| {
 			readonly kind: "message";
@@ -27,6 +28,7 @@ export type ChatTimelineRow =
 			readonly showAssistantCommands: boolean;
 			/** Generated UI accepts input only in the latest turn. */
 			readonly interactive?: boolean;
+			readonly live?: boolean;
 	  }
 	| {
 			readonly kind: "delegation";
@@ -37,6 +39,7 @@ export type ChatTimelineRow =
 			readonly kind: "turn-summary";
 			readonly id: string;
 			readonly body: ReadonlyArray<Message>;
+			readonly interactive?: boolean;
 			readonly showAssistantCommands: boolean;
 	  }
 	| {
@@ -238,8 +241,7 @@ export function deriveChatTimelineRows({
 		const showSummary =
 			!isLive &&
 			hasToolCalls &&
-			hasFinalText &&
-			!turn.body.some(isVisualMessage);
+			(hasFinalText || turn.body.some(isVisualMessage));
 		const planMessages = turn.body.filter(
 			(message) =>
 				message.content._tag === "tool_use" &&
@@ -286,6 +288,7 @@ export function deriveChatTimelineRows({
 				kind: "turn-summary",
 				id: `summary:${turn.user?.id ?? `turn-${index}`}`,
 				body: summaryBody,
+				interactive: isLastTurn,
 				showAssistantCommands: finalAssistant !== null,
 			});
 			continue;
@@ -299,6 +302,7 @@ export function deriveChatTimelineRows({
 					message: group.message,
 					enterUser: false,
 					showAssistantCommands: showAssistantCommands(group.message),
+					...(isLive ? { live: true } : {}),
 					...(isLastTurn && group.message.content._tag === "ui_spec"
 						? { interactive: true }
 						: {}),
@@ -374,7 +378,7 @@ export function groupToolActivityRows(
 ): ChatTimelineRow[] {
 	const output: ChatTimelineRow[] = [];
 	let active:
-		| { kind: "tool-activity"; id: string; messages: Message[] }
+		| { kind: "tool-activity"; id: string; messages: Message[]; live?: boolean }
 		| undefined;
 	// Thinking only joins a tree when a tool follows it; until then it is held
 	// here so thinking that leads straight into text stays a standalone row.
@@ -401,6 +405,7 @@ export function groupToolActivityRows(
 					kind: "tool-activity",
 					id: `tools:${(leading[0] ?? row).id}`,
 					messages: leading.map((held) => held.message),
+					live: row.live ?? false,
 				};
 				leading = [];
 				output.push(active);

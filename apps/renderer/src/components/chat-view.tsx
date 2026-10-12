@@ -1103,6 +1103,7 @@ function TimelineRow({
 			content = (
 				<ToolActivityTree
 					messages={row.messages}
+					live={row.live}
 					sessionId={sessionId}
 					environmentId={environmentId}
 					providerId={providerId}
@@ -1139,6 +1140,7 @@ function TimelineRow({
 				<div>
 					<TurnSummary
 						body={row.body}
+						interactive={row.interactive}
 						chatId={chatId ?? undefined}
 						sessionId={sessionId}
 						environmentId={environmentId}

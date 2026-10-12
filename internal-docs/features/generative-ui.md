@@ -146,3 +146,14 @@ The native mobile client currently exposes source rather than rich components.
 
 OpenUI packages are pinned together at 0.3.0. Check saved version-1 fixtures and
 browser rendering when upgrading them. Reference: https://www.openui.com/docs/openui-lang
+
+## Completed-turn disclosure
+
+Completed turns retain the tool-count summary even when they include generated UI
+or HTML output. Visual messages render outside the summary's collapsed activity,
+followed by the final assistant reply. Only the latest turn's generated UI accepts
+responses. Live tool groups start open and settled groups start closed, including
+stopped turns without final text. Tool, turn-summary, and delegation disclosure
+choices are stored by transcript identity and live/settled phase in a bounded UI
+store, so virtualized row remounts preserve manual choices and completion still
+collapses live activity.
