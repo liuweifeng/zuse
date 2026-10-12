@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { CodexGrantRequest, SealedCodexGrant } from "@zuse/contracts";
 import {
 	type CryptoKey,
@@ -187,6 +187,7 @@ describe("CloudCodexAuth bootstrap seeding", () => {
 		});
 
 	test("a seeded grant serves initialization and the request id is honored on refresh", async () => {
+		const initialRequestId = randomUUID();
 		const { pair, credentialPublicJwk, keyThumbprint } = await fixture();
 		const requests: string[] = [];
 		const auth = new CloudCodexAuth({
@@ -203,12 +204,12 @@ describe("CloudCodexAuth bootstrap seeding", () => {
 		try {
 			await auth.seed(
 				await seal({
-					request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+					request: launchRequest(initialRequestId),
 					publicKey: pair.publicKey,
 					keyThumbprint,
 				}),
 			);
-			await auth.initialize("550e8400-e29b-41d4-a716-446655440000");
+			await auth.initialize(initialRequestId);
 			expect(requests).toEqual([]);
 			expect((await auth.getTokens({ reason: "initial" })).accessToken).toBe(
 				"access-only-token",
@@ -216,7 +217,7 @@ describe("CloudCodexAuth bootstrap seeding", () => {
 			await expect(
 				auth.seed(
 					await seal({
-						request: launchRequest("550e8400-e29b-41d4-a716-446655440000"),
+						request: launchRequest(initialRequestId),
 						publicKey: pair.publicKey,
 						keyThumbprint,
 						workspaceId: "workspace-2",
