@@ -154,6 +154,7 @@
 	"durable_objects": {
 		"bindings": [
 			{ "name": "PLUGIN_VAULT", "class_name": "PluginVault" },
+			{ "name": "CLOUD_AUTH_EXECUTOR", "class_name": "CloudAuthExecutor" },
 			{ "name": "WORKSPACE_STARTUP", "class_name": "WorkspaceStartup" },
 			{
 				"name": "WORKSPACE_GATEWAY",
@@ -178,6 +179,10 @@
 			"tag": "v3-workspace-startup",
 			"new_sqlite_classes": ["WorkspaceStartup"]
 		},
-		{ "tag": "plugins-v1", "new_sqlite_classes": ["PluginVault"] }
+		{ "tag": "plugins-v1", "new_sqlite_classes": ["PluginVault"] },
+		{
+			"tag": "cloud-auth-executor-v1",
+			"new_sqlite_classes": ["CloudAuthExecutor"]
+		}
 	]
 }

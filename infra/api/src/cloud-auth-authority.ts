@@ -17,6 +17,11 @@ import {
 } from "@zuse/sandbox-providers";
 import { measureCloudStage } from "@zuse/utils/cloud-timing";
 import { Effect, Schedule } from "effect";
+import {
+	type AuthorityGrantRequest,
+	type AuthorityOperation,
+	CloudAuthExecution,
+} from "./cloud-auth-execution.ts";
 import { CLAUDE_AUTH_VALIDATION_SOURCE } from "./cloud-claude-auth-validation.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
@@ -968,6 +973,11 @@ const ensureRunning = Effect.fn("ensureCloudAuthAuthorityRunning")(function* (
 export const prepareExistingCloudAuthAuthority = Effect.fn(
 	"prepareExistingCloudAuthAuthority",
 )(function* (accountId: string) {
+	const executor = yield* CloudAuthExecution;
+	if (executor !== undefined) {
+		const prepared = yield* executor.prepare(accountId);
+		if (prepared !== null) return prepared;
+	}
 	const recovered = yield* recoverAuthority(accountId, { existingOnly: true });
 	if (recovered === null) return "absent" as const;
 	const initialized = yield* initializeAuthority(
@@ -1537,18 +1547,7 @@ export interface IssueProviderGrantInput {
 	readonly previousProviderAccountId?: string;
 }
 
-interface IssueAuthorityGrantInput {
-	readonly accountId: string;
-	readonly workspaceId: string;
-	readonly runtimeGeneration: number;
-	readonly providerId: CloudAuthProvider;
-	readonly bindProviderId: boolean;
-	readonly recipientPublicJwk: string;
-	readonly recipientKeyThumbprint: string;
-	readonly requestId: string;
-	readonly reason: ProviderGrantRefreshReason;
-	readonly previousProviderAccountId?: string;
-}
+type IssueAuthorityGrantInput = AuthorityGrantRequest;
 
 /** The durable request, lock, and cache identity shared by every grant attempt. */
 const grantPaths = (input: IssueAuthorityGrantInput, operationId: string) => ({
@@ -1785,7 +1784,7 @@ const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 	return { authority: location, value };
 });
 
-const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
+export const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 	input: IssueAuthorityGrantInput,
 ) {
 	if (
@@ -1800,6 +1799,11 @@ const issueAuthorityGrant = Effect.fn("issueAuthorityGrant")(function* (
 		);
 	const timed = (stage: string) =>
 		measureCloudStage({ workspaceId: input.workspaceId }, `auth.${stage}`);
+	const executor = yield* CloudAuthExecution;
+	if (executor !== undefined) {
+		const sealed = yield* executor.grant(input);
+		if (sealed !== null) return sealed;
+	}
 	const operationId = crypto.randomUUID();
 	const fast = yield* fastAuthorityGrant(input, operationId);
 	const { authority, value } =
@@ -2037,4 +2041,16 @@ export const availableCloudAgents = Effect.fn("availableCloudAgents")(
 					.map((provider) => provider.providerId)
 			: [];
 	},
+);
+
+/** The account object uses the same implementation with delegation disabled. */
+export const executeCloudAuthOperationDirect = Effect.fn(
+	"executeCloudAuthOperationDirect",
+)(
+	function* (operation: AuthorityOperation) {
+		return operation.op === "grant"
+			? yield* issueAuthorityGrant(operation.input)
+			: yield* prepareExistingCloudAuthAuthority(operation.accountId);
+	},
+	Effect.provideService(CloudAuthExecution, undefined),
 );

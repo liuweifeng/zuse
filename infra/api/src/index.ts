@@ -7,6 +7,12 @@ import {
 	deliverPendingApiWebhooks,
 	sweepApiCommands,
 } from "./api-webhook-dispatch.ts";
+import { executeCloudAuthOperationDirect } from "./cloud-auth-authority.ts";
+import {
+	type AuthorityOperation,
+	CloudAuthExecution,
+	type CloudAuthExecutor,
+} from "./cloud-auth-execution.ts";
 import { cloudBillingCapacity } from "./cloud-billing-capacity.ts";
 import { maintainCloudBilling } from "./cloud-billing-outbox.ts";
 import { CloudBillingStore } from "./cloud-billing-store.ts";
@@ -62,12 +68,16 @@ export const makeApi = (
 	layer: Layer.Layer<ApiContext>,
 	options?: {
 		readonly slack?: SlackOptions;
+		readonly cloudAuthExecutor?: CloudAuthExecutor;
 		readonly scheduleWorkspaceStartup?: (workspaceId: string) => Promise<void>;
 		/** Retain the receiver's identity while disabled so pending deliveries retry. */
 		readonly slackPublicOrigin?: string;
 	},
 ): {
 	readonly fetch: (request: Request) => Promise<Response>;
+	readonly executeCloudAuthDirect: (
+		operation: AuthorityOperation,
+	) => Promise<Response>;
 	readonly consumeSlackJobs: (batch: {
 		readonly messages: ReadonlyArray<QueueMessage>;
 	}) => Promise<void>;
@@ -152,12 +162,32 @@ export const makeApi = (
 				? (await slack()).fetch(request)
 				: new Response("Slack integration is not enabled.", { status: 503 }),
 	});
-	const runtime = ManagedRuntime.make(Layer.merge(layer, internalWebhooks));
+	const runtime = ManagedRuntime.make(
+		Layer.mergeAll(
+			layer,
+			internalWebhooks,
+			Layer.succeed(CloudAuthExecution, options?.cloudAuthExecutor),
+		),
+	);
 	const slack = () => {
 		if (!options?.slack) throw new Error("slack_not_configured");
 		return runtime.runPromise(makeSlackModule(options.slack));
 	};
 	return {
+		executeCloudAuthDirect: (operation) =>
+			runtime.runPromise(
+				executeCloudAuthOperationDirect(operation).pipe(
+					Effect.map((value) => Response.json(value)),
+					Effect.catchTag("ApiError", (error) =>
+						Effect.succeed(
+							Response.json(
+								{ error: error.code, status: error.status },
+								{ status: error.status },
+							),
+						),
+					),
+				),
+			),
 		fetch: async (request) => {
 			const path = new URL(request.url).pathname;
 			if (path === "/slack" || path.startsWith("/slack/")) {
