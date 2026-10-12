@@ -58,6 +58,7 @@ const fixture = () => {
 		repositoryUrl = remote,
 		fork = false,
 		native = false,
+		extraEnv: Record<string, string> = {},
 	) =>
 		execFileSync("bash", [script.pathname], {
 			env: {
@@ -69,12 +70,48 @@ const fixture = () => {
 				ZUSE_FORK_CHECKOUT: fork ? "1" : "",
 				ZUSE_SNAPSHOT_NATIVE: native ? "1" : "",
 				ZUSE_REPOSITORY_URL: repositoryUrl,
+				...extraEnv,
 			},
 			stdio: "pipe",
 		});
 	return { root, git, run, remote, unreachable, advanceRemoteMain };
 };
 describe("cloud workspace branch initialization", () => {
+	test("initial organization fetch carries its creator identity only in the repository process", () => {
+		const { root, run } = fixture();
+		const context = {
+			actor: { subject: "member", membershipId: "membership" },
+		};
+		const bin = join(root, "bin");
+		execFileSync("mkdir", [bin]);
+		writeFileSync(
+			join(bin, "git"),
+			`#!/bin/bash
+if [[ "$*" == *" fetch "* ]]; then
+  cat "$ZUSE_GITHUB_CONTEXT_DIR/request.json" > "$CAPTURE_CONTEXT"
+  /usr/bin/git config --get-all credential.https://github.com.helper > "$CAPTURE_HELPER"
+fi
+exec /usr/bin/git "$@"
+`,
+			{ mode: 0o755 },
+		);
+		run("main", undefined, false, false, {
+			PATH: `${bin}:${process.env.PATH}`,
+			GIT_CONFIG_GLOBAL: join(root, "empty-gitconfig"),
+			GIT_CONFIG_NOSYSTEM: "1",
+			ZUSE_USER_DATA: root,
+			ZUSE_GITHUB_STARTUP_CONTEXT: JSON.stringify(context),
+			ZUSE_GITHUB_AUTH_BIN: "/current/non-executable-github-auth.sh",
+			CAPTURE_CONTEXT: join(root, "captured.json"),
+			CAPTURE_HELPER: join(root, "captured-helper"),
+		});
+		expect(
+			JSON.parse(readFileSync(join(root, "captured.json"), "utf8")),
+		).toEqual(context);
+		expect(readFileSync(join(root, "captured-helper"), "utf8")).toBe(
+			"\n/bin/bash /current/non-executable-github-auth.sh credential\n",
+		);
+	});
 	test("machine forks preserve detached commits, staged edits and untracked files", () => {
 		const { root, git, run, unreachable } = fixture();
 		git("checkout", "--detach");

@@ -1683,6 +1683,10 @@ const workspaceRuntimeLaunchInput = Effect.fn("workspaceRuntimeLaunchInput")(
 				ZUSE_BRANCH: workspace.branch,
 				ZUSE_PROJECT_CACHE_ID: project.projectId,
 				ZUSE_BASE_REF: workspace.baseRef,
+				ZUSE_GITHUB_AUTH_BIN: GITHUB_AUTH_FILE,
+				ZUSE_GITHUB_STARTUP_CONTEXT: JSON.stringify(
+					workspace.requestConfig.initialGithubContext ?? {},
+				),
 				...(machineForkSource(workspace) === undefined
 					? {}
 					: { ZUSE_FORK_CHECKOUT: "1" }),
@@ -2604,9 +2608,20 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			);
 		}
 
+		const activation = runtimeActivation(workspace);
+		// Initial bootstrap still owns repository preparation. Its failure marker
+		// and startup deadline must be observed even after the runtime connects;
+		// release verification must not swallow a failed Git fetch indefinitely.
+		const bootstrapPreparing =
+			activation?.mode === "restart-installed" &&
+			activation.bootstrap === true &&
+			(activation.phase === "launching" ||
+				activation.phase === "verification-needed") &&
+			(workspace.state === "provisioning" || workspace.state === "setup");
 		if (
 			workspace.desiredState === "ready" &&
-			runtimeActivation(workspace) !== null
+			activation !== null &&
+			!bootstrapPreparing
 		) {
 			if (
 				yield* reconcileRuntimeActivation(
@@ -3221,6 +3236,8 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				const failureCode = /^[a-z][a-z0-9-]{0,63}$/.test(reportedFailurePhase)
 					? `${reportedFailurePhase}-failed`
 					: "setup-failed";
+				const { sealedBootToken: _sealedBootToken, ...failedActivation } =
+					activation ?? {};
 				yield* saveWorkspace({
 					...workspace,
 					state: "failed",
@@ -3228,6 +3245,15 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 					runtimeState: "offline",
 					requestConfig: {
 						...workspace.requestConfig,
+						...(bootstrapPreparing && activation !== null
+							? {
+									runtimeActivation: {
+										...failedActivation,
+										phase: "failed",
+										lastErrorCode: failureCode,
+									},
+								}
+							: {}),
 						...(runtimeDiagnostic.length === 0
 							? {}
 							: { startupFailureDiagnostic: runtimeDiagnostic }),
