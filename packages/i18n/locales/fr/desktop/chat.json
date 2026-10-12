@@ -777,5 +777,7 @@
 	"switch_account_compact_detail": "Résume d’abord pour des réponses rapides",
 	"switch_account_compact_first": "Compacter d’abord",
 	"switch_account_compact_first_detail": "Résumer la discussion avant de continuer. Certains détails antérieurs peuvent être perdus.",
-	"switch_account_choose": "Choisir un compte"
+	"switch_account_choose": "Choisir un compte",
+	"no_project": "Aucun projet",
+	"start_without_project": "Commencer sans projet"
 }

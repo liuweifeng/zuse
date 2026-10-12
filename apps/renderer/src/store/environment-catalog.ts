@@ -156,7 +156,12 @@ export const projectEnvironmentShell = (
 							(folder) => folder.id === previousWorkspace.selectedFolderId,
 						))
 				? previousWorkspace.selectedFolderId
-				: (normalized.folders[0]?.id ?? null);
+				: options.resetOptimisticState !== true &&
+						previousWorkspace.selectedFolderId === null &&
+						!isHostedProduct()
+					? null
+					: (normalized.folders.find((folder) => folder.kind !== "scratch")
+							?.id ?? null);
 
 	const previousChats = useChatsStore.getState();
 	const creationOperations = Object.values(

@@ -347,5 +347,7 @@
 	"projects_sidebar_star_on_github": "GitHub에서 스타 남기기",
 	"projects_sidebar_dismiss_star_prompt": "GitHub 스타 안내 닫기",
 	"projects_sidebar_github_open_failed": "GitHub를 열 수 없습니다",
-	"projects_sidebar_github_starring": "스타 추가 중…"
+	"projects_sidebar_github_starring": "스타 추가 중…",
+	"new_chat_without_project": "프로젝트 없이 새 채팅",
+	"no_project": "프로젝트 없음"
 }

@@ -72,5 +72,7 @@
 	"command_group_navigation": "네비게이션",
 	"command_group_editor": "편집자",
 	"command_group_composer": "작곡가",
-	"command_group_application": "신청"
+	"command_group_application": "신청",
+	"new_chat_without_project": "프로젝트 없이 새 채팅",
+	"new_chat_without_project_description": "전용 작업 폴더에서 새 채팅 시작"
 }

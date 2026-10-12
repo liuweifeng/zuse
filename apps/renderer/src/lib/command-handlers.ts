@@ -189,6 +189,9 @@ function stepPanel(delta: 1 | -1): void {
  */
 const HANDLERS: Record<Command, () => void> = {
 	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
+	"new-chat-without-project": () => {
+		if (!isHostedProduct()) openNewChatLanding(null);
+	},
 	"new-chat": () => {
 		if (isHostedProduct()) {
 			void import("./hosted-workspace.ts").then((m) =>

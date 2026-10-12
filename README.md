@@ -64,7 +64,8 @@ Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agen
 ## What's shipped
 
 ### Agent sessions
-- Start and stop sessions for any supported provider, per project
+- Start and stop sessions for any supported provider, in a project or a standalone thread
+- Choose **No project** or press `Cmd/Ctrl+Alt+N` to start a thread in its own `~/.zuse/threads/<date>-<short-id>` folder on the selected computer; deleting the thread keeps its files
 - Full streaming chat timeline — tool calls, thinking blocks, diffs, error bubbles
 - Turn summaries and loader states
 - Rate-limit error bubble with reset time

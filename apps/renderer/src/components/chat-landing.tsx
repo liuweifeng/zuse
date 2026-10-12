@@ -44,7 +44,8 @@ import {
 	defaultModelFor,
 	EnvironmentId,
 	type ExternalThread,
-	type FolderId,
+	type Folder,
+	FolderId,
 	type MessageId,
 	type ProviderId,
 	type SessionId,
@@ -128,7 +129,11 @@ import {
 import { dispatchCommand } from "~/lib/commands";
 import { runCloudControl } from "~/lib/control-plane-client.ts";
 import { useActiveEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
-import { useEnvironmentShellCatalog } from "~/lib/environment-shell-client-bus";
+import {
+	dispatchEnvironmentShellCommand,
+	useEnvironmentShellCatalog,
+} from "~/lib/environment-shell-client-bus";
+import { newProjectWorkspaceKey } from "~/lib/environment-shell-scope";
 import { formatError } from "~/lib/format-error";
 import { dispatchGitWorkspaceCommand } from "~/lib/git-workspace-client-bus";
 import { newChatPreferences } from "~/lib/new-chat-preferences";
@@ -524,9 +529,19 @@ function WorkspaceChatLanding({
 		[projectGroups, remoteAnchor],
 	);
 	const pickerGroup = anchoredGroup ?? selectedGroup;
+	const noProject =
+		!isHostedProduct() &&
+		remoteAnchor === null &&
+		(selectedFolderId === null || selectedFolder?.kind === "scratch");
+	const scratchIdentity = useRef(
+		FolderId.make(`scratch_${crypto.randomUUID()}`),
+	);
+	const scratchFolder = useRef<Folder | null>(null);
+	const submissionInFlight = useRef(false);
 	const restoredProject = useRef(false);
 	useEffect(() => {
-		if (restoredProject.current || projectGroups.length === 0) return;
+		if (noProject || restoredProject.current || projectGroups.length === 0)
+			return;
 		restoredProject.current = true;
 		const group = landingDefaultProject(
 			projectGroups,
@@ -543,7 +558,7 @@ function WorkspaceChatLanding({
 		} else {
 			setRemoteAnchor({ groupKey: group.key, member });
 		}
-	}, [projectGroups, selectFolder, selectedGroup?.key]);
+	}, [noProject, projectGroups, selectFolder, selectedGroup?.key]);
 	const workspaceChoiceKey =
 		remoteAnchor === null
 			? `${activeEnvironmentId}:${selectedFolderId ?? "none"}`
@@ -556,8 +571,9 @@ function WorkspaceChatLanding({
 		readonly key: string;
 		readonly mode: ComposerWorkspaceMode;
 	} | null>(null);
-	const workspaceMode =
-		workspaceChoice?.key === workspaceChoiceKey
+	const workspaceMode = noProject
+		? "local"
+		: workspaceChoice?.key === workspaceChoiceKey
 			? workspaceChoice.mode
 			: configuredWorkspaceMode;
 	// Explicit "Run on" pick for the pending draft. Null = the group default
@@ -855,16 +871,19 @@ function WorkspaceChatLanding({
 		setCreateSource(null);
 		setTargetOverride(null);
 		setSelectedCloudProviderId(null);
-		const draftFolderId = remoteAnchor?.member.folderId ?? selectedFolderId;
-		if (draftFolderId === null) {
-			clearDraft();
-			return;
-		}
+		const draftFolderId = noProject
+			? scratchIdentity.current
+			: (remoteAnchor?.member.folderId ?? selectedFolderId);
+		if (draftFolderId === null) return;
 		clearDraft();
 		const draftEnvironmentId = EnvironmentId.make(
 			remoteAnchor?.member.environmentId ?? activeEnvironmentId,
 		);
-		void resolveChatRuntimeMode(draftEnvironmentId, draftFolderId).then(
+		void (
+			noProject
+				? Promise.resolve(useSettingsStore.getState().defaultRuntimeMode)
+				: resolveChatRuntimeMode(draftEnvironmentId, draftFolderId)
+		).then(
 			(runtimeMode) => {
 				if (cancelled) return;
 				beginDraft({
@@ -888,12 +907,18 @@ function WorkspaceChatLanding({
 			clearDraft();
 		};
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [activeEnvironmentId, selectedFolderId, remoteAnchor, draftAttempt]);
+	}, [
+		activeEnvironmentId,
+		selectedFolderId,
+		remoteAnchor,
+		draftAttempt,
+		noProject,
+	]);
 
 	const headline =
 		anchoredGroup !== null
 			? `What should we build in ${anchoredGroup.displayName}?`
-			: selectedFolder
+			: !noProject && selectedFolder
 				? `What should we build in ${selectedFolder.name}?`
 				: "What should we build today?";
 
@@ -1276,7 +1301,60 @@ function WorkspaceChatLanding({
 			}
 			return;
 		}
-		const target = resolvedTarget;
+		let submissionFolderId = selectedFolderId;
+		if (noProject) {
+			setSubmitting(true);
+			setSubmitError(null);
+			try {
+				const folder =
+					scratchFolder.current ??
+					(
+						await dispatchEnvironmentShellCommand<unknown, Folder>({
+							environmentId: EnvironmentId.make(
+								targetOverride?.environmentId ?? activeEnvironmentId,
+							),
+							kind: "workspace.createScratch",
+							commandId: CommandId.make(
+								`create-scratch:${scratchIdentity.current}`,
+							),
+							payload: {
+								id: scratchIdentity.current,
+								title: input.text,
+								workspaceKey: newProjectWorkspaceKey(
+									targetOverride?.environmentId ?? activeEnvironmentId,
+								),
+							},
+							retry: "safe",
+						})
+					).result;
+				scratchFolder.current = folder;
+				if (!ownsLanding()) {
+					setSubmitting(false);
+					return;
+				}
+				submissionFolderId = folder.id;
+				// Keep the composer mounted until the real chat takes over.
+				if (
+					(targetOverride?.environmentId ?? activeEnvironmentId) ===
+					activeEnvironmentId
+				)
+					useWorkspaceStore.setState((state) => ({
+						folders: state.folders.some((entry) => entry.id === folder.id)
+							? state.folders
+							: [...state.folders, folder],
+					}));
+			} catch (cause) {
+				setSubmitError(formatError(cause));
+				setSubmitting(false);
+				return;
+			}
+		}
+		const target = noProject
+			? {
+					environmentId: targetOverride?.environmentId ?? activeEnvironmentId,
+					folderId: submissionFolderId,
+				}
+			: resolvedTarget;
 		if (target !== null && target.folderId === null) {
 			setSubmitError(
 				"Clone this project onto the selected computer before starting the chat.",
@@ -1287,7 +1365,7 @@ function WorkspaceChatLanding({
 			target !== null &&
 			target.folderId !== null &&
 			(target.environmentId !== activeEnvironmentId ||
-				target.folderId !== selectedFolderId)
+				(!noProject && target.folderId !== selectedFolderId))
 				? { environmentId: target.environmentId, folderId: target.folderId }
 				: null;
 		if (remoteTarget !== null) {
@@ -1304,6 +1382,7 @@ function WorkspaceChatLanding({
 				setSubmitError(
 					"Attachments, context files, goals, and Create-from aren't supported yet when starting a chat on another computer.",
 				);
+				setSubmitting(false);
 				return;
 			}
 			setSubmitError(null);
@@ -1361,7 +1440,7 @@ function WorkspaceChatLanding({
 			setSubmitting(false);
 			return;
 		}
-		if (selectedFolderId === null) return;
+		if (submissionFolderId === null) return;
 		const startupInput = ComposerInput.make({ ...input, asGoal: opts.asGoal });
 		const startupOptions: StartupInputOptions = {
 			issueMarkdown: createSource?.issue?.markdown ?? null,
@@ -1383,7 +1462,7 @@ function WorkspaceChatLanding({
 				? { _tag: "existing", worktreeId: createSource.worktreeId }
 				: workspacePolicyForMode(workspaceMode);
 		const result = await create(
-			selectedFolderId,
+			submissionFolderId,
 			draft.providerId,
 			draft.model,
 			{
@@ -1522,7 +1601,19 @@ function WorkspaceChatLanding({
 									workspace.scope,
 								)
 					}
-					onDraftSubmit={(input, opts) => void handleDraftSubmit(input, opts)}
+					projectlessDraft={noProject}
+					onDraftSubmit={(input, opts) => {
+						if (submissionInFlight.current) return;
+						submissionInFlight.current = true;
+						void handleDraftSubmit(input, opts)
+							.catch((cause) => {
+								setSubmitError(formatError(cause));
+								setSubmitting(false);
+							})
+							.finally(() => {
+								submissionInFlight.current = false;
+							});
+					}}
 					draftTray={
 						pendingCloudQueue ??
 						(cloudAuthBlocker === null ? undefined : (
@@ -1543,17 +1634,37 @@ function WorkspaceChatLanding({
 									<ProjectPicker
 										groups={projectGroups}
 										selectedFolderId={selectedFolderId}
+										noProjectSelected={noProject}
 										selectedName={
-											anchoredGroup?.displayName ?? selectedFolder?.name ?? null
+											noProject
+												? uiMessage("chat:no_project")
+												: (anchoredGroup?.displayName ??
+													selectedFolder?.name ??
+													null)
 										}
 										onPickGroup={onPickGroup}
+										onNoProject={
+											isHostedProduct()
+												? undefined
+												: () => {
+														setRemoteAnchor(null);
+														void selectFolder(null);
+													}
+										}
 										onAdd={onAdd}
 									/>
 									{desktopCatalogEnabled || cloudPickerItems.length > 0 ? (
 										<ComputerPicker
-											group={pickerGroup}
+											group={noProject ? null : pickerGroup}
 											includeComputers={!cloudOnlyHome}
-											target={resolvedTarget}
+											target={
+												noProject
+													? (targetOverride ?? {
+															environmentId: activeEnvironmentId,
+															folderId: null,
+														})
+													: resolvedTarget
+											}
 											entries={catalogEntries}
 											onPickTarget={(target) => {
 												// A create-from pick is bound to the kind of
@@ -1562,13 +1673,14 @@ function WorkspaceChatLanding({
 													setCreateSource(null);
 												setSelectedCloudProviderId(null);
 												setTargetOverride(target);
+												scratchFolder.current = null;
 												if (pickerGroup !== null)
 													newChatPreferences.rememberEnvironment(
 														pickerGroup.key,
 														target.environmentId,
 													);
 											}}
-											cloudItems={cloudPickerItems}
+											cloudItems={noProject ? [] : cloudPickerItems}
 											selectedCloudProviderId={selectedCloudProviderId}
 											selectedCloudSizeId={selectedCloudSizeId}
 											onPickCloudSize={setSelectedCloudSizeId}
@@ -1597,7 +1709,9 @@ function WorkspaceChatLanding({
 											onRetryEnvironment={retryComputer}
 										/>
 									) : null}
-									{selectedCloudProviderId === null && !cloudOnlyHome ? (
+									{!noProject &&
+									selectedCloudProviderId === null &&
+									!cloudOnlyHome ? (
 										<WorkspacePicker
 											value={workspaceMode}
 											onValueChange={(mode) => {
@@ -1661,7 +1775,7 @@ function WorkspaceChatLanding({
 									)}
 									{/* Create-from browses the ACTIVE environment's PRs and
 										    branches — hidden for a remote-anchored draft. */}
-									{remoteAnchor === null && !cloudOnlyHome ? (
+									{!noProject && remoteAnchor === null && !cloudOnlyHome ? (
 										<CreateFromMenu
 											environmentId={EnvironmentId.make(activeEnvironmentId)}
 											folderId={selectedFolderId}
@@ -1755,9 +1869,23 @@ function WorkspaceChatLanding({
 			<WallpaperBackground />
 			<div className="relative flex min-h-0 w-full max-w-3xl flex-1 flex-col">
 				<div className="flex min-h-0 flex-1 items-center justify-center pb-6">
-					<h1 className="text-center text-2xl font-medium tracking-[-0.015em] text-foreground">
-						{headline}
-					</h1>
+					<div className="flex flex-col items-center gap-2">
+						<h1 className="text-center text-2xl font-medium tracking-[-0.015em] text-foreground">
+							{headline}
+						</h1>
+						{!noProject && !isHostedProduct() ? (
+							<button
+								type="button"
+								onClick={() => {
+									setRemoteAnchor(null);
+									void selectFolder(null);
+								}}
+								className="h-7 text-xs text-muted-foreground hover:text-foreground"
+							>
+								{uiMessage("chat:start_without_project")}
+							</button>
+						) : null}
+					</div>
 				</div>
 				<div className="flex shrink-0 flex-col gap-3">
 					{unavailableComputers.length > 0 ? (
@@ -2092,14 +2220,18 @@ function QueuedComposerPreview({
 function ProjectPicker({
 	groups,
 	selectedFolderId,
+	noProjectSelected,
 	selectedName,
 	onPickGroup,
+	onNoProject,
 	onAdd,
 }: {
 	groups: ReadonlyArray<LogicalProjectGroup>;
 	selectedFolderId: FolderId | null;
+	noProjectSelected: boolean;
 	selectedName: string | null;
 	onPickGroup: (group: LogicalProjectGroup) => void;
+	onNoProject?: () => void;
 	onAdd: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
@@ -2141,6 +2273,27 @@ function ProjectPicker({
 					</div>
 				</div>
 				<div className="max-h-48 overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin]">
+					{onNoProject ? (
+						<MenuItem
+							role="menuitemradio"
+							aria-checked={noProjectSelected}
+							onClick={onNoProject}
+							className={cn(
+								"grid min-h-8 grid-cols-[1fr_auto] items-center gap-x-2 rounded-md px-2 py-1 text-xs",
+								noProjectSelected
+									? "bg-accent/40 text-accent-foreground data-highlighted:bg-accent/60"
+									: undefined,
+							)}
+						>
+							<span className="col-start-1 row-start-1 truncate">
+								{uiMessage("chat:no_project")}
+							</span>
+							<MenuSelectionIndicator
+								checked={noProjectSelected}
+								className="col-start-2 row-start-1 justify-self-end"
+							/>
+						</MenuItem>
+					) : null}
 					{groups.length === 0 ? (
 						<div className="px-2 py-1.5 text-xs text-muted-foreground">
 							{uiMessage("chat:chat_landing_no_projects_yet")}

@@ -23,6 +23,12 @@ export interface WorkspaceServiceShape {
 		Folder,
 		WorkspaceDuplicatePathError | WorkspaceInvalidPathError
 	>;
+	readonly createScratch: (
+		root: string,
+		id: FolderId,
+		title: string,
+		workspaceKey?: WorkspaceKey,
+	) => Effect.Effect<Folder, WorkspaceInvalidPathError>;
 	readonly list: () => Effect.Effect<ReadonlyArray<Folder>>;
 	readonly streamChanges: () => Stream.Stream<ReadonlyArray<Folder>>;
 	readonly remove: (

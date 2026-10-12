@@ -10,8 +10,8 @@ import {
 } from "@zuse/contracts";
 import { Effect, FileSystem, Layer, PubSub, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-
 import { prepareProjectRegistration } from "../project-registration.ts";
+import { scratchDirectoryName } from "../scratch-directory.ts";
 import { WorkspaceService } from "../services/workspace-service.ts";
 
 interface ProjectRow {
@@ -20,6 +20,7 @@ interface ProjectRow {
 	readonly name: string;
 	readonly created_at: string;
 	readonly workspace_key: string;
+	readonly kind: "project" | "scratch";
 }
 
 const isWorkspaceKey = Schema.is(WorkspaceKey);
@@ -29,6 +30,7 @@ const rowToFolder = (row: ProjectRow): Folder =>
 		id: FolderId.make(row.id),
 		path: row.path,
 		name: row.name,
+		kind: row.kind,
 		addedAt: new Date(row.created_at),
 		// A malformed stored key must never widen visibility; treat it as Personal.
 		workspaceKey: isWorkspaceKey(row.workspace_key)
@@ -48,7 +50,7 @@ export const WorkspaceServiceLive = Layer.effect(
 		const list: WorkspaceService["Service"]["list"] = () =>
 			Effect.gen(function* () {
 				const rows = yield* sql<ProjectRow>`
-          SELECT id, path, name, created_at, workspace_key
+          SELECT id, path, name, created_at, workspace_key, kind
           FROM projects
           ORDER BY created_at ASC
         `.pipe(Effect.orDie);
@@ -58,12 +60,13 @@ export const WorkspaceServiceLive = Layer.effect(
 		const findById: WorkspaceService["Service"]["findById"] = (folderId) =>
 			Effect.gen(function* () {
 				const rows = yield* sql<ProjectRow>`
-          SELECT id, path, name, created_at, workspace_key
+          SELECT id, path, name, created_at, workspace_key, kind
           FROM projects
           WHERE id = ${folderId}
           LIMIT 1
         `.pipe(Effect.orDie);
-				return rows.length > 0 ? rowToFolder(rows[0]!) : null;
+				const row = rows[0];
+				return row === undefined ? null : rowToFolder(row);
 			});
 
 		const add: WorkspaceService["Service"]["add"] = (rawPath, options) =>
@@ -90,7 +93,7 @@ export const WorkspaceServiceLive = Layer.effect(
 				}
 
 				const dupes = yield* sql<ProjectRow>`
-          SELECT id, path, name, created_at, workspace_key
+          SELECT id, path, name, created_at, workspace_key, kind
           FROM projects WHERE path = ${resolved} LIMIT 1
         `.pipe(Effect.orDie);
 				const existing = dupes[0];
@@ -152,6 +155,75 @@ export const WorkspaceServiceLive = Layer.effect(
 				return folder;
 			});
 
+		const createScratch: WorkspaceService["Service"]["createScratch"] =
+			Effect.fn("WorkspaceService.createScratch")(
+				function* (root, id, title, owningWorkspace) {
+					const workspaceKey = owningWorkspace ?? PERSONAL_WORKSPACE_KEY;
+					const invalid = (reason: string) =>
+						new WorkspaceInvalidPathError({ path: root, reason });
+					if (!/^[a-zA-Z0-9_-]{1,128}$/.test(id))
+						return yield* invalid("invalid scratch identity");
+					const existing = yield* findById(id);
+					if (existing !== null) {
+						if (
+							existing.kind !== "scratch" ||
+							existing.workspaceKey !== workspaceKey
+						) {
+							return yield* invalid("scratch identity is already in use");
+						}
+						return existing;
+					}
+					// Never run an unscoped agent inside an enclosing repository.
+					yield* fs
+						.makeDirectory(root, { recursive: true })
+						.pipe(Effect.mapError((cause) => invalid(String(cause))));
+					let ancestor = yield* fs
+						.realPath(root)
+						.pipe(Effect.mapError((cause) => invalid(String(cause))));
+					while (true) {
+						if (
+							yield* fs.exists(Path.join(ancestor, ".git")).pipe(Effect.orDie)
+						) {
+							return yield* invalid(
+								"scratch directory is inside a Git repository",
+							);
+						}
+						const parent = Path.dirname(ancestor);
+						if (parent === ancestor) break;
+						ancestor = parent;
+					}
+					// Persisted paths are reused above, even if the root or date changes.
+					const nowDate = new Date();
+					let directory = Path.join(root, scratchDirectoryName(id, nowDate));
+					const occupied = yield* sql<{
+						id: string;
+					}>`SELECT id FROM projects WHERE path = ${directory}`.pipe(
+						Effect.orDie,
+					);
+					if (occupied.some((row) => row.id !== id))
+						directory = `${directory}-${id}`;
+					yield* fs
+						.makeDirectory(directory, { recursive: true })
+						.pipe(Effect.mapError((cause) => invalid(String(cause))));
+					const now = nowDate.toISOString();
+					yield* sql`
+					INSERT INTO projects (id, path, name, created_at, updated_at, workspace_key, kind)
+					VALUES (${id}, ${directory}, ${title.trim().slice(0, 80) || "No project"}, ${now}, ${now}, ${workspaceKey}, 'scratch')
+					ON CONFLICT(id) DO NOTHING
+				`.pipe(Effect.orDie);
+					const folder = yield* findById(id);
+					if (
+						folder === null ||
+						folder.kind !== "scratch" ||
+						folder.workspaceKey !== workspaceKey
+					) {
+						return yield* invalid("scratch identity is already in use");
+					}
+					yield* PubSub.publish(changes, yield* list());
+					return folder;
+				},
+			);
+
 		const remove: WorkspaceService["Service"]["remove"] = (folderId) =>
 			Effect.gen(function* () {
 				const existing = yield* sql<{ id: string }>`
@@ -190,8 +262,9 @@ export const WorkspaceServiceLive = Layer.effect(
 				const rows = yield* sql<{ value: string }>`
           SELECT value FROM app_state WHERE key = ${SELECTED_KEY} LIMIT 1
         `.pipe(Effect.orDie);
-				if (rows.length === 0) return null;
-				const id = FolderId.make(rows[0]!.value);
+				const row = rows[0];
+				if (row === undefined) return null;
+				const id = FolderId.make(row.value);
 				// Defensive: drop the selection if the project is gone.
 				const known = yield* sql<{ id: string }>`
           SELECT id FROM projects WHERE id = ${id} LIMIT 1
@@ -226,6 +299,7 @@ export const WorkspaceServiceLive = Layer.effect(
 
 		return {
 			add,
+			createScratch,
 			list,
 			streamChanges,
 			remove,

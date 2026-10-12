@@ -347,5 +347,7 @@
 	"projects_sidebar_star_on_github": "GitHub でスターを付ける",
 	"projects_sidebar_dismiss_star_prompt": "GitHub スターの案内を閉じる",
 	"projects_sidebar_github_open_failed": "GitHub を開けませんでした",
-	"projects_sidebar_github_starring": "スターを追加中…"
+	"projects_sidebar_github_starring": "スターを追加中…",
+	"new_chat_without_project": "プロジェクトなしで新しいチャット",
+	"no_project": "プロジェクトなし"
 }

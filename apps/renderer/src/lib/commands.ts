@@ -17,6 +17,7 @@ export function dispatchCommand(command: Command): void {
 export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
 	"search-files",
 	"new-chat",
+	"new-chat-without-project",
 	"open-project",
 	"settings",
 	"toggle-left-sidebar",

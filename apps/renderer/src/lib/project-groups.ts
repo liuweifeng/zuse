@@ -127,6 +127,7 @@ export const buildLogicalProjectGroups = (input: {
 	readonly localEnvironmentId: string;
 	/** Live workspace-store folders for the ACTIVE environment (catalog may lag). */
 	readonly activeFolders: ReadonlyArray<Folder>;
+	readonly folderKind?: "project" | "scratch";
 	readonly activeOrigins: Readonly<Record<string, GitOriginInfo | null>>;
 	readonly activeChatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
 	/** Qualified ClientBus shell data; the connection catalog owns no entities. */
@@ -215,6 +216,8 @@ export const buildLogicalProjectGroups = (input: {
 	// The active environment's data comes from the LIVE stores; its catalog
 	// entry only lends connection metadata.
 	input.activeFolders.forEach((folder, index) => {
+		if ((folder.kind === "scratch") !== (input.folderKind === "scratch"))
+			return;
 		addMember({
 			environmentId: input.activeEnvironmentId,
 			environmentLabel: activeEntry?.label ?? "This computer",
@@ -233,6 +236,8 @@ export const buildLogicalProjectGroups = (input: {
 		const shell = input.shellsByEnvironment[entry.environmentId];
 		if (shell === null || shell === undefined) continue;
 		for (const folder of shell.folders) {
+			if ((folder.kind === "scratch") !== (input.folderKind === "scratch"))
+				continue;
 			addMember({
 				environmentId: entry.environmentId,
 				environmentLabel: entry.label,
@@ -372,10 +377,26 @@ export type ComputerPickerModel =
  * menu with this desktop first and non-connected members disabled.
  */
 export const computerPickerItems = (
-	group: LogicalProjectGroup,
+	group: LogicalProjectGroup | null,
 	target: NewChatTarget | null,
 	entries: ReadonlyArray<EnvironmentCatalogEntry> = [],
 ): ComputerPickerModel => {
+	if (group === null) {
+		return {
+			kind: "menu",
+			items: entries.map((entry) => ({
+				environmentId: entry.environmentId,
+				folderId: null,
+				label: entry.connectionKind === "local" ? "This computer" : entry.label,
+				status: entry.status,
+				projectAvailable: true,
+				setupAvailable: false,
+				retryable: entry.status === "error" || entry.status === "offline",
+				selected: target?.environmentId === entry.environmentId,
+				disabled: entry.status === "connecting",
+			})),
+		};
+	}
 	const resolved = target ?? defaultNewChatTarget(group);
 	const memberItems = [...group.members]
 		.sort(

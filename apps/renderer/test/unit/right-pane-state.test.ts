@@ -133,3 +133,23 @@ describe("chat-scoped right pane state", () => {
 		expect(logicalRightPaneProject([], null, cloud)).toBe(cloud);
 	});
 });
+
+describe("projectless chat panels", () => {
+	it("hides PR and Changes while retaining them for repository threads", () => {
+		for (const kind of ["pr", "changes"] as const) {
+			expect(canUseChatPanel(kind, false, true)).toBe(false);
+			expect(canUseChatPanel(kind, false, false)).toBe(true);
+		}
+	});
+	it("keeps files, terminals, and other independent panels available", () => {
+		for (const kind of [
+			"files",
+			"terminal",
+			"browser",
+			"plan",
+			"subagents",
+		] as const) {
+			expect(canUseChatPanel(kind, false, true)).toBe(true);
+		}
+	});
+});

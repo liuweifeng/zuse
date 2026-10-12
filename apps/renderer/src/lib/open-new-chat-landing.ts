@@ -35,6 +35,8 @@ export function openNewChatLanding(projectId: FolderId | null): void {
 			if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
 				void useWorkspaceStore.getState().select(projectId);
 			}
+		} else {
+			void useWorkspaceStore.getState().select(null);
 		}
 		useChatsStore.getState().select(null);
 	});

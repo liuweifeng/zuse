@@ -178,8 +178,13 @@ const PANEL_META: Record<
 	},
 };
 
-export const canUseChatPanel = (kind: PanelKind, readOnly: boolean): boolean =>
-	!readOnly || kind === "files" || kind === "plan";
+export const canUseChatPanel = (
+	kind: PanelKind,
+	readOnly: boolean,
+	projectless = false,
+): boolean =>
+	(!projectless || (kind !== "pr" && kind !== "changes")) &&
+	(!readOnly || kind === "files" || kind === "plan");
 
 const LIVE_PANEL_KINDS = new Set<PanelKind>([
 	"files",
@@ -323,8 +328,15 @@ export function RightPane({
 		shell.data?.folders.find((folder) => folder.id === executionFolderId) ??
 			null,
 	);
-	const workspaceView = useGitWorkspaceResource(executionRef, "connect");
-	const prDetailsView = useGitPrDetailsResource(executionRef, "cache-only");
+	const scratch = selected?.kind === "scratch";
+	const workspaceView = useGitWorkspaceResource(
+		scratch ? null : executionRef,
+		"connect",
+	);
+	const prDetailsView = useGitPrDetailsResource(
+		scratch ? null : executionRef,
+		"cache-only",
+	);
 	const status = workspaceView.data?.status ?? null;
 	const pr = workspaceView.data?.pr ?? null;
 	const details = prDetailsView.data?.details ?? null;
@@ -570,7 +582,7 @@ export function RightPane({
 		});
 	};
 	const handleAddPanel = (kind: PanelKind) => {
-		if (!canUseChatPanel(kind, readOnly)) return;
+		if (!canUseChatPanel(kind, readOnly, scratch)) return;
 		if (kind === "terminal") {
 			handleAddProjectTerminal();
 			return;
@@ -686,7 +698,7 @@ export function RightPane({
 			(kind) =>
 				kind !== "browser" || rendererPlatformCapabilities().integratedBrowser,
 		)
-		.filter((kind) => canUseChatPanel(kind, readOnly))
+		.filter((kind) => canUseChatPanel(kind, readOnly, scratch))
 		.filter(
 			(kind) =>
 				!directoryUnavailable ||
@@ -706,7 +718,7 @@ export function RightPane({
 	// session in the same chat has no proposed plan.
 	const visiblePanels = panels.filter(
 		(panel) =>
-			canUseChatPanel(panel.kind, readOnly) &&
+			canUseChatPanel(panel.kind, readOnly, scratch) &&
 			(!isHostedProduct() ||
 				panel.kind !== "terminal" ||
 				termList[panel.slot]?.environmentId !== localTerminalEnvironmentId) &&

@@ -353,5 +353,7 @@
 	"projects_sidebar_star_on_github": "Ajouter une étoile sur GitHub",
 	"projects_sidebar_dismiss_star_prompt": "Masquer l’invitation GitHub",
 	"projects_sidebar_github_open_failed": "Impossible d’ouvrir GitHub",
-	"projects_sidebar_github_starring": "Ajout de l’étoile…"
+	"projects_sidebar_github_starring": "Ajout de l’étoile…",
+	"new_chat_without_project": "Nouvelle discussion sans projet",
+	"no_project": "Aucun projet"
 }

@@ -347,5 +347,7 @@
 	"projects_sidebar_star_on_github": "Star on GitHub",
 	"projects_sidebar_dismiss_star_prompt": "Dismiss GitHub star prompt",
 	"projects_sidebar_github_open_failed": "Could not open GitHub",
-	"projects_sidebar_github_starring": "Starring…"
+	"projects_sidebar_github_starring": "Starring…",
+	"new_chat_without_project": "New chat without a project",
+	"no_project": "No project"
 }

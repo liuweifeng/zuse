@@ -774,5 +774,7 @@
 	"switch_account_compact_detail": "先总结，让回复保持快速",
 	"switch_account_compact_first": "先压缩",
 	"switch_account_compact_first_detail": "继续之前先总结聊天。部分较早的细节可能会丢失。",
-	"switch_account_choose": "选择账户"
+	"switch_account_choose": "选择账户",
+	"no_project": "无项目",
+	"start_without_project": "不关联项目开始"
 }

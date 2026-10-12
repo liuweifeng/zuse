@@ -1,5 +1,6 @@
 import { openPathInTarget } from "../lib/open-path-in-target.ts";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
+import { useWorkspaceStore } from "../store/workspace.ts";
 import { CopyButton } from "./copy-button.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { GitHubStatusNotice } from "./github-status-notice.tsx";
@@ -239,12 +240,18 @@ export function TopBarMain() {
 		ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.folderId
 			: null;
+	const scratch = useWorkspaceStore((s) =>
+		s.folders.some(
+			(folder) => folder.id === folderId && folder.kind === "scratch",
+		),
+	);
 	const worktreeId =
 		ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.worktreeId
 			: null;
 	const status =
-		useGitWorkspaceResource(executionRef, "connect").data?.status ?? null;
+		useGitWorkspaceResource(scratch ? null : executionRef, "connect").data
+			?.status ?? null;
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
@@ -336,7 +343,8 @@ export function TopBarMain() {
 		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
 
 	const refreshBranches = async (): Promise<void> => {
-		if (readOnly || executionRef === null || folderId === null) return;
+		if (scratch || readOnly || executionRef === null || folderId === null)
+			return;
 		setBranchesLoading(true);
 		setBranchError(null);
 		try {
@@ -360,7 +368,7 @@ export function TopBarMain() {
 	useEffect(() => {
 		void refreshBranches();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [folderId, worktreeId, branchLabel, readOnly]);
+	}, [folderId, worktreeId, branchLabel, readOnly, scratch]);
 
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
 		if (
@@ -433,7 +441,7 @@ export function TopBarMain() {
 				</Tooltip>
 			) : null}
 			<div className={`flex min-w-0 flex-1 items-center ${ACTION_CLASS}`}>
-				{hasSession ? (
+				{hasSession && !scratch ? (
 					<nav
 						aria-label={uiMessage("chat:top_bar_branch_name")}
 						className="flex min-w-0 max-w-[min(208px,100%)] items-center gap-1 text-[11px]"
@@ -535,7 +543,7 @@ export function TopBarMain() {
 					<OpenInMenu rootPath={ctx.status === "ready" ? ctx.rootPath : null} />
 				)
 			) : null}
-			{hasSession ? (
+			{hasSession && !scratch ? (
 				<Tooltip>
 					<TooltipTrigger
 						render={

@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as Path from "node:path";
 import { NodeServices } from "@effect/platform-node";
+import { FolderId } from "@zuse/contracts";
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -134,7 +135,8 @@ describe("WorkspaceServiceLive project registration", () => {
             name TEXT NOT NULL,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
-            workspace_key TEXT NOT NULL DEFAULT 'personal'
+            workspace_key TEXT NOT NULL DEFAULT 'personal',
+            kind TEXT NOT NULL DEFAULT 'project'
           )
         `;
 				yield* sql`
@@ -150,6 +152,133 @@ describe("WorkspaceServiceLive project registration", () => {
 	afterEach(async () => {
 		await runtime.dispose();
 		await fs.rm(dir, { recursive: true, force: true });
+	});
+
+	it("creates isolated scratch directories without repository metadata and reuses them on retry", async () => {
+		const root = Path.join(dir, "scratch");
+		const id = FolderId.make("scratch_first");
+		const first = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				ws.createScratch(root, id, "Convert images"),
+			),
+		);
+		await fs.writeFile(Path.join(first.path, "result.txt"), "kept");
+		const [retry, second] = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				Effect.all([
+					ws.createScratch(root, id, "Different retry title"),
+					ws.createScratch(
+						root,
+						FolderId.make("scratch_second"),
+						"Another task",
+					),
+				]),
+			),
+		);
+		expect(retry).toEqual(first);
+		expect(second.path).not.toBe(first.path);
+		expect(first.kind).toBe("scratch");
+		expect(Path.basename(first.path)).toMatch(
+			/^\d{4}-\d{2}-\d{2}-[a-f0-9]{12}$/,
+		);
+		expect(await fs.readdir(first.path)).toEqual(["result.txt"]);
+		expect(
+			(
+				await runtime.runPromise(
+					Effect.flatMap(WorkspaceService, (ws) => ws.list()),
+				)
+			).length,
+		).toBe(2);
+		await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) => ws.remove(id)),
+		);
+		expect(await fs.readFile(Path.join(first.path, "result.txt"), "utf8")).toBe(
+			"kept",
+		);
+	});
+
+	it("preserves existing thread paths when the default root changes", async () => {
+		const id = FolderId.make("scratch_existing");
+		const oldRoot = Path.join(dir, "old-app-data", "scratch");
+		const newRoot = Path.join(dir, ".zuse", "threads");
+		const first = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				ws.createScratch(oldRoot, id, "Existing task"),
+			),
+		);
+		await fs.writeFile(Path.join(first.path, "result.txt"), "preserved");
+		const resumed = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				ws.createScratch(newRoot, id, "Renamed task"),
+			),
+		);
+		expect(resumed.path).toBe(first.path);
+		expect(
+			await fs.readFile(Path.join(resumed.path, "result.txt"), "utf8"),
+		).toBe("preserved");
+		expect(await exists(newRoot)).toBe(false);
+	});
+
+	it("handles concurrent scratch creation with one persisted folder", async () => {
+		const id = FolderId.make("scratch_concurrent");
+		const results = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				Effect.all(
+					[
+						ws.createScratch(Path.join(dir, "scratch"), id, "First"),
+						ws.createScratch(Path.join(dir, "scratch"), id, "First"),
+					],
+					{ concurrency: "unbounded" },
+				),
+			),
+		);
+		const first = results[0];
+		if (first === undefined) throw new Error("Expected scratch folder");
+		expect(first).toEqual(results[1]);
+		expect(await fs.readdir(Path.join(dir, "scratch"))).toEqual([
+			Path.basename(first.path),
+		]);
+	});
+
+	it("rejects unsafe identities, enclosing Git checkouts, and workspace collisions", async () => {
+		const root = Path.join(dir, "scratch");
+		const create = (id: string, workspaceKey?: "organization:other") =>
+			runtime.runPromise(
+				Effect.flatMap(WorkspaceService, (ws) =>
+					ws.createScratch(root, FolderId.make(id), "Task", workspaceKey),
+				).pipe(Effect.flip),
+			);
+		expect((await create("../escape")).reason).toBe("invalid scratch identity");
+		await fs.mkdir(Path.join(dir, ".git"));
+		expect((await create("scratch_git")).reason).toContain(
+			"inside a Git repository",
+		);
+		await fs.rm(Path.join(dir, ".git"), { recursive: true });
+		await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				ws.createScratch(root, FolderId.make("scratch_owned"), "Task"),
+			),
+		);
+		expect(
+			(await create("scratch_owned", "organization:other")).reason,
+		).toContain("already in use");
+	});
+
+	it("rejects scratch roots reached through a symlink into a checkout", async () => {
+		const repository = Path.join(dir, "repository");
+		await fs.mkdir(Path.join(repository, ".git"), { recursive: true });
+		await fs.mkdir(Path.join(repository, "nested"));
+		await fs.symlink(Path.join(repository, "nested"), Path.join(dir, "alias"));
+		const error = await runtime.runPromise(
+			Effect.flatMap(WorkspaceService, (ws) =>
+				ws.createScratch(
+					Path.join(dir, "alias", "scratch"),
+					FolderId.make("scratch_symlink"),
+					"Task",
+				),
+			).pipe(Effect.flip),
+		);
+		expect(error.reason).toContain("inside a Git repository");
 	});
 
 	it("prepares .gitignore during workspace add", async () => {

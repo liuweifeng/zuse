@@ -234,6 +234,7 @@ export function ChatComposer({
 	composerDraftKey,
 	headerSlot,
 	draftTray,
+	projectlessDraft = false,
 	constrain = true,
 	directoryUnavailable = false,
 	submitDisabled = false,
@@ -260,6 +261,7 @@ export function ChatComposer({
 	 * blocked.
 	 */
 	draftTray?: ReactNode;
+	projectlessDraft?: boolean;
 	/**
 	 * When set, the composer runs in "draft" mode for the new-chat landing:
 	 * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
@@ -576,11 +578,16 @@ export function ChatComposer({
 	);
 
 	useEffect(() => {
-		if (!isDraft || (isHostedProduct() && qualifiedEnvironmentId === "local"))
+		if (
+			projectlessDraft ||
+			!isDraft ||
+			(isHostedProduct() && qualifiedEnvironmentId === "local")
+		)
 			return;
 		void hydrateDraftSkills(session.projectId, session.providerId);
 	}, [
 		hydrateDraftSkills,
+		projectlessDraft,
 		isDraft,
 		qualifiedEnvironmentId,
 		session.projectId,

@@ -72,5 +72,7 @@
 	"command_group_navigation": "Navigation",
 	"command_group_editor": "Editor",
 	"command_group_composer": "Composer",
-	"command_group_application": "Application"
+	"command_group_application": "Application",
+	"new_chat_without_project": "New chat without a project",
+	"new_chat_without_project_description": "Start a new chat in its own scratch folder"
 }

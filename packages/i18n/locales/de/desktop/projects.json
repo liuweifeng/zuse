@@ -347,5 +347,7 @@
 	"projects_sidebar_star_on_github": "Auf GitHub einen Stern geben",
 	"projects_sidebar_dismiss_star_prompt": "GitHub-Sternhinweis ausblenden",
 	"projects_sidebar_github_open_failed": "GitHub konnte nicht geöffnet werden",
-	"projects_sidebar_github_starring": "Stern wird vergeben…"
+	"projects_sidebar_github_starring": "Stern wird vergeben…",
+	"new_chat_without_project": "Neuer Chat ohne Projekt",
+	"no_project": "Kein Projekt"
 }

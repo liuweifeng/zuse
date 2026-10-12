@@ -87,9 +87,16 @@ const PANEL_IDS = ["projects", "main", "files"];
 /** Keeps the selected checkout live even when no Git-specific panel is open. */
 function ActiveGitWorkspaceLease() {
 	const context = useActiveContext();
+	const scratch = useWorkspaceStore(
+		(s) =>
+			context.status === "ready" &&
+			s.folders.some(
+				(folder) => folder.id === context.folderId && folder.kind === "scratch",
+			),
+	);
 	const ref = useMemo(
 		() =>
-			context.status === "ready"
+			context.status === "ready" && !scratch
 				? {
 						environmentId: context.environmentId,
 						folderId: context.folderId,
@@ -97,7 +104,7 @@ function ActiveGitWorkspaceLease() {
 						rootPath: context.rootPath,
 					}
 				: null,
-		[context],
+		[context, scratch],
 	);
 	useGitWorkspaceResource(ref, "connect");
 	return null;
@@ -520,7 +527,9 @@ export function MainShell() {
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const compactWorkspace = useMediaQuery({ max: 900 });
 	const environmentSummaryAvailable =
-		selectedSessionId !== null && activeMainTab === "chat";
+		selectedSessionId !== null &&
+		activeMainTab === "chat" &&
+		selectedFolder?.kind !== "scratch";
 	const showEnvironmentSummary =
 		environmentSummaryAvailable && environmentSummaryOpen;
 
@@ -546,10 +555,16 @@ export function MainShell() {
 	// worktree" until the user opens the chat tab.
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
 	useEffect(() => {
-		if (selectedFolderId === null || isCloudProjectFolder(selectedFolderId))
+		if (
+			selectedFolderId === null ||
+			isCloudProjectFolder(selectedFolderId) ||
+			folders.some(
+				(folder) => folder.id === selectedFolderId && folder.kind === "scratch",
+			)
+		)
 			return;
 		void refreshWorktrees(selectedFolderId);
-	}, [selectedFolderId, refreshWorktrees]);
+	}, [selectedFolderId, folders, refreshWorktrees]);
 
 	// Cmd+W in the menu dispatches `menu:close-tab` over IPC; the renderer
 	// owns the close-tab logic because it knows which surface is active. If

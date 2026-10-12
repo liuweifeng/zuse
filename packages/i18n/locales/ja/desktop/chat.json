@@ -774,5 +774,7 @@
 	"switch_account_compact_detail": "先に要約して応答を速く保つ",
 	"switch_account_compact_first": "先に圧縮",
 	"switch_account_compact_first_detail": "続行する前にチャットを要約します。以前の細部が失われる場合があります。",
-	"switch_account_choose": "アカウントを選択"
+	"switch_account_choose": "アカウントを選択",
+	"no_project": "プロジェクトなし",
+	"start_without_project": "プロジェクトなしで開始"
 }

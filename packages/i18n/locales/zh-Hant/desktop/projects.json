@@ -347,5 +347,7 @@
 	"projects_sidebar_star_on_github": "在 GitHub 上加星",
 	"projects_sidebar_dismiss_star_prompt": "關閉 GitHub 加星提示",
 	"projects_sidebar_github_open_failed": "無法開啟 GitHub",
-	"projects_sidebar_github_starring": "正在加星…"
+	"projects_sidebar_github_starring": "正在加星…",
+	"new_chat_without_project": "新增無專案聊天",
+	"no_project": "無專案"
 }

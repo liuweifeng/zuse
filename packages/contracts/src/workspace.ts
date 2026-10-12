@@ -9,6 +9,8 @@ export class Folder extends Schema.Class<Folder>("Folder")({
 	id: FolderId,
 	path: Schema.String,
 	name: Schema.String,
+	/** Internal per-thread working directory; omitted for ordinary projects. */
+	kind: Schema.optional(Schema.Literals(["project", "scratch"])),
 	addedAt: Schema.DateFromString,
 	/** Owning workspace. Omitted by older servers, which only know Personal. */
 	workspaceKey: Schema.optional(WorkspaceKey),
@@ -132,6 +134,17 @@ export const WorkspaceAddRpc = Rpc.make("workspace.add", {
 	}),
 	success: Folder,
 	error: Schema.Union([WorkspaceDuplicatePathError, WorkspaceInvalidPathError]),
+});
+
+/** Creates an isolated, persistent directory for a thread without a project. */
+export const WorkspaceCreateScratchRpc = Rpc.make("workspace.createScratch", {
+	payload: Schema.Struct({
+		id: FolderId,
+		title: Schema.String,
+		workspaceKey: Schema.optional(WorkspaceKey),
+	}),
+	success: Folder,
+	error: WorkspaceInvalidPathError,
 });
 
 export const WorkspaceListRpc = Rpc.make("workspace.list", {
