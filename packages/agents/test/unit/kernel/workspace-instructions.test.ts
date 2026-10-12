@@ -28,6 +28,15 @@ describe("zuseWorkspaceInstructions", () => {
 			}),
 		).toContain("plugins_search");
 	});
+	it("does not advertise visual tools when app tools are unavailable", () => {
+		const text = zuseWorkspaceInstructions({
+			projectPath: "/repo",
+			cwd: "/repo",
+			includeAppTools: false,
+		});
+		expect(text).not.toContain("emit_ui");
+		expect(text).not.toContain("OpenUI");
+	});
 });
 
 it("only advertises orchestration when enabled and preserves shared guidance", () => {

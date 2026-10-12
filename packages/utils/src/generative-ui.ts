@@ -137,6 +137,30 @@ export const generativeUiComponents = {
 			unit: z.string().optional(),
 		}),
 	},
+	DonutChart: {
+		description:
+			"Part-to-whole chart with a total and a labeled legend showing values and percentages. Use 1-12 non-negative points with a finite total; use BarChart to compare close values.",
+		props: z.object({
+			title: z.string(),
+			points: z
+				.array(
+					z.object({
+						label: z.string(),
+						value: z.number().finite().nonnegative(),
+					}),
+				)
+				.min(1)
+				.max(12)
+				.refine(
+					(points) =>
+						Number.isFinite(
+							points.reduce((sum, point) => sum + point.value, 0),
+						),
+					"Total must be finite",
+				),
+			unit: z.string().optional(),
+		}),
+	},
 	Callout: {
 		description:
 			"Highlighted note for a warning, risk, or key takeaway. tone defaults to neutral.",

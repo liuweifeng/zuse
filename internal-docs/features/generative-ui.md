@@ -9,6 +9,13 @@ express. The tool is available to providers through the shared MCP gateway and
 Claude's native tool adapter. Successful calls return the persisted message ID;
 invalid specs return an error the agent can correct.
 
+`packages/agents/src/drivers/generative-ui-instructions.ts` is the shared
+response guidance used by both the workspace prompt and tool description.
+Multi-part final answers lead with a short outcome and use one compact visual
+summary for changes, checks, findings, or options. Simple replies stay text.
+The guidance includes component selection, concise table cells, evidence and
+verification status, and a text fallback when the tool is unavailable.
+
 ```text
 emit_ui → shared validation → persistMessage → ui_spec timeline row
                                              ├─ desktop/web: inline components
@@ -29,6 +36,17 @@ block is the visible output. Failed calls keep their tool rows so the error is
 visible. `isEmitUiTool` in `@zuse/client-runtime/generative-ui` is the single
 check for the tool name.
 
+Within the block, metrics and charts use subtle tonal surfaces. Bar and donut
+fills use `dither-kit/static-fill.tsx` with the chart engine’s `paintColumn`
+and shared density-to-alpha scatter. Bars fade vertically and donut segments
+fade radially with the same pixel size and palette as line charts. These
+canvases repaint on size or data changes without an animation loop. Tables wrap
+long cells in a fixed layout with content-weighted columns. Below 24rem, rows
+reflow into labeled records while preserving table headers for assistive
+technology. Metric grids allow compact tiles; charts and longer content stack
+at narrower widths. The
+outer reply stays border-free; individual components supply visual grouping.
+
 ## Component library
 
 `packages/utils/src/generative-ui.ts` owns component names, positional prop
@@ -40,8 +58,10 @@ compatible.
 - Display: Card (titled section), Text, Stat, KeyValue, Table, Progress, Badge,
   List, Grid, Callout, Steps, Flow (2–8 boxes joined by arrows, one optionally
   highlighted; stacks vertically in narrow chats), Tabs.
-- Charts: BarChart, LineChart. Points are ordered `{ label, value }` pairs with
-  an optional unit.
+- Charts: BarChart, LineChart, DonutChart. Points are ordered `{ label, value }`
+  pairs with an optional unit. DonutChart displays a total and a text legend
+  with values and percentages; it accepts 1–12 non-negative values with a
+  finite total. A zero total renders an empty ring and zero percentages.
 - Interaction: Form and the fields Input, TextArea, Select,
   RadioGroup, Checkbox, Slider. Agents are told to use a Form only when they
   are blocked on several answers, and to state next steps in prose.
@@ -90,7 +110,8 @@ literal data or named references. Short answers should remain ordinary text.
   duplicate names, reactive state, expressions, and non-catalogue calls fail.
 - Full Zod validation enforces ranges and collection limits that the parser's
   type validation alone does not enforce. Containers accept up to 64 children;
-  charts accept 1–100 finite numeric points; tables accept 1–20 columns and up to
+  BarChart and LineChart accept 1–100 finite numeric points; DonutChart accepts
+  1–12 non-negative points with a finite total; tables accept 1–20 columns and up to
   200 rows with matching cell counts. Progress is between 0 and 100.
 - Validation runs before persistence and again when reading a saved block.
 - Parser failures, component errors, and lazy chunk failures preserve a source
