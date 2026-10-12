@@ -375,26 +375,6 @@ if (process.env.ZUSE_RUNTIME_UPDATER_LOCKED !== "1") {
 }
 
 async function update() {
-	// Boat exposes restored tools through FUSE before the writable mount is
-	// handed over. Reading executables is safe then; replacing release pointers
-	// can stall the handover. Wait only when updating, never on normal startup.
-	let filesystemPath = dirname(releasesRoot);
-	const filesystemDeadline = Date.now() + 120_000;
-	while (true) {
-		let filesystem;
-		try {
-			filesystem = await statfs(filesystemPath);
-		} catch (cause) {
-			if (cause.code !== "ENOENT" || dirname(filesystemPath) === filesystemPath)
-				throw cause;
-			filesystemPath = dirname(filesystemPath);
-			continue;
-		}
-		if (filesystem.type !== 0x65735546) break; // Linux FUSE_SUPER_MAGIC
-		if (Date.now() >= filesystemDeadline)
-			throw new Error("Runtime update filesystem is still restoring");
-		await new Promise((resolve) => setTimeout(resolve, 500));
-	}
 	let lastStatus = {
 		state: "updating",
 		phase: "checking",
@@ -781,6 +761,29 @@ async function update() {
 		});
 	};
 	try {
+		// Boat exposes restored tools through FUSE before the writable mount is
+		// handed over. Reading executables is safe then; replacing release pointers
+		// can stall the handover. Wait only when updating, never on normal startup.
+		let filesystemPath = releasesRoot;
+		const filesystemDeadline = Date.now() + 120_000;
+		while (true) {
+			let filesystem;
+			try {
+				filesystem = await statfs(filesystemPath);
+			} catch (cause) {
+				if (
+					cause.code !== "ENOENT" ||
+					dirname(filesystemPath) === filesystemPath
+				)
+					throw cause;
+				filesystemPath = dirname(filesystemPath);
+				continue;
+			}
+			if (filesystem.type !== 0x65735546) break; // Linux FUSE_SUPER_MAGIC
+			if (Date.now() >= filesystemDeadline)
+				throw new Error("Runtime update filesystem is still restoring");
+			await new Promise((resolve) => setTimeout(resolve, 500));
+		}
 		if (action === "prepare") await prepare();
 		else if (action === "activate") await activate();
 		else if (action === "rollback") await rollback();

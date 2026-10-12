@@ -1004,6 +1004,8 @@ export class ProviderReadySignal {
  * that id: the authority cache would answer with the same bad grant.
  */
 export const makeStartupLaunchGrant = (input: {
+	/** Persisted bootstrap responses may refer to an expired authority cache entry. */
+	readonly freshBootstrap: boolean;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
 	readonly agent: string | undefined;
@@ -1050,7 +1052,12 @@ export const makeStartupLaunchGrant = (input: {
 		/** Deterministic id for one startup attempt of the launch provider, or undefined. */
 		requestId: (providerId: CloudAuthProvider, thumbprint: Promise<string>) =>
 			Effect.promise(async () => {
-				if (outcome !== "absent" || providerId !== launchProvider || consumed)
+				if (
+					!input.freshBootstrap ||
+					outcome !== "absent" ||
+					providerId !== launchProvider ||
+					consumed
+				)
 					return undefined;
 				consumed = true;
 				return launchGrantRequestId({
@@ -1066,19 +1073,20 @@ export const makeStartupLaunchGrant = (input: {
 
 /**
  * Credentials this runtime cannot obtain by waiting are a launch failure:
- * runtime updates, legacy workspaces, and snapshot-native tools, whose local
- * sign-in state has no recovery notification and is rechecked on retry.
+ * runtime updates, legacy workspaces, and missing snapshot-native tools.
+ * Local sign-in must remain accessible even when native credentials expire.
  */
 export const providerCredentialFailureIsTerminal = (reason: string): boolean =>
 	reason.includes("update-required") ||
 	reason.includes("legacy-workspace") ||
-	reason.includes("-snapshot-");
+	reason.endsWith("-snapshot-missing-tool");
 
 /**
  * Credential readiness is evidence that the agent executing the launch intent
  * can obtain its credential, not that adapters were installed. Only the
  * selected agent is awaited, so a disconnected unrelated provider never delays
- * setup. A refused grant keeps the runtime and gateway alive and waits for the
+ * setup. Snapshot-native sign-in failures leave workspace access available for
+ * local reauthentication; the provider resolver still gates agent execution. A refused grant keeps the runtime and gateway alive and waits for the
  * provider's own recovery; a terminal failure fails the launch.
  */
 export const prepareSelectedAgentCredential = Effect.fn(
@@ -1118,6 +1126,14 @@ export const prepareSelectedAgentCredential = Effect.fn(
 		);
 		if (providerCredentialFailureIsTerminal(reason))
 			return yield* Effect.fail(result.failure);
+		// Local sign-in needs an accessible workspace; the provider resolver still
+		// checks access before starting an agent. There is no broker recovery signal.
+		if (
+			["authentication-required", "expired", "unavailable"].some(
+				(state) => reason === `${providerId}-snapshot-${state}`,
+			)
+		)
+			return providerId;
 		yield* input.recovery.changed(providerId, since);
 	}
 });
@@ -2963,6 +2979,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						// for image secrets or agents without cloud-managed credentials.
 						const providerRecovery = new ProviderReadySignal();
 						const startupGrant = makeStartupLaunchGrant({
+							freshBootstrap: identity.bootstrap === null,
 							workspaceId: config.workspaceId,
 							runtimeGeneration: bootstrap.runtimeGeneration,
 							agent: bootstrap.launchIntent?.agent,
