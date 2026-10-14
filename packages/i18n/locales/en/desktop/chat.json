@@ -261,7 +261,7 @@
 	"queue_tray_waiting_for_sandbox": "Waiting for sandbox",
 	"queue_tray_queued": "Queued",
 	"queue_tray_waiting_for_connection": "Waiting for connection",
-	"queue_tray_queue_paused_because_you_interrupted": "Queue paused because you interrupted",
+	"queue_tray_queue_paused": "Queue paused",
 	"queue_tray_queue_held_because_the_last_turn_failed": "Queue held because the last turn failed",
 	"queue_tray_resume_queued_messages": "Resume queued messages",
 	"queue_tray_resume": "Resume",

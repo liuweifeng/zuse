@@ -260,7 +260,7 @@
 	"queue_tray_waiting_for_sandbox": "Warten auf Sandbox",
 	"queue_tray_queued": "In der Warteschlange",
 	"queue_tray_waiting_for_connection": "Warten auf Verbindung",
-	"queue_tray_queue_paused_because_you_interrupted": "Die Warteschlange wurde angehalten, weil Sie unterbrochen haben",
+	"queue_tray_queue_paused": "Warteschlange pausiert",
 	"queue_tray_queue_held_because_the_last_turn_failed": "Die Warteschlange wird angehalten, weil der letzte Zug fehlgeschlagen ist",
 	"queue_tray_resume_queued_messages": "Nachrichten in der Warteschlange fortsetzen",
 	"queue_tray_resume": "Lebenslauf",
