@@ -29,6 +29,7 @@ vi.mock("../../src/components/ui/toast.tsx", () => ({
 
 vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 	dispatchEnvironmentShellCommand: mocks.dispatch,
+	readEnvironmentUsage: vi.fn(),
 }));
 
 vi.mock("../../src/store/environment-catalog.ts", () => ({
