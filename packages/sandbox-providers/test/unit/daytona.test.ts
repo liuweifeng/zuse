@@ -46,12 +46,52 @@ const input = {
 const run = Effect.runPromise;
 
 describe("Daytona provider", () => {
+	test.each([
+		"inactive",
+		"error",
+		"build_failed",
+	])("rejects unusable custom snapshot state %s", async (state) => {
+		const { adapter } = fixture([{ body: { id: "custom", state } }]);
+		if (!adapter.validateTemplate) throw new Error("Missing template check");
+		await expect(run(adapter.validateTemplate())).rejects.toMatchObject({
+			code: "rejected",
+		});
+	});
+	test.each([
+		undefined,
+		"ghcr.io/zuse/base@sha256:other",
+	])("rejects an unverified portable image identity %s before reuse", async (imageName) => {
+		for (const operation of ["validateTemplate", "create"] as const) {
+			const { adapter, calls } = fixture(
+				[{ body: { id: "collision", state: "active", imageName } }],
+				"ghcr.io/zuse/base@sha256:test",
+			);
+			if (!adapter.withCredentials) throw new Error("Missing BYOK support");
+			const own = adapter.withCredentials({ apiKey: Redacted.make("own-key") });
+			if (!own.validateTemplate) throw new Error("Missing template check");
+			await expect(
+				run(
+					operation === "create"
+						? own.create(input).pipe(Effect.asVoid)
+						: own.validateTemplate(),
+				),
+			).rejects.toMatchObject({ code: "rejected" });
+			expect(calls).toHaveLength(1);
+			expect(calls[0]?.init?.method).toBe("GET");
+		}
+	});
 	test("imports a portable base once in the BYOK organization, then reuses it", async () => {
 		const { adapter, calls } = fixture(
 			[
 				{ status: 404 },
 				{ body: { id: "own-base", state: "building" } },
-				{ body: { id: "own-base", state: "active" } },
+				{
+					body: {
+						id: "own-base",
+						state: "active",
+						imageName: "ghcr.io/zuse/base@sha256:test",
+					},
+				},
 				{ body: detail("started") },
 				{ body: detail("started") },
 			],

@@ -335,8 +335,28 @@ export const reconcileWorkspaceArchive = Effect.fn("reconcileWorkspaceArchive")(
 		}
 		if (
 			(archive?.phase === "uploading" || archive?.phase === "verifying") &&
-			workspace.desiredState === "ready"
+			workspace.desiredState !== "archived"
 		) {
+			if (workspace.desiredState === "paused") {
+				if (workspace.providerSandboxId !== undefined)
+					yield* provider.pause(workspace.providerSandboxId);
+				yield* observeStopped();
+				yield* update(
+					{
+						state: "paused",
+						statusCode: "paused",
+						runtimeState: "offline",
+						runningSinceMs: undefined,
+						nextActionAtMs: Number.MAX_SAFE_INTEGER,
+						requestConfig: {
+							runtimeActivation: undefined,
+							runtimeSessionRecoveryPending: true,
+						},
+					},
+					{ ...archive, phase: "restored" },
+				);
+				return true;
+			}
 			// Unarchive cancels the upload capability and requires a fenced restart;
 			// the process on the retained machine may now be the backup helper.
 			yield* update(

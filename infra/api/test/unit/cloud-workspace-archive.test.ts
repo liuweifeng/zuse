@@ -262,7 +262,44 @@ describe("archive recovery lifecycle", () => {
 		);
 	});
 
-	test("unarchive during backup cancels it and restarts the retained runtime", async () => {
+	test.each([
+		"uploading",
+		"verifying",
+	] as const)("unarchive during %s pauses compute and cancels the archive alarm", async (phase) => {
+		const { layer } = setup();
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				let current: CloudWorkspaceRecord = {
+					...fixture({ ...operation, phase }),
+					desiredState: "paused",
+					state: "paused",
+					runningSinceMs: now - 1000,
+				};
+				const adapter = yield* (yield* SandboxProviders).get("fake");
+				const pause = vi.fn(() => Effect.void);
+				yield* reconcileWorkspaceArchive(
+					current,
+					{ ...adapter, pause },
+					now,
+					(next) =>
+						Effect.sync(() => {
+							current = next;
+						}),
+				);
+				expect(pause).toHaveBeenCalledExactlyOnceWith("source-machine");
+				expect(current.providerSandboxId).toBe("source-machine");
+				expect(current.state).toBe("paused");
+				expect(current.runtimeState).toBe("offline");
+				expect(current.runningSinceMs).toBeUndefined();
+				expect(current.requestConfig.runtimeSessionRecoveryPending).toBe(true);
+				expect(workspaceArchive(current)?.phase).toBe("restored");
+				expect(current.nextActionAtMs).toBe(Number.MAX_SAFE_INTEGER);
+				expect(workspaceStartupOutcome(current, now).kind).toBe("complete");
+			}).pipe(Effect.provide(layer)),
+		);
+	});
+
+	test("immediate resume during backup cancels it and restarts the retained runtime", async () => {
 		const { layer } = setup();
 		await Effect.runPromise(
 			Effect.gen(function* () {

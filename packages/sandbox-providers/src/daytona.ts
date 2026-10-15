@@ -35,7 +35,11 @@ const Detail = Schema.Struct({
 	name: Schema.String,
 	state: Schema.String,
 });
-const Snapshot = Schema.Struct({ id: Schema.String, state: Schema.String });
+const Snapshot = Schema.Struct({
+	id: Schema.String,
+	state: Schema.String,
+	imageName: Schema.optionalKey(Schema.String),
+});
 const Url = Schema.Struct({
 	url: Schema.String.check(
 		Schema.makeFilter((value) => {
@@ -319,23 +323,25 @@ export const makeDaytonaSandboxProvider = (
 			request("GET", `/snapshots/${encodeURIComponent(id)}`, Snapshot),
 		);
 	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 4096 };
+	const validateSnapshot = (snapshot: typeof Snapshot.Type) =>
+		["error", "build_failed", "inactive"].includes(snapshot.state) ||
+		(config.templateImage !== undefined &&
+			snapshot.imageName !== config.templateImage)
+			? Effect.fail(providerError("rejected"))
+			: Effect.void;
 	const validateTemplate = Effect.fn("Daytona.validateTemplate")(function* () {
 		const snapshot = yield* snapshotState(config.templateId);
 		if (snapshot === null && config.templateImage !== undefined) return;
 		if (snapshot === null) return yield* providerError("not-found");
-		if (["error", "build_failed"].includes(snapshot.state))
-			return yield* providerError("rejected");
+		yield* validateSnapshot(snapshot);
 	});
 	const prepareTemplate = Effect.fn("Daytona.prepareTemplate")(function* () {
 		if (config.templateImage === undefined) return;
 		const snapshot = yield* snapshotState(config.templateId);
-		if (snapshot?.state === "active") return;
 		if (snapshot !== null) {
-			return yield* providerError(
-				["error", "build_failed"].includes(snapshot.state)
-					? "rejected"
-					: "transient",
-			);
+			yield* validateSnapshot(snapshot);
+			if (snapshot.state === "active") return;
+			return yield* providerError("transient");
 		}
 		yield* request("POST", "/snapshots", Snapshot, {
 			name: config.templateId,

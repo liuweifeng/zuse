@@ -72,7 +72,10 @@ const createInput = {
 
 const originalFetch = globalThis.fetch;
 
-test("checks template access with the rebound BYOK key without creating compute", async () => {
+test.each([
+	"public-base",
+	"ioeu6w9tn6l30781rikc",
+])("checks template %s with the rebound BYOK key without creating compute", async (templateId) => {
 	const http = makeHttp([
 		{ status: 200, body: { templateID: "public-base", public: true } },
 	]);
@@ -80,13 +83,13 @@ test("checks template access with the rebound BYOK key without creating compute"
 	if (!base.withCredentials) throw new Error("Missing credential rebinding");
 	const adapter = base.withCredentials({
 		apiKey: Redacted.make("other-team"),
-		templateId: "public-base",
+		templateId,
 	});
 	if (!adapter.validateTemplate) throw new Error("Missing template validation");
 	await Effect.runPromise(adapter.validateTemplate());
 	expect(http.calls).toHaveLength(1);
 	expect(http.calls[0]?.url).toBe(
-		"https://sandbox.test/templates/aliases/public-base",
+		`https://sandbox.test/templates/aliases/${templateId}`,
 	);
 	expect(new Headers(http.calls[0]?.init?.headers).get("X-API-Key")).toBe(
 		"other-team",
