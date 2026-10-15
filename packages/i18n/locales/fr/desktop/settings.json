@@ -1120,6 +1120,7 @@
 	"cloud_snapshot_usage": "Stockage utilisé sur cette période",
 	"cloud_snapshot_usage_recent": "Inclus dans le total de votre consommation cloud.",
 	"cloud_provider_keys_footer": "Les clés sont chiffrées par le service cloud de Zuse et ne sont jamais envoyées aux environnements d'exécution des espaces de travail.",
+	"cloud_provider_keys_daytona_network_requirement": "L’utilisation de votre propre clé Daytona nécessite le niveau 3 ou supérieur pour l’accès réseau, sauf si l’assistance Daytona a activé une exception réseau pour votre organisation.",
 	"cloud_provider_keys_loading": "Chargement des clés de fournisseur…",
 	"cloud_provider_keys_load_failed": "Impossible de charger les clés de fournisseur.",
 	"cloud_provider_keys_empty_title": "Aucune clé de fournisseur connectée",

@@ -1,5 +1,6 @@
 import { composerFeedbackText } from "@zuse/client-runtime/composer-feedback";
 import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
+import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
@@ -359,9 +360,13 @@ export function ChatComposer({
 					runtime: runtimeState,
 					timeline: timeline.view,
 				});
+	const cloudMessageQueue = useCloudMessageQueue(timeline);
 	const durableCloudSendPending =
 		isCloudSession &&
-		cloudComposerSubmissionBlocked(timeline.view.pendingCommands);
+		cloudComposerSubmissionBlocked(
+			timeline.view.pendingCommands,
+			cloudMessageQueue.waiting,
+		);
 	const interrupting =
 		cloudActivity === null
 			? runtimeState === "stopping"

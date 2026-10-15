@@ -1116,6 +1116,7 @@
 	"cloud_snapshot_usage": "Storage usage this period",
 	"cloud_snapshot_usage_recent": "Included in your cloud usage totals.",
 	"cloud_provider_keys_footer": "Keys are encrypted by Zuse's cloud service and are never sent to workspace runtimes.",
+	"cloud_provider_keys_daytona_network_requirement": "Using your own Daytona key requires Tier 3 or higher for network access, unless Daytona support has enabled a network exception for your organization.",
 	"cloud_provider_keys_loading": "Loading provider keys…",
 	"cloud_provider_keys_load_failed": "Provider keys could not be loaded.",
 	"cloud_provider_keys_empty_title": "No provider key connected",

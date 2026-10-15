@@ -1116,6 +1116,7 @@
 	"cloud_snapshot_usage": "Speichernutzung in diesem Zeitraum",
 	"cloud_snapshot_usage_recent": "In Ihren gesamten Cloud-Nutzungskosten enthalten.",
 	"cloud_provider_keys_footer": "Schlüssel werden vom Cloud-Dienst von Zuse verschlüsselt und nie an Workspace-Laufzeitumgebungen gesendet.",
+	"cloud_provider_keys_daytona_network_requirement": "Die Nutzung deines eigenen Daytona-Schlüssels erfordert Tier 3 oder höher für den Netzwerkzugriff, sofern der Daytona-Support keine Netzwerkausnahme für deine Organisation aktiviert hat.",
 	"cloud_provider_keys_loading": "Anbieterschlüssel werden geladen…",
 	"cloud_provider_keys_load_failed": "Anbieterschlüssel konnten nicht geladen werden.",
 	"cloud_provider_keys_empty_title": "Kein Anbieterschlüssel verbunden",

@@ -15,9 +15,9 @@ export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProvide
 	},
 ) {}
 
-// Egress policy for a sandbox. A fork always starts "quarantined" (ADR 0033:
-// the barrier must be provider-enforced, never a caller choice), and the
-// post-enrollment open step must write the final intended policy in one call.
+// Ordinary placements use open networking (ADR 0034). Native live-machine
+// forks require provider-enforced quarantine while copied identity is retired
+// (ADR 0033); restoring a prepared image is not a live-machine fork.
 export type SandboxNetworkPolicy =
 	| { readonly kind: "quarantined" }
 	| { readonly kind: "open" }

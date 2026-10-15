@@ -1536,7 +1536,7 @@ export const apiCloudProviderConnections = pgTable(
 	(table) => [
 		check(
 			"cloud_provider_connection_provider",
-			sql`${table.provider} IN ('e2b', 'boxd', 'box')`,
+			sql`${table.provider} IN ('e2b', 'boxd', 'box', 'daytona')`,
 		),
 		uniqueIndex("api_cloud_provider_connections_active")
 			.on(table.accountId, table.provider)

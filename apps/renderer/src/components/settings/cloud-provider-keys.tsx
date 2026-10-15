@@ -51,7 +51,7 @@ import {
 type ProviderId = CloudProviderConnectionInput["providerId"];
 
 /** boxd first, matching the recommended order used by image providers. */
-const PROVIDER_IDS: readonly ProviderId[] = ["boxd", "e2b", "box"];
+const PROVIDER_IDS: readonly ProviderId[] = ["boxd", "e2b", "box", "daytona"];
 
 const isProviderId = (value: unknown): value is ProviderId =>
 	PROVIDER_IDS.some((providerId) => providerId === value);
@@ -384,6 +384,13 @@ export function CloudProviderConnectForm({
 						: uiMessage("settings:cloud_provider_keys_connect")}
 				</Button>
 			</div>
+			{providerId === "daytona" ? (
+				<p className="text-[11px] leading-4 text-muted-foreground">
+					{uiMessage(
+						"settings:cloud_provider_keys_daytona_network_requirement",
+					)}
+				</p>
+			) : null}
 			{error === null ? null : (
 				<p role="alert" className="text-[11px] text-destructive">
 					{error}

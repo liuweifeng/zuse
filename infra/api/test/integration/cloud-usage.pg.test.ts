@@ -10,9 +10,13 @@ import {
 } from "../../src/cloud-usage-store.ts";
 
 const connectionString = process.env.ZUSE_TEST_DATABASE_URL;
-it.skipIf(!connectionString)(
-	"atomically records usage under concurrency, rollback, and worker restart",
-	async () => {
+it.skipIf(!connectionString).each([
+	{ provider: "boxd", resourceKind: "workspace" as const },
+	{ provider: "daytona", resourceKind: "workspace" as const },
+	{ provider: "daytona", resourceKind: "build" as const },
+])(
+	"atomically records $provider $resourceKind usage under concurrency, rollback, and worker restart",
+	async ({ provider, resourceKind }) => {
 		const db = new Client({ connectionString });
 		await db.connect();
 		const schema = `usage_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -51,9 +55,9 @@ it.skipIf(!connectionString)(
 			);
 			const observation: RuntimeObservation = {
 				accountId: "account",
-				resourceKind: "workspace",
+				resourceKind,
 				resourceId: "workspace",
-				provider: "boxd",
+				provider,
 				providerSandboxId: "machine",
 				runningSinceMs: 1_000,
 				observedAtMs: 1_000,

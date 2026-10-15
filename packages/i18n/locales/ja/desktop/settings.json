@@ -1116,6 +1116,7 @@
 	"cloud_snapshot_usage": "今期のストレージ利用額",
 	"cloud_snapshot_usage_recent": "クラウド利用料金の合計に含まれます。",
 	"cloud_provider_keys_footer": "キーは Zuse のクラウドサービスで暗号化され、ワークスペースのランタイムに送信されることはありません。",
+	"cloud_provider_keys_daytona_network_requirement": "独自の Daytona キーを使用するには、ネットワークアクセスのために Tier 3 以上が必要です。ただし、Daytona サポートが組織のネットワーク制限の例外を有効にしている場合を除きます。",
 	"cloud_provider_keys_loading": "プロバイダーキーを読み込んでいます…",
 	"cloud_provider_keys_load_failed": "プロバイダーキーを読み込めませんでした。",
 	"cloud_provider_keys_empty_title": "接続されたプロバイダーキーはありません",
