@@ -380,6 +380,13 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 	updatedAt: Schema.Number,
 }) {}
 
+/** The Zuse runtime release installed in an image; absent for older builds. */
+export const CloudAccountImageRuntime = Schema.Struct({
+	appVersion: Schema.String,
+	wireProtocolVersion: Schema.Number,
+});
+export type CloudAccountImageRuntime = typeof CloudAccountImageRuntime.Type;
+
 /** The private image maintained for an account on one sandbox provider. */
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
@@ -399,6 +406,7 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	generation: Schema.optional(Schema.String),
 	providerId: Schema.optional(Schema.String),
 	runtimeVersion: Schema.optional(Schema.String),
+	runtime: Schema.optional(CloudAccountImageRuntime),
 	buildMode: Schema.optional(CloudAccountImageBuildMode),
 	progressPhase: Schema.optional(Schema.String),
 	errorCode: Schema.optional(Schema.String),

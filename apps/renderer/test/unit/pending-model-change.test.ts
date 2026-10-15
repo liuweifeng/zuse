@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createPendingModelChanges,
 	type ModelSelection,
+	RuntimeUpdatePendingError,
 } from "../../src/lib/pending-model-change.ts";
 
 const ref = {
@@ -173,6 +174,22 @@ describe("model selections during active work", () => {
 		await tick();
 		expect(f.apply).toHaveBeenCalledTimes(2);
 		expect(f.failed).not.toHaveBeenCalled();
+	});
+	it("keeps a selection pending through a runtime update and applies it after reconnect", async () => {
+		const f = fixture();
+		f.apply.mockRejectedValueOnce(new RuntimeUpdatePendingError());
+		expect(await f.coordinator.request(ref, target)).toEqual({ ok: true });
+		expect(f.changed).toHaveBeenLastCalledWith(ref, target);
+		// The runtime restarts; nothing applies against a disconnected timeline.
+		f.update({ connection: "reconnecting", sync: "stale" });
+		await tick();
+		expect(f.apply).toHaveBeenCalledOnce();
+		// Reconnecting resumes the same cursor; the update, not new history, unblocks it.
+		f.update({ connection: "connected", sync: "live" });
+		await tick();
+		expect(f.apply).toHaveBeenCalledTimes(2);
+		expect(f.failed).not.toHaveBeenCalled();
+		expect(f.changed).toHaveBeenLastCalledWith(ref, null);
 	});
 	it("handles work settling while the rejected RPC is still in flight", async () => {
 		const f = fixture();

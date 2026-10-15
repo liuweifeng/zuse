@@ -80,7 +80,11 @@ import {
 } from "./cloud-workspace-runtime-activation.ts";
 import { nextCloudWorkspaceRuntimeFence } from "./cloud-workspace-runtime-fence.ts";
 import { workspaceStartupOutcome } from "./cloud-workspace-runtime-scheduling.ts";
-import { WORKSPACE_RUNTIME_UPDATE_SCRIPT } from "./cloud-workspace-runtime-update.ts";
+import {
+	INSTALLED_RUNTIME_METADATA_FILE,
+	parseInstalledRuntime,
+	WORKSPACE_RUNTIME_UPDATE_SCRIPT,
+} from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
@@ -1249,6 +1253,17 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					}),
 					Effect.orElseSucceed(() => ({}) as Record<string, unknown>),
 				);
+			// Lets clients detect images that predate the current runtime protocol.
+			const installedRuntime = yield* provider
+				.readTextFile(
+					build.providerSandboxId,
+					INSTALLED_RUNTIME_METADATA_FILE,
+					"zuse",
+				)
+				.pipe(
+					Effect.map(parseInstalledRuntime),
+					Effect.orElseSucceed(() => undefined),
+				);
 			const sanitizationFailures = snapshotSanitizationFailures({
 				forbiddenPaths,
 				forbiddenResults,
@@ -1306,10 +1321,15 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const sanitizing = {
 				...build,
 				sourceCommit,
-				settings: promoteLaunchAssetsDigest(
-					build.settings,
-					yield* launchAssetsDigest(launchAssetFiles(config)),
-				),
+				settings: {
+					...promoteLaunchAssetsDigest(
+						build.settings,
+						yield* launchAssetsDigest(launchAssetFiles(config)),
+					),
+					...(installedRuntime === undefined
+						? {}
+						: { runtime: installedRuntime }),
+				},
 				logText: [
 					logText,
 					"Repository preparation completed. Publishing snapshot…",

@@ -54,6 +54,8 @@ vi.mock("@zuse/client-runtime/connection", async (original) => ({
 
 vi.mock("../../src/lib/rpc-client.ts", () => ({
 	getVerifiedRpcClient: async () => ({}),
+	// No negotiated protocol: a current runtime that hands off providers directly.
+	getRpcClient: async () => ({}),
 	getActiveEnvironment: () => mocks.activeEnvironment,
 }));
 

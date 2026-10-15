@@ -316,6 +316,13 @@ const makeRendererRpcSession = async (
 			allowLegacyCloud: legacyCloud,
 			onNegotiated: (version) => {
 				negotiatedVersion = version;
+				if (legacyCloud) {
+					const workspaceId = options.key.slice("workspace:".length);
+					void import("./cloud-runtime-catch-up.ts").then(
+						({ noteCloudRuntimeConnection }) =>
+							noteCloudRuntimeConnection(workspaceId, version),
+					);
+				}
 			},
 			perform: (client, hello) => client["connect.handshake"](hello),
 		}),

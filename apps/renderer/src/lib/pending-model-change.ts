@@ -70,6 +70,9 @@ export function createPendingModelChanges(options: {
 			// failures may have ambiguous delivery and must never be silently replayed.
 			if (isBusyModelChange(error)) {
 				entry.blockedCursor = cursor;
+			} else if (error instanceof RuntimeUpdatePendingError) {
+				// Nothing was sent. The reconnect after the runtime restart (not a
+				// timeline cursor change) is what lets this selection apply.
 			} else {
 				clear(key, entry);
 				return { ok: false, reason: options.failed(error) };
@@ -138,6 +141,15 @@ export function createPendingModelChanges(options: {
 			for (const [key, entry] of entries) clear(key, entry);
 		},
 	};
+}
+
+/** The runtime is being replaced to support this selection; keep it pending. */
+export class RuntimeUpdatePendingError extends Error {
+	readonly _tag = "RuntimeUpdatePendingError";
+	constructor() {
+		super("The cloud runtime is updating before this model change applies.");
+		this.name = "RuntimeUpdatePendingError";
+	}
 }
 
 const BUSY_REASON =

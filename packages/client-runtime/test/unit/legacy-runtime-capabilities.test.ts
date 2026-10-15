@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	supportsIdempotentSessionFork,
 	supportsRuntimeRpc,
+	supportsStartedProviderHandoff,
 	withRuntimeRpcCompatibility,
 } from "../../src/legacy-runtime-capabilities.ts";
 
@@ -99,6 +100,14 @@ describe("legacy runtime RPC capability boundary", () => {
 		for (const version of [undefined, 5, 6])
 			expect(supportsIdempotentSessionFork(version)).toBe(false);
 		expect(supportsIdempotentSessionFork(7)).toBe(true);
+	});
+
+	it("hands off started conversations only on current runtimes", () => {
+		for (const version of [5, 6])
+			expect(supportsStartedProviderHandoff(version)).toBe(false);
+		// Clients without a negotiated handshake are never legacy-wrapped.
+		for (const version of [undefined, 7])
+			expect(supportsStartedProviderHandoff(version)).toBe(true);
 	});
 
 	it("keeps chunk uploads versioned and leaves current clients unchanged", () => {

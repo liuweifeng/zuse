@@ -1,5 +1,8 @@
 import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
-import { supportsIdempotentSessionFork } from "@zuse/client-runtime/legacy-runtime-capabilities";
+import {
+	supportsIdempotentSessionFork,
+	supportsStartedProviderHandoff,
+} from "@zuse/client-runtime/legacy-runtime-capabilities";
 import { resourceRefKey } from "@zuse/client-runtime/resource-ref";
 import type {
 	AgentItemId,
@@ -38,10 +41,12 @@ import {
 	createPendingModelChanges,
 	isBusyModelChange,
 	type ModelSelection,
+	RuntimeUpdatePendingError,
 } from "../lib/pending-model-change.ts";
 import { markRendererInteraction } from "../lib/performance-marks.ts";
 import {
 	getActiveEnvironment,
+	getRpcClient,
 	getVerifiedRpcClient,
 } from "../lib/rpc-client.ts";
 import { sessionForkDestinations } from "../lib/session-fork.ts";
@@ -1140,6 +1145,30 @@ const configurationSession = (ref: {
 	)
 		.flat()
 		.find((session) => session.id === ref.sessionId) ?? null;
+// Retained cloud runtimes reject provider changes once the chat has started.
+// Update the runtime in place; the selection applies after it reconnects.
+const awaitProviderHandoff = async (ref: {
+	environmentId: EnvironmentId;
+	sessionId: SessionId;
+}): Promise<void> => {
+	const client = await getRpcClient(ref.environmentId);
+	if (supportsStartedProviderHandoff(getClientProtocolVersion(client))) return;
+	const timeline = getRendererClientBus().snapshot(
+		sessionTimelineResourceKey(ref),
+	).data;
+	const started =
+		timeline !== null &&
+		(timeline.turnCount > 0 ||
+			timeline.messages.some((message) => message.role === "user"));
+	if (!started) return;
+	const { requestCloudWorkspaceRuntimeUpdate } = await import(
+		"../lib/cloud-runtime-catch-up.ts"
+	);
+	// When no update can start, the runtime's own rejection explains why.
+	if (await requestCloudWorkspaceRuntimeUpdate(ref.environmentId, client))
+		throw new RuntimeUpdatePendingError();
+};
+
 const pendingModelChanges = createPendingModelChanges({
 	current: configurationSession,
 	snapshot: (ref) =>
@@ -1155,6 +1184,7 @@ const pendingModelChanges = createPendingModelChanges({
 	apply: async (ref, selection) => {
 		const sameProvider =
 			configurationSession(ref)?.providerId === selection.providerId;
+		if (!sameProvider) await awaitProviderHandoff(ref);
 		const commandId = nextCommandId(
 			sameProvider ? "session-model" : "session-provider",
 		);
