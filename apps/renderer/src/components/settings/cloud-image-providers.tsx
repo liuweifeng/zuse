@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import boatLogo from "../../assets/cloud-providers/boat.svg";
 import boxdLogo from "../../assets/cloud-providers/boxd.svg";
+import daytonaLogo from "../../assets/cloud-providers/daytona.svg";
 import e2bLogo from "../../assets/cloud-providers/e2b.png";
 import { cloudImageStatusMessage } from "../../lib/cloud-image-status.ts";
 import {
@@ -22,11 +23,13 @@ import {
 } from "../ui/dialog.tsx";
 import { CloudImageBuildHistory } from "./cloud-image-build-history.tsx";
 
-// Bundled provider marks from boxd.sh/favicon.svg, boat.dev/icon.svg, and e2b.dev/icon1.png.
+// Bundled marks: boxd.sh/favicon.svg, boat.dev/icon.svg, e2b.dev/icon1.png,
+// and the glyph from daytona.io/brand (cropped to the symbol bounds).
 const logos: Readonly<Record<string, string>> = {
 	boxd: boxdLogo,
 	box: boatLogo,
 	e2b: e2bLogo,
+	daytona: daytonaLogo,
 };
 
 export function CloudImageProviders({
@@ -65,7 +68,7 @@ export function CloudImageProviders({
 				<img
 					src={logos[providerId]}
 					alt=""
-					className={`size-4 shrink-0 ${providerId === "boxd" ? "invert dark:invert-0" : providerId === "box" ? "dark:invert" : ""}`}
+					className={`size-4 shrink-0 ${providerId === "boxd" ? "invert dark:invert-0" : providerId === "box" || providerId === "daytona" ? "dark:invert" : ""}`}
 				/>
 			) : null}
 			<span className="font-medium">{cloudProviderLabel(providerId)}</span>

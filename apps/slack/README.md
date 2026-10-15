@@ -60,7 +60,10 @@ live Slack installation.
 Use [the manifest](slack-manifest.example.yaml) and the
 [operator guide](../../internal-docs/cloud/slack-app-operations.md). Existing
 installations must authorize the added mention/DM scopes; deploy alone is not
-enough. Configure the interaction URL for the native repository selector.
+enough. Configure the interaction URL for the native repository selector. The
+`users:read`, `channels:read`, and `groups:read` scopes let Zuse show who sent a
+message and from which channel; installs without them still work but show only
+"Slack" as the source.
 
 Each member can privately link their own account. New installations use individual
 accounts; existing installations remain installer-only until the installer chooses

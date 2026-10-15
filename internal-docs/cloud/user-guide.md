@@ -98,18 +98,18 @@ only the encrypted transcript projection.
 
 ## Archive and delete
 
-Archive acts like 30-day trash:
+Archive preserves the chat:
 
-- The chat disappears from Active immediately.
-- Its transcript remains readable from the local or encrypted cloud copy.
-- The same hosted sandbox is paused, not cloned into a recovery image.
-- Unarchive cancels deletion and restores the chat without starting compute.
-- The first new interactive action resumes the same sandbox.
-- After 30 days, Zuse permanently deletes the sandbox and transcript objects.
+- The chat disappears from Active immediately; its existing transcript copy remains readable.
+- The same sandbox stays paused for a ten-day fast-reopen window.
+- Unarchive returns the chat to Active without starting compute.
+- After the window, automatic machine removal requires a verified recovery backup.
+  Unsupported or failed backups keep the machine; expiry does not delete history.
+- Recovery-based machine removal is behind a deployment flag and is not enabled
+  by default. See [archive recovery](workspace-archive-recovery.md) for current scope.
 
-Delete from Archives skips the remaining retention period and is permanent.
-Once deletion finishes, offline devices remove their cached copies when they
-receive the deletion tombstone.
+Delete from Archives is permanent and also removes recovery backups. Offline
+clients remove cached copies when they receive the deletion tombstone.
 
 ## Billing
 

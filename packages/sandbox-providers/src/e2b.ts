@@ -755,12 +755,21 @@ export const makeE2bSandboxProvider = (
 
 	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 1_024 };
 	return {
+		validateTemplate: () =>
+			request(
+				"GET",
+				`/templates/aliases/${encodeURIComponent(config.templateId)}`,
+				Schema.Struct({ templateID: Schema.String, public: Schema.Boolean }),
+			).pipe(Effect.asVoid),
 		withCredentials: (credentials) =>
-			makeE2bSandboxProvider({
-				...config,
-				apiKey: credentials.apiKey,
-				templateId: credentials.templateId ?? config.templateId,
-			}),
+			makeE2bSandboxProvider(
+				{
+					...config,
+					apiKey: credentials.apiKey,
+					templateId: credentials.templateId ?? config.templateId,
+				},
+				http,
+			),
 		providerId: E2B_PROVIDER_ID,
 		displayName: "E2B",
 		templateVersion: config.templateVersion ?? config.templateId,

@@ -131,7 +131,10 @@ export const DelegationGroup = memo(function DelegationGroup({
 				view.open === null
 					? {
 							prompt: member.group.prompt,
+							parent: member.group.parent,
+							parentItemId: member.group.parentItemId,
 							children: member.group.children,
+							live: view.status === "working",
 							summaryText: member.group.summary?.text ?? null,
 							readOnly,
 							environmentId: environmentId ?? chatRef?.environmentId,

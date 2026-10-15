@@ -12,7 +12,9 @@ export const cloudProviderLabel = (providerId: string): string =>
 			? "boxd"
 			: providerId === "e2b"
 				? "E2B"
-				: providerId;
+				: providerId === "daytona"
+					? "Daytona"
+					: providerId;
 
 /** Keep server ordering for other providers, with boxd recommended first. */
 export const orderedCloudProviders = (

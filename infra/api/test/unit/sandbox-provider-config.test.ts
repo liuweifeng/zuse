@@ -1,6 +1,7 @@
 import { SandboxProviders } from "@zuse/sandbox-providers";
 import { Effect } from "effect";
 import { describe, expect, test } from "vitest";
+import { availableSandboxProviders } from "../../src/sandbox-provider-availability.ts";
 
 import {
 	resolveSandboxProviderRuntime,
@@ -221,4 +222,45 @@ describe("sandbox provider configuration", () => {
 			}).configuredProviders.map((provider) => provider.providerId),
 		).toEqual(["e2b"]);
 	});
+});
+
+test.each([
+	undefined,
+	"managed-key",
+])("Daytona separates managed availability from BYOK registration (%s)", async (apiKey) => {
+	expect(() =>
+		resolveSandboxProviderRuntime({ DAYTONA_ADAPTER_ENABLED: "true" }),
+	).toThrow(SandboxProviderConfigurationError);
+	const runtime = resolveSandboxProviderRuntime({
+		DAYTONA_ADAPTER_ENABLED: "true",
+		...(apiKey === undefined ? {} : { DAYTONA_API_KEY: apiKey }),
+		DAYTONA_TEMPLATE_ID: "zuse-base",
+		DAYTONA_TEMPLATE_VERSION: "v1",
+		DAYTONA_VCPU_COUNT: "2",
+		DAYTONA_MEMORY_MIB: "4096",
+	});
+	const provider = await Effect.runPromise(
+		Effect.gen(function* () {
+			return yield* (yield* SandboxProviders).get("daytona");
+		}).pipe(Effect.provide(runtime.layer)),
+	);
+	expect(provider.withCredentials).toBeTypeOf("function");
+	expect([
+		...availableSandboxProviders(runtime.configuredProviders, true, false),
+	]).toEqual(apiKey === undefined ? [] : ["daytona"]);
+	expect(
+		await Effect.runPromise(
+			Effect.map(SandboxProviders, (registry) =>
+				registry.availableProviders.map((p) => p.providerId),
+			).pipe(Effect.provide(runtime.layer)),
+		),
+	).toContain("daytona");
+	expect(runtime.configuredProviders).toEqual([
+		{
+			providerId: "daytona",
+			advertised: true,
+			productionReady: false,
+			managedPlacementEnabled: apiKey !== undefined,
+		},
+	]);
 });

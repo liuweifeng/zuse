@@ -194,6 +194,15 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly BOX_MACHINE_TYPE?: string;
 	readonly BOX_HOSTED_PORT_DOMAIN?: string;
 	readonly BOX_WEBHOOK_SECRET?: string;
+	readonly DAYTONA_ADAPTER_ENABLED?: string;
+	readonly DAYTONA_API_KEY?: string;
+	readonly DAYTONA_API_BASE_URL?: string;
+	readonly DAYTONA_TEMPLATE_ID?: string;
+	readonly DAYTONA_TEMPLATE_VERSION?: string;
+	readonly DAYTONA_BYOK_IMAGE?: string;
+	readonly DAYTONA_TARGET?: string;
+	readonly DAYTONA_VCPU_COUNT?: string;
+	readonly DAYTONA_MEMORY_MIB?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;
@@ -219,6 +228,8 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly CLOUD_SNAPSHOT_BILLING_CUTOVER_AT?: string;
 	/** Additive rollout gate. Accepted rows continue draining when disabled. */
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
+	readonly CLOUD_WORKSPACE_RECOVERY_ENABLED?: string;
+	readonly CLOUD_WORKSPACE_RECOVERY_WORKSPACE_IDS?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
 	readonly CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED?: string;
 	readonly CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED?: string;
@@ -496,6 +507,12 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 		cloudBillingPolarMeterId: isConfigured(env.POLAR_CLOUD_OVERAGE_METER_ID)
 			? env.POLAR_CLOUD_OVERAGE_METER_ID
 			: undefined,
+		cloudWorkspaceRecoveryEnabled:
+			env.CLOUD_WORKSPACE_RECOVERY_ENABLED === "true",
+		cloudWorkspaceRecoveryWorkspaceIds:
+			env.CLOUD_WORKSPACE_RECOVERY_WORKSPACE_IDS?.split(",")
+				.map((id) => id.trim())
+				.filter(Boolean),
 		cloudTranscriptObjects:
 			cloudTranscriptBucket === undefined
 				? undefined

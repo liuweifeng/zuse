@@ -9,7 +9,7 @@ import {
 	CloudWorkspaceState,
 } from "./cloud-workspaces.ts";
 import { WorkspaceActor } from "./collaboration.ts";
-import { TurnSettlementOutcome } from "./session.ts";
+import { MessageSource, TurnSettlementOutcome } from "./session.ts";
 
 // ---------------------------------------------------------------------------
 // Cloud Workspaces public API contract
@@ -152,6 +152,8 @@ export class ApiSendMessageRequest extends Schema.Class<ApiSendMessageRequest>(
 )({
 	text: Schema.String,
 	attachments: Schema.optional(Schema.Array(Schema.String)),
+	/** Accepted only from Zuse's own chat integrations; rejected otherwise. */
+	source: Schema.optional(MessageSource),
 	/** Falls back to the `Idempotency-Key` header. */
 	idempotencyKey: Schema.optional(Schema.String),
 }) {}
@@ -266,6 +268,7 @@ export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	sessionId: Schema.String,
 	text: Schema.String,
 	attachments: Schema.optional(Schema.Array(ApiAsset)),
+	source: Schema.optional(MessageSource),
 	seq: Schema.Number,
 }) {}
 

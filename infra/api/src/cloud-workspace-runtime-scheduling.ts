@@ -1,3 +1,4 @@
+import { workspaceArchive } from "./cloud-workspace-archive-state.ts";
 import type { CloudWorkspaceRecord } from "./cloud-workspace-store.ts";
 import type { WorkspaceStartupOutcome } from "./workspace-startup.ts";
 
@@ -33,7 +34,12 @@ export const workspaceStartupOutcome = (
 		operation !== null &&
 		"phase" in operation &&
 		ACTIVE_RUNTIME_ACTIVATION_PHASES.some((phase) => phase === operation.phase);
+	const archive = workspaceArchive(workspace);
+	const pendingArchive =
+		archive !== undefined &&
+		["uploading", "verifying", "retiring", "restoring"].includes(archive.phase);
 	const pending =
+		pendingArchive ||
 		activeOperation ||
 		workspace.requestConfig.runtimeReleaseChangeRequested === true ||
 		workspace.requestConfig.cloudMailboxWakePending === true ||

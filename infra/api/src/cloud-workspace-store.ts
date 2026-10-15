@@ -16,6 +16,10 @@ import { Context, Effect, Layer, Ref, Schema, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { Fragment } from "effect/unstable/sql/Statement";
 import {
+	ARCHIVED_WORKSPACE_RETENTION_MS,
+	archivedWorkspaceNeedsRetentionReconciliation,
+} from "./cloud-workspace-retention.ts";
+import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
@@ -2979,7 +2983,11 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 							.filter(
 								(workspace) =>
 									workspace.state !== "deleted" &&
-									workspace.nextActionAtMs <= nowMs,
+									(workspace.nextActionAtMs <= nowMs ||
+										archivedWorkspaceNeedsRetentionReconciliation(
+											workspace,
+											nowMs,
+										)),
 							)
 							.slice(0, limit),
 					),
@@ -5334,7 +5342,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				),
 			listDueWorkspaces: (nowMs, limit) =>
 				orDie(
-					sql`SELECT * FROM api_cloud_workspaces WHERE state <> 'deleted' AND next_action_at <= ${nowMs} ORDER BY next_action_at LIMIT ${limit}`.pipe(
+					sql`SELECT * FROM api_cloud_workspaces WHERE state <> 'deleted' AND (next_action_at <= ${nowMs} OR (state='archived' AND desired_state='archived' AND status_code='archived' AND archive_requested_at + ${ARCHIVED_WORKSPACE_RETENTION_MS} <= ${nowMs})) ORDER BY next_action_at LIMIT ${limit}`.pipe(
 						Effect.map((rows) =>
 							rows.map((row) => workspaceFromRow(row as Row)),
 						),

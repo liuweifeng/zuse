@@ -41,3 +41,16 @@ describe("sandbox placement availability", () => {
 		);
 	});
 });
+
+test("Daytona remains excluded from billed placement even after production readiness", () => {
+	const daytona = [
+		{ providerId: "daytona", advertised: true, productionReady: true },
+	];
+	expect([...availableSandboxProviders(daytona, false, true, true)]).toEqual(
+		[],
+	);
+	expect([...availableSandboxProviders(daytona, true, true, true)]).toEqual([]);
+	expect([...availableSandboxProviders(daytona, true, false)]).toEqual([
+		"daytona",
+	]);
+});

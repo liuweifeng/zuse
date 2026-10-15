@@ -33,6 +33,10 @@ export const cloudFailureMessage = (statusCode: string): string => {
 	const failure = cloudFailurePresentation({ category: statusCode });
 	if (failure?.kind === "workspace-storage-unavailable") return failure.message;
 	switch (statusCode) {
+		case "archive-restore-failed":
+			return "Your saved workspace could not be restored. Its recovery backup is still retained. Retry to continue restoring it.";
+		case "archive-restore-image-required":
+			return "Prepare a current managed cloud image to restore this saved workspace. Your recovery backup is retained.";
 		case "updating-runtime-failed":
 			return "The secure runtime is incompatible with the cloud control plane. Retry after the cloud service finishes updating.";
 		case "starting-runtime-failed":
@@ -59,6 +63,11 @@ export const cloudPhaseLabel = (
 	statusCode: string,
 ): string => {
 	if (phase === "failed") return cloudFailureMessage(statusCode);
+	if (
+		statusCode === "archive-restore-queued" ||
+		statusCode === "archive-restoring"
+	)
+		return "Restoring saved chat and workspace files…";
 	switch (phase) {
 		case "allocating":
 			return "Preparing cloud workspace…";

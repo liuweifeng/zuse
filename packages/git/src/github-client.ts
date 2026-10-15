@@ -331,6 +331,7 @@ export class GitHubClient {
 		]);
 		let release: (() => void) | undefined;
 		let reserved = false;
+		let quotaObserved = false;
 		const budget = this.budget(input.credential, input.api);
 		const estimate = input.estimatedCost ?? budget.estimatedCost;
 		try {
@@ -349,7 +350,6 @@ export class GitHubClient {
 					Math.max(budget.pauseUntil, budget.resetAt),
 				);
 			budget.reserved += estimate;
-			if (Number.isFinite(budget.remaining)) budget.remaining -= estimate;
 			reserved = true;
 			const root = githubApiRoot(input.credential.host);
 			const url =
@@ -392,6 +392,7 @@ export class GitHubClient {
 			const resetAt = Number(quotaHeaders.get("x-ratelimit-reset")) * 1000;
 			const remaining = quotaHeaders.get("x-ratelimit-remaining");
 			if (remaining !== null && Number.isFinite(Number(remaining))) {
+				quotaObserved = true;
 				const newWindow =
 					resetAt > budget.resetAt && this.now >= budget.resetAt;
 				budget.remaining = newWindow
@@ -443,6 +444,7 @@ export class GitHubClient {
 			}
 			const rate = payload.data?.rateLimit;
 			if (rate) {
+				quotaObserved = true;
 				budget.remaining = Math.min(budget.remaining, rate.remaining);
 				budget.limit = rate.limit;
 				budget.resetAt = Math.max(budget.resetAt, Date.parse(rate.resetAt));
@@ -552,7 +554,14 @@ export class GitHubClient {
 					: "Could not reach GitHub.",
 			);
 		} finally {
-			if (reserved) budget.reserved -= estimate;
+			if (reserved) {
+				budget.reserved -= estimate;
+				// Reserve estimates only while requests are in flight. GitHub's
+				// balance already accounts for completed work at its actual cost.
+				// Missing quota metadata still incurs a conservative local charge.
+				if (!quotaObserved && Number.isFinite(budget.remaining))
+					budget.remaining -= estimate;
+			}
 			release?.();
 			this.controllers.delete(controller);
 		}

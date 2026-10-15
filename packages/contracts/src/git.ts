@@ -308,6 +308,8 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 	 */
 	autoMergeEnabled: Schema.Boolean,
 	prCapability: Schema.optional(GitPrCapability),
+	/** Safe GitHub API/transport explanation for the last failed observation. */
+	observationError: Schema.optional(Schema.String),
 	stale: Schema.optional(Schema.Boolean),
 	monitoringPaused: Schema.optional(Schema.Boolean),
 	headSha: Schema.optional(Schema.NullOr(Schema.String)),
@@ -434,6 +436,13 @@ export class GitHubStarError extends Schema.TaggedErrorClass<GitHubStarError>()(
 /** Stars Zuse with this computer's GitHub sign-in (`gh` or a token). */
 export const GitStarZuseRpc = Rpc.make("git.starZuse", {
 	payload: Schema.Void,
+	error: GitHubStarError,
+});
+
+/** Whether this computer's GitHub account has already starred Zuse. */
+export const GitZuseStarStatusRpc = Rpc.make("git.zuseStarStatus", {
+	payload: Schema.Void,
+	success: Schema.Boolean,
 	error: GitHubStarError,
 });
 

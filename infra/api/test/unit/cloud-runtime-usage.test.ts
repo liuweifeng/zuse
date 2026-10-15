@@ -52,6 +52,7 @@ const config = (enabled: boolean) =>
 it.each([
 	"box",
 	"boxd",
+	"daytona",
 ])("records %s intervals once across retries and stale observations", async (provider) => {
 	const store = makeCloudUsageStoreMemory();
 	const record = (time: number) =>
@@ -134,7 +135,10 @@ describe("runtime observation boundaries", () => {
 	});
 });
 
-it("exports runtime independently of invoice export, preserving event identity across retry", async () => {
+it.each([
+	"boxd",
+	"daytona",
+])("exports %s runtime independently of invoice export, preserving event identity across retry", async (retryProvider) => {
 	const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 	const store = Effect.runSync(
 		CloudBillingStore.pipe(Effect.provide(CloudBillingStoreMemory)),
@@ -149,7 +153,7 @@ it("exports runtime independently of invoice export, preserving event identity a
 		reportMeterEvent: (input: (typeof sent)[number]) =>
 			Effect.gen(function* () {
 				sent.push(input);
-				if (fail && input.metadata?.provider === "boxd")
+				if (fail && input.metadata?.provider === retryProvider)
 					return yield* Effect.fail(
 						new BillingProviderError({ code: "provider-unavailable" }),
 					);
@@ -165,7 +169,7 @@ it("exports runtime independently of invoice export, preserving event identity a
 		}).pipe(Layer.orDie),
 	);
 	try {
-		for (const provider of ["boxd", "box"])
+		for (const provider of [retryProvider, "box"])
 			for (const observedAtMs of [1_000, 61_000]) {
 				await Effect.runPromise(
 					store.recordRuntimeObservation({
@@ -193,7 +197,9 @@ it("exports runtime independently of invoice export, preserving event identity a
 				measurement: "observed",
 			},
 		});
-		const failed = sent.find((event) => event.metadata?.provider === "boxd");
+		const failed = sent.find(
+			(event) => event.metadata?.provider === retryProvider,
+		);
 		expect(
 			await Effect.runPromise(
 				flushCloudUsage(61_001).pipe(Effect.provide(layer)),
