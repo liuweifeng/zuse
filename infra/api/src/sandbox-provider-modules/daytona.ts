@@ -24,6 +24,11 @@ const Environment = Schema.Struct({
 	DAYTONA_API_BASE_URL: Schema.optionalKey(HttpsUrl),
 	DAYTONA_TEMPLATE_ID: ConfiguredString,
 	DAYTONA_TEMPLATE_VERSION: ConfiguredString,
+	DAYTONA_BYOK_IMAGE: Schema.optionalKey(
+		ConfiguredString.check(
+			Schema.isPattern(/^[a-z0-9][a-z0-9./:_-]*@sha256:[a-f0-9]{64}$/u),
+		),
+	),
 	DAYTONA_TARGET: Schema.optionalKey(ConfiguredString),
 	DAYTONA_VCPU_COUNT: PositiveInteger,
 	DAYTONA_MEMORY_MIB: PositiveInteger,
@@ -47,6 +52,7 @@ export const DaytonaSandboxProviderModule: SandboxProviderModule = {
 				apiKey: Redacted.make(config.DAYTONA_API_KEY ?? ""),
 				templateId: config.DAYTONA_TEMPLATE_ID,
 				templateVersion: config.DAYTONA_TEMPLATE_VERSION,
+				byokImage: config.DAYTONA_BYOK_IMAGE,
 				target: config.DAYTONA_TARGET,
 				apiBaseUrl: config.DAYTONA_API_BASE_URL?.href,
 				resources: {

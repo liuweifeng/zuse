@@ -1,0 +1,16 @@
+*
+!Dockerfile
+!provision.sh
+!install-grok.sh
+!sshd_config
+!project-builder.sh
+!workspace-bootstrap.sh
+!workspace-runtime.sh
+!git-askpass.sh
+!github-auth.sh
+!repository-script.ts
+!artifacts/
+artifacts/*
+!artifacts/zusehq-server.tgz
+!artifacts/zusehq-serve.tgz
+!artifacts/runtime-updater.mjs

@@ -108,6 +108,8 @@ export interface SandboxProviderCredentials {
 }
 
 export interface SandboxProviderAdapter {
+	/** Read-only check that the configured base template is accessible. */
+	readonly validateTemplate?: () => Effect.Effect<void, SandboxProviderError>;
 	/** Rebind infrastructure access without changing the provider identity. */
 	readonly withCredentials?: (
 		credentials: SandboxProviderCredentials,
