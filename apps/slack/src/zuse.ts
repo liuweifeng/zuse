@@ -1,5 +1,7 @@
 // Account-scoped operations injected by the API. No loopback HTTP or API keys.
 
+import type { MessageSource } from "@zuse/contracts";
+
 export interface ZuseClientConfig {
 	readonly request: (path: string, init: RequestInit) => Promise<Response>;
 	readonly requestTimeoutMs?: number;
@@ -240,6 +242,7 @@ export const sendMessage = (
 		readonly workspaceId: string;
 		readonly text: string;
 		readonly attachments?: ReadonlyArray<string>;
+		readonly source?: MessageSource;
 		readonly idempotencyKey: string;
 	},
 ): Promise<{
@@ -256,6 +259,7 @@ export const sendMessage = (
 				...(input.attachments === undefined
 					? {}
 					: { attachments: input.attachments }),
+				...(input.source === undefined ? {} : { source: input.source }),
 			}),
 			idempotencyKey: input.idempotencyKey,
 		},

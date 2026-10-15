@@ -3687,6 +3687,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 														)
 														.join("\n")}`.trim(),
 										attachments: materialized.map((item) => item.attachment),
+										source: command.source,
 										messageId: MessageId.make(command.messageId),
 										turnId: AgentTurnId.make(command.turnId),
 									})

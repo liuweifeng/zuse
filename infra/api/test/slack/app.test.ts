@@ -268,6 +268,7 @@ describe("conversational Slack app", () => {
 			projects: [
 				{ projectId: "p1", displayName: "Repository one", state: "ready" },
 			],
+			sourceNamesError: "",
 		};
 		vi.stubGlobal(
 			"fetch",
@@ -388,6 +389,20 @@ describe("conversational Slack app", () => {
 							? { ok: true }
 							: { ok: false, error: "feature_disabled" },
 					);
+				}
+				if (url.includes("users.info") || url.includes("conversations.info")) {
+					if (result.sourceNamesError)
+						return Response.json({ ok: false, error: result.sourceNamesError });
+					return url.includes("users.info")
+						? Response.json({
+								ok: true,
+								user: {
+									name: "ada",
+									real_name: "Ada Lovelace",
+									profile: { display_name: "", real_name: "Ada Lovelace" },
+								},
+							})
+						: Response.json({ ok: true, channel: { name: "eng-alerts" } });
 				}
 				if (url.endsWith("chat.postMessage"))
 					return Response.json({ ok: true, ts: "201.001" });
@@ -1521,6 +1536,34 @@ describe("conversational Slack app", () => {
 		expect(
 			http.calls.some((call) => call.url.includes("conversations.replies")),
 		).toBe(false);
+	});
+	it("attributes the request to its Slack author and channel", async () => {
+		const app = await setup();
+		const http = mockServices();
+		await app.event(mention);
+		await consumeNext(app);
+		const message = http.calls.find((call) => call.url.endsWith("/messages"));
+		expect(message?.body.source).toEqual({
+			_tag: "slack",
+			text: "fix the failing test",
+			author: "Ada Lovelace",
+			channel: "eng-alerts",
+		});
+		expect(message?.body.text).toBe(
+			"Request from Slack (thread 200.001):\nfix the failing test",
+		);
+	});
+	it("still attributes the request to Slack when names cannot be read", async () => {
+		const app = await setup();
+		const http = mockServices();
+		http.result.sourceNamesError = "missing_scope";
+		await app.event(mention);
+		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
+		const message = http.calls.find((call) => call.url.endsWith("/messages"));
+		expect(message?.body.source).toEqual({
+			_tag: "slack",
+			text: "fix the failing test",
+		});
 	});
 	it("reuses the workspace for an authorized tagged thread reply", async () => {
 		const app = await setup();
