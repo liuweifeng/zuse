@@ -1291,19 +1291,36 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// Fixed target so this action can never star an arbitrary repository.
+		// Fixed target shared by the status read and star action.
+		const zuseRepository = {
+			host: "github.com",
+			owner: "swarajbachu",
+			repo: "zuse",
+			cwd: homedir(),
+		};
+		const zuseStarStatus: GitService["Service"]["zuseStarStatus"] = () =>
+			Effect.tryPromise({
+				try: async (signal) => {
+					const credential = await github.credential(zuseRepository, signal);
+					const result = await github.graphql<{
+						repository: { viewerHasStarred: boolean } | null;
+					}>(
+						credential,
+						"query($owner:String!,$name:String!) { repository(owner:$owner,name:$name) { viewerHasStarred } }",
+						{ owner: zuseRepository.owner, name: zuseRepository.repo },
+						signal,
+						false,
+					);
+					if (typeof result.repository?.viewerHasStarred !== "boolean")
+						throw new Error("GitHub star status is unavailable.");
+					return result.repository.viewerHasStarred;
+				},
+				catch: (error) => new GitHubStarError({ reason: String(error) }),
+			});
 		const starZuse: GitService["Service"]["starZuse"] = () =>
 			Effect.tryPromise({
 				try: async (signal) => {
-					const credential = await github.credential(
-						{
-							host: "github.com",
-							owner: "swarajbachu",
-							repo: "zuse",
-							cwd: homedir(),
-						},
-						signal,
-					);
+					const credential = await github.credential(zuseRepository, signal);
 					await github.rest(
 						credential,
 						"user/starred/swarajbachu/zuse",
@@ -3116,6 +3133,7 @@ export const GitServiceLive = Layer.effect(
 			createReviewComment,
 			reviewIdentity,
 			starZuse,
+			zuseStarStatus,
 			listPrs,
 			listIssues,
 			issueMarkdown,

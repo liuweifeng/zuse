@@ -395,6 +395,7 @@ export const makeConversationFixtureRuntime = (
 		createReviewComment: () => Effect.succeed({ url: null }),
 		reviewIdentity: () => Effect.succeed(null),
 		starZuse: () => Effect.void,
+		zuseStarStatus: () => Effect.succeed(false),
 		listPrs: () => Effect.die("not used"),
 		listIssues: () => Effect.die("not used"),
 		issueMarkdown: () => Effect.die("not used"),
