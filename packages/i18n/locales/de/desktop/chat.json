@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "Den Chat vor dem Fortfahren zusammenfassen. Frühere Details können verloren gehen.",
 	"switch_account_choose": "Konto auswählen",
 	"no_project": "Kein Projekt",
-	"start_without_project": "Ohne Projekt starten"
+	"start_without_project": "Ohne Projekt starten",
+	"voice_dictate": "Diktieren",
+	"voice_stop": "Fertig",
+	"voice_starting": "Mikrofon wird gestartet…",
+	"voice_transcribing": "Wird transkribiert…",
+	"voice_listening": "Aufnahme läuft",
+	"voice_cancel": "Aufnahme verwerfen",
+	"voice_error_unsupported": "Sprachdiktat wird auf diesem Gerät nicht unterstützt.",
+	"voice_error_account_required": "Verbinde in den Einstellungen ein ChatGPT-Konto, um das Diktat zu nutzen.",
+	"voice_error_permission_denied": "Der Mikrofonzugriff ist blockiert. Erlaube ihn in den Systemeinstellungen und versuche es erneut.",
+	"voice_error_no_microphone": "Kein Mikrofon verfügbar. Prüfe, ob eines angeschlossen ist und nicht verwendet wird.",
+	"voice_error_too_large": "Die Aufnahme ist zu lang. Versuche eine kürzere Nachricht.",
+	"voice_error_recorder_failed": "Die Aufnahme wurde unerwartet beendet. Versuche es erneut.",
+	"voice_error_no_speech": "Keine Sprache erkannt. Versuche es erneut.",
+	"voice_error_transcription_failed": "Die Aufnahme konnte nicht transkribiert werden. Prüfe deine Verbindung und versuche es erneut.",
+	"voice_error_service_unavailable": "Transkription ist in diesem Workspace nicht verfügbar.",
+	"voice_error_start_failed": "Diktat konnte nicht gestartet werden. Versuche es erneut."
 }

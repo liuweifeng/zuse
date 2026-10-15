@@ -135,7 +135,7 @@ mac:
   icon: build/icon.png
   extendInfo:
     NSCameraUsageDescription: Zuse (Beta) does not use the camera.
-    NSMicrophoneUsageDescription: Zuse (Beta) does not use the microphone.
+    NSMicrophoneUsageDescription: Zuse uses the microphone to turn your speech into text when you start dictation.
 
 linux:
   # Linux releases are x64-only. Native packages often publish every platform

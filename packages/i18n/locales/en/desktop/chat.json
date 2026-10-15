@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "Summarize the chat before continuing. Some earlier detail may be lost.",
 	"switch_account_choose": "Choose account",
 	"no_project": "No project",
-	"start_without_project": "Start without a project"
+	"start_without_project": "Start without a project",
+	"voice_dictate": "Dictate",
+	"voice_stop": "Done",
+	"voice_starting": "Starting microphone…",
+	"voice_transcribing": "Transcribing…",
+	"voice_listening": "Listening",
+	"voice_cancel": "Discard recording",
+	"voice_error_unsupported": "Voice dictation isn't supported on this device.",
+	"voice_error_account_required": "Connect a ChatGPT account in Settings to use dictation.",
+	"voice_error_permission_denied": "Microphone access is blocked. Allow it in System Settings, then try again.",
+	"voice_error_no_microphone": "No microphone is available. Check that one is connected and not in use.",
+	"voice_error_too_large": "That recording is too long. Try a shorter message.",
+	"voice_error_recorder_failed": "Recording stopped unexpectedly. Try again.",
+	"voice_error_no_speech": "No speech was detected. Try again.",
+	"voice_error_transcription_failed": "Couldn't transcribe your recording. Check your connection and try again.",
+	"voice_error_service_unavailable": "Transcription isn't available from this workspace.",
+	"voice_error_start_failed": "Couldn't start dictation. Try again."
 }

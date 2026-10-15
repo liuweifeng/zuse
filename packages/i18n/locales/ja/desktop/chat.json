@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "続行する前にチャットを要約します。以前の細部が失われる場合があります。",
 	"switch_account_choose": "アカウントを選択",
 	"no_project": "プロジェクトなし",
-	"start_without_project": "プロジェクトなしで開始"
+	"start_without_project": "プロジェクトなしで開始",
+	"voice_dictate": "音声入力",
+	"voice_stop": "完了",
+	"voice_starting": "マイクを起動中…",
+	"voice_transcribing": "文字起こし中…",
+	"voice_listening": "録音中",
+	"voice_cancel": "録音を破棄",
+	"voice_error_unsupported": "このデバイスでは音声入力を利用できません。",
+	"voice_error_account_required": "音声入力を使うには、設定で ChatGPT アカウントを接続してください。",
+	"voice_error_permission_denied": "マイクへのアクセスがブロックされています。システム設定で許可してから、もう一度お試しください。",
+	"voice_error_no_microphone": "使用できるマイクがありません。接続され、他で使用されていないか確認してください。",
+	"voice_error_too_large": "録音が長すぎます。短いメッセージでお試しください。",
+	"voice_error_recorder_failed": "録音が予期せず停止しました。もう一度お試しください。",
+	"voice_error_no_speech": "音声が検出されませんでした。もう一度お試しください。",
+	"voice_error_transcription_failed": "録音を文字起こしできませんでした。接続を確認して、もう一度お試しください。",
+	"voice_error_service_unavailable": "このワークスペースでは文字起こしを利用できません。",
+	"voice_error_start_failed": "音声入力を開始できませんでした。もう一度お試しください。"
 }

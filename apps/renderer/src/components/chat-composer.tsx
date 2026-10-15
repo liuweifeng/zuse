@@ -3,6 +3,7 @@ import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
+import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -1815,6 +1816,30 @@ export function ChatComposer({
 									<PluginsPopover />
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
+									<ComposerVoiceButton
+										key={`${qualifiedEnvironmentId}:${sessionId}`}
+										environmentId={qualifiedEnvironmentId}
+										disabled={
+											submitDisabled || directoryUnavailable || submitting
+										}
+										onTranscript={(text) => {
+											const view = editorViewRef.current;
+											if (!view) return;
+											// Dictation lands at the caret, padded so it never
+											// fuses with the words around it.
+											const { doc, selection } = view.state;
+											const { from, to } = selection.main;
+											const before = doc.sliceString(from - 1, from);
+											const after = doc.sliceString(to, to + 1);
+											const insert = `${before && !/\s/.test(before) ? " " : ""}${text}${after && !/\s/.test(after) ? " " : ""}`;
+											view.dispatch({
+												changes: { from, to, insert },
+												selection: { anchor: from + insert.length },
+												scrollIntoView: true,
+											});
+											view.focus();
+										}}
+									/>
 									<ComposerModelPicker
 										cloudProviderIds={cloudProviderIds}
 										environmentId={qualifiedEnvironmentId}

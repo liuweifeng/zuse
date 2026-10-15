@@ -92,6 +92,19 @@ export interface AppBridge {
 	readonly openPathInApp?: (path: string, appId: string) => Promise<void>;
 	readonly revealPath?: (path: string) => Promise<void>;
 	readonly copyText?: (text: string) => Promise<void>;
+	/**
+	 * Uploads dictation through Chromium's network stack (desktop only). The
+	 * token is a single-use `voice.resolveAuth` result; never retain it.
+	 */
+	readonly transcribeVoice?: (request: {
+		readonly token: string;
+		readonly accountId: string | null;
+		readonly bytes: Uint8Array;
+		readonly mimeType: string;
+	}) => Promise<
+		| { readonly _tag: "transcribed"; readonly text: string }
+		| { readonly _tag: "failed" }
+	>;
 	readonly copyPath?: (path: string) => Promise<void>;
 	readonly copyFileContents?: (path: string) => Promise<boolean>;
 	/** Stages SSH key material, managed ssh config, and a workspace ticket. */

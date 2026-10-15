@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "⟦Süümmààrïïzëë thëë chààt bëëfôôrëë côôntïïnüüïïng. Sôômëë ëëààrlïïëër dëëtààïïl màày bëë lôôst.⟧",
 	"switch_account_choose": "⟦Chôôôôsëë ààccôôüünt⟧",
 	"no_project": "⟦Nôô prôôjëëct⟧",
-	"start_without_project": "⟦Stààrt wïïthôôüüt àà prôôjëëct⟧"
+	"start_without_project": "⟦Stààrt wïïthôôüüt àà prôôjëëct⟧",
+	"voice_dictate": "⟦Dïïctààtëë⟧",
+	"voice_stop": "⟦Dôônëë⟧",
+	"voice_starting": "⟦Stààrtïïng mïïcrôôphôônëë…⟧",
+	"voice_transcribing": "⟦Tràànscrïïbïïng…⟧",
+	"voice_listening": "⟦Lïïstëënïïng⟧",
+	"voice_cancel": "⟦Dïïscààrd rëëcôôrdïïng⟧",
+	"voice_error_unsupported": "⟦Vôôïïcëë dïïctààtïïôôn ïïsn't süüppôôrtëëd ôôn thïïs dëëvïïcëë.⟧",
+	"voice_error_account_required": "⟦Côônnëëct àà ChààtGPT ààccôôüünt ïïn Sëëttïïngs tôô üüsëë dïïctààtïïôôn.⟧",
+	"voice_error_permission_denied": "⟦Mïïcrôôphôônëë ààccëëss ïïs blôôckëëd. ÀÀllôôw ïït ïïn Systëëm Sëëttïïngs, thëën try ààgààïïn.⟧",
+	"voice_error_no_microphone": "⟦Nôô mïïcrôôphôônëë ïïs ààvààïïlààblëë. Chëëck thààt ôônëë ïïs côônnëëctëëd àànd nôôt ïïn üüsëë.⟧",
+	"voice_error_too_large": "⟦Thààt rëëcôôrdïïng ïïs tôôôô lôông. Try àà shôôrtëër mëëssààgëë.⟧",
+	"voice_error_recorder_failed": "⟦Rëëcôôrdïïng stôôppëëd üünëëxpëëctëëdly. Try ààgààïïn.⟧",
+	"voice_error_no_speech": "⟦Nôô spëëëëch wààs dëëtëëctëëd. Try ààgààïïn.⟧",
+	"voice_error_transcription_failed": "⟦Côôüüldn't tràànscrïïbëë yôôüür rëëcôôrdïïng. Chëëck yôôüür côônnëëctïïôôn àànd try ààgààïïn.⟧",
+	"voice_error_service_unavailable": "⟦Tràànscrïïptïïôôn ïïsn't ààvààïïlààblëë frôôm thïïs wôôrkspààcëë.⟧",
+	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧"
 }

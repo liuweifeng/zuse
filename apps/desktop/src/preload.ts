@@ -353,6 +353,15 @@ const bridge = {
 			ipcRenderer.invoke("app:revealPath", path) as Promise<void>,
 		copyText: (text: string) =>
 			ipcRenderer.invoke("app:copyText", text) as Promise<void>,
+		transcribeVoice: (request: {
+			token: string;
+			accountId: string | null;
+			bytes: Uint8Array;
+			mimeType: string;
+		}) =>
+			ipcRenderer.invoke("voice:transcribe", request) as Promise<
+				{ _tag: "transcribed"; text: string } | { _tag: "failed" }
+			>,
 		copyPath: (path: string) =>
 			ipcRenderer.invoke("app:copyPath", path) as Promise<void>,
 		copyFileContents: (path: string) =>

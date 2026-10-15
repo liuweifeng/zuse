@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "继续之前先总结聊天。部分较早的细节可能会丢失。",
 	"switch_account_choose": "选择账户",
 	"no_project": "无项目",
-	"start_without_project": "不关联项目开始"
+	"start_without_project": "不关联项目开始",
+	"voice_dictate": "听写",
+	"voice_stop": "完成",
+	"voice_starting": "正在启动麦克风…",
+	"voice_transcribing": "正在转写…",
+	"voice_listening": "正在聆听",
+	"voice_cancel": "放弃录音",
+	"voice_error_unsupported": "此设备不支持语音听写。",
+	"voice_error_account_required": "请在设置中关联 ChatGPT 账户以使用听写。",
+	"voice_error_permission_denied": "麦克风访问已被阻止。请在系统设置中允许后重试。",
+	"voice_error_no_microphone": "没有可用的麦克风。请检查麦克风是否已连接且未被占用。",
+	"voice_error_too_large": "录音过长。请尝试更短的消息。",
+	"voice_error_recorder_failed": "录音意外停止。请重试。",
+	"voice_error_no_speech": "未检测到语音。请重试。",
+	"voice_error_transcription_failed": "无法转写录音。请检查网络连接后重试。",
+	"voice_error_service_unavailable": "此工作区无法使用转写服务。",
+	"voice_error_start_failed": "无法开始听写。请重试。"
 }
