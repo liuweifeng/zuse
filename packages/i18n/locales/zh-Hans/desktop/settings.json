@@ -1116,6 +1116,7 @@
 	"cloud_snapshot_usage": "本期存储用量费用",
 	"cloud_snapshot_usage_recent": "已计入您的云用量费用总额。",
 	"cloud_provider_keys_footer": "密钥由 Zuse 云服务加密，绝不会发送到工作区运行时。",
+	"cloud_provider_keys_daytona_network_requirement": "使用自己的 Daytona 密钥需要 Tier 3 或更高等级才能访问网络，除非 Daytona 支持团队已为你的组织启用网络例外。",
 	"cloud_provider_keys_loading": "正在加载提供商密钥…",
 	"cloud_provider_keys_load_failed": "无法加载提供商密钥。",
 	"cloud_provider_keys_empty_title": "未连接提供商密钥",
