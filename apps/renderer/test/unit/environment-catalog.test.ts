@@ -13,9 +13,6 @@ import {
 } from "@zuse/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-// The coordinator now kicks off chat hydration (which wires the change
-// stream) once the target connection reports connected; neither can reach a
-// real connection here, so report "connected" immediately and fail the RPC.
 vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => {
 	const original =
 		await importOriginal<typeof import("../../src/lib/rpc-client.ts")>();
@@ -135,8 +132,7 @@ describe("environment catalog", () => {
 		projectEnvironmentShell({
 			folders: useWorkspaceStore.getState().folders,
 			originsByFolder: {},
-			// The chat, session, and creation streams can each publish an empty
-			// snapshot before the create command's durable rows become visible.
+
 			chatsByProject: { [folderId]: [] },
 			sessionsByProject: { [folderId]: [] },
 			creationOperationsByProject: { [folderId]: [] },
@@ -204,8 +200,7 @@ describe("environment catalog", () => {
 				originsByFolder: {},
 				chatsByProject: { [folderId]: [pending.chat] },
 				sessionsByProject: { [folderId]: [pending.session] },
-				// The creation stream is allowed to lag one shell emission behind
-				// the chat stream. That must not remount the entire chat surface.
+
 				creationOperationsByProject: { [folderId]: [] },
 			},
 			{ folderId, chatId },

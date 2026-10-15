@@ -101,7 +101,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(settings).toContain('text: "Remove Computer"');
 		expect(settings).toContain("void removeConnection(key)");
-		// Account-linked computers come back from the account; only saved ones.
+
 		expect(settings).toContain('connection.source === "paired"');
 	});
 	test("offers bounded home loading and explicit recovery actions", () => {

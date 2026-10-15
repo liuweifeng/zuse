@@ -47,7 +47,6 @@ export type BrowserReadiness = typeof BrowserReadiness.Type;
  * Screenshot extensions) ride the same request/respond round-trip as v1.
  */
 export const BrowserCommand = Schema.Union([
-	/** Load a URL into the shared in-app webview and wait for it to settle. */
 	Schema.TaggedStruct("Navigate", {
 		url: Schema.String,
 		readiness: Schema.optional(BrowserReadiness),
@@ -62,46 +61,27 @@ export const BrowserCommand = Schema.Union([
 		orientation: Schema.optional(Schema.Literals(["portrait", "landscape"])),
 		lockAspectRatio: Schema.optional(Schema.Boolean),
 	}),
-	/**
-	 * Capture the page. Default is the visible viewport via `capturePage`;
-	 * `fullPage` captures beyond the viewport through CDP
-	 * (`Page.captureScreenshot`) when the debugger is attached.
-	 */
+
 	Schema.TaggedStruct("Screenshot", {
 		fullPage: Schema.optional(Schema.Boolean),
 	}),
-	/**
-	 * Snapshot the page for targeting. v2: the renderer prefers a pruned
-	 * accessibility tree over CDP (roles/names/states, interactive elements
-	 * carrying `ref=eN` mapped to backendNodeIds renderer-side) and falls back
-	 * to v1's injected DOM walk when CDP isn't attached. Cheaper for the model
-	 * than a screenshot and robust to scroll/DPI.
-	 */
+
 	Schema.TaggedStruct("Snapshot", {
 		screenshot: Schema.optional(Schema.Literals(["viewport", "full-page"])),
 	}),
-	/** Click the element carrying this snapshot `ref`. */
+
 	Schema.TaggedStruct("Click", {
 		ref: Schema.optional(Schema.String),
 		target: Schema.optional(BrowserTarget),
 	}),
-	/**
-	 * Type into the element with this `ref`. `submit` presses Enter afterward
-	 * (e.g. to submit a search box / login form).
-	 */
+
 	Schema.TaggedStruct("Type", {
 		ref: Schema.optional(Schema.String),
 		target: Schema.optional(BrowserTarget),
 		text: Schema.String,
 		submit: Schema.optional(Schema.Boolean),
 	}),
-	/**
-	 * Settle after navigation/AJAX. Wait a fixed `ms`, poll until a CSS
-	 * `selector` appears, or poll until `text` shows up in the page's visible
-	 * text (selector wins over text; either wins over ms). `timeoutMs` bounds
-	 * the poll — capped renderer-side below the bridge's 30s deadline so a
-	 * hopeless wait fails as a clean tool error, not a bridge timeout.
-	 */
+
 	Schema.TaggedStruct("Wait", {
 		ms: Schema.optional(Schema.Number),
 		selector: Schema.optional(Schema.String),
@@ -117,44 +97,31 @@ export const BrowserCommand = Schema.Union([
 		ms: Schema.optional(Schema.Number),
 		timeoutMs: Schema.optional(Schema.Number),
 	}),
-	/**
-	 * Scroll the page (or a `ref` into view). `direction` moves the viewport;
-	 * `ref` (when given) scrolls that element to center instead.
-	 */
+
 	Schema.TaggedStruct("Scroll", {
 		direction: Schema.optional(
 			Schema.Literals(["up", "down", "top", "bottom"]),
 		),
 		ref: Schema.optional(Schema.String),
 	}),
-	/** Hover an element by `ref` (reveal menus / tooltips). */
+
 	Schema.TaggedStruct("Hover", { ref: Schema.String }),
-	/** Choose an option in a <select> by `ref`, matching value or visible label. */
+
 	Schema.TaggedStruct("Select", { ref: Schema.String, value: Schema.String }),
-	/**
-	 * Press a key (Enter, Tab, Escape, ArrowDown, …) on the element `ref`, or on
-	 * whatever is focused when `ref` is omitted.
-	 */
+
 	Schema.TaggedStruct("Press", {
 		key: Schema.String,
 		ref: Schema.optional(Schema.String),
 	}),
-	/**
-	 * Read the visible text of the page, or of one element when `ref` is given.
-	 * Cheaper than a screenshot for confirming content / verifying a flow.
-	 */
+
 	Schema.TaggedStruct("Read", { ref: Schema.optional(Schema.String) }),
-	/** Browser history / reload — back, forward, or reload the current page. */
+
 	Schema.TaggedStruct("History", {
 		action: Schema.Literals(["back", "forward", "reload"]),
 	}),
-	/** Return recent console messages + page errors captured since last load. */
+
 	Schema.TaggedStruct("Console", {}),
-	/**
-	 * Fill several fields in one round-trip — inputs/textareas and <select>s by
-	 * snapshot `ref`. One permission prompt covers the whole form. `submit`
-	 * presses Enter in the last filled field afterward.
-	 */
+
 	Schema.TaggedStruct("FillForm", {
 		fields: Schema.Array(
 			Schema.Struct({
@@ -164,31 +131,17 @@ export const BrowserCommand = Schema.Union([
 		),
 		submit: Schema.optional(Schema.Boolean),
 	}),
-	/**
-	 * Network activity captured since the last page load (CDP Network domain,
-	 * buffered in main). No `id` → compact request list, optionally substring-
-	 * filtered by `filter`. With `id` → one request's detail incl. response
-	 * headers and a truncated body.
-	 */
+
 	Schema.TaggedStruct("Network", {
 		filter: Schema.optional(Schema.String),
 		id: Schema.optional(Schema.String),
 	}),
-	/**
-	 * Resolve the pending JavaScript dialog (alert/confirm/prompt/beforeunload)
-	 * via `Page.handleJavaScriptDialog`. `promptText` answers a prompt() when
-	 * accepting. Fails cleanly when no dialog is open.
-	 */
+
 	Schema.TaggedStruct("Dialog", {
 		action: Schema.Literals(["accept", "dismiss"]),
 		promptText: Schema.optional(Schema.String),
 	}),
-	/**
-	 * Autofill + submit the saved (DUMMY/TEST) credentials for this origin.
-	 * SECURITY: the command carries ONLY the origin — never the password. The
-	 * desktop main process injects the secret directly into the isolated page,
-	 * so it never enters renderer state, agent args/results, or LLM context.
-	 */
+
 	Schema.TaggedStruct("Login", { origin: Schema.String }),
 	Schema.TaggedStruct("Inspect", { target: BrowserTarget }),
 	Schema.TaggedStruct("Evaluate", {
@@ -267,10 +220,6 @@ export class BrowserCommandNotFoundError extends Schema.TaggedErrorClass<Browser
 	{ id: Schema.String },
 ) {}
 
-// ---------------------------------------------------------------------------
-// RPCs
-// ---------------------------------------------------------------------------
-
 /**
  * Live stream of pending browser commands. The renderer's BrowserPane
  * subscribes once (independent of which right-pane tab is active) and
@@ -293,12 +242,6 @@ export const BrowserRespondRpc = Rpc.make("browser.respond", {
 	success: Schema.Void,
 	error: BrowserCommandNotFoundError,
 });
-
-// ---------------------------------------------------------------------------
-// Browser credentials (DUMMY / TEST passwords only — see settings UI warning).
-// Stored in the encrypted app vault. Write-only from the UI's perspective; the
-// password is injected into the isolated page by the desktop main process.
-// ---------------------------------------------------------------------------
 
 /** Save (or overwrite) the dummy credential for an origin. */
 export const BrowserSetCredentialRpc = Rpc.make("browser.setCredential", {

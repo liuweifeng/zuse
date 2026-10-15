@@ -759,12 +759,6 @@ interface BrowserCredRow {
 	readonly username: string;
 }
 
-/**
- * Browser settings — manage the DUMMY/TEST logins the agent browser autofills
- * via `browser_login`. Passwords go into the encrypted local vault (write-only
- * from here; the list RPC never returns them). The warning banner is
- * load-bearing: real credentials must never live here.
- */
 function BrowserTestLoginsPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -932,11 +926,6 @@ function BrowserTestLoginsPane() {
 	);
 }
 
-/**
- * Opt-in previews. These toggles shape this app's own UI, so they are saved
- * on this install (local storage), not in the active computer's settings:
- * switching to a remote or cloud computer never flips them.
- */
 function ExperimentalPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -1316,15 +1305,11 @@ function GeneralPane() {
 		setDisplayName,
 	} = useAuth();
 
-	// Local mirror so typing is smooth; persist on blur to avoid an atomic
-	// settings-file write per keystroke.
 	const [prefixDraft, setPrefixDraft] = useState(branchNamingPrefix);
 	useEffect(() => {
 		setPrefixDraft(branchNamingPrefix);
 	}, [branchNamingPrefix]);
 
-	// Display-name override draft (local cosmetic alias; persisted to localStorage
-	// via the auth store). Mirror on external change.
 	const [nameDraft, setNameDraft] = useState(displayName);
 	const [editingName, setEditingName] = useState(false);
 	const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -1780,7 +1765,6 @@ function ProvidersPane() {
 		return latest;
 	}, [availability, uiMessage]);
 
-	// One row opens at a time; the choice survives leaving and reopening settings.
 	const [expandedProvider, setExpandedProvider] = useState<ProviderId | null>(
 		() => lastExpandedProvider,
 	);
@@ -1858,10 +1842,6 @@ function ProvidersPane() {
 
 let lastExpandedProvider: ProviderId | null = null;
 
-// ---------------------------------------------------------------------------
-// Shared building blocks
-// ---------------------------------------------------------------------------
-
 /**
  * Frame-shaped settings block: outer muted shell with `FrameHeader` (title
  * + optional trailing action), optional inner `Card` body, and
@@ -1880,7 +1860,7 @@ export function SettingsFrame({
 	trailing?: React.ReactNode;
 	description?: React.ReactNode;
 	bodyClassName?: string;
-	/** When true, render children flush inside the Card without inner padding. */
+
 	flush?: boolean;
 	children?: React.ReactNode;
 }) {
@@ -2274,9 +2254,6 @@ export function ModelSelect({
 	);
 }
 
-// Re-exported helpers consumed by `ChatComposer`'s "ensure valid defaults"
-// path that picks an effective provider/model when the user's saved
-// default isn't currently logged in.
 export function ensureValidDefaultsForRuntime(
 	ready: ReadonlyArray<ProviderId>,
 ): { providerId: ProviderId; model: string; runtimeMode: RuntimeMode } | null {

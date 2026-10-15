@@ -25,7 +25,7 @@ export function SplitButton({
 	label: ReactNode;
 	onClick: () => void;
 	disabled?: boolean;
-	/** Accessible name for the chevron. */
+
 	menuLabel: string;
 	menu: ReactNode;
 	className?: string;

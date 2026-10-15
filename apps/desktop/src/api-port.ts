@@ -30,7 +30,7 @@ const canBindLoopback = (port: number): Promise<boolean> =>
  */
 export const resolveDesktopApiPort = async (input: {
 	readonly configuredPort: string | undefined;
-	/** Test seam; production always uses the conventional api port. */
+
 	readonly defaultPort?: number;
 }): Promise<{ readonly port: number; readonly fellBack: boolean }> => {
 	const configured = input.configuredPort?.trim();
@@ -48,9 +48,6 @@ export const resolveDesktopApiPort = async (input: {
 		if (await canBindLoopback(port)) return { port, fellBack: offset > 0 };
 	}
 
-	// Asking the OS for a port is the final fallback when the conventional
-	// range is busy. The selected port is passed through the runtime's LAN
-	// config, so pairing and api registration advertise the same endpoint.
 	const server = net.createServer();
 	const port = await new Promise<number>((resolve, reject) => {
 		server.once("error", reject);

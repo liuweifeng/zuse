@@ -87,7 +87,6 @@ export function AccessMethodsCard({
 
 	const [serveDetailsOpen, setServeDetailsOpen] = useState(false);
 
-	// Zuse Serve row.
 	const linked = status?.linked === true;
 	const remoteReady = linked && status?.heartbeatActive === true;
 	const accountEndpoint = accountPairingEndpoint(status);
@@ -101,7 +100,6 @@ export function AccessMethodsCard({
 	})();
 	const accountShareReady = remoteReady && accountAddress !== null;
 
-	// Tailscale row.
 	const line = tailnetStatusLine(tailnet);
 	const tailnetManaged = tailnet?.managedBy === "zuse-serve";
 	const tailnetConflict =
@@ -109,7 +107,6 @@ export function AccessMethodsCard({
 	const tailscaleShareReady =
 		tailnet?.enabled === true && tailnet.dnsName !== null && !tailnetManaged;
 
-	// Local network row.
 	const networkAddress =
 		network?.advertisedHost != null && network.port != null
 			? `${network.advertisedHost}:${network.port}`

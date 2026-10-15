@@ -132,8 +132,6 @@ describe("Claude partial-message durability", () => {
 		expect(events.at(-1)?.checkpoint?.final).toBe(true);
 	});
 
-	// Claude Code 2.1.283+ delivers one completed `assistant` snapshot per
-	// content block, before that block's `content_block_stop`.
 	it("emits each streamed block once when the snapshot precedes content_block_stop", () => {
 		const stream = (event: Record<string, unknown>) => ({
 			type: "stream_event",

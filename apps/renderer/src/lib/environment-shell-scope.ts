@@ -57,8 +57,6 @@ export const scopeEnvironmentShell = (
 	};
 };
 
-// Scoped views must keep their identity between reads so
-// `useSyncExternalStore` selectors do not re-render on every call.
 const scopedViews = new WeakMap<
 	ResourceView<EnvironmentShellData>,
 	Map<string, ResourceView<EnvironmentShellData>>

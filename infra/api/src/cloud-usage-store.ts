@@ -167,7 +167,6 @@ export const makeCloudUsageStorePg = (
 		),
 	recordRuntimeObservation: (input) =>
 		Effect.gen(function* () {
-			// Insert first, then lock: even two workers observing a new machine serialize.
 			yield* sql`INSERT INTO api_cloud_runtime_observations (provider, provider_sandbox_id, observation) VALUES (${input.provider}, ${input.providerSandboxId}, ${JSON.stringify(input)}::jsonb) ON CONFLICT DO NOTHING`;
 			const rows = yield* sql<{
 				observation: RuntimeObservation;

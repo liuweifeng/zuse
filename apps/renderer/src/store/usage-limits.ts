@@ -67,7 +67,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	invalidate: (providerId) => {
 		historyVersion++;
 		latestByProvider.set(providerId, ++requestSequence);
-		// In-flight results for the previous account must not repopulate the card.
+
 		for (const target of [providerId, "all"]) {
 			pendingRefreshes.delete(`${target}:true`);
 			pendingRefreshes.delete(`${target}:false`);
@@ -116,9 +116,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 				{},
 			);
 			if (version === historyVersion) set({ history: response.points });
-		} catch {
-			// History is supplementary; live limit cards remain useful without it.
-		}
+		} catch {}
 	},
 	refresh: (force = false, providerId) => {
 		const key = `${providerId ?? "all"}:${force}`;

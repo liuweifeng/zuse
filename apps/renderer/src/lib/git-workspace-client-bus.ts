@@ -239,8 +239,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 						);
 						throwTransportFailure(snapshot);
 						if (!active || !context.isCurrent()) return;
-						// Reconciliation is an observation, not necessarily a state change.
-						// Keep the shared view and hydrated details stable on idle polls.
+
 						if (
 							snapshot.ok &&
 							previous !== null &&
@@ -398,11 +397,6 @@ const makeWorkspaceDriver = (): ResourceDriver<
 					folderId: ref.folderId,
 					worktreeId: ref.worktreeId,
 				}).pipe(
-					// A plain folder, a removed checkout, or a missing Git binary is a
-					// resource-level capability failure. Materialize that state through
-					// the normal snapshot loader and keep the invalidation stream alive;
-					// escalating a typed Git error would disconnect every resource on the
-					// computer (including auth and the project catalog).
 					Stream.catchTags({
 						GitNotARepoError: () =>
 							Stream.concat(Stream.make({ revision: 0 }), Stream.never),

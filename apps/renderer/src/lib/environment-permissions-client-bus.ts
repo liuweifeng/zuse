@@ -74,9 +74,7 @@ const makeDriver = (): ResourceDriver<
 				(change) =>
 					Effect.sync(() => {
 						if (!active || !context.isCurrent()) return;
-						// Fold optimistic overlays into the driver's working state before
-						// applying the next authoritative event. Otherwise an unrelated
-						// request could resurrect a prompt while its decision is in flight.
+
 						current = context.snapshot()?.data ?? current;
 						let requestsById = current.requestsById;
 						if (change._tag === "snapshot") {
@@ -167,9 +165,7 @@ export const decideEnvironmentPermission = async (
 	const commandId = CommandId.make(
 		`permission-decide:${request.id}:${Date.now().toString(36)}`,
 	);
-	// The durable session timeline owns prompt visibility and its submission
-	// overlay. The environment stream only proves a live callback is attached.
-	// An authoritative PermissionResolved event removes the durable prompt.
+
 	await dispatchSessionCommand({
 		kind: "permission.decide",
 		commandId,

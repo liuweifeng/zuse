@@ -210,9 +210,6 @@ describe("box billing ingestion", () => {
 			}),
 		);
 
-		// The window pairs (the opening event is found), and resolution then
-		// stops at the store lookup because no workspace record exists for the
-		// box in this harness.
 		expect(result).toMatchObject({
 			eventInserted: true,
 			metered: false,
@@ -335,7 +332,7 @@ it("pairs by provider time and keeps retries pinned after later events arrive", 
 			eventId: "ready_1",
 			startedAtMs: 1000,
 		});
-		// Distinct webhook/poll closings for the same run retain one execution ID.
+
 		expect(await pair("poll_close_2", 4000)).toEqual({
 			eventId: "ready_2",
 			startedAtMs: 3000,

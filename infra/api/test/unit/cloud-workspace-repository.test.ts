@@ -27,8 +27,7 @@ const fixture = () => {
 	writeFileSync(join(root, "file"), "original");
 	git("add", ".");
 	git("commit", "-m", "initial");
-	// The image checkout points at a reachable origin; an unreachable path
-	// stands in for network failure without waiting on DNS or TLS.
+
 	const remote = join(root, "origin.git");
 	execFileSync("git", ["init", "--bare", "-b", "main", remote], {
 		stdio: "pipe",
@@ -36,7 +35,7 @@ const fixture = () => {
 	git("remote", "add", "origin", remote);
 	git("push", "origin", "main");
 	const unreachable = "/nonexistent/zuse-unreachable/repo.git";
-	/** Advance origin's main from a separate clone, leaving the checkout stale. */
+
 	const advanceRemoteMain = (content: string): string => {
 		const clone = mkdtempSync(join(tmpdir(), "zuse cloud remote-"));
 		roots.push(clone);
@@ -191,7 +190,7 @@ exec /usr/bin/git "$@"
 		expect(readFileSync(join(root, "repository-progress"), "utf8").trim()).toBe(
 			"fetching-repository",
 		);
-		// Nothing was created from the stale cache, and local files are intact.
+
 		expect(git("branch", "--show-current")).toBe("main");
 		expect(() => git("rev-parse", "--verify", "vileplume")).toThrow();
 		expect(readFileSync(join(root, "untracked"), "utf8")).toBe("keep");

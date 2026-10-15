@@ -1,4 +1,3 @@
-/** Owns process-local conversation caches and active-turn bookkeeping. */
 import {
 	type AgentDefinition,
 	DEFAULT_RUNTIME_MODE,

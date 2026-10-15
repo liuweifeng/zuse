@@ -17,16 +17,13 @@ export class ProviderAccountError extends Schema.TaggedErrorClass<ProviderAccoun
 export const ProviderAccountsListRpc = Rpc.make("provider.accounts.list", {
 	payload: {
 		providerId: NativeAccountProvider,
-		/** Also report the account this chat is bound to. */
+
 		sessionId: Schema.optional(Schema.String),
 	},
 	success: Schema.Struct({
 		available: Schema.Boolean,
 		accounts: Schema.Array(ProviderAccount),
-		/**
-		 * Present when `sessionId` was given and the chat has started: the bound
-		 * account id, or null for the default CLI login.
-		 */
+
 		sessionAccountId: Schema.optional(Schema.NullOr(Schema.String)),
 	}),
 	error: ProviderAccountError,

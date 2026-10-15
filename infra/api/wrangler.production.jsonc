@@ -1,13 +1,11 @@
 {
-	// Isolated production configuration. Ordinary api commands never read this
-	// file; only scripts/deploy-production.mjs may select it after confirmation.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "zuse-relay",
 	"main": "src/worker.ts",
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"observability": { "enabled": true },
-	// Keep ordered startup writes near the production Hyperdrive origin.
+
 	"placement": { "region": "aws:us-east-1" },
 	"rules": [
 		{
@@ -96,7 +94,7 @@
 		"BOAT_TEMPLATE_SNAPSHOT": "zuse-base-v8",
 		"BOAT_TEMPLATE_VERSION": "8",
 		"BOAT_MACHINE_TYPE": "small",
-		// Uses the verified organization template and production BOXD_API_KEY secret.
+
 		"BOXD_ADAPTER_ENABLED": "true",
 		"BOXD_BILLING_ENABLED": "true",
 		"BOXD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
@@ -110,8 +108,6 @@
 		"CLOUD_USAGE_EXPORT_ENABLED": "true",
 		"CLOUD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
 
-		// New subscriptions use Stripe. Existing subscriptions keep their provider.
-		// Verified usage charging starts at the prospective cutover above.
 		"BILLING_DEFAULT_PROVIDER": "stripe",
 		"STRIPE_CLOUD_BILLING_MODE": "metered",
 		"STRIPE_ENVIRONMENT": "production",

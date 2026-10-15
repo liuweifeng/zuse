@@ -29,8 +29,7 @@ export const refreshCloudImages = async (): Promise<
 > => {
 	const epoch = generation;
 	const sequence = ++requestSequence;
-	// Provider-key access arrives with the provider list; a subscription is
-	// the fallback for APIs that do not report eligibility there.
+
 	const { providers, entitled } = await loadCloudProviders(true);
 	const hasAccess =
 		entitled ?? hasCloudEntitlement(await loadCloudEntitlements(true));
@@ -59,8 +58,6 @@ export const refreshCloudImages = async (): Promise<
 		providers.some((provider) => provider.providerId === image.providerId),
 	);
 
-	// Only warn when no image can serve a cloud chat yet. Providers the user
-	// does not build for would otherwise block leaving Settings every time.
 	setCloudSettingsUnbuiltChanges(
 		!latestImages.some((image) => image.state === "ready") &&
 			latestImages.some(

@@ -16,7 +16,7 @@ test("Boat installs Grok without replacing provider-owned Claude or Codex", () =
 		new URL("../infra/cloud-sandboxes/provision.sh", import.meta.url),
 		"utf8",
 	);
-	// Exercise the real stage dispatcher; intercept side effects, not stage selection.
+
 	const dispatch = provision.indexOf('for stage in "$@"; do');
 	assert.ok(dispatch > 0);
 	const result = spawnSync(

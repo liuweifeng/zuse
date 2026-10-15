@@ -258,7 +258,7 @@ describe("connection record persistence", () => {
 			port: 54789,
 			pathType: "lan",
 		});
-		// A second proxy must not overwrite the remembered paired address.
+
 		const reproxied = replaceDiscoveredRoute(proxied, {
 			host: "127.0.0.1",
 			port: 54790,
@@ -276,7 +276,7 @@ describe("connection record persistence", () => {
 			pathType: "lan",
 			routeGeneration: (reproxied.routeGeneration ?? 0) + 1,
 		});
-		// Already on a real address, or nothing remembered: unchanged.
+
 		expect(restorePairedRoute(paired)).toBe(paired);
 	});
 

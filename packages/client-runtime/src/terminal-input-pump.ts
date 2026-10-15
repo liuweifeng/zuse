@@ -39,7 +39,7 @@ export const retainPendingInitialInput = (
 
 export function createTerminalInputPump(options: {
 	readonly write: (data: string) => Promise<void>;
-	/** Emit one non-fatal diagnostic when an acknowledgement takes this long. */
+
 	readonly stallWarningMs?: number;
 	readonly maxQueuedCharacters?: number;
 	readonly maxQueuedBatches?: number;
@@ -133,9 +133,7 @@ export function createTerminalInputPump(options: {
 						if (disposed || failed) return;
 						try {
 							options.onStall?.(stallWarningMs);
-						} catch {
-							// Diagnostics must never alter input delivery semantics.
-						}
+						} catch {}
 					}, stallWarningMs);
 		try {
 			await options.write(data);

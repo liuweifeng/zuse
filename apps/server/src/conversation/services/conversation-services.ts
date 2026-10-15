@@ -66,18 +66,6 @@ import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Context, type Effect, type Stream } from "effect";
 
-/**
- * Public conversation service contracts for sessions and their message log.
- * Wraps `ProviderService` so RPC handlers and the renderer talk to one
- * coherent surface used by the session RPC boundary.
- *
- * Invariants:
- * - `Session.id` matches the provider's in-memory `AgentSessionId`.
- * - Every persisted `Message` corresponds to either a user submit or an
- *   `AgentEvent` that produced renderable content; lifecycle events
- *   (`Started`, `Status`, `Completed`) update the session row but are not
- *   persisted as messages.
- */
 /** Native handle of a provider thread to bind at creation. */
 export interface ProviderThreadSeedInput {
 	readonly nativeThreadId: string;
@@ -367,10 +355,6 @@ export interface ConversationOperations {
 	readonly deleteSession: (
 		sessionId: SessionId,
 	) => Effect.Effect<void, SessionNotFoundError>;
-
-	// -------------------------------------------------------------------------
-	// Chats — sidebar containers; each chat hosts ≥1 session as a tab.
-	// -------------------------------------------------------------------------
 
 	readonly listChats: (
 		projectId: FolderId,

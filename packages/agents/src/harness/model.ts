@@ -40,9 +40,7 @@ export function modelError(error: unknown): HarnessModelError {
 		try {
 			const body = JSON.parse(error.responseBody ?? "{}");
 			code = safeErrorCode(body.error?.code, error.statusCode);
-		} catch {
-			/* Body may be plain text. */
-		}
+		} catch {}
 		return new HarnessModelError(code, error.statusCode);
 	}
 	return new HarnessModelError("stream_interrupted");

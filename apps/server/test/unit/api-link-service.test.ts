@@ -77,7 +77,7 @@ describe("api heartbeat", () => {
 					waitForNextHeartbeat(30_000, () => wall),
 				);
 				yield* Effect.yieldNow;
-				// Ten minutes of sleep pass while the first 5s timer is frozen.
+
 				wall += 10 * 60_000;
 				yield* TestClock.adjust("5 seconds");
 				yield* Fiber.join(fiber);
@@ -107,7 +107,7 @@ describe("api heartbeat", () => {
 						},
 					),
 				);
-				// 30s healthy wait, then 2s and 5s quick retries.
+
 				yield* TestClock.adjust("37 seconds");
 				yield* Fiber.interrupt(fiber);
 			}).pipe(Effect.provide(TestClock.layer())),

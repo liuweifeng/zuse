@@ -34,9 +34,7 @@ export const completeCloudOnboarding = (
 ): void => {
 	try {
 		storage.setItem(completionKey(accountId), "complete");
-	} catch {
-		/* Server image state remains the fallback. */
-	}
+	} catch {}
 };
 export const requestCloudOnboarding = (): void => {
 	window.dispatchEvent(new Event(CLOUD_ONBOARDING_RESUME));

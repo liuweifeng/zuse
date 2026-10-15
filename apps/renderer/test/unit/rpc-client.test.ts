@@ -62,9 +62,7 @@ describe("renderer RPC transport selection", () => {
 	it("does not poison a healthy connection when a suspended stream is interrupted", () => {
 		const interruption = new Error("All fibers interrupted without error");
 		expect(isIgnorableRendererFailure(interruption)).toBe(true);
-		// A command interrupted with the transport scope has an ambiguous outcome.
-		// Keep retry-safe commands in the outbox instead of presenting a final
-		// provider rejection to the user.
+
 		expect(isRpcClientTransportError(interruption)).toBe(true);
 		expect(
 			isRpcClientTransportError({

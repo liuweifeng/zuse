@@ -47,7 +47,7 @@ export const setThreadStatus = async (
 			});
 			return false;
 		}
-		if (status) return false; // Message reactions are the activity fallback.
+		if (status) return false;
 		await env.JOBS.send(
 			{
 				kind: "status-clear",
@@ -72,7 +72,6 @@ export const retryStatusClear = async (
 	installation: Installation,
 	job: Extract<AppJob, { kind: "status-clear" }>,
 ) => {
-	// A later status supersedes this cleanup, including another task in the same thread.
 	if (
 		(await env.store
 			.state(installation)

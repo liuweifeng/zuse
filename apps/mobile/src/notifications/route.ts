@@ -11,8 +11,6 @@ export const notificationRoute = (target: unknown): "/" | null => {
 				(url.pathname === "/" || url.pathname === "/computers"))
 		)
 			return "/";
-	} catch {
-		/* Ignore malformed external payloads. */
-	}
+	} catch {}
 	return null;
 };

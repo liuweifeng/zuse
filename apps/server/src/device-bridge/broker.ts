@@ -346,7 +346,7 @@ export class DeviceCommandBroker {
 		if (this.disabled || this.closed)
 			throw new Error("Local command connection is unavailable");
 		this.pendingLeases.delete(command.id);
-		// Detached process groups let cancellation stop descendants as well as the shell.
+
 		const child = spawnSupervisedCommand(command.command, command.cwd, lease);
 		const entry = {
 			child,

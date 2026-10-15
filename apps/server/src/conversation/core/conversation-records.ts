@@ -1,4 +1,3 @@
-/** Decodes persisted conversation read-model rows into public contracts. */
 import {
 	AgentDefinition,
 	Chat,

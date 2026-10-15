@@ -133,7 +133,7 @@ it.each([
 		await previous.runPromise(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;
-				// The earliest preview lacked main's harness/model tables too.
+
 				if (boundary === 61) {
 					yield* sql`DROP TABLE harness_executions`;
 					yield* sql`DROP TABLE model_connection_secrets`;

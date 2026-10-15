@@ -8,8 +8,6 @@ import {
 	CloudWorkspaceStorePg,
 } from "../../src/cloud-workspace-store.ts";
 
-// Opt-in real PostgreSQL regression: the memory store cannot detect untyped
-// nullable parameters in an IS NOT NULL expression. Uses a connection-local table.
 const url = process.env.ZUSE_TEST_POSTGRES_URL;
 test.skipIf(!url)(
 	"acknowledges deterministic commands with nullable PostgreSQL guard parameters",

@@ -3,12 +3,6 @@ import { Effect, Layer, Stream } from "effect";
 
 import { AuthService } from "./services/auth-service.ts";
 
-/**
- * auth.* RPC handlers. `signIn` already fails with the wire errors
- * (`AuthFlowError` / `AuthCancelledError`), so unlike most domains there's no
- * internal→wire error mapping here. `getSession` never fails (folds to
- * SignedOut); `sessionChanges` is the broadcast the renderer subscribes to.
- */
 const GetSession = MemoizeRpcs.toLayerHandler("auth.getSession", () =>
   Effect.flatMap(AuthService, (svc) => svc.getSession()),
 );

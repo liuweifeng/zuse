@@ -119,9 +119,7 @@ if (!skipInstall && !releaseReady) {
 			trustedDependencies: Object.keys(manifest.npmPackages),
 		}),
 	);
-	// Managed bases already carry Bun. Its standalone installer does not depend
-	// on the provider's global npm dependency tree. Custom snapshots may only
-	// have npm; select once, never retry a failed install with another manager.
+
 	let hasBun = true;
 	try {
 		await run("bun", ["--version"], { capture: true });
@@ -151,8 +149,7 @@ if (!skipInstall && !releaseReady) {
 					join(staging, ".install-cache"),
 				],
 	);
-	// Do not snapshot download caches: duplicated tool binaries in the user's
-	// home delay writable-data hydration by tens of seconds on disk restores.
+
 	await rm(join(staging, ".install-cache"), { recursive: true, force: true });
 	await writeFile(
 		join(staging, "zuse-toolchain.json"),
@@ -216,8 +213,6 @@ try {
 		try {
 			await run(command, args, { capture: true });
 		} catch (cause) {
-			// Debian ships fd-find as fdfind. Image builds install aliases in the
-			// same user-owned directory as agent tools, without requiring sudo.
 			if (command !== "fd" || cause.code !== "ENOENT") throw cause;
 			await run("fdfind", args, { capture: true });
 			await mkdir(binDirectory, { recursive: true, mode: 0o755 });

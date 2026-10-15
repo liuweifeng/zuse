@@ -57,7 +57,6 @@ export const useCloudProjects = (): ReadonlyArray<CloudProject> => {
 						cause.code === "not-allowed"
 					)
 						setResult(null);
-					/* Retain the last scoped snapshot; settings exposes retry. */
 				})
 				.finally(() => {
 					loading = false;

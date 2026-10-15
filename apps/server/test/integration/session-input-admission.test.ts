@@ -40,8 +40,7 @@ it("refuses sends with the current blocking request and releases expired or supe
 						kind: "question",
 						sessionId,
 					});
-				// A response lost after accepting the original send still reaches the
-				// normal receipt fingerprint check instead of being refused as a new send.
+
 				yield* assertSessionInputUnblocked(sql, sessionId, "create");
 				yield* sql`UPDATE session_inputs SET status='expired'`;
 				yield* assertSessionInputUnblocked(sql, sessionId);

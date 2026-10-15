@@ -100,7 +100,6 @@
 	border-style: dotted;
 }
 
-/* Reading pages use a regular sans face; display type is reserved for headings. */
 .journal-index,
 .journal-article {
 	font-family: "Rules", var(--font-inter), sans-serif;

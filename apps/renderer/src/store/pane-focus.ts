@@ -23,13 +23,7 @@ type PaneFocusState = {
 	readonly focusers: Partial<Record<PaneId, Focuser>>;
 	readonly register: (pane: PaneId, fn: Focuser) => void;
 	readonly unregister: (pane: PaneId) => void;
-	/**
-	 * Move focus to the pane after (`+1`) or before (`-1`) the one the user is
-	 * currently in. The current pane is read from the DOM (`activeElement`'s
-	 * nearest `[data-pane]` ancestor), so it stays correct whether focus got
-	 * there by click or by a prior keyboard hop. Only mounted panes participate;
-	 * the walk wraps around.
-	 */
+
 	readonly focusAdjacent: (dir: 1 | -1) => void;
 };
 
@@ -58,8 +52,6 @@ export const usePaneFocus = create<PaneFocusState>((set, get) => ({
 		const curIdx =
 			currentPane !== undefined ? available.indexOf(currentPane) : -1;
 
-		// Unknown current pane → land on the first pane when going forward, the
-		// last when going backward.
 		const base = curIdx === -1 ? (dir === 1 ? -1 : 0) : curIdx;
 		const nextIdx = (base + dir + available.length) % available.length;
 		focusers[available[nextIdx]!]?.();

@@ -74,7 +74,7 @@ export const creditUsage = (
 	if (fractionUsed <= 0) {
 		return { used: 0, limit: remaining, remaining };
 	}
-	// At 100% we only know remaining (usually 0); skip absolute used/limit.
+
 	if (fractionUsed >= 1) return null;
 	const limit = remaining / (1 - fractionUsed);
 	if (!Number.isFinite(limit) || limit <= 0) return null;

@@ -226,7 +226,7 @@ export class CloudSyncManager {
 		if (!entry || entry.blocked || this.disposed) return;
 		entry.generation++;
 		entry.dirty = true;
-		// A stream of hints can accelerate a periodic scan, never postpone one.
+
 		if (!entry.completion) this.schedule(id, entry, BATCH_INTERVAL_MS);
 	}
 	private schedule(id: string, entry: SyncEntry, delay: number): void {

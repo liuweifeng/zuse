@@ -9,13 +9,6 @@ import { connectionIdFor } from "./cloud-provider-connections.ts";
 import { CloudWorkspaceStore } from "./cloud-workspace-store.ts";
 import { serviceUnavailable } from "./errors.ts";
 
-// Box webhooks carry lifecycle transitions, not execution evidence: a
-// box.ready opens an execution window and box.archived/box.error closes it.
-// Window pairing happens here — the opening event is looked up from the
-// stored raw-event ledger by box id, and the pair's identity
-// (`<boxId>:<openingEventId>`) makes metering idempotent across webhook
-// retries and the recovery poller.
-
 export const BoxLifecycleEvent = Schema.Struct({
 	id: Schema.String,
 	type: Schema.String,
@@ -54,7 +47,7 @@ export const normalizeBoxLifecycleEvent = (
 	const boat = Schema.decodeUnknownOption(BoatLifecycleEvent)(value);
 	if (boat._tag === "None" || !boat.value.type.startsWith("sandbox."))
 		return null;
-	// Keep the ledger's canonical types so old and new webhook windows pair.
+
 	return {
 		...boat.value,
 		type: boat.value.type.replace(/^sandbox\./u, "box."),
@@ -129,8 +122,6 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 		if (!CLOSING_EVENT_TYPES.has(event.type))
 			return { eventInserted, metered: false, reason: "non-final" as const };
 
-		// Multiple closing deliveries may identify one execution; execution metering
-		// deduplicates by opening ID. Never fall back to an older unpaired opening.
 		const opening = yield* billingStore.pairProviderOpening({
 			provider: "box",
 			providerResourceId: boxId,
@@ -147,8 +138,6 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 			return { eventInserted, metered: false, reason: "unmatched" as const };
 		}
 
-		// Box names are lossy labels, so the internal resource resolves through
-		// the provider-keyed store lookups rather than name parsing.
 		const workspaceStore = yield* CloudWorkspaceStore;
 		const workspace = yield* workspaceStore.findWorkspaceByProviderSandbox(
 			"box",
@@ -176,8 +165,6 @@ export const ingestBoxLifecycleEvent = Effect.fn("ingestBoxLifecycleEvent")(
 				reason: "provider-billed" as const,
 			};
 
-		// The webhook payload carries no compute dimensions; the configured
-		// adapter's machine profile is the deterministic source.
 		const adapter = yield* (yield* SandboxProviders)
 			.get("box")
 			.pipe(

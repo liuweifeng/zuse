@@ -339,8 +339,7 @@ describe("shared session timeline resource driver", () => {
 			},
 		]);
 		expect(failures).toEqual([]);
-		// First paint is immediate; replay deltas still publish together at the
-		// synchronization barrier rather than animating historical tokens.
+
 		expect(test.updates).toHaveLength(2);
 		expect(test.updates.at(-1)).toMatchObject({
 			sync: "live",

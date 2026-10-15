@@ -55,43 +55,14 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 import { selectChatSession, upsertForkedChat } from "./chat-commands.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
-/**
- * Ephemeral session UI state and commands. Durable session entities and live
- * timelines are owned by qualified ClientBus resources.
- */
 type SessionsState = {
-	/**
-	 * Mirror of `selectedSessionByProject[selectedFolderId]`. Kept as live state
-	 * (not a derived selector) so existing call sites can subscribe to it
-	 * directly without a per-render workspace lookup. Synced from
-	 * `selectedSessionByProject` by a workspace subscription at module init.
-	 */
 	readonly selectedSessionId: SessionId | null;
-	/**
-	 * Per-project last-selected session. Switching projects restores the
-	 * previously-active session for the new project so file tree, changes,
-	 * PR badge, terminal cwd, and the chat all swap together.
-	 */
+
 	readonly selectedSessionByProject: Record<string, SessionId | null>;
 	readonly loadingByProject: Record<string, boolean>;
-	/**
-	 * Per-chat in-flight flag for `create()`. Drives the tab-strip "+"
-	 * button's icon + disabled state and the loading panel that takes over
-	 * the chat surface while a new tab is booting. Cleared when the RPC
-	 * resolves (success or failure) — note the server-side boot continues
-	 * after the RPC returns; the chat surface keeps showing the panel via
-	 * `Session.status === "booting"` until the provider handshake completes.
-	 */
+
 	readonly creatingByChat: Record<string, boolean>;
-	/**
-	 * Ephemeral, client-only session used to drive the real `ChatComposer` on
-	 * the new-chat landing before any chat/session/worktree exists. It is NOT
-	 * is never inserted into the environment shell, so it cannot appear in the
-	 * sidebar or tab strip —
-	 * the composer's model/runtime/permission/provider setters route here (see
-	 * the setters below) so the picks carry into `create()` on first send. The
-	 * `ChatComposer` for it runs with `onDraftSubmit`; nothing else touches it.
-	 */
+
 	readonly draftSession: Session | null;
 	readonly draftRevision: number;
 	readonly error: string | null;
@@ -109,14 +80,14 @@ type SessionsState = {
 		projectId: FolderId,
 		providerId: ProviderId,
 	) => Promise<void>;
-	/** Spin up a fresh draft session for `ChatLanding`. Returns the row. */
+
 	readonly beginDraft: (params: {
 		projectId: FolderId;
 		providerId: ProviderId;
 		model: string;
 		runtimeMode: RuntimeMode;
 	}) => Session;
-	/** Tear down the draft session (on submit handoff or landing unmount). */
+
 	readonly clearDraft: (expectedRevision?: number) => void;
 	readonly hydrate: (projectId: FolderId) => Promise<void>;
 	readonly create: (
@@ -129,12 +100,7 @@ type SessionsState = {
 			toolSearch?: boolean;
 		},
 	) => Promise<SessionId | null>;
-	/**
-	 * Branch a conversation from `fromMessageId` into a new tab (same chat) or
-	 * a new sidebar chat. Inserts + selects the resulting chat/session and
-	 * returns identifiers plus the fork mode the server chose
-	 * (`resume` = real agent memory, `copy` = replayed transcript).
-	 */
+
 	readonly fork: (input: {
 		sourceSessionId: SessionId;
 		fromMessageId: MessageId;
@@ -149,12 +115,7 @@ type SessionsState = {
 		sessionId: SessionId;
 		forkMode: ForkMode | "machine";
 	} | null>;
-	/**
-	 * Patch the cached `Session.status` for a session. Called by the
-	 * durable `session.events` subscription so the renderer's view of
-	 * `Session.status` reflects post-boot transitions
-	 * (`booting` → `idle` / `running` / `error`).
-	 */
+
 	readonly setSessionStatus: (
 		sessionId: SessionId,
 		status: Session["status"],
@@ -174,27 +135,20 @@ type SessionsState = {
 		runtimeMode: RuntimeMode,
 		environmentId?: EnvironmentId,
 	) => Promise<void>;
-	/**
-	 * Switch the SDK lifecycle mode (plan / default / acceptEdits) on a
-	 * live session. Optimistic — patches the local row before the RPC
-	 * settles so the chat-header chip flips instantly.
-	 */
+
 	readonly setPermissionMode: (
 		sessionId: SessionId,
 		mode: PermissionMode,
 		environmentId?: EnvironmentId,
 	) => Promise<void>;
-	/**
-	 * Resolve a pending in-process AskUserQuestion call. Routes the
-	 * answers to the driver, which returns them as the tool result.
-	 */
+
 	readonly answerQuestion: (
 		environmentId: EnvironmentId,
 		sessionId: SessionId,
 		itemId: AgentItemId,
 		answers: ReadonlyArray<UserQuestionAnswer>,
 	) => Promise<void>;
-	/** Cancel a pending AskUserQuestion without encoding an empty answer. */
+
 	readonly cancelQuestion: (
 		environmentId: EnvironmentId,
 		sessionId: SessionId,
@@ -210,11 +164,7 @@ type SessionsState = {
 			readonly environmentId?: EnvironmentId;
 		},
 	) => Promise<"accepted" | "session-not-found" | "failed">;
-	/**
-	 * Switch an idle session's provider and model with a durable context handoff.
-	 * Failures are surfaced here as `{ ok: false, reason }`. Worktree changes go through
-	 * `chats.setWorktree` instead — the chat owns the workspace binding.
-	 */
+
 	readonly setProvider: (
 		sessionId: SessionId,
 		providerId: ProviderId,
@@ -254,11 +204,6 @@ const nextCommandId = (kind: string): CommandId =>
 		`${kind}:${Date.now().toString(36)}:${(commandCounter++).toString(36)}`,
 	);
 
-/**
- * Resolve execution ownership from the session's owning chat. Cloud catalog
- * rows only identify the initial session directly, so looking up by session id
- * alone misroutes every later tab to the active local renderer shell.
- */
 const environmentForSessionCommand = (
 	sessionId: SessionId,
 	explicit?: EnvironmentId,
@@ -423,7 +368,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 	},
 	hydrate: async (projectId) => {
-		// EnvironmentShellResource owns subscribe-before-snapshot hydration.
 		set((s) => ({
 			loadingByProject: { ...s.loadingByProject, [projectId]: false },
 			error: null,
@@ -445,7 +389,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			titleProvenance: "pending",
 			providerId,
 			model,
-			// Empty in-chat sessions are lazy; the provider starts on first send.
+
 			status: "idle",
 			archivedAt: null,
 			providerThread: null,
@@ -553,9 +497,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					(command) => command.commandId === commandId && command.retryable,
 				);
 			if (retryable) {
-				// The durable outbox still owns this command. Preserve the truthful
-				// booting shell and selection; the environment summary stream will
-				// reconcile it when replay observes the server receipt.
 				set((s) => ({
 					error: null,
 					creatingByChat: { ...s.creatingByChat, [chatId]: false },
@@ -617,8 +558,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					});
 				}
 			}
-			// Retained runtimes do not deduplicate forks by commandId. Never replay
-			// an ambiguous fork there, even though the current engine supports it.
+
 			const forkClient = await getVerifiedRpcClient(environmentId);
 			const retry = supportsIdempotentSessionFork(
 				getClientProtocolVersion(forkClient),
@@ -662,8 +602,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				environmentId,
 			);
 			const { forkMode } = result;
-			// Cloud sessions can be presented inside the local shell. Fence that
-			// originating UI separately from the execution environment used by RPC.
+
 			if (getActiveEnvironment() !== originEnvironment)
 				return {
 					chatId: result.chat.id,
@@ -676,10 +615,10 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					: (source?.projectId ??
 						localProjectForCloudChat(result.chat.id) ??
 						result.session.projectId);
-			// Runtime folder IDs differ from the desktop's repository IDs.
+
 			const session = { ...result.session, projectId };
 			const chat = { ...result.chat, projectId };
-			// Insert + select the forked session.
+
 			overlayActiveEnvironmentShell((shell) => {
 				const existing = shell.sessionsByProject[projectId] ?? [];
 				return {
@@ -702,7 +641,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					},
 				};
 			});
-			// The chat domain owns its projection and active-session persistence.
+
 			upsertForkedChat(chat, session);
 			return { chatId: chat.id, sessionId: session.id, forkMode };
 		} catch (err) {
@@ -810,8 +749,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 			set({ draftSession: Session.make({ ...draft, runtimeMode }) });
 			return;
 		}
-		// Access is an applied runtime setting, not optimistic intent. The
-		// qualified timeline publishes RuntimeModeSet after the command commits.
+
 		set({ error: null });
 		try {
 			const commandId = nextCommandId("session-runtime-mode");
@@ -959,9 +897,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		} catch (err) {
 			const presentation = cloudFailurePresentation({ cause: err });
 			if (presentation?.kind === "session-unavailable") {
-				// Archive is idempotent from the user's perspective. If another device
-				// or a live summary already removed the session, the requested state is
-				// satisfied and a raw SessionNotFoundError would be misleading.
 				const projectId = removeEnvironmentSession(environmentId, sessionId);
 				set((state) =>
 					selectionAfterSessionRemoval(state, sessionId, projectId),
@@ -1058,9 +993,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 				environmentId,
 			);
 			patchActiveSession(sessionId, () => session);
-		} catch {
-			// Silent — refreshOne is a best-effort follow-up after send().
-		}
+		} catch {}
 	},
 	select: (sessionId) => {
 		if (sessionId === null) {
@@ -1078,9 +1011,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		}
 		const sessionsByProject = activeSessionsByProject();
 		const projectId = findSessionProject(sessionsByProject, sessionId);
-		// Write the per-project slot FIRST so the workspace.select below sees
-		// the freshly-set slot when its subscriber fires — otherwise the
-		// subscriber would briefly mirror the stale slot value.
+
 		set((s) => ({
 			selectedSessionId: sessionId,
 			selectedSessionByProject:
@@ -1088,10 +1019,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 					? { ...s.selectedSessionByProject, [projectId]: sessionId }
 					: s.selectedSessionByProject,
 		}));
-		// Mirror the active tab into the owning chat row so a later sidebar
-		// click restores this tab. Lookup is best-effort — we skip when the
-		// session row hasn't hit the renderer cache yet (e.g. just-created
-		// session whose hydrate is still in flight).
+
 		const sessionRow =
 			projectId !== null
 				? sessionsByProject[projectId]?.find((row) => row.id === sessionId)
@@ -1099,10 +1027,7 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 		if (sessionRow !== undefined) {
 			selectChatSession(sessionRow.chatId, sessionId);
 		}
-		// If the session lives in a different project than the currently-active
-		// one, switch projects too. Without this the chat would jump to the new
-		// session but the right pane, top bar, terminal cwd, etc. would stay on
-		// the old project — the "click does nothing visible" symptom.
+
 		if (
 			projectId !== null &&
 			useWorkspaceStore.getState().selectedFolderId !== projectId
@@ -1112,10 +1037,6 @@ export const useSessionsStore = create<SessionsState>((set, get) => ({
 	},
 }));
 
-// Mirror `selectedSessionId` from the active project's per-project slot.
-// Switching projects automatically restores whichever session was last
-// selected for the new project; if none, the chat clears (no stale session
-// from the previous project leaks across).
 useWorkspaceStore.subscribe((ws, prev) => {
 	if (ws.selectedFolderId === prev.selectedFolderId) return;
 	const slot =
@@ -1129,8 +1050,6 @@ useWorkspaceStore.subscribe((ws, prev) => {
 	}
 });
 
-// Retaining the timeline keeps pending picks alive across navigation. Its
-// authoritative active turn and queue, not a rendered spinner, gate dispatch.
 const configurationSession = (ref: {
 	environmentId: EnvironmentId;
 	sessionId: SessionId;

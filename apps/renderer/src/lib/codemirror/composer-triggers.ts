@@ -14,22 +14,10 @@ export type ActiveTrigger = ComposerTrigger;
 
 export type TriggerListener = (trigger: ActiveTrigger | null) => void;
 
-/**
- * Walk left from `pos` looking for an unescaped trigger char that starts a
- * slash command, skill, or at-mention. The trigger only fires when the char is at the
- * start of input or preceded by whitespace — so a URL like `a@b` does not
- * pop the file picker.
- *
- * Returns null if no trigger is active. The trigger range covers from the
- * trigger char inclusive to `pos`; the query is the slice between them
- * minus the trigger char itself.
- */
 const detectTrigger = (
 	state: EditorState,
 	pos: number,
 ): ActiveTrigger | null => {
-	// Bail if the cursor sits inside a chip — chips are atomic and don't
-	// accept new typing inside themselves anyway.
 	for (const c of allChips(state)) {
 		if (pos > c.from && pos < c.to) return null;
 	}

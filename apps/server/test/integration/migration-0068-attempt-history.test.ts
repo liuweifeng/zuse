@@ -38,7 +38,7 @@ test("rebuilds legacy and retried attempts without transcripts or cross-session 
 					yield* sql`INSERT INTO sessions VALUES (${session})`;
 				for (const event of events)
 					yield* sql`INSERT INTO events VALUES (${++sequence}, ${session}, 'session', ${event._tag}, ${JSON.stringify(event)})`;
-				// Non-lifecycle payloads must not be parsed or loaded during reconstruction.
+
 				yield* sql`INSERT INTO events VALUES (${++sequence}, ${session}, 'session', 'MessagePersisted', 'not-json')`;
 			}
 			const expected = [

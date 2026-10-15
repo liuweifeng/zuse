@@ -35,7 +35,6 @@ export function GithubStarPrompt() {
 	const star = () =>
 		run(async (current) => {
 			try {
-				// Without a usable local sign-in, star it on GitHub instead.
 				await runControlPlane((client) => client["git.starZuse"]()).catch(() =>
 					openExternal("https://github.com/swarajbachu/zuse"),
 				);

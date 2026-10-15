@@ -159,11 +159,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			Effect.orDie,
 		);
 
-	/**
-	 * Resolve a chat row for createSession. Failures surface as
-	 * SessionStartError so the renderer treats unknown / archived chat ids
-	 * the same as provider boot failures.
-	 */
 	const lookupChatForSession = (
 		chatId: ChatId,
 		providerId: ProviderId,
@@ -232,9 +227,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 		const sessionId =
 			input.sessionId ?? SessionId.make(`s_${crypto.randomUUID()}`);
 		return Effect.gen(function* () {
-			// Project + worktree are inherited from the chat row — clients no
-			// longer pass them at session-create time. Fail-fast on missing /
-			// archived chats so we never leave a stray provider session behind.
 			const chatRow = yield* lookupChatForSession(
 				input.chatId,
 				input.providerId,
@@ -244,10 +236,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				chatRow.worktree_id === null
 					? null
 					: (chatRow.worktree_id as unknown as WorktreeId);
-			// Mint the session id up-front so the row + caches exist BEFORE
-			// `provider.start` runs. Background-mode callers (`session.create`)
-			// can then return immediately and let the slow CLI boot flip the
-			// status out of `"booting"` from a daemon fiber.
+
 			const effectiveEnableSubagents =
 				input.enableSubagents ??
 				(providerCapabilities(input.providerId).nativeSubagentsByDefault ||
@@ -275,10 +264,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const hasInitial =
 				input.initialPrompt !== undefined &&
 				input.initialPrompt.trim().length > 0;
-			// Lineage: when this chat was spawned by another agent (orchestration
-			// sets chats.origin_session_id), stamp the initial user message with
-			// the origin so the renderer can attribute + link it. Skip silently
-			// if the origin session row is gone.
+
 			let origin: MessageOrigin | undefined;
 			const originSessionId =
 				input.originSessionId ?? chatRow.origin_session_id;
@@ -315,7 +301,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 						};
 			const forkedFromSessionId = input.forkedFromSessionId ?? null;
 			const forkedFromMessageId = input.forkedFromMessageId ?? null;
-			// Only fork the transcript when there is a provider thread to fork.
+
 			const forkFromResume =
 				input.forkFromResume === true && providerThreadSeed !== undefined;
 			const postBootStatus: Session["status"] = hasInitial ? "running" : "idle";
@@ -334,9 +320,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				background: true,
 				postBootStatus,
 			};
-			// Creation acknowledges the durable session/turn/provider intent,
-			// never the provider side effect. The reactor owns the transition
-			// from booting to the requested post-boot status.
+
 			const rowStatus: Session["status"] = hasInitial ? "booting" : "idle";
 			if (input.delegation !== undefined && initialTurnId === null)
 				return yield* new SessionStartError({
@@ -539,7 +523,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const changed = session.runtimeMode !== runtimeMode;
 			if (changed) {
 				yield* closeProvider(sessionId);
-				// Invalidate warm handles and in-flight boots as well as active turns.
+
 				yield* provider.close(sessionId).pipe(Effect.catch(() => Effect.void));
 				yield* interruptProviderFiber(sessionId);
 			}
@@ -552,12 +536,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			if (changed) yield* setStatus(sessionId, "idle");
 		});
 
-	/**
-	 * Switch SDK lifecycle mode mid-session. Persists, updates the cache,
-	 * then forwards to `provider.setPermissionMode` which calls
-	 * `Query.setPermissionMode` on the live SDK handle and emits a
-	 * `PermissionModeChanged` event the renderer subscribes to.
-	 */
 	const setPermissionMode: ConversationOperations["setPermissionMode"] = (
 		sessionId,
 		mode,
@@ -575,21 +553,11 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				permissionMode: mode,
 				updatedAt: yield* currentTimestamp,
 			});
-			yield* provider.setPermissionMode(sessionId, mode).pipe(
-				// The SDK session may have been closed (idle / closed status).
-				// Persisting the mode is enough — when the renderer hits Send,
-				// `restartProviderSession` will pass the persisted value back
-				// into `provider.start`'s Options.
-				Effect.catch(() => Effect.void),
-			);
+			yield* provider
+				.setPermissionMode(sessionId, mode)
+				.pipe(Effect.catch(() => Effect.void));
 		});
 
-	/**
-	 * Resolve a pending AskUserQuestion through a durable delivery intent.
-	 * The public answer receipt is projected only after the live provider
-	 * callback accepts the answer, so a rejected delivery leaves the original
-	 * question visible and retryable.
-	 */
 	const answerQuestion: ConversationOperations["answerQuestion"] = (
 		sessionId,
 		itemId,
@@ -664,9 +632,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			`.pipe(Effect.orDie);
 				let delivery = rows[0];
 				if (delivery === undefined) {
-					// A durable question reconstructed from disk has no live provider
-					// callback after process death. Only a currently attached application
-					// question can accept intent; replacements receive a new identity.
 					if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
 						return yield* Effect.fail(
 							questionResolutionError(sessionId, itemId),
@@ -727,11 +692,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					.pipe(
 						Effect.mapError(() => questionResolutionError(sessionId, itemId)),
 					);
-				// There is no atomic commit spanning a provider callback and SQLite.
-				// Driver-local settled state makes same-process retries idempotent, but it
-				// intentionally does not survive process death. After restart, an
-				// unreceipted intent cannot authorize a newly issued replacement callback;
-				// never synthesize a public receipt from an ambiguous delivery marker.
+
 				yield* persistReceipt;
 				yield* sql`
 				DELETE FROM question_answer_deliveries
@@ -741,12 +702,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			}),
 		);
 
-	/**
-	 * Cancel a pending question without fabricating an empty answer. The
-	 * provider callback is crossed through the same durable outbox and
-	 * process-local retry authority as answer delivery; QuestionResolved is the
-	 * durable public receipt that removes the interaction without a blank row.
-	 */
 	const cancelQuestion: ConversationOperations["cancelQuestion"] = (
 		sessionId,
 		itemId,
@@ -810,7 +765,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 				if (authority === null)
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 
-				/** Record one cancellation receipt for both attached and detached callbacks. */
 				const persistCancellation = Effect.gen(function* () {
 					return yield* dispatchSessionCommandWithId(
 						sessionId,
@@ -841,9 +795,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 					return yield* Effect.fail(questionResolutionError(sessionId, itemId));
 				}
 				if (!(yield* provider.hasQuestionAttachment(sessionId, itemId))) {
-					// Cancellation does not claim an answer reached the provider. A
-					// durable question can be dismissed after its callback disappears;
-					// reconciliation replays this receipt if the callback returns.
 					const questions = yield* sql<{ readonly found: number }>`
 						SELECT 1 AS found FROM messages
 						WHERE session_id = ${sessionId}
@@ -998,12 +949,6 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			Effect.asVoid,
 		);
 
-	/**
-	 * Switch the worktree the session runs in. Allowed only before the
-	 * first user message is recorded — cwd cannot move under a running
-	 * agent. The renderer guards via `messagesCount > 0`, but we re-check
-	 * server-side so a stale client can't race past the lock.
-	 */
 	const setWorktree: ConversationOperations["setWorktree"] = (
 		sessionId,
 		worktreeId,
@@ -1113,11 +1058,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			model,
 			updatedAt: Date.now(),
 		});
-	/**
-	 * Stop an idle session's provider process so the next turn starts a fresh
-	 * one (e.g. under another account). Returns false, without touching the
-	 * process, while a turn is booting or running.
-	 */
+
 	const releaseProvider: ConversationOperations["releaseProvider"] = (
 		sessionId,
 	) =>
@@ -1183,8 +1124,7 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 	const deleteSession: ConversationOperations["deleteSession"] = (sessionId) =>
 		Effect.gen(function* () {
 			yield* lookupSession(sessionId);
-			// Best-effort: provider may not know the id (already closed) — that's
-			// not an error from the user's perspective.
+
 			yield* closeProvider(sessionId);
 			yield* teardownSubscription(sessionId);
 			yield* dispatchSessionCommand(sessionId, {

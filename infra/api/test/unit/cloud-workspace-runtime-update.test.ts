@@ -84,7 +84,7 @@ test.each([
 		await writeFile(join(tools, "grok"), "#!/bin/sh\nexit 0\n", {
 			mode: 0o755,
 		});
-		// The compatibility gate must not initialize, move, or replace runtime data.
+
 		const database = join(status, "zuse.sqlite");
 		await writeFile(database, "existing chat and queued command");
 		await writeFile(key, "test key");
@@ -161,7 +161,6 @@ printf launched`;
 	expect(result.stdout).toBe("launched");
 });
 
-// Explicit error propagation must survive callers using `if ! install_grok`.
 test.each([
 	{ name: "verified x86_64", arch: "x86_64", success: true },
 	{ name: "verified aarch64", arch: "aarch64", success: true },

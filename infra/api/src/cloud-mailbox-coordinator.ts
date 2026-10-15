@@ -94,11 +94,6 @@ const watchRevision = (body: string): number => {
 	return decoded.afterRevision;
 };
 
-/**
- * Apply the typed API-to-Worker handoff. `undefined` means there was no mailbox
- * command response and the Worker should continue its normal gateway/reconcile
- * processing. Every command variant is terminally handled here.
- */
 const coordinateCloudMailboxResponseInternal = async (input: {
 	readonly response: Response;
 	readonly mailboxes: WorkspaceMailboxNamespace;
@@ -244,9 +239,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 				await input.api.dispose();
 				return committed;
 			}
-			// Destruction and billing are rechecked by every authenticated lease.
-			// The committed marker retries dispatch if this fast durable handoff
-			// is interrupted; a second speculative wake adds no authority.
+
 			if (wake === "ready")
 				await input.api.reconcileCloudWorkspaceStartup(command.workspaceId);
 			await input.api.dispose();
@@ -299,8 +292,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 					result.nextRevision < 0
 				)
 					return cloudMailboxUnavailableResponse();
-				// Never lease after waiting on stale authority/billing. The runtime issues a
-				// fresh authenticated request; encrypted watch bodies never leave this boundary.
+
 				return Response.json({
 					leases: [],
 					mailboxRevision: result.nextRevision,
@@ -416,7 +408,7 @@ const coordinateCloudMailboxResponseInternal = async (input: {
 					});
 				}
 			}
-			// Fencing is execution ownership work; enqueue it before returning the lease.
+
 			if (requiredStartup !== undefined) await requiredStartup;
 			if (idleRevision !== undefined)
 				return await notificationWait(idleRevision);

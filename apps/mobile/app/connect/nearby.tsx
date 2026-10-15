@@ -128,9 +128,7 @@ export default function NearbyConnectScreen() {
 								transportCertificatePin: service.tlsCertificatePin,
 							})
 						).connectToken;
-					} catch {
-						// Account trust is opportunistic; explicit local approval remains.
-					}
+					} catch {}
 				}
 				const pairing = await startNearbyPairing({
 					host: proxy.host,
@@ -214,8 +212,7 @@ export default function NearbyConnectScreen() {
 					return;
 				}
 				const credential = await decryptPairingCredential(status.credential);
-				// The native proxy multiplexes pairing HTTP and the application socket
-				// over one resolved Bonjour route, avoiding a second stale resolution.
+
 				if (activeProxy === null) throw new Error("Nearby route was closed.");
 				if (cancelled) {
 					await closeLocalProxy(activeProxy.id);

@@ -1,7 +1,3 @@
-// Dev runner: waits for the Vite dev server + bundled main/preload, then spawns
-// Electron pointing at them. Restarts Electron on rebuilds. Slimmed down:
-// no cross-app server checks, no macOS app-bundle renaming.
-
 import { spawnSync } from "node:child_process";
 import { watch } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -24,10 +20,6 @@ const desktopOutDir = resolve(
 	process.env.ZUSE_DESKTOP_OUT_DIR?.trim() || join(desktopDir, "dist-electron"),
 );
 
-// Default matches apps/renderer/vite.config.ts. waitForResources() below polls
-// the port until vite comes up, so the boot order across `bun run dev` (turbo
-// runs renderer + desktop in parallel) and `bun run dev:desktop` (the root
-// orchestrator script) both work without explicit synchronization.
 const devServerUrl =
 	process.env.VITE_DEV_SERVER_URL?.trim() || "http://localhost:5733";
 const devServer = new URL(devServerUrl);
@@ -61,11 +53,7 @@ const configuredDevStartedAt = Number(process.env.ZUSE_DEV_STARTED_AT);
 const devStartedAt = Number.isFinite(configuredDevStartedAt)
 	? configuredDevStartedAt
 	: Date.now();
-// One tsdown rebuild flushes several outputs (main, preload, MCP children)
-// spread over a couple of seconds — the debounce must span the whole flush so
-// a rebuild produces ONE restart, not one per file. Too-short debounce plus a
-// tight kill timeout caused the SIGTERM→SIGKILL restart churn that also hard
-// killed the embedded server (dropping every paired phone mid-session).
+
 const restartDebounceMs = 1_000;
 const forcedShutdownTimeoutMs = 5_000;
 
@@ -145,8 +133,7 @@ function startApp() {
 		[...platformArgs, join(desktopOutDir, "main.cjs"), "--memoize-dev"],
 		{
 			cwd: desktopDir,
-			// Pass the resolved dev URL through explicitly so main.ts sees it even
-			// when bun/turbo invoked us without setting the env var.
+
 			env: {
 				...process.env,
 				VITE_DEV_SERVER_URL: devServerUrl,

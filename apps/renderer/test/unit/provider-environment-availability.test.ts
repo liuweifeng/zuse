@@ -84,8 +84,7 @@ describe("provider availability by environment", () => {
 		const older = useProvidersStore.getState().refresh();
 		try {
 			await vi.waitFor(() => expect(mocks.usageLoading).toHaveBeenCalled());
-			// The newest response needs no invalidation, so it finishes while usage
-			// loading is still holding the outdated discovery response.
+
 			mocks.dispatch.mockResolvedValueOnce({ result: original });
 			await useProvidersStore.getState().refresh();
 		} finally {

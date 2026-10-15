@@ -1,8 +1,6 @@
 import type { AreaVariant } from "./chart-context";
 import { rgb, type Seed } from "./palette";
 
-// 4×4 ordered (Bayer) matrix, normalized to 0–1 thresholds — the exact matrix
-// the legacy chart dithers with.
 export const BAYER = [
 	[0, 8, 2, 10],
 	[12, 4, 14, 6],
@@ -10,34 +8,21 @@ export const BAYER = [
 	[15, 7, 13, 5],
 ].map((row) => row.map((v) => (v + 0.5) / 16));
 
-export const CELL = 2; // css px per dither cell — chunky enough to read pixelated
+export const CELL = 2;
 export const MAX_COLS = 520;
 export const MAX_ROWS = 200;
-// Opacity of the top border outline (just under solid, so it reads as a soft
-// edge rather than a hard line). See the note on colour vs opacity below.
+
 export const BORDER_ALPHA = 0.72;
-// Opacity of a dither "off" cell relative to an "on" cell. The scatter modulates
-// between these two tiers of the *same* colour instead of leaving holes, so the
-// background never shows through as stark white on a light theme.
+
 export const OFF_TIER = 0.4;
 
 export type PaintOpts = {
 	variant: AreaVariant;
-	intensity: number; // 0–1 hover lift
-	dim: number; // selection dim multiplier (0.3 dimmed, 1 normal)
-	stacked: boolean; // denser + solid floor when layers stack
-	sparse?: number; // raise the dither threshold (thin out) — front layers
+	intensity: number;
+	dim: number;
+	stacked: boolean;
+	sparse?: number;
 };
-
-// Colour vs opacity — the guiding rule for the whole engine:
-//
-//   Work with opacities instead of different shades of the same color. This will
-//   make sure it looks good on both light and dark mode.
-//
-// So every pixel is the series' single `fill` colour and we vary only its alpha.
-// The old lighter `line` / near-white `star` shades were dropped: a shade that
-// pops on a dark background reads as a jarring bright speck on a light one, while
-// the same colour at a lower opacity simply blends into whatever sits behind it.
 
 /**
  * Fill one backing-canvas column `x` from row `top` down to `floor` with the
@@ -70,9 +55,7 @@ export function paintColumn(
 		octx.fillStyle = rgb(seed.fill, 1, alpha);
 		octx.fillRect(x, y, 1, 1);
 	}
-	// Top border outline — the shape's edge now that the fill fades out here.
-	// Kept just under full opacity, with a faint feather row beneath, so it reads
-	// as a soft edge rather than a hard line floating over the fade.
+
 	octx.fillStyle = rgb(seed.fill, 1, BORDER_ALPHA * dim);
 	octx.fillRect(x, t, 1, 1);
 	if (depth > 1) {
@@ -123,20 +106,16 @@ export function backingSize(width: number, height: number) {
 	};
 }
 
-// Bloom — a real "shader" glow that comes from the colours themselves: a blurred
-// copy of the rendered canvas, composited additively (`plus-lighter`) so each
-// hue blooms in its own colour instead of a grey wash. Lives on a second canvas
-// layered over the crisp one (which stays sharp/pixelated).
 export type BloomLevel = "off" | "low" | "high" | "aura";
 export type BloomBlend = "plus-lighter" | "screen" | "lighten";
 export type BloomConfig = {
-	blur: number; // px
-	brightness: number; // 1 = none
-	opacity: number; // 0–1
+	blur: number;
+	brightness: number;
+	opacity: number;
 	/** Saturation of the glow — >1 keeps it vividly in the dither's colour
 	 * instead of washing toward white. */
 	saturate?: number;
-	blend?: BloomBlend; // additive by default
+	blend?: BloomBlend;
 };
 /** A preset name, a full config, or "off". */
 export type BloomInput = BloomLevel | BloomConfig;
@@ -169,7 +148,6 @@ export function bloomLayerStyle(
 	};
 }
 
-// Easing — gentle start + soft settle so entrances don't feel linear.
 export const easeInOutCubic = (t: number) =>
 	t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 export const easeOutCubic = (t: number) => 1 - (1 - t) ** 3;

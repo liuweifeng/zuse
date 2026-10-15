@@ -12,9 +12,6 @@ import {
 
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 
-// Hard ceiling on a single update. npm global installs + curl bootstrap
-// scripts finish well inside this; the cap just stops a wedged installer from
-// streaming forever.
 const UPDATE_TIMEOUT_MS = 5 * 60_000;
 
 /**
@@ -56,11 +53,9 @@ const spawnUpdate = (
   Effect.gen(function* () {
     const events = yield* Queue.make<ProviderUpdateEvent, Cause.Done>();
 
-    // stdin closed (`ignore`) so an installer never blocks waiting on input.
     let child: ChildProcessByStdio<null, Readable, Readable>;
     try {
-      // `-l` (login) loads the user's profile so version managers (nvm, fnm,
-      // volta, asdf) put the right npm/binary on PATH; `-c` runs the command.
+
       child = spawn("bash", ["-lc", command], {
         cwd: homedir(),
         env: process.env,
@@ -109,7 +104,7 @@ const spawnUpdate = (
       try {
         child.kill("SIGTERM");
       } catch {
-        /* ignore */
+
       }
       finish(false, "Update timed out after 5 minutes.");
     }, UPDATE_TIMEOUT_MS);
@@ -141,14 +136,14 @@ const spawnUpdate = (
         try {
           child.kill("SIGTERM");
         } catch {
-          /* ignore */
+
         }
         setTimeout(() => {
           if (!exited) {
             try {
               child.kill("SIGKILL");
             } catch {
-              /* ignore */
+
             }
           }
         }, 1_000);

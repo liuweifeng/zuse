@@ -68,7 +68,7 @@ export const startSidebarPointerDrag = (
 		if (dragging) {
 			doc.documentElement.removeAttribute("data-sidebar-dragging");
 			preview?.remove();
-			// Keep the click guard through release, including after Escape/blur.
+
 			view.addEventListener("pointerup", releaseClickGuard, { once: true });
 			view.addEventListener("pointerdown", removeClickGuard, {
 				once: true,

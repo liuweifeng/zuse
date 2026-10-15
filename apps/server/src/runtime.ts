@@ -230,9 +230,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	};
 	const LanAuthConfigLayer = Layer.succeed(LanAuthConfig, lanAuthConfig);
 
-	// SqlClient is the shared persistence handle. The migrator runs once on
-	// boot via `Layer.provideMerge` so any layer that consumes SqlClient sees
-	// the schema already applied.
 	const SqliteLayer = SqliteLive.pipe(Layer.provide(AppPathsLayer));
 	const MigratedSqlite = SqliteLayer.pipe(
 		Layer.provideMerge(
@@ -255,8 +252,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MigratedSqlite),
 	);
 
-	// After migrations: import any pre-existing `workspaces.json` once.
-	// `provideMerge` keeps the SqlClient available downstream.
 	const ImportShim = Layer.effectDiscard(importWorkspacesJson).pipe(
 		Layer.provide(MigratedSqlite),
 		Layer.provide(NodeServices.layer),
@@ -310,7 +305,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// Per-repo settings overrides on top of the global defaults.
 	const RepositorySettingsLayer = RepositorySettingsServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
 	);
@@ -321,8 +315,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// WorktreeService manages memoize-owned `git worktree` checkouts. Same
-	// shape as GitLayer + the SqlClient for persisting the rows.
 	const WorktreePortsLayer = Layer.mergeAll(
 		ProjectLocatorLive.pipe(Layer.provide(WorkspaceLayer)),
 		RepositorySettingsReaderLive.pipe(Layer.provide(RepositorySettingsLayer)),
@@ -347,9 +339,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// GitService yields WorkspaceService for folderId → path, WorktreeService
-	// so `git.status` can resolve cwd to the active worktree when set, and
-	// CommandExecutor (via NodeServices) for spawning git.
 	const GitLayer = GitServiceLive.pipe(
 		Layer.provide(GitHubLayer),
 		Layer.provide(
@@ -363,9 +352,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
 	const PtyLayer = PtyServiceLive;
 
-	// Global settings + user keybindings live in user-editable JSON files under
-	// ~/.zuse (or ~/.zuse-dev for dev builds), with one-time migration from
-	// Electron userData. Watched for external hand-edits.
 	const ConfigStoreLayer = ConfigStoreServiceLive.pipe(
 		Layer.provide(AppPathsLayer),
 		Layer.provide(NodeServices.layer),
@@ -386,8 +372,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		deps.machineRuntimeRole ?? "control-plane",
 	);
 
-	// Auth owns the account transition that analytics uses to move between a
-	// random installation identity and a namespaced account hash.
 	const AuthLayer = AuthServiceLive.pipe(
 		Layer.provide(CredentialsLayer),
 		Layer.provide(SessionStoreLive),
@@ -402,9 +386,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// FsService walks the project tree one directory at a time. WorkspaceService
-	// resolves folderId → path; WorktreeService swaps the root to a worktree's
-	// path when the renderer passes `worktreeId`; FileSystem reads dirs/stats.
 	const FsLayer = FsServiceLive.pipe(
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(WorktreeLayer),
@@ -413,10 +394,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// FileSearchService backs the composer's `@` file picker. Same deps as
-	// FsLayer — recursive walk skipping common heavy directories. WorktreeLayer
-	// lets the search reroot at a worktree's path when the renderer passes
-	// `worktreeId`, so a session on a worktree only sees its own files.
 	const FileSearchLayer = FileSearchServiceLive.pipe(
 		Layer.provide(WorkspaceLayer),
 		Layer.provide(WorktreeLayer),
@@ -424,10 +401,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// ProjectScaffold shells out to `git`, `bunx`, and `gh` for the Clone
-	// and Quick-start flows. Pure CommandExecutor + FileSystem consumer —
-	// no SqlClient, since persistence happens via WorkspaceService.add
-	// *after* the scaffold produces a path.
 	const ProjectScaffoldLayer = ProjectScaffoldLive.pipe(
 		Layer.provide(NodeServices.layer),
 	);
@@ -468,28 +441,14 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					}),
 				).pipe(Layer.provide(SessionQueriesLayer));
 
-	// PermissionService brokers between the SDK permission callback (driver
-	// side) and the renderer toast (RPC side). It writes decisions to
-	// SQLite so an `AllowForSession` row survives a process crash and the
-	// user isn't re-prompted on resume.
 	const PermissionLayer = PermissionServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
 		Layer.provide(SessionDomainLayer),
 	);
 
-	// BrowserBridge brokers between the in-process browser MCP tools (driver
-	// side) and the renderer's `<webview>` (RPC side). Ephemeral — no SQLite.
-	// Same instance is provided to both ProviderLayer (the driver publishes
-	// commands) and Handlers (the renderer subscribes + responds); Effect
-	// memoizes the layer by reference so they share one PubSub + pending map.
 	const BrowserBridgeLayer = BrowserBridgeServiceLive;
 
-	// AttachmentService writes uploaded image bytes under userData and runs
-	// the GC sweep that reaps orphaned blobs. Disk I/O comes from
-	// NodeServices; persistence joins MigratedSqlite. Defined before
-	// ProviderLayer because the Claude driver reads attachment bytes when
-	// building image content blocks for outbound user messages.
 	const AttachmentLayer = AttachmentServiceLive.pipe(
 		Layer.provide(MigratedSqlite),
 		Layer.provide(AppPathsLayer),
@@ -505,13 +464,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		makeRuntimeProviderCredentials(),
 	);
 
-	// ProviderService probes installed CLIs via CommandExecutor, consults
-	// CredentialsService for SDK keys, resolves folderId → cwd via
-	// WorkspaceService, and forwards the SDK's tool-permission callback to
-	// PermissionService.
-	// ModelCatalogService merges the curated catalog (bundled / disk / zuse.sh)
-	// with live provider inventories. ProviderService resolves the model
-	// descriptor from it at session start; handlers stream it to the picker.
 	const RuntimeModelConnectionsLayer = Layer.succeed(RuntimeModelConnections, {
 		current: null,
 	});
@@ -530,8 +482,6 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(RuntimeModelConnectionsLayer),
 	);
 
-	// Discovery stamps effective enablement from the global `disabledSkills`
-	// setting, so it reads ConfigStore.
 	const SkillDiscoveryLayer = SkillDiscoveryServiceLive.pipe(
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(NodeServices.layer),
@@ -575,10 +525,9 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(PermissionLayer),
 		Layer.provide(AttachmentLayer),
 		Layer.provide(BrowserBridgeLayer),
-		// OpenCode session-start reads `opencodeCustomProviders` from settings to
-		// inject user-defined providers into `opencode serve`.
+
 		Layer.provide(ConfigStoreLayer),
-		// Claude session start resolves the skills allowlist for disabled skills.
+
 		Layer.provide(SkillDiscoveryLayer),
 		Layer.provide(AnalyticsLayer),
 		Layer.provide(NodeServices.layer),
@@ -616,24 +565,12 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					),
 				);
 
-	// NdjsonLogger writes a best-effort transcript audit file alongside the
-	// SQLite store. Provided to Conversation services so the same daemon that persists
-	// a row also tail-writes the NDJSON line.
 	const NdjsonLoggerLayer = NdjsonLoggerLive.pipe(Layer.provide(AppPathsLayer));
 
-	// Conversation services composes ProviderService with the SQLite-backed sessions /
-	// messages tables. The chat-MVP RPC surface (session.* / messages.*) talks
-	// through this; legacy agent.* handlers stay bound to ProviderService for
-	// low-level testing.
-	// TitleGenerator names pending chats, sessions, and fresh branches after
-	// their first submitted turn succeeds, using the chat's OWN provider, so
-	// it reuses whatever auth that provider has — a Grok-only user is never
-	// forced onto Claude.
 	const TitleGeneratorLayer = TitleGeneratorLive.pipe(
 		Layer.provide(ProviderLayer),
 	);
 
-	// Replay durable domain events before accepting transport traffic.
 	const ProjectorCatchup = Layer.effectDiscard(
 		Effect.gen(function* () {
 			const domain = yield* SessionDomain;
@@ -691,8 +628,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(WorktreeLayer),
 		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(PtyLayer),
-		// GitService + ConfigStore + TitleGenerator back the background auto-namer
-		// (independent chat/session/branch naming); see `autoNameChat`.
+
 		Layer.provide(GitLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(TitleGeneratorLayer),
@@ -739,21 +675,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(NodeServices.layer),
 	);
 
-	// SkillBridge surfaces the user's per-provider skill library to the
-	// composer's slash popover. Discovery walks disk; the bridge caches per
-	// (provider, projectCwd) and re-emits on watcher fire so editing a
-	// SKILL.md updates the popover within ~2 s.
-
 	const SkillBridgeLayer = SkillBridgeLive.pipe(
 		Layer.provide(SkillDiscoveryLayer),
 		Layer.provide(ConfigStoreLayer),
 		Layer.provide(ConversationServicesLayer),
 		Layer.provide(WorkspaceLayer),
 	);
-	// ApiLinkService orchestrates the desktop's self-registration with the
-	// account api (challenge → Ed25519 proof → link → persist → heartbeat). It
-	// reuses the environment identity (LanAuthService) and the WorkOS token
-	// (AuthService); the renderer's Devices pane drives it via api.* RPCs.
+
 	const ApiLinkLayer =
 		deps.apiEnabled === false
 			? makeDisabledApiLinkService(lanAuthConfig)
@@ -762,14 +690,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 					Layer.provide(EnrolledLanAuthLayer),
 					Layer.provide(LanAuthConfigLayer),
 					Layer.provide(AuthLayer),
-					// The managed-tunnel connector (`cloudflared`) spawns via CommandExecutor.
+
 					Layer.provide(ManagedTunnelLayer),
 					Layer.provide(AppPathsLayer),
 					Layer.provide(TelemetryStoreLayer),
 				);
 	const autoApiLink = deps.autoApiLink;
-	// Linking runs in a background fiber and never blocks server boot; see
-	// `autoLinkUntilLinked` for the retry policy.
+
 	const AutoApiLinkLayer =
 		autoApiLink === undefined
 			? Layer.empty
@@ -804,9 +731,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		MigratedSqlite,
 		NodeServices.layer,
 		LanAuthConfigLayer,
-		// AuthLayer is fully self-contained (its keychain + shell deps are already
-		// provided), merged in here to satisfy the auth.* handlers without adding
-		// another `.pipe` step — the Handlers pipe is at its 20-arg overload cap.
+
 		AuthLayer,
 	);
 
@@ -841,7 +766,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		PermissionLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,
-		// browser.* credential RPCs share the encrypted local vault.
+
 		CredentialsLayer,
 		SkillBridgeLayer,
 		DiagnosticsLayer,
@@ -858,10 +783,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 
 	const Handlers = HandlersLayer.pipe(
 		Layer.provide(HandlerDomainLayer),
-		// `agent.opencodeInventory` calls `resolveCliPath("opencode")` directly
-		// (it spins up a short-lived `opencode serve` to read the user's
-		// connected providers + agents). That uses `CommandExecutor` from
-		// NodeServices, so the handler layer must see it.
+
 		Layer.provide(HandlerSupportLayer),
 	);
 

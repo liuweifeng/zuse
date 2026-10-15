@@ -6,7 +6,6 @@ import { COMMAND_META, COMMANDS_IN_ORDER } from "./default-keybindings.ts";
 
 const COMMAND_PREFIX = ">";
 
-/** Commands that would be circular or inert when launched from quick open. */
 const EXCLUDED_COMMANDS: ReadonlySet<Command> = new Set(["open-chat-switcher"]);
 
 export interface ChatSwitcherCommandRow {

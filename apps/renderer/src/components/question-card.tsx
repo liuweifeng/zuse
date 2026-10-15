@@ -21,24 +21,16 @@ interface QuestionCardProps {
 	readonly sessionId: SessionId;
 	readonly itemId: AgentItemId;
 	readonly questions: ReadonlyArray<UserQuestion>;
-	/** True while the durable question is waiting for a live callback reattach. */
+
 	readonly disabled?: boolean;
 	readonly expired?: boolean;
-	/** Authoritative ClientBus overlay for this exact question identity. */
+
 	readonly submission?: SessionInteractionSubmission;
 	readonly submissionError?: string | null;
-	/**
-	 * The paired `user_question_answer` row, if any. When present, the card
-	 * renders in answered state — no inputs, just a compact summary the user
-	 * can scan in the timeline.
-	 */
+
 	readonly answer?: ReadonlyArray<UserQuestionAnswer>;
 }
 
-/**
- * Per-question working state for the interactive card. We don't store the
- * "active question" on disk — it's purely local until the user hits submit.
- */
 interface DraftAnswer {
 	readonly selected: ReadonlyArray<number>;
 	readonly other: string;
@@ -85,7 +77,6 @@ export function QuestionCard({
 	);
 }
 
-/** Keep disconnected answers disabled while allowing durable dismissal. */
 function InteractiveQuestionCard({
 	environmentId,
 	sessionId,
@@ -161,11 +152,6 @@ function InteractiveQuestionCard({
 		setDrafts((prev) => prev.map((d, i) => (i === idx ? next : d)));
 	};
 
-	/**
-	 * Submit a specific drafts state. Pulled out of `submit` so `toggleOption`
-	 * and the Other-input Enter handler can call it with the freshly-updated
-	 * drafts without waiting for React state to flush.
-	 */
 	const submitWith = async (
 		finalDrafts: ReadonlyArray<DraftAnswer>,
 	): Promise<void> => {
@@ -181,12 +167,6 @@ function InteractiveQuestionCard({
 		await submitAnswers(answers);
 	};
 
-	/**
-	 * Commit an updated draft for the active question and decide whether to
-	 * advance to the next question or submit. Auto-advance fires for
-	 * single-select picks and for Enter-on-Other; multi-select keeps the
-	 * card visible so the user can pick more or hit submit explicitly.
-	 */
 	const commitAndAdvance = (next: DraftAnswer): void => {
 		const nextDrafts = drafts.map((d, i) => (i === activeIdx ? next : d));
 		setDrafts(nextDrafts);
@@ -207,10 +187,7 @@ function InteractiveQuestionCard({
 			setDraft(activeIdx, { ...draft, selected });
 			return;
 		}
-		// Single-select: clicking the already-selected option clears it
-		// (lets the user re-pick "Other" easily). Otherwise replace the
-		// selection AND auto-advance — the user shouldn't have to hit submit
-		// for an unambiguous single pick.
+
 		if (draft.selected.length === 1 && draft.selected[0] === optionIdx) {
 			setDraft(activeIdx, { ...draft, selected: [] });
 			return;
@@ -219,15 +196,9 @@ function InteractiveQuestionCard({
 	};
 
 	const setOther = (text: string): void => {
-		// Free-text and preset picks don't conflict — the agent sees both.
 		setDraft(activeIdx, { ...draft, other: text });
 	};
 
-	/**
-	 * Pressing Enter inside the Other field commits the typed text as the
-	 * answer for the active question. Mirrors the click-an-option flow:
-	 * single-question or last-question submits, otherwise advances.
-	 */
 	const onOtherKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
 		if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
 		const trimmed = draft.other.trim();

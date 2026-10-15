@@ -33,7 +33,7 @@ BEGIN
 END;
 $$;
 CREATE TRIGGER api_snapshot_price_immutable BEFORE UPDATE OR DELETE ON api_snapshot_price_schedule FOR EACH ROW EXECUTE FUNCTION api_snapshot_price_immutable();
--- Backfill exact stored identities only. Start accrual at migration time, never at historical creation.
+
 INSERT INTO api_cloud_snapshots (provider, snapshot_id, account_id, build_id, state, created_at, record)
 SELECT provider, snapshot_id, account_id, build_id,
  CASE WHEN state = 'ready' AND rank = 1 THEN 'retained' WHEN state IN ('building','sanitizing') THEN 'creating' ELSE 'deleting' END,

@@ -1,8 +1,6 @@
 import { Effect, Redacted } from "effect";
 import { describe, expect, test, vi } from "vitest";
 
-// Module factories run only when the SDK entry points are actually imported,
-// so the counters prove construction never evaluates the SDK.
 const loads = vi.hoisted(() => ({
 	sdk: 0,
 	webhooks: 0,

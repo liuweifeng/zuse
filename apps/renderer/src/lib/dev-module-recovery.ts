@@ -28,10 +28,9 @@ export function createModuleRecovery(host: RecoveryHost) {
 			const previous = host.storage.getItem(reloadKey);
 			if (previous !== null && host.now() - Number(previous) < cooldownMs)
 				return false;
-			// Persist before polling so a second document cannot start a reload loop.
+
 			host.storage.setItem(reloadKey, String(host.now()));
 		} catch {
-			// Without a cross-document budget, automatic reload is unsafe.
 			return false;
 		}
 		pending = true;
@@ -45,7 +44,6 @@ export function createModuleRecovery(host: RecoveryHost) {
 					}
 				}
 			} catch {
-				// Recovery must not replace the original failure with a rejection.
 			} finally {
 				pending = false;
 			}

@@ -44,8 +44,7 @@ import {
 } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-// Exercise ConversationServicesLive through the same node:sqlite client layer used by
-// the production Node runtime.
+
 import { layer as sqliteLayer } from "@zuse/sqlite";
 import {
 	Context,
@@ -162,12 +161,6 @@ const TestConversationLive = Layer.effect(
 	}),
 );
 
-/**
- * Scripted provider events the stub replays on `events()` for the next
- * created session. The ConversationServices boot path subscribes to this stream and
- * persists each renderable event — letting us assert the full
- * provider-event → messages-table pipeline without a real agent CLI.
- */
 let scriptedEvents: ReadonlyArray<AgentEvent> = [];
 let scriptedEventScope: "turn" | "session" = "turn";
 let providerStartInputs: StartSessionInput[] = [];
@@ -256,7 +249,6 @@ const deferred = <A>() => {
 	return { promise, resolve, reject };
 };
 
-/** A no-op ProviderService: starts/sends succeed; events replay the script. */
 const StubProviderLive = Layer.succeed(ProviderService, {
 	availability: () => Effect.succeed([]),
 	hasSession: (sessionId) =>
@@ -638,8 +630,6 @@ const StubWorktreeLive = Layer.succeed(WorktreeService, {
 		}),
 });
 
-// The first-turn auto-namer may fire for chats with a worktree. Tests here
-// do not exercise branch naming, so these stubs only satisfy the layer graph.
 const StubGitLive = Layer.succeed(GitService, {
 	isRepository: () => Effect.succeed(true),
 	ignoredDirectories: () => Effect.succeed(new Set<string>()),
@@ -732,7 +722,6 @@ const StubApiActivityPublisherLive = Layer.succeed(ApiActivityPublisher, {
 	publish: () => Effect.void,
 });
 
-/** Chat archive cleanup is out of scope for ConversationServices persistence tests. */
 const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 	get: (projectId) =>
 		Effect.succeed(
@@ -772,7 +761,6 @@ const StubRepositorySettingsLive = Layer.succeed(RepositorySettingsService, {
 		),
 });
 
-/** PTYs are only touched during worktree cleanup; these tests use no worktrees. */
 const StubPtyLive = Layer.succeed(PtyService, {
 	open: () => Effect.die("not used"),
 	list: () => Effect.succeed(PtyCatalog.make({ terminals: [], liveLimit: 1 })),
@@ -786,15 +774,11 @@ const StubPtyLive = Layer.succeed(PtyService, {
 	subscribe: () => Stream.die("not used"),
 });
 
-/** NdjsonLogger writes audit lines; in tests we swallow them. */
 const StubNdjsonLive = Layer.succeed(NdjsonLogger, {
 	append: () => Effect.void,
 	close: () => Effect.void,
 });
 
-// Run every numbered migration in order against the generic SqlClient. We run
-// them directly instead of via the node `SqliteMigrator` so the schema builds
-// on top of the bun client too — a fresh test DB needs no migration tracking.
 const runAllMigrations = Effect.all(
 	[
 		Migration0001Initial,
@@ -863,7 +847,7 @@ let queueAuthorWait: Effect.Effect<void> = Effect.void;
 let workspacePreparation: Effect.Effect<void> = Effect.void;
 const makeRuntime = (dbPath: string, migrate = true) => {
 	const SqlLive = sqliteLayer({ filename: dbPath });
-	// Run migrations during layer build, and re-export SqlClient downstream.
+
 	const Migrated = migrate
 		? Layer.effectDiscard(runAllMigrations).pipe(Layer.provideMerge(SqlLive))
 		: SqlLive;
@@ -927,8 +911,7 @@ const makeRuntime = (dbPath: string, migrate = true) => {
 		Layer.provide(ChatDomainLive),
 		Layer.provide(SessionQueriesLive),
 		Layer.provide(NodeServices.layer),
-		// provideMerge (not provide) so SqlClient stays in the runtime context —
-		// the test seeds the `projects` row through it directly.
+
 		Layer.provideMerge(Migrated),
 	);
 	const TestLayer = TestConversationLive.pipe(
@@ -968,7 +951,6 @@ const withRuntime = async <A>(
 		>,
 	): Promise<X> => runtime.runPromise(eff as Effect.Effect<X, unknown, never>);
 	try {
-		// Seed the project row through the runtime's own SqlClient.
 		await run(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;
@@ -1580,8 +1562,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				)
 				.toMatchObject({ status: "idle" });
-			// Let the provider event pump finish its idle transition before creating
-			// the synthetic durable turn this test is specifically exercising.
+
 			await new Promise<void>((resolve) => setImmediate(resolve));
 			await run(
 				Effect.gen(function* () {
@@ -1710,8 +1691,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			const first = await run(
 				Effect.flatMap(store, (service) => service.createChat(input)),
 			);
-			// Imported timestamps can precede the original prompt; delivery order is
-			// defined by the durable sequence for both replay validation and preview.
+
 			await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -1804,8 +1784,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			});
 
 			await run(launch);
-			// Simulate API losing the first agent-started response and returning the
-			// encrypted launch intent again during the next runtime bootstrap.
+
 			await run(launch);
 			await expect.poll(() => providerStartInputs.length).toBe(1);
 
@@ -2293,8 +2272,6 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					error: null,
 				});
 
-			// Read paths do not mutate failed jobs. Legacy normalization runs once
-			// during service startup instead.
 			await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -2598,9 +2575,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				)
 				.toMatchObject({ status: "completed" });
-			// Worktree deletion clears the SQL foreign key, but the session event
-			// state still remembers the original id. This projection drift is the
-			// production failure mode that previously routed restore into main.
+
 			await run(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
@@ -2889,7 +2864,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			expect(result.chat.projectId).toBe(PROJECT_ID);
 			expect(result.initialSession.providerId).toBe("claude");
 			expect(result.initialSession.chatId).toBe(result.chat.id);
-			// The durable receipt precedes provider startup.
+
 			expect(result.initialSession.status).toBe("booting");
 			expect(result.initialMessage?.role).toBe("user");
 			expect(result.initialMessage?.content).toMatchObject({
@@ -4035,9 +4010,6 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						titleProvenance: "manual",
 					});
 
-					// Simulate a process stopping after the durable rename event was
-					// appended but before its read-model projection committed. The
-					// restarted ChatDomain must catch up the event before serving chats.
 					const latestChatEvent = yield* sql<{
 						readonly sequence: number;
 					}>`
@@ -4244,7 +4216,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				evidence.messages.some((message) => message.content._tag === "user"),
 			).toBe(true);
 			expect(evidence.currentChat.title).toBe("New chat");
-			// Failed startup needs an explicit retry, which creates a fresh job.
+
 			expect(evidence.sendJobs).toHaveLength(1);
 			expect(evidence.sendJobs[0]).toMatchObject({
 				status: "failed",
@@ -4482,8 +4454,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 				Effect.flatMap(store, (s) => s.listMessages(id)),
 			);
 			const user = messages.filter((m) => m.role === "user");
-			// The row the renderer inserted optimistically and the persisted/echoed
-			// row share the id, so the live stream dedupes against it.
+
 			expect(user.some((m) => m.id === clientId)).toBe(true);
 		});
 	});
@@ -5206,7 +5177,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						).items.length,
 				)
 				.toBe(0);
-			// Queue removal records durable intent before asynchronous provider delivery.
+
 			await expect
 				.poll(() => providerSentTexts.filter((text) => text === input.text))
 				.toHaveLength(1);
@@ -5841,7 +5812,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 						sql`UPDATE sessions SET provider_reservation_id='input-owner' WHERE id=${id}`,
 				),
 			);
-			// Input appeared after the client had already decided to auto-queue.
+
 			await run(
 				Effect.flatMap(
 					SqlClient.SqlClient,
@@ -6357,7 +6328,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					domain.jobs.listBySession(initialSession.id),
 				),
 			);
-			// An empty session implies no provider work until its first turn.
+
 			expect(emptySessionStarts).toEqual([]);
 			await runFirst(
 				Effect.flatMap(SessionDomain, (domain) =>
@@ -6604,8 +6575,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			// Hold acquisition before admission; otherwise the fixture can deliver the
-			// request before disposal and no longer represents unreceipted work.
+
 			providerStartBarrier = deferred<void>().promise;
 			const turnId = AgentTurnId.make("turn_restart_pending");
 			await runFirst(
@@ -6651,7 +6621,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				);
 				expect(recovered.status).toBe("booting");
-				// A blocked provider must not hold recovery reads or unrelated writes.
+
 				const healthy = await runRestarted(
 					Effect.flatMap(store, (service) =>
 						service.createChat({
@@ -6831,8 +6801,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			);
-			// A rapid second click can arrive after the first request has already
-			// settled the exact turn. It must remain an idempotent success.
+
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.interruptSession(
@@ -6901,7 +6870,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					}),
 				),
 			);
-			// The provider fixture acknowledges goal execution separately from its live state.
+
 			providerGoals.set(initialSession.id, goal);
 			await run(Effect.flatMap(store, (s) => s.getGoal(initialSession.id)));
 			const firstTurn = requireProviderTurnId(initialSession.id);
@@ -7009,8 +6978,7 @@ describe("ConversationServices — chat & session lifecycle", () => {
 					),
 				),
 			);
-			// A transport retry reuses the durable queue identity and must not
-			// schedule or persist a second successor turn.
+
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.runQueuedMessageNext(
@@ -7839,15 +7807,13 @@ describe("ConversationServices — provider event persistence", () => {
 				retryGate.resolve();
 				await Promise.all([firstRetry, concurrentRetry]);
 				providerAnswerBarrier = null;
-				// Simulate a client retry after losing the successful RPC response.
+
 				await run(
 					Effect.flatMap(store, (service) =>
 						service.answerQuestion(sessionId, itemId, answers),
 					),
 				);
-				// A provider may later reissue the same callback after the durable
-				// receipt already reached the client. A stale conflicting client must
-				// first settle that fresh callback with the original durable answer.
+
 				providerQuestionAttached = true;
 				providerQuestionConsumed = false;
 				await expect(
@@ -7940,9 +7906,6 @@ describe("ConversationServices — provider event persistence", () => {
 					)
 					.toBe(true);
 
-				// answerQuestion checks attachment truth before inserting the intent and
-				// once more before invoking the provider. Detach immediately after the
-				// latter check to reproduce the callback-release race.
 				detachProviderQuestionAfterHasCall = providerQuestionHasCalls + 2;
 				const raced = await run(
 					Effect.flatMap(store, (service) =>
@@ -8179,7 +8142,6 @@ describe("ConversationServices — provider event persistence", () => {
 				}
 
 				if (reattach) {
-					// Reconnect after settlement observes no callback, before cleanup.
 					attachProviderQuestionAfterHasCall = providerQuestionHasCalls + 2;
 				}
 				if (mode === "expired") {
@@ -8731,8 +8693,6 @@ describe("ConversationServices — provider event persistence", () => {
 				);
 				const id = initialSession.id;
 
-				// The event pump is a forked daemon — poll until the assistant row
-				// lands (or give up after a bounded number of tries).
 				const findAssistant = Effect.flatMap(store, (s) =>
 					s.listMessages(id),
 				).pipe(
@@ -8919,7 +8879,6 @@ describe("ConversationServices cursor streaming", () => {
 				await sendAndSettle(run, id, text);
 			}
 
-			// First subscription: full replay of the three persisted rows.
 			const first = await run(
 				Effect.flatMap(SessionDomain, (domain) =>
 					Stream.runCollect(messageEvents(domain, id).pipe(Stream.take(3))),
@@ -8930,12 +8889,10 @@ describe("ConversationServices cursor streaming", () => {
 			expect(sequences).toEqual([...sequences].sort((a, b) => a - b));
 			const cursor = sequences.at(-1) ?? 0;
 
-			// "Network drop": the first stream is gone; more rows land meanwhile.
 			for (const text of ["m4", "m5"]) {
 				await sendAndSettle(run, id, text);
 			}
 
-			// Resubscribe with the recorded cursor — exactly the delta, in order.
 			const resumed = await run(
 				Effect.flatMap(SessionDomain, (domain) =>
 					Stream.runCollect(
@@ -9015,9 +8972,6 @@ describe("ConversationServices cursor streaming", () => {
 				}),
 			);
 
-			// Simulate restarting the client/outbox after it never observed the first
-			// successful response. It retains the command id but has no memory of the
-			// server-minted turn, and may mint another optimistic message id.
 			await run(
 				Effect.flatMap(store, (service) =>
 					service.sendMessage(
@@ -9090,8 +9044,6 @@ describe("ConversationServices cursor streaming", () => {
 			const id = initialSession.id;
 			await sendAndSettle(run, id, "m1");
 
-			// Subscribe past m1, then persist m2/m3 while the stream is live —
-			// they must arrive via the tail, once each, in sequence order.
 			const collected = await run(
 				Effect.gen(function* () {
 					const s = yield* store;
@@ -9149,7 +9101,7 @@ describe("ConversationServices cursor streaming", () => {
 
 			expect(forA.map(userText)).toEqual(["a1", "a2"]);
 			expect(forB.map(userText)).toEqual(["b1"]);
-			// Global cursor: b1 landed between a1 and a2.
+
 			expect(forA[0]!.sequence).toBeLessThan(forB[0]!.sequence);
 			expect(forB[0]!.sequence).toBeLessThan(forA[1]!.sequence);
 		});
@@ -9208,16 +9160,15 @@ describe("ConversationServices — fork & transcript export", () => {
 			);
 
 			expect(result.forkMode).toBe("copy");
-			// Same chat (tab), new session, provenance recorded.
+
 			expect(result.session.chatId).toBe(chat.chat.id);
 			expect(result.session.id).not.toBe(sourceId);
 			expect(result.session.forkedFromSessionId).toBe(sourceId);
 			expect(result.session.forkedFromMessageId).toBe(userMsgId);
 			expect(result.session.providerThread).toBeNull();
-			// No fork-of-transcript request to the provider in copy mode.
+
 			expect(providerStartInputs.at(-1)?.forkFromResume ?? false).toBe(false);
 
-			// The visible transcript up to the fork message was replayed.
 			const forked = await run(
 				Effect.flatMap(store, (s) => s.listMessages(result.session.id)),
 			);
@@ -9465,7 +9416,7 @@ describe("ConversationServices — fork & transcript export", () => {
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;
 					yield* sql`DROP TRIGGER pause_fork`;
-					// The imported source is no longer available. Recovery must use its staged snapshot.
+
 					yield* sql`DELETE FROM messages WHERE session_id=${input.sourceSessionId}`;
 				}),
 			);
@@ -9823,7 +9774,7 @@ describe("ConversationServices — fork & transcript export", () => {
 				),
 			);
 			const sourceId = chat.initialSession.id;
-			// Correlate the visible assistant boundary to the SDK UUID cutoff.
+
 			await run(
 				Effect.flatMap(store, (s) =>
 					s.importExternalMessages(sourceId, [
@@ -9856,7 +9807,7 @@ describe("ConversationServices — fork & transcript export", () => {
 				"claude-session-xyz",
 			);
 			expect(result.session.providerThread?.provider).toBe("claude");
-			// Forking is metadata-only until the new session receives real work.
+
 			expect(providerStartInputs).toHaveLength(startsBeforeFork);
 			await run(
 				Effect.flatMap(store, (s) =>
@@ -9870,7 +9821,7 @@ describe("ConversationServices — fork & transcript export", () => {
 			await expect
 				.poll(() => providerStartInputs.length)
 				.toBe(startsBeforeFork + 1);
-			// The first turn starts the driver with the frozen source UUID cutoff.
+
 			expect(providerStartInputs.at(-1)?.forkFromResume).toBe(true);
 			expect(providerStartCursors.at(-1)).toBe("claude-session-xyz");
 		});

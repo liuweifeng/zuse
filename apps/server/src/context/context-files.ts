@@ -2,18 +2,6 @@ import type { FileSystem, Path } from "effect";
 import { Effect } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 
-/**
- * Shared helpers for writing files into a workspace's gitignored
- * `.context/files/` directory. Both the attachment upload path (images and
- * dropped files) and `context.saveText` (big text pastes) land here so the
- * bytes live inside the agent's cwd instead of hidden app data.
- *
- * The functions take service *instances* (rather than requiring them from the
- * Effect context) so callers that captured `SqlClient` / `FileSystem` / `Path`
- * at layer-construction time can reuse them without widening their effect's
- * `R` channel.
- */
-
 interface SessionRow {
 	readonly project_id: string;
 	readonly worktree_id: string | null;

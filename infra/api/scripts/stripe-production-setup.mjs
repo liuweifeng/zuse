@@ -64,8 +64,6 @@ export function productionVars(state) {
 	};
 }
 
-// The private journal is persisted before each remote mutation. Retry the same
-// payload and key after interruption; never recreate ambiguous old requests.
 export async function provision(
 	stripe,
 	state,
@@ -447,7 +445,7 @@ async function main() {
 		process.env.STRIPE_PRODUCTION_ARTIFACT_DIR ?? defaultDirectory;
 	await mkdir(directory, { recursive: true, mode: 0o700 });
 	await chmod(directory, 0o700);
-	// Exclusive lock prevents two setup processes from creating remote objects.
+
 	const lock = await import("node:fs/promises").then((fs) =>
 		fs.open(`${directory}/setup.lock`, "wx", 0o600),
 	);
@@ -530,7 +528,7 @@ async function main() {
 					encoding: "utf8",
 				},
 			);
-			// Do not echo subprocess output or SDK errors that could contain credentials.
+
 			assert(
 				!result.error && result.status === 0,
 				"Secret installation failed; check Cloudflare authentication and retry",

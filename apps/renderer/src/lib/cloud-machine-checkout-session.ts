@@ -62,9 +62,7 @@ export const writeCloudMachineCheckoutSession = (
 				url: input.url,
 			} satisfies CheckoutSession),
 		);
-	} catch {
-		// Checkout still works when browser storage is unavailable.
-	}
+	} catch {}
 };
 
 export const clearCloudMachineCheckoutSession = (
@@ -73,7 +71,5 @@ export const clearCloudMachineCheckoutSession = (
 ): void => {
 	try {
 		storage.removeItem(checkoutSessionKey(offerId));
-	} catch {
-		// There is nothing else to clear when browser storage is unavailable.
-	}
+	} catch {}
 };

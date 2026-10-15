@@ -24,8 +24,7 @@ export const openNewBottomTerminal = (
 	const terminals = useTerminalsStore.getState();
 	const key = terminalsKey(ref, "bottom");
 	const current = terminals.byKey[key] ?? EMPTY_TERMINALS;
-	// The visible button is disabled at the limit, but this guard is the final
-	// synchronous authority for rapid repeated clicks before React can rerender.
+
 	if (
 		terminalOwnerLimitReached(
 			current,
@@ -52,7 +51,7 @@ export const restoreOrOpenBottomTerminal = async (
 	cwd: string,
 	options: Readonly<{
 		isCurrent?: () => boolean;
-		/** Add another shell after hydration instead of only ensuring one exists. */
+
 		createNew?: boolean;
 	}> = {},
 ): Promise<BottomTerminalCatalogResult> => {

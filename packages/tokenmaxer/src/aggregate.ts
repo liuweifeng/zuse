@@ -113,7 +113,6 @@ export const groupUsageRecords = (
 		});
 };
 
-/** A path matches a root when they are equal or one is a directory ancestor of the other. */
 const matchesAnyRoot = (
 	path: string | null,
 	roots: ReadonlyArray<string>,

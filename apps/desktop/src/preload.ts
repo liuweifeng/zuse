@@ -47,13 +47,6 @@ import { TERMINAL_FOCUS_CHANNEL } from "./terminal-shortcuts.ts";
 let powerStateSubscriberCount = 0;
 let computerAwakeSubscriberCount = 0;
 
-/**
- * Preload bridge — the only seam between the renderer and the main process.
- * Everything the renderer can do flows through scoped Effect RPC connections to the engine.
- *
- * `send` pushes encoded request frames toward main. `onMessage` registers a
- * listener for response frames from main and returns an unsubscribe handle.
- */
 const bridge = {
 	htmlVisualPublicNetwork: true,
 	locale: {
@@ -117,8 +110,7 @@ const bridge = {
 				ipcRenderer.off("pairing:link", wrapped);
 			};
 		},
-		// Main buffers connect/pair deep links until this fires, so links that
-		// arrive before the renderer mounts (cold start) are not lost.
+
 		subscribePairingLinks: () => {
 			ipcRenderer.send("pairing:link-subscribe");
 		},
@@ -134,7 +126,7 @@ const bridge = {
 				ipcRenderer.off("plugins:return", wrapped);
 			};
 		},
-		// Main buffers returns until this fires (browser may finish first).
+
 		subscribeReturns: () => {
 			ipcRenderer.send("plugins:return-subscribe");
 		},
@@ -142,34 +134,20 @@ const bridge = {
 	browser: {
 		waitUntilReady: () =>
 			ipcRenderer.invoke("browser:waitUntilReady") as Promise<void>,
-		/**
-		 * Renderer hands the agent-browser `<webview>`'s webContentsId to main so
-		 * main can attach Chrome DevTools Protocol once and dispatch real input
-		 * events into the embedded Chromium. Idempotent — safe to call on every
-		 * `dom-ready` (which fires on reload too).
-		 */
+
 		registerWebview: (webContentsId: number) =>
 			ipcRenderer.invoke(
 				"browser:registerWebview",
 				webContentsId,
 			) as Promise<boolean>,
-		/**
-		 * Dispatch a single CDP input action against the registered webview. The
-		 * renderer animates the cursor overlay locally and calls this in sync
-		 * with the visual click pulse so what the user sees matches what the
-		 * page receives.
-		 */
+
 		dispatchInput: (webContentsId: number, action: unknown) =>
 			ipcRenderer.invoke(
 				"browser:dispatchInput",
 				webContentsId,
 				action,
 			) as Promise<boolean>,
-		/**
-		 * Allowlisted CDP passthrough (Accessibility/DOM/Runtime/Page) for the
-		 * v2 agent-browser tools — a11y snapshots, ref → coordinate resolution,
-		 * full-page capture, dialog handling. Main rejects anything off-list.
-		 */
+
 		cdpCommand: (webContentsId: number, method: string, params?: unknown) =>
 			ipcRenderer.invoke(
 				"browser:cdpCommand",
@@ -206,19 +184,19 @@ const bridge = {
 			ipcRenderer.on("browser:screencastInterrupted", wrapped);
 			return () => ipcRenderer.off("browser:screencastInterrupted", wrapped);
 		},
-		/** Network requests captured since the last load (buffered in main). */
+
 		getNetwork: (webContentsId: number, query?: unknown) =>
 			ipcRenderer.invoke(
 				"browser:getNetwork",
 				webContentsId,
 				query ?? {},
 			) as Promise<unknown>,
-		/** Uncaught page exceptions captured via CDP since the last load. */
+
 		getPageErrors: (webContentsId: number) =>
 			ipcRenderer.invoke("browser:getPageErrors", webContentsId) as Promise<
 				string[]
 			>,
-		/** The currently open JS dialog (alert/confirm/prompt), if any. */
+
 		getDialogState: (webContentsId: number) =>
 			ipcRenderer.invoke("browser:getDialogState", webContentsId) as Promise<{
 				type: string;
@@ -573,16 +551,11 @@ const bridge = {
 			ipcRenderer.invoke(UPDATE_DOWNLOAD_CHANNEL) as Promise<void>,
 		installNow: () =>
 			ipcRenderer.invoke(UPDATE_INSTALL_CHANNEL) as Promise<void>,
-		/**
-		 * Push the current running-agent count to main so the `before-quit` guard
-		 * and the "quit/restart when idle" deferrals have a fresh value. Fire on
-		 * every change (and once on mount). Renderer store is the source of truth.
-		 */
+
 		reportRunningCount: (count: number) => {
 			ipcRenderer.send(AGENTS_RUNNING_COUNT_CHANNEL, count);
 		},
-		// Dev-only escape hatch: only handled in dev (see updater.ts
-		// `registerUpdaterDemo`). Calling in a packaged build rejects harmlessly.
+
 		__demoSet: (status: UpdateStatus) =>
 			ipcRenderer.invoke("zuse:update-demo-set", status) as Promise<void>,
 	},
@@ -693,11 +666,7 @@ const bridge = {
 				ipcRenderer.off("menu:close-tab", wrapped);
 			};
 		},
-		/**
-		 * Push the current accelerator map up to the main process so the native
-		 * menu re-installs with the user's overrides. Renderer calls this from
-		 * its keybindings store whenever the merged rule set changes.
-		 */
+
 		setAccelerators: (accelerators: Record<string, string | null>) => {
 			ipcRenderer.send("menu:setAccelerators", accelerators);
 		},
@@ -707,8 +676,6 @@ const bridge = {
 contextBridge.exposeInMainWorld("zuse", bridge);
 contextBridge.exposeInMainWorld("memoize", bridge);
 
-// The preload owns native focus routing, including renderer reloads and focus
-// changes caused by menus. No application-level keyboard state crosses IPC.
 const reportTerminalFocus = () => {
 	const focused = Boolean(
 		document.activeElement?.closest("[data-terminal-renderer]"),

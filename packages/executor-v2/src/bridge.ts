@@ -77,7 +77,7 @@ const CLIENT_REGISTRATION_REASONS = new Set([
 	"client_metadata_rejected",
 	"registration_rejected",
 ]);
-/** Classifies OAuth setup failures without exposing provider responses. */
+
 const oauthSetupError = (error: unknown) => {
 	if (typeof error !== "object" || error === null || !("_tag" in error))
 		return error;
@@ -135,11 +135,10 @@ export async function createPluginEngine(
 		return plugin;
 	};
 	const headerOf = (plugin: EnginePlugin) => plugin.header ?? "Authorization";
-	// Build IDs hash this source. Its shape is unchanged from eager registration,
-	// so connections created before lazy registration keep their builds.
+
 	const sourceOf = (plugin: EnginePlugin, auth: EngineAuth) =>
 		`export default ${JSON.stringify({ protocol: 1, id: plugin.id, name: plugin.name, endpoint: plugin.endpoint, auth, scopes: plugin.scopes ?? [], ...(plugin.oauthDiscovery ? { oauthDiscovery: plugin.oauthDiscovery } : {}), ...(auth === "header" ? { header: headerOf(plugin) } : {}) })};\n`;
-	/** Registers one definition on demand, memoized per (plugin, auth). */
+
 	const register = (pluginId: string, auth: EngineAuth): Promise<Entry> => {
 		const key = JSON.stringify([pluginId, auth]);
 		const existing = entries.get(key);
@@ -215,7 +214,7 @@ export async function createPluginEngine(
 		created.catch(() => entries.delete(key));
 		return created;
 	};
-	/** Retained source names its plugin and auth; only the exact catalog rendering matches. */
+
 	const entryForSource = async (source: string | undefined) => {
 		if (source === undefined) return undefined;
 		for (const entry of builds.values())
@@ -419,7 +418,7 @@ export async function createPluginEngine(
 			}),
 		);
 		const ownerOf = (owner: string) => OwnerId.make(owner);
-		/** Ensures the definition the SDK will dispatch to is registered first. */
+
 		const target = async (owner: string, ref: EngineConnection) => {
 			await register(ref.plugin, ref.auth);
 			const app = AppId.make(ref.app),

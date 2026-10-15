@@ -85,7 +85,7 @@ describe("renderer accessibility regressions", () => {
 	it("keeps the project toggle separate from its sibling actions", () => {
 		const projectHeader = sourceBetween(
 			projectsSidebarSource,
-			"Project header toggles expansion only.",
+			"const Chevron = isExpanded ? ChevronDown : ChevronRight;",
 			"<ProjectContextMenu",
 		);
 		expect(projectHeader).not.toContain('role="button"');

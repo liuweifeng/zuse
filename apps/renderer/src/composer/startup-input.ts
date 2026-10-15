@@ -103,13 +103,6 @@ export const finalizeStartupInput = async (
 	return finalInput;
 };
 
-/**
- * The workspace a brand-new session runs in is registered by the environment
- * that owns it: locally that is done by `create()`, but a cloud sandbox
- * creates its chat and session rows while its runtime comes online. A write
- * that wins that race resolves no workspace root, which is a "not yet"
- * rather than a real failure.
- */
 const TARGET_NOT_READY_TAGS = new Set([
 	"SessionNotFoundError",
 	"ContextWriteError",

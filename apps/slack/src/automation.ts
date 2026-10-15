@@ -97,7 +97,6 @@ export const matchAlert = (
 	rules: ReadonlyArray<AlertRule>,
 	event: SlackMessageEvent,
 ): AlertRule | undefined => {
-	// Only original bot posts, never edits, human text, or threaded updates.
 	if (
 		event.type !== "message" ||
 		!event.ts ||
@@ -111,7 +110,7 @@ export const matchAlert = (
 	);
 	if (!rule) return;
 	const text = slackMessageText(event);
-	// Match notification headings, not an incidental "error" in a deploy update.
+
 	if (
 		!/(?:^|\n)\s*[*_:🚨\s]*(?:spike detected in error|error detected in production)\b/iu.test(
 			text,

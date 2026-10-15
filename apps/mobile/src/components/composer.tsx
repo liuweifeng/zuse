@@ -132,7 +132,7 @@ export const Composer = ({
 	onFocusChange?: (focused: boolean) => void;
 	onMessageAppendFailed?: () => void;
 	onMessageWillAppend?: () => void;
-	/** Latest-turn activity summary, computed once by the thread screen. */
+
 	currentActivity?: ComposerActivity | null;
 	bottomInset?: number;
 	voiceEnabled?: boolean;
@@ -140,8 +140,7 @@ export const Composer = ({
 	const stateKey = connectionSessionKey(connKey, sessionId);
 	const { message } = useMessages(["chat"]);
 	const health = useAtomValue(sessionHealthAtom(stateKey));
-	// Lazy state (not a ref): reading a ref during render violates the React
-	// Compiler's rules; the initializer runs once per mount (keyed by stateKey).
+
 	const [initialDraft] = useState(() => composerDraft(stateKey));
 	const inputRef = useRef<ComposerTextInputHandle>(null);
 	const submitGateRef = useRef(createComposerSubmitGate());
@@ -185,12 +184,9 @@ export const Composer = ({
 			active = false;
 		};
 	}, [hydratedText, initialDraft.text, stateKey]);
-	// Only auto-focus the input when the user taps the collapsed pill — never when
-	// the bar auto-expands (e.g. opening a running session) so the keyboard
-	// doesn't pop unexpectedly.
+
 	const shouldAutoFocus = useRef(false);
-	// Text persists on blur/unmount (inside ComposerTextInput); attachments and
-	// goal mode change rarely, so persisting them eagerly is cheap.
+
 	useEffect(() => {
 		if (!draftHydrated) return;
 		setComposerDraft(stateKey, {
@@ -257,8 +253,7 @@ export const Composer = ({
 						modelOptions === undefined ? undefined : { ...modelOptions },
 				};
 	const planMode = modelValue?.permissionMode === "plan";
-	// Modes remain visible in both layouts, but only editor activity expands the
-	// composer. A running agent remains interruptible from the compact control.
+
 	const expanded = composerExpanded({
 		focused,
 		hasText,
@@ -341,8 +336,7 @@ export const Composer = ({
 				return;
 			}
 			const messageId = MessageId.make(Crypto.randomUUID());
-			// Establish the transcript anchor before publishing the optimistic
-			// row. LegendList's anchored-end contract uses the pre-append index.
+
 			onMessageWillAppend?.();
 			didPrepareAppend = true;
 			optimisticMessageId = messageId;
@@ -382,7 +376,7 @@ export const Composer = ({
 			};
 			if (connection.cloudWorkspaceId !== undefined) {
 				const handle = sendCloudMessage(messageOptions);
-				void handle.result.catch(() => undefined); // ClientBus owns terminal UI state and receipt recovery.
+				void handle.result.catch(() => undefined);
 				await handle.accepted;
 			} else await Effect.runPromise(sendMessage(messageOptions));
 			finishSuccessfulSubmission({ dismissKeyboard: false });
@@ -391,9 +385,6 @@ export const Composer = ({
 				composerSendFailureDisposition(cause, optimisticMessageId !== null) ===
 				"retrying"
 			) {
-				// ClientBus has already persisted this command and will replay it with
-				// the same ID. Keep the truthful optimistic row and don't flash a false
-				// terminal error during a brief route/socket handoff.
 				finishSuccessfulSubmission({ dismissKeyboard: false });
 				return;
 			}
@@ -471,7 +462,7 @@ export const Composer = ({
 		if (session === null) return;
 		const actions = nextModelChangeActions(session, next, fresh);
 		setComposerError(null);
-		// Reasoning is chosen per chat and sent with each message.
+
 		setSessionModelOptions(stateKey, next.modelOptions);
 		try {
 			for (const action of actions) {
@@ -580,11 +571,10 @@ export const Composer = ({
 				tinted
 				style={{
 					gap: 8,
-					// Collapsed, the composer is a narrow capsule floating over the
-					// transcript; focused, it widens to the full input frame.
+
 					marginHorizontal: expanded ? 0 : 12,
 					paddingLeft: expanded ? 12 : 6,
-					// Inset the collapsed send circle from the capsule's curved end.
+
 					paddingRight: expanded ? 12 : 8,
 					paddingVertical: expanded ? 8 : 0,
 					borderRadius: 22,

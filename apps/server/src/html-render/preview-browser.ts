@@ -86,7 +86,7 @@ export class HtmlPreviewBrowser {
 				.finally(() => {
 					this.installing = undefined;
 				});
-			// Installation outlives an individual request, but is stopped with the server.
+
 			void this.installing.catch(() => {});
 		}
 		throw new Error(
@@ -150,8 +150,7 @@ export class HtmlPreviewBrowser {
 					acceptDownloads: false,
 				});
 				jobSignal.throwIfAborted();
-				// The SOCKS proxy pins validated DNS addresses; routing alone cannot
-				// protect against rebinding or browser speculative connections.
+
 				await context.route("**/*", (route) =>
 					/^https?:/.test(route.request().url()) &&
 					!route.request().isNavigationRequest()
@@ -171,7 +170,7 @@ export class HtmlPreviewBrowser {
 					input.html,
 					defaultHtmlTheme(input.appearance ?? "dark"),
 				);
-				// Preview the same opaque-origin sandbox as the chat viewer.
+
 				const src = `data:text/html;base64,${Buffer.from(doc).toString("base64")}`;
 				await page.setContent(
 					`<style>body{margin:0;background:${input.appearance === "light" ? "#fff" : "#101010"}}</style><iframe title="Visual" sandbox="allow-scripts" style="border:0;width:100%;height:80px" src="${src}"></iframe>`,

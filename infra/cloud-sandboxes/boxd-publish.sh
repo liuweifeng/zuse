@@ -1,15 +1,5 @@
 #!/usr/bin/env bash
-# Publishes the zuse base template for the boxd provider as a named snapshot.
-# boxd machines are restored from snapshots, so the template is built by
-# provisioning a fresh machine with the shared provision.sh stages plus the
-# boxd-specific pieces (boxd/install.sh) and capturing it with its memory.
-#
-# Usage: BOXD_API_KEY=... [BOXD_ORG=...] [BOXD_MACHINE_SIZE=small|default|large] boxd-publish.sh <version>
-#   e.g. boxd-publish.sh 1   →  snapshot "zuse-base-v1"
-#
-# Requires the boxd CLI (https://docs.boxd.sh/cli/installation); it reads
-# a session token obtained from BOXD_API_KEY. Prints the BOXD_TEMPLATE_SNAPSHOT /
-# BOXD_TEMPLATE_VERSION values to copy into the API wrangler configuration.
+
 set -euo pipefail
 
 version="${1:?usage: boxd-publish.sh <version>}"
@@ -20,8 +10,7 @@ runtime_port=47837
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 provision_dir=/tmp/zuse-provision
-# Organization templates must be restorable by the Worker's identity too.
-# Without an explicit org, use the same API key owner for publishing and runtime.
+
 sharing_args=()
 org_args=()
 if [ -n "${BOXD_ORG:-}" ]; then
@@ -29,8 +18,6 @@ if [ -n "${BOXD_ORG:-}" ]; then
 	sharing_args=(--shared)
 fi
 
-# Restores keep the snapshot's size, so publish at the deployment's default
-# placement to spare every workspace a resize reboot.
 case "${BOXD_MACHINE_SIZE:-default}" in
 small) size_args=(--vcpu 1) ;;
 default) size_args=(--vcpu 2) ;;
@@ -47,9 +34,6 @@ machine_exec() {
 	boxd machine exec ${org_args[@]+"${org_args[@]}"} "$machine_id" --timeout "$timeout" -- "$@"
 }
 
-# The CLI accepts BOXD_TOKEN, while bxd_ API keys must first be exchanged.
-# Pass the key through stdin so it never appears in curl's command arguments.
-# Exchange after the build so the one-hour session covers provisioning.
 echo "==> building runtime artifacts"
 "$script_dir/prepare-artifacts.sh"
 
@@ -59,7 +43,7 @@ BOXD_TOKEN="$(jq -n '{api_key: env.BOXD_API_KEY}' | curl --proto '=https' --prot
 export BOXD_TOKEN
 
 echo "==> creating builder machine"
-# Isolation is inherited by every restore, matching the adapter's placement.
+
 machine_id="$(boxd machine new ${org_args[@]+"${org_args[@]}"} "zuse-template-builder-$(date +%s)" --isolated ${sharing_args[@]+"${sharing_args[@]}"} ${size_args[@]+"${size_args[@]}"} --auto-hibernate-timeout 0 --json | jq -r '.id')"
 if [[ -z "$machine_id" || "$machine_id" == "null" ]]; then
 	echo "error: boxd machine new returned no machine id" >&2
@@ -69,7 +53,7 @@ echo "    machine: $machine_id"
 trap 'boxd machine remove ${org_args[@]+"${org_args[@]}"} "$machine_id" --confirm --json >/dev/null 2>&1 || true' EXIT
 
 echo "==> waiting for the machine to become usable"
-# `machine new` returns once the machine is scheduled, before exec works.
+
 ready=""
 for _ in $(seq 1 60); do
 	if boxd machine exec ${org_args[@]+"${org_args[@]}"} "$machine_id" --timeout 15 -- true >/dev/null 2>&1; then
@@ -100,8 +84,7 @@ echo "==> installing the template (this takes several minutes)"
 machine_exec 1800 "sudo -n ZUSE_PROVISION_DIR=$provision_dir bash $provision_dir/boxd/install.sh && sudo -n rm -rf $provision_dir"
 
 echo "==> registering the runtime route"
-# The route is captured with the snapshot, so every restore already has
-# DNS for the runtime port before its first connection.
+
 boxd machine proxy add ${org_args[@]+"${org_args[@]}"} "p$runtime_port" --vm "$machine_id" --port "$runtime_port" >/dev/null
 
 echo "==> saving snapshot $snapshot_name"

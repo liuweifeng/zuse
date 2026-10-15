@@ -140,8 +140,7 @@ export const AnalyticsServiceLive = Layer.effect(
 					);
 					return;
 				}
-				// `sessionChanges` begins with the current state. Preserve an existing
-				// installation identity on startup and rotate only on a real sign-out.
+
 				if (current.identityKind === "anonymous") return;
 				const anonymousId = createAnonymousAnalyticsId();
 				yield* persistAnonymousId(anonymousId);
@@ -253,7 +252,7 @@ export const AnalyticsServiceLive = Layer.effect(
 					readonly count: number;
 				}>`SELECT COUNT(*) AS count
 					FROM analytics_outbox WHERE next_attempt_at <= ${new Date().toISOString()}`;
-				// A failed batch is deferred by `flush`; do not spin during shutdown.
+
 				if ((after[0]?.count ?? 0) >= (before[0]?.count ?? 0)) return;
 			}
 		}).pipe(Effect.catch(() => Effect.void));

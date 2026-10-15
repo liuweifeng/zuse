@@ -44,8 +44,6 @@ export type UpdateStatus =
 	| {
 			readonly kind: "error";
 			readonly message: string;
-			// Stalls + transient network errors are retryable; signature/integrity
-			// failures are not. Absent means retryable — banner and menu treat
-			// `undefined` as "show Try Again". Set explicit `false` to suppress.
+
 			readonly retryable?: boolean;
 	  };

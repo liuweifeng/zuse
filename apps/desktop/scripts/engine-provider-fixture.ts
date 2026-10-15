@@ -29,8 +29,7 @@ export const startEngineProviderFixture = async (directory: string) => {
 			requests++;
 			assert(Array.isArray(body.input));
 			response.writeHead(200, { "content-type": "text/event-stream" });
-			// Once a command has run, keep inference pending until the crash closes it.
-			// A genuinely replayed fresh turn receives another command and fails the marker assertion.
+
 			if (
 				body.input.some(
 					(item: { type?: string }) =>

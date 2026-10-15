@@ -75,18 +75,14 @@ export function ComposerModelMenu({
 	value: ModelModeValue;
 	editable: boolean;
 	onChange: (value: ModelModeValue) => void;
-	/** Provider ids to show; `null`/`undefined` = no filtering (full catalog). */
+
 	availableProviders?: readonly ProviderId[] | null;
-	/** When false, only the current provider's model submenu is shown. */
+
 	canChangeProvider?: boolean;
-	/** When false, the reasoning/effort section is hidden. */
+
 	canChangeReasoning?: boolean;
 }) {
 	return (
-		// Re-mount the native Host on provider/model change: iOS UIMenu snapshots
-		// its content when opened, so switching provider/model must rebuild the
-		// menu to refresh the reasoning options on next open. The re-mount is
-		// invisible because a model tap dismisses the menu first.
 		<Host
 			key={`${value.providerId}:${value.model}`}
 			matchContents
@@ -381,11 +377,8 @@ function ProviderModelMenus({
 	canChangeProvider?: boolean;
 }) {
 	const providers = providerOptions(activeModelCatalog()).filter((provider) => {
-		// Locked to the current provider mid-session (provider swaps need a fresh
-		// chat) — show only its model submenu.
 		if (!canChangeProvider) return provider.value === value.providerId;
-		// Hide providers whose CLI isn't installed; keep the current provider so a
-		// stale selection never vanishes from the menu.
+
 		if (availableProviders == null) return true;
 		return (
 			provider.value === value.providerId ||
@@ -433,10 +426,6 @@ function ProviderModelMenus({
 	);
 }
 
-// Reasoning/effort levels get an ascending gauge glyph (low → high) so the menu
-// reads as "increasing" instead of a flat brain icon on every row. The active
-// level is reflected by the composer trigger label, so we intentionally show
-// the level glyph on every row rather than a checkmark.
 const REASONING_GAUGE_ICONS = [
 	"gauge.with.dots.needle.0percent",
 	"gauge.with.dots.needle.33percent",

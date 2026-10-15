@@ -81,21 +81,14 @@ const prepareCloudWorkspaceSshOnce = async (
 	}
 	const retained = retainEnvironmentShell({ environmentId }, "wake");
 	try {
-		// An API workspace can report ready before its renderer gateway lease has
-		// finished reconnecting. SSH and file sync require that live client for
-		// key authorization, so keep a transient wake lease through the command.
 		await waitForEnvironmentGateway(environmentId, retained.key);
 		let access: Awaited<ReturnType<typeof requestSshAccess>>;
 		try {
 			access = await requestSshAccess(workspaceId);
 		} catch (cause) {
 			if (cloudSshMissingSandboxFailure(cause)) {
-				// Provider absence is authoritative, but an SSH request does not own
-				// lifecycle replacement. Preserve the cause for the recovery surface.
 				throw cause;
 			} else {
-				// The api rejects unknown routes while SSH support is still rolling
-				// out; surface that as a capability gap instead of a raw RPC error.
 				const detail = cause instanceof Error ? cause.message : String(cause);
 				throw new Error(
 					`SSH access is not available for this workspace yet — the cloud service and workspace image need the SSH update.${
@@ -114,13 +107,12 @@ const prepareCloudWorkspaceSshOnce = async (
 		});
 		if (prepared === null)
 			throw new Error("Could not prepare SSH access on this device.");
-		// Idempotent: the sandbox host service dedupes keys by fingerprint.
+
 		try {
 			const client = getRendererClientBus().client(environmentId);
 			if (client === null)
 				throw new Error("Cloud workspace disconnected while preparing SSH.");
-			// Access preparation is an online prerequisite, not a durable user
-			// command. Do not wait behind the environment command outbox.
+
 			await Effect.runPromise(
 				client["machine.sshKeys.add"]({
 					publicKey: prepared.publicKey,

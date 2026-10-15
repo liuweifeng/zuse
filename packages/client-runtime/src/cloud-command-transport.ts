@@ -148,9 +148,7 @@ export const makeCloudCommandTransport = (
 			);
 			if (destructiveWorkspaceLifecycle(workspace))
 				return { kind: "terminal", error: workspaceUnavailable() };
-			// An accepted v3 command on a reachable workspace cannot safely fall back to
-			// live RPC. A missing/conflicting mailbox route means the control plane must
-			// regain drain compatibility before delivery can continue.
+
 			return blockedFailure("runtime-compatible", "update-required");
 		} catch (workspaceCause) {
 			const workspaceFailure = staticControlPlaneFailure(workspaceCause);
@@ -171,12 +169,6 @@ export const makeCloudCommandTransport = (
 			const code = errorCode(cause);
 			if (code !== "not-found" && code !== "conflict") throw cause;
 
-			// During the additive v3 rollout, an older control plane returns the same
-			// endpoint-level 404 as a genuinely missing workspace. Disambiguate through
-			// the long-lived v2 workspace route before assigning a terminal lifecycle.
-			// The data-key route also fences deleting/deleted workspaces with a conflict,
-			// which must resolve to the same typed terminal state instead of entering the
-			// live fallback or retry path.
 			try {
 				const workspace = await Effect.runPromise(
 					control["cloud.workspaces.get"]({ workspaceId }),
@@ -258,10 +250,6 @@ export const makeCloudCommandTransport = (
 		onFailure: (failure: ControlPlaneFailure) => void;
 	}>;
 
-	/**
-	 * One cursor and long-poll loop per workspace. Individual command handles only
-	 * register filtered observers, so many queued commands still use one watch.
-	 */
 	class WorkspaceStatusFanout {
 		private readonly subscribers = new Set<StatusSubscriber>();
 		private revision: number | null = null;
@@ -331,8 +319,6 @@ export const makeCloudCommandTransport = (
 						}),
 					);
 					if (page.resetRequired) {
-						// A reset says earlier history was compacted. Refresh every accepted
-						// command authoritatively before moving the shared cursor forward.
 						await this.refreshAll();
 					} else {
 						for (const status of page.changes) this.publish(status);
@@ -367,7 +353,6 @@ export const makeCloudCommandTransport = (
 		return created;
 	};
 
-	/** A v3 status is authoritative only for the exact keyed envelope on disk. */
 	const assertStatusEnvelopeIdentity = (
 		status: CommandStatus,
 		envelope: CloudCommandEnvelope,
@@ -409,8 +394,7 @@ export const makeCloudCommandTransport = (
 			workspaceSequence: status.workspaceSequence,
 			revision: status.revision,
 			acceptedAt: status.updatedAt,
-			// Applied is the sole terminal state which proves successful acceptance;
-			// result recovery still observes the applied row and decrypts its receipt.
+
 			state: status.state === "applied" ? "accepted" : status.state,
 		} as CommandAcceptance;
 	};
@@ -526,8 +510,7 @@ export const makeCloudCommandTransport = (
 						cause,
 					);
 					if (failure.kind === "terminal") throw failure.error;
-					// Key access can recover after sign-in, billing, rollout, or a transient
-					// network failure. Keep the accepted outbox row for the next resume.
+
 					throw cause;
 				}
 				let result: Result;
@@ -553,9 +536,6 @@ export const makeCloudCommandTransport = (
 						throw new Error("invalid cloud command result");
 					result = terminalResult.result as Result;
 				} catch {
-					// A terminal mailbox row will return the same opaque bytes forever. Treat
-					// an unreadable result as authoritative instead of leaving the accepted
-					// IndexedDB row in an infinite retry loop.
 					throw new CloudCommandTerminalError(
 						"outcome-unknown",
 						"result-invalid",
@@ -645,8 +625,7 @@ export const makeCloudCommandTransport = (
 						return;
 					}
 					if (input.initialStatus !== undefined) observe(input.initialStatus);
-					// Register with the shared cursor first; this read then closes the race
-					// between acceptance/restart and the first long-poll response.
+
 					void (async () => {
 						let retryDelayMs = 100;
 						while (!settled) {
@@ -693,11 +672,6 @@ export const makeCloudCommandTransport = (
 		};
 	};
 
-	/**
-	 * Idempotently accepts one already-encrypted identity. Response-loss recovery
-	 * is deliberately expressed in terms of the envelope, never the mutable
-	 * caller command, so every retry addresses the same mailbox row.
-	 */
 	const enqueueEnvelope = async (
 		envelope: CloudCommandEnvelope,
 	): Promise<CommandAcceptance> => {
@@ -707,8 +681,6 @@ export const makeCloudCommandTransport = (
 				control["cloud.commands.enqueue"](envelope),
 			);
 		} catch (enqueueCause) {
-			// The response may have been lost after insertion. An authoritative
-			// identity-bound status converts that ambiguity back into acceptance.
 			let statusMissing = false;
 			try {
 				const status = await commandStatus(
@@ -725,12 +697,8 @@ export const makeCloudCommandTransport = (
 				);
 				if (failure.kind === "terminal") throw failure.error;
 				statusMissing = errorCode(statusCause) === "not-found";
-				// Preserve the enqueue failure; ClientBus retains this exact envelope.
 			}
 			if (errorCode(enqueueCause) === "conflict" && statusMissing) {
-				// A retained runtime can lose eligibility between initial key read and
-				// enqueue. Only explicit disabled capability permits one live fallback;
-				// lifecycle/fence conflicts remain authoritative failures.
 				try {
 					const refreshed = await dataKey(envelope.workspaceId);
 					if (!refreshed.mailboxEnabled)
@@ -763,7 +731,6 @@ export const makeCloudCommandTransport = (
 		return status;
 	};
 
-	/** Opaque control-plane transport; it never requests a compute connection. */
 	const transport: CloudCommandTransport = {
 		supports: supportsCommand,
 		dispatch: <Result>({
@@ -784,8 +751,7 @@ export const makeCloudCommandTransport = (
 							"This command payload is not enabled for durable delivery",
 						);
 					const workspaceId = String(command.environmentId);
-					// Snapshot plaintext before the first await so caller-side mutation cannot
-					// change the fingerprinted command while key retrieval is in flight.
+
 					const plaintext = eligible.plaintext;
 					const key = await dataKey(workspaceId);
 					if (!key.mailboxEnabled)

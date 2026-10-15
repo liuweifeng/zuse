@@ -88,9 +88,6 @@ const stripSlash = (p: string): string => p.replace(/\/+$/g, "");
 
 const EMPTY_PATHS: ReadonlyArray<string> = [];
 
-// Injected into the tree's shadow root: hide the default chevron and use the
-// Hugeicons Folder01 (closed) / Folder02 (open) glyphs instead. The mask paths
-// live on the `.fz-tree` host in styles.css and pierce the shadow boundary.
 const FOLDER_ICON_CSS = `
 button[data-item-type='folder'] [data-item-section='icon'] svg { display: none; }
 button[data-item-type='folder'] [data-item-section='icon'] {
@@ -136,9 +133,6 @@ const validateNewName = (raw: string | null): string | null => {
 	return name;
 };
 
-// Map git's richer working-tree states onto the six statuses `@pierre/trees`
-// renders as its built-in row badges (M / A / dot). Folders roll up
-// automatically inside the tree.
 const gitStatusFor = (kind: GitChangeKind): GitStatus | null => {
 	switch (kind) {
 		case "modified":
@@ -225,8 +219,6 @@ export function FileTree({
 	}
 	return (
 		<TreeView
-			// Remount when the path universe is first known / re-rooted so the model
-			// is rebuilt from a clean presorted list.
 			key={`${environmentId}:${folderId}:${worktreeId ?? "main"}:${rootPath}`}
 			folderId={folderId}
 			projectId={projectId}
@@ -294,9 +286,6 @@ function TreeView({
 		});
 	}, [folderRoot]);
 
-	// Directory paths carry a trailing "/" in the server listing. Keep a set of
-	// their canonical (slash-stripped) form so selection can tell files from
-	// folders without a model round-trip.
 	const dirPathsRef = useRef<Set<string>>(
 		new Set(paths.filter((p) => p.endsWith("/")).map((p) => stripSlash(p))),
 	);
@@ -316,12 +305,8 @@ function TreeView({
 		[environmentId, folderId, openFileInTab, projectId, worktreeId],
 	);
 
-	// `onSelectionChange` is handed to the tree model before `loadDeferred`
-	// exists; read it through a ref.
 	const loadDeferredRef = useRef<(dir: string) => void>(() => {});
 
-	// Single selection of a file row opens it — matches the old click-to-open.
-	// Directory selection is a no-op; the tree toggles expansion itself.
 	const onSelectionChange = useCallback(
 		(paths: readonly string[]) => {
 			if (paths.length !== 1) return;
@@ -358,7 +343,6 @@ function TreeView({
 						},
 					});
 				} catch (err) {
-					// Revert the optimistic model change on disk failure.
 					modelRef.current?.move(destinationPath, sourcePath);
 					window.alert(`Couldn't rename: ${formatError(err)}`);
 				}
@@ -402,18 +386,14 @@ function TreeView({
 
 	const { model } = useFileTree({
 		paths,
-		// Server already emits paths in dirs-first-then-name order; preserve it so
-		// the tree doesn't re-sort (and, unlike `presorted`, this never drops rows
-		// if the order isn't Pierre's exact canonical form).
+
 		sort: () => 0,
-		// Seed a first batch of rows so the tree renders before the virtualizer has
-		// measured the host viewport (otherwise it can paint empty).
+
 		initialVisibleRowCount: 40,
 		initialExpansion: 1,
 		density: "compact",
 		icons: "complete",
-		// Swap the bare folder chevron for a real folder glyph (open/closed) and
-		// drop the indent guides — see the `--fz-folder*` vars in styles.css.
+
 		unsafeCSS: FOLDER_ICON_CSS,
 		gitStatus: toGitStatusEntries(gitChanges),
 		onSelectionChange,
@@ -438,14 +418,10 @@ function TreeView({
 	});
 	modelRef.current = model;
 
-	// Live git-status lane: push the current changes into the tree and keep it in
-	// sync as the working tree changes.
 	useEffect(() => {
 		model.setGitStatus(toGitStatusEntries(gitChanges));
 	}, [model, gitChanges]);
 
-	// Apply canonical ClientBus snapshots to the existing model in one batch so
-	// expansion and selection survive live filesystem updates.
 	useEffect(() => {
 		const next = new Set(paths);
 		const operations = fileTreeSnapshotOperations(knownPathsRef.current, paths);
@@ -458,9 +434,6 @@ function TreeView({
 		);
 	}, [model, paths]);
 
-	// Deferred directories (`node_modules`, gitignored build output) arrive
-	// empty; their children are fetched one level at a time each time the
-	// user opens them, and stay out of the watched snapshot.
 	const deferredRef = useRef<Set<string>>(new Set(deferredDirectories));
 	const loadedDeferredRef = useRef<Set<string>>(new Set());
 	const deferredPathsRef = useRef<Set<string>>(new Set());
@@ -509,7 +482,6 @@ function TreeView({
 					}
 					for (const entry of entries) {
 						if (entry.kind === "directory") {
-							// Everything inside a deferred directory loads on demand too.
 							deferredRef.current.add(entry.path);
 							dirPathsRef.current.add(entry.path);
 						}
@@ -530,7 +502,6 @@ function TreeView({
 			for (const dir of deferredRef.current) {
 				const item = model.getItem(`${dir}/`) ?? model.getItem(dir);
 				if (item === null || !("isExpanded" in item) || !item.isExpanded()) {
-					// Reopening must refresh unwatched contents; discard stale requests.
 					loadedDeferredRef.current.delete(dir);
 					deferredRequestsRef.current.delete(dir);
 					continue;
@@ -759,12 +730,7 @@ function TreeView({
 				model={model}
 				header={header}
 				renderContextMenu={renderContextMenu}
-				// Pierre's host manages its own `height:100%` + internal `overflow`
-				// scroller when virtualized, so only give it a bounded height — do NOT
-				// set `overflow` here, or it overrides Pierre's `overflow:hidden`,
-				// breaks the internal scroller, and clips the context-menu popup.
 				className="h-full min-h-0"
-				// Follow the app appearance so the shadow-DOM tree matches light/dark.
 				data-theme-type={appearanceMode}
 			/>
 			<DeleteConfirmDialog

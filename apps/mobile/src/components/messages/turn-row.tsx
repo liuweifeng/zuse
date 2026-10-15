@@ -72,11 +72,6 @@ export function TurnRow({
 			message.content._tag === "assistant",
 	).length;
 
-	// A completed turn with tool activity AND a final answer collapses like the
-	// desktop: a summary header on top (tool/message counts), the activity hidden
-	// behind it, and the final assistant text always visible below. Anything else
-	// (the live/streaming turn, a plain answer, or a turn still mid-flight)
-	// renders every row inline in order.
 	const showSummary = !live && toolCount > 0 && assistantText.length > 0;
 
 	if (!showSummary) {

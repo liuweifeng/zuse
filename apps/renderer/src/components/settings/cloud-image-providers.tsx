@@ -22,7 +22,6 @@ import {
 } from "../ui/dialog.tsx";
 import { CloudImageBuildHistory } from "./cloud-image-build-history.tsx";
 
-// Bundled provider marks from boxd.sh/favicon.svg, boat.dev/icon.svg, and e2b.dev/icon1.png.
 const logos: Readonly<Record<string, string>> = {
 	boxd: boxdLogo,
 	box: boatLogo,

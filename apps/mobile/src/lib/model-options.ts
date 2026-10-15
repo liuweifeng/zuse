@@ -74,8 +74,6 @@ export const PERMISSION_OPTIONS: readonly {
 	{ value: "acceptEdits", label: "Accept edits" },
 ];
 
-// Every helper takes the resolved catalog first (see `~/store/model-catalog`)
-// so pickers reflect the desktop's live inventory, not a compiled-in list.
 export const providerOptions = (catalog: ModelCatalogView) =>
 	selectableCatalogProviderIds(catalog).map((providerId) => ({
 		value: providerId,

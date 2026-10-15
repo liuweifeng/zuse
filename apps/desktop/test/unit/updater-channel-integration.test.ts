@@ -96,7 +96,7 @@ afterEach(async () => {
 async function start() {
 	const { startAutoUpdater, ...updater } = await import("../../src/updater.ts");
 	const { autoUpdater } = await import("electron-updater");
-	// Only the renderer attachment surface is needed by the updater.
+
 	const window = {
 		isDestroyed: () => false,
 		webContents: { send: vi.fn(), on: vi.fn() },
@@ -358,8 +358,7 @@ describe("macOS update installation handoff", () => {
 			kind: "ready",
 			version: state.target,
 		});
-		// Squirrel owns the staged version until restart; a feed switch must not
-		// relabel it or schedule a second native download.
+
 		await expect(
 			state.handlers.get(UPDATE_CHANNEL_SET)?.({}, "stable"),
 		).rejects.toThrow();

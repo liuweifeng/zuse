@@ -37,8 +37,6 @@ const nodeParams = (params: readonly unknown[]): SQLInputValue[] =>
 	) as SQLInputValue[];
 
 const openBun = async (filename: string): Promise<IndexDb> => {
-	// `bun:sqlite` has no @types — narrow the dynamic-import surface to
-	// exactly what we use. Node never reaches this branch.
 	const mod = (await import("bun:sqlite" as string)) as {
 		Database: new (
 			filename: string,

@@ -272,8 +272,6 @@ export const DevicePreferences = SettingsPatch.mapFields(
 );
 export type DevicePreferences = typeof DevicePreferences.Type;
 
-// Literal keys need optional values to preserve sparse saved preferences. Dynamic
-// ACP keys are already sparse; optional values there break the JSON RPC codec.
 const sparseProviderPreferences = <S extends Schema.Constraint>(value: S) =>
 	Schema.StructWithRest(
 		Schema.Record(BuiltinProviderId, Schema.optional(value)),
@@ -301,7 +299,7 @@ export const WorkspaceSettingsValues = SettingsPatch.mapFields(
 	]),
 ).mapFields((fields) => ({
 	...fields,
-	// Persisted account preferences must survive additions to the provider catalog.
+
 	defaultModelByProvider: Schema.optional(
 		sparseProviderPreferences(Schema.String),
 	),

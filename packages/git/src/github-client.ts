@@ -375,7 +375,7 @@ export class GitHubClient {
 					: { body: JSON.stringify(input.body) }),
 			});
 			const quotaHeaders = response.headers;
-			// Actions log URLs are signed storage links. Never forward the GitHub token.
+
 			if (input.path.endsWith("/logs") && response.status === 302) {
 				const location = response.headers.get("location");
 				if (!location || new URL(location).protocol !== "https:")
@@ -438,9 +438,7 @@ export class GitHubClient {
 			try {
 				const decoded = JSON.parse(body);
 				if (decoded && typeof decoded === "object") payload = decoded;
-			} catch {
-				/* Non-JSON logs/diffs and 304 are expected. */
-			}
+			} catch {}
 			const rate = payload.data?.rateLimit;
 			if (rate) {
 				budget.remaining = Math.min(budget.remaining, rate.remaining);
@@ -476,7 +474,7 @@ export class GitHubClient {
 				);
 				budget.pauseUntil = pause;
 				if (primary && !budget.resetAt) budget.resetAt = pause;
-				// A secondary limit protects both APIs; primary quota buckets remain independent.
+
 				if (!primary)
 					this.budget(
 						input.credential,
@@ -585,7 +583,6 @@ export class GitHubClient {
 		interactive = true,
 		allowPartialGraphqlErrors = false,
 	): Promise<{ data: T; errors?: GitHubGraphQLError[] }> {
-		// All query documents in this package use an outer selection ending at the final brace.
 		const document = query.trimStart().startsWith("mutation")
 			? query
 			: query.replace(/}\s*$/, " rateLimit { cost limit remaining resetAt } }");

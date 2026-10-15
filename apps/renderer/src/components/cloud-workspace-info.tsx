@@ -544,9 +544,7 @@ export function CloudWorkspaceInfo({
 	const summary = useCloudSummary(workspaceId);
 	const running = summary?.state === "ready";
 	const [menuOpen, setMenuOpen] = useState(false);
-	// Stream stats only while the menu is open and the runtime is online: the
-	// stream itself counts as workspace activity, and retaining it against a
-	// pausing workspace would race its shutdown.
+
 	const resources = useMachineResources(
 		menuOpen && running && summary.runtimeState === "online"
 			? { environmentId: workspaceId as never }

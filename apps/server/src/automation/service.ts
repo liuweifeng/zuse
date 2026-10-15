@@ -81,7 +81,7 @@ const actorJson = (actor: WorkspaceActor | undefined) =>
 				subject: actor.subject,
 				membershipId: actor.membershipId,
 			});
-// Secret bindings must never alter executable discovery, shell initialization, dynamic loading or runtime ownership.
+
 export const permittedSecretVariable = (name: string) =>
 	!/^(PATH|HOME|SHELL|ENV|BASH_ENV|NODE_OPTIONS|NODE_PATH|LD_.*|DYLD_.*|ZUSE_.*|CODEX_HOME|CLAUDE_CONFIG_DIR)$/i.test(
 		name,
@@ -212,7 +212,7 @@ export const makeAutomationService = (
 				return yield* fail(
 					"That environment variable is reserved by the runtime.",
 				);
-			// Probe the configured credential backend; cloud implementations do not use the OS keychain.
+
 			yield* credentials
 				.listIntegrationAccounts(integration)
 				.pipe(
@@ -293,7 +293,7 @@ export const makeAutomationService = (
 			error instanceof AutomationError ? error : storageError(),
 		),
 	);
-	// A delivery is marked only inside the queue's own SQL transaction. Process loss cannot lose or duplicate it.
+
 	const sweep = (
 		deliver: (
 			sessionId: SessionId,

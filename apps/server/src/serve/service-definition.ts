@@ -30,7 +30,6 @@ export interface ServeServiceDefinitionInput {
 	readonly port?: number;
 }
 
-/** Start flags the daemon re-parses; order mirrors the CLI help. */
 const serveStartFlags = (
 	input: ServeServiceDefinitionInput,
 ): ReadonlyArray<string> => [
@@ -45,7 +44,6 @@ const serveStartFlags = (
 	...(input.port !== undefined ? ["--port", String(input.port)] : []),
 ];
 
-/** Account linking runs unless the mode explicitly opts out. */
 const autoLinkEnabled = (input: ServeServiceDefinitionInput): boolean =>
 	input.sshManaged !== true && input.noAccount !== true;
 

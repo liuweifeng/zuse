@@ -5,7 +5,6 @@ import { Effect, Redacted } from "effect";
 import { openApiString, sealApiString } from "../../src/api-sealing.ts";
 import { layer } from "../../src/config.ts";
 
-// Same encryption implementation and SQL as production; SQLite is an isolated SQL fixture.
 const config = layer({
 	apiIssuer: "https://api.test",
 	workosJwksUrl: "https://api.workos.com/sso/jwks/client_test",

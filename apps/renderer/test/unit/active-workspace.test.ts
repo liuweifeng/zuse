@@ -93,7 +93,6 @@ vi.mock("../../src/lib/environment-entity-hooks.ts", async () => {
 		"../../src/lib/renderer-workspace.ts"
 	);
 	return {
-		// The real hook scopes this desktop's projects; "project" is Personal.
 		useActiveEnvironmentEntities: () => ({
 			...state.entities,
 			folders:

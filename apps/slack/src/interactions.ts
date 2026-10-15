@@ -88,7 +88,7 @@ export const interactions = async (
 						"Request expired or account changed. Close and send your task again.",
 				},
 			});
-		// Retain compatibility with agent-only modals already open during a deploy.
+
 		const projectId = payload.view.state?.values?.repository
 			? payload.view.state.values.repository.project?.selected_option?.value
 			: selected.pending.needsAgent
@@ -146,7 +146,7 @@ export const interactions = async (
 	}
 	if (payload.type !== "block_actions" || !action)
 		return new Response("invalid action", { status: 400 });
-	if (action.action_id === "connect_account") return new Response("ok"); // The private URL starts browser-bound sign-in.
+	if (action.action_id === "connect_account") return new Response("ok");
 	if (action.action_id === "open_repository") {
 		const token = action.value ?? "";
 		if (
@@ -154,7 +154,7 @@ export const interactions = async (
 			!(await pendingRepository(env, installation, token, userId))
 		)
 			return new Response("expired picker", { status: 403 });
-		// Trigger IDs expire in three seconds. Open a cheap loading view before queued catalog work.
+
 		const opened = await slackApi(
 			installation.credentials.botToken,
 			"views.open",

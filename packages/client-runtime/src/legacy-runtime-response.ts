@@ -17,12 +17,6 @@ const isLegacySession = Schema.is(
 	}),
 );
 
-/**
- * Protocols 5/6 expose a turn identity and interrupt phase, not engine attempts.
- * These sentinel fields satisfy the presentation contract only. They must never
- * be used for checkpoints, retries, or other protocol-7 engine operations.
- * Zero denotes unavailable ordinal/time rather than an invented historical turn.
- */
 const presentationTurn = (turn: typeof LegacyTurn.Type) => ({
 	id: turn.turnId,
 	ordinal: 0,
@@ -77,7 +71,6 @@ export const normalizeLegacyRuntimeResponse = (value: unknown): unknown => {
 		return { ...value, turn: presentationTurn(value) };
 	}
 
-	// Effect RPC JSON envelopes. Do not descend into arbitrary error/defect data.
 	if (value._tag === "Exit" && "exit" in value) {
 		return { ...value, exit: normalizeLegacyRuntimeResponse(value.exit) };
 	}
@@ -100,7 +93,7 @@ export const normalizeLegacyRuntimeResponse = (value: unknown): unknown => {
 	if (value.kind === "event" && "event" in value) {
 		return { ...value, event: normalizeLegacyRuntimeResponse(value.event) };
 	}
-	// session.streamChanges, chat.get, externalThread.import and session reads.
+
 	if ("session" in value) {
 		return { ...value, session: normalizeLegacyRuntimeResponse(value.session) };
 	}

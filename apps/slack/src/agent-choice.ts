@@ -6,7 +6,6 @@ import {
 	visibleModelsForProvider,
 } from "@zuse/contracts";
 
-// Use the shared cloud-provider contract and curated catalog, not a Slack-only model list.
 const choices = CloudAuthProvider.literals
 	.flatMap((agent) =>
 		visibleModelsForProvider(BUNDLED_MODEL_CATALOG, agent).map((model) => ({

@@ -13,8 +13,7 @@ export const supportsWireProtocol = (version: number): boolean =>
 
 export const acceptWireHandshake = (protocolVersion: number) =>
 	supportsWireProtocol(protocolVersion)
-		? // The client validates this echo against its own protocol version.
-			Effect.succeed(
+		? Effect.succeed(
 				WireWelcome.make({ protocolVersion, workspaceScopeProtocol: 1 }),
 			)
 		: Effect.fail(

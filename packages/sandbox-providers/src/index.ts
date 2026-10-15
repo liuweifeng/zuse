@@ -15,9 +15,6 @@ export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProvide
 	},
 ) {}
 
-// Egress policy for a sandbox. A fork always starts "quarantined" (ADR 0033:
-// the barrier must be provider-enforced, never a caller choice), and the
-// post-enrollment open step must write the final intended policy in one call.
 export type SandboxNetworkPolicy =
 	| { readonly kind: "quarantined" }
 	| { readonly kind: "open" }
@@ -131,8 +128,7 @@ export interface SandboxProviderAdapter {
 	readonly supportsIdempotentAllocation?: boolean;
 	/** Create/restore configures the requested timeout, including adopted machines. */
 	readonly configuresAllocationTimeout?: boolean;
-	// The placement choices this provider advertises. Providers with one fixed
-	// profile expose a single entry matching `resources`.
+
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
 	readonly create: (input: {
 		readonly sandboxId: string;

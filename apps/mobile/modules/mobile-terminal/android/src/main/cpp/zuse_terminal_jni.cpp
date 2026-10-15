@@ -479,7 +479,7 @@ std::vector<std::uint8_t> render_frame(Session& session) {
   return output;
 }
 
-}  // namespace
+}
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_com_zuse_mobileterminal_GhosttyTerminalNative_create(

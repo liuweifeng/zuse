@@ -22,7 +22,6 @@ export function PluginIcon({
 				className,
 			)}
 		>
-			{/* The initial shows until the logo loads, so the slot is never blank. */}
 			{state !== "loaded" && name.slice(0, 1).toUpperCase()}
 			{state !== "failed" && domain.length > 0 && (
 				<img

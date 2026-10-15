@@ -149,7 +149,7 @@ export const runDesktopEngine = (
 				yield* Deferred.succeed(ready, undefined);
 				return yield* Effect.never;
 			}).pipe(Effect.forkScoped);
-			// Never publish an attachable endpoint until database ownership, migrations and projections are ready.
+
 			const [port] = yield* Effect.raceFirst(
 				Effect.all([Deferred.await(listening), Deferred.await(ready)]),
 				Fiber.join(runtime),

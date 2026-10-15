@@ -168,7 +168,6 @@ const beginSignIn = async (
 ) => {
 	const profile = await env.store.member(installation, userId);
 	if (profile.connection) {
-		// Reading a private link must never enqueue work or consume its token.
 		if (!confirmed) {
 			if (!loginToken) return successPage(env, installation, true, userId);
 			const response = page(
@@ -224,8 +223,7 @@ const beginSignIn = async (
 		code_challenge: challenge,
 		code_challenge_method: "S256",
 		state,
-		// Every new Slack account connection must offer fresh authentication,
-		// regardless of whether disconnect happened in the browser or App Home.
+
 		prompt: "login",
 		max_age: "0",
 		screen_hint: "sign-in",
@@ -257,8 +255,7 @@ const finishSignIn = async (
 			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
 			409,
 		);
-	// Link previews and browser retries must not consume admission before sign-in.
-	// After verified authentication, only one attempt can claim this Slack link.
+
 	if (
 		pending.loginToken &&
 		!(await claimConnectionLink(env, installation, userId, pending.loginToken))
@@ -412,7 +409,7 @@ export const accountRoutes = async (
 			request.method === "POST",
 		);
 	}
-	// Compatibility with already-issued installer setup sessions. No raw model/agent form.
+
 	if (
 		(url.pathname === "/slack/setup" && request.method === "GET") ||
 		(url.pathname === "/slack/setup/connect" && request.method === "POST")
@@ -501,7 +498,6 @@ const connectionComplete = async (
 	channel?: string,
 	pendingRequest?: PendingConnectionRequest,
 ) => {
-	// Bind a saved request to the completed connection before issuing any retry link.
 	if (
 		pendingRequest?.job.connectionId &&
 		pendingRequest.job.connectionId !== connectionId

@@ -399,8 +399,7 @@ export const tunnelArgs = (input: {
 	`127.0.0.1:${input.localPort}:127.0.0.1:${input.remotePort}`,
 	"-o",
 	"BatchMode=yes",
-	// Without this, ssh keeps running when the -L bind fails and the readiness
-	// probe can false-positive against whatever already owns the local port.
+
 	"-o",
 	"ExitOnForwardFailure=yes",
 	"-o",
@@ -472,7 +471,7 @@ export const openTunnel = (input: {
 	remotePort: number;
 	localPort?: number;
 	sshPath?: string;
-	/** Resolve the host alias against this ssh config instead of the default. */
+
 	configFile?: string;
 }): Effect.Effect<TunnelHandle, SshError> =>
 	Effect.tryPromise({

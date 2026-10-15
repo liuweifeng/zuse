@@ -1,4 +1,3 @@
-/** Run from each release checkout against the same isolated directory. */
 import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";

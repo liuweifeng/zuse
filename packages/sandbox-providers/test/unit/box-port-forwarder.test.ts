@@ -41,7 +41,7 @@ test.skipIf(address === undefined)(
 			socket.end(payload);
 			await ended;
 			expect(Buffer.concat(chunks)).toEqual(payload);
-			// Resolving an already-hosted endpoint must not replace its listeners.
+
 			const repeated = spawn(
 				process.execPath,
 				["-e", BOX_PORT_FORWARDER, String(bound.port)],

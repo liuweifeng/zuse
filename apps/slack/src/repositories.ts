@@ -357,7 +357,7 @@ export const acceptRepository = async (
 			"workspace_create",
 		);
 	if (pending.projectId && pending.agentChoice !== job.agentChoice) return null;
-	// Queue consumers are serialized. The first accepted choice is immutable on redelivery.
+
 	if (pending.projectId && pending.projectId !== job.projectId) return null;
 	if (
 		(await env.store

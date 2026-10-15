@@ -1,8 +1,6 @@
 const ORCHESTRATION_TOOL_RE =
 	/^(?:mcp__)?zuse[-_]orchestration__([a-z0-9_]+)$/i;
 
-// Legacy Grok rows persisted before the ACP translator fix used the
-// toNiceToolLabel fallback. Match those too so old timelines render cards.
 const LEGACY_LABELS: Record<string, string> = {
 	"Zuse Orchestration Create Thread": "create_thread",
 	"Zuse Orchestration Create Chat": "create_chat",

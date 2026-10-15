@@ -54,7 +54,7 @@ import { toastManager } from "./ui/toast.tsx";
 type Props = {
 	readonly projectId: FolderId | null;
 	readonly environmentId: EnvironmentId;
-	/** Fallback label when no chat is selected yet. */
+
 	readonly emptyLabel: string;
 };
 
@@ -102,12 +102,9 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	const selectSession = useSessionsStore((s) => s.select);
 	const renameSession = useSessionsStore((s) => s.rename);
 	const [renamingSession, setRenamingSession] = useState<Session | null>(null);
-	// Creation progress is chat-owned and can predate a durable session status.
-	// Keep it separate from provider `starting` so an empty chat stays dormant.
+
 	const pendingCreationByChat = useChatsStore((s) => s.pendingCreationByChat);
-	// Sessions with a pending permission prompt. Surfaced on the tab as a lock
-	// so a supervised-mode request is visible without opening the session.
-	// ExitPlanMode is excluded — plan mode owns its own inline approval card.
+
 	const requestsById =
 		useEnvironmentPermissions(environmentId).data?.requestsById ?? {};
 	const questionAttachmentsByKey =
@@ -132,10 +129,6 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 		return ids;
 	}, [requestsById, uiMessage]);
 
-	// The active chat = the chat owning the active session (if any), else
-	// the sidebar's selected chat. We prefer the session-derived value
-	// because it reflects the actual surface the user is looking at; the
-	// chats store's `selectedChatId` may lag during transitions.
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const activeChatId = useMemo(
 		() =>
@@ -147,9 +140,6 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 			activeChatId === null ? null : { environmentId, chatId: activeChatId },
 		)?.readOnly === true;
 
-	// Tabs = all non-archived sessions in the active chat, ordered by
-	// creation time so the user's mental order stays stable. Shared with the
-	// keyboard navigation handlers via `lib/tab-order.ts`.
 	const tabs = useMemo(
 		() => orderedChatTabs(projectSessions, activeChatId),
 		[projectSessions, activeChatId, uiMessage],
@@ -293,7 +283,6 @@ export function MainTabs({ projectId, environmentId, emptyLabel }: Props) {
 	);
 }
 
-/** Every tab kind shares one fixed width so the strip doesn't reflow as titles change. */
 const tabClassName = (active: boolean, extra: string): string =>
 	`relative flex h-6 w-40 shrink-0 items-center rounded-md px-2 text-[12px] transition-colors ${extra} ${
 		active
@@ -449,10 +438,6 @@ function NewChatTabButton({
 	const [preparing, setPreparing] = useState(false);
 	const busy = creating || preparing;
 
-	// Creates a new session inside the active chat. Worktree is inherited
-	// from the chat row server-side. Availability is cached per environment,
-	// so only the first click probes the runtime; importantly, a local default
-	// can never select a provider that is signed out in this cloud workspace.
 	const onClick = async () => {
 		if (busy) return;
 		setPreparing(true);

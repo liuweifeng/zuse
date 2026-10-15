@@ -33,8 +33,6 @@ const Environment = Schema.Struct({
 	BOXD_BILLING_CUTOVER_AT: Schema.optionalKey(Schema.String),
 });
 
-// Fixed UTC windows keep identities stable across cron retries and restarts.
-// The provider assigns each 15-minute bucket by its start timestamp.
 export const boxdBillingWindows = (cutoverMs: number, nowMs: number) => {
 	const end = Math.floor((nowMs - 30 * 60_000) / Day) * Day;
 	if (
@@ -65,7 +63,7 @@ export const BoxdBillingUsageSourceModule: BillingUsageSourceModule = {
 			ingest: (event, payload) =>
 				Effect.gen(function* () {
 					const billing = yield* CloudBillingStore;
-					// Finalization and ledger/outboxes are atomic in the shared settlement path.
+
 					if (yield* billing.isProviderEventFinalized("boxd", event.id))
 						return { metered: false };
 					const store = yield* CloudWorkspaceStore;
@@ -77,7 +75,7 @@ export const BoxdBillingUsageSourceModule: BillingUsageSourceModule = {
 						workspace === null
 							? yield* store.findBuildByProviderSandbox("boxd", event.machineId)
 							: null;
-					// Runtime observations retain attribution for replaced/deleted provider machines.
+
 					const observation = yield* billing.getRuntimeObservation(
 						"boxd",
 						event.machineId,
@@ -134,10 +132,7 @@ export const BoxdBillingUsageSourceModule: BillingUsageSourceModule = {
 						reportedCost: (window) =>
 							getUsage(event.machineId, {
 								...window,
-								// Creation can occur inside the first metering bucket. Its cost
-								// belongs to the creation segment; the VM has no earlier usage.
-								// Later boundaries remain exact: bucket-start attribution must
-								// never pull usage from a preceding billing period or cutover.
+
 								startedAtMs:
 									window.startedAtMs === resource.createdAtMs
 										? Math.floor(window.startedAtMs / 900_000) * 900_000
@@ -188,8 +183,7 @@ export const BoxdBillingUsageSourceModule: BillingUsageSourceModule = {
 			Date.parse(config.BOXD_BILLING_CUTOVER_AT),
 			nowMs,
 		);
-		// Always settle the latest closed day. Rotate bounded historical batches to
-		// recover missed ticks without re-reading years of history every minute.
+
 		const batch =
 			Math.floor(nowMs / 60_000) % Math.max(1, Math.ceil(windows.length / 7));
 		const selected = new Map(

@@ -12,8 +12,7 @@ export const DEFAULT_PROVIDER_PREFIXES: ReadonlyArray<string> = [
   "openai/",
   "azure/",
   "openrouter/openai/",
-  // xAI (Grok), Gemini, and other providers only appear in LiteLLM under a
-  // provider prefix, so try them before falling back to fuzzy matching.
+
   "xai/",
   "gemini/",
   "vertex_ai/",

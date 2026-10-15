@@ -294,9 +294,7 @@ export const migrateExistingBrowserCookies = async (
 					? {}
 					: { sameSite: cookie.sameSite }),
 			});
-		} catch {
-			// Individual invalid or internal cookies must not abort first-use migration.
-		}
+		} catch {}
 	}
 	await writeState(userData, { ...state, migratedExistingSession: true });
 };
@@ -454,9 +452,7 @@ const installedBrowserSources = async (
 					continue;
 				applications.push({ name, path: Path.join(directory, entry.name) });
 			}
-		} catch {
-			// An optional application directory may not exist or be readable.
-		}
+		} catch {}
 	}
 	const browserNames = new Set<string>();
 	await Promise.all(
@@ -481,9 +477,7 @@ const installedBrowserSources = async (
 						),
 				);
 				if (handlesWebUrls) browserNames.add(normalized(application.name));
-			} catch {
-				// Applications without declared web URL schemes are not browsers.
-			}
+			} catch {}
 		}),
 	);
 	return new Set(
@@ -511,9 +505,7 @@ const findCookieDb = async (
 		try {
 			await fs.access(candidate);
 			return candidate;
-		} catch {
-			// Try the next Chromium cookie database layout.
-		}
+		} catch {}
 	}
 	return null;
 };
@@ -770,9 +762,7 @@ export const importDefaultBrowserCookies = async (
 					`${detected.cookieDb}${suffix}`,
 					`${snapshot}${suffix}`,
 				);
-			} catch {
-				/* optional SQLite sidecar */
-			}
+			} catch {}
 		}
 		const db = new DatabaseSync(snapshot, { readOnly: true });
 		let rows: Array<Record<string, unknown>>;
@@ -860,9 +850,7 @@ export const importDefaultBrowserCookies = async (
 											: "no_restriction",
 							}),
 				});
-			} catch {
-				// Skip invalid individual records while preserving the rest of the import.
-			}
+			} catch {}
 		}
 		await persistCookies(userData, persistedCookies);
 		const state = await readState(userData);
@@ -911,9 +899,7 @@ export const restoreImportedBrowserCookies = async (
 	for (const cookie of await readPersistedCookies(userData)) {
 		try {
 			await target.cookies.set(cookie);
-		} catch {
-			// A single stale cookie must not prevent the browser from starting.
-		}
+		} catch {}
 	}
 };
 

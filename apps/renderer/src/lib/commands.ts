@@ -43,5 +43,4 @@ export const APPLICATION_COMMANDS: ReadonlySet<Command> = new Set<Command>([
 	"focus-next-pane",
 	"focus-prev-pane",
 	"open-chat-switcher",
-	// `close-tab` deliberately omitted — see app.tsx's onCloseTab handler.
 ]);

@@ -1,8 +1,4 @@
-/**
- * Display-only helpers for shell tool rows. Shared by server drivers (so they
- * stop echoing the command into `description`) and the renderer (so old
- * persisted sessions still render cleanly). No platform/IO imports.
- */
+
 
 const SHELL_PREFIX = /^(?:\/(?:usr\/)?bin\/)?(?:zsh|bash|sh|dash|fish)(?=\s|$)/;
 
@@ -22,8 +18,6 @@ export function unwrapShellCommand(raw: string): string {
 
   let rest = trimmed.slice(shellMatch[0].length).replace(/^\s+/, "");
 
-  // Consume short-flag clusters (`-lc`, `-c`, `-cl`, …). Long options are
-  // not treated as a `-c` carrier — bail if we hit one before seeing `-c`.
   let hasC = false;
   while (rest.startsWith("-")) {
     if (rest.startsWith("--")) return raw;
@@ -41,15 +35,11 @@ export function unwrapShellCommand(raw: string): string {
   const parsed = parseCommandArg(rest);
   if (parsed === null) return raw;
   if (parsed.inner.length === 0) return raw;
-  // Trailing args after a quoted string → unparseable; leave raw.
+
   if (parsed.rest.trim().length > 0) return raw;
   return parsed.inner;
 }
 
-/**
- * Parse the `-c` argument: a double-quoted string (`\"` escapes), a
- * single-quoted string (`'\''` splices), or a bare remainder.
- */
 function parseCommandArg(s: string): { inner: string; rest: string } | null {
   if (s[0] === '"') {
     let i = 1;
@@ -81,7 +71,7 @@ function parseCommandArg(s: string): { inner: string; rest: string } | null {
     let i = 1;
     let inner = "";
     while (i < s.length) {
-      // bash `'\''` splice: end quote, escaped quote, reopen
+
       if (s.slice(i, i + 4) === "'\\''") {
         inner += "'";
         i += 4;
@@ -96,7 +86,6 @@ function parseCommandArg(s: string): { inner: string; rest: string } | null {
     return null;
   }
 
-  // Bare remainder — the rest of the string is the command.
   return { inner: s, rest: "" };
 }
 

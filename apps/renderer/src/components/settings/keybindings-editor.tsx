@@ -47,7 +47,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { KeybindingPill } from "./keybinding-pill";
 
 const IS_MAC = isMacHost();
-/* ────────────────────── Row model — derived from store ───────────────────── */
 
 type RuleSource = "Default" | "Custom";
 
@@ -59,8 +58,6 @@ interface EditorRow {
 	readonly userIndex: number | null;
 	readonly defaultKey: string | null;
 }
-
-/* ──────────── per-row draft state — manages dirty edits in flight ───────── */
 
 interface RowDraftState {
 	readonly keyDraft: string;
@@ -84,13 +81,6 @@ const draftReducer = (
 	return { ...state, ...action.patch };
 };
 
-/* ────────────────────────── Conflict labels ──────────────────────────────── */
-
-/**
- * Return the labels of any rules (other than `self`) that bind the same
- * chord. With when-clauses gone from the UI the conflict check is just an
- * exact key match — the last-defined rule wins on press.
- */
 function conflictsFor(
 	rows: ReadonlyArray<EditorRow>,
 	self: { readonly id: string; readonly key: string },
@@ -104,14 +94,6 @@ function conflictsFor(
 	return out;
 }
 
-/* ─────────────────────────── Recording surface ──────────────────────────── */
-
-/**
- * Focusable surface that live-renders the currently-held modifiers as the
- * user reaches for the base key. Captures the full chord on the first
- * non-modifier press and fires `onCapture`; Escape and blur both call
- * `onExit` so the parent can drop back to its default display.
- */
 function RecordingSurface({
 	ariaLabel,
 	onCapture,
@@ -189,8 +171,6 @@ function RecordingSurface({
 		</div>
 	);
 }
-
-/* ─────────────────────────── Editor entrypoint ───────────────────────────── */
 
 export function KeybindingsEditor() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
@@ -344,8 +324,6 @@ export function KeybindingsEditor() {
 	);
 }
 
-/* ─────────────────── Existing-row editor ────────────────────────────────── */
-
 function RowEditor({
 	row,
 	allRows,
@@ -361,8 +339,6 @@ function RowEditor({
 	const removeUserRuleAt = useKeybindings((s) => s.removeUserRuleAt);
 	const resetCommand = useKeybindings((s) => s.resetCommand);
 
-	// When the upstream row changes (e.g. saved → echoed back through stream),
-	// reset the draft so the "dirty" indicator clears.
 	useEffect(() => {
 		dispatch({ type: "reset", row });
 	}, [row]);
@@ -545,8 +521,6 @@ function RowEditor({
 	);
 }
 
-/* ─────────────────── New-binding row ─────────────────────────────────────── */
-
 function NewRow({
 	allRows,
 	onCancel,
@@ -579,8 +553,6 @@ function NewRow({
 		onSaved();
 	};
 
-	// Free-flowing flex layout so the Add / Cancel buttons can't be
-	// clipped by a narrow table column.
 	return (
 		<div className="flex flex-col gap-2 bg-accent/20 px-3 py-3 text-sm">
 			<div className="flex items-center gap-1.5 text-[11px] uppercase tracking-[0.07em] text-muted-foreground">
@@ -697,8 +669,6 @@ function NewRow({
 	);
 }
 
-/* ─────────────────── Conflict warning bubble ───────────────────────────── */
-
 function ConflictWarning({
 	labels,
 }: {
@@ -736,8 +706,6 @@ function ConflictWarning({
 		</Tooltip>
 	);
 }
-
-/* ─────────────────── Expandable header search ──────────────────────────── */
 
 function ExpandableSearch({
 	query,
@@ -821,8 +789,6 @@ function ExpandableSearch({
 	);
 }
 
-/* ─────────────────── Reset-all footer (only with overrides) ────────────── */
-
 function ResetAllFooter() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -844,8 +810,6 @@ function ResetAllFooter() {
 	);
 }
 
-/* ─────────────────── Wrapper used by settings-page.tsx ─────────────────── */
-
 export function KeybindingsPane() {
 	return (
 		<div className="flex flex-col gap-4">
@@ -853,8 +817,6 @@ export function KeybindingsPane() {
 		</div>
 	);
 }
-
-/* ─────────────────── helpers ────────────────────────────────────────────── */
 
 function findDefaultKey(command: Command): string | null {
 	for (const r of DEFAULT_KEYBINDINGS) {

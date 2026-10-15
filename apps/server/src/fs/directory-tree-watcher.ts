@@ -26,7 +26,6 @@ const joinRel = (parent: string, name: string): string =>
 const toForwardSlash = (p: string): string =>
 	path.sep === "/" ? p : p.split(path.sep).join("/");
 
-/** True when any strict ancestor directory of `rel` is excluded. */
 const insideExcludedDirectory = (
 	rel: string,
 	isExcludedDirectory: DirectoryTreeWatcherOptions["isExcludedDirectory"],
@@ -87,8 +86,6 @@ const watchPerDirectory = async (
 		}
 	};
 
-	// `reportExisting` is set for directories that appear after startup: their
-	// contents may have been written before this watcher attached.
 	const attach = async (
 		rel: string,
 		reportExisting: boolean,
@@ -104,9 +101,6 @@ const watchPerDirectory = async (
 				if (event === "rename") void syncChild(childRel);
 			});
 		} catch (error) {
-			// The root must be watchable. A subdirectory can vanish between listing
-			// and attaching; beyond the inotify limit it is left unwatched rather
-			// than breaking continuity for the whole tree.
 			if (rel === "") throw error;
 			if (
 				(error as NodeJS.ErrnoException).code === "ENOSPC" &&

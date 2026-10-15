@@ -228,9 +228,6 @@ const MessageRowContent = ({
 		case "context_usage":
 			return null;
 		case "user_question":
-			// A pending question is answered from the composer slot (see the
-			// thread screen), so it renders nowhere in the transcript until it's
-			// answered — then it collapses into scrollback. Matches the web app.
 			return ctx.answeredQuestionIds.has(content.itemId) ? (
 				<AnsweredQuestion questions={content.questions} />
 			) : null;
@@ -457,7 +454,6 @@ const ToolUseRow = ({
 			},
 		});
 
-	// Keep details available without turning a failed tool into a blocking card.
 	if (view.isError) {
 		return (
 			<ExpandableEventRow
@@ -489,7 +485,6 @@ const ToolUseRow = ({
 		);
 	}
 
-	// Skip the redundant tool-level disclosure, but let each file reveal its diff.
 	if (view.fileChangeTotals !== null) {
 		return (
 			<View className="px-2">
@@ -505,7 +500,6 @@ const ToolUseRow = ({
 		);
 	}
 
-	// Everything else: a plain full-width tool line.
 	return (
 		<PlainEventRow
 			icon={view.icon}
@@ -886,7 +880,6 @@ const AnswerBubble = ({
 	);
 };
 
-/** Native clients preserve the complete source until native OpenUI rendering is available. */
 function UiSpecSource({ spec }: { spec: string }) {
 	const { message } = useMessages(["chat"]);
 	return (
@@ -925,12 +918,6 @@ const richChips = (content: Extract<MessageContent, { _tag: "user_rich" }>) => [
 	...content.skillRefs.map((skill) => skill.name),
 ];
 
-/**
- * Boxless, full-width event row for thinking / non-error tool lines: a leading
- * muted icon, a single-line label (optionally shimmering while the row is the
- * last running one), and a trailing chevron. Expanded content renders as plain
- * indented text — no border, no background.
- */
 function PlainEventRow({
 	icon,
 	label,

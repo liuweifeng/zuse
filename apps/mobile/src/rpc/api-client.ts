@@ -19,12 +19,6 @@ import {
 	logConnectionProblem,
 } from "./connection-diagnostics";
 
-/**
- * Client for the account api's HTTP API. WorkOS-authenticated endpoints
- * (list) take the WorkOS bearer; DPoP-protected endpoints (status/connect/
- * register) take a api-minted access token + a fresh DPoP proof per request.
- */
-
 type ApiAuthState = {
 	accessToken: {
 		readonly token: string;
@@ -277,15 +271,12 @@ export const resetApiAccessToken = (): void => {
 	apiAuthState.refresh = null;
 };
 
-/** Cloud control-plane access is account-owned, never proxied through a Mac. */
 const cloudRequest = makeCloudControlRequest({
 	token: getWorkosToken,
 	url,
 	epoch: () => apiAuthState.epoch,
 });
 
-// The server long-poll is bounded at 25s. Bound the native fetch too, so a
-// half-open mobile network cannot pin catalog refresh or mailbox recovery.
 export const cloudControlClient = makeCloudControlClient((...args) =>
 	cloudRequest(...args).pipe(
 		Effect.timeout("30 seconds"),

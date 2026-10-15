@@ -328,7 +328,6 @@ export default function HomeScreen() {
 	const [loadAttempt, setLoadAttempt] = useState(0);
 	const waitingForHome = loading || recoveringConnection !== undefined;
 	useEffect(() => {
-		// A manual retry starts a new deadline; reconnect status changes do not.
 		void loadAttempt;
 		setLoadTimedOut(false);
 		if (!waitingForHome) return;
@@ -619,7 +618,6 @@ export default function HomeScreen() {
 				keyboardShouldPersistTaps="handled"
 				refreshControl={
 					<RefreshControl
-						// Refreshes stay in the background; only the initial load shows progress.
 						refreshing={false}
 						tintColor={colors.accent}
 						onRefresh={retryHome}

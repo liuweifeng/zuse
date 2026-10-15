@@ -1,4 +1,3 @@
-// Must evaluate before @openuidev/react-lang (see module comment).
 import "~/lib/openui-devtools";
 import {
 	type ActionEvent,
@@ -68,20 +67,6 @@ import { Textarea } from "./ui/textarea.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import { UiSpecFallback } from "./ui-spec-fallback.tsx";
 
-/**
- * Renders a persisted `ui_spec` message — an OpenUI Lang block emitted by the
- * agent via the `emit_ui` orchestration tool — inline with the assistant's
- * reply. The component catalogue is defined once in
- * `@zuse/utils/generative-ui` and mapped here onto the renderer's primitives.
- *
- * No `toolProvider` or `onStateUpdate` is passed to `Renderer`, and the
- * server-side validator rejects Query(), Mutation(), reactive state, and
- * action expressions. The only interaction is OpenUI's built-in
- * `continue_conversation` action, raised by FollowUps and Form submissions:
- * it sends the user's response as their next message through the session's
- * composer. Blocks outside the latest turn render read-only.
- */
-
 type SpecProps<Name extends GenerativeUiComponentName> = z.infer<
 	(typeof generativeUiComponents)[Name]["props"]
 >;
@@ -90,7 +75,6 @@ type SpecComponent<Name extends GenerativeUiComponentName> = (
 	renderProps: ComponentRenderProps<SpecProps<Name>>,
 ) => ReactNode;
 
-/** Whether this block may send, and whether a response is in flight or sent. */
 const UiInteraction = createContext<{
 	readonly enabled: boolean;
 	readonly status: "sending" | "sent" | undefined;
@@ -162,7 +146,6 @@ const UiKeyValue: SpecComponent<"KeyValue"> = ({ props }) => (
 );
 
 const UiTable: SpecComponent<"Table"> = ({ props }) => {
-	// Give prose columns more room while retaining a bounded, wrapping layout.
 	const weights = props.columns.map((column, index) =>
 		Math.min(
 			48,
@@ -289,7 +272,6 @@ const UiList: SpecComponent<"List"> = ({ props }) => (
 );
 
 const UiGrid: SpecComponent<"Grid"> = ({ props, renderNode }) => {
-	// Metrics fit in compact tiles; charts and text need room for their content.
 	const minimum = props.children.every(
 		(child) =>
 			isElementNode(child) &&
@@ -313,7 +295,6 @@ const chartValue = (value: number, unit?: string) =>
 	`${value}${unit ? ` ${unit}` : ""}`;
 
 const UiBarChart: SpecComponent<"BarChart"> = ({ props }) => {
-	// Normalize before subtracting to avoid overflow for large finite numbers.
 	const scale =
 		Math.max(...props.points.map((point) => Math.abs(point.value))) || 1;
 	const low = Math.min(0, ...props.points.map((point) => point.value / scale));
@@ -660,7 +641,6 @@ const initialFieldValue = (element: ElementNode): FieldValue => {
 	}
 };
 
-/** Fields in document order, including ones nested in Cards, Grids, or Tabs. */
 const collectFields = (nodes: ReadonlyArray<unknown>): FieldDefinition[] =>
 	nodes.flatMap((node): FieldDefinition[] => {
 		if (!isElementNode(node)) return [];
@@ -740,7 +720,6 @@ const UiForm: SpecComponent<"Form"> = ({ props, renderNode }) => {
 	const submit = () => {
 		const heading = props.title ?? props.submitLabel;
 		const answers = fields.map((field) => {
-			// "Anything else?" reads better without a trailing colon.
 			const label = /[?:]$/.test(field.label) ? field.label : `${field.label}:`;
 			return `- ${label} ${format(values[field.name] ?? field.initial)}`;
 		});
@@ -916,7 +895,6 @@ const UiSlider: SpecComponent<"Slider"> = ({ props }) => {
 	);
 };
 
-/** Exhaustive mapping: adding a catalogue component requires a renderer. */
 const components: { [Name in GenerativeUiComponentName]: SpecComponent<Name> } =
 	{
 		Card: UiCard,
@@ -955,7 +933,6 @@ function defineUiComponent<Name extends GenerativeUiComponentName>(name: Name) {
 	});
 }
 
-/** Built once — schemas, signatures, and renderers use the same catalogue. */
 const generativeUiLibrary = createLibrary({
 	root: "Card",
 	components: (Object.keys(components) as GenerativeUiComponentName[]).map(
@@ -969,9 +946,9 @@ export function UiSpecBlock({
 	sessionRef,
 }: {
 	readonly spec: string;
-	/** Keys the send-once state, which must survive row remounts. */
+
 	readonly messageId: string;
-	/** Session that receives responses; omit when the block is read-only. */
+
 	readonly sessionRef?: SessionRef;
 }) {
 	const { message: uiMessage } = useMessages(["chat"]);
@@ -1003,8 +980,7 @@ export function UiSpecBlock({
 		() => ({ enabled: sessionRef !== undefined, status }),
 		[sessionRef, status],
 	);
-	// Re-validated at render time so a malformed or outdated persisted row
-	// degrades to the raw-spec fallback instead of a blank block.
+
 	const validation = useMemo(() => validateGenerativeUiSpec(spec), [spec]);
 	return (
 		<section

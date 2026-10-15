@@ -77,8 +77,6 @@ const linuxTargets: ReadonlyArray<PortableOpenTarget> = [
 	},
 ];
 
-// This is intentionally explicit: Windows can share the IPC contract without
-// silently inheriting Unix launch semantics when its adapter is implemented.
 const windowsTargets: ReadonlyArray<PortableOpenTarget> = [
 	{
 		id: "finder",
@@ -103,9 +101,7 @@ export const executableOnPath = async (command: string): Promise<boolean> => {
 					constants.X_OK,
 				);
 				return true;
-			} catch {
-				// Continue searching the remaining PATH entries.
-			}
+			} catch {}
 		}
 	}
 	return false;

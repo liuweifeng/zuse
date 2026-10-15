@@ -217,13 +217,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					worktreeId,
 					updatedAt,
 				});
-				// Background-booted sessions (chat.create → session.create with
-				// background=true) already spawned a provider CLI in the OLD cwd
-				// before the user got a chance to pick a worktree. Kill those so
-				// the next `sendMessage` lazy-restarts via `restartProviderSession`,
-				// which reads the now-updated `session.worktreeId` and resolves
-				// `cwdForWorktree` to the new path. Without this teardown the
-				// first user message would land in the wrong working tree.
+
 				const memberSessions = yield* sql<{ readonly id: string }>`
           SELECT id FROM sessions
           WHERE chat_id = ${chatId} AND archived_at IS NULL
@@ -563,8 +557,6 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					if (previous?.phase === "cleanup-script") {
 						yield* Fiber.interrupt(cleanupFiber);
 					} else {
-						// Do not durably publish `forced` while an irreversible removal may
-						// already be past its final cancellation boundary.
 						yield* Fiber.await(cleanupFiber);
 					}
 				}
@@ -602,8 +594,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						.rename(archivedContextPath, contextSource)
 						.pipe(Effect.orDie);
 				}
-				// This update is intentionally idempotent. If a process exits after the
-				// rename but before SQL is repaired, the next startup finishes the job.
+
 				yield* sql`
 					UPDATE attachments
 					SET abs_path = replace(abs_path, ${archivedContextPath}, ${contextSource})
@@ -669,8 +660,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 			function* (chatId: ChatId) {
 				const row = yield* archiveJobRow(chatId);
 				if (row === null || !(yield* jobMayContinue(chatId))) return;
-				// Cleanup scripts are not assumed to be idempotent. If the process died
-				// while one was running, surface a real failure instead of running it twice.
+
 				if (row.status === "running" && row.phase === "cleanup-script") {
 					yield* updateJob(chatId, "failed", "cleanup-script", {
 						error: "The cleanup script was interrupted before it completed.",
@@ -877,9 +867,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					UPDATE chat_archive_jobs SET snapshot_json = ${completedSnapshot}
 					WHERE chat_id = ${chatId}
 				`.pipe(Effect.orDie);
-				// Every archived chat sharing this checkout must inherit the same
-				// checkpoint. Later unarchives can then restore even though only one
-				// worker performed the destructive work.
+
 				const affectedChats = yield* sql<{ readonly id: string }>`
 					SELECT c.id FROM chats c
 					INNER JOIN chat_archive_jobs j ON j.chat_id = c.id
@@ -987,9 +975,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 				const acceptanceSessionsJson = JSON.stringify(
 					liveSessions.map(({ id }) => ({ id, archivedAt })),
 				);
-				// Establish the outbox row before changing logical archive state. The
-				// cancelled/accepting marker is never runnable; restart recovery only
-				// promotes it after observing the chat's durable archived projection.
+
 				yield* sql`
 		  INSERT INTO chat_archive_jobs
 		    (chat_id, command_id, status, phase, worktree_id, snapshot_json,
@@ -1230,8 +1216,6 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 						if (pendingJob?.phase === "cleanup-script") {
 							yield* Fiber.interrupt(cleanupFiber);
 						} else {
-							// Forced/cancelled jobs may still be finishing a cancellation-safe
-							// checkpoint rollback. Never expose the checkout until that settles.
 							yield* Fiber.await(cleanupFiber);
 						}
 					}
@@ -1320,10 +1304,6 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					for (const row of archivedSessions) {
 						const sessionId = SessionId.make(row.id);
 						if (restoredWorktreeId !== null) {
-							// Always record the binding in the session event stream. The raw
-							// SQL foreign key may temporarily appear correct after recreating a
-							// worktree with the same id while the session projector still holds
-							// the null produced by checkout removal.
 							yield* dispatchSessionCommand(sessionId, {
 								_tag: "SetWorktree",
 								worktreeId: restoredWorktreeId,
@@ -1357,9 +1337,7 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 		const performChatDelete = (chatId: ChatId, commandId: string) =>
 			Effect.gen(function* () {
 				yield* lookupChat(chatId);
-				// Tear down each child session's provider state before the SQL
-				// CASCADE wipes the rows so we don't leak an in-memory pubsub /
-				// fiber after the data is gone.
+
 				const childIds = yield* sql<{ readonly id: string }>`
           SELECT id FROM sessions WHERE chat_id = ${chatId}
         `.pipe(Effect.orDie);
@@ -1381,7 +1359,6 @@ export const makeArchiveOperations = Effect.fn("ArchiveOperations.make")(
 					},
 					`${commandId}:delete`,
 				);
-				// ON DELETE CASCADE handles sessions + messages.
 			});
 
 		const handleChatDelete: ConversationReactorHandlers["chatDelete"] = (

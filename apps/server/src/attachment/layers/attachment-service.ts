@@ -24,12 +24,6 @@ const sessionSegment = (sessionId: string): string =>
 		.replace(/[^a-z0-9-]+/g, "-")
 		.slice(0, 80);
 
-/**
- * Legacy flat blob directory under userData. New uploads land in the
- * workspace's `.context/files/`, but this is still used (a) as a fallback
- * when a session's cwd cannot be resolved and (b) to resolve pre-migration
- * rows whose `abs_path` is NULL.
- */
 const legacyAttachmentsDir = (userData: string, pathSvc: Path.Path): string =>
 	pathSvc.join(userData, "attachments");
 
@@ -67,10 +61,6 @@ export const AttachmentServiceLive = Layer.effect(
 					);
 				}
 
-				// Bytes land in the workspace's gitignored `.context/files/` so they
-				// sit inside the agent's cwd rather than hidden app data. When the
-				// cwd can't be resolved (e.g. an orphaned session id) we fall back to
-				// the legacy userData directory so the upload never hard-fails.
 				const cwd = yield* resolveSessionCwd(sql, fs, sessionId, rootPath);
 				if (cwd === null) {
 					return yield* Effect.fail(
@@ -155,8 +145,7 @@ export const AttachmentServiceLive = Layer.effect(
 				);
 				const row = rows[0];
 				if (row === undefined) return null;
-				// Pre-migration rows have no `abs_path`; reconstruct the legacy
-				// flat-dir path from the id + extension.
+
 				const absPath =
 					row.abs_path ??
 					pathSvc.join(

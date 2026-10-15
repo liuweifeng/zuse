@@ -25,7 +25,6 @@ const chat = (
 		...overrides,
 	});
 
-// Only the fields the thread list reads; the rest of the summary is irrelevant.
 const cloud = (
 	chatId: string,
 	createdAt: number,

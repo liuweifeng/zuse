@@ -31,7 +31,7 @@ const register = (
 	for (const tag of tags) policy.set(tag, { target, edit });
 };
 register("handshake", false, ["connect.handshake", "ping.ping"]);
-// Aggregate resource usage only; host configuration and runtime control stay denied.
+
 register("catalog", false, ["machine.resources.watch"]);
 register("catalog", false, ["permission.requests"]);
 register("catalog", true, ["permission.decide"]);
@@ -185,7 +185,7 @@ export const authorizeWorkspaceRpc = Effect.fn("authorizeWorkspaceRpc")(
 						decision: PermissionDecision,
 					}),
 				)(payload);
-				// A chat grant cannot install folder-wide or global approval rules.
+
 				if (input.decision._tag === "AlwaysAllow")
 					return yield* new RpcAccessDeniedError({ code: "access-denied" });
 				const service = yield* Effect.serviceOption(PermissionService);

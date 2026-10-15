@@ -113,7 +113,7 @@ export const HtmlVisual = memo(function HtmlVisual({
 		visible && publicNetwork ? sessionRef : null,
 		visual.attachmentId,
 	);
-	// A fetched attachment must actually be HTML; references cannot execute other blobs.
+
 	const src = useMemo(() => {
 		if (!publicNetwork || !resource.src?.startsWith("data:text/html;base64,"))
 			return null;

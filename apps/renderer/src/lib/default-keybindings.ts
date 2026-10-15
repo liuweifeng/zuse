@@ -522,7 +522,7 @@ export const DEFAULT_KEYBINDINGS: ReadonlyArray<KeybindingRule> = [
 	{ key: "mod+alt+b", command: "toggle-right-sidebar" },
 	{ key: "mod+j", command: "toggle-terminal" },
 	{ key: "mod+l", command: "focus-composer" },
-	// Navigation — terminal/browser-familiar tab & chat switching, all rebindable.
+
 	{ key: "mod+shift+]", command: "next-tab" },
 	{ key: "mod+shift+[", command: "prev-tab" },
 	{ key: "mod+1", command: "select-tab-1" },

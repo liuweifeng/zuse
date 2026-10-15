@@ -41,7 +41,6 @@ export function ToolActivityTree({
 				aria-expanded={open}
 				aria-controls={id}
 				onClick={() => {
-					// Opening existing activity should not replay streaming height animations.
 					initialIds.current = new Set(messages.map((item) => item.id));
 					toggleOpen();
 				}}

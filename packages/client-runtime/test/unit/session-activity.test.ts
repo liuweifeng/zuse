@@ -112,7 +112,7 @@ describe("background session activity", () => {
 			false,
 		);
 		expect(h.running()).toBe(false);
-		// The delayed catalog cannot revive the settled turn or retain its stream.
+
 		expect(h.starts()).toBe(1);
 		release();
 		await h.bus.dispose();

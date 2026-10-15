@@ -1,5 +1,3 @@
-// Account-scoped operations injected by the API. No loopback HTTP or API keys.
-
 export interface ZuseClientConfig {
 	readonly request: (path: string, init: RequestInit) => Promise<Response>;
 	readonly requestTimeoutMs?: number;
@@ -64,9 +62,7 @@ export class ZuseApiError extends Error {
 					"code" in body ? body.code : "error" in body ? body.error : undefined,
 				);
 			}
-		} catch {
-			/* Never log raw response bodies. */
-		}
+		} catch {}
 	}
 
 	get retryable(): boolean {

@@ -25,8 +25,6 @@ import { rootProcessCommand } from "./process-activation.ts";
 import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
 
-// Box resumes from persisted disk with fresh processes and open networking.
-
 const BoxDetail = Schema.Struct({
 	id: Schema.String,
 	name: Schema.optional(Schema.NullOr(Schema.String)),
@@ -121,7 +119,7 @@ export const BOX_MACHINE_RESOURCES: Record<
 };
 
 const USABLE_STATES = new Set(["ready", "idle", "running"]);
-// Current Box responses use stopped; retain older snapshot lifecycle states.
+
 const PAUSED_STATES = new Set(["archiving", "archived", "stopped"]);
 const RECOVERABLE_STATES = [
 	"init",
@@ -179,8 +177,6 @@ const shellQuote = boxShellQuote;
 
 const snapshotName = zuseSnapshotName;
 
-// Box has no network-policy enforcement. Reject unsupported policies before
-// allocating a machine rather than silently granting unrestricted access.
 const validateNetwork = (network: SandboxNetworkPolicy) =>
 	network.kind === "open"
 		? Effect.void
@@ -198,9 +194,7 @@ export const makeBoxSandboxProvider = (
 		config.hostedPortDomain ?? BOX_DEFAULT_HOSTED_PORT_DOMAIN;
 	const machineType = config.machineType ?? "small";
 	const readyDeadlineMs = config.readyDeadlineMs ?? 120_000;
-	// Box named snapshots commonly take longer than ten minutes for the full
-	// runtime image. Keep the request retryable, but do not abandon a healthy
-	// in-flight save on a short interactive-operation deadline.
+
 	const snapshotDeadlineMs = config.snapshotDeadlineMs ?? 30 * 60_000;
 	const pollIntervalMs = config.pollIntervalMs ?? 2_000;
 
@@ -215,8 +209,7 @@ export const makeBoxSandboxProvider = (
 			try: () =>
 				http.fetch(`${apiBaseUrl}${path}`, {
 					method,
-					// Workers rejects redirect: "error". Manual keeps credentials on
-					// this origin; non-2xx responses fail below without following.
+
 					redirect: "manual",
 					signal:
 						timeoutMs === undefined
@@ -394,10 +387,6 @@ export const makeBoxSandboxProvider = (
 
 	const runtimeLayoutCommand = (requirePersistedLayout: boolean): string =>
 		[
-			// Wait for authoritative runtime storage and the user database.
-			// Executables in /usr and /opt can load lazily during restore; waiting
-			// for every installed tool needlessly gates the workspace runtime.
-			// Mutable runtime data and ownership journals remain behind /srv.
 			'for root in /etc /srv; do fs=$(findmnt -rn -o FSTYPE -T "$root") || exit 1; case "$fs" in *fuse*) exit 75 ;; "") exit 1 ;; esac; done',
 			rootProcessCommand(
 				[
@@ -406,8 +395,7 @@ export const makeBoxSandboxProvider = (
 						? [`sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER}`]
 						: []),
 					`if sudo -n test -f ${BOX_PERSISTED_RUNTIME_MARKER} && [ "$(readlink /home/zuse)" = "${BOX_PERSISTED_RUNTIME_ROOT}/home" ] && [ "$(readlink /home/repos)" = "${BOX_PERSISTED_RUNTIME_ROOT}/repos" ] && test -d /home/zuse/.zuse-data && test -d /home/zuse/.ssh && test -d /home/repos; then sudo -n install -d -m 0700 -o zuse -g zuse /run/zuse-secrets; exit $?; fi`,
-					// An unaliased legacy home may still contain the live authoritative DB.
-					// The healthy alias return above needs no stopped-process observation.
+
 					...boxProcessStoppedChecks(WORKSPACE_RUNTIME_PROCESS_SELECTOR),
 					`sudo -n install -d -m 0755 -o root -g root ${BOX_PERSISTED_RUNTIME_ROOT}`,
 					`sudo -n install -d -m 0755 -o zuse -g zuse ${BOX_PERSISTED_RUNTIME_ROOT}/home ${BOX_PERSISTED_RUNTIME_ROOT}/repos`,
@@ -469,20 +457,14 @@ export const makeBoxSandboxProvider = (
 		}) {
 			yield* validateNetwork(input.network);
 			const env = yield* validatedEnv(input.env);
-			// The Box account environment is deliberately inherited (no `noEnv`):
-			// under the account-image architecture the base carries credentials so
-			// the runtime launches without a credential-install phase. Anything in
-			// the account environment reaches every sandbox — only globally shared
-			// material belongs there; per-account credentials are baked into the
-			// account image by the API.
+
 			const created = yield* request("POST", "/sandboxes", BoxInfoResponse, {
 				from: input.snapshot,
 				type: yield* machineTypeFor(input.sizeId),
 				ttlSeconds: clampTtlSeconds(input.timeoutSeconds),
 				env,
 			});
-			// Label before waiting: a crash mid-provision must stay recoverable by
-			// label, and unlabeled boxes only die by TTL.
+
 			yield* requestVoid(
 				"PATCH",
 				`/sandboxes/${encodeURIComponent(created.sandbox.id)}`,
@@ -534,9 +516,7 @@ export const makeBoxSandboxProvider = (
 		yield* validatedEnv(input.env ?? {});
 		const unit = boxProcessUnit(input.user ?? "user", tag);
 		if (unit.length > 255) return yield* providerError("rejected");
-		// A prior resume may have timed out after Boat started the machine but
-		// before restoring its ephemeral /home links. Retried launches must pass
-		// the same disk barrier even when inspect already reports running.
+
 		yield* ensureRuntimeLayout(providerSandboxId, false);
 		const result = yield* runCommand(
 			providerSandboxId,
@@ -616,7 +596,7 @@ export const makeBoxSandboxProvider = (
 				{ path: stagingPath, content: contents, encoding: "utf8" },
 			);
 			const owner = user ?? "user";
-			// Secrets-safe default: owner-only permissions, parents created.
+
 			const install = yield* runCommand(
 				providerSandboxId,
 				`sudo -n install -D -m 600 -o ${shellQuote(owner)} -g ${shellQuote(
@@ -668,8 +648,7 @@ export const makeBoxSandboxProvider = (
 					if (!PAUSED_STATES.has(found.state)) {
 						if (!USABLE_STATES.has(found.state))
 							return yield* providerError("transient");
-						// A retried create must pass the same disk barrier as a new
-						// allocation: Boat can report ready during its FUSE handover.
+
 						yield* ensureRuntimeLayout(found.id, false);
 					}
 					return toProviderSandbox(found);
@@ -740,8 +719,7 @@ export const makeBoxSandboxProvider = (
 		preservesProcessesOnResume: false,
 		supportsFencedProcessReplacement: true,
 		resources: BOX_MACHINE_RESOURCES[machineType],
-		// Size ids intentionally match Box machine types; resume restores onto
-		// fresh hardware, so resizing is free at the provider level.
+
 		sizes: [
 			machineType,
 			...(["small", "default", "large"] as const).filter(
@@ -780,7 +758,7 @@ export const makeBoxSandboxProvider = (
 				network: input.network,
 				requirePersistedLayout: false,
 			}),
-		// Box forks restore persisted disk with a cold process start.
+
 		fork: (input) =>
 			createFromSnapshot({
 				providerLabel: input.providerLabel,
@@ -813,15 +791,13 @@ export const makeBoxSandboxProvider = (
 				"POST",
 				`/sandboxes/${encodeURIComponent(providerSandboxId)}/stop`,
 				{},
-				// 409 covers an already archived box or an in-flight stop.
+
 				[409],
 			).pipe(
 				Effect.catchTag("SandboxProviderError", (error) =>
 					error.code !== "rejected"
 						? Effect.fail(error)
 						: inspect(providerSandboxId).pipe(
-								// Boat also returns 400 stop_failed after TTL archival.
-								// Confirm retained paused storage instead of failing a retry.
 								Effect.flatMap((sandbox) =>
 									sandbox?.state === "paused"
 										? Effect.void
@@ -832,13 +808,6 @@ export const makeBoxSandboxProvider = (
 			),
 		resume: Effect.fn("BoxSandboxProvider.resume")(
 			function* (providerSandboxId, timeoutSeconds, _onTimeout, sizeId) {
-				// Box TTLs always archive; `onTimeout: "terminate"` has no provider
-				// analog and archived boxes accrue no cost, so the caller's kill path
-				// is the terminator. Resume restores onto fresh hardware, so a size
-				// change applies here at no extra cost. Never pass `noEnv` here: its
-				// resume semantics scrub inherited secrets from the restored
-				// snapshot, which would strip the credentials the account image
-				// carries.
 				yield* requestVoid(
 					"POST",
 					`/sandboxes/${encodeURIComponent(providerSandboxId)}/resume`,
@@ -907,8 +876,7 @@ export const makeBoxSandboxProvider = (
 						name: target,
 					});
 				}
-				// Snapshotting a running box can take minutes; retries land back here
-				// and resume polling the same in-flight save.
+
 				const attempts = Math.max(
 					1,
 					Math.ceil(snapshotDeadlineMs / pollIntervalMs),

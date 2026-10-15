@@ -9,11 +9,6 @@ import {
 import { ApiConfiguration } from "./config.ts";
 import { type ApiError, serviceUnavailable } from "./errors.ts";
 
-// Public-API content at rest (conversation-ledger text, webhook payloads and
-// signing secrets) is sealed with the API data-encryption key, mirroring the
-// launch-intent cipher. `context` binds each ciphertext to its owning row so
-// envelopes cannot be replayed across accounts, workspaces, or columns.
-
 const Envelope = Schema.Struct({
 	version: Schema.Literal(1),
 	iv: Schema.String,

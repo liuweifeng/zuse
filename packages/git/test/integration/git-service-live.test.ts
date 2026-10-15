@@ -642,8 +642,7 @@ describe("GitServiceLive", () => {
 						),
 					),
 				);
-				// Git path discovery uses real subprocesses; wait for their completion
-				// before advancing the virtual reconciliation clock.
+
 				yield* Effect.promise(async () => {
 					for (
 						let attempt = 0;
@@ -663,8 +662,7 @@ describe("GitServiceLive", () => {
 				}
 				yield* Effect.yieldNow;
 				yield* TestClock.adjust("100 millis");
-				// More edits arrive while the previous invalidation is rate-limited.
-				// The final observation must survive without queueing every refresh.
+
 				Queue.offerUnsafe(events, { _tag: "Update", path: "second.md" });
 				yield* Effect.yieldNow;
 				yield* TestClock.adjust("100 millis");
@@ -693,8 +691,7 @@ describe("GitServiceLive", () => {
 				.workspaceChanges(folderId)
 				.pipe(Stream.take(2), Stream.runCollect),
 		);
-		// Let the scoped watcher install before mutating the repository. The
-		// production stream also has a thirty-second reconciliation fallback.
+
 		await new Promise((resolve) => setTimeout(resolve, 25));
 		writeFileSync(join(repositoryRoot, "README.md"), "changed\n");
 		writeFileSync(join(repositoryRoot, "README.md"), "changed again\n");
@@ -838,8 +835,7 @@ describe("GitServiceLive", () => {
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		}
 		expect(watchStarts).toBe(2);
-		// `watch` is called while constructing the streams; give their native
-		// subscriptions one turn to install before proving the fast path is live.
+
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		const changedAt = Date.now();
 		writeFileSync(join(recoveringRoot, "README.md"), "native watcher active\n");
@@ -971,8 +967,7 @@ describe("GitServiceLive", () => {
 
 		expect(watchedPaths.has(repositoryRoot)).toBe(true);
 		expect(watchedPaths.has(secondRepositoryRoot)).toBe(true);
-		// `watch` is invoked while building each stream; allow both native
-		// subscriptions to finish installing before generating their events.
+
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		writeFileSync(join(repositoryRoot, "README.md"), "first changed\n");
 		writeFileSync(join(secondRepositoryRoot, "README.md"), "second changed\n");

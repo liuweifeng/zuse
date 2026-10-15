@@ -107,7 +107,6 @@ export const makeStripeCreditClient = (sdk: Stripe): StripeCreditClient => ({
 			charge: charge.id,
 			limit: 100,
 		})) {
-			// A refund can fail after its credit reversal was already delivered.
 			if (
 				refund.status === "failed" ||
 				refund.status === "canceled" ||
@@ -253,7 +252,7 @@ export const makeStripeCredits = (input: {
 					return yield* new BillingProviderError({ code: "checkout-disabled" });
 				yield* call(() => client.validatePrice(priceId));
 				const customerId = yield* input.customer(accountId, true);
-				// Balance can't fund its own purchase; no invoice_creation, promotions or tax on face value.
+
 				return yield* call(() =>
 					client.checkout({
 						mode: "payment",
@@ -330,7 +329,6 @@ export const makeStripeCredits = (input: {
 						});
 					yield* reconcile(purchase);
 					if (dispute && purchase.paid) {
-						// Reinstatement may arrive first: establish withdrawal before reversing it.
 						yield* adjust(
 							purchase,
 							`prepaid:dispute:${dispute.id}:withdrawn`,

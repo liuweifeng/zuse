@@ -1,8 +1,6 @@
 import { spawn } from "node:child_process";
 
 export function spawnDevApp(command, args, options) {
-	// The shell and its ordinary helpers share a group. The durable engine
-	// creates its own group, even while it remains a direct child of the shell.
 	return spawn(command, args, {
 		...options,
 		detached: process.platform !== "win32",

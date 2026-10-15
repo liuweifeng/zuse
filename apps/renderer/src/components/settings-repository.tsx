@@ -163,12 +163,7 @@ function ProviderOverrideSection({
 }: {
 	defaultProviderId: ProviderId | null;
 	defaultModel: string | null;
-	/**
-	 * Update provider + model in a single patch. We deliberately don't expose
-	 * separate setters: changing only the provider would leave a stale model
-	 * id behind, and firing two patches in a row races against the server's
-	 * read-then-write so the later response can clobber the earlier one.
-	 */
+
 	onProviderAndModelChange: (
 		provider: ProviderId | null,
 		model: string | null,
@@ -194,8 +189,6 @@ function ProviderOverrideSection({
 		"—";
 	const isOverridden = defaultProviderId !== null || defaultModel !== null;
 
-	// Mirror the global "Default agent" filter: skip providers the user
-	// toggled off.
 	const availableProviders = selectableCatalogProviderIds(catalog).filter(
 		(pid) => {
 			if (providerEnabled[pid] === false) return false;
@@ -210,8 +203,6 @@ function ProviderOverrideSection({
 
 	const onToggle = (next: boolean) => {
 		if (next) {
-			// Turning on: seed override with the currently-effective values so the
-			// user sees the same state, but it's now persisted as a repo override.
 			onProviderAndModelChange(
 				effectiveProvider,
 				globalModelByProvider[effectiveProvider] ??

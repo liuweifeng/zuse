@@ -16,7 +16,6 @@ import { readEngineBuildId } from "./engine-build-id.ts";
 
 export { readEngineBuildId } from "./engine-build-id.ts";
 
-// A desktop process keeps its loaded build identity across renderer and host reconnects.
 const builds = new Map<string, Promise<string>>();
 const desktopBuildId = (path: string): Promise<string> => {
 	let build = builds.get(path);
@@ -35,8 +34,6 @@ const decodeProtocol = Schema.decodeUnknownSync(
 	Schema.Struct({ protocolVersion: Schema.Number }),
 );
 
-// Existing engines already expose this endpoint, including on authenticated
-// installations (401 includes the protocol). No credential is sent over HTTP.
 const canAttachRebuiltDesktop = async (
 	endpoint: DesktopEngineEndpoint,
 	signal?: AbortSignal,
@@ -104,9 +101,7 @@ export const ensureDesktopEngine = async (options: {
 				signal,
 			});
 			if (stopped === "stopped") return null;
-			// A build hash identifies executable contents, not RPC compatibility.
-			// Keep active work reachable across same-release rebuilds. Once adopted,
-			// reconnects keep this owner until the desktop itself restarts.
+
 			if (
 				endpoint.appVersion === config.appVersion &&
 				(await canAttachRebuiltDesktop(endpoint, signal))

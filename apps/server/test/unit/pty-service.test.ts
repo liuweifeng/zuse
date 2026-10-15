@@ -457,8 +457,6 @@ describe("PtyService", () => {
 					ownership,
 				);
 
-				// Label and environment record order are presentation/serialization
-				// differences, not a different process identity.
 				const equivalent = yield* service.open(
 					"/tmp/project",
 					80,
@@ -647,8 +645,6 @@ describe("PtyService", () => {
 					openToken: PtyOpenToken.make("lost-close-terminal"),
 				});
 
-				// The first close may have reached the server even when its response did
-				// not reach the client. Replaying the same owner-qualified intent succeeds.
 				yield* service.close(opened.ptyId, ownerId);
 				yield* service.close(opened.ptyId, ownerId);
 				expect((yield* service.list(ownerId)).terminals).toEqual([]);
@@ -690,7 +686,6 @@ describe("PtyService", () => {
 				expect(spawnedPtys[1]?.kill).toHaveBeenCalledOnce();
 				expect(spawnedPtys[2]?.kill).not.toHaveBeenCalled();
 
-				// Retired callbacks cannot resurrect a catalog row or affect another owner.
 				spawnedPtys[0]?.emitData("stale");
 				spawnedPtys[0]?.emitExit(99);
 				const closed = yield* service
@@ -780,8 +775,6 @@ describe("PtyService", () => {
 					expect(secondChild).not.toBe(firstChild);
 					expect(firstChild.kill).toHaveBeenCalledOnce();
 
-					// Late callbacks from the retired child must neither corrupt the new
-					// journal nor complete the subscriber.
 					firstChild.emitData("stale");
 					firstChild.emitExit(99);
 					secondChild.emitData("after");

@@ -72,9 +72,6 @@ export function NearbyPairingApproval() {
 		try {
 			await refresh();
 		} catch (cause) {
-			// Polling is best-effort while the shared environment owner is offline.
-			// Keep connected failures visible, but do not report an intentional
-			// platform suspension as an application error.
 			if (!isLocalDeviceConnectionReady()) return;
 			if (refreshFailureLogged.current) return;
 			refreshFailureLogged.current = true;

@@ -110,8 +110,7 @@ const pendingStartStillApplies = (
 ): boolean => {
 	if (!hasPendingTurnStart(view.pendingCommands)) return false;
 	if (view.data === null) return true;
-	// A later assistant frame proves the submitted turn already settled even if
-	// receipt persistence has not removed the client command overlay yet.
+
 	return latestConversationalRole(view.data) !== "assistant";
 };
 

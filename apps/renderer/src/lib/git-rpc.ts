@@ -10,10 +10,6 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 
 import { formatError } from "./format-error.ts";
 
-/**
- * The four typed failures every `git.*` RPC can return (`GitErrors` in
- * `packages/contracts/src/git.ts`).
- */
 type GitFailure =
 	| GitNotARepoError
 	| GitNotInstalledError

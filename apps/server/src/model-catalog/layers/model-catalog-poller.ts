@@ -2,7 +2,6 @@ import { Effect, Layer, Schedule } from "effect";
 
 import { ModelCatalogService } from "../services/model-catalog-service.ts";
 
-/** Give startup a head start before touching the network or spawning CLIs. */
 const INITIAL_DELAY = "20 seconds";
 const INTERVAL = "6 hours";
 

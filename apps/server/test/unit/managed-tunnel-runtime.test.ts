@@ -201,8 +201,7 @@ describe("managed tunnel runtime", () => {
 						[runtime.start("first-secret"), runtime.start("second-secret")],
 						{ concurrency: 2 },
 					);
-					// start() forks the connector. Wait for its durable ownership record,
-					// not an assumed filesystem latency under parallel test load.
+
 					yield* Effect.promise(() =>
 						expect
 							.poll(

@@ -4,16 +4,6 @@ import {
 	ORCHESTRATION_TEXT_LIMIT,
 	type OrchestrationReadInput,
 } from "@zuse/agents/drivers/orchestration-discovery";
-import type {
-	SessionWaitInput,
-	SessionWaitOptions,
-	SessionWaitResult,
-} from "@zuse/contracts";
-import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
-import { buildOrchestrationModelInventory } from "./orchestration-discovery.ts";
-import type { OrchestrationTaskRuntime } from "./orchestration-task-runtime.ts";
-/** Builds the session-bound orchestration tool surface. */
-
 import {
 	buildOrchestrationTools,
 	ORCHESTRATION_MCP_TOOLS,
@@ -21,6 +11,11 @@ import {
 	type OrchestrationToolDeps,
 	type ReadThreadResult,
 } from "@zuse/agents/drivers/orchestration-tools";
+import type {
+	SessionWaitInput,
+	SessionWaitOptions,
+	SessionWaitResult,
+} from "@zuse/contracts";
 import {
 	type AutonomyLevel,
 	bundledResolvedModelCatalog,
@@ -39,6 +34,7 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
+import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import {
 	UI_SPEC_VERSION,
 	validateGenerativeUiSpec,
@@ -49,6 +45,8 @@ import {
 	orchestrationErrorText,
 } from "./conversation-message-mapping.ts";
 import type { PersistedMessage } from "./conversation-store-types.ts";
+import { buildOrchestrationModelInventory } from "./orchestration-discovery.ts";
+import type { OrchestrationTaskRuntime } from "./orchestration-task-runtime.ts";
 
 export interface ConversationOrchestrationContext {
 	readonly sessionId: SessionId;
@@ -778,8 +776,6 @@ export const makeConversationOrchestration = (
 					),
 				),
 			emitUi: (input) => {
-				// Validate before touching the timeline so a bad spec comes back as
-				// a fixable tool error instead of a degraded transcript block.
 				const validation = validateGenerativeUiSpec(input.spec);
 				if (!validation.ok) {
 					return Promise.resolve({

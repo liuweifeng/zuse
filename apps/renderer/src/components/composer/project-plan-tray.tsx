@@ -44,7 +44,6 @@ const asStatus = (v: unknown): TodoStatus => {
 	return TODO_STATUS.pending;
 };
 
-/** Normalize a raw `[{ content, activeForm, status }]` array into our shape. */
 const toTodos = (raw: unknown): Todo[] => {
 	if (!Array.isArray(raw)) return [];
 	const out: Todo[] = [];
@@ -58,22 +57,11 @@ const toTodos = (raw: unknown): Todo[] => {
 	return out;
 };
 
-/**
- * Parse a `TodoWrite` tool *input* (`{ todos: [...] }`). This is the shape the
- * Claude driver emits directly on the tool_use event.
- */
 const parseTodosFromInput = (input: unknown): Todo[] => {
 	if (input === null || typeof input !== "object") return [];
 	return toTodos((input as Record<string, unknown>).todos);
 };
 
-/**
- * Parse a `TodoWrite` tool *result* `output`. Grok (via ACP) only carries a
- * title on the tool_use input — the actual list arrives on the tool_result as
- * `{ type: "Todo", TodosUpdated: { todos: [{ content, priority, status }] } }`.
- * We detect that self-identifying shape so we don't mistake an unrelated
- * tool result for a plan.
- */
 const parseTodosFromOutput = (output: unknown): Todo[] => {
 	if (output === null || typeof output !== "object") return [];
 	const o = output as Record<string, unknown>;
@@ -86,7 +74,6 @@ const parseTodosFromOutput = (output: unknown): Todo[] => {
 	return [];
 };
 
-/** Coerce an arbitrary tool `output` into searchable text. */
 const outputToString = (output: unknown): string => {
 	if (typeof output === "string") return output;
 	if (output !== null && typeof output === "object") {
@@ -150,7 +137,6 @@ interface ReconstructedTask {
 	order: number;
 }
 
-/** Build the current task list by replaying TaskCreate/TaskUpdate events. */
 const tasksFromMessages = (messages: ReadonlyArray<Message>): Todo[] => {
 	const tasks = new Map<string, ReconstructedTask>();
 	let order = 0;
@@ -239,14 +225,9 @@ export function ProjectPlanTray({
 		environmentId,
 	);
 
-	// Collapsed by default; keyed per session so the expand state doesn't bleed
-	// across session switches (see `key` at the call site).
 	const [expanded, setExpanded] = useState(false);
 
 	const todos = useMemo(() => {
-		// Preferred: the newer Task tools (TaskCreate/TaskUpdate), replayed into a
-		// live list. This is what current Claude (Agent SDK ≥ 0.2.x) sessions emit
-		// instead of TodoWrite.
 		return projectPlanFromMessages(messages);
 	}, [messages]);
 
@@ -298,7 +279,6 @@ export function ProjectPlanTray({
 					<ul className="max-h-64 space-y-0.5 overflow-y-auto px-3 py-2">
 						{todos.map((t, i) => (
 							<li key={i} className="relative flex items-start gap-2.5 pb-1.5">
-								{/* Dashed timeline connector running between item icons. */}
 								{i < todos.length - 1 ? (
 									<span
 										className="absolute left-[6.5px] top-4 bottom-0 border-l border-dashed border-border/60"

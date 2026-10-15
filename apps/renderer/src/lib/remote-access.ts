@@ -52,11 +52,6 @@ export const accountPairingEndpoint = (status: ApiLinkStatus | null) =>
 			endpoint.status !== "unavailable",
 	);
 
-/**
- * A tailnet route can carry this app's pairing traffic only when this app
- * owns it. A `zuse serve`-managed route serves the daemon's auth, not this
- * app's — pairing against it would mint tokens the daemon rejects.
- */
 const tailnetPairingReady = (tailnet: TailnetShareState | null): boolean =>
 	tailnet?.enabled === true &&
 	tailnet.dnsName !== null &&
@@ -93,7 +88,7 @@ export const pairingForMethod = (
 		}
 		return null;
 	}
-	// Local network: the server-issued pairing already targets the LAN host.
+
 	return pairing;
 };
 

@@ -95,8 +95,7 @@ export const reconcileFileTreePaths = async (input: {
 		enqueue(parentPath(changedPath));
 		if (next.has(`${stripSlash(changedPath)}/`)) enqueue(changedPath);
 	}
-	// Watcher batches may list descendants before a deleted parent. Reconcile
-	// ancestors first so their confirmed removals suppress stale child reads.
+
 	pending.sort();
 
 	let processed = 0;
@@ -158,8 +157,7 @@ export const fileTreeSnapshotOperations = (
 	paths: ReadonlyArray<string>,
 ): FileTreePathOperation[] => {
 	const next = new Set(paths);
-	// Children must disappear before their parents. Remove before adding so a
-	// file can become a directory (or vice versa) in the same watcher batch.
+
 	return [
 		...[...knownPaths]
 			.filter((path) => !next.has(path))

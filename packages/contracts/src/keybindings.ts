@@ -14,7 +14,6 @@ import { Rpc } from "effect/unstable/rpc";
  *   - `editor.*` commands fire inside the file editor (CodeMirror).
  */
 export const Command = Schema.Literals([
-	// menu / global
 	"new-chat",
 	"new-chat-without-project",
 	"open-project",
@@ -24,7 +23,7 @@ export const Command = Schema.Literals([
 	"toggle-right-sidebar",
 	"toggle-terminal",
 	"focus-composer",
-	// navigation — drive tabs / chats / panes from the keyboard
+
 	"next-tab",
 	"prev-tab",
 	"select-tab-1",
@@ -45,12 +44,12 @@ export const Command = Schema.Literals([
 	"focus-prev-pane",
 	"open-chat-switcher",
 	"search-files",
-	// composer (chat input)
+
 	"composer.submit",
 	"composer.newline",
 	"composer.forceSubmit",
 	"composer.togglePlanMode",
-	// file editor
+
 	"editor.save",
 	"editor.annotate",
 ]);

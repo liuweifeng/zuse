@@ -22,7 +22,6 @@ import {
 	startEngineProviderFixture,
 } from "./engine-provider-fixture.ts";
 
-// Run after the desktop build. Every process and database belongs to this fixture.
 const directory = await mkdtemp(join(tmpdir(), "zuse-engine-recovery-"));
 const channels = new Set<EngineChannel>();
 const supervisorPath = fileURLToPath(
@@ -122,9 +121,7 @@ const waitReady = async (previousPid?: number) =>
 						probe.close();
 						await probe.closed;
 						return candidate;
-					} catch {
-						/* A crash can leave the previous endpoint until its replacement publishes. */
-					}
+					} catch {}
 				}
 				await delay(50);
 			}

@@ -184,8 +184,6 @@ export default function SettingsScreen({
 		}
 	};
 
-	// Paired and manually added Macs are saved on this phone; account-linked
-	// computers come back from the account, so only saved ones can be removed.
 	const manageSavedComputer = (
 		key: string,
 		label: string,
@@ -247,7 +245,6 @@ export default function SettingsScreen({
 			const permission = await Notifications.requestPermissionsAsync();
 			setNotificationsEnabled(permission.granted);
 			if (permission.granted) {
-				// Permission controls the switch; token registration runs independently.
 				void registerCurrentDeviceForPush(account).catch(() => {
 					Alert.alert(
 						"Push setup needs attention",
@@ -440,8 +437,6 @@ export default function SettingsScreen({
 									subtitle={subtitle}
 									chevron={canConnect || saved}
 									onPress={
-										// Saved computers always open their menu so an offline one
-										// can still be removed; Connect is offered when possible.
 										saved
 											? () =>
 													manageSavedComputer(

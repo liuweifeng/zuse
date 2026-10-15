@@ -1,4 +1,3 @@
-/* Shared desktop palette. Semantic aliases stay in each application. */
 :root {
 	--app-light-lime: hsl(83 74% 43%);
 	--app-light-background: hsl(90 20% 97%);

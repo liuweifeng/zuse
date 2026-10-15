@@ -9,14 +9,13 @@ import { cn } from "~/lib/utils";
 
 type ActivityLoaderProps = {
 	readonly scene: ActivityLoaderScene;
-	/** Square CSS size in pixels. */
+
 	readonly size: number;
-	/** Accessible name; omit when adjacent text already describes the activity. */
+
 	readonly label?: string;
 	readonly className?: string;
 };
 
-/** Colour is re-read at this cadence so hover and theme changes follow. */
 const COLOR_REFRESH_MS = 250;
 const MIN_PIXEL_RATIO = 2;
 
@@ -31,10 +30,6 @@ type LoaderInstance = {
 	visible: boolean;
 };
 
-/**
- * One animation frame loop drives every mounted loader. It stops entirely when
- * nothing visible is mounted; Chromium already suspends it for hidden windows.
- */
 const instances = new Set<LoaderInstance>();
 let frameRequest: number | null = null;
 let clockOrigin: number | null = null;
@@ -124,7 +119,6 @@ export function ActivityLoader({
 		};
 	}, [reducedMotion, scene, size]);
 
-	// Callers own any live region; the loader itself is only an image.
 	return (
 		<canvas
 			ref={canvasRef}

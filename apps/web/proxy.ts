@@ -52,7 +52,6 @@ const withNegotiationHeaders = (response: NextResponse) => {
 export function proxy(request: NextRequest) {
 	const { pathname } = request.nextUrl;
 
-	// An explicit English link must not loop through automatic root detection.
 	if (
 		pathname === "/en" &&
 		(request.method === "GET" || request.method === "HEAD")
@@ -111,7 +110,7 @@ export function proxy(request: NextRequest) {
 		const response = withNegotiationHeaders(
 			locale === "en" ? NextResponse.next() : NextResponse.redirect(url, 307),
 		);
-		// Never share a visitor's redirect or English response with another visitor.
+
 		response.headers.set("Cache-Control", "private, no-store");
 		for (const header of ["Accept-Language", "Cookie", "X-Vercel-IP-Country"]) {
 			response.headers.set(
@@ -152,6 +151,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-	// Framework assets never need language or content negotiation.
 	matcher: "/((?!_next/static|_next/image).*)",
 };

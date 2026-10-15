@@ -196,9 +196,6 @@ export const startGeminiSession = (
 	AttachmentService
 > =>
 	withProviderStartup(function* (startup) {
-		// Keep AttachmentService in the requirement set so layer wiring stays
-		// uniform with the other drivers; attachments themselves are not yet
-		// wired through ACP's `prompt: [{ type: "image", ... }]` shape.
 		yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
@@ -219,9 +216,7 @@ export const startGeminiSession = (
 			...input.executionEnv,
 			...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
 		};
-		// Shared context for the ACP fs/* and terminal/* handlers so file writes
-		// and command execution are gated through PermissionService + RuntimeMode,
-		// exactly like Claude/Codex. `currentMode` is read live.
+
 		const acpHandlerContext = makeAcpPermissionContext({
 			executionEnv,
 			cwd,
@@ -268,9 +263,6 @@ export const startGeminiSession = (
 
 		yield* ensureGeminiFolderTrusted(cwd);
 
-		// Per-session translator coalesces agent_message_chunk deltas into
-		// one AssistantMessage per burst so the renderer doesn't show one
-		// bubble per token.
 		const translator = createAcpTranslator("gemini", {
 			onCheckpoint: (checkpointEvents) => {
 				for (const event of checkpointEvents) Queue.offerUnsafe(events, event);
@@ -279,9 +271,6 @@ export const startGeminiSession = (
 
 		let child: ChildProcessWithoutNullStreams;
 		try {
-			// Agents get MCP only through the Zuse gateway: the allowlist drops
-			// every other server (user/project settings and extensions) while the
-			// ACP-provided `zuse` entry passes through the same filter.
 			child = spawn(geminiPath, GEMINI_ACP_ARGS, {
 				cwd,
 				env: {
@@ -362,13 +351,6 @@ export const startGeminiSession = (
 			rpc.notify(method, params);
 		};
 
-		/**
-		 * Currently in-flight `session/prompt` rpc id. We track this so
-		 * `interrupt()` can both (a) send `session/cancel` to the agent AND
-		 * (b) force-reject the pending request, which unblocks the `inflight`
-		 * promise chain so subsequent `send()` calls don't queue behind a
-		 * dead request.
-		 */
 		let currentPromptRpcId: number | null = null;
 		const rejectCurrentPrompt = (reason: string): void => {
 			const id = currentPromptRpcId;
@@ -388,10 +370,6 @@ export const startGeminiSession = (
 			if (GEMINI_RPC_TRACE) process.stderr.write(`[gemini.rpc.recv] ${line}\n`);
 			const msg = decodeJsonRpcLine(line);
 			if (msg === null) {
-				// Known issue: Gemini CLI sometimes emits plain text to stdout
-				// alongside the JSON-RPC stream (google-gemini/gemini-cli#22647).
-				// Log to stderr so the leak is visible during debugging, but don't
-				// abort — assistant content rides typed `session/update` frames.
 				stdoutNoiseTail = `${stdoutNoiseTail}${line}\n`.slice(-4096);
 				process.stderr.write(`[gemini.stdout.nonjson] ${line}\n`);
 				return;
@@ -411,8 +389,6 @@ export const startGeminiSession = (
 					return;
 				}
 
-				// Forward item/* and thread/* notifications (collab swarming, per-thread
-				// lifecycle) to the shared translator. Mirrors the Grok driver change.
 				if (
 					msg.method.startsWith("item/") ||
 					msg.method.startsWith("thread/")
@@ -535,7 +511,6 @@ export const startGeminiSession = (
 			Queue.endUnsafe(events);
 		});
 
-		// === ACP handshake — synchronous, fails the start() RPC on error. ===
 		const handshake = Effect.tryPromise({
 			try: async () => {
 				const init = (await request("initialize", {
@@ -621,8 +596,7 @@ export const startGeminiSession = (
 					}),
 				);
 			}
-			// Plan-mode emulation: gemini ACP has no native read-only switch, so
-			// prepend a developer-instructions block while plan mode is active.
+
 			const promptText =
 				compactSnapshot !== null
 					? text.trim()
@@ -683,10 +657,7 @@ export const startGeminiSession = (
 						if (GEMINI_RPC_TRACE) {
 							process.stderr.write(`[gemini.prompt] failed: ${reason}\n`);
 						}
-						// Cancellation is a clean stop, not an error condition — the
-						// user already knows they interrupted. Surface other failures
-						// (timeouts, transport errors, server-side rejections) so the
-						// chat bubble shows them.
+
 						const isCancellation = /cancel|interrupt/i.test(reason);
 						if (!closed && !isCancellation) {
 							Queue.offerUnsafe(events, {
@@ -696,9 +667,7 @@ export const startGeminiSession = (
 						}
 					} finally {
 						currentPromptRpcId = null;
-						// Drain any buffered assistant text from the translator so the
-						// final delta lands as a normal AssistantMessage instead of
-						// sitting unobserved in memory.
+
 						if (!closed) {
 							for (const ev of translator.flush())
 								Queue.offerUnsafe(events, ev);
@@ -733,16 +702,11 @@ export const startGeminiSession = (
 							`[gemini.interrupt] sid=${sid} pendingPrompt=${currentPromptRpcId ?? "(none)"}\n`,
 						);
 					}
-					// Best-effort cancel; do NOT SIGINT the child or the persistent
-					// session dies for every subsequent send.
+
 					notify("session/cancel", { sessionId: sid });
 					userQuestions.cancelAll("cancelled");
 					Queue.offerUnsafe(events, { _tag: "Interrupted" });
-					// Force-reject the in-flight `session/prompt` request so the
-					// `inflight` promise chain unblocks. Without this, if Gemini's
-					// CLI doesn't honour `session/cancel` (or responds slowly), the
-					// user's next message queues behind a dead request and the
-					// session feels stuck.
+
 					rejectCurrentPrompt("Interrupted by user");
 				}),
 			close: () =>
@@ -752,9 +716,7 @@ export const startGeminiSession = (
 					rpc.rejectAll(new Error("Gemini session closed"));
 					try {
 						child.stdin.end();
-					} catch {
-						// ignore — stdin may already be closed by the child
-					}
+					} catch {}
 					yield* Effect.promise(() =>
 						stopProviderProcess(child, { processGroup: true }),
 					);

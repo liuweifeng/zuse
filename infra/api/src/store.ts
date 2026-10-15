@@ -14,8 +14,6 @@ import {
 	makeGithubJoiningSql,
 } from "./github-joining-store.ts";
 
-// Include acquisition and remote work in the budget; an unavailable provider
-// must not retain a pooled transaction indefinitely.
 const organizationDeadline = <A, E, R>(operation: Effect.Effect<A, E, R>) =>
 	operation.pipe(
 		Effect.timeout("60 seconds"),
@@ -207,10 +205,6 @@ export interface ApiStoreApi {
 export class ApiStore extends Context.Service<ApiStore, ApiStoreApi>()(
 	"@zuse/api/ApiStore",
 ) {}
-
-// ---------------------------------------------------------------------------
-// In-memory implementation (tests + local dev).
-// ---------------------------------------------------------------------------
 
 export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 	ApiStore,
@@ -491,10 +485,6 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 	}),
 );
 
-// ---------------------------------------------------------------------------
-// Postgres implementation (production, via @effect/sql-pg + Hyperdrive).
-// ---------------------------------------------------------------------------
-
 interface EnvironmentRow {
 	readonly sharing_audience: EnvironmentSharingAudience | null;
 	readonly environment_id: string;
@@ -555,7 +545,6 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 			const orDie = <A>(effect: Effect.Effect<A, unknown>): Effect.Effect<A> =>
 				effect.pipe(Effect.orDie);
 
-			// Acquire before the write statement so it sees any completed revocation.
 			const withDeviceLock = <A>(
 				accountId: string,
 				operation: Effect.Effect<A, unknown>,

@@ -77,7 +77,6 @@ export type MachineRouteContext =
 	| ManagedTunnelProvider
 	| CloudBillingStore;
 
-/** Existing subscriptions keep their provider; unassigned workspaces use new checkout's default. */
 const billingProviderForAccount = (accountId: string) =>
 	Effect.gen(function* () {
 		const store = yield* MachineStore;
@@ -116,11 +115,9 @@ const offerIsAvailable = (
 	(findMachineOffer(offerId)?.available ?? false) &&
 	(config.availableOfferIds?.has(offerId) ?? true);
 
-/** Polar substitutes this in the success URL; treat an unsubstituted one as absent. */
 const CHECKOUT_ID_PLACEHOLDER = "{CHECKOUT_ID}";
 const CHECKOUT_ID_MAX_LENGTH = 128;
 
-/** How long the completion page will still show a real order. */
 const CHECKOUT_RECEIPT_TICKET_TTL_MS = 24 * 60 * 60 * 1_000;
 
 /**
@@ -141,7 +138,6 @@ export const checkoutSuccessUrl = (
 	return `${target.toString()}&checkout_id=${CHECKOUT_ID_PLACEHOLDER}`;
 };
 
-/** Offers the checkout-complete page will name. Anything else renders generic. */
 const knownOfferId = (offerId: string | null): string | null =>
 	offerId !== null &&
 	(offerId === CLOUD_WORKSPACE_OFFER_ID ||
@@ -160,13 +156,6 @@ const orderReference = (checkoutId: string): string =>
 		.slice(-8)
 		.toUpperCase()}`;
 
-/**
- * Best-effort order lookup for the post-purchase page. The account comes from
- * the verified receipt ticket, never from the query string, and the adapter
- * drops checkouts owned by anyone else. The page is a courtesy surface, so a
- * slow or unavailable billing provider degrades to the offer catalog instead of
- * failing the response.
- */
 const lookupCheckoutSummary = (input: {
 	readonly checkoutId: string;
 	readonly accountId: string;
@@ -203,7 +192,7 @@ const checkoutComplete = (input: {
 		offer === undefined
 			? undefined
 			: { cents: offer.monthlyPriceCents, currency: offer.currency };
-	// Only an order the ticket holder owns gets a reference printed on it.
+
 	const orderRef =
 		input.summary === null
 			? undefined
@@ -699,9 +688,6 @@ export const routeMachineRequest = (
 		const store = yield* MachineStore;
 
 		if (method === "GET" && path === ApiPaths.billingCheckoutComplete) {
-			// Anyone can open this URL, so the page is rendered from the api's own
-			// signed ticket: without it (or with an expired one) the visitor gets the
-			// generic catalog receipt and no provider lookup happens at all.
 			const apiConfig = yield* ApiConfiguration;
 			const ticketParam = url.searchParams.get("t");
 			const ticket =
@@ -784,8 +770,7 @@ export const routeMachineRequest = (
 							: Effect.fail(serviceUnavailable("billing_provider_unavailable")),
 					),
 				);
-			// No entitlement exists to update until verified-email account claiming.
-			// Acknowledge this expected state; real provider failures still retry.
+
 			if (subscription === null) {
 				return json({ ok: true, deferred: "subscription-unlinked" });
 			}
@@ -873,9 +858,7 @@ export const routeMachineRequest = (
 					wsBaseUrl: endpoint.wsBaseUrl,
 					linkedAtMs: nowMs,
 				},
-				// An entitled managed machine has its own one-machine-per-account
-				// limit. Do not strand an already-provisioned VPS behind the hosted
-				// computer catalog limit.
+
 				null,
 				"preserve-identity",
 			);

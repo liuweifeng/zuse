@@ -231,8 +231,7 @@ describe("renderer session goal ClientBus adapter", () => {
 			pendingCommands: [],
 			failedCommands: [],
 		});
-		// Commands do not overwrite canonical provider state before its stream
-		// notification (Grok acknowledges mutations before goal_updated).
+
 		expect(getRendererClientBus().snapshot(retained.key).data).toBeNull();
 		retained.lease.release();
 	});

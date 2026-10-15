@@ -20,12 +20,6 @@ export interface VectorHit {
   readonly symbolId: number | null;
 }
 
-/**
- * Lazy probe: does the sqlite-vec extension look loaded? We treat any
- * SELECT-from-`chunk_vec` failure as "vec not available" and disable
- * the tier for the rest of the process — checking once per DB handle
- * keeps the hot path branchless.
- */
 const probeCache = new WeakMap<object, boolean>();
 const vecAvailable = (db: IndexDb): boolean => {
   const cached = probeCache.get(db as unknown as object);

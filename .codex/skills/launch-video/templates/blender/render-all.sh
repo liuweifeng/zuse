@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Renders every Blender sequence for the film (Cycles, 810px, 30fps) into renders/<shot>/.
+
 set -e
 cd "$(dirname "$0")"
 for shot in land hibernate wake fork; do

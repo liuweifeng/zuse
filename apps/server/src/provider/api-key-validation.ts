@@ -73,9 +73,7 @@ const runMessageProbe = async (apiKey: string): Promise<void> => {
 		resources.agent = null;
 		try {
 			agent?.close();
-		} catch {
-			// Cleanup must not change the validation classification.
-		}
+		} catch {}
 
 		const directory = probeDirectory;
 		probeDirectory = null;

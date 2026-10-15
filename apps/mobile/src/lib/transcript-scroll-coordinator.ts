@@ -24,8 +24,7 @@ export class TranscriptScrollCoordinator {
 	private actions: TranscriptScrollActions;
 	private anchorRequestId = 0;
 	private anchorScrollStartedForRequest = 0;
-	// The send whose one-time "move to the top" scroll is still owed. Reader
-	// gestures cancel it without removing the sent message's runway.
+
 	private positionRequestId = 0;
 	private jumpRequestId = 0;
 	private listeners = new Set<() => void>();
@@ -90,8 +89,7 @@ export class TranscriptScrollCoordinator {
 		if (this.anchorScrollStartedForRequest === requestId) {
 			return Promise.resolve();
 		}
-		// Mark the request before awaiting so duplicate native layout callbacks
-		// cannot dispatch a second scroll while the first is in flight.
+
 		this.anchorScrollStartedForRequest = requestId;
 		return this.enqueueScroll(async () => {
 			if (
@@ -169,8 +167,6 @@ export class TranscriptScrollCoordinator {
 			return;
 		}
 
-		// Consuming before awaiting gives every jump request exactly-once
-		// semantics even if React runs another layout effect meanwhile.
 		this.updateSnapshot({
 			...this.snapshot,
 			pendingJumpRequestId: null,

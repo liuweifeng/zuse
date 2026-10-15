@@ -281,10 +281,9 @@ describe("Claude background agents", () => {
 			});
 		const events = translateClaudeSdkMessages(
 			[
-				// The CLI woke on a task notification: no application send is open.
 				reply("Builder A is done"),
 				result,
-				// Sub-agent output between turns does not open a top-level turn.
+
 				sdk({
 					type: "assistant",
 					parent_tool_use_id: "agent-1",

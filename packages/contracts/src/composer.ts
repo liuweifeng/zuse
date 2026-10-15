@@ -52,27 +52,22 @@ export type SkillRef = typeof SkillRef.Type;
  * serialises these into a numbered list appended to the prompt text.
  */
 export const CodeAnnotation = Schema.Struct({
-	/** Client-generated v4 UUID — list keys + removal. */
 	id: Schema.String,
-	/**
-	 * Workspace-rooted path, for display + the model (the agent's cwd is the
-	 * workspace root, so a relative path resolves). For files outside any
-	 * project folder this holds the absolute path instead.
-	 */
+
 	relPath: Schema.String,
-	/** Absolute path used by renderer affordances that can reopen the target. */
+
 	absPath: Schema.String,
-	/** 1-based, inclusive. `startLine === endLine` for a single line. */
+
 	startLine: Schema.Number,
 	endLine: Schema.Number,
 	comment: Schema.String,
-	/** Diff side for branch-review annotations. Omitted for plain file notes. */
+
 	diffSide: Schema.optional(Schema.Literals(["additions", "deletions"])),
-	/** Exact diff line that owns the annotation slot after range normalization. */
+
 	diffAnchorLine: Schema.optional(Schema.Number),
-	/** Previous path when the selected line belongs to a renamed file. */
+
 	oldPath: Schema.optional(Schema.String),
-	/** Comparison ref shown when the annotation was created. */
+
 	baseRef: Schema.optional(Schema.String),
 });
 export type CodeAnnotation = typeof CodeAnnotation.Type;
@@ -168,7 +163,7 @@ export type ChatAnnotationSource = typeof ChatAnnotationSource.Type;
 export const ChatAnnotation = Schema.Struct({
 	_tag: Schema.Literal("chat"),
 	id: Schema.String,
-	/** Message the selection started in. */
+
 	messageId: Schema.String,
 	source: ChatAnnotationSource,
 	quote: Schema.String,

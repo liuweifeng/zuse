@@ -32,7 +32,7 @@ export const supportsProviderLogin = (providerId: ProviderId): boolean =>
 const IDLE_LOGIN: ProviderLoginState = { kind: "idle" };
 const loginStore = createAtomStore<{
 	stateByKey: Record<string, ProviderLoginState>;
-	/** Epoch ms of the last in-app sign-in that succeeded, per computer and provider. */
+
 	signedInAtByKey: Record<string, number>;
 }>(() => ({ stateByKey: {}, signedInAtByKey: {} }));
 const owners = new Map<string, StreamOperationOwner>();
@@ -107,8 +107,7 @@ const startProviderLogin = async (
 					});
 					return;
 				}
-				// A named account's login only changes provider metadata when it is the
-				// default for new chats; never hold its "Signed in" on a full re-probe.
+
 				if (accountId) void refreshProviderMetadata(environmentId);
 				else await refreshProviderMetadata(environmentId);
 				if (owners.get(key) !== owner) return;
@@ -169,7 +168,7 @@ export function useProviderLogin(
 	},
 ): {
 	readonly state: ProviderLoginState;
-	/** Epoch ms of the last successful in-app sign-in; 0 when none this run. */
+
 	readonly signedInAt: number;
 	readonly start: () => Promise<void>;
 	readonly cancel: () => void;

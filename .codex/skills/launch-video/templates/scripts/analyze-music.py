@@ -12,7 +12,6 @@ import sys
 
 BLOCKS = " ▁▂▃▄▅▆▇█"
 
-
 def envelope(path, sr=8000, hop=80):
     raw = subprocess.run(
         ["ffmpeg", "-v", "error", "-i", path, "-ac", "1", "-ar", str(sr), "-f", "s16le", "-"],
@@ -27,7 +26,6 @@ def envelope(path, sr=8000, hop=80):
         env.append((s / (hop / 4)) ** 0.5)
     return env, sr / hop
 
-
 def tempo(onsets, fps):
     best = (0.0, 0.0)
     for bpm10 in range(900, 1500, 5):
@@ -39,19 +37,16 @@ def tempo(onsets, fps):
         best = max(best, (score, bpm))
     return best[1]
 
-
 def phase(onsets, fps, bpm):
     per = 60 / bpm * fps
     count = int(len(onsets) / per) - 2
     candidates = [x * 0.5 for x in range(int(per * 2))]
-    score = lambda ph: sum(onsets[int(round(ph + k * per))] for k in range(count))  # noqa: E731
+    score = lambda ph: sum(onsets[int(round(ph + k * per))] for k in range(count))
     return max(candidates, key=score) / fps
-
 
 def bar(values):
     top = max(values) or 1
     return "".join(BLOCKS[min(8, int(v / top * 8.99))] for v in values)
-
 
 for path in sys.argv[1:]:
     env, fps = envelope(path)

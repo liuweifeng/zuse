@@ -655,7 +655,6 @@ it("draws orchestration spawns and subagents as one delegation group, outside to
 		fleet?.kind === "delegation" && fleet.members.map((member) => member.id),
 	).toEqual(["one", "two", "agent"]);
 
-	// Settled turns keep delegations visible and out of the summary counts.
 	const settled = deriveChatTimelineRows({
 		messages,
 		inFlight: false,
@@ -777,7 +776,7 @@ it("shows generated UI inline instead of under its tool call", () => {
 						.map((m) => m.id)
 				: [],
 	);
-	// The failed call stays visible; the successful one is the block itself.
+
 	expect(tools).toEqual(["tool-bad", "result-bad"]);
 	const interactive = (id: string) => {
 		const row = rows.find((candidate) => candidate.id === `message:${id}`);

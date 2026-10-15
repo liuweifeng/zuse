@@ -616,8 +616,7 @@ describe("cloud workspace reconciler", () => {
 				).toBeUndefined();
 				const launched = yield* store.getWorkspace(seeded.workspaceId);
 				if (launched === null) throw new Error("Fork workspace missing");
-				// The runtime can consume enrollment before its launch response reaches
-				// the API. The durable operation must adopt that owner on retry.
+
 				yield* store.saveWorkspace({
 					...launched,
 					runtimeBootTokenHash: undefined,
@@ -969,7 +968,7 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "resume-runtime-restarting",
 					requestConfig: {
 						runtimeInstallPending: true,
-						// Deadline remains terminal once bounded replacement retries are exhausted.
+
 						runtimeLaunchRecoveryAttempts: 2,
 						startupTimings: {
 							allocatedAt: now - age,
@@ -1292,8 +1291,7 @@ describe("cloud workspace reconciler", () => {
 				extend.mockClear();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
 				if (allocated === null) throw new Error("workspace missing");
-				// Retry a queued allocation after the provider succeeded but its
-				// response was lost: recover by workspace label instead of forking again.
+
 				yield* Ref.update(control.sandboxes, (sandboxes) => {
 					const updated = new Map(sandboxes);
 					const sandbox = updated.get("fake-workspace-on-demand");
@@ -1625,8 +1623,7 @@ describe("cloud workspace reconciler", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const warming = yield* store.getWorkspace(workspace.workspaceId);
 				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
-				// Missing callbacks do not establish process death. The provider must
-				// prove no managed or legacy runtime remains before replacement.
+
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				if ((yield* Ref.get(control.startProcessCalls)).length !== 0)
 					return yield* Effect.die(
@@ -1697,8 +1694,7 @@ describe("cloud workspace reconciler", () => {
 			statusCode: "resume-runtime-waking",
 			runtimeState: "connecting",
 		});
-		// The boot token travels directly to the runtime process. Resume must not
-		// serialize a remote file write and chmod before starting it.
+
 		expect(result.startProcessCalls).toHaveLength(1);
 		expect(result.workspace).toMatchObject({
 			state: "provisioning",
@@ -1952,8 +1948,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.workspace?.requestConfig.runtimeLaunchRecoveryAttempts).toBe(
 			0,
 		);
-		// The sandbox is already running, so restart must not call provider
-		// resume — it relaunches the runtime with a fresh in-memory boot token.
+
 		expect(result.resumeInputs).toHaveLength(0);
 		expect(result.startProcessCalls).toHaveLength(1);
 		expect(result.workspace).toMatchObject({
@@ -2787,7 +2782,7 @@ describe("memory-aware runtime recovery", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
 					Effect.provideService(SandboxProviders, replacement),
 				);
-				// A fast observer must respect the pressure backoff and not launch anything.
+
 				if (input.status === "runtime-memory-pressure")
 					yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
 						Effect.provideService(SandboxProviders, replacement),
@@ -2849,7 +2844,7 @@ test("automatically restarts the retained runtime once memory pressure clears", 
 			expect(waiting?.statusCode).toBe("runtime-memory-pressure");
 			expect(yield* Ref.get(control.startProcessCalls)).toHaveLength(0);
 			if (!waiting) throw new Error("workspace missing");
-			// Simulate the next scheduled check, without sleeping or changing the queue.
+
 			available = 2000000;
 			yield* store.saveWorkspace({
 				...waiting,
@@ -3095,7 +3090,7 @@ ${script}`,
 						? "26\n"
 						: "0\n",
 		);
-		// A post-builder failure must win even when the builder wrote ready.
+
 		expect(existsSync(join(status, "ready"))).toBe(
 			fails === "none" || fails === "memory",
 		);
@@ -3399,7 +3394,7 @@ describe("inline first startup step", () => {
 					startCloudWorkspaceInline(workspace.workspaceId),
 				);
 				const after = yield* store.getWorkspace(workspace.workspaceId);
-				// The lease is released; the durable scheduler can claim immediately.
+
 				const claimed = yield* store.claimWorkspace(
 					workspace.workspaceId,
 					"alarm",
@@ -3501,7 +3496,7 @@ describe("inline first startup step", () => {
 				});
 				const provider = yield* (yield* SandboxProviders).get("fake");
 				const create = vi.spyOn(provider, "create");
-				// Between the eligibility read and the claim, the row moves on.
+
 				const racing: typeof store = {
 					...store,
 					claimWorkspace: (id, owner, nowMs, leaseExpiresAtMs) =>
@@ -3584,7 +3579,7 @@ describe("inline first startup step", () => {
 		);
 		expect(result.withoutCapability).toBe(false);
 		expect(result.held).not.toBeNull();
-		// Eligible, so it reports having run, but the held lease fenced any work.
+
 		expect(result.collided).toBe(true);
 		expect(result.after?.state).toBe("queued");
 		expect(result.after?.providerSandboxId).toBeUndefined();

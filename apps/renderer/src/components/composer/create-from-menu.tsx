@@ -121,7 +121,7 @@ export function CreateFromMenu({
 		null,
 	);
 	const [worktreesLoadedForOpen, setWorktreesLoadedForOpen] = useState(false);
-	// branch name → worktreeId, for the "In use" badge + reuse behaviour.
+
 	const [worktreeByBranch, setWorktreeByBranch] = useState<
 		ReadonlyMap<string, WorktreeId>
 	>(new Map());
@@ -143,9 +143,6 @@ export function CreateFromMenu({
 		}
 	}, [open]);
 
-	// Load the active tab's data whenever the popover opens or the tab changes.
-	// The worktree map is needed by all tabs, but it only changes outside this
-	// picker, so avoid refetching it on every tab switch.
 	useEffect(() => {
 		if (!open || folderId === null) return;
 		let cancelled = false;
@@ -215,9 +212,7 @@ export function CreateFromMenu({
 						.catch(() => []);
 					if (!cancelled) setIssues(rows);
 				}
-			} catch {
-				// Non-fatal: leave the tab empty.
-			}
+			} catch {}
 		})();
 		return () => {
 			cancelled = true;

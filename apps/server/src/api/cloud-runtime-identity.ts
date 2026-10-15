@@ -102,7 +102,6 @@ export const openCloudRuntimeIdentity = async (input: {
 			signingPublicJwk: JSON.stringify(await exportJWK(signing.publicKey)),
 		};
 	} else if (newAuthorization) {
-		// New API-authorized launch supersedes the old bearer, never the durable keys/data.
 		stored = {
 			...stored,
 			bootTokenHash: hash,
@@ -161,7 +160,7 @@ export const openCloudRuntimeIdentity = async (input: {
 		signingPrivateKey instanceof Uint8Array
 	)
 		throw new Error("workspace_runtime_identity_invalid_key");
-	// Key material is durable BEFORE the first enrollment request (including response loss).
+
 	await save((value) => value);
 	return {
 		credentialPrivateKey: credentialPrivateKey as CryptoKey,

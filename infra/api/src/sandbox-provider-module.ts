@@ -68,9 +68,6 @@ const isRegistered = (
 			adapter.providerId === providerId || aliases.includes(providerId),
 	);
 
-// The login authority must run on a registered provider. Checked at boot like
-// the default provider: a typo or a disabled adapter would otherwise surface
-// only as a 503 on every Cloud authentication request.
 const resolveCloudAuthProviderId = (
 	env: SandboxProviderEnvironment,
 	registrations: ReadonlyArray<SandboxProviderRegistration>,
@@ -145,9 +142,7 @@ export const resolveSandboxProviderRuntimeFromModules = <
 			modules.find((module) => module.providerId === adapter.providerId)
 				?.productionReady ?? false,
 	}));
-	// With no configured provider the fake registry stands in so the api can
-	// still boot; the fake is never advertised and never selectable via
-	// placement. Any registration switches to the real registry.
+
 	const layer =
 		registrations.length === 0
 			? makeSandboxProvidersFake([])

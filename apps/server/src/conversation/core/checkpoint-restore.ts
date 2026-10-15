@@ -157,7 +157,6 @@ export const makeCheckpointRestore = Effect.fn("CheckpointRestore.make")(
 					yield* domain.admission
 						.run(
 							Effect.gen(function* () {
-								// A conservative global idle boundary also covers aliases of the same repository.
 								const idle = yield* isEngineIdle({
 									sql,
 									domain,
@@ -307,8 +306,7 @@ export const makeCheckpointRestore = Effect.fn("CheckpointRestore.make")(
 						},
 					})
 					.pipe(Effect.orDie);
-				// The fence stays closed until a fresh provider context has been durably frozen.
-				// Replay without a verified live native boundary falls back to the retained portable transcript.
+
 				yield* sql.withTransaction(
 					Effect.gen(function* () {
 						const session = yield* getSession(sessionId).pipe(Effect.orDie);

@@ -104,7 +104,7 @@ it.each([
 				);
 				yield* sweep;
 				yield* sweep;
-				// Duplicate/replayed requests cannot reopen a terminal input.
+
 				yield* dispatch(request);
 				const snapshot = yield* readSessionTimelineSnapshot(sql, sessionId);
 				expect(snapshot.projection.interactions).toEqual([

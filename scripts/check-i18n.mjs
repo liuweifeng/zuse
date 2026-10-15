@@ -42,7 +42,7 @@ export function validateMessage(source, translated) {
 	const actualTags = [...translated.matchAll(/<[^>]+>/g)].map(
 		(match) => match[0],
 	);
-	// RichMessage components never accept translator-supplied attributes or tag names.
+
 	if (expectedTags.length) {
 		if (actualTags.some((tag) => !/^<\/?part\d+\s*\/?\s*>$/.test(tag)))
 			return "unexpected rich-text tag or attributes";

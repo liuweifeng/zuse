@@ -6,8 +6,7 @@ export const Migration0047MessageCheckpoints = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`ALTER TABLE messages ADD COLUMN checkpoint_revision INTEGER`;
 	yield* sql`ALTER TABLE messages ADD COLUMN checkpoint_final INTEGER`;
-	// Rebuild checkpoint state when upgrading a database that already accepted
-	// checkpoint-bearing events before this projection metadata existed.
+
 	yield* sql`
 		UPDATE messages
 		SET checkpoint_revision = (

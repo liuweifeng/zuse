@@ -41,9 +41,6 @@ export function Sparkline({
 	animate = false,
 	className,
 }: SparklineProps) {
-	// Memoized explicitly so the chart works without React Compiler: `rows`
-	// identity drives the entrance-replay revision, so a fresh array every
-	// render would re-trigger the revision's state adjustment each pass.
 	const rows = useMemo(() => data.map((v) => ({ v })), [data]);
 	const config = useMemo(() => ({ v: { color } }), [color]);
 

@@ -25,7 +25,7 @@ const EncodedSessionTimelineCacheEntryV2 = Schema.Struct({
 
 const EncodedSessionTimelineCacheEntryV3 = Schema.Struct({
 	schemaVersion: Schema.Literal(3),
-	/** IndexedDB keyPath retained across cache schema upgrades. */
+
 	sessionId: Schema.String,
 	ref: EncodedSessionRef,
 	cursor: SessionStreamCursor,
@@ -37,7 +37,7 @@ const EncodedSessionTimelineCacheEntryV3 = Schema.Struct({
 
 const EncodedSessionTimelineCacheEntry = Schema.Struct({
 	schemaVersion: Schema.Literal(SESSION_TIMELINE_CACHE_SCHEMA_VERSION),
-	/** IndexedDB keyPath retained across cache schema upgrades. */
+
 	sessionId: Schema.String,
 	ref: EncodedSessionRef,
 	cursor: SessionStreamCursor,

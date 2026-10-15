@@ -71,8 +71,6 @@ export const decodeApiMessageContent = (
 				: {}),
 		};
 	} catch {
-		// This indicates corrupted authenticated content. Returning the literal
-		// value is safer than dropping a command during rollout.
 		return { text: sealedPlaintext, attachments: [] };
 	}
 };

@@ -1,9 +1,3 @@
-/**
- * Human-friendly path for tooltips and labels. Absolute machine paths are
- * noise — every worktree lives under `~/.zuse/<project>/<worktree>/…`, so a
- * path is shown relative to the first matching workspace root, falling back
- * to stripping the worktree convention prefix, then to `~` for the home dir.
- */
 const WORKTREE_ROOT_RE = /\/\.zuse\/[^/]+\/[^/]+\//;
 const HOME_RE = /^\/(?:Users|home)\/[^/]+(?=\/)/;
 

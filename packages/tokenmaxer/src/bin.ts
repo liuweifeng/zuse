@@ -94,7 +94,6 @@ const parseArgs = (argv: string[]): CliOptions => {
     }
   }
 
-  // Positional args may be a source id and/or a bucket, in any order.
   for (const token of positional) {
     if (SOURCES.has(token as UsageSourceId)) {
       options.sourceIds.push(token as UsageSourceId);

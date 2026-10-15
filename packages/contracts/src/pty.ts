@@ -5,17 +5,12 @@ import { PtyId, PtyOwnerId } from "./ids.ts";
 
 export const LEGACY_PTY_PROCESS_EPOCH = "legacy";
 
-// POSIX winsize fields are unsigned 16-bit integers. Keeping the wire value in
-// that exact domain prevents node-pty from truncating a dimension while the
-// catalog continues to advertise the caller's fractional/out-of-range value.
 const PtyDimension = Schema.Number.check(
 	Schema.isInt(),
 	Schema.isGreaterThan(0),
 	Schema.isLessThan(65_536),
 );
 
-// Output positions are monotonic counters and must remain exactly representable
-// across JSON and JavaScript clients.
 const PtySequence = Schema.Number.check(
 	Schema.isInt(),
 	Schema.isGreaterThanOrEqualTo(0),
@@ -172,7 +167,7 @@ export const PtyOpenRpc = Rpc.make("pty.open", {
 		rows: PtyDimension,
 		command: Schema.optional(PtyCommand),
 		ownership: Schema.optional(PtyOwnership),
-		/** Wire compatibility for mobile installations released before ownership was shared. */
+
 		mobileOwnership: Schema.optional(PtyOwnership),
 	}),
 	success: Schema.Struct({
@@ -189,7 +184,7 @@ export const PtyOpenRpc = Rpc.make("pty.open", {
 export const PtyListRpc = Rpc.make("pty.list", {
 	payload: Schema.Struct({
 		ownerId: PtyOwnerId,
-		/** New clients opt into policy metadata; omission preserves old clients. */
+
 		includePolicy: Schema.optional(Schema.Boolean),
 	}),
 	success: Schema.Union([PtyCatalog, Schema.Array(PtySummary)]),
@@ -246,10 +241,7 @@ export const PtyRestartRpc = Rpc.make("pty.restart", {
 	payload: Schema.Struct({
 		ptyId: PtyId,
 		ownerId: Schema.optional(PtyOwnerId),
-		/**
-		 * Makes restart a compare-and-set desired-state command. If the process is
-		 * already on another epoch, a replay returns that epoch without spawning.
-		 */
+
 		expectedProcessEpoch: Schema.optional(Schema.String),
 	}),
 	success: Schema.Struct({ ptyId: PtyId, processEpoch: Schema.String }),
@@ -265,7 +257,7 @@ export const PtyOutputRpc = Rpc.make("pty.output", {
 	payload: Schema.Struct({
 		ptyId: PtyId,
 		afterSequence: Schema.optional(PtySequence),
-		// Optional so pre-epoch clients can continue subscribing during rollout.
+
 		processEpoch: Schema.optional(Schema.String),
 		ownerId: Schema.optional(PtyOwnerId),
 	}),

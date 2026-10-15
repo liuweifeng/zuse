@@ -92,7 +92,7 @@ export class AccountBroker {
 				try {
 					if (physicalRequests++ > 0) await input.beforeRetry?.();
 					input.signal.throwIfAborted();
-					// No previous_response_id or provider-owned continuation crosses accounts.
+
 					return await this.host.request(connection.id, {
 						...input,
 						messages: portableHistory(input.messages),
@@ -108,7 +108,7 @@ export class AccountBroker {
 						this.invalidate(connection.id, { reason: "authentication" });
 						throw error;
 					}
-					// Policy, permission and model-access failures never cycle accounts.
+
 					if (
 						error.status !== 503 &&
 						error.status !== 502 &&

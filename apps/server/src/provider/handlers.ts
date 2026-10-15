@@ -85,13 +85,6 @@ import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
 import { sessionSummaryEvents } from "./session-summary-events.ts";
 
-/**
- * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
- * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/contracts`):
- *
- * Provider process management stays behind this boundary while session
- * lifecycle and event traffic use the durable session domain.
- */
 const Availability = MemoizeRpcs.toLayerHandler(
 	"provider.availability",
 	({ refresh }) =>
@@ -144,10 +137,6 @@ const RemoveCredential = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card or in an auth error bubble. Supported handlers spawn the
-// provider's login subcommand, extract its OAuth URL, and stream progress
-// back. When the renderer unsubscribes, the service finalizer stops the child.
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"provider.startLogin",
 	({ providerId, accountId, sessionId }) =>
@@ -244,10 +233,6 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Renderer subscribes to this when the user clicks "Update" on a provider
-// card. Spawns the provider's install/upgrade command in a login shell,
-// streams output, and ends with `done`. On success the renderer re-probes
-// availability so the new version shows immediately.
 const UpdateProvider = MemoizeRpcs.toLayerHandler(
 	"provider.update",
 	({ providerId }) =>
@@ -257,13 +242,6 @@ const UpdateProvider = MemoizeRpcs.toLayerHandler(
 			),
 		),
 );
-
-// ---------------------------------------------------------------------------
-// OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
-// credentials through to opencode's own `auth.json` (so terminal opencode sees
-// them too); custom-provider *shapes* are persisted to our settings.json
-// (`opencodeCustomProviders`) and injected into every `opencode serve` spawn.
-// ---------------------------------------------------------------------------
 
 const requireOpencodePath = (): Effect.Effect<
 	string,
@@ -309,8 +287,7 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const opencodePath = yield* requireOpencodePath();
 			const configStore = yield* ConfigStoreService;
-			// Write the key through to opencode's auth.json first — if that fails we
-			// don't want an orphaned provider def with no credential.
+
 			yield* setOpencodeProviderAuth(opencodePath, process.cwd(), id, apiKey);
 			const settings = yield* configStore.getSettings();
 			const others = settings.opencodeCustomProviders.filter(
@@ -427,10 +404,6 @@ const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-// ---------------------------------------------------------------------------
-// session.* / messages.* — focused conversation service surfaces.
-// ---------------------------------------------------------------------------
-
 const SessionList = MemoizeRpcs.toLayerHandler(
 	"session.list",
 	({ projectId, includeArchived }) =>
@@ -536,10 +509,7 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
 			permissionMode: input.permissionMode,
 			modelOptions: input.modelOptions,
 			toolSearch: input.toolSearch,
-			// Detach `provider.start` so the new in-chat tab appears in
-			// ~hundreds of ms; the booting status flips when the CLI handshake
-			// finishes (or fails). Chat-create stays synchronous to preserve
-			// its existing staged loading panel timing.
+
 			background: true,
 		});
 		yield* analytics.capture("session created", {
@@ -782,9 +752,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 							(input.worktreeId === null || input.worktreeId === undefined
 								? "main"
 								: "existing");
-						// Repository inspection is part of workspace preparation. Keeping it
-						// after the durable acknowledgement is what makes Send responsive even
-						// when Git or the remote is slow.
+
 						const policy = requestedPolicy;
 						const requestFingerprint =
 							input.operationId === undefined
@@ -966,9 +934,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 									const sessionDomain = yield* SessionDomain;
 									const lifecycleOperation =
 										yield* getChatCreationOperation(operationId);
-									// Replayed create commands acknowledge the already-durable entities.
-									// Recovery is explicit, so a duplicate must never regress a terminal
-									// phase or repeat an external side effect after a recorded failure.
+
 									if (
 										lifecycleOperation === null ||
 										lifecycleOperation.phase === "running" ||
@@ -1280,9 +1246,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
 											}
-											// A directory existing is not the same thing as an execution
-											// workspace being ready. The provider, startup queue, file tree,
-											// and terminal must all cross the same setup terminal edge.
+
 											const worktrees = yield* WorktreeService;
 											yield* worktrees.setupStream(created.id).pipe(
 												Stream.runDrain,
@@ -2244,12 +2208,6 @@ const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// ---------------------------------------------------------------------------
-// permission.* — Phase 4 surface. The renderer subscribes to
-// `permission.requests`, shows a toast, and posts back via `permission.decide`.
-// `listPending` is the cold-load helper used on session mount.
-// ---------------------------------------------------------------------------
-
 const PermissionRequests = MemoizeRpcs.toLayerHandler(
 	"permission.requests",
 	() =>
@@ -2293,13 +2251,6 @@ const PermissionRevokeDecision = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(PermissionService, (svc) => svc.revokeDecision(requestId)),
 );
 
-// ---------------------------------------------------------------------------
-// browser.* — in-app agent browser bridge. The renderer's BrowserPane
-// subscribes to `browser.commands`, drives the `<webview>`, and posts the
-// outcome back via `browser.respond`, resolving the Deferred the MCP browser
-// tool is awaiting. Mirrors the permission.* request/decide pair.
-// ---------------------------------------------------------------------------
-
 const BrowserCommands = MemoizeRpcs.toLayerHandler("browser.commands", () =>
 	Stream.unwrap(Effect.map(BrowserBridgeService, (svc) => svc.commands())),
 );
@@ -2310,9 +2261,6 @@ const BrowserRespond = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(BrowserBridgeService, (svc) => svc.respond(result)),
 );
 
-// Browser credentials — DUMMY/TEST logins kept in the encrypted vault. A vault
-// failure is swallowed to a safe value (void / [] / null) rather than
-// surfacing a defect: a missing credential just means autofill no-ops.
 const BrowserSetCredential = MemoizeRpcs.toLayerHandler(
 	"browser.setCredential",
 	({ origin, username, password }) =>
@@ -2382,8 +2330,7 @@ const ProviderAccountHandlers = Layer.mergeAll(
 					return yield* new ProviderAccountError({
 						message: "This chat uses another provider.",
 					});
-				// Stop the old login's process before copying its transcript, so the
-				// copy is final and the next turn starts under the new account.
+
 				const released = yield* sessions
 					.releaseProvider(session.id)
 					.pipe(Effect.mapError(chatUnavailable));

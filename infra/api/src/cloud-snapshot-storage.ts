@@ -21,7 +21,6 @@ import { conflict } from "./errors.ts";
 
 const SNAPSHOT_LEASE_TTL_MS = 5 * 60_000;
 
-/** Called under the account transaction. Existing saved images are never back-billed. */
 const settleSnapshot = Effect.fn("settleSnapshot")(function* (
 	record: CloudSnapshotRecord,
 	nowMs: number,
@@ -56,7 +55,7 @@ const settleSnapshot = Effect.fn("settleSnapshot")(function* (
 		const start = Math.max(cursor, period.periodStartMs);
 		const until = Math.min(end, period.periodEndMs);
 		if (until <= start) continue;
-		// Gaps represent storage absorbed without a valid subscription, not catch-up charges.
+
 		if (start > cursor) remainder = 0;
 		const cost = snapshotStorageCost(until - start, remainder, rate);
 		const eventId = `snapshot:${record.snapshotId}:${SNAPSHOT_RATE_VERSION}:${start}:${until}`;
@@ -98,8 +97,7 @@ const settleSnapshot = Effect.fn("settleSnapshot")(function* (
 		remainder = cost.remainder;
 		cursor = until;
 	}
-	// Preserve an unsettled interval if subscription period evidence is late. Explicitly ended
-	// subscriptions are handled by their persisted stop time and retention deadline.
+
 	return { ...record, checkpointAtMs: cursor, remainder };
 });
 
@@ -172,7 +170,7 @@ export const promoteRetainedSnapshot = Effect.fn("promoteRetainedSnapshot")(
 						image.state === "deleted")
 				)
 					return yield* Effect.fail(conflict("cloud_snapshot_unavailable"));
-				if (image?.state === "retained") return; // A retry cannot reset accrual.
+				if (image?.state === "retained") return;
 				for (const previous of records.filter((r) => r.state === "retained")) {
 					const stopped = yield* settleSnapshot(
 						{ ...previous, stoppedAtMs: nowMs },
@@ -309,7 +307,6 @@ export const withSnapshotLeaseCheck = <A, E, R>(
 		return yield* effect;
 	});
 
-/** All lifecycle mutations honor the provider-operation lease; SQL transactions stay short. */
 const snapshotTransaction = <A, E, R>(
 	accountId: string,
 	effect: Effect.Effect<A, E, R>,
@@ -325,7 +322,6 @@ const snapshotTransaction = <A, E, R>(
 		}),
 	);
 
-/** Deletion intent has committed before any irreversible provider call. */
 const cleanupAccountSnapshots = Effect.fn("cleanupAccountSnapshots")(function* (
 	accountId: string,
 	nowMs: number,

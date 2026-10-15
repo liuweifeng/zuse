@@ -51,9 +51,6 @@ export const closeElectronApplication = async (
 	if (timeout !== undefined) clearTimeout(timeout);
 	if (closed || child.exitCode !== null || child.signalCode !== null) return;
 
-	// Playwright can hang while closing a wedged renderer. Terminate only the
-	// child launched by this harness so a failed desktop test cannot leave its
-	// isolated app and provider processes behind.
 	child.kill("SIGTERM");
 	await Promise.race([
 		new Promise<void>((resolve) => child.once("exit", () => resolve())),
@@ -83,9 +80,7 @@ const readAppDiagnostics = (userData: string): string => {
 			output.append(
 				`\n--- ${relativePath} ---\n${contents.slice(-64 * 1024)}\n`,
 			);
-		} catch {
-			// A diagnostic file can rotate while the failure artifact is captured.
-		}
+		} catch {}
 	}
 	return output.read();
 };

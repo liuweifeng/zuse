@@ -150,7 +150,6 @@ export const applyTimelineEvent = (
 			});
 		}
 		case "StatusSet": {
-			// The provider accepted the active turn: it is running, not starting.
 			const activeTurn =
 				event.status === "running" &&
 				projection.activeTurn !== null &&
@@ -220,9 +219,6 @@ export const applyTimelineEvent = (
 					})
 				: projection;
 		case "TurnSettled":
-			// Settlement is the authoritative terminal transition for a turn. Keep
-			// the live reducer identical to the SQLite projector: otherwise a client
-			// can clear the active turn while retaining status="running" until remount.
 			return SessionTimelineProjection.make({
 				...projection,
 				status: "idle",

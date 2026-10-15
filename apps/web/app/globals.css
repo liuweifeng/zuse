@@ -6,10 +6,6 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-	/* Color tokens resolve to switchable CSS vars defined in :root (light) and
-     .dark (dark) below, so components written against these tokens work in both
-     modes. `natural-black`/`natural-white` stay literal ink/paper. */
-
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 
@@ -18,7 +14,6 @@
 
 	--color-muted-foreground: var(--muted-foreground);
 
-	/* Lime accent — Zuse's signature (matches the desktop app). */
 	--color-primary: var(--primary);
 	--color-primary-foreground: var(--primary-foreground);
 
@@ -34,7 +29,6 @@
 	--color-dusty-red: #ff6464;
 	--color-dusty-green: #5bd6a0;
 
-	/* Darker, more present shadows read better on a dark canvas. */
 	--shadow-card-md: 0 2px 6px 0 rgba(0, 0, 0, 0.35);
 	--shadow-card-lg: 0 4px 12px 0 rgba(0, 0, 0, 0.4);
 	--shadow-card-xl: 0 8px 24px 0 rgba(0, 0, 0, 0.5);
@@ -60,17 +54,12 @@
 	--font-mono: var(--font-geist-mono);
 	--font-dm-mono: var(--font-dm-mono);
 
-	/* Font aliases the design-development-studio components reference directly. */
 	--font-display: var(--font-geist);
 	--font-body: var(--font-inter);
 	--font-alternative: var(--font-schibsted-grotesk);
 
-	/* The template uses secondary/tertiary as accent shades; on our dark+lime
-     brand they resolve to the lime primary so ported components stay on-brand. */
 	--color-tertiary: var(--color-primary);
 
-	/* Accent + structural tokens the saas/agenforce/nodus templates reference so
-     their copied components render on-brand instead of uncolored. */
 	--color-brand: var(--primary);
 	--color-brand-primary: var(--primary);
 	--color-brand-secondary: var(--primary);
@@ -94,7 +83,6 @@
 	}
 }
 
-/* ---- Light theme ---- (also scopable via [data-theme="light"]) */
 :root,
 [data-theme="light"] {
 	--background: oklch(0.985 0.002 260);
@@ -111,7 +99,6 @@
 	--offwhite: oklch(0.96 0.003 260);
 }
 
-/* ---- Dark theme (Zuse's default identity) ---- */
 .dark,
 [data-theme="dark"] {
 	--background: oklch(0.17 0.004 260);
@@ -184,7 +171,6 @@ html {
 	}
 }
 
-/* Keep Korean words intact; allow long labels to fit narrow screens. */
 html[lang="ko"] {
 	word-break: keep-all;
 	overflow-wrap: anywhere;

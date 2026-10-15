@@ -24,7 +24,7 @@ export function AccessScreen({
 	onLoaderDone,
 }: {
 	readonly loading: boolean;
-	/** Keeps the loading layout while the mark plays its closing trace. */
+
 	readonly loaderComplete?: boolean;
 	readonly loaderLabel: string;
 	readonly title?: ReactNode;

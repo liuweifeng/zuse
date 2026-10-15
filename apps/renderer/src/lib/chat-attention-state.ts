@@ -28,8 +28,7 @@ const priority: Record<ChatAttentionState, number> = {
 	unavailable: 5,
 	planReady: 6,
 	question: 7,
-	// A blocking permission prompt is the most urgent attention state — the
-	// agent is stalled until the user decides.
+
 	permission: 8,
 };
 

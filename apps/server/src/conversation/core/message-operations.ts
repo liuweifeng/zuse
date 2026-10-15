@@ -134,8 +134,6 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		} = options;
 		const pendingProviderTurn = (sessionId: SessionId, turnId: AgentTurnId) =>
 			Effect.gen(function* () {
-				// Startup options live on SessionCreated for dormant sessions and on
-				// the turn for atomic initial prompts. COALESCE supports both histories.
 				const rows = yield* sql<{
 					readonly provider_input_json: string;
 					readonly provider_start_json: string | null;
@@ -188,12 +186,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 		): ReturnType<ConversationOperations["resumeSession"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
-				// Best-effort cleanup of any stale in-memory session before opening
-				// a fresh handle attached to the same DB row. Renderer subscriptions
-				// stay connected across the reopen — only the event-pump fiber needs
-				// to restart. A null cursor starts a fresh provider process for the
-				// same durable Zuse session; a persisted cursor resumes provider
-				// context when the driver supports it.
+
 				yield* closeProvider(sessionId);
 				yield* interruptProviderFiber(sessionId);
 				const activeTurnId = yield* resolveActiveTurn(sessionId);
@@ -201,15 +194,12 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					activeTurnId === undefined
 						? null
 						: yield* pendingProviderTurn(sessionId, activeTurnId);
-				// A turn the provider opened itself has no request to replay; the
-				// process that owned it is gone, so settle it rather than leave the
-				// reopened session running forever.
+
 				if (activeTurnId !== undefined && request === null) {
 					yield* settleTurn(sessionId, activeTurnId, "interrupted");
 				}
 				const turnId = request === null ? undefined : activeTurnId;
 				if (turnId === undefined || request === null) {
-					// No durable turn to continue: reopen the provider idle.
 					yield* ensureForTurn(session.id, {
 						initialPrompt: request?.startup?.initialPrompt ?? undefined,
 						modelOptions: request?.modelOptions,
@@ -220,9 +210,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					});
 					return yield* lookupSession(sessionId);
 				}
-				// A durable turn is active: start a new attempt of it. The attempt
-				// implies a send job that replays the exact provider request, so the
-				// renderer never re-submits the last user message.
+
 				yield* dispatchSessionCommand(sessionId, {
 					_tag: "RetryTurn",
 					turnId,
@@ -324,10 +312,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				}
 				const turnId =
 					turnIdOverride ?? AgentTurnId.make(`turn_${crypto.randomUUID()}`);
-				// Drop "pending-*" placeholder ids — those are renderer-side temp
-				// tokens for attachments whose upload didn't finish before submit.
-				// The bytes don't exist server-side, so forwarding them would just
-				// make the driver log a 404 per attachment.
+
 				const cleanAttachments = (attachments ?? []).filter(
 					(a) => !a.id.startsWith("pending-"),
 				);
@@ -356,12 +341,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 							...(origin !== undefined ? { origin } : {}),
 							goal: asGoal === true,
 						};
-				// Annotations have no native CLI token (unlike `@file` / `/skill`),
-				// so the only place the model ever sees them is the prompt text.
-				// Serialise them into a numbered list here — the single injection
-				// point before `provider.send`, so every driver benefits. The
-				// persisted `text` above stays clean; the structured `annotations`
-				// array drives the rendered bubble.
+
 				const sendText = [
 					annotationList.length > 0
 						? serializeAnnotations(annotationList)
@@ -412,9 +392,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 					commandId,
 					receiptIdentity,
 				);
-				// Pin the attachments so the GC sweep treats them as referenced —
-				// a separate row per (message, attachment) keeps the existing
-				// GC join intact.
+
 				for (const a of cleanAttachments) {
 					yield* sql`
             INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
@@ -586,14 +564,13 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 				}
 				if (outcome._tag === "not-active") return outcome;
 				yield* queueRuntime.pauseAfterInterrupt(sessionId);
-				// A manual stop must suspend autonomous goal continuation as well
-				// as the current turn. Ignore rejected/stale interrupts above.
+
 				const goal = goalState.current(sessionId);
 				const pauseGoal =
 					goal?.status === "active"
 						? setGoal(sessionId, { status: "paused" })
 						: Effect.void;
-				// Even if pausing the provider goal fails, still deliver Stop.
+
 				yield* pauseGoal.pipe(
 					Effect.ensuring(runSessionReactors(sessionId)),
 					Effect.orDie,

@@ -228,7 +228,7 @@ describe("preview discovery", () => {
 		const stop = discovery.subscribe(vi.fn());
 		await flush();
 		expect(publish).toHaveBeenCalledTimes(4);
-		// Discovery remains visible while the provider is slow.
+
 		expect(discovery.getSnapshot()).toHaveLength(12);
 		stop();
 		for (const complete of completions) complete("https://old.boxd.sh");

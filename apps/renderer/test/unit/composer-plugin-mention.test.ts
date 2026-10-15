@@ -45,7 +45,6 @@ describe("@plugin mentions", () => {
 		expect(comment).toContain("plugins_search");
 		expect(comment).toContain('"tools.linear."');
 
-		// Editing a queued message restores the mention as a chip.
 		const snapshot = composerSnapshotFromInput(input);
 		expect(snapshot.chips.map((chip) => chip.meta)).toContainEqual({
 			...meta,

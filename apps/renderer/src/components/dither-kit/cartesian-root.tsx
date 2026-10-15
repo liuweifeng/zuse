@@ -19,9 +19,6 @@ import { cn } from "./lib";
 import type { StackType } from "./scales";
 import { useChartDimensions } from "./use-chart-dimensions";
 
-// `object` rather than `Record<string, unknown>`: interfaces don't get an
-// implicit index signature, so interface-typed rows failed to satisfy the
-// generic. Internal layers still index rows through their own Row type.
 type Row = object;
 
 const DEFAULT_MARGINS: Margins = {
@@ -40,7 +37,7 @@ export type CartesianChartProps<TData extends Row> = {
 	className?: string;
 	animate?: boolean;
 	animationDuration?: number;
-	replayToken?: number; // change to re-play the entrance without remounting
+	replayToken?: number;
 	/** Set false for a decorative sparkline: keeps the hover lift but no scrub
 	 * crosshair / tooltip. */
 	interactive?: boolean;
@@ -59,7 +56,6 @@ export type CartesianChartProps<TData extends Row> = {
 	onSelectionChange?: (key: string | null) => void;
 };
 
-/** Which render layer a composed part targets — defaults to the front SVG. */
 function layerOf(node: ReactNode): "back" | "dom" | "svg" {
 	if (!isValidElement(node) || typeof node.type === "string") return "svg";
 	return (node.type as { chartLayer?: "back" | "dom" }).chartLayer ?? "svg";
@@ -105,7 +101,7 @@ export function CartesianRoot<TData extends Row>({
 
 	const ctx = useChartController({
 		chartType,
-		// Safe: the controller only reads row[key] for the configured series keys.
+
 		data: data as Record<string, unknown>[],
 		config,
 		stackType,

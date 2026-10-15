@@ -268,9 +268,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 			`;
 			const completed = markers.find((marker) => marker.status === "completed");
 			if (completed !== undefined) {
-				// Restore/import tools can retain the completion marker while omitting
-				// entire chat streams. Repair only those streams; leave existing event
-				// history, command receipts, and consumer cursors untouched.
 				const missing = yield* sql<ChatRow>`
 					SELECT c.* FROM chats c WHERE NOT EXISTS (
 						SELECT 1 FROM events e WHERE e.stream_kind = 'chat'
@@ -304,13 +301,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 					completed_at = NULL, event_count = 0
 			`;
 
-			// Migration 0020 and pre-CQRS live writes can place MessagePersisted
-			// before SessionCreated. Replace those rows from the authoritative message
-			// snapshot. Also discard orphan/corrupt message events: there was no
-			// historical MessageDeleted transition capable of removing them on replay.
-			// A message missing from the read model is not sufficient evidence by
-			// itself: it may be a valid durable event whose projector cursor did not
-			// commit before a crash.
 			yield* sql`
 				DELETE FROM events
 				WHERE type = 'MessagePersisted'
@@ -329,9 +319,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						)
 					)
 			`;
-			// Older backfills placed their title snapshot before archive/message
-			// transitions. Re-append it at the end of the surviving session history
-			// so title and updated_at converge to the authoritative row.
+
 			yield* sql`
 				DELETE FROM events
 				WHERE type = 'SessionTitleSet'
@@ -339,11 +327,7 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 						SELECT 'backfill:session-title:' || id FROM sessions
 					)
 			`;
-			// Removing the legacy version-1 message event can leave a session stream
-			// starting at version 2. Compact versions inside the transaction so the
-			// next live append observes a head equal to the number of evolved events.
-			// Rewrite durable receipts against the surviving pre-compaction versions
-			// first so idempotent re-dispatch returns the same logical stream head.
+
 			yield* sql`
 				UPDATE command_receipts AS receipt
 				SET stream_version = (
@@ -388,10 +372,6 @@ export const runLifecycleBackfill = Effect.gen(function* () {
 				WHERE stream_kind = 'session'
 			`;
 
-			// Migration 0030 seeds projector cursors from the legacy watermark. Any
-			// later non-backfill event is a durable CQRS write. Replay it before taking
-			// the authoritative snapshots; otherwise advancing cursors below would
-			// permanently skip a dispatch whose projection had not committed.
 			const cursorRows = yield* sql<ProjectorCursorRow>`
 				SELECT projector_name, last_sequence FROM projector_cursors
 				WHERE projector_name IN ('session-read-model', 'chat-read-model')

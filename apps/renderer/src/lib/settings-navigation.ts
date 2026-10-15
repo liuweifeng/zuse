@@ -117,8 +117,7 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		Icon: DocumentAttachmentIcon,
 		section: { kind: "diagnostics" },
 	},
-	// Dev-only visual playground (accent swatches + workflow chip/button
-	// showcase). Filtered out of production bundles below.
+
 	{
 		id: "developer",
 		get label() {

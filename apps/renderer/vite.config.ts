@@ -16,12 +16,6 @@ const rpcTarget = `http://127.0.0.1:${rpcPort}`;
 const sourceMaps = process.env.ZUSE_SOURCEMAPS === "1" ? "hidden" : false;
 const hostedBuild = process.env.VITE_ZUSE_HOSTED === "1";
 
-// In Memoize worktrees, the renderer's node_modules links out to a Bun
-// central store at a sibling path (e.g. `~/Developer/<main checkout>/
-// node_modules/.bun/...`), which sits OUTSIDE the workspace root. Vite's
-// default `fs.allow` doesn't see it and refuses to serve font files. We
-// resolve a known font package at config-load time and walk up to the
-// store root so every hoisted dep gets allowed too.
 const require = createRequire(import.meta.url);
 const iconRuntime = require("../../scripts/icon-runtime.cjs") as {
 	getPaidIconAliases: () => Record<string, string>;
@@ -39,12 +33,10 @@ const fastCheckProductionStub = fileURLToPath(
 	new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
 );
 const fontPkgPath = require.resolve("@fontsource-variable/geist/package.json");
-// .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
-//                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
+
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
-	// Catalogs are consumed as dictionaries, never as named JSON exports.
 	json: { stringify: true, namedExports: false },
 	envDir: resolve(__dirname, "../.."),
 	define: {
@@ -54,8 +46,7 @@ export default defineConfig({
 	experimental: {
 		bundledDev: process.env.ZUSE_BUNDLED_DEV === "1",
 	},
-	// Hosted routes need root-relative assets, while packaged Electron builds
-	// need relative assets so they continue to load through file://.
+
 	base: hostedBuild ? "/" : "./",
 	plugins: [
 		gitRevisionRecovery(),

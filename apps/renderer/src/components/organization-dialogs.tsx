@@ -31,8 +31,7 @@ export function CreateOrganizationDialog({ open, onOpenChange }: DialogProps) {
 	const { message } = useMessages(["settings"]);
 	const { busy, error, run } = useOrganizationAction();
 	const [name, setName] = useState("");
-	// Retrying the same name reuses the operation id, so a lost response never
-	// creates a second organization.
+
 	const attempt = useRef<{ name: string; operationId: string } | null>(null);
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -66,7 +65,7 @@ export function CreateOrganizationDialog({ open, onOpenChange }: DialogProps) {
 								if (!current()) return;
 								attempt.current = null;
 								setName("");
-								// The organization exists; a failed list refresh must not strand it.
+
 								const organizations = await loadOrganizationWorkspaces(
 									true,
 								).catch(() => []);

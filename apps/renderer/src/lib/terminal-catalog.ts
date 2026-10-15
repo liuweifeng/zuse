@@ -48,9 +48,6 @@ export const loadTerminalCatalog = (
 	}
 	const token = Symbol(key);
 	const promise = listOwnedTerminals(environmentId, ownerId).then((catalog) => {
-		// A forced refresh or invalidation supersedes this response even when the
-		// older request happens to settle last. Never let stale server state rewind
-		// the renderer catalog.
 		if (loads.get(key)?.token !== token) {
 			throw new TerminalCatalogSupersededError();
 		}

@@ -27,8 +27,6 @@ import { makeStripeBillingStorePg } from "../src/stripe-billing-store.ts";
 import { migrationScheduleParams } from "./stripe-migration.mjs";
 import { acquireRunnerLock } from "./stripe-sandbox-lock.mjs";
 
-// Opt-in, real sandbox API testing. All state is outside version control.
-// Run with Bun from the repository root. Never accepts live keys or databases.
 const directory =
 	process.env.STRIPE_TEST_ARTIFACT_DIR ?? ".context/stripe-sandbox";
 const statePath = `${directory}/state.json`;
@@ -376,9 +374,6 @@ try {
 		});
 		console.log(JSON.stringify({ checkoutUrl: url }));
 	} else if (command === "provider-evidence") {
-		// Replay captured, authenticated provider evidence through the actual
-		// adapter, ingestion, PostgreSQL ledger and Stripe test-mode exporter.
-		// Seed the included allowance so even a small real cost exercises billing.
 		const path = process.env.STRIPE_TEST_PROVIDER_EVIDENCE_FILE;
 		assert(path, "STRIPE_TEST_PROVIDER_EVIDENCE_FILE is required");
 		const evidence = JSON.parse(await readFile(path, "utf8"));
@@ -507,8 +502,7 @@ try {
 				 VALUES ($1,$1,$1,'boxd','verification','verification','ready',$1,$2,$2,$2)`,
 				[accountId, start],
 			);
-			// This runner is restricted to its isolated local test schema. Release
-			// a previous canceled fixture's machine mapping before repeating it.
+
 			await db.query(
 				"DELETE FROM api_cloud_workspaces WHERE provider='boxd' AND provider_sandbox_id=$1 AND account_id LIKE $2",
 				[captured.machineId, `${state.runId}_provider_%`],
@@ -588,7 +582,7 @@ try {
 				Number(rows.rows[0].provider_cost_micros),
 				captured.costMicro,
 			);
-			// Meter timestamps must not be in this customer's simulated future.
+
 			await stripe.testHelpers.testClocks.advance(clock.id, {
 				frozen_time: Math.floor(end / 1000),
 			});
@@ -666,7 +660,6 @@ try {
 			});
 		}
 	} else if (command === "run") {
-		// Past anchors keep all usage timestamps inside Stripe's wall-clock window.
 		const anchor =
 			state.fixtures?.[0]?.periodStartMs / 1000 ||
 			Math.floor((Date.now() - 20 * 86400000) / 60000) * 60;
@@ -1222,8 +1215,7 @@ try {
 			)
 		).rows[0];
 		assert(delivery && delivery.sent_at === null);
-		// Test-only time control: expire the abandoned lease, preserving its key,
-		// immutable payload and original first-attempt timestamp.
+
 		await db.query(
 			"UPDATE api_stripe_meter_deliveries SET lease_until=0 WHERE delivery_key=$1",
 			[delivery.delivery_key],
@@ -1302,7 +1294,7 @@ try {
 		});
 		assert(original);
 		const originalId = JSON.parse(original.body).id;
-		// Simulate a previously missed event arriving after cancellation.
+
 		await db.query(
 			"DELETE FROM api_billing_events WHERE provider='stripe' AND event_id=$1",
 			[originalId],
@@ -1510,8 +1502,6 @@ try {
 			},
 		);
 	} else if (command === "cleanup") {
-		// Preserve customers, paid invoices and completed clocks for inspection.
-		// Stop this run's destinations and subscriptions, never unrelated objects.
 		for (const id of state.schedules) {
 			const schedule = await stripe.subscriptionSchedules.retrieve(id);
 			if (["active", "not_started"].includes(schedule.status))

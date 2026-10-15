@@ -91,7 +91,6 @@ const currentHead = async (cwd: string): Promise<string | null> => {
 	try {
 		return (await git(cwd, ["rev-parse", "--verify", "HEAD"])).trim();
 	} catch {
-		// An unborn branch is supported; a missing repository is not.
 		await git(cwd, ["symbolic-ref", "HEAD"]);
 		return null;
 	}
@@ -146,8 +145,7 @@ const withTemporaryIndex = async <A>(
 		try {
 			const sourceStat = await stat(indexPath);
 			await copyFile(indexPath, index);
-			// Copying an index must not make cached file stats appear older than the
-			// index: Git would otherwise skip rehashing same-timestamp file changes.
+
 			await utimes(index, sourceStat.atime, sourceStat.mtime);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -163,7 +161,7 @@ const observe = async (cwd: string, index: string) => {
 	const head = await currentHead(cwd);
 	const indexStat = await stat(index);
 	const indexTree = (await git(cwd, ["write-tree"], index)).trim();
-	// write-tree may rewrite cache-tree metadata; preserve the original stat horizon.
+
 	await utimes(index, indexStat.atime, indexStat.mtime);
 	await git(cwd, ["add", "-A", "--", "."], index);
 	const tree = (await git(cwd, ["write-tree"], index)).trim();
@@ -259,7 +257,7 @@ const prepareRestorePatch = async (
 		]);
 		const patchPath = `${temporary}.patch`;
 		await writeFile(patchPath, patch, { mode: 0o600 });
-		// git apply refuses preimage changes and collisions (including ignored files).
+
 		try {
 			await git(cwd, [
 				"apply",
@@ -326,8 +324,7 @@ export const restoreGitCheckpoint = async (
 		target.gitDir,
 		`zuse-restore-${digest(`${targetId}:${expectedId}`)}.index`,
 	);
-	// A crash after the final rename can leave our alias linked to the live index.
-	// Never truncate that alias while preparing the next idempotent retry.
+
 	try {
 		const [current, owned] = await Promise.all([
 			stat(indexPath),
@@ -338,8 +335,7 @@ export const restoreGitCheckpoint = async (
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 	}
-	// Publishing the lock as a hard link makes its ownership survive a crash.
-	// A retry removes only this operation's inode, never another Git command's lock.
+
 	try {
 		await writeFile(ownedIndex, "", { flag: "wx", mode: 0o600 });
 	} catch (error) {

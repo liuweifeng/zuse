@@ -7,7 +7,5 @@ export const stopRecorderOnUnmount = async (
 ): Promise<void> => {
 	try {
 		await recorder.stop();
-	} catch {
-		// Expo may release its native shared object before React runs this cleanup.
-	}
+	} catch {}
 };

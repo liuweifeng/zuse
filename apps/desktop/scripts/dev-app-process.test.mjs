@@ -5,8 +5,6 @@ import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { signalDevApp, spawnDevApp } from "./dev-app-process.mjs";
 
-// Model Electron's ordinary helper and its independently detached engine.
-// The engine remains Electron's direct child despite having its own group.
 const fixture = `
 const { spawn } = require('node:child_process');
 const { once } = require('node:events');

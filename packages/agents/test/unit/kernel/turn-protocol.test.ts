@@ -517,7 +517,6 @@ describe("turn-scoped provider protocol", () => {
 		const scoped = await Effect.runPromise(
 			makeTurnScopedSessionHandle(
 				handleWithEvents([
-					// Already inside the application turn: nothing new to open.
 					{ _tag: "ProviderTurnStarted" },
 					{
 						_tag: "ToolUse",
@@ -545,7 +544,7 @@ describe("turn-scoped provider protocol", () => {
 					{ _tag: "ProviderTurnStarted" },
 					{ _tag: "AssistantMessage", itemId, text: "builder finished" },
 					{ _tag: "Completed", reason: "ended" },
-					// Top-level output with no open turn stays uncorrelated.
+
 					{ _tag: "AssistantMessage", itemId, text: "stray" },
 				]),
 			),

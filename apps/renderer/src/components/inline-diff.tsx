@@ -39,8 +39,6 @@ export const extractEdits = (
 	const obj = input as Record<string, unknown>;
 	const path = typeof obj.file_path === "string" ? obj.file_path : null;
 
-	// Shared parser for an `edits: [{ old_string, new_string }]` array (MultiEdit,
-	// and Grok's SearchReplace which can apply several hunks in one Edit call).
 	const editsList = (raw: unknown, p: string): FileEdit[] => {
 		const edits = Array.isArray(raw) ? raw : [];
 		const out: FileEdit[] = [];
@@ -59,8 +57,7 @@ export const extractEdits = (
 
 	if (tool === "Edit") {
 		if (path === null) return [];
-		// Grok's SearchReplace can carry multiple hunks under `edits`; prefer
-		// that when present, else the single old_string/new_string pair.
+
 		if (Array.isArray(obj.edits)) return editsList(obj.edits, path);
 		const oldText = typeof obj.old_string === "string" ? obj.old_string : "";
 		const newText = typeof obj.new_string === "string" ? obj.new_string : "";
@@ -166,20 +163,8 @@ export const patchStats = (
 	return { added, removed };
 };
 
-/**
- * Build a unified-diff text string from a `FileEdit`, suitable for feeding to
- * `@pierre/diffs` `PatchDiff`. For a `create` with empty old text we still pass
- * `""` as the old file so the line numbers + additions render.
- */
 const editToPatch = (edit: FileEdit): string =>
 	createPatch(edit.path, edit.oldText, edit.newText, "", "");
-
-// ---------------------------------------------------------------------------
-// Polished vertical diff used for Edit/Write/MultiEdit tool results in the
-// chat timeline. Matches CodeBlock chrome, has internal scroll cap, tight
-// gutters (consistent with the tightened code-block-shiki rules), and app-
-// native colors.
-// ---------------------------------------------------------------------------
 
 const basename = (p: string): string => {
 	const i = p.lastIndexOf("/");

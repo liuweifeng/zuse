@@ -1,5 +1,3 @@
-// Slack signature verification, thread/file reads, and replies.
-
 const encoder = new TextEncoder();
 const SLACK_REQUEST_TIMEOUT_MS = 10_000;
 const SLACK_THREAD_MAX_MESSAGES = 500;
@@ -101,8 +99,7 @@ const slackClientMessageId = async (
 	const bytes = new Uint8Array(
 		await crypto.subtle.digest("SHA-256", encoder.encode(idempotencyKey)),
 	);
-	// Derive a stable UUID from the durable source event so retries use the
-	// exact same Slack duplicate-suppression identifier.
+
 	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80;
 	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
 	const hex = [...bytes.slice(0, 16)]
@@ -293,7 +290,6 @@ export const downloadSlackFile = async (input: {
 };
 
 export const readSlackThread = async (input: {
-	/** Use a token authorized to read this conversation; DMs use the bot token. */
 	readonly token: string;
 	readonly channel: string;
 	readonly threadTs: string;
@@ -365,7 +361,7 @@ export const readSlackThread = async (input: {
 				throw new Error("slack_thread_pagination_limit");
 			seenCursors.add(cursor);
 		}
-		// Bound durable context as well as attachment buffering. Retain newest data.
+
 		let textBudget = 60_000;
 		let fileBudget = 8;
 		for (let index = messages.length - 1; index >= 0; index--) {

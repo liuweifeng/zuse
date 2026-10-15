@@ -71,7 +71,6 @@ const load = async (
 	}
 };
 
-/** Refresh every loaded view of this computer's accounts for one provider. */
 const reloadProvider = (
 	environmentId: string,
 	providerId: NativeAccountProvider,

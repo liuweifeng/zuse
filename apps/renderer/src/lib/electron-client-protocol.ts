@@ -126,8 +126,6 @@ export const makeElectronClientProtocol = (
 			);
 			yield* Deferred.await(disconnected).pipe(
 				Effect.andThen(() =>
-					// A request may be sent before RpcClient installs its receive loop.
-					// Include those clients so Protocol buffers their failure until run starts.
 					Effect.forEach(
 						new Set([...clientIds, ...requestClientMap.values()]),
 						(clientId) =>

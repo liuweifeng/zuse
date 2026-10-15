@@ -23,7 +23,7 @@ test("backfills paged legacy inputs and preserves terminal state on replay", asy
 			yield* sql`CREATE TABLE events (sequence INTEGER PRIMARY KEY, stream_kind TEXT,
 		stream_id TEXT, type TEXT, payload_json TEXT)`;
 			yield* sql`INSERT INTO sessions (id) VALUES ('session')`;
-			// Imported message sequences need not be globally unique. Cross a page boundary.
+
 			for (let index = 0; index < 503; index++) {
 				yield* sql`INSERT INTO messages VALUES (${`message-${index}`}, 'session', NULL,
 				'user_question', ${question(`question-${index}`)}, '2026-01-01T00:00:00.000Z', 1)`;

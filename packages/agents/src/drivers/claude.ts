@@ -88,11 +88,6 @@ export interface ClaudeSessionHandle extends ProviderSessionHandle {
 	) => Effect.Effect<void, Error>;
 }
 
-/**
- * Map our PermissionMode literal onto the SDK's. Identical at present
- * (the SDK union is wider — `dontAsk`, `auto`, `bypassPermissions` —
- * but we only expose the three the renderer chip surfaces).
- */
 const toSdkPermissionMode = (mode: PermissionMode): SdkPermissionMode =>
 	mode satisfies SdkPermissionMode;
 
@@ -114,13 +109,6 @@ export const runtimeModeToSdkPermissionMode = (
 	}
 };
 
-/**
- * Name we register the in-process AskUserQuestion tool under. The SDK
- * exposes MCP tools to the model as `mcp__<server>__<tool>`, so the
- * model sees `mcp__zuse__ask_user_question` and the translator
- * matches on that exact prefix to emit `UserQuestion` instead of a
- * generic `ToolUse`.
- */
 const ZUSE_MCP_NAME = "zuse";
 const ASK_USER_QUESTION_TOOL = "ask_user_question";
 const ASK_USER_QUESTION_FQN = `mcp__${ZUSE_MCP_NAME}__${ASK_USER_QUESTION_TOOL}`;
@@ -163,12 +151,6 @@ type UserContentBlock =
 			title?: string;
 	  };
 
-/**
- * Tiny promise-backed async input channel. The Claude SDK's streaming-input
- * mode wants an `AsyncIterable<SDKUserMessage>`; we want imperative pushes
- * from `send()`. This bridges the two without pulling in another dependency.
- * `push` after `close` is silently dropped.
- */
 class UserInputChannel implements AsyncIterable<SDKUserMessage> {
 	private buffer: SDKUserMessage[] = [];
 	private waiting: ((r: IteratorResult<SDKUserMessage>) => void) | null = null;
@@ -267,20 +249,16 @@ interface TranslateState {
 	 * so ownership must not depend on ordering. Cleared when the turn ends.
 	 */
 	readonly streamedMessageIds: Set<string>;
-	/**
-	 * Tracks `Agent` / `Task` tool_uses awaiting their paired tool_result
-	 * so we can emit a `SubagentSummary` event when the result lands.
-	 * Keyed by the parent's tool_use id.
-	 */
+
 	pendingAgents: Map<string, PendingAgent>;
-	/** Maps SDK background task ids to their originating Agent tool use. */
+
 	backgroundTaskParents: Map<string, AgentItemId>;
-	/** Shell inputs retained until the SDK classifies them as background. */
+
 	backgroundShellInputs: Map<
 		string,
 		{ readonly input: unknown; readonly parentItemId: AgentItemId | undefined }
 	>;
-	/** SDK task ids mapped to their dedicated BackgroundTask timeline item. */
+
 	localBackgroundTasks: Map<string, AgentItemId>;
 	/**
 	 * Most recent `parent_tool_use_id` seen on an SDK message. The Claude
@@ -290,13 +268,7 @@ interface TranslateState {
 	 * serially; if it ever parallelises, this attribution races.
 	 */
 	latestParentItemId: AgentItemId | undefined;
-	/**
-	 * Tool-use ids for in-flight AskUserQuestion calls. The translator
-	 * suppresses the generic `ToolUse` and matching `ToolResult` events for
-	 * these ids — the question + answer are surfaced via dedicated
-	 * `UserQuestion` events and the persisted `user_question` /
-	 * `user_question_answer` rows instead.
-	 */
+
 	askUserQuestionIds: Set<string>;
 	/**
 	 * Tool-use ids for in-flight `ExitPlanMode` calls. When the matching
@@ -306,20 +278,10 @@ interface TranslateState {
 	 * persists the new mode and the chip auto-untoggles.
 	 */
 	exitPlanModeIds: Set<string>;
-	/**
-	 * Tokens occupying the context window after the most recent top-level
-	 * assistant turn (`input + cache_read + cache_creation + output`). The
-	 * per-request `usage` on an assistant message is the truest snapshot of
-	 * current context fill; we stash it here and emit an exact `ContextUsage`
-	 * when the turn's `result` lands (which carries the real `contextWindow`).
-	 */
+
 	lastContextUsedTokens: number | null;
 	pendingCompact: CompactSnapshot | null;
-	/**
-	 * Set once a tagged `authentication_failed` assistant message became a typed
-	 * auth Error, so the turn's terminal `result` doesn't surface the same
-	 * failure a second time.
-	 */
+
 	emittedAuthError: boolean;
 	/**
 	 * Set when the user interrupts the running turn (`handle.interrupt`). The SDK
@@ -329,12 +291,7 @@ interface TranslateState {
 	 * owns terminal synthesis. Reset per turn once consumed.
 	 */
 	interrupted: boolean;
-	/**
-	 * True while the CLI is inside a top-level turn: from an application send
-	 * (or the first top-level output of a turn the CLI started itself) until
-	 * the top-level `result`. Top-level output while this is false means the
-	 * CLI woke its main agent on its own — e.g. a background task finished.
-	 */
+
 	topLevelTurnOpen: boolean;
 }
 
@@ -379,11 +336,6 @@ const extractTextFromContent = (content: unknown): string => {
 	return "";
 };
 
-// Off by default; enable with MEMOIZE_DEBUG_THINKING=1 when diagnosing
-// thinking-block delivery. One JSON object per line so terminal
-// scrollback / `grep` / `tee logfile` all preserve every field — Node's
-// default util.inspect spans multiple lines and gets chopped by
-// line-oriented tools.
 const THINKING_DEBUG = process.env.MEMOIZE_DEBUG_THINKING === "1";
 const tlog = (event: string, payload: Record<string, unknown> = {}): void => {
 	if (!THINKING_DEBUG) return;
@@ -405,12 +357,6 @@ const summarize = (value: unknown, max = 200): string => {
 	}
 };
 
-/**
- * Pull the real context-window size out of a `result` message's
- * `modelUsage` map. Prefers the model that produced the result; falls back
- * to the largest window present (sub-agents on smaller models can pollute
- * the map). Returns `null` when the SDK omits it.
- */
 const contextWindowFromModelUsage = (
 	msg: SDKMessage,
 	model: string,
@@ -457,11 +403,6 @@ const CLAUDE_LIMIT_WINDOW_MINUTES: Record<string, number> = {
 	seven_day_sonnet: 7 * 24 * 60,
 };
 
-/**
- * Map a subscription `rate_limit_event` into a `UsageLimit` event. Only
- * fires for claude.ai subscription sessions; API-key sessions never emit
- * it. `utilization` arrives as a 0–1 fraction; snapshot APIs use 0–100.
- */
 const claudeRateLimitEvents = (
 	info: ClaudeRateLimitInfo,
 ): ReadonlyArray<AgentEvent> => {
@@ -495,11 +436,6 @@ const claudeRateLimitEvents = (
 	];
 };
 
-// When the `claude` CLI has no valid credentials it does not throw: it emits a
-// synthetic assistant message whose text is the failure ("Not logged in",
-// "OAuth session expired…") and tags it `error: "authentication_failed"`.
-// Translate that tag into a typed auth Error so the transcript never shows the
-// failure as assistant prose and the renderer can offer sign-in.
 export const claudeAuthFailureText = (msg: SDKMessage): string | null => {
 	if (msg.type !== "assistant" || msg.error !== "authentication_failed")
 		return null;
@@ -581,12 +517,6 @@ const translate = (
 	return [{ _tag: "ProviderTurnStarted" }, ...translateMessage(msg, state)];
 };
 
-/**
- * Translate one SDKMessage into zero-or-more wire AgentEvents. Mostly
- * stateless, but the `state` carries thinking-delta accumulators across
- * `stream_event` messages so we can emit one Thinking event per content
- * block at its `content_block_stop`.
- */
 const translateMessage = (
 	msg: SDKMessage,
 	state: TranslateState,
@@ -596,9 +526,7 @@ const translateMessage = (
 		hasMessage: "message" in (msg as object),
 		sessionId: (msg as { session_id?: unknown }).session_id,
 	});
-	// Pull `parent_tool_use_id` off the SDK message — when set, every event
-	// we emit for this message is happening inside a sub-agent and gets
-	// tagged so the renderer can group nested rows.
+
 	const parentItemId =
 		typeof (msg as { parent_tool_use_id?: unknown }).parent_tool_use_id ===
 		"string"
@@ -637,9 +565,6 @@ const translateMessage = (
 			const pending = state.pendingAgents.get(parentItemId);
 			if (pending !== undefined) pending.turnCount += 1;
 		} else {
-			// Top-level turn: snapshot how full the context window is. The
-			// per-request `usage` is what was actually sent to (input + cache)
-			// plus generated this request (output) — i.e. the live occupancy.
 			const usage = (msg.message as { usage?: unknown }).usage as
 				| Record<string, unknown>
 				| undefined;
@@ -675,12 +600,7 @@ const translateMessage = (
 						typeof (block as { id?: unknown }).id === "string"
 							? ((block as { id: string }).id as AgentItemId)
 							: nextItemId();
-					// AskUserQuestion: suppress the generic ToolUse row. The MCP
-					// handler emits a dedicated `UserQuestion` event with the
-					// matching itemId, which the renderer paints as a question
-					// card. Track the id so the paired tool_result is suppressed
-					// too — the user's answer surfaces via the persisted
-					// `user_question_answer` row, not a noisy tool_result.
+
 					if (block.name === ASK_USER_QUESTION_FQN) {
 						state.askUserQuestionIds.add(id as string);
 						continue;
@@ -698,9 +618,7 @@ const translateMessage = (
 							parentItemId,
 						});
 					}
-					// If this tool_use is the parent agent kicking off a sub-agent,
-					// remember it so the eventual paired tool_result can pop a
-					// SubagentSummary event.
+
 					if (isAgentToolUse(block)) {
 						const inputObj = (block as { input?: unknown }).input as
 							| Record<string, unknown>
@@ -735,9 +653,6 @@ const translateMessage = (
 					block.type === "thinking" &&
 					typeof (block as { thinking?: unknown }).thinking === "string"
 				) {
-					// Fallback for messages that never streamed: emit whatever the
-					// snapshot has — even if `thinking` is empty — so a row appears
-					// and we know thinking happened.
 					const text = (block as { thinking: string }).thinking;
 					tlog("assistant.thinking-block", {
 						textLen: text.length,
@@ -880,7 +795,6 @@ const translateMessage = (
 					];
 				}
 			} else if (delta.type === "signature_delta") {
-				// signatures confirm thinking happened even when text is empty
 				const sig = typeof delta.signature === "string" ? delta.signature : "";
 				tlog("stream_event.signature_delta", { index, sigLen: sig.length });
 				if (acc !== undefined) acc.signatureLength += sig.length;
@@ -909,8 +823,7 @@ const translateMessage = (
 				signatureLen: acc.signatureLength,
 				textPreview: summarize(acc.text),
 			});
-			// The stream owns this block, so always finalize it here — the
-			// completed assistant snapshot never emits a competing row.
+
 			if (acc.kind === "text") {
 				return acc.text.length === 0
 					? []
@@ -951,9 +864,7 @@ const translateMessage = (
 					},
 				];
 			}
-			// Empty thinking + a non-zero signature still indicates a thought
-			// was produced — render the empty placeholder so the user can see
-			// it happened. (If signature is also zero, drop silently.)
+
 			if (acc.signatureLength > 0) {
 				return [
 					{
@@ -971,31 +882,21 @@ const translateMessage = (
 		return [];
 	}
 	if (msg.type === "user") {
-		// Tool results come back as user messages with tool_result content blocks.
 		const out: AgentEvent[] = [];
 		const content = msg.message.content;
 		if (Array.isArray(content)) {
 			for (const block of content) {
 				if (block.type === "tool_result") {
-					// Pair to the originating tool_use by the SDK's correlation id;
-					// fall back to a fresh id only if the SDK omits it (shouldn't
-					// happen for valid tool_result blocks).
 					const id =
 						typeof (block as { tool_use_id?: unknown }).tool_use_id === "string"
 							? ((block as { tool_use_id: string }).tool_use_id as AgentItemId)
 							: nextItemId();
-					// Suppress tool_result rows for AskUserQuestion — the answer is
-					// already persisted as a `user_question_answer` row via
-					// `answerQuestion`. Showing both would double-paint.
+
 					if (state.askUserQuestionIds.has(id as string)) {
 						state.askUserQuestionIds.delete(id as string);
 						continue;
 					}
-					// Successful ExitPlanMode → SDK is now in `default` mode.
-					// Emit PermissionModeChanged so ConversationServices persists the
-					// flip and the chip auto-untoggles. We still emit the
-					// ToolResult itself so the plan card sees `result` and
-					// switches to its "Approved" state.
+
 					if (state.exitPlanModeIds.has(id as string)) {
 						state.exitPlanModeIds.delete(id as string);
 						if (block.is_error !== true) {
@@ -1037,9 +938,7 @@ const translateMessage = (
 	}
 	if (msg.type === "result") {
 		const out: AgentEvent[] = [];
-		// `result` carries usage; emit a UsageDelta tagged with parentItemId
-		// when the result belongs to a sub-agent. Cumulative numbers are
-		// accumulated renderer-side from the deltas.
+
 		const usage = (msg as { usage?: unknown }).usage as
 			| Record<string, unknown>
 			| undefined;
@@ -1073,9 +972,7 @@ const translateMessage = (
 		if (parentItemId === undefined) {
 			state.topLevelTurnOpen = false;
 			state.streamedMessageIds.clear();
-			// Emit the exact context occupancy for the turn. The real window
-			// comes from `modelUsage[model].contextWindow`; the used tokens are
-			// the snapshot stashed from the last top-level assistant message.
+
 			if (state.lastContextUsedTokens !== null) {
 				out.push({
 					_tag: "ContextUsage",
@@ -1107,9 +1004,7 @@ const translateMessage = (
 				state.emittedAuthError = false;
 				return out;
 			}
-			// Surface a failed result's text as an Error so it persists + renders.
-			// `state.emittedAuthError` dedupes against the typed auth Error already
-			// emitted for the `authentication_failed` assistant message.
+
 			const resultError = claudeResultErrorText(msg);
 			if (resultError !== null && !state.emittedAuthError) {
 				out.push({ _tag: "Error", message: resultError });
@@ -1119,8 +1014,7 @@ const translateMessage = (
 					? { _tag: "Completed", reason: "ended" }
 					: { _tag: "Completed", reason: "error" },
 			);
-			// The result closes the top-level turn — reset the per-turn auth dedupe
-			// so a later turn that fails auth still surfaces its own error.
+
 			state.emittedAuthError = false;
 		}
 		return out;
@@ -1155,7 +1049,7 @@ const translateMessage = (
 					tool: "Bash",
 					input,
 					backgroundTask: { taskId: msg.task_id },
-					// A sub-agent's background shell belongs under that sub-agent.
+
 					...(shell?.parentItemId === undefined
 						? {}
 						: { parentItemId: shell.parentItemId }),
@@ -1278,17 +1172,6 @@ export const translateClaudeSdkMessages = (
 	return messages.flatMap((message) => translate(message, state));
 };
 
-/**
- * Tools the agent can run without a prompt. These are pure reads or
- * internal-state tools (`TodoWrite`) with no observable blast radius. The
- * `Read` exception for sensitive paths is enforced separately in
- * `claudeToolPermissionPolicy` — even read-only tools force a prompt when the target looks
- * like a secret.
- *
- * `ASK_USER_QUESTION_FQN` is here because asking the user a question IS
- * the user-facing prompt — gating it behind a separate "Use tool
- * AskUserQuestion?" toast is double prompting.
- */
 const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"Read",
 	"LS",
@@ -1298,20 +1181,12 @@ const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
 	"BashOutput",
 	"TodoWrite",
 	ASK_USER_QUESTION_FQN,
-	// Agent browser — navigate / screenshot / snapshot / wait are read-only and
-	// fully visible to the user (the page loads in the on-screen webview,
-	// screenshots flash a shutter). Auto-allow like Grep/Glob.
-	// `browser_click` and `browser_type` are deliberately absent: they mutate
-	// page state, so they fall through to the regular permission prompt.
+
 	`mcp__${ZUSE_MCP_NAME}__browser_navigate`,
 	`mcp__${ZUSE_MCP_NAME}__browser_screenshot`,
 	`mcp__${ZUSE_MCP_NAME}__browser_snapshot`,
 	`mcp__${ZUSE_MCP_NAME}__browser_wait`,
-	// Read-only / non-mutating browsing: scroll, hover, read text, console,
-	// network (pure read of captured request metadata), and history
-	// (back/forward/reload — like navigate, which also auto-allows).
-	// `browser_select`, `browser_press`, `browser_fill_form`, and
-	// `browser_dialog` change page state, so they prompt.
+
 	`mcp__${ZUSE_MCP_NAME}__browser_scroll`,
 	`mcp__${ZUSE_MCP_NAME}__browser_hover`,
 	`mcp__${ZUSE_MCP_NAME}__browser_read`,
@@ -1346,27 +1221,6 @@ const editPathOf = (toolInput: Record<string, unknown>): string =>
 			? (toolInput.notebook_path as string)
 			: "";
 
-/**
- * Decide whether the SDK's tool call needs to bother the user. Layered:
- *
- *   1. Sensitive paths always force a prompt (`forcePrompt: true`) — this is
- *      the safety net that survives every other allow rule, including
- *      `full-access` mode.
- *   2. Read-only tools auto-allow.
- *   3. `auto-accept-edits` mode short-circuits file edits.
- *   4. `full-access` mode short-circuits everything else.
- *   5. Otherwise, prompt.
- */
-/**
- * Match every "ask the user a question" surface we know about. The
- * Claude SDK has a built-in `AskUserQuestion` tool (PascalCase) that
- * the model can call; we register our own `mcp__zuse__ask_user_question`
- * to drive a renderer card. Either form should bypass the permission
- * toast — asking permission to ask a question is double-prompting.
- *
- * The SDK built-in is also added to `disallowedTools` below so the
- * model is steered to ours; this matcher is the safety net.
- */
 const SDK_BUILTIN_ASK_USER_QUESTION = "AskUserQuestion";
 
 const isAskUserQuestion = (toolName: string): boolean =>
@@ -1380,24 +1234,14 @@ export const claudeToolPermissionPolicy = (
 	toolInput: Record<string, unknown>,
 	runtimeMode: RuntimeMode,
 ): ToolPolicy => {
-	// 0a. Plan-mode exit is ALWAYS a user decision. Regardless of runtime
-	//     mode — including `full-access` — `ExitPlanMode` must surface the
-	//     Approve / Cancel card in the renderer. Without `forcePrompt: true`
-	//     a prior `AllowForSession` could silence it, and without putting
-	//     this branch ahead of every other auto-allow `full-access` would
-	//     short-circuit the prompt entirely.
 	if (toolName === "ExitPlanMode") {
 		return { kind: "prompt", forcePrompt: true };
 	}
-	// 0b. Our own AskUserQuestion is the user-facing prompt — gating it
-	//     behind a separate "Use tool AskUserQuestion?" toast is double
-	//     prompting. Always auto-allow.
+
 	if (isAskUserQuestion(toolName)) {
 		return { kind: "auto-allow" };
 	}
-	// 0b. Agent browser login submits saved (dummy) credentials into a page.
-	//     Always prompt, even in full-access mode — a login attempt should
-	//     never fire silently. Treated like a sensitive path.
+
 	if (
 		toolName.endsWith("__browser_login") ||
 		toolName.endsWith("__browser_evaluate")
@@ -1430,12 +1274,6 @@ export const claudeToolPermissionPolicy = (
 		: { kind: "prompt", forcePrompt: sensitive };
 };
 
-/**
- * Map a Claude SDK tool invocation onto a wire `PermissionKind`. Tools we
- * don't classify drop into `Other`; the server treats those as auto-allow
- * for now (logged) so the agent loop isn't stalled by every internal `Read`
- * or `Glob`. Adding a classification is a one-line change here.
- */
 const kindForTool = (
 	toolName: string,
 	toolInput: Record<string, unknown>,
@@ -1490,22 +1328,6 @@ export type RequestPermission = (
 	options: { readonly forcePrompt: boolean },
 ) => Promise<PermissionDecision>;
 
-/**
- * Resolve the SDK `effort` field and the per-session `settings` slice from
- * the FE picker's `modelOptions`:
- *   - `ultracode`  → `effort: "xhigh"` + `settings.ultracode: true`
- *   - `ultrathink` → prompt-injected (driver-side prefix added at send()
- *                    time); SDK `effort` stays unset so the model still
- *                    uses its default tier.
- *   - `low | medium | high | xhigh | max` pass straight through, clamped
- *     by what the SDK type accepts.
- *   - Anything else (or missing) falls back to `"high"`.
- *
- * `fastMode` (Opus only) and `thinking` (Haiku 4.5) ride on `settings`.
- *
- * The returned object is spread into the `Options` literal so omitted
- * fields don't override SDK defaults.
- */
 type ClaudeSdkEffort = "low" | "medium" | "high" | "xhigh" | "max";
 type EffortAndSettings = {
 	effort?: ClaudeSdkEffort;
@@ -1519,8 +1341,8 @@ const effortAndSettings = (
 	const ultracode = raw === "ultracode";
 	const ultrathink = raw === "ultrathink";
 	const sdkEffort: ClaudeSdkEffort | undefined = (() => {
-		if (ultrathink) return undefined; // prompt-injected; no SDK knob
-		if (ultracode) return "xhigh"; // Claude Code preset → xhigh + ultracode flag
+		if (ultrathink) return undefined;
+		if (ultracode) return "xhigh";
 		if (
 			raw === "low" ||
 			raw === "medium" ||
@@ -1618,10 +1440,7 @@ export const startClaudeSession = (
 	resumeCursor: string | null = null,
 	browserSend: BrowserSend,
 	orchestrationTools: OrchestrationSessionTools | null = null,
-	// SDK `skills` allowlist, resolved server-side from the user's disabled
-	// skills. `undefined` keeps the SDK default (every discovered skill);
-	// a list hides unlisted skills from the model and makes the Skill tool
-	// reject them.
+
 	skillAllowlist: ReadonlyArray<string> | undefined = undefined,
 	resumeHead: string | null = null,
 ): Effect.Effect<
@@ -1740,14 +1559,6 @@ export const startClaudeSession = (
 		};
 		const checkpointBatcher = new ProviderCheckpointBatcher({ emit });
 
-		/**
-		 * Outstanding `AskUserQuestion` calls. Keyed by the MCP tool's
-		 * generated itemId (= the `tool_use.id` the model emitted) so the
-		 * renderer's `answerQuestion(itemId, …)` resolves the right one.
-		 * Resolves with the answers (which our handler returns as the tool
-		 * result) or with `null` for cancellation (the SDK turn unwinds
-		 * with an `is_error: true` row).
-		 */
 		type QuestionResolver = (
 			answers: ReadonlyArray<UserQuestionAnswer> | null,
 		) => void;
@@ -1823,8 +1634,7 @@ export const startClaudeSession = (
 					...process.env,
 					...input.executionEnv,
 					...pluginCliEnv(mcpGatewaySession.endpoint, mcpGatewaySession.token),
-					// Agents get MCP only through the Zuse gateway: keep the CLI
-					// from auto-fetching the user's claude.ai connectors.
+
 					ENABLE_CLAUDEAI_MCP_SERVERS: "false",
 				}),
 				cwd,
@@ -1838,11 +1648,7 @@ export const startClaudeSession = (
 					credentialEnv,
 				)
 			: credentialEnv;
-		// Sub-agent map → SDK Options.agents. When at least one preset is
-		// present and the master toggle is on, also add `Agent` to
-		// allowedTools so the model can actually call it. Sessions without
-		// sub-agents leave allowedTools alone and behave identically to the
-		// pre-feature path.
+
 		const agentsMap = input.agents ?? {};
 		const subagentsEffective =
 			(input.enableSubagents ?? Object.keys(agentsMap).length > 0) &&
@@ -1892,11 +1698,7 @@ export const startClaudeSession = (
 							(t) => !subagentOptions.allowedTools?.includes(t),
 						)),
 			],
-			// Agents receive MCP only through the Zuse gateway. Strict mode makes
-			// the CLI ignore every other MCP source (user/project/local config,
-			// `.mcp.json`, plugins, agent frontmatter, claude.ai connectors)
-			// without touching `settingSources`, so CLAUDE.md, skills, and hooks
-			// still load.
+
 			strictMcpConfig: true,
 			mcpServers: {
 				[ZUSE_MCP_NAME]: {
@@ -1930,13 +1732,10 @@ export const startClaudeSession = (
 			...effortAndSettings(input.modelOptions),
 			thinking: { type: "adaptive", display: "summarized" },
 			forwardSubagentText: true,
-			// Surfaces thinking deltas in the partial-message stream so we
-			// can render thinking as it streams in.
+
 			includePartialMessages: true,
 			env: env as Options["env"],
-			// Bridge the SDK's permission callback to the server-side
-			// `PermissionService`. The renderer's toast eventually fulfills the
-			// promise this awaits.
+
 			canUseTool: async (toolName, toolInput) => {
 				const policy = claudeToolPermissionPolicy(
 					toolName,
@@ -1951,11 +1750,6 @@ export const startClaudeSession = (
 					`[claude.canUseTool] tool=${toolName} policy=${policy.kind}`,
 				);
 				if (policy.kind === "auto-allow") {
-					// Read / LS / Glob / Grep / NotebookRead / BashOutput / TodoWrite
-					// skip the prompt entirely. We deliberately don't surface a
-					// `PermissionRequest` event for these — the timeline already
-					// shows the underlying `tool_use`, and a second "I asked for
-					// permission and was given it" row would be pure noise.
 					return { behavior: "allow", updatedInput: toolInput };
 				}
 				const kind = kindForTool(toolName, toolInput);
@@ -1979,10 +1773,7 @@ export const startClaudeSession = (
 						message: "User denied this tool call.",
 					};
 				}
-				// AllowOnce / AllowForSession / AlwaysAllow → allow. The session
-				// and folder scopes are enforced server-side: a second request
-				// with the same (sessionId|projectId, kindKey) short-circuits to
-				// AllowOnce without prompting (unless `forcePrompt` is set).
+
 				return { behavior: "allow", updatedInput: toolInput };
 			},
 		};
@@ -2026,11 +1817,6 @@ export const startClaudeSession = (
 			);
 		}
 
-		// Pump SDK messages → AgentEvents in a forked daemon. Sessions outlive the
-		// start RPC; `close()` is what ends the pump (input close + abort, which
-		// makes the SDK loop terminate). On the first message that has a
-		// populated `session_id` we surface it as `SessionCursor` so ConversationServices
-		// can persist it for resume.
 		let cursorAnnounced = false;
 		const pump = Effect.tryPromise({
 			try: async () => {
@@ -2064,10 +1850,6 @@ export const startClaudeSession = (
 		}).pipe(
 			Effect.catch((cause) =>
 				Effect.sync(() => {
-					// If the SDK threw out of the `for await` because the user
-					// interrupted (rather than yielding an `error_during_execution`
-					// result), surface the muted interrupted badge, not an error. The
-					// shared turn protocol synthesizes the terminal completion.
 					if (translateState.interrupted) {
 						translateState.interrupted = false;
 						Queue.offerUnsafe(events, { _tag: "Interrupted" });
@@ -2108,10 +1890,7 @@ export const startClaudeSession = (
 							}),
 						);
 					}
-					// Ultrathink is the only `effort` tier that's not forwarded to
-					// the SDK as a knob — instead the literal word `"ultrathink"` is
-					// prepended to the user's prompt. The session-level modelOptions
-					// were captured at start() so we can apply the prefix here.
+
 					const promptText = compactCommand
 						? text.trim()
 						: applyUltrathinkPrefix(input.modelOptions, text);
@@ -2145,9 +1924,6 @@ export const startClaudeSession = (
 				}),
 			interrupt: () =>
 				Effect.sync(() => {
-					// Mark the turn as interrupted so the terminal `result`
-					// (`error_during_execution`) is translated into an `Interrupted`
-					// badge instead of an error bubble.
 					translateState.interrupted = true;
 					releasePendingQuestions("cancelled");
 				}).pipe(
@@ -2162,9 +1938,7 @@ export const startClaudeSession = (
 			close: () =>
 				Effect.sync(() => {
 					checkpointBatcher.flush();
-					// Unblock any in-flight AskUserQuestion calls so the SDK turn
-					// can unwind cleanly instead of leaking the MCP handler's
-					// pending Promise.
+
 					releasePendingQuestions("closed");
 					inputChannel.close();
 					abort.abort();

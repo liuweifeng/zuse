@@ -116,7 +116,6 @@ describe("renderer design system", () => {
 	it("uses 28px visible controls in browser authentication", () => {
 		const accessGate = rendererSource("components/browser-access-gate.tsx");
 
-		// The shared Input and default Button are both h-7.
 		expect(accessGate).toContain("<Input");
 		expect(accessGate).toContain("<Button");
 		expect(accessGate).not.toMatch(/\b(?:h-8|h-11|min-h-11)\b/);

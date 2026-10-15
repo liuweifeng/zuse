@@ -29,10 +29,9 @@ import { overlayPanelSurface } from "./ui/overlay-surface.ts";
 import { toastManager } from "./ui/toast.tsx";
 
 const HIGHLIGHT_NAME = "chat-annotation";
-/** Keep the floating menu this far from the viewport edges. */
+
 const EDGE = 12;
 
-/** Selected text being annotated stays painted after focus moves to the note. */
 const useSelectionHighlight = (range: Range | null) => {
 	useEffect(() => {
 		if (range === null || typeof Highlight === "undefined" || !CSS.highlights)
@@ -78,7 +77,6 @@ export function ChatSelectionMenu({
 	useEffect(() => {
 		let frame = 0;
 		const read = (event: Event) => {
-			// Choosing an action must not re-read (and reset) the selection.
 			if (
 				event.target instanceof Node &&
 				menuRef.current?.contains(event.target)
@@ -102,7 +100,7 @@ export function ChatSelectionMenu({
 			const current = selectionRef.current;
 			if (current === null) return;
 			const next = current.range.getBoundingClientRect();
-			// Virtualized rows unmount offscreen; a detached range has no box.
+
 			if (next.width === 0 && next.height === 0) {
 				if (!annotatingRef.current) setSelection(null);
 				return;
@@ -110,7 +108,6 @@ export function ChatSelectionMenu({
 			setRect(next);
 		};
 		const onKeyDown = (event: KeyboardEvent) => {
-			// While annotating, the draft card owns Escape (it confirms discards).
 			if (
 				event.key === "Escape" &&
 				selectionRef.current !== null &&
@@ -194,7 +191,6 @@ export function ChatSelectionMenu({
 					"fixed z-50 flex items-center gap-0.5 rounded-lg p-0.5",
 				)}
 				style={style}
-				// Keep the text selected while choosing an action.
 				onMouseDown={(event) => event.preventDefault()}
 			>
 				<Button

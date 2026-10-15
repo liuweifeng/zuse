@@ -18,7 +18,6 @@ export function resolveHarnessRipgrep(): string {
 		accessSync(binary, constants.X_OK);
 		return binary;
 	} catch {
-		// Source/headless installations may supply ripgrep on PATH.
 		return "rg";
 	}
 }

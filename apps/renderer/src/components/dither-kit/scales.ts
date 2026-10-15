@@ -34,9 +34,7 @@ export function computeBands(
 				return [0, v];
 			});
 		}
-		// Only fall back to a unit span when there's no range at all (empty /
-		// all-zero) — a purely negative series keeps max = 0 so the baseline
-		// stays pinned to the top of the plot.
+
 		const flat = max === 0 && min === 0;
 		return { bands, max: flat ? 1 : max, min };
 	}
@@ -93,8 +91,7 @@ export function indexAtBand(px: number, length: number, plotWidth: number) {
 export function buildYScale(min: number, max: number, plotHeight: number) {
 	const lo = Math.min(0, min);
 	const hi = Math.max(0, max);
-	// Guard a degenerate (zero-width) domain so `nice()` and the range map stay
-	// finite even when every value is exactly zero.
+
 	return scaleLinear()
 		.domain([lo, hi === lo ? lo + 1 : hi])
 		.nice()

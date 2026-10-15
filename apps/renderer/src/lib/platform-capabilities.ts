@@ -46,7 +46,6 @@ export const openExternal = async (
 		return;
 	}
 	if (typeof url !== "string") {
-		// Reserve the tab during the click, before an account request loses browser activation.
 		const pending = window.open("", "_blank");
 		if (pending === null) throw new Error("External window was blocked");
 		pending.opener = null;
@@ -87,9 +86,7 @@ export const copyText = async (text: string): Promise<void> => {
 		await bridge.copyText(text);
 		return;
 	}
-	// Older desktop preloads do not expose copyText yet. Keep copy usable until
-	// the next app restart swaps in the new preload instead of misusing copyPath,
-	// which deliberately accepts existing filesystem paths only.
+
 	if (bridge !== undefined && copyTextWithSelection(text)) return;
 	if (navigator.clipboard?.writeText === undefined) {
 		if (copyTextWithSelection(text)) return;

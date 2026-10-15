@@ -65,7 +65,7 @@ it.skipIf(!connectionString)(
 					runtime.runPromise(store.recordRuntimeObservation(observation)),
 				),
 			);
-			// A failed queue insert must roll back the observation watermark too.
+
 			await db.query(
 				"ALTER TABLE api_cloud_usage_outbox ADD CONSTRAINT fail_export CHECK (false)",
 			);

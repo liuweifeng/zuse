@@ -175,7 +175,7 @@ export const humanizeModelId = (id: string): string => {
 		if (part === undefined) continue;
 		if (acronyms.has(part.toLowerCase())) {
 			const next = parts[i + 1];
-			// Keep "GPT-5.6" as one token when the next segment is a version.
+
 			if (next !== undefined && /^\d/.test(next)) {
 				words.push(`${part.toUpperCase()}-${next}`);
 				i += 1;

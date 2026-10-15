@@ -9,7 +9,7 @@ const read = (path) => readFileSync(resolve(root, path), "utf8");
 const manifest = JSON.parse(read(manifestPath));
 const replacements = new Map();
 const changes = [];
-// Only registry stable releases. Keep the digest-reviewed Grok installer separate.
+
 for (const [name, previous] of Object.entries(manifest.npmPackages)) {
 	const version = JSON.parse(
 		execFileSync("npm", ["view", `${name}@latest`, "version", "--json"], {

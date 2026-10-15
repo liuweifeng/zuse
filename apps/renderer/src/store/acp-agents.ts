@@ -24,7 +24,7 @@ interface HostAgents {
 	definitions: readonly AcpDefinition[];
 	catalog: readonly AcpCatalogEntry[];
 	catalogLoading: boolean;
-	/** Connection tests run per agent and do not lock the host. */
+
 	testing: readonly AcpProviderId[];
 	busy: string | null;
 	signingIn: boolean;
@@ -70,7 +70,7 @@ export const runAcpOperation = async <A>(
 		const client = await runtimeOperationClient(host);
 		const result = await Effect.runPromise(operation(client));
 		await loadAcpAgents(host);
-		// Pickers catch up in the background; settings stay usable meanwhile.
+
 		void refreshProviderMetadata(host);
 		return result;
 	} catch (error) {
@@ -173,7 +173,7 @@ export const authenticateAcpAgent = async (
 		},
 		(error) => update(host, { error: formatError(error) }),
 	);
-	// A cancelled attempt already reset state; a newer attempt owns it now.
+
 	if (signInOwners.get(host) !== owner) return;
 	signInOwners.delete(host);
 	update(host, {

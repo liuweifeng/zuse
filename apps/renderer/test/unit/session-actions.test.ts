@@ -321,7 +321,7 @@ describe("session actions", () => {
 		);
 		const history =
 			getRendererClientBus().snapshot(retained.key).data?.messages ?? [];
-		// This is the startup gap: persisted history legitimately has no message yet.
+
 		expect(history).toHaveLength(0);
 		const visible = mergePendingSessionMessages(
 			history,
@@ -330,7 +330,7 @@ describe("session actions", () => {
 		expect(visible).toMatchObject([
 			{ id: messageId, content: { text: "Describe this image" } },
 		]);
-		// Durable reflection replaces the pending row without duplicating it.
+
 		expect(
 			mergePendingSessionMessages(visible, pendingSessionMessages(ref)),
 		).toHaveLength(1);

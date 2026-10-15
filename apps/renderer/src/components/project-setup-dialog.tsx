@@ -82,8 +82,7 @@ export function ProjectSetupDialog({
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	const entries = useEnvironmentCatalogStore((state) => state.entries);
-	// Remote machines stay Personal; only offer machines that can own a
-	// project in the selected workspace.
+
 	const connected = useMemo(
 		() =>
 			entries.filter(
@@ -124,7 +123,7 @@ export function ProjectSetupDialog({
 	const [retryingConnection, setRetryingConnection] = useState(false);
 	const [retryFailure, setRetryFailure] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
-	// Owner of a folder that is already a project in another workspace.
+
 	const [moveFrom, setMoveFrom] = useState<string | null>(null);
 	useEffect(() => setMoveFrom(null), [parent, environmentId, mode]);
 

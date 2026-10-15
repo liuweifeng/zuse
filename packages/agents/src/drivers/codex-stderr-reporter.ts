@@ -1,7 +1,5 @@
 const LOG_DEDUP_WINDOW_MS = 30_000;
 
-// Codex uses tracing's pretty formatter for interactive app-server processes.
-// Strip its terminal styling before deriving a stable diagnostic identity.
 const ANSI_CONTROL_SEQUENCE =
 	// biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI terminal control sequences are the intended input.
 	/\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))/g;

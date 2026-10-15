@@ -23,11 +23,8 @@ export function resolveWebsiteLanguage(
 }
 
 export function rememberWebsiteLanguage(locale: WebsiteLocale) {
-	// A blocked cookie must not prevent navigation to an explicit language URL.
 	try {
 		// biome-ignore lint/suspicious/noDocumentCookie: synchronous persistence must finish before navigation; supported by all target browsers.
 		document.cookie = `${LANGUAGE_COOKIE}=${locale}; Path=/; Max-Age=${LANGUAGE_COOKIE_MAX_AGE}; SameSite=Lax${location.protocol === "https:" ? "; Secure" : ""}`;
-	} catch {
-		/* Explicit locale URLs continue to work when storage is unavailable. */
-	}
+	} catch {}
 }

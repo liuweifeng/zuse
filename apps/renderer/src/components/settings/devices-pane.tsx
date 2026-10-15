@@ -110,8 +110,6 @@ export function DevicesPane() {
 					return next;
 				}
 				if (next.availability === "conflict") {
-					// A conflict is rendered on the Tailscale row (Replace/Details),
-					// never surfaced as an error toast.
 					return next;
 				}
 				if (next.availability !== "available" || next.enabled !== enabled) {

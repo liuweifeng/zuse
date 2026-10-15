@@ -18,7 +18,6 @@ export function canonicalJson(
 			)
 			.join(",")}}`;
 	}
-	// Existing chat-creation receipts hashed undefined fields literally. Keep
-	// that historical wire representation when checking durable v1 receipts.
+
 	return JSON.stringify(value) ?? (legacy ? "undefined" : "null");
 }

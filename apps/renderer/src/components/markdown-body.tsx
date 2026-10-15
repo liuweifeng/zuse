@@ -50,11 +50,6 @@ import {
 } from "./ui/dialog.tsx";
 import { Menu, MenuItem, MenuPopup } from "./ui/menu.tsx";
 
-/**
- * Anchor with a right-click menu (Copy link / Open link). Left-click behavior
- * is provided by the caller so http(s) links stay routed through
- * `shell.openExternal` and local files through the file-open pipeline.
- */
 function MarkdownLink({
 	href,
 	children,
@@ -467,10 +462,6 @@ function MermaidDiagram({ source }: { source: string }) {
 
 		void getMermaid()
 			.then(async (mermaid) => {
-				// Validate before rendering. `parse` with `suppressErrors` returns
-				// false (never throws, never touches the DOM) on invalid input, so a
-				// half-baked or model-mangled diagram never reaches render() and can't
-				// leave an orphan element behind.
 				const parsed = await mermaid.parse(source, { suppressErrors: true });
 				if (parsed === false) {
 					throw new Error("No diagram type detected in the given source.");
@@ -481,8 +472,6 @@ function MermaidDiagram({ source }: { source: string }) {
 				if (!cancelled) setState({ status: "rendered", svg });
 			})
 			.catch((err: unknown) => {
-				// Defensive sweep in case a future mermaid path still appends a temp
-				// node under this id before throwing.
 				document.getElementById(id)?.remove();
 				if (!cancelled) {
 					setState({ status: "error", message: errorMessage(err) });

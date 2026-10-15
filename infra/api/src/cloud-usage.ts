@@ -41,7 +41,7 @@ export const observeCloudRuntimeUsage = Effect.fn("observeCloudRuntimeUsage")(
 			runningSinceMs: running ? input.runningSinceMs : undefined,
 		});
 	},
-	// Telemetry failure must not prevent a pause, deletion, or workspace recovery.
+
 	Effect.catchCause(() =>
 		Effect.sync(() => {
 			console.warn("[cloud-usage] runtime observation failed");

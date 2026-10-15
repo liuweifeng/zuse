@@ -35,7 +35,7 @@ const fixture = async (
 	if (!encoded) throw new Error("missing script");
 	const script = Buffer.from(encoded, "base64")
 		.toString()
-		// Other fixture guests share this host's /proc during parallel tests.
+
 		.replaceAll(
 			"const info=fs.readFileSync",
 			`if(!path.startsWith("${directory}/"))continue;const info=fs.readFileSync`,
@@ -157,7 +157,7 @@ test("fresh canonical data and restored legacy SQLite share one persistent autho
 		expect(await readFile(join(canonical, "zuse.sqlite"), "utf8")).toBe(
 			"retained database",
 		);
-		// A cold boot discards the volatile alias, never the persisted bytes.
+
 		await rm(canonical);
 		await f.prepare();
 		expect(await readlink(canonical)).toBe(retained);

@@ -9,7 +9,6 @@ import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { normalizeLegacyRuntimeResponse } from "../../src/legacy-runtime-response.ts";
 
-// Wire shapes from origin/main (protocol 6) and a80cb4bdf^ (protocol 5).
 const legacySession = {
 	id: "session-old",
 	projectId: "project-old",

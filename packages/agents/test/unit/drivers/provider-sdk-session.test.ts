@@ -204,7 +204,7 @@ describe("bundled provider SDK sessions", () => {
 		await Effect.runPromise(Fiber.interrupt(fiber));
 		reject(new AgentNotFoundError("Agent not found"));
 		await pending.catch(() => undefined);
-		// Drain the rejected resume and fallback continuations.
+
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		expect(sdk.create).not.toHaveBeenCalled();
 	});

@@ -37,7 +37,7 @@ export const markdownToSlack = (markdown: string): string => {
 				`<${url.replaceAll("|", "%7C")}|${label.replaceAll("|", "&#124;")}>`,
 			),
 	);
-	// Links and emphasis can contain protected inline code; restore inside out.
+
 	for (let index = protectedParts.length - 1; index >= 0; index--)
 		text = text.replaceAll(`\u0000${index}\u0000`, protectedParts[index] ?? "");
 	return text;

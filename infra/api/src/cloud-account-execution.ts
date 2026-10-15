@@ -85,8 +85,7 @@ export const makeCloudAccountExecutor = (
 	) {
 		const received = yield* Effect.tryPromise(async (signal) => {
 			const started = performance.now();
-			// Objects are stateless; a placement change gets a fresh execution venue,
-			// while SQL and guest identity remain untouched.
+
 			const name =
 				locationHint === undefined ? accountId : `${locationHint}:${accountId}`;
 			const response = await namespace

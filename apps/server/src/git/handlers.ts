@@ -70,7 +70,6 @@ const SwitchBranch = MemoizeRpcs.toLayerHandler(
 
 const continueBranchWorker = new KeyedEffectSerialWorker<string>();
 
-/** Allocate and create continuation branches atomically per repository. */
 const ContinueBranch = MemoizeRpcs.toLayerHandler(
 	"git.continueBranch",
 	({ folderId, worktreeId }) =>

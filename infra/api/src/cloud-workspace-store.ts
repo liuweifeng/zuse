@@ -357,7 +357,6 @@ export interface RuntimeBootstrapAcknowledgementInput {
 	readonly nowMs: number;
 }
 
-/** Renewal changes the bearer, not the bootstrap receipt's generation binding. */
 const canAcknowledgeRuntimeBoot = (
 	workspace: CloudWorkspaceRecord,
 	receipt: RuntimeBootstrapReceipt | null,
@@ -389,7 +388,6 @@ export interface RuntimeCredentialRenewalInput {
 	readonly verifiedSigningKeyThumbprint?: string;
 }
 
-/** The memory and SQL stores apply the same identity fence, including receipt replay. */
 const runtimeCredentialRenewalDecision = (
 	workspace:
 		| Pick<
@@ -1247,13 +1245,6 @@ const appendApiMessageInMemory = (
 	];
 };
 
-/**
- * Associate one causal user row with a settlement. Upgraded runtimes match the
- * api-assigned turn id exactly. During rollout, a pre-change runtime clears
- * that provisional id when it ACKs; its next settlement may then claim only
- * the oldest delivered, unbound row. Strict FIFO ensures there is at most one
- * such active legacy command.
- */
 const settleApiTurnUserMessageInMemory = (
 	apiMessages: ReadonlyMap<string, CloudWorkspaceApiMessageRecord>,
 	workspaceId: string,
@@ -1284,14 +1275,6 @@ const settleApiTurnUserMessageInMemory = (
 	return next;
 };
 
-/**
- * A pre-turn-id runtime ACK identifies only the command message. If its turn
- * event won the race, claim that turn only when FIFO and the durable receipt
- * place it inside the latest command-fetch attempt. Both api receive time
- * and runtime settlement time are fenced: this excludes an unrelated turn
- * that either arrived before the latest retry or was published late from an
- * earlier session turn.
- */
 const legacyAckSettlementTurnInMemory = (
 	current: MemoryState,
 	message: CloudWorkspaceApiMessageRecord,
@@ -1432,9 +1415,6 @@ export const mailboxLifecycleToDeliver = (
 ): CloudMailboxLifecycleFence | null => {
 	const pending = pendingMailboxLifecycle(workspace);
 	if (pending !== null) {
-		// Delete dominates an older archived outbox row. The reconciler will replace
-		// that stale row with a canonical delete fence; never deliver archive using
-		// lifecycle metadata from the newer deletion state.
 		if (workspaceDeletionRequested(workspace) && pending.action !== "delete")
 			return null;
 		return pending;
@@ -1538,7 +1518,6 @@ const prepareWorkspaceSharingUpdate = (
 	};
 };
 
-/** Generic lifecycle writes must not overwrite independently managed sharing policy. */
 const prepareWorkspaceSave = (
 	current: CloudWorkspaceRecord,
 	proposed: CloudWorkspaceRecord,
@@ -1589,10 +1568,7 @@ const prepareWorkspaceLifecycleTransition = (
 		lifecycle === "archive"
 	)
 		return { kind: "rejected", reason: "workspace-archived" };
-	// A durably accepted command owns readiness until its mailbox drain reaches a
-	// terminal state. Letting a later manual pause overwrite desiredState would
-	// strand that command with no finite reconciliation deadline. Archive/delete
-	// remain allowed because their destruction fence terminalizes mailbox work.
+
 	if (
 		input.action === "pause" &&
 		current.requestConfig.cloudMailboxWakePending === true
@@ -1726,8 +1702,6 @@ export const mailboxLifecycleTombstoneConfig = (
 	};
 };
 
-// Enrollment means the launch creates a session shell; message acceptance is
-// recorded by the mailbox command receipt, not the runtime-ready acknowledgement.
 const completedLaunchStatus = (workspace: CloudWorkspaceRecord): string =>
 	typeof workspace.requestConfig.cloudCommandEnrollmentProtocolVersion ===
 	"number"
@@ -2554,7 +2528,7 @@ export const CloudWorkspaceStoreMemory = Layer.effect(
 						workspace.requestConfig.cloudMailboxFenceRequired === true
 					)
 						return [null, current] as const;
-					// A delayed connection acknowledgement must not downgrade preparation.
+
 					const connectionOnly =
 						input.repositoryReady === false &&
 						!(
@@ -4371,8 +4345,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 	CloudWorkspaceStore,
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient;
-		// Keep the phase vocabulary shared with the memory store while evaluating
-		// the deadline atomically against the row being updated.
+
 		const preserveRuntimeOperationDeadlineSql = (
 			candidate: Fragment,
 			qualifier: "" | "current." = "",
@@ -4444,8 +4417,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 					yield* sql`INSERT INTO api_cloud_workspace_command_receipts (workspace_id, command_id, action, workspace_revision, created_at) VALUES (${input.workspace.workspaceId}, ${input.commandId}, ${input.action}, ${input.workspace.revision}, ${input.createdAtMs}) ON CONFLICT (workspace_id, command_id) DO NOTHING RETURNING command_id`;
 				if (receipt.length === 0) return false;
 				if (yield* saveWorkspaceIfNewer(input.workspace)) return true;
-				// Keep the receipt and state transition atomic. A stale write must
-				// remain retryable instead of looking successfully consumed.
+
 				yield* sql`DELETE FROM api_cloud_workspace_command_receipts WHERE workspace_id=${input.workspace.workspaceId} AND command_id=${input.commandId}`;
 				return false;
 			});
@@ -4806,10 +4778,6 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 			createWorkspace: (w, launchIntent) =>
 				orDie(
 					Effect.gen(function* () {
-						// Idempotent callers can independently choose different randomized
-						// branches before reaching the store. Serialize by operation identity
-						// first so the loser observes the existing workspace instead of racing
-						// the account/idempotency unique constraint.
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${`cloud-workspace-idempotency:${w.accountId}:${w.idempotencyKey}`}, 0))`;
 						const existing =
 							yield* sql`SELECT * FROM api_cloud_workspaces WHERE account_id=${w.accountId} AND idempotency_key=${w.idempotencyKey}`;
@@ -5624,8 +5592,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 							return false;
 						for (const row of locked)
 							yield* sql`DELETE FROM api_cloud_workspaces WHERE workspace_id=${String(row.workspace_id)}`;
-						// A workspace created after the row lock must keep account cleanup from
-						// cascading through a live workspace. Project FKs close the final race.
+
 						const remaining =
 							yield* sql`SELECT workspace_id FROM api_cloud_workspaces WHERE account_id=${accountId} LIMIT 1`;
 						if (remaining.length > 0) return false;
@@ -5724,8 +5691,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 				orDie(
 					Effect.gen(function* () {
 						const workspaceId = input.expectedWorkspace.workspaceId;
-						// All operations needing both locks acquire lifecycle first, then
-						// the API ledger lock. Single-resource writes use their one lock.
+
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceLifecycleLockKey(workspaceId)}, 0))`;
 						yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${apiMessagesLockKey(workspaceId)}, 0))`;
 						const existing = yield* getApiMessageTransaction(
@@ -6036,9 +6002,7 @@ export const CloudWorkspaceStorePg: Layer.Layer<
 										AND receipt.turn_id=message.turn_id
 								)
 							)`;
-						// Preserve the compact (webhook_id,event_id) tombstone: runtimes
-						// replay durable turn events after restarts, so deleting it would
-						// resurrect an already delivered webhook. Only discard old payloads.
+
 						yield* sql`UPDATE api_api_webhook_deliveries SET sealed_payload='', last_error=NULL WHERE updated_at < ${beforeMs} AND status IN ('delivered', 'failed') AND sealed_payload <> ''`;
 					}).pipe(sql.withTransaction, Effect.asVoid),
 				),

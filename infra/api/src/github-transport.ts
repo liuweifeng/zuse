@@ -81,8 +81,7 @@ const appJwt = Effect.fn("githubAppJwt")(function* (forceAppId = false) {
 	return yield* Effect.promise(() =>
 		new SignJWT({})
 			.setProtectedHeader({ alg: "RS256" })
-			// GitHub accepts either identifier, but recommends the client ID for
-			// the JWT issuer. Keep App ID as a compatibility fallback.
+
 			.setIssuer(forceAppId ? github.appId : (github.clientId ?? github.appId))
 			.setIssuedAt(now - 60)
 			.setExpirationTime(now + 9 * 60)

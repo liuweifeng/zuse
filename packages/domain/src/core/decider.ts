@@ -91,7 +91,6 @@ export const turnInterruptReceipt = (
 
 const success = (events: readonly SessionEvent[]) => Result.succeed(events);
 
-/** Stop both a published handle and any distinct startup reservation. */
 const providerStops = (
 	state: SessionState,
 	requestedAt: number,
@@ -112,7 +111,6 @@ const providerStops = (
 	}));
 };
 
-/** Events that bind a provider-native thread supplied at creation. */
 const providerThreadSeedEvents = (
 	sessionId: string,
 	seed: ProviderThreadSeed | undefined,
@@ -640,7 +638,6 @@ export const decide = (
 						{ _tag: "SessionArchived", archivedAt: command.archivedAt },
 					]);
 		case "ReleaseInitialTurn":
-			// Setup can finish after archive; do not release its delayed provider send.
 			if (state.archived) {
 				return Result.fail(
 					new ValidationFailed({
@@ -1029,8 +1026,6 @@ export const decide = (
 					return success([]);
 				}
 			} else if (state.messageCheckpoints.has(command.messageId)) {
-				// Once a stable message id enters the checkpoint protocol, an
-				// unversioned frame must not bypass its high-water mark.
 				return success([]);
 			}
 			return success([{ ...command, _tag: "MessagePersisted" }]);
@@ -1070,7 +1065,6 @@ export const decide = (
 				? success([])
 				: success([{ ...command, _tag: "PlanExpired" }]);
 		case "ExpireQuestion":
-			// Imported transcript questions may predate their aggregate event history.
 			return state.resolvedQuestionIds.has(command.itemId) ||
 				state.expiredQuestionIds.has(command.itemId)
 				? success([])

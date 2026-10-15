@@ -116,9 +116,7 @@ export const useExternalThreadsStore = create<ExternalThreadsState>(
 						: [...s.folders, result.project],
 					selectedFolderId: result.project.id,
 				}));
-				// Imported transcript rows are already durable in the runtime. The
-				// qualified timeline resource catches up from its bounded snapshot after
-				// selection; copying the RPC response would create a second authority.
+
 				const continuedWorktree = result.worktree;
 				if (continuedWorktree !== null) {
 					useWorktreesStore.setState((s) => {

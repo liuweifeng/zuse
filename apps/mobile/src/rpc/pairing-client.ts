@@ -26,7 +26,7 @@ export const redeemPairingCode = async (options: {
 		baseUrl = new URL(
 			options.httpBaseUrl ?? `http://${address}:${options.port}`,
 		);
-		// Direct LAN pairing is supported on trusted networks; it is not TLS.
+
 		const localHttp =
 			baseUrl.protocol === "http:" && isPrivateOrLocalHost(baseUrl.hostname);
 		if (

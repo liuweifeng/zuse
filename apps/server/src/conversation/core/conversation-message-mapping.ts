@@ -3,7 +3,6 @@ import { shouldIncludeInTranscript } from "@zuse/domain/conversation/transcript"
 
 export { shouldIncludeInTranscript } from "@zuse/domain/conversation/transcript";
 
-/** Canonical mapping between durable message content and provider transcripts. */
 import type {
 	AgentEvent,
 	Message,
@@ -73,7 +72,6 @@ export const transcriptToMarkdown = (
 				lines.push("## Assistant", "", content.text.trim(), "");
 				break;
 			case "ui_spec": {
-				// Model strings may contain fences; choose a delimiter they cannot close.
 				const fence = "`".repeat(
 					Math.max(
 						3,

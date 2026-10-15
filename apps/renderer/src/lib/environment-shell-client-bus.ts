@@ -344,7 +344,7 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			const sessionReady = new Set<FolderId>();
 			const creationReady = new Set<FolderId>();
 			const sessionCursorByProject = new Map<FolderId, number>();
-			// Persisted cursors survive renderer restarts; module counters do not.
+
 			const epoch = `environment-shell:${context.generation}:${crypto.randomUUID()}`;
 			const isLive = (): boolean =>
 				current.folders.every(
@@ -371,19 +371,13 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			};
 			const applyInput = (input: EnvironmentShellInput): void => {
 				if (!active || !context.isCurrent()) return;
-				// Commands apply optimistic overlays to the same ClientBus cell. Fold the
-				// currently visible value back into the serialized stream reducer before
-				// applying the next durable frame, otherwise an unrelated frame could
-				// resurrect this driver's pre-command snapshot.
+
 				const visible = context.snapshot()?.data;
 				if (visible !== null && visible !== undefined && visible !== current) {
 					current = visible;
 				}
 				if (input.type === "workspace") {
 					for (const ready of [chatReady, sessionReady, creationReady]) {
-						// switchMap replaces every project stream for this workspace
-						// frame. A prior readiness bit cannot prove the replacement stream
-						// has delivered its subscribe-before-snapshot boundary.
 						ready.clear();
 					}
 					sessionCursorByProject.clear();
@@ -744,10 +738,6 @@ export const waitForEnvironmentGateway = (
 	});
 };
 
-/**
- * Public reads are scoped to the selected workspace. The driver, overlays and
- * persistence keep the full cell, so switching workspace never refetches.
- */
 const scopedView = (
 	ref: EnvironmentRef,
 	view: ResourceView<EnvironmentShellData>,
@@ -874,10 +864,7 @@ const EMPTY_ENVIRONMENT_SHELL_VIEW = emptyResourceView<EnvironmentShellData>();
 export const useEnvironmentShellResource = (
 	environmentId: EnvironmentId | null,
 	activation: ResourceActivation = "cache-only",
-	/**
-	 * `all` reads every workspace's projects on this desktop. Only machine-wide
-	 * bookkeeping (keep-awake, update deferral) may use it; UI must not.
-	 */
+
 	workspaces: "selected" | "all" = "selected",
 ): ResourceView<EnvironmentShellData> => {
 	const ref = useMemo<EnvironmentRef | null>(

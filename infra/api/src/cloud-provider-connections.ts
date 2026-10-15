@@ -180,7 +180,7 @@ const providerFromConnection = Effect.fn("providerFromConnection")(function* (
 			runtimeUser,
 		}),
 		connectionId: record.connectionId,
-		// Prevent snapshots being reused across provider accounts or credential versions.
+
 		templateVersion: `${base.templateVersion}:connection:${record.connectionId}`,
 	};
 });
@@ -232,7 +232,7 @@ export const saveProviderConnection = Effect.fn("saveProviderConnection")(
 			return yield* serviceUnavailable("cloud_provider_keys_unavailable");
 		const key = input.apiKey.trim();
 		if (!key) return yield* serviceUnavailable("cloud_provider_key_invalid");
-		// A read-only lookup authenticates the key without allocating paid compute.
+
 		yield* provider
 			.withCredentials({
 				apiKey: Redacted.make(key),

@@ -100,10 +100,6 @@ export const sourceOptionsForKind = (
 		case "main":
 			return [{ key: "main", label: MAIN_SOURCE.label, source: MAIN_SOURCE }];
 		case "worktree": {
-			// A source-less worktree.create is the server's real "new worktree"
-			// path: it creates a fresh generated branch from origin's default branch.
-			// The server remains authoritative when it resolves origin/HEAD, so the
-			// client must not guess a branch name that may disagree with creation.
 			const label = "Default branch";
 			return [
 				{

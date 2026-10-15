@@ -13,13 +13,6 @@ import {
 	type BrowserBridgeServiceShape,
 } from "../services/browser-bridge-service.ts";
 
-/**
- * How long a single browser command may wait for the renderer before the
- * bridge gives up and reports the webview as unavailable. The webview lives
- * in the renderer — if the Browser pane isn't mounted (no project selected)
- * or the renderer is wedged, the command would otherwise block the agent
- * turn forever. 30s comfortably covers a real page load + screenshot.
- */
 const COMMAND_TIMEOUT = "30 seconds";
 const COMMAND_QUEUE_CAPACITY = 64;
 const COMMAND_OFFER_TIMEOUT = "100 millis";
@@ -131,10 +124,7 @@ export const BrowserBridgeServiceLive = Layer.effect(
 							"The in-app browser command queue is overloaded. Try again after the current browser action finishes.",
 					});
 				}
-				// Await the renderer's reply, but never longer than COMMAND_TIMEOUT.
-				// On timeout we synthesize a failure result rather than failing the
-				// effect, so the tool reports a clean error to the agent. `ensuring`
-				// guarantees the pending entry is cleared on every exit path.
+
 				const result = yield* Deferred.await(deferred).pipe(
 					Effect.timeoutOption(COMMAND_TIMEOUT),
 					Effect.flatMap((maybeResult) => {

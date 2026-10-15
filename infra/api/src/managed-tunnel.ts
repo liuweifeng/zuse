@@ -89,7 +89,6 @@ const cf = <A>(
 			),
 	});
 
-/** Deterministic per-(account,environment) tunnel name so re-links are idempotent. */
 const deriveNames = (
 	config: ManagedTunnelConfig,
 	accountId: string,
@@ -246,8 +245,7 @@ export const ManagedTunnelProviderLive: Layer.Layer<
 							true,
 						);
 					}
-					// `cascade` cleans up any lingering connections so the delete succeeds
-					// even if a connector is still registered.
+
 					yield* cf<unknown>(
 						config,
 						"DELETE",

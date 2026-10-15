@@ -90,11 +90,9 @@ export const createPreviewDiscovery = (dependencies: {
 			for (const port of failedPorts)
 				if (!ports.has(port)) failedPorts.delete(port);
 			update(servers);
-			// Bound provider traffic, and allow one failed route to retry without
-			// hiding the other servers or recreating their successful routes.
+
 			const publish = dependencies.publish;
 			if (publish !== undefined || dependencies.forward !== undefined) {
-				// System services (SSH, DNS, etc.) are not dev previews.
 				const pending = servers
 					.filter(
 						(server) =>

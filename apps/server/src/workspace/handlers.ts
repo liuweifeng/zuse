@@ -67,9 +67,6 @@ const Remove = MemoizeRpcs.toLayerHandler("workspace.remove", ({ folderId }) =>
 	}),
 );
 
-// Folder picking is a host-shell operation. The server only knows the tag —
-// the Electron shim (or any other host) provides the live impl. Keeps this
-// handler — and apps/server as a whole — free of UI-toolkit imports.
 const PickFolder = MemoizeRpcs.toLayerHandler("workspace.pickFolder", () =>
 	Effect.flatMap(FolderPicker, (picker) => picker.pick()),
 );
@@ -100,9 +97,6 @@ const SearchFiles = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Clone → register pipeline. The scaffold service produces the absolute
-// path of the new working tree, then we hand it to `WorkspaceService.add`
-// for SQLite registration + the standard sidebar/code-index side effects.
 const CloneRepo = MemoizeRpcs.toLayerHandler(
 	"workspace.cloneRepo",
 	({ url, parent, workspaceKey }) =>
@@ -114,9 +108,6 @@ const CloneRepo = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-// Scaffold → register pipeline. Same shape as CloneRepo. We coerce the
-// optional `alsoCreateGithubRepo` to a definite boolean here so the
-// scaffold service never has to worry about `undefined`.
 const CreateProject = MemoizeRpcs.toLayerHandler(
 	"workspace.createProject",
 	({ name, parent, template, alsoCreateGithubRepo, workspaceKey }) =>
@@ -133,9 +124,6 @@ const CreateProject = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-// `gh repo list` proxy for the Clone dialog's recents list. Returns an
-// empty array for any failure — the renderer treats the empty case as
-// "show a sign-in hint."
 const ListGithubRepos = MemoizeRpcs.toLayerHandler(
 	"workspace.listGithubRepos",
 	({ limit }) =>

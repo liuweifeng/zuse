@@ -43,10 +43,7 @@ export const observeSessionRuntime = (
  LEFT JOIN session_ingestion_leases l ON l.session_id=s.id AND l.attempt_id=t.active_attempt_id AND l.provider_session_id=s.provider_reservation_id
  WHERE s.id=${sessionId} LIMIT 1`;
 		const row = rows[0];
-		// The initial turn is admitted before workspace/setup work. It is held by
-		// chat creation, not a provider listener, until startup releases the queue.
-		// Fence to that exact first attempt so an old creation receipt can never
-		// conceal lost ownership of a later response (or an expired listener).
+
 		let preparation: SessionRuntimeObservation["state"] | null = null;
 		if (
 			row?.queue_paused === 1 &&
@@ -78,9 +75,7 @@ export const observeSessionRuntime = (
 			preparation ??
 			(row?.turn_status === "finalizing"
 				? "finalizing"
-				: // A failed startup keeps its durable turn for explicit retry, but has
-					// no response listener to recover. Preserve evidence of a live listener.
-					row?.session_status === "error" &&
+				: row?.session_status === "error" &&
 						(row.expires_at === null || row.expires_at <= now)
 					? "idle"
 					: row?.blocked === 1 &&
@@ -92,10 +87,7 @@ export const observeSessionRuntime = (
 								? "starting"
 								: "idle"
 							: row.expires_at === null || row.expires_at <= now
-								? // Admission marks running before acquiring the response listener.
-									// A matching job lease proves startup is still owned; the short
-									// grace only bridges admission to claim. An expired listener is loss.
-									row.expires_at === null &&
+								? row.expires_at === null &&
 									(row.starting === 1 || now - (startedAt ?? now) < 30_000)
 									? "starting"
 									: "unavailable"

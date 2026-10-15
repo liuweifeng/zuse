@@ -52,8 +52,7 @@ export function QueueTray({
 	const running = isSessionTurnActive(timeline.runtime);
 	const ref = { environmentId, sessionId };
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
-	// Animate add / remove / reorder of queued rows. Clean default ease, no
-	// spring — keeps the tray feeling crisp rather than bouncy.
+
 	const listRef = useAutoAnimate<HTMLDivElement>();
 	const holdReason = queueHoldReason({ paused, runtime: timeline.runtime });
 	const resumable = canResumeQueue({
@@ -63,9 +62,7 @@ export function QueueTray({
 		creationInProgress,
 		waitingForSandbox,
 	});
-	// Messages queued while offline, or held by a turn that failed offline,
-	// should just go once the network is back. Register the queue with the
-	// shared recovery so it drains even after the user opens another chat.
+
 	const online = usePlatformOnline();
 	useEffect(() => {
 		if (!online && resumable)
@@ -100,7 +97,6 @@ export function QueueTray({
 		<div ref={listRef}>
 			{mailboxQueue}
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-				{/* The mailbox header above already narrates cloud startup. */}
 				{waitingForSandbox && mailbox.waiting.length === 0
 					? cloudStatus.label
 					: online

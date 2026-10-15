@@ -1,9 +1,5 @@
 import { type ParseResult, type ParsedChunk } from "../types.ts";
 
-// 40-line windows with 25-line stride: ~15-line overlap keeps cross-window
-// matches reliable for BM25, the smaller window size gives ~2× the chunk
-// count per file vs. an LLM-context-sized window. The agent never reads
-// raw windows — they're a retrieval substrate, not a display unit.
 const WINDOW_LINES = 40;
 const STRIDE = 20;
 

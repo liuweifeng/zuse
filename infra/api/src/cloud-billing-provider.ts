@@ -93,7 +93,7 @@ export const priceProviderExecutionPeriod = (input: {
 export const meterProviderExecution = Effect.fn("meterProviderExecution")(
 	function* (input: {
 		readonly evidence: ProviderExecutionEvidence;
-		/** Query exact provider totals per billing period; never prorate a whole-run total. */
+
 		readonly reportedCost?: (window: {
 			readonly startedAtMs: number;
 			readonly endedAtMs: number;

@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Build a music bed from bar-aligned segments of one track, with 8 ms de-click fades at each join
-# and a 1.2 s fade-out at the end.
-# Usage: splice-music.sh <source.mp3> <out.wav> <start-end> [<start-end> ...]
-# Example (Minimal Techno 01, 120 BPM, first beat 0.01): film opens on the breakdown, drop at 16 s:
-#   splice-music.sh 201.mp3 bed.wav 24.01-40.01 40.01-56.01 98.01-104.01 104.01-114.01
+
 set -euo pipefail
 src=$1; out=$2; shift 2
 filters=""; labels=""; total=0; i=0

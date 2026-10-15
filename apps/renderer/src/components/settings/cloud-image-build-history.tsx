@@ -194,7 +194,6 @@ function BuildAccordion({
 	);
 }
 
-/** Repositories captured by one build, listed with their branch. */
 function BuildRepositories({
 	build,
 }: {

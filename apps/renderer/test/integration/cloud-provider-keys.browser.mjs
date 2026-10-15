@@ -112,7 +112,6 @@ try {
 		error: false,
 	});
 
-	// A disconnect wins over an older successful refresh.
 	await page.evaluate((value) => {
 		window.keys.reload();
 		window.keys.apply(value);
@@ -129,7 +128,6 @@ try {
 		error: false,
 	});
 
-	// New cache data also invalidates an older request's error.
 	await page.evaluate((value) => {
 		window.keys.reload();
 		window.cachedConnections = value;
@@ -144,7 +142,6 @@ try {
 		error: false,
 	});
 
-	// Focus refreshes remain supported; newest reload wins if responses reorder.
 	await page.evaluate(() => {
 		window.dispatchEvent(new Event("focus"));
 		window.keys.reload();
@@ -165,7 +162,6 @@ try {
 		error: false,
 	});
 
-	// Current failures still show retry state rather than getting swallowed.
 	await page.evaluate(() => {
 		window.keys.reload();
 		window.requests.shift().reject(new Error("current failure"));
@@ -177,7 +173,7 @@ try {
 		loading: false,
 		error: true,
 	});
-	// A successful save releases the form even while unrelated settings refresh.
+
 	await page.evaluate((value) => {
 		window.saveResult = value;
 	}, connected);

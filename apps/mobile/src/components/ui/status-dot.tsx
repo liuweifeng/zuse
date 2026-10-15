@@ -2,8 +2,6 @@ import type { SessionStatus } from "@zuse/contracts";
 
 import { PresenceDot, type PresenceTone } from "./presence-dot";
 
-// Session status → presence tone. `booting` is the transient "connecting"
-// state, so it pulses; a `running` session is steadily live.
 const toneFor = (status?: SessionStatus): { tone: PresenceTone; pulse: boolean } => {
   switch (status) {
     case "booting":

@@ -503,7 +503,6 @@ export const disconnectMember = async (
 			defaults: { channels: {} },
 		})
 	) {
-		// Local revocation is authoritative, even if the remote subscription is unavailable.
 		await deleteWebhook(
 			env.cloud(
 				profile.connection.accountId,

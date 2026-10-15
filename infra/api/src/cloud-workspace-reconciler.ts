@@ -104,21 +104,17 @@ import {
 } from "./sandbox-provider-module.ts";
 
 const RETRY_MS = 5_000;
-// Provider allocation happens before `allocatedAt`. Once compute exists, the
-// baked runtime must enroll promptly; leaving this at minutes turns a broken
-// runtime into a permanently spinning composer until the recovery cron runs.
+
 export const RUNTIME_CONNECTION_TIMEOUT_MS = 10_000;
 export const RUNTIME_INSTALL_TIMEOUT_MS = 120_000;
 const RECONCILE_LEASE_MS = 2 * 60 * 1_000;
 const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
-// Return to the durable scheduler before the two-minute build lease expires.
+
 const PROJECT_SNAPSHOT_POLL_TIMEOUT_MS = 30_000;
 const PROJECT_SNAPSHOT_TIMEOUT_MS = 30 * 60 * 1_000;
 export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
-// A preserved mailbox request may need its 10-second transport timeout,
-// followed by the one-second poll interval and authenticated readiness repair.
-// Healthy runtimes advance immediately; this bounds only the restart fallback.
+
 export const WARM_RUNTIME_RECONNECT_GRACE_MS = 12_000;
 const MAILBOX_RUNTIME_RESPONSE_GRACE_MS = 2_500;
 export const MAILBOX_RUNTIME_STALL_TIMEOUT_MS =
@@ -265,7 +261,6 @@ export const reserveProviderCost = Effect.fn("reserveProviderCost")(
 				: null;
 		let providerCostMicros: number;
 		if (usage !== null) {
-			// Accrued list-price cost plus the same short forward reservation used by other providers.
 			providerCostMicros =
 				usage.providerCostMicros +
 				(usage.running
@@ -544,7 +539,6 @@ const workspaceStartupDeadlineMs = (
 					: RUNTIME_CONNECTION_TIMEOUT_MS);
 };
 
-/** An enrolled runtime that is online reports its own preparation outcome. */
 const workspacePreparingOnline = (workspace: CloudWorkspaceRecord): boolean =>
 	workspace.state === "setup" && workspace.runtimeState === "online";
 
@@ -617,7 +611,6 @@ const saveAccountProjectState = Effect.fn("saveAccountProjectState")(function* (
 ) {
 	const store = yield* CloudWorkspaceStore;
 	for (const project of yield* store.listProjects(accountId)) {
-		// A failed image on one provider must not disable the other ready image.
 		if (state === "failed" && project.state === "ready") continue;
 		yield* store.saveProject({
 			...project,
@@ -775,9 +768,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				});
 				return;
 			}
-			// A queued build that cannot start must end visibly. Retrying a
-			// permanent provider refusal, or retrying forever, leaves the image
-			// "in progress" with no output.
+
 			const failQueuedBuild = (failureCode: string, logText: string) =>
 				Effect.gen(function* () {
 					yield* Effect.sync(() =>
@@ -820,7 +811,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const rejectedLog = ownKey
 				? `${provider.displayName} refused this request with your provider key (permission denied). Check that the key can read and create machines in its organization and can use the configured template, then rebuild.`
 				: `${provider.displayName} refused this request (permission denied). Try again later or choose another provider.`;
-			// Only a permanent refusal ends the build; anything else retries.
+
 			const unlessRejected = <A, R>(
 				effect: Effect.Effect<A, SandboxProviderError, R>,
 			) =>
@@ -946,8 +937,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
-			// The image carries the workspace launch files; their digest is recorded
-			// so fresh restores can skip rewriting unchanged scripts.
+
 			const imageAssets = launchAssetFiles(config);
 			const imageAssetsDigest = yield* launchAssetsDigest(imageAssets);
 			yield* Effect.all(
@@ -1049,7 +1039,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					"zuse",
 				)
 				.pipe(Effect.orDie);
-			// Apply the provider network policy before starting the image builder.
+
 			yield* provider
 				.setNetwork(sandbox.providerSandboxId, { kind: "open" })
 				.pipe(Effect.orDie);
@@ -1103,8 +1093,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			);
 			const buildTimedOut =
 				nowMs - build.createdAtMs >= PROJECT_BUILD_TIMEOUT_MS;
-			// Snapshot forks retain old readiness files and may retain processes too.
-			// Only this build's wrapper can receipt its installer/builder completion.
+
 			const completion = yield* provider
 				.readTextFile(
 					build.providerSandboxId,
@@ -1324,8 +1313,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			yield* store.saveBuild(sanitizing);
 			build = sanitizing;
 		}
-		// Snapshot creation is idempotent by build name. A worker can exit after
-		// saving this stage; retries must resume the same snapshot, not re-run setup.
+
 		if (build.state === "sanitizing" && build.providerSandboxId !== undefined) {
 			const providerSandboxId = build.providerSandboxId;
 			yield* prepareSnapshotIntent(
@@ -1382,7 +1370,6 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 									Date.now() - build.createdAtMs < PROJECT_SNAPSHOT_TIMEOUT_MS;
 								const diagnostic = `Snapshot publication: ${error.code}. ${retry ? "Retrying automatically." : "Check the sandbox provider configuration and permissions before retrying."}`;
 								if (!retry) {
-									// Keep the pending build until cleanup succeeds, so failures retry.
 									yield* provider.kill(providerSandboxId).pipe(Effect.orDie);
 									const previous = yield* store.getActiveAccountBuild(
 										build.accountId,
@@ -1416,7 +1403,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 						),
 					));
 			if (snapshotId === undefined) return;
-			// Persist the recoverable snapshot before deleting its source sandbox.
+
 			if (build.snapshotId === undefined) {
 				build = {
 					...build,
@@ -1464,7 +1451,7 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					candidate.provider === "box" &&
 					connectionIdFor(candidate) === undefined
 				)
-					continue; // Durable inventory owns platform Boat deletion retries.
+					continue;
 				if (candidate.snapshotId === undefined || importedSnapshot(candidate))
 					continue;
 				const cleanup = yield* (yield* resolveResourceProvider(candidate))
@@ -1489,7 +1476,6 @@ const recordLifecycle = (
 	Effect.gen(function* () {
 		const store = yield* CloudWorkspaceStore;
 		yield* store.recordUsage({
-			// Retain the old receipt key across the classification migration.
 			eventId: `${workspace.workspaceId}:${kind === "lifecycle-elapsed-seconds" ? "runtime-seconds" : kind}:${workspace.revision}`,
 			workspaceId: workspace.workspaceId,
 			accountId: workspace.accountId,
@@ -1516,8 +1502,7 @@ const pauseWorkspace = (
 	Effect.gen(function* () {
 		if (workspace.providerSandboxId !== undefined)
 			yield* provider.pause(workspace.providerSandboxId);
-		// Lifecycle wall time can include provider auto-pause. It is not compute
-		// usage; provider settlement and observed runtime use their own ledger.
+
 		yield* recordLifecycle(workspace, "lifecycle-elapsed-seconds", nowMs);
 		yield* recordLifecycle(workspace, archived ? "archive" : "pause", nowMs);
 		yield* saveWorkspace({
@@ -1548,9 +1533,7 @@ const wakePreservedWorkspaceRuntime = (
 ) =>
 	Effect.gen(function* () {
 		yield* recordLifecycle(workspace, "resume", nowMs);
-		// Provider pause preserves memory and processes. Wake the sandbox first
-		// and give its existing runtime a brief window to reconnect. If it does
-		// not reconnect, the resuming branch performs a fenced hard restart.
+
 		const resumed = yield* provider
 			.resume(
 				providerSandboxId,
@@ -1604,15 +1587,13 @@ const discardUnsafeWorkspaceSandbox = (
 		),
 	);
 
-/** Idempotent preparation also repairs a crash between authorization and file delivery. */
 const prepareWorkspaceRuntimeLaunch = Effect.fn(
 	"prepareWorkspaceRuntimeLaunch",
 )(function* (
 	workspace: CloudWorkspaceRecord,
 	provider: SandboxProviderAdapter,
 	sandboxId: string,
-	// Only a fresh restore of a managed image whose recorded digest matches the
-	// current sources may skip the writes; every recovery path repairs them.
+
 	imageAssets: "write" | "reuse" = "write",
 ) {
 	const config = yield* SandboxOfferConfiguration;
@@ -1620,8 +1601,6 @@ const prepareWorkspaceRuntimeLaunch = Effect.fn(
 	const files = launchAssetFiles(config, layout.snapshot);
 	yield* Effect.all(
 		[
-			// Reuse is restricted to a fresh managed fork, allocated with open
-			// networking. Recovered and native machines still need policy repair.
 			imageAssets === "reuse"
 				? Effect.void
 				: provider.setNetwork(sandboxId, { kind: "open" }),
@@ -1716,7 +1695,6 @@ const workspaceRuntimeLaunchInput = Effect.fn("workspaceRuntimeLaunchInput")(
 	},
 );
 
-/** Recover the recorded launch, rather than inventing another owner after a lost provider response. */
 const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 	function* (
 		workspace: CloudWorkspaceRecord,
@@ -1780,7 +1758,6 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 		if (operation.phase === "preparing") {
 			if (currentJournal?.phase === "prepared") return false;
 			if (nowMs - operation.startedAtMs >= RUNTIME_PREPARATION_TIMEOUT_MS) {
-				// Preparation has no execution authority: its failure keeps the old owner valid.
 				yield* save(
 					{
 						...operation,
@@ -1903,7 +1880,6 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 			(workspace.runtimeBootTokenExpiresAtMs !== undefined &&
 				workspace.runtimeBootTokenExpiresAtMs <= nowMs)
 		) {
-			// Rollback gets fresh authorization; expired/spent enrollment is never replayed.
 			if (
 				operation.phase !== "rolling-back" &&
 				currentJournal?.previous?.signed === true &&
@@ -1954,7 +1930,7 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 				});
 				return true;
 			}
-			// A known incompatible or unprovable rollback needs action; keep the disk and the launch diagnosis.
+
 			yield* save(
 				{
 					...operation,
@@ -1969,7 +1945,7 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 			);
 			return true;
 		}
-		// Enrollment binds one process key pair. A consumed boot token cannot restart that process.
+
 		if (
 			workspace.runtimeBootTokenHash === undefined ||
 			runtimeBootstrapReceiptFromConfig(workspace.requestConfig)?.generation ===
@@ -1978,7 +1954,7 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 			yield* save(operation);
 			return true;
 		}
-		// Inspect the recorded allocation; missing storage never falls through to replacement.
+
 		const sandbox = yield* provider.inspect(workspace.providerSandboxId);
 		if (sandbox === null)
 			return yield* new SandboxProviderError({ code: "not-found" });
@@ -1989,7 +1965,7 @@ const reconcileRuntimeActivation = Effect.fn("reconcileRuntimeActivation")(
 				"pause",
 				workspaceSizeId(workspace),
 			);
-		// The adapter's persistent generation guard makes this idempotent after response loss.
+
 		const token = yield* openRuntimeActivationBoot(workspace, operation);
 		const input = yield* workspaceRuntimeLaunchInput(
 			workspace,
@@ -2085,16 +2061,13 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 						"provider.resume",
 					),
 				);
-		// A runtime-only restart does not call resume, so renew its existing
-		// machine lease before downloading or authenticating the runtime.
+
 		if (running)
 			yield* provider.extendTimeout(
 				providerSandboxId,
 				config.keepAliveTimeoutSeconds,
 			);
-		// An "online" row may describe a dead consumer until its heartbeat expires.
-		// Probe once recovery has already decided to replace it; never delay a
-		// required mailbox fence. Provider and disk state stay untouched.
+
 		if (running && workspace.requestConfig.cloudMailboxFenceRequired !== true) {
 			const health = yield* readCloudMemory(
 				provider,
@@ -2323,8 +2296,7 @@ const restartWorkspaceRuntime = Effect.fn("restartCloudWorkspaceRuntime")(
 				),
 			};
 		}
-		// Authorize the boot token before starting the detached runtime. Repeated
-		// resume requests cannot replace it while startup is in flight.
+
 		const authorizedWorkspace: CloudWorkspaceRecord = {
 			...workspace,
 			runtimeBootTokenHash: boot.tokenHash,
@@ -2416,8 +2388,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		if (destructiveLifecycle !== null) {
 			const destructionFence = workspaceDestructionFence(workspace);
 			let lifecyclePrepared = workspace;
-			// Delete is irreversible. Repair legacy/stale rows from the durable fence
-			// before any provider work can accidentally revive their runtime.
+
 			if (
 				destructiveLifecycle === "delete" &&
 				workspace.desiredState !== "deleted"
@@ -2609,9 +2580,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		}
 
 		const activation = runtimeActivation(workspace);
-		// Initial bootstrap still owns repository preparation. Its failure marker
-		// and startup deadline must be observed even after the runtime connects;
-		// release verification must not swallow a failed Git fetch indefinitely.
+
 		const bootstrapPreparing =
 			activation?.mode === "restart-installed" &&
 			activation.bootstrap === true &&
@@ -2730,10 +2699,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				});
 				return;
 			}
-			// An authenticated lease poll records runtime liveness but the marker stays
-			// pending until the durable mailbox is empty. An unseen consumer gets the
-			// short startup grace; a consumer that was seen gets a full lease window to
-			// finish its in-flight apply before a fenced replacement is permitted.
+
 			return yield* restartWorkspaceRuntime(
 				workspace,
 				workspace.providerSandboxId,
@@ -2769,8 +2735,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				build.snapshotId !== undefined &&
 				(importedSnapshot(build) ||
 					build.templateVersion === provider.templateVersion);
-			// Only new protocol requests may rely on the adapter's stable-label
-			// create. Legacy queued work retains its historical-name recovery.
+
 			const directAllocation =
 				provider.supportsIdempotentAllocation === true &&
 				workspace.requestConfig.allocationProtocol ===
@@ -2786,8 +2751,6 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace.requestConfig.allocationAttempted === false;
 			const allocate = Effect.gen(function* () {
 				if (firstAllocationAttempt) {
-					// Commit before contacting the provider. A lost create response or
-					// interrupted request must perform label recovery on the next attempt.
 					workspace = {
 						...workspace,
 						requestConfig: {
@@ -2803,7 +2766,6 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 					replacingFailedSandbox &&
 					workspace.providerSandboxId !== undefined
 				) {
-					// A deleted account image must not cause recovery to destroy the existing disk.
 					if (connectionIdFor(build) === undefined)
 						yield* assertSnapshotUsable(
 							workspace.accountId,
@@ -2906,7 +2868,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 								}));
 				return { sandbox, recovered };
 			});
-			// Fence deletion/promotion through the entire replacement and restore call.
+
 			const { sandbox, recovered } =
 				(replacingFailedSandbox || preparedSnapshotAvailable) &&
 				connectionIdFor(build) === undefined
@@ -2917,8 +2879,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							"shared",
 						)
 					: yield* allocate;
-			// Persist the native child before preparation so failed forks can still be
-			// inspected and deleted through the normal workspace lifecycle.
+
 			const allocatedWorkspace =
 				machineFork === undefined
 					? workspace
@@ -2929,8 +2890,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							updatedAtMs: yield* Clock.currentTimeMillis,
 						};
 			if (machineFork !== undefined) yield* saveWorkspace(allocatedWorkspace);
-			// Allocation retries can recover a machine near its original TTL, or
-			// one that already paused. Give bootstrap a fresh running window.
+
 			if (sandbox.state === "paused")
 				yield* provider.resume(
 					sandbox.providerSandboxId,
@@ -2950,8 +2910,7 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			if (machineFork !== undefined) {
 				if (workspace.provider !== "boxd" || provider.forkMachine === undefined)
 					return yield* new SandboxProviderError({ code: "rejected" });
-				// The native fork inherited host quarantine. Retire copied runtime
-				// workers before rekeying; retain VM memory for other processes.
+
 				yield* provider.setNetwork(sandbox.providerSandboxId, {
 					kind: "quarantined",
 				});
@@ -3024,7 +2983,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 					runtimeBootstrapReceiptFromConfig(workspace.requestConfig)
 						?.generation === replay.generation)
 			) {
-				// Recover allocation identity, never re-enroll an already bound process.
 				yield* saveWorkspace({
 					...allocatedWorkspace,
 					providerSandboxId: sandbox.providerSandboxId,
@@ -3158,7 +3116,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined
 		) {
-			// Direct maintenance calls also respect the durable warm reconnect deadline.
 			if (
 				(workspace.statusCode === "resume-runtime-waking" ||
 					workspace.statusCode === "runtime-memory-pressure") &&
@@ -3175,8 +3132,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 								cloudWorkspaceLayout(workspace).user,
 							);
 				if (observed !== "inactive") {
-					// An active or unobservable guest keeps its authority. Gateway loss
-					// is not permission to stop a possibly healthy database writer.
 					yield* saveWorkspace({
 						...workspace,
 						nextActionAtMs: nowMs + 30_000,
@@ -3266,10 +3221,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 			}
 
 			if (startupTimedOut) {
-				// Authorizing a new generation and launching its process are separate
-				// operations. A failed request or interrupted worker can leave the
-				// authorized generation unlaunched. Retry on the same disk, with a
-				// fresh fence, rather than permanently stranding the saved session.
 				if (canRecoverLaunch) {
 					return yield* restartWorkspaceRuntime(
 						{
@@ -3285,8 +3236,7 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 						saveWorkspace,
 					);
 				}
-				// Do not issue provider commands after the deadline: an archiving
-				// sandbox rejects them and would otherwise hide this terminal state.
+
 				console.warn("[cloud-workspace] runtime connection timeout", {
 					workspaceId: workspace.workspaceId,
 					statusCode: workspace.statusCode,
@@ -3309,9 +3259,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				return;
 			}
 
-			// A connected runtime still preparing credentials or the repository
-			// is bounded by the same idle policy as a ready workspace, so a
-			// provider that is never reconnected cannot keep compute awake.
 			if (workspacePreparingOnline(workspace)) {
 				const idleAtMs =
 					workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs;
@@ -3330,7 +3277,7 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				});
 				return;
 			}
-			// Successful startup is advanced only by authenticated runtime callbacks.
+
 			yield* saveWorkspace({
 				...workspace,
 				nextActionAtMs: workspaceStartupDeadlineMs(workspace),
@@ -3339,7 +3286,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 			return;
 		}
 
-		// Enforce the idle deadline before repairing an offline runtime.
 		if (
 			workspace.state === "ready" &&
 			nowMs >=
@@ -3358,10 +3304,6 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined
 		) {
-			// Mailbox rollout deliberately upgrades retained v2 processes through the
-			// existing fenced restart path. A warm E2B resume preserves the old process,
-			// so it would otherwise never run the signed runtime updater or advertise v3.
-			// The server capability flag keeps production on warm resume until rollout.
 			if (
 				!provider.preservesProcessesOnResume ||
 				(apiConfig.cloudCommandMailboxEnabled &&
@@ -3464,7 +3406,7 @@ export const reconcileCloudWorkspace = (
 	workspaceId: string,
 	options?: {
 		readonly leaseMs?: number;
-		/** Evaluated on the claimed row; a rejected row releases the lease untouched. */
+
 		readonly onlyIf?: (workspace: CloudWorkspaceRecord) => boolean;
 	},
 ) =>
@@ -3472,7 +3414,7 @@ export const reconcileCloudWorkspace = (
 		const store = yield* CloudWorkspaceStore;
 		const nowMs = yield* Clock.currentTimeMillis;
 		const leaseOwner = crypto.randomUUID();
-		// Native forks include readiness and a stopped-writer import preparation.
+
 		const pending = yield* store.getWorkspace(workspaceId);
 		const leaseMs =
 			options?.leaseMs ??
@@ -3555,9 +3497,6 @@ export const reconcileCloudWorkspace = (
 					const destructiveLifecycle =
 						destructiveMailboxLifecycle(currentWorkspace);
 					if (destructiveLifecycle !== null) {
-						// Provider failures may delay an accepted destructive transition, but
-						// must never turn it back into a runnable workspace. A missing sandbox
-						// is cleared so the next pass can finish the archive/delete locally.
 						yield* saveWorkspace({
 							...currentWorkspace,
 							...(error.code === "not-found"
@@ -3724,7 +3663,6 @@ export const cloudWorkspaceAuthorityPrewarmEligible = (
 	(workspace.requestConfig.providerAuthMode === "broker-v1" ||
 		workspace.requestConfig.codexAuthMode === "broker-v1");
 
-/** Best effort: any failure or defect is logged and never reaches the caller. */
 const prewarmWorkspaceAuthority = (workspace: CloudWorkspaceRecord) =>
 	prepareExistingCloudAuthAuthority(workspace.accountId).pipe(
 		Effect.timeoutOption(Duration.millis(INLINE_AUTHORITY_PREWARM_TIMEOUT_MS)),
@@ -3787,8 +3725,7 @@ export const startCloudWorkspaceInline = Effect.fn("startCloudWorkspaceInline")(
 				);
 				if (remote !== null) return remote;
 			}
-			// Eligibility is re-proven on the claimed row: a transition between the
-			// read and the claim must not put other work under the short lease.
+
 			const allocate = reconcileCloudWorkspace(workspaceId, {
 				leaseMs: INLINE_STARTUP_LEASE_MS,
 				onlyIf: (claimed) =>

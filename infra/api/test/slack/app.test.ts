@@ -899,7 +899,7 @@ describe("conversational Slack app", () => {
 		await app.event({ ...mention, files });
 		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
 		const link = connectionLink(http);
-		// Slack redelivery cannot consume or replace the saved request.
+
 		await app.event({ ...mention, files });
 		await consumeNext(app);
 		expect(http.ephemerals()).toHaveLength(1);
@@ -2312,7 +2312,7 @@ describe("conversational Slack app", () => {
 		const creates = http.calls.filter((c) =>
 			c.url.endsWith("/v1/api/workspaces"),
 		);
-		expect(creates).toHaveLength(2); // One rejected for missing defaults, one accepted.
+		expect(creates).toHaveLength(2);
 		expect(creates[1]?.body).toMatchObject({
 			projectId: "p1",
 			...resolveAgentChoice(choice),

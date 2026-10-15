@@ -6,30 +6,6 @@ import {
 } from "@zuse/agents/kernel/permission-policy";
 import type { PermissionMode, RuntimeMode } from "@zuse/contracts";
 
-/**
- * Shared permission policy helpers used by both SDK drivers (Claude, Codex)
- * and ACP drivers (Grok, Gemini, Cursor) for FileWrite / Bash decisions.
- *
- * The goal is a single source of truth for:
- *  - sensitive-path detection (always forces a prompt)
- *  - runtimeMode short-circuits (auto-accept-edits, full-access)
- *  - plan-mode handling (future)
- *
- * ACP FS handlers and terminal stubs import the FS-specific policy surface.
- * Claude/Codex can migrate their tool-centric policyFor() over time.
- */
-
-// ---------------------------------------------------------------------------
-// Sensitive paths (forcePrompt regardless of any prior allow decision)
-// ---------------------------------------------------------------------------
-
-// Sensitive-path matching and the runtime/permission decision table live in
-// the provider-neutral agent kernel. This module only adapts kernel verdicts
-// to the ACP handlers' `auto-allow | auto-deny | prompt` response shape.
-// ---------------------------------------------------------------------------
-// FS operation policy (used by ACP handleFsRequest)
-// ---------------------------------------------------------------------------
-
 export type FsOp = "read" | "write" | "create" | "delete" | "move";
 
 export type ProviderPolicy =
@@ -92,10 +68,6 @@ export const getFsPolicy = (
 		sensitive || permissionMode === "plan",
 	);
 };
-
-// ---------------------------------------------------------------------------
-// Bash / terminal command policy (used by ACP handleTerminalRequest)
-// ---------------------------------------------------------------------------
 
 export type BashPolicy = ProviderPolicy;
 

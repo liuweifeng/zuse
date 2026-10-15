@@ -2,7 +2,7 @@ import { JobId } from "@zuse/contracts";
 import { DateTime, Effect, Schema } from "effect";
 import type { SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-
+import type { AdmissionClosed } from "../engine/admission.js";
 import {
 	isReplayableJobKind,
 	type Job,
@@ -12,18 +12,6 @@ import {
 	type PendingJob,
 	REPLAYABLE_JOB_KINDS,
 } from "./jobs.js";
-
-/**
- * SQL-backed job ledger.
- *
- * Every mutation is a single statement guarded by the row's current status
- * (and lease owner for settlement), so two workers or two processes sharing
- * one database cannot both own a job. `enqueue` is designed to run inside the
- * caller's command transaction; it never notifies. Notification is the
- * caller's post-commit responsibility.
- */
-
-import type { AdmissionClosed } from "../engine/admission.js";
 
 export type JobLedgerError = SqlError | JobRowDecodeError | AdmissionClosed;
 

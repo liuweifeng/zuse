@@ -169,7 +169,7 @@ export function retainSessionHistory<Client>(options: {
 			view.data?.olderMessageSequence == null
 		)
 			return;
-		// Old runtimes must finish their original synchronization barrier first.
+
 		if (view.sync !== "live" && view.connection !== "dormant") return;
 		release?.();
 		release = scheduler.retain(

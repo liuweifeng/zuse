@@ -1,4 +1,3 @@
-/** Caches authoritative native goal notifications; execution ownership lives in the durable turn ledger. */
 import {
 	MessageContent,
 	type SessionId,

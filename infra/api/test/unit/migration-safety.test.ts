@@ -171,8 +171,7 @@ describe("relay migration reconciliation", () => {
 			"api_api_webhook_deliveries",
 		])
 			expect(migrations).toContain(`CREATE TABLE "${table}"`);
-		// API-key secrets are stored hashed only; webhook secrets and message
-		// content are sealed, never plaintext.
+
 		expect(migrations).toContain('"secret_hash" text NOT NULL');
 		expect(migrations).toContain('"sealed_secret" text NOT NULL');
 		expect(migrations).toContain('"sealed_content" text NOT NULL');

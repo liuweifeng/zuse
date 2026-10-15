@@ -19,9 +19,7 @@ export const hydrateOnboarding = async (): Promise<void> => {
 	let complete = false;
 	try {
 		complete = (await SecureStore.getItemAsync(STORE_KEY)) === "complete";
-	} catch {
-		// A temporarily unavailable keychain must not block startup.
-	}
+	} catch {}
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(onboardingCompleteAtom, complete);
 		appAtomRegistry.set(onboardingHydratedAtom, true);

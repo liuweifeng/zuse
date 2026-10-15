@@ -85,7 +85,7 @@ describe("mobile tool presentation", () => {
 				}),
 			).inlineLabel,
 		).toBe("Edited app.ts");
-		// Falls back to the tool label when the natural argument is missing.
+
 		expect(buildToolPresentation(toolUse("Bash", {})).inlineLabel).toBe("Bash");
 		expect(
 			buildToolPresentation(toolUse("Grep", { pattern: "foo", path: "src" }))

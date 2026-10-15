@@ -1,7 +1,3 @@
-/**
- * Theme resolution that does not depend on settings, so screens rendered before
- * settings load can import it without pulling in the settings client.
- */
 import { AppearanceMode } from "@zuse/contracts";
 import { Schema } from "effect";
 import {
@@ -45,11 +41,6 @@ export const resolveAppearance = (
 export const LAST_APPEARANCE_MODE_KEY = "zuse.appearance.lastMode";
 const isAppearanceMode = Schema.is(AppearanceMode);
 
-/**
- * The appearance chosen in the last session that loaded settings. Screens
- * shown before settings exist (sign-in, pairing) use it so they open in the
- * user's theme instead of the browser default.
- */
 const lastAppearanceMode = (): AppearanceMode => {
 	try {
 		const stored = window.localStorage.getItem(LAST_APPEARANCE_MODE_KEY);

@@ -57,10 +57,6 @@ const requiredSystemTools = [
 ] as const;
 
 const resolveExecutable = (name: string): string => {
-	// A login shell may replace an executable with a profile-defined function
-	// (Amazon Linux does this for `which`), which produces a non-path result and
-	// makes an otherwise hermetic test image look incomplete. Resolve from the
-	// inherited PATH without loading interactive/login profile aliases.
 	const executable = execFileSync(
 		"/bin/sh",
 		["-c", `unset -f ${name} 2>/dev/null || true; command -v ${name}`],

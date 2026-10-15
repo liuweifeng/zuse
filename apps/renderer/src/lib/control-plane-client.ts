@@ -17,7 +17,6 @@ import {
 } from "./renderer-workspace.ts";
 import { getControlPlaneRpcClient, type MemoizeClient } from "./rpc-client.ts";
 
-/** Single renderer boundary for API account and workspace lifecycle RPCs. */
 const runScopedControlPlane = async <Client, Result>(
 	getClient: (scope: WorkspaceScope) => Promise<Client>,
 	effect: (client: Client) => Effect.Effect<Result, unknown>,
@@ -72,7 +71,6 @@ const sessionCache = new Map<string, SessionCacheEntry>();
 subscribeRendererAccount(() => sessionCache.clear());
 const cacheListeners = new Set<(key: string) => void>();
 
-// Persist only explicitly opted-in, schema-validated display data.
 export type ControlPlaneCacheOptions<Result> = {
 	readonly refresh?: boolean;
 	readonly maxAgeMs?: number;
@@ -197,7 +195,7 @@ export const runCachedRead = <Result>(
 	const memoryKey = entryKey(key, accountScoped);
 	const persistedKey = options?.decode ? storageKey(key, accountScoped) : null;
 	const previous = readEntry(key, options);
-	// A refresh after a mutation must not join a read started before that write.
+
 	const entry: SessionCacheEntry = options?.refresh
 		? {
 				value: previous?.value,
@@ -238,9 +236,7 @@ export const runCachedRead = <Result>(
 								persistedKey,
 								JSON.stringify({ value: entry.snapshot }),
 							);
-						} catch {
-							/* Best-effort cache. */
-						}
+						} catch {}
 					}
 					entry.pending = undefined;
 					if (changed) for (const listener of cacheListeners) listener(key);
@@ -287,9 +283,7 @@ export const invalidateControlPlaneCache = (
 	if (persistedKey !== null) {
 		try {
 			window.localStorage.removeItem(persistedKey);
-		} catch {
-			/* Best-effort cache. */
-		}
+		} catch {}
 	}
 };
 

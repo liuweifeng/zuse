@@ -189,7 +189,7 @@ test.skipIf(!url)(
 					(await runtime.runPromise(store.getWorkspace(workspaceId)))
 						?.nextActionAtMs,
 				).toBe(pending ? 100 : 15_000);
-				// A committed renewal may outlive both its HTTP response and credential expiry.
+
 				const renew = (overrides = {}) =>
 					runtime.runPromise(
 						store.renewRuntimeCredential({

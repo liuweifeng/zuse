@@ -9,16 +9,6 @@ import { getActiveEnvironmentStorageScope } from "../lib/renderer-environment-sc
 import { readStorageWithLegacy } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
-/**
- * Draft code annotations, keyed by chat session. The user selects code in the
- * file editor / diff view and pins a comment; the annotation stacks here and is
- * rendered in a tray above that session's composer. On submit the composer
- * drains this list into the outgoing `ComposerInput` and clears it.
- *
- * Persisted to `localStorage` (manual load/save, matching `merge-prefs.ts`) so
- * un-sent annotations survive a window reload / app restart — they're drafty by
- * nature, so a DB-backed queue would be overkill.
- */
 const STORAGE_KEY = "zuse.annotations.v1";
 const LEGACY_STORAGE_KEYS = ["memoize.annotations.v1"] as const;
 
@@ -54,7 +44,7 @@ const load = (): Persisted => {
 			);
 			return persistedByEnvironment[getActiveEnvironmentStorageScope()] ?? {};
 		}
-		// The v1 document held only the local computer's annotations.
+
 		persistedByEnvironment.local = parsed as Persisted;
 		return parsed as Persisted;
 	} catch {
@@ -70,12 +60,9 @@ const persist = (state: Persisted): void => {
 			environments: persistedByEnvironment,
 		};
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
-	} catch {
-		// Private-mode / quota errors are non-fatal — the drafts just won't stick.
-	}
+	} catch {}
 };
 
-/** Stable id generator; falls back when `crypto.randomUUID` is unavailable. */
 const newId = (): string => {
 	try {
 		return crypto.randomUUID();
@@ -86,7 +73,7 @@ const newId = (): string => {
 
 type AnnotationsState = {
 	readonly bySession: Persisted;
-	/** Append an annotation; `id` is generated here. Returns the new id. */
+
 	readonly add: (
 		sessionId: SessionId,
 		annotation: Omit<CodeAnnotation, "id">,

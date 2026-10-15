@@ -45,13 +45,9 @@ export const makeCodexHistoryCheckpoints = (
 			return false;
 		const count = ids.length - checkpoint.turnIds.length;
 		if (count > 0) {
-			// A transport error may mean rollback succeeded but its reply was lost.
-			// Only a fresh read can prove that the target boundary was reached.
 			try {
 				await transport.rollback(checkpoint.nativeThreadId, count);
-			} catch {
-				/* Verify below. */
-			}
+			} catch {}
 		}
 		const after = await transport.read(checkpoint.nativeThreadId);
 		const actual = after.turns.map((turn) => turn.id);

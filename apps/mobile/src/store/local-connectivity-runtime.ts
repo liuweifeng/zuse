@@ -53,9 +53,7 @@ export function useLocalConnectivityRuntime(): void {
 	const hydrated = useAtomValue(connectionsHydratedAtom);
 	const activeRoutes = useRef(new Map<string, ActiveRoute>());
 	const services = useRef<readonly NearbyService[]>([]);
-	// Incremented on every path change/background; an in-flight reconcile that
-	// crosses an epoch boundary discards its work instead of pinning a route
-	// that belongs to the network that just went away.
+
 	const pathEpoch = useRef(0);
 	const reconciling = useRef(false);
 	const reconcileAgain = useRef(false);
@@ -65,8 +63,6 @@ export function useLocalConnectivityRuntime(): void {
 		if (!hydrated) return;
 		let disposed = false;
 
-		// Until a proxy route is re-established, reconnect on the paired LAN
-		// address instead of retrying a dead loopback port.
 		const fallBackToPairedRoutes = async (keys: ReadonlyArray<string>) => {
 			const restored = await restorePairedConnectionRoutes(keys);
 			for (const record of restored) {
@@ -133,8 +129,6 @@ export function useLocalConnectivityRuntime(): void {
 								getConnectionSnapshot(connection).status === "connected") ||
 							hasCurrentLocalRoute(current?.routeId, candidates)
 						) {
-							// Route is fine but the supervisor may have exhausted its
-							// retry budget while the network settled — nudge it awake.
 							if (getConnectionSnapshot(connection).status === "error") {
 								console.info("[zuse:nearby] route.current.nudge_exhausted", {
 									connectionKey: connection.key,
@@ -188,9 +182,7 @@ export function useLocalConnectivityRuntime(): void {
 								connectionKey: connection.key,
 								candidateCount: candidates.length,
 							});
-							// A recorded proxy whose service is gone (and which is not
-							// carrying a live connection) is dead too: close it and fall
-							// back to the paired address.
+
 							if (
 								current !== undefined &&
 								getConnectionSnapshot(connection).status !== "connected"
@@ -203,8 +195,6 @@ export function useLocalConnectivityRuntime(): void {
 							continue;
 						}
 						if (pathEpoch.current !== epoch) {
-							// The network changed while we were opening this proxy; it
-							// points at the old path. Drop it and start the pass over.
 							await closeLocalProxy(selected.proxy.id).catch(() => {});
 							reconcileAgain.current = true;
 							break;
@@ -231,10 +221,7 @@ export function useLocalConnectivityRuntime(): void {
 							transportCertificatePin:
 								connection.transportCertificatePin ?? service.tlsCertificatePin,
 						});
-						// Wake the supervisor with the fresh route immediately (the
-						// routeGeneration bump makes it reconnect, even from an
-						// exhausted "error" state) instead of waiting for a mounted
-						// screen to re-subscribe with the new record.
+
 						const updated = currentConnections().find(
 							(record) => record.key === connection.key,
 						);
@@ -252,8 +239,7 @@ export function useLocalConnectivityRuntime(): void {
 
 		const invalidateRoutes = async (key?: string) => {
 			pathEpoch.current += 1;
-			// Services discovered on the previous network are unreachable; a
-			// fresh browse (restarted below) will repopulate the cache.
+
 			services.current = [];
 			const current = [...activeRoutes.current.entries()].filter(
 				([routeKey]) => key === undefined || routeKey === key,
@@ -262,7 +248,7 @@ export function useLocalConnectivityRuntime(): void {
 			await Promise.allSettled(
 				current.map(([, route]) => closeLocalProxy(route.proxy.id)),
 			);
-			// Closed proxies leave records pointing at dead loopback ports.
+
 			await fallBackToPairedRoutes(
 				key === undefined
 					? currentConnections().map((connection) => connection.key)
@@ -270,17 +256,9 @@ export function useLocalConnectivityRuntime(): void {
 			);
 		};
 
-		// Full teardown + restart of native discovery. The stop/start pair
-		// re-creates the Bonjour browser on whatever network is current — this
-		// is the JS-driven recovery path that works regardless of what the
-		// native browser thinks its state is.
 		let restartingDiscovery = false;
-		// Starting discovery creates a fresh NWPathMonitor, and a new monitor
-		// ALWAYS fires its current path immediately. Without suppression that
-		// initial event looks like a network change and triggers another
-		// restart — an infinite restart loop. Also rate-limit real restarts so
-		// a flapping path can't thrash the radio.
-		let suppressNextPathRestart = true; // initial startLocalDiscovery below
+
+		let suppressNextPathRestart = true;
 		let lastPathRestartAt = 0;
 		const restartDiscovery = async (key?: string) => {
 			if (disposed) return;
@@ -298,8 +276,6 @@ export function useLocalConnectivityRuntime(): void {
 			void reconcile();
 		};
 		const removeRecovery = registerLocalRouteRecovery((key) => {
-			// A cached service can outlive the Mac's address or native proxy.
-			// Explicit Retry must browse again, even when the cache is nonempty.
 			console.info("[zuse:nearby] route.recovery.requested", {
 				connectionKey: key,
 			});
@@ -330,7 +306,6 @@ export function useLocalConnectivityRuntime(): void {
 				generation: event.generation,
 			});
 			if (suppressNextPathRestart) {
-				// Initial fire of a monitor we just (re)started — not a change.
 				suppressNextPathRestart = false;
 				void reconcile();
 				return;
@@ -343,10 +318,7 @@ export function useLocalConnectivityRuntime(): void {
 			lastPathRestartAt = now;
 			void restartDiscovery();
 		});
-		// A browser parked in "waiting"/"failed" (typical after a Wi-Fi switch)
-		// never re-emits services on its own — restart it after a grace period
-		// with backoff (3s → 24s) so a phone with no network doesn't churn;
-		// the backoff resets as soon as discovery reports healthy again.
+
 		let unhealthyRestartTimer: ReturnType<typeof setTimeout> | null = null;
 		let unhealthyRestartCount = 0;
 		const removeDiscoveryState = onLocalDiscoveryStateChanged((state) => {
@@ -368,8 +340,7 @@ export function useLocalConnectivityRuntime(): void {
 				}
 			}
 		});
-		// Backgrounding cancels every native proxy; drop the JS mirror so a
-		// foreground reconcile rebuilds routes instead of trusting dead ids.
+
 		let backgrounded = false;
 		const appStateSubscription = AppState.addEventListener(
 			"change",

@@ -62,7 +62,7 @@ export function useGlobalSkills(): GlobalSkills {
 	const setEnabled = useCallback(
 		async (skill: Skill, enabled: boolean) => {
 			const key = skillKey(skill);
-			// Optimistic; the result is the provider's state after the write.
+
 			const apply = (value: boolean) =>
 				setSkills(
 					(current) =>
@@ -135,7 +135,7 @@ export function SkillsSettingsList({
 					: m("plugins:plugins_skills_none")}
 			</p>
 		);
-	// Grouped by provider, like MCP servers: each provider owns its skills.
+
 	const groups = new Map<Skill["providerId"], Skill[]>();
 	for (const skill of skills)
 		groups.set(skill.providerId, [

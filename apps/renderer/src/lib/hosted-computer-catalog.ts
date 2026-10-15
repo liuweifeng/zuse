@@ -3,7 +3,6 @@ import {
 	isPrivateOrLocalHost,
 } from "@zuse/contracts";
 
-/** Names and addresses are not identities: many computers advertise localhost. */
 function identity(computer: ApiEnvironmentRecord): string {
 	try {
 		const key = JSON.parse(computer.environmentPublicKey ?? "null");
@@ -20,9 +19,7 @@ function identity(computer: ApiEnvironmentRecord): string {
 			parts.every((part) => typeof part === "string" && part.length > 0)
 		)
 			return JSON.stringify(parts);
-	} catch {
-		/* Older registrations may have no usable public key. */
-	}
+	} catch {}
 	return `id:${computer.environmentId}`;
 }
 
@@ -64,7 +61,7 @@ export function hostedComputerAddress(address: string) {
 					: isPrivateOrLocalHost(host)
 						? "lan"
 						: "remote";
-		// Never display credentials, query strings or fragments from advertised URLs.
+
 		return {
 			kind,
 			address: `${url.origin}${url.pathname.replace(/\/$/, "")}`,

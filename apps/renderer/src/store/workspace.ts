@@ -38,9 +38,7 @@ const persistSelection = async (folderId: FolderId | null): Promise<void> => {
 	if (isHostedProduct() && getActiveEnvironment() === "local") return;
 	try {
 		await dispatchWorkspaceCommand<void>("workspace.setSelected", { folderId });
-	} catch {
-		// best-effort persistence; the in-memory store already updated
-	}
+	} catch {}
 };
 
 let workspaceCommandCounter = 0;
@@ -57,9 +55,6 @@ const dispatchWorkspaceCommand = <Result>(kind: string, payload: unknown) =>
 const formatError = (err: unknown): string => {
 	if (err instanceof Error) return err.message;
 	if (typeof err === "object" && err !== null) {
-		// TaggedErrors travel over RPC carrying `_tag` plus their schema
-		// fields. Prefer the human-readable ones over the bare tag — the
-		// dialog inline-renders this string verbatim.
 		const obj = err as Record<string, unknown>;
 		if (typeof obj.reason === "string" && obj.reason.length > 0) {
 			return obj.reason;

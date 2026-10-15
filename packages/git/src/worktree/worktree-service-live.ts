@@ -86,14 +86,8 @@ interface WorktreeRow {
 	readonly pokemon_number: number | null;
 }
 
-// Refresh the remote base without making local workspace creation depend on a
-// responsive network. A failed refresh may use only the exact verified cached
-// remote-tracking branch, never the main checkout's unrelated local HEAD.
 const FETCH_TIMEOUT = "5 seconds" as const;
 
-// Chats are often created in bursts. Reuse a recently resolved remote base
-// instead of repeating the same network refresh (or offline timeout) for each
-// new workspace.
 const REMOTE_BASE_REUSE_MS = 60_000;
 
 const isSetupStatus = (value: string): value is WorktreeSetupStatus =>
@@ -362,9 +356,6 @@ export const WorktreeServiceLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
-		// Live setup-output fan-out. Each `setupStream` subscriber gets its own
-		// mailbox registered here; `runSetupFor` offers events to every mailbox
-		// for the worktree as setup progresses. Mirrors the pty subscriber model.
 		const subscribers = new Map<
 			string,
 			Set<Queue.Queue<WorktreeSetupEvent, Cause.Done>>
@@ -379,8 +370,7 @@ export const WorktreeServiceLive = Layer.effect(
 			"failed",
 			"skipped",
 		]);
-		// Emit a status transition; on a terminal status, complete every
-		// subscriber's stream so renderers stop draining once setup is done.
+
 		const emitStatus = (
 			worktreeId: WorktreeId,
 			status: WorktreeSetupStatus,
@@ -419,13 +409,6 @@ export const WorktreeServiceLive = Layer.effect(
 				),
 			);
 
-		/**
-		 * Run `git ...` in `cwd`. Resolves to stdout on exit-zero; converts every
-		 * other outcome (non-zero exit, ENOENT, BadArgument) into a single
-		 * `string` error reason the callers wrap into the appropriate domain
-		 * error. Mirrors `GitServiceLive.run` but stays self-contained so
-		 * domains remain independent.
-		 */
 		const runGit = (
 			cwd: string,
 			args: ReadonlyArray<string>,
@@ -754,11 +737,7 @@ export const WorktreeServiceLive = Layer.effect(
 					}
 				}
 				const createSettings = yield* repositorySettings.get(projectId);
-				// Layout: ~/.zuse/<repo-name>-<projectId-short>/<branch>/. Living
-				// in the user's home dir (next to Downloads, Developer, etc.) keeps
-				// the repo itself untouched — `git status`, file pickers, and any
-				// tree walker stay clean. The projectId suffix disambiguates two
-				// registered projects that happen to share a folder name.
+
 				const baseDir =
 					createSettings.worktreeBaseDir ??
 					Path.join(
@@ -777,16 +756,6 @@ export const WorktreeServiceLive = Layer.effect(
 					),
 				);
 
-				// Resolve the base the new worktree branches off of. Users live in
-				// worktrees and push from there, so the main checkout's local base
-				// branch (e.g. `main`) is rarely pulled and goes stale — branching off
-				// it would start every agent behind the remote. So:
-				//   • If an `origin` remote is configured, try refreshing its default
-				//     branch within a short budget. Offline, use that exact cached
-				//     remote branch if it exists. Never fall back to local HEAD.
-				//     The main checkout is left exactly as-is.
-				//   • If there is no `origin` at all, this is a legitimate local-only
-				//     repo (nothing to be "behind"), so we base off local `HEAD`.
 				const fail = (reason: string) =>
 					new WorktreeCreateError({ projectId, reason });
 
@@ -802,7 +771,6 @@ export const WorktreeServiceLive = Layer.effect(
 				let baseBranch: string;
 
 				if (!hasOrigin) {
-					// Local-only repo: base off the main checkout's current HEAD.
 					const headRefRaw = yield* runGit(repoPath, [
 						"rev-parse",
 						"--abbrev-ref",
@@ -811,9 +779,6 @@ export const WorktreeServiceLive = Layer.effect(
 					baseBranch = headRefRaw.trim() || "HEAD";
 					baseRef = "HEAD";
 				} else {
-					// Concurrent creates for one repository share this authoritative
-					// remote discovery + bounded fetch, including a verified cached
-					// remote base when the network is unavailable.
 					const remoteStartedAt = Date.now();
 					const remoteBase = yield* refreshRemoteBase(projectId, repoPath);
 					yield* Effect.logInfo(
@@ -853,8 +818,6 @@ export const WorktreeServiceLive = Layer.effect(
 					usedPokemonRows.map((row) => row.pokemon_number),
 				);
 
-				// Allocation can still race with another worktree creator, so loop
-				// with newly discovered collisions fed back into the unavailable set.
 				let attempt = 0;
 				while (attempt < 50) {
 					attempt += 1;
@@ -885,9 +848,6 @@ export const WorktreeServiceLive = Layer.effect(
 						continue;
 					}
 
-					// Skip if a branch with this name already exists in the repo —
-					// `git worktree add -b` would fail and we'd surface a confusing
-					// error. Cheap pre-flight; cool-names rarely collide.
 					const branchExists = yield* runGit(repoPath, [
 						"rev-parse",
 						"--verify",
@@ -902,10 +862,6 @@ export const WorktreeServiceLive = Layer.effect(
 						continue;
 					}
 
-					// The directory + mascot always get the Pokémon name; only the
-					// checked-out branch varies. Default (no source): create a fresh
-					// branch `<pokemon>` off baseRef. With a source: check out the
-					// EXISTING branch / PR the "Create from…" picker chose.
 					let checkedOutBranch = branch;
 					const id = requestedId ?? WorktreeId.make(crypto.randomUUID());
 					const now = yield* DateTime.nowAsDate;
@@ -925,9 +881,6 @@ export const WorktreeServiceLive = Layer.effect(
 					const checkoutStartedAt = Date.now();
 					const addResult = yield* Effect.gen(function* () {
 						if (source === undefined) {
-							// git worktree add -b <branch> <target> <baseRef>
-							// baseRef is the freshly-fetched `origin/<branch>` when available,
-							// otherwise local `HEAD` (see baseRef resolution above).
 							return yield* runGit(repoPath, [
 								"worktree",
 								"add",
@@ -949,7 +902,6 @@ export const WorktreeServiceLive = Layer.effect(
 								Effect.catch(() => Effect.succeed(false)),
 							);
 							if (localExists) {
-								// Check out the existing local branch directly.
 								return yield* runGit(repoPath, [
 									"worktree",
 									"add",
@@ -957,7 +909,7 @@ export const WorktreeServiceLive = Layer.effect(
 									source.branch,
 								]);
 							}
-							// Remote-only branch: fetch it, then add a tracking local branch.
+
 							const remoteName = source.remote ?? "origin";
 							yield* runGit(repoPath, [
 								"fetch",
@@ -1040,7 +992,7 @@ export const WorktreeServiceLive = Layer.effect(
 							]);
 							found = true;
 						}
-						// GitHub's PR ref remains fetchable when the fork has been deleted.
+
 						if (found)
 							yield* runGit(repoPath, [
 								"fetch",
@@ -1102,7 +1054,6 @@ export const WorktreeServiceLive = Layer.effect(
 						`[chat-creation-timing] project=${projectId} checkout_create_ms=${Date.now() - checkoutStartedAt}`,
 					);
 					if (addResult._tag === "Failure") {
-						// Clean up a half-created worktree dir so the name can be retried.
 						yield* runGit(repoPath, [
 							"worktree",
 							"remove",
@@ -1133,10 +1084,7 @@ export const WorktreeServiceLive = Layer.effect(
 						`.pipe(Effect.orDie);
 					}
 					yield* pokemonAssignment.record(pokemonNumber, id);
-					// Setup runs detached so `create` returns as soon as the worktree +
-					// branch exist. The renderer subscribes to `setupStream` to follow
-					// setup live; the row starts `pending` and flips to `running` once
-					// the forked setup begins.
+
 					const created = yield* get(id);
 					if (created === null) {
 						return yield* new WorktreeCreateError({
@@ -1205,10 +1153,7 @@ export const WorktreeServiceLive = Layer.effect(
 									Effect.timeout(FETCH_TIMEOUT),
 									Effect.result,
 								);
-							// Origin's advertised HEAD stays authoritative, but asking for it
-							// first doubles the wait on a slow link. Fetch the default the
-							// clone already records while the remote answers; only a renamed
-							// default costs a second fetch.
+
 							const localHead = (yield* runGit(repoPath, [
 								"symbolic-ref",
 								"--quiet",
@@ -1953,8 +1898,7 @@ export const WorktreeServiceLive = Layer.effect(
 						failRestore("restored worktree row could not be loaded"),
 					);
 				}
-				// The archive remains the rollback source until SQL and checkpoint-ref
-				// changes succeed. Cleanup failure must never discard the restored copy.
+
 				if (contextRestored && archivedContextPath !== null) {
 					yield* Effect.tryPromise(() =>
 						removePath(archivedContextPath, { recursive: true }),
@@ -1989,10 +1933,6 @@ export const WorktreeServiceLive = Layer.effect(
 				"",
 		});
 
-		// Worktrees whose node_modules is symlinked to the main checkout share one
-		// dependency directory. Concurrent installs (e.g. `bun install`) into it
-		// race and fail with EEXIST, so setup scripts for those worktrees run one
-		// at a time per repository.
 		const sharedNodeModulesLocks = new Map<string, Semaphore.Semaphore>();
 		const sharedNodeModulesLock = (repoPath: string): Semaphore.Semaphore => {
 			const existing = sharedNodeModulesLocks.get(repoPath);
@@ -2045,8 +1985,6 @@ export const WorktreeServiceLive = Layer.effect(
 
 			const prep = prepared.output;
 
-			// Surface the prepareLocalFiles output immediately so the card isn't
-			// blank while the (possibly long) script runs.
 			if (prep.length > 0) {
 				emit(worktreeId, WorktreeSetupChunk.make({ worktreeId, output: prep }));
 			}
@@ -2117,10 +2055,6 @@ export const WorktreeServiceLive = Layer.effect(
 				: updated;
 		});
 
-		/**
-		 * Run setup and guarantee a terminal status is always persisted + emitted
-		 * — even when setup throws — so a `setupStream` never hangs in `running`.
-		 */
 		const runSetupSafely = (worktreeId: WorktreeId): Effect.Effect<void> =>
 			runSetupFor(worktreeId).pipe(
 				Effect.asVoid,
@@ -2147,8 +2081,7 @@ export const WorktreeServiceLive = Layer.effect(
 				if (wt === null) {
 					return yield* Effect.fail(new WorktreeNotFoundError({ worktreeId }));
 				}
-				// Same non-blocking model as `create`: kick off setup detached and
-				// return immediately; the renderer follows via `setupStream`.
+
 				yield* Effect.forkDetach(runSetupSafely(worktreeId));
 				return wt;
 			});
@@ -2170,18 +2103,14 @@ export const WorktreeServiceLive = Layer.effect(
 							if (s.size === 0) subscribers.delete(worktreeId);
 						}),
 					);
-					// Attach before reading the persisted snapshot. A terminal update that
-					// commits during this read is then queued instead of disappearing into
-					// a subscribe-after-snapshot gap.
+
 					const wt = yield* get(worktreeId);
 					if (wt === null) {
 						return Stream.fail(new WorktreeNotFoundError({ worktreeId }));
 					}
-					// Do not seed a stale snapshot over an event already received after the
-					// subscription was attached.
+
 					if (Queue.sizeUnsafe(mailbox) > 0) return Stream.fromQueue(mailbox);
-					// Seed the current snapshot so a late subscriber (after a fast setup
-					// already finished) still sees the latest output + terminal status.
+
 					Queue.offerUnsafe(
 						mailbox,
 						WorktreeSetupChunk.make({
@@ -2198,8 +2127,7 @@ export const WorktreeServiceLive = Layer.effect(
 							setupFinishedAt: wt.setupFinishedAt,
 						}),
 					);
-					// If setup already finished, complete immediately — no live events
-					// are coming, so don't leave the renderer's stream hanging open.
+
 					if (TERMINAL_STATUSES.has(wt.setupStatus)) {
 						Queue.endUnsafe(mailbox);
 					}

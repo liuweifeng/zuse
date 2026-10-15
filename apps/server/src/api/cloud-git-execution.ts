@@ -171,8 +171,7 @@ export const makeCloudGitExecution = (input: {
 				"Authentication required: sign in to GitHub on this workspace, or connect GitHub in Cloud settings and select Use my Zuse GitHub connection for a new workspace.",
 			);
 		}
-		// The turn projection owns the active identity. A newer request event or
-		// a settled turn must never lend another actor to this execution.
+
 		const rows = await Effect.runPromise(input.sql<{
 			turn_id: string;
 			input_json: string;

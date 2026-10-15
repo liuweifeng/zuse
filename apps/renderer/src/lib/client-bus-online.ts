@@ -29,10 +29,6 @@ export const CONNECTION_FOCUS_WAKE_MIN_INTERVAL_MS = 5_000;
 /** How often a visible window refreshes computer presence. */
 export const CONNECTION_PRESENCE_REFRESH_MS = 60_000;
 
-/**
- * Skip retry backoff for interrupted self-hosted connections, then let the
- * caller refresh presence. Cloud workspaces keep their bounded ladder.
- */
 const retryInterruptedConnections = (): void => {
 	getRendererClientBus().retryRetainedConnections(
 		(environmentId) => environmentRetryPolicy(environmentId) === "unbounded",

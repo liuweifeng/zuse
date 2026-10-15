@@ -10,7 +10,7 @@ export type TerminalFeed = Readonly<{
 
 type TerminalFeedPublication = Readonly<{
 	feed: TerminalFeed;
-	/** Resolves after React commits this publication to the native view. */
+
 	committed: Promise<void>;
 }>;
 
@@ -82,8 +82,7 @@ export const makeTerminalFeedChannel = (
 	return {
 		commitSelection: (terminalId) => {
 			if (terminalId === activeTerminalId) return;
-			// A detached publication was not rendered by the matching native view.
-			// Rejecting its acknowledgement prevents the resource cursor from advancing.
+
 			if (activeTerminalId !== null) revokePending(activeTerminalId);
 			activeLease.valid = false;
 			activeTerminalId = terminalId;

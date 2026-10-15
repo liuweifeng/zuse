@@ -42,10 +42,10 @@ describe("isSensitivePath", () => {
 	it("does not match ordinary source paths", () => {
 		const safe = [
 			"/repo/src/index.ts",
-			"/repo/environment.ts", // not `.env`
+			"/repo/environment.ts",
 			"/repo/README.md",
 			"/repo/package.json",
-			"/repo/.envrc.example.ts", // `.env` not followed by `.` or end
+			"/repo/.envrc.example.ts",
 			"",
 		];
 		for (const p of safe) {

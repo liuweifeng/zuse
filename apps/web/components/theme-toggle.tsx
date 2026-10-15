@@ -10,8 +10,7 @@ export function ThemeToggle({ className }: { className?: string }) {
 	const { resolvedTheme, setTheme } = useTheme();
 	const [mounted, setMounted] = useState(false);
 	useEffect(() => setMounted(true), []);
-	// Keep the server and first client render identical, including when a
-	// returning visitor has a light-theme preference in local storage.
+
 	const isDark = !mounted || resolvedTheme !== "light";
 	return (
 		<button

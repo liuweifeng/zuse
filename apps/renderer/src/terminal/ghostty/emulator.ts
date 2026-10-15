@@ -875,9 +875,7 @@ export class GhosttyEmulator {
 
 	selectionText(): string {
 		this.ensureAlive();
-		// This value-ABI options struct is intentionally not part of Ghostty's
-		// generated type JSON. Its pinned wasm32 C layout is 16 bytes:
-		// size, format enum, unwrap, trim, padding, optional selection pointer.
+
 		const optionsSize = 16;
 		const options = this.runtime.allocate(optionsSize);
 		try {
@@ -1218,8 +1216,6 @@ export class GhosttyEmulator {
 		);
 	}
 
-	// Ghostty geometry uses integer cell widths; preserve the same cell and
-	// within-cell fraction as the canvas instead of accumulating rounding drift.
 	private geometryX(x: number): number {
 		return (
 			Math.round(this.paddingX) +

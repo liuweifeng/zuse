@@ -86,8 +86,7 @@ export const ApiActivityPublisherLive: Layer.Layer<
 					catch: fail,
 				});
 			});
-		// Account activity is best-effort. Its network latency must never hold up
-		// provider ingestion, lease renewal, or durable turn completion.
+
 		yield* Effect.forkScoped(
 			Queue.take(pending).pipe(
 				Effect.flatMap((input) =>

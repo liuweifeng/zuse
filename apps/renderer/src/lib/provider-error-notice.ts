@@ -9,10 +9,6 @@ export type RateLimitInfo = {
 	readonly period?: "weekly" | "monthly" | "daily";
 };
 
-// Parse rate-limit / usage-limit messages emitted by Claude Code, the
-// Anthropic SDK, or other providers. We see them as plain strings (the
-// wire ErrorEvent carries no structured metadata) so this is best-effort
-// pattern matching against the human-readable text.
 export const parseRateLimit = (text: string): RateLimitInfo | null => {
 	const isRateLimit =
 		/usage limit|rate[-\s]?limit|quota|429|too many requests|overloaded|hit your limit|reached (?:your |the )?limit|agent reached limit/i.test(
@@ -149,7 +145,6 @@ export const isBlockingNotice = (notice: ProviderErrorNotice): boolean => {
 };
 
 type DismissedProviderErrorState = {
-	/** Session resource key -> id of the transcript error the user dismissed. */
 	readonly dismissedBySession: Readonly<Record<string, string>>;
 };
 

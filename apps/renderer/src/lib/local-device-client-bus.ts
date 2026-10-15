@@ -13,9 +13,7 @@ export const localDeviceCommand = <Payload, Result>(
 	environmentId,
 	kind,
 	commandId,
-	// Device-host RPCs share the environment connection, but they do not mutate
-	// the environment-shell resource. Publishing their transient command state to
-	// that cell can re-enter catalog subscribers while the command is dispatching.
+
 	resource: null,
 	payload,
 	retry: "never",

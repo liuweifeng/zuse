@@ -123,7 +123,7 @@ try {
 	await page.getByText("Build completed successfully").waitFor();
 	await page.keyboard.press("Escape");
 	await page.getByRole("dialog").waitFor({ state: "hidden" });
-	// A failed status request for another provider must not block boxd.
+
 	await page.evaluate(() => {
 		window.unavailableStatus = ["e2b"];
 		window.dispatchEvent(new Event("focus"));
@@ -164,7 +164,7 @@ try {
 		await page.evaluate(() => window.buildRequests.map((r) => r.providerId)),
 		["boxd", "e2b"],
 	);
-	// Refreshing availability must never silently build a different provider.
+
 	await page.evaluate(() => {
 		window.available = ["box", "boxd"];
 	});

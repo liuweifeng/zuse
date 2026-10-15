@@ -265,7 +265,6 @@ describe("renderer session timeline ClientBus adapter", () => {
 			{ ...persistence },
 		);
 
-		// Stale module cleanup must not remove the replacement registration.
 		firstDriver();
 		firstPersistence();
 		secondDriver();
@@ -453,8 +452,7 @@ describe("renderer session timeline ClientBus adapter", () => {
 		expect(getRendererClientBus().connection(environmentId).phase).toBe(
 			"connected",
 		);
-		// New-chat creation installs its optimistic queue before ChatView owns the
-		// stream. Reproduce that cursorless runtime projection here.
+
 		expect(updateOptimisticSessionQueue(ref, (queue) => queue)).toBe(true);
 		const provisional = getRendererClientBus().snapshot(retained.key);
 		expect(provisional.cursor).toBeNull();

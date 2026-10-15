@@ -217,7 +217,7 @@ export function EnvironmentSummary() {
 	};
 	useEffect(() => {
 		void refreshBranches();
-		// The active branch is the refresh boundary for this menu.
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [branchLabel, environmentId, folderId, worktreeId]);
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {

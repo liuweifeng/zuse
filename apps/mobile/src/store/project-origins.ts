@@ -76,8 +76,7 @@ export const hydrateProjectOrigin = async (
 		});
 	} catch (cause) {
 		reportConnectionFailure(options, cause);
-		// A transport failure is not proof that the project has no origin. Leave
-		// it unresolved so the next connection generation can retry.
+
 		appAtomRegistry.update(projectOriginLoadingByKeyAtom, (state) => ({
 			...state,
 			[key]: false,

@@ -83,7 +83,7 @@ export const makeOrchestrationReader = (
 		});
 		const selected = rows.slice(0, limit);
 		if (!incremental) selected.reverse();
-		// A whole page has one budget, not a separate potentially huge budget per item.
+
 		let remaining = input.maxTextChars ?? ORCHESTRATION_TEXT_LIMIT;
 		const messages = [];
 		for (const record of selected) {
@@ -120,7 +120,5 @@ export const makeOrchestrationReader = (
 			hasMore:
 				(incremental && rows.length > limit) ||
 				messages.length < selected.length,
-			// Recent reads can page backwards through the existing UI API; the agent's
-			// incremental cursor always proceeds forwards from its last returned item.
 		};
 	});

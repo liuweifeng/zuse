@@ -52,7 +52,6 @@ type Request = {
 	payload: Record<string, unknown>;
 };
 
-/** The guest speaks encoded historical contracts; the app uses its real JSON RPC stack. */
 class LegacySocket extends EventTarget {
 	readyState = 0;
 	binaryType = "arraybuffer";

@@ -209,7 +209,7 @@ export const CloudSnapshotImportRequest = Schema.Struct({
 	connectionId: Schema.NonEmptyString,
 	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
 	gitAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
-	/** Boxd name or ID on input; saved configurations contain the resolved ID. */
+
 	snapshotId: Schema.String.check(
 		Schema.isMinLength(1),
 		Schema.isMaxLength(512),
@@ -217,7 +217,7 @@ export const CloudSnapshotImportRequest = Schema.Struct({
 	runtimeUser: Schema.String.check(
 		Schema.isPattern(/^[a-z_][a-z0-9_-]{0,31}$/u),
 	),
-	/** Empty means bounded discovery; otherwise inspect these exact checkouts. */
+
 	repositoryPaths: Schema.Array(
 		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 	).check(Schema.isMaxLength(32)),
@@ -236,7 +236,7 @@ export const SnapshotAgentAccess = Schema.Struct({
 		"missing-tool",
 	]),
 	checkedAt: Schema.Number,
-	/** Non-secret account label reported by the agent CLI, such as an email. */
+
 	account: Schema.optional(Schema.String),
 });
 export type SnapshotAgentAccess = typeof SnapshotAgentAccess.Type;
@@ -835,8 +835,6 @@ export const CloudProjectsPrepareRpc = Rpc.make("cloud.projects.prepare", {
 });
 export const CloudAccountImageStatusRpc = Rpc.make("cloud.image.status", {
 	payload: Schema.Union([
-		// Void accepts and discards values; match the provider payload first so
-		// desktop RPC calls preserve provider selection in both directions.
 		Schema.Struct({ providerId: Schema.optional(Schema.String) }),
 		Schema.Void,
 	]),

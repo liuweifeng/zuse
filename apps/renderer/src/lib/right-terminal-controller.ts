@@ -43,13 +43,9 @@ export const restoreOrAddRightTerminal = async (
 		ref: ChatRef;
 		environmentId: EnvironmentId;
 		cwd: string;
-		/** A command action must allocate a new process, never reuse an old shell. */
+
 		reuseRestored?: boolean;
-		/**
-		 * Re-check the caller's logical chat after the asynchronous catalog read.
-		 * This keeps a late response from opening a panel in a chat the user has
-		 * already left.
-		 */
+
 		isCurrent?: () => boolean;
 	}> &
 		RightTerminalProcess,
@@ -131,9 +127,6 @@ export const wakeAndRestoreCloudRightTerminal = async (input: {
 	if (!actionIsCurrent(input)) return { status: "cancelled" };
 	let cwd: string | null;
 	try {
-		// A cached root survives disconnects and pauses; it does not establish
-		// that the terminal catalog can reach the runtime. The shared attachment
-		// gate reuses healthy connections and recovers unavailable ones.
 		await input.ensureAttached();
 		if (!actionIsCurrent(input)) return { status: "cancelled" };
 		cwd = input.getCanonicalRootPath();

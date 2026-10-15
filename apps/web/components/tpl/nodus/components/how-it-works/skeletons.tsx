@@ -398,7 +398,7 @@ const LeftSVG = (props: React.SVGProps<SVGSVGElement>) => {
 				fill={`url(#${gradientId})`}
 				mask={`url(#${maskId})`}
 			/>
-			{/* <rect d={path} width="128" height="97" fill="url(#gradient-one)" /> */}
+
 			<defs>
 				<motion.linearGradient
 					id={gradientId}
@@ -465,7 +465,6 @@ const RightSVG = (props: React.SVGProps<SVGSVGElement>) => {
 				fill={`url(#${gradientId})`}
 				mask={`url(#${maskId})`}
 			/>
-			{/* <rect d={PATH} width="128" height="97" fill="url(#gradient-two)" /> */}
 
 			<defs>
 				<motion.linearGradient

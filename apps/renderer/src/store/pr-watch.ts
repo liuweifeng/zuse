@@ -52,8 +52,6 @@ type State = {
 };
 export const usePrWatchStore = create<State>((set, get) => {
 	const persist = (watches: readonly PrWatch[]) => {
-		// Enabling unattended work requires durable deduplication. Surface storage
-		// failures instead of silently losing the record and retrying a repair.
 		try {
 			window.localStorage.setItem(STORAGE_KEY, JSON.stringify(watches));
 		} catch (cause) {

@@ -64,11 +64,6 @@ interface PendingRequestRow {
 	readonly abandoned_turn_id: string | null;
 }
 
-/**
- * Decisions that should map to `scope='folder'`. Only `AlwaysAllow` is
- * folder-scoped today; everything else stays session-scoped (even denials,
- * which we keep for inspector visibility).
- */
 const scopeForDecision = (
 	decision: PermissionDecision,
 ): "session" | "folder" =>
@@ -93,8 +88,6 @@ const rowToSavedDecision = (
 		decidedAt: row.decided_at,
 	}).pipe(
 		Effect.catch(() =>
-			// Bad row (corrupted scope/decision string) — surface a synthetic Deny
-			// so the inspector still renders. Better than crashing the whole list.
 			decodeSavedDecision({
 				requestId: row.request_id,
 				sessionId: row.session_id,
@@ -107,12 +100,6 @@ const rowToSavedDecision = (
 		),
 	);
 
-/**
- * Stable per-kind matching key. Equality on this string is what lets
- * `AllowForSession` short-circuit a re-prompt — exact-match only, no
- * prefix / glob (kept deliberate per the Phase 4 plan; smarter matchers
- * are deferred).
- */
 const kindKey = (kind: PermissionKind): string => {
 	switch (kind._tag) {
 		case "FileWrite":
@@ -155,9 +142,7 @@ export const PermissionServiceLive = Layer.effect(
 						...fields,
 					})}\n`,
 				);
-			} catch {
-				// Permission logging must never affect permission handling.
-			}
+			} catch {}
 		};
 
 		const findExistingAllow = (
@@ -391,10 +376,6 @@ export const PermissionServiceLive = Layer.effect(
 			}
 		});
 
-		// The driver Deferred is process-local, but the prompt itself is durable.
-		// A restart destroys its provider callback, not its audit record. Keep the
-		// request visible as expired. Never attach a later, merely similar tool call
-		// to an old approval (a FileWrite key can match every edit in a checkout).
 		const unresolved = yield* sql<PendingRequestRow>`
       SELECT json_extract(requested.payload_json, '$.payloadJson') AS request_json,
              sessions.project_id,
@@ -527,8 +508,7 @@ export const PermissionServiceLive = Layer.effect(
 				const [owner] = yield* sql<{ readonly current_turn_id: string | null }>`
 					SELECT id AS current_turn_id FROM session_turns WHERE session_id = ${sessionId} AND status IN ('starting', 'running')
 				`.pipe(Effect.orDie);
-				// Keep uncommitted prompts out of snapshots, and prevent the reactor
-				// from consuming the request before its callback authority is installed.
+
 				const admitted = yield* permissionReactorLock
 					.withPermits(1)(
 						Effect.gen(function* () {

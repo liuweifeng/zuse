@@ -126,7 +126,6 @@ export function ConnectLinkCard({
 		}
 	}, []);
 
-	// Stop presenting a link if its selected route is no longer reachable.
 	useEffect(() => {
 		if (!anyReady) {
 			setPairing(null);
@@ -135,14 +134,12 @@ export function ConnectLinkCard({
 		}
 	}, [anyReady]);
 
-	// Snap to the best ready method when the current one loses readiness.
 	useEffect(() => {
 		const best = ready[0];
 		if (best === undefined || ready.includes(method)) return;
 		setMethod(best);
 	}, [ready, method]);
 
-	// Live countdown; a fresh code is minted in place on expiry.
 	useEffect(() => {
 		if (pairing === null) return;
 		const update = () =>
@@ -159,7 +156,6 @@ export function ConnectLinkCard({
 		};
 	}, [pairing, start]);
 
-	// Notice when a device redeems the outstanding code.
 	useEffect(() => {
 		if (pairing === null) return;
 		const checkForPairedDevice = async () => {
@@ -180,12 +176,10 @@ export function ConnectLinkCard({
 								? "Web browser"
 								: "Mobile device"),
 					);
-					// Re-arm so a second device pairing is detected too.
+
 					knownTokenIdsRef.current = new Set(active.map((token) => token.id));
 				}
-			} catch {
-				// Transient; retry on the next poll.
-			}
+			} catch {}
 		};
 		const timer = setInterval(() => void checkForPairedDevice(), 1_500);
 		return () => clearInterval(timer);

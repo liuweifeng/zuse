@@ -82,8 +82,6 @@ export const useRepositorySettingsStore = create<RepoSettingsState>((set) => {
 	};
 });
 
-// Account changes reset the workspace epoch too. Never retain repository scripts
-// or environment variables from a previously selected ownership scope.
 const unsubscribeWorkspace = subscribeRendererWorkspace(() => {
 	useRepositorySettingsStore.setState({ byProject: {}, error: null });
 });

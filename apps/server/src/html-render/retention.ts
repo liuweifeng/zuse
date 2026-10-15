@@ -13,8 +13,7 @@ export const pinHtmlRenderAttachment = (
 		if (content._tag !== "tool_result" || content.isError) return;
 		const visual = readHtmlRenderResult(content.output);
 		if (!visual) return;
-		// Results never grant access to another session's blobs. The normal
-		// message_attachments cascade owns deletion and GC retention.
+
 		yield* sql`INSERT OR IGNORE INTO message_attachments (message_id, attachment_id)
 		SELECT ${messageId}, id FROM attachments WHERE id = ${visual.attachmentId}
 		AND session_id = ${sessionId} AND mime_type = 'text/html'`.pipe(

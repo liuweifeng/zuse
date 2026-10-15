@@ -35,7 +35,7 @@ export const isEngineIdle = (options: {
 		SELECT id, provider_reservation_id FROM sessions
 		WHERE archived_at IS NULL AND provider_reservation_id IS NOT NULL
 	`;
-		// A warm, attached provider is idle. An allocation still acquiring its handle is not.
+
 		for (const reservation of reservations)
 			if (
 				!(yield* options.hasSession(

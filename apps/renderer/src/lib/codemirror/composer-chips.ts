@@ -107,7 +107,7 @@ export const chipsField = StateField.define<readonly ChipRange[]>({
 				from: tr.changes.mapPos(c.from, -1),
 				to: tr.changes.mapPos(c.to, 1),
 			}))
-			// Drop chips whose range collapsed (the user deleted across them).
+
 			.filter((c) => c.to > c.from);
 
 		for (const e of tr.effects) {
@@ -127,8 +127,6 @@ export const chipsField = StateField.define<readonly ChipRange[]>({
 			}
 		}
 
-		// Dedupe overlapping ranges that arrive from race conditions; keep the
-		// most recently added.
 		const sorted = [...next].sort((a, b) => a.from - b.from);
 		const out: ChipRange[] = [];
 		for (const c of sorted) {
@@ -153,9 +151,6 @@ class ChipWidget extends WidgetType {
 		span.dataset.kind = this.meta.kind;
 		span.contentEditable = "false";
 
-		// Surface chip metadata as data-attributes so the React-side hover
-		// popover (event-delegated on the composer card) can read them
-		// without re-mounting React inside the CM widget.
 		if (this.meta.kind === "file") {
 			span.dataset.relPath = this.meta.relPath;
 			span.dataset.absPath = this.meta.absPath;
@@ -228,7 +223,6 @@ const basename = (p: string): string => {
 
 const buildIconNode = (meta: ChipMeta): Node => {
 	if (meta.kind === "file") {
-		// Same pierre sprite / hugeicons folder glyphs as the file tree.
 		return buildFileIconDom(
 			basename(meta.relPath),
 			meta.entryKind,
@@ -236,9 +230,6 @@ const buildIconNode = (meta: ChipMeta): Node => {
 		);
 	}
 	if (meta.kind === "image") {
-		// Image attachment → thumbnail. Non-image attachments share the same
-		// chip kind (so the wire shape stays tidy) but render with the
-		// file-type icon instead.
 		const isImage =
 			meta.mimeType.startsWith("image/") && meta.previewUrl !== "";
 		if (isImage) {
@@ -261,16 +252,14 @@ const buildIconNode = (meta: ChipMeta): Node => {
 		img.onerror = () => img.remove();
 		return img;
 	}
-	// Fallback — should be unreachable.
+
 	return document.createElement("span");
 };
 
-/** Re-derive decorations from the chip field on every state change. */
 const chipDecorations = (state: EditorState): DecorationSet => {
 	const builder = new RangeSetBuilder<Decoration>();
 	const chips = state.field(chipsField);
-	// RangeSetBuilder requires sorted, non-overlapping inputs; chipsField
-	// already returns sorted/deduped ranges.
+
 	for (const c of chips) {
 		builder.add(
 			c.from,
@@ -295,15 +284,8 @@ export const chipResolverFacet = Facet.define<
 	combine: (values) => values[0] ?? null,
 });
 
-// `@path` only at start-of-text or after whitespace so emails/handles inside
-// prose don't sprout chips; `[image:<id>]` anywhere.
 const CHIP_TOKEN_RE = /(?<![^\s])@[^\s]+|\[image:[^\]\s]+\]/g;
 
-/**
- * Rehydrate chips on paste. The doc text keeps canonical tokens, so Cmd+A /
- * Cmd+X / Cmd+V round-trips text fine — this extension additionally re-adds
- * the chip decorations over any pasted tokens the host can resolve.
- */
 const chipPasteRehydration = EditorState.transactionExtender.of((tr) => {
 	if (!tr.isUserEvent("input.paste")) return null;
 	const resolver = tr.startState.facet(chipResolverFacet);

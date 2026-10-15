@@ -76,7 +76,6 @@ import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-/** Checks beyond this stay behind "Show all" so feedback remains reachable. */
 const VISIBLE_CHECK_LIMIT = 8;
 
 const formatRelative = (date: Date): string => {
@@ -373,7 +372,6 @@ export function PrOverview({
 		Record<string, string>
 	>({});
 
-	// Failing checks first — that's what the user opened the tab to investigate.
 	const orderedChecks = sortChecks(details?.checkRuns ?? pr.checkRuns ?? []);
 	const attachMarkdown = async (
 		markdown: string,
@@ -737,7 +735,6 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 
 type UiMessage = ReturnType<typeof useUiMessages>["message"];
 
-/** Most decisive state wins the one-line rollup: failures, then progress. */
 function checkSummaryText(
 	counts: ReturnType<typeof countChecks>,
 	uiMessage: UiMessage,
@@ -762,7 +759,6 @@ function checkSummaryText(
 	return parts.join(" · ");
 }
 
-/** A reviewer's current stance is their latest submitted review. */
 function latestReviewByAuthor(reviews: readonly GitPrReview[]): GitPrReview[] {
 	const latest = new Map<string, GitPrReview>();
 	for (const review of reviews) {
@@ -895,7 +891,6 @@ function mergeBlockerMessage(
 	}
 }
 
-/** The one next step for an open PR: publish a draft, or merge. */
 function PrPrimaryAction({
 	pr,
 	commands,
@@ -966,7 +961,6 @@ function PrPrimaryAction({
 	);
 }
 
-/** Collapsed height for long PR descriptions; checks and feedback stay in view. */
 const DESCRIPTION_CLAMP_PX = 112;
 
 function ClampedDescription({ text }: { text: string }) {

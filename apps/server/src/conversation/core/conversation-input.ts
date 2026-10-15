@@ -1,4 +1,3 @@
-/** Canonical parsing and formatting helpers for conversation input. */
 import type { MessageContent } from "@zuse/contracts";
 
 export const textFromMessageContent = (

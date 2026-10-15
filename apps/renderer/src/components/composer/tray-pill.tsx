@@ -22,7 +22,6 @@ const TONE_TITLE: Record<Tone, string> = {
 };
 
 interface TrayPillProps extends Omit<ComponentPropsWithoutRef<"div">, "title"> {
-	/** Rendered before the icon — used by queue rows for the drag grip. */
 	readonly leading?: ReactNode;
 	readonly icon?: ReactNode;
 	readonly title: ReactNode;
@@ -30,17 +29,9 @@ interface TrayPillProps extends Omit<ComponentPropsWithoutRef<"div">, "title"> {
 	readonly actions?: ReactNode;
 	readonly tone?: Tone;
 	readonly expanded?: ReactNode;
-	/**
-	 * When true, the pill drops its rounded outer border/background and renders
-	 * as a flush row separated from siblings by a thin bottom border. Use for
-	 * trays that live inside the composer Card and want to share its surface.
-	 */
+
 	readonly flush?: boolean;
-	/**
-	 * When provided, the icon/title/subtitle area becomes a button that fires
-	 * this handler. Actions stay outside the button so they keep their own
-	 * click behavior. Use for the plan-tray "click header to expand" pattern.
-	 */
+
 	readonly onPillClick?: () => void;
 	readonly ariaExpanded?: boolean;
 	readonly ariaLabel?: string;
