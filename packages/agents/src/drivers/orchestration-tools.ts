@@ -388,11 +388,11 @@ Syntax rules:
 - Fields (Input, TextArea, Select, RadioGroup, Checkbox, Slider) must be inside a Form, with unique names. Forms cannot nest.
 - Keep specs under 32,768 characters. Containers hold at most 64 components; charts hold 1-100 points; tables hold 1-20 columns and at most 200 rows.
 
-Example — an architecture comparison:
-root = Card([flow, compare, takeaway], "How a review runs")
-flow = Flow([{label: "GitHub webhook"}, {label: "Control plane", detail: "Leases, retries", highlight: true}, {label: "Isolated worker"}, {label: "Check + comments"}])
-compare = Table(["Area", "This PR", "Reference"], [["Trigger", "Webhook", "User session"], ["Execution", "Hosted workers", "Local machine"]])
-takeaway = Callout("The PR adds a hosted pipeline; the reference stays interactive and local.", "neutral", "Key difference")
+Example — measured before/after comparison (replace with actual measurements):
+root = BarChart("Page load · same fixture and environment", [{label: "Before", value: 820}, {label: "After", value: 540}], "ms")
+
+Example — an architecture explanation without numerical data:
+root = Flow([{label: "GitHub webhook"}, {label: "Control plane", detail: "Leases, retries", highlight: true}, {label: "Isolated worker"}, {label: "Check + comments"}], "The control plane dispatches reviews to isolated workers.")
 
 Example — a dashboard:
 root = Card([metrics, caveat, breakdown, trend], "Usage · Oct 1–2 · USD")
