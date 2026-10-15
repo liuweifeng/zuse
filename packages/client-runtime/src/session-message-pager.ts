@@ -36,7 +36,17 @@ export const makeSessionMessagePager = <Client>(options: {
 		signal?: AbortSignal,
 	) => Promise<Page | null | undefined>;
 }) => {
-	const flights = new Map<string, Promise<OlderSessionMessagesResult>>();
+	const flights = new Map<
+		string,
+		{
+			request: Promise<OlderSessionMessagesResult>;
+			bus: ClientBus<Client>;
+			generation: number;
+			epoch: string | null;
+			beforeSequence: number;
+			signal?: AbortSignal;
+		}
+	>();
 	const load = (
 		ref: SessionRef,
 		signal?: AbortSignal,
@@ -46,8 +56,6 @@ export const makeSessionMessagePager = <Client>(options: {
 			ref,
 		);
 		const id = resourceKeyId(key);
-		const existing = flights.get(id);
-		if (existing !== undefined) return existing;
 		const bus = options.getBus();
 		const initial = bus.snapshot(key);
 		const beforeSequence = initial.data?.olderMessageSequence ?? null;
@@ -57,6 +65,16 @@ export const makeSessionMessagePager = <Client>(options: {
 				loaded: 0,
 				hasMore: beforeSequence !== null,
 			});
+		const existing = flights.get(id);
+		if (
+			existing !== undefined &&
+			!existing.signal?.aborted &&
+			existing.bus === bus &&
+			existing.generation === initial.generation &&
+			existing.epoch === (initial.cursor?.epoch ?? null) &&
+			existing.beforeSequence === beforeSequence
+		)
+			return existing.request;
 		const request = (async () => {
 			const page = await options.readPage(
 				ref,
@@ -109,9 +127,17 @@ export const makeSessionMessagePager = <Client>(options: {
 				hasMore: applied ? page.olderMessageSequence !== null : true,
 			};
 		})();
-		flights.set(id, request);
+		const flight = {
+			request,
+			bus,
+			generation: initial.generation,
+			epoch: initial.cursor?.epoch ?? null,
+			beforeSequence,
+			signal,
+		};
+		flights.set(id, flight);
 		const clear = () => {
-			if (flights.get(id) === request) flights.delete(id);
+			if (flights.get(id) === flight) flights.delete(id);
 		};
 		void request.then(clear, clear);
 		return request;
