@@ -1183,6 +1183,7 @@ export const GitServiceLive = Layer.effect(
 								return GitPrInfo.make({
 									...value,
 									prCapability: failure.kind,
+									observationError: failure.message,
 									stale: true,
 									retryAt: failure.retryAt ? new Date(failure.retryAt) : null,
 								});

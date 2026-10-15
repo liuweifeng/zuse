@@ -308,6 +308,8 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 	 */
 	autoMergeEnabled: Schema.Boolean,
 	prCapability: Schema.optional(GitPrCapability),
+	/** Safe GitHub API/transport explanation for the last failed observation. */
+	observationError: Schema.optional(Schema.String),
 	stale: Schema.optional(Schema.Boolean),
 	monitoringPaused: Schema.optional(Schema.Boolean),
 	headSha: Schema.optional(Schema.NullOr(Schema.String)),
