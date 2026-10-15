@@ -2,7 +2,10 @@ import { Effect, Redacted } from "effect";
 import { describe, expect, test } from "vitest";
 import { makeDaytonaSandboxProvider } from "../../src/daytona.ts";
 
-const fixture = (responses: Array<{ status?: number; body?: unknown }>) => {
+const fixture = (
+	responses: Array<{ status?: number; body?: unknown }>,
+	byokImage?: string,
+) => {
 	const calls: Array<{ url: string; init?: RequestInit }> = [];
 	const fetch: typeof globalThis.fetch = async (input, init) => {
 		calls.push({ url: String(input), init });
@@ -21,6 +24,7 @@ const fixture = (responses: Array<{ status?: number; body?: unknown }>) => {
 				templateId: "zuse-base",
 				templateVersion: "v1",
 				target: "us",
+				byokImage,
 			},
 			{ fetch },
 		),
@@ -42,6 +46,57 @@ const input = {
 const run = Effect.runPromise;
 
 describe("Daytona provider", () => {
+	test("imports a portable base once in the BYOK organization, then reuses it", async () => {
+		const { adapter, calls } = fixture(
+			[
+				{ status: 404 },
+				{ body: { id: "own-base", state: "building" } },
+				{ body: { id: "own-base", state: "active" } },
+				{ body: detail("started") },
+				{ body: detail("started") },
+			],
+			"ghcr.io/zuse/base@sha256:test",
+		);
+		if (!adapter.withCredentials) throw new Error("Missing BYOK support");
+		const own = adapter.withCredentials({ apiKey: Redacted.make("own-key") });
+		await expect(run(own.create(input))).rejects.toMatchObject({
+			code: "transient",
+		});
+		expect(calls[1]?.init?.method).toBe("POST");
+		expect(JSON.parse(String(calls[1]?.init?.body))).toMatchObject({
+			name: "zuse-base-v1",
+			imageName: "ghcr.io/zuse/base@sha256:test",
+		});
+		await run(own.create(input));
+		expect(JSON.parse(String(calls[3]?.init?.body)).snapshot).toBe(
+			"zuse-base-v1",
+		);
+		for (const call of calls)
+			expect(new Headers(call.init?.headers).get("Authorization")).toBe(
+				"Bearer own-key",
+			);
+	});
+	test("custom BYOK snapshots override the portable default", async () => {
+		const { adapter, calls } = fixture(
+			[{ body: { id: "custom", state: "active" } }],
+			"ghcr.io/zuse/base@sha256:test",
+		);
+		if (!adapter.withCredentials) throw new Error("Missing BYOK support");
+		const own = adapter.withCredentials({
+			apiKey: Redacted.make("own-key"),
+			templateId: "custom",
+		});
+		if (!own.validateTemplate) throw new Error("Missing template check");
+		await run(own.validateTemplate());
+		expect(calls[0]?.url).toBe("https://app.daytona.io/api/snapshots/custom");
+	});
+	test("inaccessible private snapshots fail before a build is queued", async () => {
+		const { adapter } = fixture([{ status: 404 }]);
+		if (!adapter.validateTemplate) throw new Error("Missing template check");
+		await expect(run(adapter.validateTemplate())).rejects.toMatchObject({
+			code: "not-found",
+		});
+	});
 	test("keeps terminate-on-timeout builders snapshot-capable", async () => {
 		const { adapter, calls } = fixture([
 			{ body: detail("started") },

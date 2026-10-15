@@ -72,6 +72,36 @@ const createInput = {
 
 const originalFetch = globalThis.fetch;
 
+test("checks template access with the rebound BYOK key without creating compute", async () => {
+	const http = makeHttp([
+		{ status: 200, body: { templateID: "public-base", public: true } },
+	]);
+	const base = makeAdapter(http.client);
+	if (!base.withCredentials) throw new Error("Missing credential rebinding");
+	const adapter = base.withCredentials({
+		apiKey: Redacted.make("other-team"),
+		templateId: "public-base",
+	});
+	if (!adapter.validateTemplate) throw new Error("Missing template validation");
+	await Effect.runPromise(adapter.validateTemplate());
+	expect(http.calls).toHaveLength(1);
+	expect(http.calls[0]?.url).toBe(
+		"https://sandbox.test/templates/aliases/public-base",
+	);
+	expect(new Headers(http.calls[0]?.init?.headers).get("X-API-Key")).toBe(
+		"other-team",
+	);
+});
+
+test("inaccessible templates fail the read-only access check", async () => {
+	const http = makeHttp([{ status: 404 }]);
+	const adapter = makeAdapter(http.client);
+	if (!adapter.validateTemplate) throw new Error("Missing template validation");
+	await expect(
+		Effect.runPromise(adapter.validateTemplate()),
+	).rejects.toMatchObject({ code: "not-found" });
+});
+
 const decodeConnectJsonBody = (body: BodyInit | null | undefined): unknown => {
 	if (!(body instanceof Uint8Array))
 		throw new Error("expected Connect envelope");

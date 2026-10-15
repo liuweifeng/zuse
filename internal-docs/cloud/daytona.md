@@ -86,6 +86,40 @@ records pin the connection ID; rotating a key does not redirect existing
 resources into another Daytona account. The optional template field can select
 a compatible Zuse snapshot owned by the user's Daytona organization.
 
+### Portable base publication for BYOK
+
+Organization snapshots cannot be shared as the default for unrelated Daytona
+accounts. Publish the clean Dockerfile as a public OCI image using the manually
+dispatched **Publish clean cloud base** workflow
+(`.github/workflows/cloud-base-image.yml`). It builds the runtime from the selected
+checkout, audits the image with networking disabled, and only then pushes to GHCR
+using the workflow's `GITHUB_TOKEN` with `packages: write`. No personal registry
+credential is needed. Every run attempt gets a distinct tag and template version;
+the output uses an immutable image digest.
+
+After the first publication, set the GHCR package visibility to public in the
+package settings. Verify that the exact digest can be pulled anonymously before
+setting `DAYTONA_BYOK_IMAGE` and `DAYTONA_TEMPLATE_VERSION` to the values printed
+in the workflow summary. For example, use an empty Docker configuration:
+
+```sh
+registry_test_config=$(mktemp -d)
+docker --config "$registry_test_config" pull 'ghcr.io/OWNER/REPO/cloud-base@sha256:DIGEST'
+rmdir "$registry_test_config"
+```
+
+Keep `DAYTONA_TEMPLATE_ID` pointing to the managed organization's prepared
+snapshot. For BYOK without an explicit snapshot override, the adapter imports
+the configured public image once into the user's organization as
+`zuse-base-${DAYTONA_TEMPLATE_VERSION}`. Subsequent attempts reuse that snapshot;
+pending imports use the existing reconciliation retries. An explicit snapshot
+override uses the customer's own snapshot directly. Changing the portable image
+requires a new template version. Existing workspace snapshots stay pinned.
+
+The workflow publishes an artifact only; staging configuration and full account
+image/runtime verification follow separately. Publishing a clean base never
+copies a user's running sandbox, repositories, agent credentials, or chat database.
+
 ## Lifecycle semantics and limitations
 
 - `started` is running. `stopped`, `paused`, and `archived` are paused. A 404 or

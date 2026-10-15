@@ -19,6 +19,10 @@ export interface DaytonaSandboxConfig {
 	readonly apiKey: Redacted.Redacted<string>;
 	readonly templateId: string;
 	readonly templateVersion: string;
+	/** Public, digest-pinned image imported into the connected organization. */
+	readonly byokImage?: string;
+	/** Only set by credential rebinding when using the portable BYOK base. */
+	readonly templateImage?: string;
 	readonly target?: string;
 	readonly apiBaseUrl?: string;
 	readonly resources?: {
@@ -315,7 +319,39 @@ export const makeDaytonaSandboxProvider = (
 			request("GET", `/snapshots/${encodeURIComponent(id)}`, Snapshot),
 		);
 	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 4096 };
+	const validateTemplate = Effect.fn("Daytona.validateTemplate")(function* () {
+		const snapshot = yield* snapshotState(config.templateId);
+		if (snapshot === null && config.templateImage !== undefined) return;
+		if (snapshot === null) return yield* providerError("not-found");
+		if (["error", "build_failed"].includes(snapshot.state))
+			return yield* providerError("rejected");
+	});
+	const prepareTemplate = Effect.fn("Daytona.prepareTemplate")(function* () {
+		if (config.templateImage === undefined) return;
+		const snapshot = yield* snapshotState(config.templateId);
+		if (snapshot?.state === "active") return;
+		if (snapshot !== null) {
+			return yield* providerError(
+				["error", "build_failed"].includes(snapshot.state)
+					? "rejected"
+					: "transient",
+			);
+		}
+		yield* request("POST", "/snapshots", Snapshot, {
+			name: config.templateId,
+			imageName: config.templateImage,
+			cpu: resources.vcpuCount,
+			memory: resources.memoryMib / 1024,
+			disk: 10,
+			entrypoint: ["sleep", "infinity"],
+			regionId: config.target,
+			sandboxClass: "container",
+		});
+		// The build reconciler retries; never hold a request open for an image pull.
+		return yield* providerError("transient");
+	});
 	return {
+		validateTemplate,
 		providerId: DAYTONA_PROVIDER_ID,
 		displayName: "Daytona",
 		templateVersion: config.templateVersion,
@@ -328,11 +364,20 @@ export const makeDaytonaSandboxProvider = (
 				{
 					...config,
 					apiKey: credentials.apiKey,
-					templateId: credentials.templateId ?? config.templateId,
+					templateId:
+						credentials.templateId ??
+						(config.byokImage
+							? `zuse-base-${config.templateVersion}`
+							: config.templateId),
+					templateImage:
+						credentials.templateId === undefined ? config.byokImage : undefined,
 				},
 				http,
 			),
-		create: (input) => allocate(input, config.templateId),
+		create: (input) =>
+			prepareTemplate().pipe(
+				Effect.andThen(allocate(input, config.templateId)),
+			),
 		fork: (input) => allocate(input, input.snapshotId),
 		inspect,
 		recoverByLabel: inspect,
