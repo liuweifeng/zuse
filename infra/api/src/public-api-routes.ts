@@ -676,6 +676,9 @@ export const routeAccountWorkspaceRequest = (
 					assetIds.length > API_MESSAGE_MAX_ASSETS
 				)
 					return yield* Effect.fail(badRequest("invalid_message"));
+				// Attribution is a display claim; only Zuse's own integrations make it.
+				if (body.source !== undefined && options?.githubBot !== true)
+					return yield* Effect.fail(badRequest("message_source_not_allowed"));
 				const attachments = yield* Effect.forEach(
 					assetIds,
 					(assetId) =>
@@ -693,6 +696,7 @@ export const routeAccountWorkspaceRequest = (
 					attachments,
 					githubBot: options?.githubBot,
 					actor,
+					source: body.source,
 				});
 				const selectedIdempotencyKey = yield* idempotencyKey(
 					body.idempotencyKey,

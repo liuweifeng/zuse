@@ -3,25 +3,65 @@ import "@zuse/i18n/english/projects";
 import { useMessages } from "@zuse/i18n/react";
 import { StarIcon } from "@zuse/icons/solid-rounded";
 import { Cancel01Icon } from "@zuse/icons/stroke-rounded";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useOrganizationAction } from "../hooks/use-organization-action.ts";
 import {
 	updateBrowserDevicePreferences,
 	useBrowserDevicePreferences,
 } from "../lib/browser-device-preferences.ts";
 import { runControlPlane } from "../lib/control-plane-client.ts";
-import { openExternal } from "../lib/platform-capabilities.ts";
+import {
+	rendererAccountSnapshot,
+	subscribeRendererAccount,
+} from "../lib/renderer-account.ts";
+import {
+	rendererWorkspaceSnapshot,
+	subscribeRendererWorkspace,
+} from "../lib/renderer-workspace.ts";
 import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
 
-const zuseRepositoryUrl = "https://github.com/swarajbachu/zuse";
-
-/** Stars with this computer's GitHub sign-in, or opens the repository to star there. */
+/** Stars directly with this computer's GitHub sign-in. */
 export function GithubStarPrompt() {
 	const { message } = useMessages(["common", "projects"]);
 	const { busy, run } = useOrganizationAction();
 	const dismissed = useBrowserDevicePreferences(
 		(preferences) => preferences.githubStarPromptDismissed === true,
 	);
+	const account = useSyncExternalStore(
+		subscribeRendererAccount,
+		rendererAccountSnapshot,
+		rendererAccountSnapshot,
+	);
+	const workspace = useSyncExternalStore(
+		subscribeRendererWorkspace,
+		rendererWorkspaceSnapshot,
+		rendererWorkspaceSnapshot,
+	);
+	const [status, setStatus] = useState<{
+		account: typeof account;
+		workspace: typeof workspace;
+		starred: boolean;
+	} | null>(null);
+	useEffect(() => {
+		if (dismissed) return;
+		let live = true;
+		void runControlPlane((client) => client["git.zuseStarStatus"]())
+			.then((starred) => {
+				if (
+					live &&
+					account === rendererAccountSnapshot() &&
+					workspace === rendererWorkspaceSnapshot()
+				)
+					setStatus({ account, workspace, starred });
+			})
+			.catch(() => {
+				// Keep the prompt hidden when GitHub status cannot be verified.
+			});
+		return () => {
+			live = false;
+		};
+	}, [account, workspace, dismissed]);
 	const dismiss = () => {
 		try {
 			updateBrowserDevicePreferences({ githubStarPromptDismissed: true });
@@ -35,20 +75,19 @@ export function GithubStarPrompt() {
 	const star = () =>
 		run(async (current) => {
 			try {
-				// Without a usable local sign-in, star it on GitHub instead.
-				await runControlPlane((client) => client["git.starZuse"]()).catch(() =>
-					openExternal("https://github.com/swarajbachu/zuse"),
-				);
+				await runControlPlane((client) => client["git.starZuse"]());
 				if (current()) dismiss();
 			} catch {
-				if (current())
-					toastManager.add({
-						type: "error",
-						title: message("projects:projects_sidebar_github_open_failed"),
-					});
+				// Starring is optional; leave the prompt available for a silent retry.
 			}
 		});
-	if (dismissed) return null;
+	if (
+		dismissed ||
+		status?.account !== account ||
+		status.workspace !== workspace ||
+		status.starred
+	)
+		return null;
 
 	return (
 		<div className="group/star relative mx-2 mb-1 shrink-0">

@@ -1,3 +1,4 @@
+import type { MessageSource } from "@zuse/contracts";
 import { executionAccount } from "./access.ts";
 import { promptConnection } from "./accounts.ts";
 import type { Installation } from "./installations.ts";
@@ -20,6 +21,7 @@ import {
 import {
 	parseSlackFiles,
 	postSlackMessage,
+	readSlackSourceNames,
 	readSlackThread,
 	slackApi,
 } from "./slack.ts";
@@ -341,6 +343,23 @@ export const runConversation = async (
 			files,
 			`${scoped.NAMESPACE}:conversation:${key}`,
 		);
+		// Retries must resend an identical request, so resolve names only once.
+		const cachedSource = await scoped.THREADS.get(`source:${key}`);
+		const source: MessageSource = cachedSource
+			? (JSON.parse(cachedSource) as MessageSource)
+			: {
+					_tag: "slack",
+					text,
+					...(await readSlackSourceNames({
+						botToken: scoped.SLACK_BOT_TOKEN,
+						userId: job.userId,
+						channel: job.channel,
+					})),
+				};
+		if (!cachedSource)
+			await scoped.THREADS.put(`source:${key}`, JSON.stringify(source), {
+				expirationTtl: 86400,
+			});
 		// Save progress before submission: a very fast completed webhook must never be overwritten.
 		await updateProgress(scoped, key, "Working on your request");
 		const message = await sendMessage(config, {
@@ -352,6 +371,7 @@ export const runConversation = async (
 				.filter(Boolean)
 				.join("\n\n"),
 			attachments,
+			source,
 			idempotencyKey: `${scoped.NAMESPACE}:conversation-message:${key}`,
 		});
 		await scoped.THREADS.put(

@@ -977,6 +977,19 @@ const workspaceRuntimeStorageUnavailable = (
 	workspace.statusCode === "runtime-storage-replaced" ||
 	workspace.requestConfig.launchErrorCode === "runtime-storage-replaced";
 
+/** Slack-created workspaces carry the bot's launch identity from creation. */
+const workspaceStartedFromSlack = (
+	workspace: CloudWorkspaceRecord,
+): boolean => {
+	const initialGithub = Schema.decodeUnknownOption(
+		CloudGithubCredentialRequest,
+	)(workspace.requestConfig.initialGithubContext);
+	return (
+		Option.isSome(initialGithub) &&
+		initialGithub.value.slackMessageId !== undefined
+	);
+};
+
 export const publicCloudWorkspaceSummary = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
@@ -1044,6 +1057,9 @@ export const publicCloudWorkspaceSummary = (
 			? {
 					archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
 				}
+			: {}),
+		...(workspaceStartedFromSlack(workspace)
+			? { source: "slack" as const }
 			: {}),
 		createdAt: workspace.createdAtMs,
 		updatedAt: Math.max(
@@ -2142,13 +2158,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 				workspace.providerSandboxId === undefined
 			)
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
-			const initialGithub = Schema.decodeUnknownOption(
-				CloudGithubCredentialRequest,
-			)(workspace.requestConfig.initialGithubContext);
 			if (
 				(workspace.accountId.startsWith("organization:") ||
-					(Option.isSome(initialGithub) &&
-						initialGithub.value.slackMessageId !== undefined)) &&
+					workspaceStartedFromSlack(workspace)) &&
 				!body.capabilities?.includes(CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY)
 			)
 				return yield* conflict("github_runtime_update_required");
@@ -2736,6 +2748,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 							...(content.attachments.length === 0
 								? {}
 								: { attachments: content.attachments }),
+							...(content.source === undefined
+								? {}
+								: { source: content.source }),
 							seq: message.seq,
 						};
 					}),
