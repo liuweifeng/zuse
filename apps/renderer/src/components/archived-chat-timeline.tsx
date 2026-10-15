@@ -1,4 +1,3 @@
-import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { LegendList } from "@legendapp/list/react";
 import type {
@@ -15,10 +14,8 @@ import {
 	deriveChatTimelineRows,
 } from "../lib/chat-timeline-rows.ts";
 import { ChatLookupsProvider, deriveChatLookups } from "./chat-lookups.tsx";
-import { DelegationGroup } from "./delegation-group.tsx";
 import { FileChipProvider } from "./file-chip.tsx";
-import { MessageRow } from "./message-row.tsx";
-import { TurnSummary } from "./turn-summary.tsx";
+import { TranscriptRow } from "./transcript-row.tsx";
 
 export function ArchivedChatTimeline({
 	projectId,
@@ -48,11 +45,16 @@ export function ArchivedChatTimeline({
 	);
 	const renderRow = useCallback(
 		({ item }: { item: ChatTimelineRow }) => (
-			<ArchivedTimelineRow
+			<TranscriptRow
 				row={item}
+				chatRef={null}
+				parentLive={false}
+				assistantCommands
 				environmentId={environmentId}
 				sessionId={sessionId}
-				projectId={projectId}
+				readOnly
+				forkDestination="chat"
+				sourceProjectId={projectId}
 			/>
 		),
 		[environmentId, projectId, sessionId],
@@ -81,67 +83,4 @@ export function ArchivedChatTimeline({
 			</ChatLookupsProvider>
 		</FileChipProvider>
 	);
-}
-
-function ArchivedTimelineRow({
-	row,
-	sessionId,
-	projectId,
-	environmentId,
-}: {
-	readonly row: ChatTimelineRow;
-	readonly sessionId: SessionId;
-	readonly projectId: FolderId;
-	readonly environmentId: EnvironmentId;
-}) {
-	switch (row.kind) {
-		case "tool-activity":
-			return (
-				<ToolActivityTree
-					messages={row.messages}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					readOnly
-					forkDestination="chat"
-					sourceProjectId={projectId}
-				/>
-			);
-
-		case "message":
-			return (
-				<MessageRow
-					message={row.message}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					readOnly
-					forkDestination="chat"
-					sourceProjectId={projectId}
-					showAssistantCommands={row.showAssistantCommands}
-				/>
-			);
-		case "delegation":
-			return (
-				<DelegationGroup
-					members={row.members}
-					providerId={null}
-					parentLive={false}
-					chatRef={null}
-					environmentId={environmentId}
-					readOnly
-				/>
-			);
-		case "turn-summary":
-			return (
-				<TurnSummary
-					body={row.body}
-					environmentId={environmentId}
-					sessionId={sessionId}
-					forkDestination="chat"
-					sourceProjectId={projectId}
-					showAssistantCommands={row.showAssistantCommands}
-				/>
-			);
-		case "working":
-			return null;
-	}
 }

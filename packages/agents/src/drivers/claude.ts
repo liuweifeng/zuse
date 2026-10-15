@@ -1197,17 +1197,12 @@ const translateMessage = (
 		const itemId =
 			(msg.tool_use_id as AgentItemId | undefined) ??
 			state.backgroundTaskParents.get(msg.task_id);
-		if (itemId === undefined || msg.description.trim().length === 0) return [];
+		if (itemId === undefined) return [];
 		const pending = state.pendingAgents.get(itemId as string);
 		if (pending !== undefined) pending.turnCount += 1;
-		return [
-			{
-				_tag: "AssistantMessage",
-				itemId: nextItemId(),
-				text: msg.description,
-				parentItemId: itemId,
-			},
-		];
+		// Progress descriptions narrate tool calls the child already streams;
+		// as transcript text they would duplicate every call and split its tree.
+		return [];
 	}
 	if (msg.type === "system" && msg.subtype === "task_notification") {
 		const backgroundTaskItemId = state.localBackgroundTasks.get(msg.task_id);
