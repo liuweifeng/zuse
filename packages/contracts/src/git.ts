@@ -437,6 +437,13 @@ export const GitStarZuseRpc = Rpc.make("git.starZuse", {
 	error: GitHubStarError,
 });
 
+/** Whether this computer's GitHub account has already starred Zuse. */
+export const GitZuseStarStatusRpc = Rpc.make("git.zuseStarStatus", {
+	payload: Schema.Void,
+	success: Schema.Boolean,
+	error: GitHubStarError,
+});
+
 /** Identity used to author review comments from the current GitHub account. */
 export const GitReviewIdentityRpc = Rpc.make("git.reviewIdentity", {
 	payload: Schema.Struct({
