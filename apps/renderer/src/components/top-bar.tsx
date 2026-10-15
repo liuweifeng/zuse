@@ -1226,7 +1226,7 @@ export function TopBarRightContent({
 					</>
 				) : null}
 			</div>
-			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
+			<GitHubStatusNotice pr={pr} executionRef={executionRef} compact />
 			<WorkflowActions compact={compact} />
 		</div>
 	);
