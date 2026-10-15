@@ -244,6 +244,7 @@ import {
 	setEngineUpdateLifecycle,
 	startAutoUpdater,
 } from "./updater.ts";
+import { installVoiceTranscription } from "./voice-transcription.ts";
 
 type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -513,6 +514,7 @@ ipcMain.on("plugins:return-subscribe", () => {
 	});
 });
 ipcMain.handle("plugins:callback-port", () => boundAuthPort);
+installVoiceTranscription();
 
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];

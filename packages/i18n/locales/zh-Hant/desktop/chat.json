@@ -776,5 +776,21 @@
 	"switch_account_compact_first_detail": "繼續之前先摘要聊天。部分較早的細節可能會遺失。",
 	"switch_account_choose": "選擇帳戶",
 	"no_project": "無專案",
-	"start_without_project": "不關聯專案開始"
+	"start_without_project": "不關聯專案開始",
+	"voice_dictate": "聽寫",
+	"voice_stop": "完成",
+	"voice_starting": "正在啟動麥克風…",
+	"voice_transcribing": "正在轉寫…",
+	"voice_listening": "正在聆聽",
+	"voice_cancel": "捨棄錄音",
+	"voice_error_unsupported": "此裝置不支援語音聽寫。",
+	"voice_error_account_required": "請在設定中連結 ChatGPT 帳號以使用聽寫。",
+	"voice_error_permission_denied": "麥克風存取已被封鎖。請在系統設定中允許後再試一次。",
+	"voice_error_no_microphone": "沒有可用的麥克風。請確認麥克風已連接且未被佔用。",
+	"voice_error_too_large": "錄音過長。請嘗試較短的訊息。",
+	"voice_error_recorder_failed": "錄音意外停止。請再試一次。",
+	"voice_error_no_speech": "未偵測到語音。請再試一次。",
+	"voice_error_transcription_failed": "無法轉寫錄音。請檢查網路連線後再試一次。",
+	"voice_error_service_unavailable": "此工作區無法使用轉寫服務。",
+	"voice_error_start_failed": "無法開始聽寫。請再試一次。"
 }

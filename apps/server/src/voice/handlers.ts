@@ -15,13 +15,15 @@ import {
 } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import {
-	classifyVoiceFallback,
 	MAX_VOICE_BYTES,
 	MAX_VOICE_DURATION_MS,
 	voiceValidationReason,
 } from "./policy.ts";
+import {
+	uploadVoiceRecording,
+	VOICE_TRANSCRIPTION_ENDPOINT,
+} from "./upload.ts";
 
-const TRANSCRIPTION_ENDPOINT = "https://chatgpt.com/backend-api/transcribe";
 const TICKET_LIFETIME_MS = 30_000;
 const tickets = new Map<string, { expiresAt: number }>();
 
@@ -95,62 +97,6 @@ const refreshCompatibleAccount = async (): Promise<AccountAuth> => {
 	}
 };
 
-const transcriptFromBody = (body: string): string | null => {
-	try {
-		const parsed = asRecord(JSON.parse(body));
-		return firstString(parsed, ["text", "transcript"]);
-	} catch {
-		return null;
-	}
-};
-
-const upload = async (
-	auth: AccountAuth,
-	bytes: Uint8Array,
-	mimeType: string,
-): Promise<
-	| { readonly _tag: "transcribed"; readonly text: string }
-	| {
-			readonly _tag: "fallback";
-			readonly reason: "unsupported" | "blocked" | "authentication-rejected";
-	  }
-> => {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), 30_000);
-	try {
-		const form = new FormData();
-		form.append(
-			"file",
-			new Blob([new Uint8Array(bytes)], { type: mimeType }),
-			mimeType.includes("mp4") ? "recording.m4a" : "recording.audio",
-		);
-		const response = await fetch(TRANSCRIPTION_ENDPOINT, {
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${auth.token}`,
-				...(auth.accountId === null
-					? {}
-					: { "ChatGPT-Account-Id": auth.accountId }),
-				"User-Agent": "Zuse-Mobile-Voice/1",
-			},
-			body: form,
-			signal: controller.signal,
-		});
-		const body = await response.text();
-		if (!response.ok) {
-			const fallback = classifyVoiceFallback(response.status, body);
-			if (fallback !== null) return { _tag: "fallback", reason: fallback };
-			throw new Error(`transcription provider returned ${response.status}`);
-		}
-		const text = transcriptFromBody(body)?.trim();
-		if (text === undefined || text === null || text.length === 0)
-			throw new Error("transcription provider returned no text");
-		return { _tag: "transcribed", text };
-	} finally {
-		clearTimeout(timer);
-	}
-};
-
 const validateRecording = (
 	bytes: Uint8Array,
 	mimeType: string,
@@ -208,7 +154,7 @@ const Transcribe = MemoizeRpcs.toLayerHandler(
 					}),
 			});
 			const result = yield* Effect.tryPromise({
-				try: () => upload(auth, bytes, mimeType),
+				try: () => uploadVoiceRecording({ ...auth, bytes, mimeType, fetch }),
 				catch: () =>
 					new VoiceUnavailableError({
 						reason: "Transcription could not be completed.",
@@ -250,7 +196,7 @@ const ResolveAuth = MemoizeRpcs.toLayerHandler(
 			return {
 				token: auth.token,
 				accountId: auth.accountId,
-				endpoint: TRANSCRIPTION_ENDPOINT,
+				endpoint: VOICE_TRANSCRIPTION_ENDPOINT,
 			};
 		}),
 );

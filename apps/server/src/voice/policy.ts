@@ -1,3 +1,18 @@
+const VOICE_EXTENSIONS: Readonly<Record<string, string>> = {
+	"audio/mp4": "m4a",
+	"audio/m4a": "m4a",
+	"audio/mpeg": "mp3",
+	"audio/wav": "wav",
+	"audio/webm": "webm",
+};
+
+export const voiceRecordingFilename = (mimeType: string): string | null => {
+	const normalized = mimeType.toLowerCase();
+	if (!Object.hasOwn(VOICE_EXTENSIONS, normalized)) return null;
+	const extension = VOICE_EXTENSIONS[normalized];
+	return extension === undefined ? null : `recording.${extension}`;
+};
+
 export const MAX_VOICE_DURATION_MS = 150_000;
 export const MAX_VOICE_BYTES = 10 * 1024 * 1024;
 
@@ -26,11 +41,7 @@ export const voiceValidationReason = (
 		return "Recording exceeds the 10 MB limit.";
 	if (durationMs <= 0 || durationMs > MAX_VOICE_DURATION_MS)
 		return "Recording exceeds the 150 second limit.";
-	if (
-		!/^(?:audio\/mp4|audio\/m4a|audio\/mpeg|audio\/wav|audio\/webm)$/iu.test(
-			mimeType,
-		)
-	)
+	if (voiceRecordingFilename(mimeType) === null)
 		return "Recording format is not supported.";
 	return null;
 };
