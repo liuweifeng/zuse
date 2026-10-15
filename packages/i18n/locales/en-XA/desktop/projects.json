@@ -289,6 +289,7 @@
 	"github_continue_tooltip": "⟦Crëëààtëë àànd chëëckôôüüt àà nëëw bràànch frôôm ôôrïïgïïn/mààïïn⟧",
 	"github_auto_fix": "⟦ÀÀüütôô Fïïx⟧",
 	"projects_sidebar_cloud": "⟦Clôôüüd⟧",
+	"projects_sidebar_started_from_slack": "⟦Stààrtëëd frôôm Slààck⟧",
 	"github_action_failed": "⟦GïïtHüüb ààctïïôôn fààïïlëëd⟧",
 	"github_repair_state_changed": "⟦Thëë chààt, bràànch, ôôr ààgëënt stààtëë chààngëëd. Rüün Rëëpààïïr ààgààïïn frôôm thëë cüürrëënt PR.⟧",
 	"github_attach_failed": "⟦Côôüüld nôôt ààttààch PR côôntëëxt.⟧",

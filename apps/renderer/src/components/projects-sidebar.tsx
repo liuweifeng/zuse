@@ -185,6 +185,7 @@ import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState, PrStateIcon } from "./branch-icon.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
+import { SlackIcon } from "./icons/slack-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -2633,6 +2634,35 @@ function ProjectGroup({
 	);
 }
 
+/** Cloud marker for a cloud chat row, or the Slack mark when Slack started it. */
+function CloudChatIndicator({
+	slack,
+	label,
+	className,
+}: {
+	readonly slack: boolean;
+	readonly label: string;
+	readonly className?: string;
+}) {
+	return (
+		<span
+			className={cn(
+				"inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/60",
+				className,
+			)}
+			role="img"
+			aria-label={label}
+			title={slack ? label : undefined}
+		>
+			{slack ? (
+				<SlackIcon monochrome className="size-3" />
+			) : (
+				<DitherCloudIcon className="size-4" />
+			)}
+		</span>
+	);
+}
+
 function CloudChatRow({
 	summary,
 	projectId,
@@ -2669,7 +2699,10 @@ function CloudChatRow({
 		runtime: timeline.runtime,
 		timeline: timeline.view,
 	});
-	const label = uiMessage("projects:projects_sidebar_cloud");
+	const slack = summary.source === "slack";
+	const label = slack
+		? uiMessage("projects:projects_sidebar_started_from_slack")
+		: uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
 	const attentionState = deriveChatAttentionState(
@@ -2755,13 +2788,11 @@ function CloudChatRow({
 									)}
 									time={formatRelative(new Date(chatRecency(summary)), true)}
 									remoteIndicator={
-										<span
-											className="mr-1 inline-flex shrink-0 text-muted-foreground/60"
-											role="img"
-											aria-label={label}
-										>
-											<DitherCloudIcon className="size-4" />
-										</span>
+										<CloudChatIndicator
+											slack={slack}
+											label={label}
+											className="mr-1"
+										/>
 									}
 									action={
 										<ChatArchiveButton
@@ -2790,13 +2821,7 @@ function CloudChatRow({
 										{summary.title}
 									</span>
 									<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
-										<span
-											className="inline-flex shrink-0 text-muted-foreground/60"
-											role="img"
-											aria-label={label}
-										>
-											<DitherCloudIcon className="size-4" />
-										</span>
+										<CloudChatIndicator slack={slack} label={label} />
 										<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 											{formatRelative(new Date(chatRecency(summary)))}
 										</span>

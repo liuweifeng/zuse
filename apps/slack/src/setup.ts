@@ -33,7 +33,7 @@ export const oauth = async (
 		target.search = new URLSearchParams({
 			client_id: env.SLACK_CLIENT_ID,
 			scope:
-				"chat:write,reactions:write,files:read,channels:history,groups:history,app_mentions:read,im:history",
+				"chat:write,reactions:write,files:read,channels:history,groups:history,app_mentions:read,im:history,users:read,channels:read,groups:read",
 			user_scope: "channels:history,groups:history",
 			redirect_uri: `${appOrigin(env)}/slack/oauth/callback`,
 			state,

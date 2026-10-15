@@ -558,6 +558,8 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	lastMessageAt: Schema.NullOr(Schema.Number),
 	lastUserMessageAt: Schema.optional(Schema.NullOr(Schema.Number)),
 	archivedAt: Schema.optional(Schema.Number),
+	/** Chat integration that started this workspace, when not the desktop app. */
+	source: Schema.optional(Schema.Literal("slack")),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}

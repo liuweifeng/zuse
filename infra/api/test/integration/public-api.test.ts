@@ -1492,6 +1492,20 @@ describe("public API (/v1/api)", () => {
 			).status,
 		).toBe(409);
 
+		// API keys cannot claim a Slack author; only the Slack integration can.
+		expect(
+			await json(
+				await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
+					method: "POST",
+					headers: { ...apiHeaders, "content-type": "application/json" },
+					body: JSON.stringify({
+						text: "Spoofed",
+						source: { _tag: "slack", text: "Spoofed", author: "CEO" },
+					}),
+				}),
+				400,
+			),
+		).toMatchObject({ error: "message_source_not_allowed" });
 		await json(
 			await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
 				method: "POST",
@@ -1705,14 +1719,24 @@ describe("public API (/v1/api)", () => {
 				await call(`/v1/api/workspaces/${workspaceId}/messages`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ text: "Follow up" }),
+					body: JSON.stringify({
+						text: "Follow up",
+						source: {
+							_tag: "slack",
+							text: "Follow up",
+							author: "Ada Lovelace",
+							channel: "eng-alerts",
+						},
+					}),
 				}),
 				200,
 			);
 			await stageRuntimeCredential(runtime, store, workspaceId, "org-runtime", [
 				CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 			]);
-			const commands = await json<{ commands: { actor?: unknown }[] }>(
+			const commands = await json<{
+				commands: { actor?: unknown; source?: unknown }[];
+			}>(
 				await serve(
 					runtime,
 					`/v1/cloud/workspaces/${workspaceId}/runtime/commands`,
@@ -1723,6 +1747,12 @@ describe("public API (/v1/api)", () => {
 			expect(commands.commands[0]?.actor).toEqual({
 				subject: ACCOUNT,
 				membershipId: "om_actor",
+			});
+			expect(commands.commands[0]?.source).toEqual({
+				_tag: "slack",
+				text: "Follow up",
+				author: "Ada Lovelace",
+				channel: "eng-alerts",
 			});
 			await runtime.runPromise(
 				store.updateWorkspaceSharing({

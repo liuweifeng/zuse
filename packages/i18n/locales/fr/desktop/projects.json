@@ -294,6 +294,7 @@
 	"github_continue_tooltip": "Créer une branche depuis origin/main et y basculer",
 	"github_auto_fix": "Correction auto",
 	"projects_sidebar_cloud": "Cloud",
+	"projects_sidebar_started_from_slack": "Lancé depuis Slack",
 	"github_action_failed": "Échec de l’action GitHub",
 	"github_repair_state_changed": "La conversation, la branche ou l’état de l’agent a changé. Relancez Réparer depuis la PR actuelle.",
 	"github_attach_failed": "Impossible de joindre le contexte de la PR.",

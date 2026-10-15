@@ -29,6 +29,7 @@ import type {
 	MessageContent,
 	MessageId,
 	MessageOrigin,
+	MessageSource,
 	PermissionMode,
 	PlanApprovalOutcome,
 	PlanResolutionError,
@@ -247,6 +248,8 @@ export interface MessageSendInput {
 	/** Stable persisted user-message identity, when supplied by the caller. */
 	readonly messageId?: MessageId;
 	readonly origin?: MessageOrigin;
+	/** External chat attribution, supplied only by the internal API pump. */
+	readonly source?: MessageSource;
 	/** Supplied only by an authenticated server boundary. */
 	readonly actor?: WorkspaceActor;
 	/** Stable domain turn identity for a causally correlated transport command. */

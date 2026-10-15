@@ -186,11 +186,25 @@ export const MessageOrigin = Schema.Struct({
 });
 export type MessageOrigin = typeof MessageOrigin.Type;
 
+/**
+ * External chat surface a user-role message was submitted from. Display-only:
+ * `text` is the person's own words, while the message `text` stays the full
+ * prompt the agent received (thread context included). Additive + optional.
+ */
+export const MessageSource = Schema.TaggedStruct("slack", {
+	text: Schema.String,
+	author: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+	/** Channel name without `#`; omitted for direct messages. */
+	channel: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+});
+export type MessageSource = typeof MessageSource.Type;
+
 const UserContent = Schema.TaggedStruct("user", {
 	text: Schema.String,
 	actor: Schema.optional(WorkspaceActor),
 	origin: Schema.optional(MessageOrigin),
 	origins: Schema.optional(Schema.Array(MessageOrigin)),
+	source: Schema.optional(MessageSource),
 	goal: Schema.optional(Schema.Boolean),
 });
 
@@ -213,6 +227,7 @@ const UserRichContent = Schema.TaggedStruct("user_rich", {
 	),
 	origin: Schema.optional(MessageOrigin),
 	origins: Schema.optional(Schema.Array(MessageOrigin)),
+	source: Schema.optional(MessageSource),
 	goal: Schema.optional(Schema.Boolean),
 });
 
