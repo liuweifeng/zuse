@@ -4,6 +4,10 @@ import {
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
 import {
+	prependSessionTimelineMessages,
+	restoreSessionTimelineState,
+} from "@zuse/client-runtime/session-timeline";
+import {
 	decodeSessionTimelineCacheEntry,
 	encodeSessionTimelineCacheEntry,
 	type SessionTimelineCache,
@@ -153,6 +157,52 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 			reject(transaction.error ?? new Error("IndexedDB transaction failed"));
 	});
 
+const cachedHistoryKeys = async (
+	store: IDBObjectStore,
+	resource: string,
+	cursor: SessionStreamCursor,
+): Promise<Map<number, string>> => {
+	const keys = await requestResult(
+		store.index("resource").getAllKeys(resource),
+	);
+	const latest = new Map<number, { key: string; version: number }>();
+	for (const key of keys) {
+		if (typeof key !== "string") continue;
+		try {
+			const parts: unknown = JSON.parse(key);
+			if (
+				!Array.isArray(parts) ||
+				parts.length !== 4 ||
+				parts[0] !== resource ||
+				parts[1] !== cursor.epoch ||
+				typeof parts[2] !== "number" ||
+				!Number.isSafeInteger(parts[2]) ||
+				parts[2] < 0 ||
+				parts[2] > cursor.version ||
+				typeof parts[3] !== "number" ||
+				!Number.isSafeInteger(parts[3])
+			)
+				continue;
+			const previous = latest.get(parts[3]);
+			if (!previous || previous.version < parts[2])
+				latest.set(parts[3], { key, version: parts[2] });
+		} catch {
+			// Ignore malformed keys without changing other cached pages.
+		}
+	}
+	return new Map([...latest].map(([before, entry]) => [before, entry.key]));
+};
+
+const decodeHistoryPage = (record: unknown): HistoryPage | null => {
+	if (typeof record !== "object" || record === null || !("page" in record))
+		return null;
+	try {
+		return Schema.decodeUnknownSync(HistoryPage)(record.page);
+	} catch {
+		return null;
+	}
+};
+
 const openDatabase = (): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
 		const request = indexedDB.open(
@@ -225,22 +275,59 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 			await transactionComplete(transaction);
 			return null;
 		}
+		let decoded: SessionTimelineCacheEntry;
 		try {
-			const decoded = decodeSessionTimelineCacheEntry(raw);
-			const touched = { ...decoded, ref, accessedAt: Date.now() };
-			transaction.objectStore(METADATA_STORE_NAME).put({
-				sessionId: storageKey,
-				accessedAt: touched.accessedAt,
-				estimatedBytes: touched.estimatedBytes,
-			});
-			await transactionComplete(transaction);
-			return touched;
+			decoded = decodeSessionTimelineCacheEntry(raw);
 		} catch {
 			store.delete(storageKey);
 			transaction.objectStore(METADATA_STORE_NAME).delete(storageKey);
 			await transactionComplete(transaction);
 			return null;
 		}
+		const pages = transaction.objectStore(HISTORY_STORE_NAME);
+		const history: ReadonlyArray<Message>[] = [];
+		let before = decoded.projection.olderMessageSequence ?? null;
+		// Reopening a paused chat must not require an API checkpoint before its
+		// already cached history is readable. Scan keys once, then load only the
+		// contiguous pages belonging to this checkpoint's account and epoch.
+		const keys =
+			decoded.projection.olderMessageSequence == null
+				? new Map<number, string>()
+				: await cachedHistoryKeys(pages, storageKey, decoded.cursor);
+		while (before !== null) {
+			const key = keys.get(before);
+			if (key === undefined) break;
+			const page = decodeHistoryPage(await requestResult(pages.get(key)));
+			if (
+				page === null ||
+				(page.olderMessageSequence !== null &&
+					page.olderMessageSequence >= before)
+			)
+				break;
+			history.push(page.messages);
+			before = page.olderMessageSequence;
+		}
+		const projection =
+			history.length === 0
+				? decoded.projection
+				: (prependSessionTimelineMessages(
+						restoreSessionTimelineState(decoded.projection, decoded.cursor),
+						history.reverse().flat(),
+						before,
+					).projection ?? decoded.projection);
+		const touched = {
+			...decoded,
+			ref,
+			projection,
+			accessedAt: Date.now(),
+		};
+		transaction.objectStore(METADATA_STORE_NAME).put({
+			sessionId: storageKey,
+			accessedAt: touched.accessedAt,
+			estimatedBytes: touched.estimatedBytes,
+		});
+		await transactionComplete(transaction);
+		return touched;
 	}
 
 	async save(
@@ -290,21 +377,26 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		cursor: SessionStreamCursor,
 		before: number,
 		namespace?: string,
+		options?: { readonly allowEarlierVersion?: boolean },
 	): Promise<HistoryPage | null> {
 		const database = await this.db();
 		const transaction = database.transaction(HISTORY_STORE_NAME, "readonly");
-		const record = await requestResult(
-			transaction
-				.objectStore(HISTORY_STORE_NAME)
-				.get(historyPageKey(ref, cursor, before, namespace)),
+		const store = transaction.objectStore(HISTORY_STORE_NAME);
+		let record = await requestResult(
+			store.get(historyPageKey(ref, cursor, before, namespace)),
 		);
-		await transactionComplete(transaction);
-		if (!record) return null;
-		try {
-			return Schema.decodeUnknownSync(HistoryPage)(record.page);
-		} catch {
-			return null;
+		if (!record && options?.allowEarlierVersion === true) {
+			// An unavailable server must not make previously read history disappear.
+			// Inspect keys only; loading every page here can consume the entire cache.
+			const resource = environmentSessionCacheKey(ref, namespace);
+			const latestKey = (await cachedHistoryKeys(store, resource, cursor)).get(
+				before,
+			);
+			if (latestKey !== undefined)
+				record = await requestResult(store.get(latestKey));
 		}
+		await transactionComplete(transaction);
+		return decodeHistoryPage(record);
 	}
 	async saveHistoryPage(
 		ref: SessionRef,
