@@ -25,6 +25,7 @@ export const availableSandboxProviders = (
 	providers: ReadonlyArray<{
 		readonly providerId: string;
 		readonly advertised: boolean;
+		readonly managedPlacementEnabled?: boolean;
 		readonly productionReady: boolean;
 	}>,
 	sandbox: boolean,
@@ -36,6 +37,7 @@ export const availableSandboxProviders = (
 			.filter(
 				(provider) =>
 					provider.advertised &&
+					provider.managedPlacementEnabled !== false &&
 					(sandbox || provider.productionReady) &&
 					supportsSandboxBilling(
 						provider.providerId,

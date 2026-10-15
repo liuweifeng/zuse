@@ -198,6 +198,21 @@ try {
 		),
 	);
 } finally {
-	if (sandboxId) await api(`/sandbox/${sandboxId}`, "DELETE");
-	if (seedId) await api(`/snapshots/${seedId}`, "DELETE");
+	// Delete the builder first, but still attempt the seed if deletion fails.
+	// Cleanup must not replace the original provisioning exception.
+	for (const path of [
+		sandboxId ? `/sandbox/${sandboxId}` : undefined,
+		seedId ? `/snapshots/${seedId}` : undefined,
+	]) {
+		if (path === undefined) continue;
+		try {
+			await api(path, "DELETE");
+		} catch (cause) {
+			console.error(
+				"Daytona cleanup failed:",
+				cause instanceof Error ? cause.message : "Unknown error",
+			);
+			process.exitCode = 1;
+		}
+	}
 }

@@ -49,7 +49,7 @@ Configure the Worker with the values printed by the publisher:
 - `DAYTONA_VCPU_COUNT` and `DAYTONA_MEMORY_MIB`: actual snapshot dimensions
 - `DAYTONA_TARGET`: optional region target
 - `DAYTONA_API_KEY`: Worker secret for managed infrastructure access; optional
-  for a BYOK-only deployment
+  for a BYOK-only deployment (managed placement is unavailable without it)
 - `DAYTONA_API_BASE_URL`: optional HTTPS API origin, normally omitted
 
 Apply migration `0046_daytona_provider_connections` before deploying code that

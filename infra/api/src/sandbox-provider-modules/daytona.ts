@@ -42,6 +42,7 @@ export const DaytonaSandboxProviderModule: SandboxProviderModule = {
 		const config = decodeProviderEnvironment(Environment, env, "Daytona");
 		return {
 			advertised: true,
+			managedPlacementEnabled: config.DAYTONA_API_KEY !== undefined,
 			adapter: makeDaytonaSandboxProvider({
 				apiKey: Redacted.make(config.DAYTONA_API_KEY ?? ""),
 				templateId: config.DAYTONA_TEMPLATE_ID,
