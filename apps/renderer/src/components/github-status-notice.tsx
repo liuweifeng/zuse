@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/projects";
 import "@zuse/i18n/english/common";
+import "@zuse/i18n/english/chat";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrInfo } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
@@ -26,7 +27,7 @@ export function GitHubStatusNotice({
 	compact?: boolean;
 }) {
 	const [busy, setBusy] = useState(false);
-	const { message } = useMessages(["projects", "common"]);
+	const { message } = useMessages(["projects", "common", "chat"]);
 	const key = gitHubStatusMessageKey(pr);
 	const label = key ? message(key) : null;
 	const retryAtMs = pr?.retryAt?.getTime() ?? 0;
@@ -52,7 +53,7 @@ export function GitHubStatusNotice({
 					aria-hidden="true"
 					className={`size-3.5 ${loading ? "animate-spin" : ""}`}
 				/>
-				{compact ? null : "GitHub"}
+				{compact ? null : message("chat:review_annotation_github")}
 			</PopoverTrigger>
 			<PopoverPopup align="end" className="w-64">
 				<div className="flex flex-col gap-2 px-1">
