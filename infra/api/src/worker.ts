@@ -194,6 +194,14 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly BOX_MACHINE_TYPE?: string;
 	readonly BOX_HOSTED_PORT_DOMAIN?: string;
 	readonly BOX_WEBHOOK_SECRET?: string;
+	readonly DAYTONA_ADAPTER_ENABLED?: string;
+	readonly DAYTONA_API_KEY?: string;
+	readonly DAYTONA_API_BASE_URL?: string;
+	readonly DAYTONA_TEMPLATE_ID?: string;
+	readonly DAYTONA_TEMPLATE_VERSION?: string;
+	readonly DAYTONA_TARGET?: string;
+	readonly DAYTONA_VCPU_COUNT?: string;
+	readonly DAYTONA_MEMORY_MIB?: string;
 	readonly E2B_ADAPTER_ENABLED?: string;
 	readonly E2B_API_KEY?: string;
 	readonly E2B_API_BASE_URL?: string;

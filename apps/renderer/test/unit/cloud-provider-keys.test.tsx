@@ -99,3 +99,27 @@ describe("Cloud provider key settings", () => {
 		expect(markup).not.toContain("E2B");
 	});
 });
+
+test("renders Daytona BYOK connection and replacement using the shared form", () => {
+	const keys: CloudProviderConnections = {
+		connections: [],
+		active: [],
+		customSnapshotsEnabled: false,
+		loading: false,
+		loadError: false,
+		reload: async () => {},
+		apply: () => {},
+	};
+	const markup = renderToStaticMarkup(
+		<CloudProviderConnectForm
+			keys={keys}
+			providerId="daytona"
+			onChanged={async () => {}}
+		/>,
+	);
+	expect(markup).toContain("Daytona API key");
+	expect(markup).toContain("Connect");
+	expect(renderList([connection({ providerId: "daytona" })])).toContain(
+		'aria-label="Disconnect Daytona key"',
+	);
+});

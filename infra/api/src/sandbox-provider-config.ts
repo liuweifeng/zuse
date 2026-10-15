@@ -6,6 +6,7 @@ import {
 } from "./sandbox-provider-module.ts";
 import { BoxSandboxProviderModule } from "./sandbox-provider-modules/box.ts";
 import { BoxdSandboxProviderModule } from "./sandbox-provider-modules/boxd.ts";
+import { DaytonaSandboxProviderModule } from "./sandbox-provider-modules/daytona.ts";
 import { E2bSandboxProviderModule } from "./sandbox-provider-modules/e2b.ts";
 
 export {
@@ -21,6 +22,7 @@ export const sandboxProviderModules: ReadonlyArray<SandboxProviderModule> = [
 	BoxSandboxProviderModule,
 	E2bSandboxProviderModule,
 	BoxdSandboxProviderModule,
+	DaytonaSandboxProviderModule,
 ];
 
 export const resolveSandboxProviderRuntime = <

@@ -11,6 +11,30 @@ import {
 } from "../../src/lib/composer-delivery.ts";
 
 describe("composer cloud delivery routing", () => {
+	it("holds a follow-up while the launch prompt is preparing before mailbox dispatch", () => {
+		const initial = Message.make({
+			id: MessageId.make("launch-prompt"),
+			sessionId: SessionId.make("launch-session"),
+			role: "user",
+			content: { _tag: "user", text: "yo", goal: false },
+			createdAt: new Date(1),
+		});
+		// The chat opens before gateway readiness or attachment preparation.
+		const preparing = partitionCloudMessages([], [], [initial]);
+		expect(cloudComposerSubmissionBlocked([], preparing.waiting)).toBe(true);
+		const dispatched = [
+			{
+				commandId: CommandId.make(`message-send:${initial.id}`),
+				kind: "messages.send",
+				targetId: null,
+				submittedAt: 1,
+			},
+		];
+		expect(cloudComposerSubmissionBlocked(dispatched, [])).toBe(true);
+		const settled = partitionCloudMessages([initial], [], []);
+		expect(cloudComposerSubmissionBlocked([], settled.waiting)).toBe(false);
+	});
+
 	it("keeps a second prompt in the composer until the durable send settles", () => {
 		for (const deliveryPhase of [
 			"accepted",

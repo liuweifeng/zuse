@@ -159,7 +159,7 @@ export const CloudProviderAuthMode = CloudCodexAuthMode;
 export type CloudProviderAuthMode = CloudCodexAuthMode;
 
 export const CloudProviderConnectionInput = Schema.Struct({
-	providerId: Schema.Literals(["e2b", "boxd", "box"]),
+	providerId: Schema.Literals(["e2b", "boxd", "box", "daytona"]),
 	apiKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 	templateId: Schema.optional(
 		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),

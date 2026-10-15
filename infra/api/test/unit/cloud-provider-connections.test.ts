@@ -68,7 +68,7 @@ const setup = () => {
 			const fake = yield* (yield* SandboxProviders).get("fake");
 			return yield* makeSandboxProviders({
 				defaultProviderId: "boxd",
-				registrations: ["boxd", "e2b", "box"].map((providerId) => ({
+				registrations: ["boxd", "e2b", "box", "daytona"].map((providerId) => ({
 					adapter: {
 						...fake,
 						providerId,
@@ -160,6 +160,7 @@ describe("BYOK ownership and billing", () => {
 		"e2b",
 		"boxd",
 		"box",
+		"daytona",
 	] as const)("encrypts %s keys and grants free access only to their owner", async (providerId) => {
 		const { runtime, records } = setup();
 		try {

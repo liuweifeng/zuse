@@ -17,7 +17,9 @@ export const supportsSandboxBilling = (
 	providerId: string,
 	billingEnforced: boolean,
 	boxdBillingEnabled = false,
-): boolean => !billingEnforced || providerId !== "boxd" || boxdBillingEnabled;
+): boolean =>
+	!billingEnforced ||
+	(providerId !== "daytona" && (providerId !== "boxd" || boxdBillingEnabled));
 
 export const availableSandboxProviders = (
 	providers: ReadonlyArray<{

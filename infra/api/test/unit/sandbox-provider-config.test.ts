@@ -222,3 +222,25 @@ describe("sandbox provider configuration", () => {
 		).toEqual(["e2b"]);
 	});
 });
+
+test("Daytona supports BYOK-only registration and requires a pinned template", async () => {
+	expect(() =>
+		resolveSandboxProviderRuntime({ DAYTONA_ADAPTER_ENABLED: "true" }),
+	).toThrow(SandboxProviderConfigurationError);
+	const runtime = resolveSandboxProviderRuntime({
+		DAYTONA_ADAPTER_ENABLED: "true",
+		DAYTONA_TEMPLATE_ID: "zuse-base",
+		DAYTONA_TEMPLATE_VERSION: "v1",
+		DAYTONA_VCPU_COUNT: "2",
+		DAYTONA_MEMORY_MIB: "4096",
+	});
+	const provider = await Effect.runPromise(
+		Effect.gen(function* () {
+			return yield* (yield* SandboxProviders).get("daytona");
+		}).pipe(Effect.provide(runtime.layer)),
+	);
+	expect(provider.withCredentials).toBeTypeOf("function");
+	expect(runtime.configuredProviders).toEqual([
+		{ providerId: "daytona", advertised: true, productionReady: false },
+	]);
+});
