@@ -11,6 +11,7 @@ import type {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { useEffect, useState } from "react";
+import { useEnvironmentEntities } from "../../lib/environment-entity-hooks.ts";
 import { usePlatformOnline } from "../../lib/network-status.ts";
 import {
 	canResumeQueue,
@@ -50,6 +51,18 @@ export function QueueTray({
 	const items = timeline.projection?.queue.items ?? [];
 	const paused = timeline.projection?.queue.paused === true;
 	const running = isSessionTurnActive(timeline.runtime);
+	const { creationOperationsByProject } = useEnvironmentEntities(environmentId);
+	const creation = Object.values(creationOperationsByProject)
+		.flat()
+		.find((operation) => operation.initialSessionId === sessionId);
+	// Startup deliberately pauses the queue until the workspace is ready. The
+	// durable operation survives navigation and reconnects; the local optimistic
+	// creation entry does not always exist when this tray first renders.
+	const preparing = creation
+		? creation.phase !== "running" &&
+			creation.phase !== "failed" &&
+			creation.phase !== "cancelled"
+		: creationInProgress;
 	const ref = { environmentId, sessionId };
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
 	// Animate add / remove / reorder of queued rows. Clean default ease, no
@@ -60,7 +73,7 @@ export function QueueTray({
 		itemCount: items.length,
 		paused,
 		runtime: timeline.runtime,
-		creationInProgress,
+		creationInProgress: preparing,
 		waitingForSandbox,
 	});
 	// Messages queued while offline, or held by a turn that failed offline,
@@ -94,7 +107,7 @@ export function QueueTray({
 		);
 	};
 
-	const showHeldPill = holdReason !== null && !running && !creationInProgress;
+	const showHeldPill = holdReason !== null && !running && !preparing;
 
 	return (
 		<div ref={listRef}>
@@ -104,7 +117,9 @@ export function QueueTray({
 				{waitingForSandbox && mailbox.waiting.length === 0
 					? cloudStatus.label
 					: online
-						? uiMessage("chat:queue_tray_queued")
+						? preparing
+							? uiMessage("chat:queue_chip_starting")
+							: uiMessage("chat:queue_tray_queued")
 						: uiMessage("chat:queue_tray_waiting_for_connection")}
 			</div>
 			{showHeldPill ? (
@@ -112,9 +127,7 @@ export function QueueTray({
 					flush
 					title={
 						holdReason === "paused"
-							? uiMessage(
-									"chat:queue_tray_queue_paused_because_you_interrupted",
-								)
+							? uiMessage("chat:queue_tray_queue_paused")
 							: uiMessage(
 									"chat:queue_tray_queue_held_because_the_last_turn_failed",
 								)

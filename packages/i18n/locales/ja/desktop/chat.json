@@ -260,7 +260,7 @@
 	"queue_tray_waiting_for_sandbox": "サンドボックスを待っています",
 	"queue_tray_queued": "キューに入れられました",
 	"queue_tray_waiting_for_connection": "接続を待っています",
-	"queue_tray_queue_paused_because_you_interrupted": "あなたが中断したため、キューは一時停止されました",
+	"queue_tray_queue_paused": "キューは一時停止中です",
 	"queue_tray_queue_held_because_the_last_turn_failed": "最後のターンが失敗したためキューが保留されました",
 	"queue_tray_resume_queued_messages": "キューに入れられたメッセージを再開する",
 	"queue_tray_resume": "再開",

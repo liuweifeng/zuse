@@ -3,11 +3,8 @@ import type {
 	ProviderUsageLimits,
 	UsageLimitHistoryPoint,
 } from "@zuse/contracts";
-import {
-	CommandId,
-	EnvironmentId as EnvironmentIdSchema,
-} from "@zuse/contracts";
-import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
+import { EnvironmentId as EnvironmentIdSchema } from "@zuse/contracts";
+import { readEnvironmentUsage } from "../lib/environment-shell-client-bus.ts";
 import { getLocalEnvironmentId } from "../lib/rpc-client.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
@@ -16,39 +13,39 @@ const pendingRefreshes = new Map<string, Promise<void>>();
 const latestByProvider = new Map<string, number>();
 let requestSequence = 0;
 let activeRequests = 0;
+const activeProviders = new Map<string, number>();
 let historyVersion = 0;
 const STALE_AFTER_MS = 60_000;
 type UsageCommand = <Result>(
 	environmentId: EnvironmentId,
-	kind: string,
+	kind: "usage.limits" | "usage.limits.history",
 	payload: Readonly<Record<string, unknown>>,
 ) => Promise<Result>;
-let runUsageCommand: UsageCommand = async <Result>(
-	environmentId: EnvironmentId,
-	kind: string,
-	payload: Readonly<Record<string, unknown>>,
-) => {
-	return (
-		await dispatchEnvironmentShellCommand<
-			Readonly<Record<string, unknown>>,
-			Result
-		>({
-			environmentId,
-			kind,
-			commandId: CommandId.make(`usage:${crypto.randomUUID()}`),
-			payload,
-		})
-	).result;
-};
+let runUsageCommand: UsageCommand = readEnvironmentUsage;
 export const setUsageCommandForTest = (command: UsageCommand): void => {
 	runUsageCommand = command;
 };
+
+type ProviderErrors = Readonly<Record<string, string>>;
+const errorState = (errorsByProvider: ProviderErrors) => ({
+	errorsByProvider,
+	error: Object.values(errorsByProvider)[0] ?? null,
+});
+const clearProviderError = (
+	errors: ProviderErrors,
+	providerId: string,
+): ProviderErrors =>
+	Object.fromEntries(
+		Object.entries(errors).filter(([id]) => id !== providerId),
+	);
 
 type State = {
 	providers: ReadonlyArray<ProviderUsageLimits>;
 	history: ReadonlyArray<UsageLimitHistoryPoint>;
 	loading: boolean;
+	loadingProviders: ReadonlyArray<string>;
 	error: string | null;
+	errorsByProvider: ProviderErrors;
 	lastLoadedAt: number | null;
 	load: () => Promise<void>;
 	invalidate: (providerId: import("@zuse/contracts").ProviderId) => void;
@@ -62,7 +59,9 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 	providers: [],
 	history: [],
 	loading: false,
+	loadingProviders: [],
 	error: null,
+	errorsByProvider: {},
 	lastLoadedAt: null,
 	invalidate: (providerId) => {
 		historyVersion++;
@@ -77,6 +76,7 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 			providers: get().providers.filter((p) => p.providerId !== providerId),
 			history: get().history.filter((p) => p.providerId !== providerId),
 			lastLoadedAt: null,
+			...errorState(clearProviderError(get().errorsByProvider, providerId)),
 		});
 	},
 	load: async () => {
@@ -135,39 +135,65 @@ export const useUsageLimitsStore = create<State>((set, get) => ({
 			: ["claude", "codex", "grok", "gemini", "kiro"];
 		for (const id of targets) latestByProvider.set(id, sequence);
 		activeRequests++;
-		set({ loading: true, error: null });
+		set({ loading: true });
+		for (const id of targets)
+			activeProviders.set(id, (activeProviders.get(id) ?? 0) + 1);
+		set({ loadingProviders: [...activeProviders.keys()] });
 		const pending = (async () => {
 			try {
-				const response = await runUsageCommand<{
-					readonly providers: ReadonlyArray<ProviderUsageLimits>;
-				}>(EnvironmentIdSchema.make(getLocalEnvironmentId()), "usage.limits", {
-					forceRefresh: force,
-					providerId,
-				});
-				const accepted = response.providers.filter(
-					(p) => latestByProvider.get(p.providerId) === sequence,
+				// Publish each provider as it answers. One slow CLI must not hold
+				// every other card behind the all-provider RPC's response barrier.
+				await Promise.all(
+					targets.map(async (id) => {
+						try {
+							const response = await runUsageCommand<{
+								readonly providers: ReadonlyArray<ProviderUsageLimits>;
+							}>(
+								EnvironmentIdSchema.make(getLocalEnvironmentId()),
+								"usage.limits",
+								{
+									forceRefresh: force,
+									providerId: id,
+								},
+							);
+							if (latestByProvider.get(id) !== sequence) return;
+							const accepted = response.providers.filter(
+								(p) => p.providerId === id,
+							);
+							const acceptedIds = new Set(accepted.map((p) => p.providerId));
+							set({
+								...errorState(clearProviderError(get().errorsByProvider, id)),
+								providers: [
+									...get().providers.filter(
+										(p) => !acceptedIds.has(p.providerId),
+									),
+									...accepted,
+								],
+							});
+						} catch (error) {
+							if (latestByProvider.get(id) === sequence)
+								set({
+									...errorState({
+										...get().errorsByProvider,
+										[id]:
+											error instanceof Error ? error.message : String(error),
+									}),
+								});
+						} finally {
+							const remaining = (activeProviders.get(id) ?? 1) - 1;
+							if (remaining) activeProviders.set(id, remaining);
+							else activeProviders.delete(id);
+							set({ loadingProviders: [...activeProviders.keys()] });
+						}
+					}),
 				);
-				const acceptedIds = new Set(accepted.map((p) => p.providerId));
-				const stillCurrent = targets.some(
-					(id) => latestByProvider.get(id) === sequence,
-				);
-				if (stillCurrent)
-					set({
-						providers: [
-							...get().providers.filter((p) => !acceptedIds.has(p.providerId)),
-							...accepted,
-						],
-						lastLoadedAt:
-							providerId === undefined && accountVersion === historyVersion
-								? Date.now()
-								: get().lastLoadedAt,
-						...(sequence === requestSequence ? { error: null } : {}),
-					});
-			} catch (error) {
-				if (sequence === requestSequence)
-					set({
-						error: error instanceof Error ? error.message : String(error),
-					});
+				if (
+					!targets.some((id) => get().errorsByProvider[id] !== undefined) &&
+					providerId === undefined &&
+					accountVersion === historyVersion &&
+					targets.some((id) => latestByProvider.get(id) === sequence)
+				)
+					set({ lastLoadedAt: Date.now() });
 			} finally {
 				activeRequests--;
 				set({ loading: activeRequests > 0 });
