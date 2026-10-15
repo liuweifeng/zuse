@@ -260,7 +260,7 @@
 	"queue_tray_waiting_for_sandbox": "等待沙箱",
 	"queue_tray_queued": "排队",
 	"queue_tray_waiting_for_connection": "等待连接",
-	"queue_tray_queue_paused_because_you_interrupted": "队列因您中断而暂停",
+	"queue_tray_queue_paused": "队列已暂停",
 	"queue_tray_queue_held_because_the_last_turn_failed": "由于最后一轮失败而导致队列被搁置",
 	"queue_tray_resume_queued_messages": "恢复排队的消息",
 	"queue_tray_resume": "简历",

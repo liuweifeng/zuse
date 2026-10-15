@@ -260,7 +260,7 @@
 	"queue_tray_waiting_for_sandbox": "等待沙箱",
 	"queue_tray_queued": "排隊",
 	"queue_tray_waiting_for_connection": "等待連接",
-	"queue_tray_queue_paused_because_you_interrupted": "隊列因您中斷而暫停",
+	"queue_tray_queue_paused": "佇列已暫停",
 	"queue_tray_queue_held_because_the_last_turn_failed": "由於最後一輪失敗而導致隊列被擱置",
 	"queue_tray_resume_queued_messages": "恢復排隊的消息",
 	"queue_tray_resume": "履歷",

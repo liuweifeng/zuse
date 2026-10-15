@@ -419,7 +419,9 @@ function LimitStrip() {
 	const { message: uiMessage } = useUiMessages(["usage"]);
 
 	const providers = useUsageLimitsStore((state) => state.providers);
-	const loading = useUsageLimitsStore((state) => state.loading);
+	const loadingProviders = useUsageLimitsStore(
+		(state) => state.loadingProviders,
+	);
 
 	const cards = useMemo(() => {
 		const byId = new Map(
@@ -461,7 +463,7 @@ function LimitStrip() {
 						<LimitPlaceholder
 							key={entry.id}
 							providerId={entry.id}
-							unavailable={providers.length > 0 || !loading}
+							unavailable={!loadingProviders.includes(entry.id)}
 							reason={"reason" in entry ? entry.reason : undefined}
 						/>
 					),

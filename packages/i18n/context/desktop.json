@@ -2603,6 +2603,10 @@
 			{
 				"path": "apps/renderer/src/components/composer/queue-chip.tsx",
 				"line": 146
+			},
+			{
+				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
+				"line": 121
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2707,7 +2711,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 107
+				"line": 122
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2717,17 +2721,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 108
+				"line": 123
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
-	"chat:queue_tray_queue_paused_because_you_interrupted": {
-		"source": "Queue paused because you interrupted",
+	"chat:queue_tray_queue_paused": {
+		"source": "Queue paused",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 116
+				"line": 130
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2737,7 +2741,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 119
+				"line": 132
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2747,7 +2751,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 127
+				"line": 140
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -2757,7 +2761,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/queue-tray.tsx",
-				"line": 129
+				"line": 142
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -260,7 +260,7 @@
 	"queue_tray_waiting_for_sandbox": "En attendant le bac à sable",
 	"queue_tray_queued": "En file d'attente",
 	"queue_tray_waiting_for_connection": "En attente de connexion",
-	"queue_tray_queue_paused_because_you_interrupted": "La file d'attente a été suspendue parce que vous avez interrompu",
+	"queue_tray_queue_paused": "File d’attente en pause",
 	"queue_tray_queue_held_because_the_last_turn_failed": "File d'attente maintenue car le dernier tour a échoué",
 	"queue_tray_resume_queued_messages": "Reprendre les messages en file d'attente",
 	"queue_tray_resume": "CV",
