@@ -40,6 +40,33 @@ const result = await build({
         changedBoundary: await fallback(ref, { ...cursor, version: 11 }, 'account-test', 4),
       };
     };
+    window.coherenceProbe = async (complete) => {
+      const ref = { environmentId: 'coherence-workspace', sessionId: 'coherence-' + complete };
+      const cursor = { epoch: 'rollback-within-epoch', version: 13 };
+      const message = id => Message.make({ id, sessionId: ref.sessionId, role: 'user', content: { _tag: 'user', text: id }, createdAt: new Date(0) });
+      const projection = SessionTimelineProjection.make({ messages: [message('head')], olderMessageSequence: 100, status: 'idle', activeTurn: null, turnCount: 0, queue: QueueState.make({ items: [], paused: false }), permissionMode: 'default', runtimeMode: 'full-access' });
+      const savePage = (version, before, id, next) => sessionTimelineCache.saveHistoryPage(ref, { ...cursor, version }, before, { messages: [message(id)], olderMessageSequence: next }, 'coherence-account');
+      await savePage(10, 100, 'first-v10', 50);
+      await savePage(9, 50, 'deleted-v9', null);
+      await savePage(12, 50, 'different-v12', null);
+      await savePage(13, 50, 'different-v13', null);
+      if (complete) await savePage(10, 50, 'matching-v10', null);
+      await sessionTimelineCache.save(makeSessionTimelineCacheEntry({ ref, cursor, projection }), 'coherence-account');
+      const restored = await sessionTimelineCache.load(ref, 'coherence-account');
+      const fallback = before => sessionTimelineCache.loadHistoryPage(ref, cursor, before, 'coherence-account', { allowEarlierVersion: true });
+      const hydrationContinuation = complete ? null : await fallback(50);
+      const first = await fallback(100);
+      const strictContinuation = await sessionTimelineCache.loadHistoryPage(ref, cursor, 50, 'coherence-account');
+      const second = await sessionTimelineCache.loadHistoryPage(ref, { ...cursor, version: 14 }, 50, 'coherence-account', { allowEarlierVersion: true });
+      return {
+        restored: restored.projection.messages.map(m => m.id),
+        remaining: restored.projection.olderMessageSequence,
+        first: first?.messages.map(m => m.id),
+        hydrationContinuation,
+        strictContinuation,
+        second: second?.messages.map(m => m.id) ?? null,
+      };
+    };
   `,
 		resolveDir: resolve(import.meta.dirname, "../../../.."),
 		loader: "ts",
@@ -85,8 +112,24 @@ try {
 	await page.reload();
 	await page.waitForFunction(() => typeof window.probe === "function");
 	assert.deepEqual(await page.evaluate(() => window.probe(false)), expected);
+	assert.deepEqual(await page.evaluate(() => window.coherenceProbe(false)), {
+		restored: ["first-v10", "head"],
+		remaining: 50,
+		first: ["first-v10"],
+		hydrationContinuation: null,
+		strictContinuation: null,
+		second: null,
+	});
+	assert.deepEqual(await page.evaluate(() => window.coherenceProbe(true)), {
+		restored: ["matching-v10", "first-v10", "head"],
+		remaining: null,
+		first: ["first-v10"],
+		hydrationContinuation: null,
+		strictContinuation: null,
+		second: ["matching-v10"],
+	});
 	console.log(
-		"PASS: history survives reload and stream advancement; runtime, account, environment, version and pagination boundaries remain isolated",
+		"PASS: history survives reload and stream advancement; restored and fallback page chains remain pinned to one snapshot version",
 	);
 } finally {
 	await browser?.close();
