@@ -159,6 +159,63 @@ describe("GitHub direct transport", () => {
 		expect(fetcher).toHaveBeenCalledTimes(2);
 		client.close();
 	});
+	test("reconciles expensive estimates with GitHub's actual quota instead of falsely pausing cheap reads", async () => {
+		let remaining = 100;
+		let calls = 0;
+		const fetcher = vi.fn(async () => {
+			const cost = calls++ === 0 ? 20 : 1;
+			remaining -= cost;
+			return json({
+				data: {
+					rateLimit: {
+						cost,
+						limit: 100,
+						remaining,
+						resetAt: "2030-01-01T00:00:00Z",
+					},
+				},
+			});
+		});
+		const client = new GitHubClient({ fetch: fetcher });
+		try {
+			for (let i = 0; i < 6; i++) {
+				await client.graphql(
+					credential,
+					"query { viewer { login } }",
+					{},
+					signal(),
+					false,
+				);
+			}
+			expect(fetcher).toHaveBeenCalledTimes(6);
+			expect(remaining).toBe(75);
+		} finally {
+			client.close();
+		}
+	});
+	test("still charges completed requests when GitHub omits quota metadata", async () => {
+		const fetcher = vi
+			.fn()
+			.mockResolvedValueOnce(
+				json({}, 200, {
+					"x-ratelimit-remaining": "2",
+					"x-ratelimit-limit": "100",
+					"x-ratelimit-reset": "1893456000",
+				}),
+			)
+			.mockImplementation(async () => json({}));
+		const client = new GitHubClient({ fetch: fetcher });
+		try {
+			for (let i = 0; i < 3; i++)
+				await client.rest(credential, "user", signal());
+			await expect(
+				client.rest(credential, "user", signal()),
+			).rejects.toMatchObject({ kind: "rate_limited" });
+			expect(fetcher).toHaveBeenCalledTimes(3);
+		} finally {
+			client.close();
+		}
+	});
 	test("recognizes HTTP-200 GraphQL rate errors and pauses both APIs for secondary limits", async () => {
 		const fetcher = vi.fn(async () =>
 			json(
