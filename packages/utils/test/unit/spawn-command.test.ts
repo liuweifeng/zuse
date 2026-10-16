@@ -12,7 +12,7 @@ it("passes literal arguments to an executable without a shell", () => {
 		["-e", "console.log(JSON.stringify(process.argv.slice(1)))", ...values],
 		{ encoding: "utf8" },
 	);
-	expect(result.error).toBeUndefined();
+	expect(result.error ?? null).toBeNull();
 	expect(result.status).toBe(0);
 	expect(JSON.parse(result.stdout)).toEqual(values);
 });
