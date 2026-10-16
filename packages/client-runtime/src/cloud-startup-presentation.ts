@@ -83,6 +83,14 @@ export const cloudPhaseLabel = (
 			return "Starting secure cloud runtime…";
 		case "syncing-repository":
 			switch (statusCode) {
+				case "claude-auth-reconnect-required":
+					return "Reconnect Claude in Cloud Workspaces to continue.";
+				case "codex-auth-reconnect-required":
+					return "Reconnect Codex in Cloud Workspaces to continue.";
+				case "cursor-auth-reconnect-required":
+					return "Reconnect Cursor in Cloud Workspaces to continue.";
+				case "grok-auth-reconnect-required":
+					return "Reconnect Grok in Cloud Workspaces to continue.";
 				case "preparing-credentials":
 					return "Preparing connected accounts…";
 				case "checking-repository":

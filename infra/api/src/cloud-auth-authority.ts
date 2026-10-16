@@ -225,6 +225,32 @@ await writeFile(home + "/status/" + input.providerId + ".json", JSON.stringify(r
 await writeFile(resultPath, JSON.stringify(result), { mode: 0o600 });
 `;
 
+const GROK_AUTH_SOURCE = `const grokAuthFile = process.env.ZUSE_GROK_AUTH_FILE ?? "/home/zuse/.grok/auth.json";
+const readGrokAuth = async () => {
+  const record = (value) => typeof value === "object" && value !== null ? value : {};
+  const string = (value) => typeof value === "string" && value.length > 0 ? value : null;
+  const entries = Object.entries(record(JSON.parse(await readFile(grokAuthFile, "utf8"))));
+  const preferred = entries.find(([scope]) => scope.startsWith("https://auth.x.ai::")) ?? entries.find(([, value]) => string(record(value).key) !== null);
+  if (preferred === undefined) throw new Error("managed_auth_unavailable");
+  const [scope, raw] = preferred;
+  const auth = record(raw);
+  const accessToken = string(auth.key);
+  const refreshToken = string(auth.refresh_token);
+  if (accessToken === null || refreshToken === null) throw new Error("managed_auth_unavailable");
+  const parsedExpiry = typeof auth.expires_at === "string" ? Date.parse(auth.expires_at) : Number.NaN;
+  const parsedCreated = typeof auth.create_time === "string" ? Date.parse(auth.create_time) : Number.NaN;
+  const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Number.isFinite(parsedCreated) ? parsedCreated + 30 * 24 * 60 * 60 * 1000 : 0;
+  return {
+    method: "subscription",
+    credentialKind: "oauth-token",
+    secret: accessToken,
+    providerAccountId: string(auth.user_id) ?? string(auth.email),
+    issuer: string(auth.oidc_issuer) ?? scope.split("::")[0] ?? null,
+    expiresAt,
+  };
+};
+`;
+
 const LOGIN_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
 	`import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -236,6 +262,7 @@ const operationId = process.argv[3];
 const operationPath = home + "/operations/" + operationId + ".json";
 await mkdir(home + "/operations", { recursive: true, mode: 0o700 });
 const command = providerId === "cursor" ? "cursor-agent" : providerId === "grok" ? "/home/zuse/.local/bin/grok" : providerId;
+${GROK_AUTH_SOURCE}
 const args = ["login", "--device-auth"];
 const child = spawn(command, args, { cwd: "/home/zuse", env: process.env, stdio: ["ignore", "pipe", "pipe"] });
 await writeFile(operationPath, JSON.stringify({ providerId, state: "authorizing", pid: child.pid }), { mode: 0o600 });
@@ -247,6 +274,9 @@ const update = async () => {
 for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output = (output + chunk.toString()).slice(-8192); void update(); });
 child.once("error", async (error) => { await writeFile(operationPath, JSON.stringify({ providerId, state: "error", errorCode: error.code === "ENOENT" ? "missing-tool" : "login-failed" }), { mode: 0o600 }); });
 child.once("exit", async (code) => {
+  if (code === 0 && providerId === "grok") {
+    try { await readGrokAuth(); } catch { code = 1; }
+  }
   if (code === 0) {
     await mkdir(home + "/providers", { recursive: true, mode: 0o700 });
     await writeFile(home + "/providers/" + providerId + ".json", JSON.stringify({ providerId, method: "subscription", native: true, updatedAt: Date.now() }), { mode: 0o600 });
@@ -265,7 +295,7 @@ if (typeof current.pid === "number") { try { process.kill(current.pid, "SIGTERM"
 await writeFile(path, JSON.stringify({ providerId: current.providerId, state: "cancelled" }), { mode: 0o600 });
 `;
 
-const VERIFY_SOURCE =
+export const AUTH_VERIFY_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
 	CLAUDE_AUTH_VALIDATION_SOURCE +
 	`import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -273,6 +303,7 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 const home = "/home/zuse/.zuse/cloud-auth";
 const markerPath = process.argv[2];
+${GROK_AUTH_SOURCE}
 const providers = ["claude", "codex", "cursor", "grok"];
 const verify = async (providerId) => {
   let credential;
@@ -314,7 +345,11 @@ const verify = async (providerId) => {
     });
     child.stdin.write(JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "zuse-cloud-auth", version: "1" }, capabilities: { experimentalApi: true } } }) + "\\n");
   });
-  const result = providerId === "claude" && credential.native !== true ? await verifyClaudeCredential(credential) : providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
+  const verifyNativeGrok = async () => {
+    try { await readGrokAuth(); } catch { return { code: 1, error: "authentication-required" }; }
+    return await runStatus();
+  };
+  const result = providerId === "grok" && credential.native === true ? await verifyNativeGrok() : providerId === "claude" && credential.native !== true ? await verifyClaudeCredential(credential) : providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
   const state = result.code === 0 ? "connected" : result.error === "missing-tool" ? "missing-tool" : providerId === "claude" && result.error !== "authentication-required" ? "error" : "expired";
   await writeFile(home + "/status/" + providerId + ".json", JSON.stringify({ providerId, method: credential.method, native: credential.native === true, state, verifiedAt: result.code === 0 ? (providerId === "claude" ? Date.now() : credential.updatedAt ?? Date.now()) : undefined, errorCode: result.code === 0 ? undefined : result.error ?? "verification-failed" }), { mode: 0o600 });
 };
@@ -332,7 +367,6 @@ import { dirname } from "node:path";
 import readline from "node:readline";
 const home = process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth";
 const codexAuthFile = process.env.ZUSE_CODEX_AUTH_FILE ?? "/home/zuse/.codex/auth.json";
-const grokAuthFile = process.env.ZUSE_GROK_AUTH_FILE ?? "/home/zuse/.grok/auth.json";
 const grokBinary = process.env.ZUSE_GROK_BINARY ?? "/home/zuse/.local/bin/grok";
 const requestPath = process.argv[2];
 const resultPath = process.argv[3];
@@ -434,27 +468,7 @@ const readProviderCredential = async () => {
     expiresAt: Date.now() + 30 * 60 * 1000,
   };
 };
-const readGrokAuth = async () => {
-  const entries = Object.entries(record(JSON.parse(await readFile(grokAuthFile, "utf8"))));
-  const preferred = entries.find(([scope]) => scope.startsWith("https://auth.x.ai::")) ?? entries.find(([, value]) => string(record(value).key) !== null);
-  if (preferred === undefined) throw new Error("managed_auth_unavailable");
-  const [scope, raw] = preferred;
-  const auth = record(raw);
-  const accessToken = string(auth.key);
-  const refreshToken = string(auth.refresh_token);
-  if (accessToken === null || refreshToken === null) throw new Error("managed_auth_unavailable");
-  const parsedExpiry = typeof auth.expires_at === "string" ? Date.parse(auth.expires_at) : Number.NaN;
-  const parsedCreated = typeof auth.create_time === "string" ? Date.parse(auth.create_time) : Number.NaN;
-  const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Number.isFinite(parsedCreated) ? parsedCreated + 30 * 24 * 60 * 60 * 1000 : 0;
-  return {
-    method: "subscription",
-    credentialKind: "oauth-token",
-    secret: accessToken,
-    providerAccountId: string(auth.user_id) ?? string(auth.email),
-    issuer: string(auth.oidc_issuer) ?? scope.split("::")[0] ?? null,
-    expiresAt,
-  };
-};
+${GROK_AUTH_SOURCE}
 const refreshGrokAuth = (force) => new Promise((resolve, reject) => {
   const child = spawn(grokBinary, ["--trust", "agent", "--no-leader", "stdio"], {
     env: {
@@ -747,7 +761,7 @@ const AUTH_BOOTSTRAP_FILES = [
 	[AUTH_CONFIGURATOR, CONFIGURATOR_SOURCE],
 	[AUTH_LOGIN, LOGIN_SOURCE],
 	[AUTH_CANCEL, CANCEL_SOURCE],
-	[AUTH_VERIFY, VERIFY_SOURCE],
+	[AUTH_VERIFY, AUTH_VERIFY_SOURCE],
 	[AUTH_CODEX_GRANT, CODEX_GRANT_SOURCE],
 ] as const;
 const AUTH_BOOTSTRAP_VERSION = `${AUTH_HOME}/bootstrap-version`;
@@ -1891,8 +1905,43 @@ const parseSealedGrant = Effect.fn("parseSealedGrant")(function* (
 			serviceUnavailable(`${input.providerId}_grant_invalid`),
 		);
 	}
-	if (typeof parsed.errorCode === "string")
+	if (typeof parsed.errorCode === "string") {
+		const errorCode = parsed.errorCode;
+		if (errorCode === `${input.providerId}-auth-reconnect-required`) {
+			const store = yield* CloudWorkspaceStore;
+			const locator = yield* store.getCloudAuthAuthority(input.accountId);
+			if (
+				locator?.status &&
+				locator.storageIncarnationId === authority.storageIncarnationId &&
+				locator.authEpoch === authority.authEpoch &&
+				locator.status.providers.some(
+					(provider) =>
+						provider.providerId === input.providerId &&
+						(provider.state !== "expired" || provider.errorCode !== errorCode),
+				)
+			) {
+				yield* store.saveCloudAuthStatus({
+					accountId: input.accountId,
+					expectedRevision: locator.revision,
+					status: new CloudAuthStatus({
+						...locator.status,
+						updatedAt: Date.now(),
+						providers: locator.status.providers.map((provider) =>
+							provider.providerId === input.providerId
+								? new CloudAuthProviderStatus({
+										providerId: input.providerId,
+										state: "expired",
+										method: provider.method,
+										errorCode,
+									})
+								: provider,
+						),
+					}),
+				});
+			}
+		}
 		return yield* Effect.fail(serviceUnavailable(parsed.errorCode));
+	}
 	const sealed = parsed.sealed as Record<string, unknown>;
 	const sealedString = (key: string, maxLength: number): string | null => {
 		const value = sealed?.[key];

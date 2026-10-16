@@ -25,6 +25,19 @@ import { WorkspaceSettings, WorkspaceSettingsUpdate } from "./settings.ts";
 import { Folder } from "./workspace.ts";
 import { WorkspaceScope } from "./workspace-scope.ts";
 
+export const CloudWorkspacePreparationPhase = Schema.Literals([
+	"checking-repository",
+	"switching-branch",
+	"fetching-repository",
+	"preparing-credentials",
+	"claude-auth-reconnect-required",
+	"codex-auth-reconnect-required",
+	"cursor-auth-reconnect-required",
+	"grok-auth-reconnect-required",
+]);
+export type CloudWorkspacePreparationPhase =
+	typeof CloudWorkspacePreparationPhase.Type;
+
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 export const CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY = "machine-fork-v1";
 

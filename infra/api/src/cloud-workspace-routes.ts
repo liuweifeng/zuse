@@ -29,6 +29,7 @@ import {
 	CloudTranscriptMessagePageUpload,
 	CloudWorkspaceActionRequest,
 	CloudWorkspaceCreateRequest,
+	CloudWorkspacePreparationPhase,
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
@@ -1236,14 +1237,7 @@ const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
 });
 
 const RuntimeReadyRequest = Schema.Struct({
-	preparationPhase: Schema.optional(
-		Schema.Literals([
-			"checking-repository",
-			"switching-branch",
-			"fetching-repository",
-			"preparing-credentials",
-		]),
-	),
+	preparationPhase: Schema.optional(CloudWorkspacePreparationPhase),
 	deviceBridgeVersion: Schema.optional(Schema.Literal(DEVICE_BRIDGE_VERSION)),
 	phase: Schema.Literals([
 		"runtime-connected",
