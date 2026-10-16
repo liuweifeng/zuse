@@ -1,4 +1,3 @@
-/** Goal execution uses durable turns; live controls share engine admission and residency fences. */
 import {
 	GoalUnsupportedError,
 	type ProviderId,
@@ -109,7 +108,7 @@ export const makeConversationGoalOperations = (
 					const session = yield* ensureSession(sessionId);
 					const current = options.state.current(sessionId);
 					const active = yield* options.hasActiveTurn(sessionId);
-					// Starting or resuming a goal may execute tools and must own a durable attempt.
+
 					if (
 						!active &&
 						(input.status === "active" ||
@@ -133,7 +132,7 @@ export const makeConversationGoalOperations = (
 							},
 							objective,
 						);
-						// This is an acceptance receipt. Native notifications remain authoritative.
+
 						const now = Date.now();
 						return new ThreadGoal({
 							threadId: current?.threadId ?? sessionId,

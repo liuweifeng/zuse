@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { resolve } from "node:path";
 import { chromium } from "@playwright/test";
 
-// Run against `bun run --cwd apps/web dev`, or set DITHER_TEST_URL to a build.
-// Real canvas/worker rendering verifies that recovery never exports stale pixels.
 const browser = await chromium.launch({
 	headless: true,
 	args: ["--disable-dev-shm-usage"],
@@ -71,7 +69,6 @@ try {
 		"Failed replacement must preserve rendered pixels",
 	);
 
-	// Export failure must also preserve adjustments and permit a retry.
 	await page.evaluate(() => {
 		const original = HTMLCanvasElement.prototype.toBlob;
 		HTMLCanvasElement.prototype.toBlob = (callback) => {
@@ -93,7 +90,6 @@ try {
 	await exportButton.click();
 	assert.match((await download).suggestedFilename(), /-dither\.png$/);
 
-	// A render failure still offers reset/retry, and cannot export old pixels.
 	await page.evaluate(() => {
 		window.originalWorker = window.Worker;
 		window.Worker = class {
@@ -117,7 +113,6 @@ try {
 	await settled();
 	assert.equal(await contrast.inputValue(), "100");
 
-	// A subsequent rejected upload cannot make a failed render exportable.
 	await page.evaluate(() => {
 		window.Worker = class {
 			constructor() {

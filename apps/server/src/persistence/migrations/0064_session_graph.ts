@@ -64,8 +64,7 @@ export const Migration0064SessionGraph = Effect.gen(function* () {
 			(column) => column.name,
 		),
 	);
-	// Resume tokens become provider threads. The app id derivation must match
-	// the domain's so replayed events upsert the same row.
+
 	const resumable = !legacyColumns.has("cursor")
 		? []
 		: yield* sql<{
@@ -103,8 +102,6 @@ export const Migration0064SessionGraph = Effect.gen(function* () {
 		`;
 	}
 
-	// Every TurnStarted becomes a turn row; its ordinal is its position among
-	// the session's TurnStarted events, matching the domain's replay rule.
 	yield* sql`
 		INSERT OR IGNORE INTO session_turns
 			(id, session_id, ordinal, status, phase, provider_thread_id,
@@ -125,7 +122,7 @@ export const Migration0064SessionGraph = Effect.gen(function* () {
 		WHERE e.stream_kind = 'session' AND e.type = 'TurnStarted'
 			AND json_extract(e.payload_json, '$.turnId') IS NOT NULL
 	`;
-	// Settle statuses from the terminal event of each turn.
+
 	yield* sql`
 		UPDATE session_turns
 		SET status = CASE (
@@ -148,8 +145,7 @@ export const Migration0064SessionGraph = Effect.gen(function* () {
 			ORDER BY s.stream_version DESC LIMIT 1
 		)
 	`;
-	// Turns that were still in flight keep their live status from the head
-	// columns this migration retires, so recovery sees them as it did before.
+
 	if (legacyColumns.has("current_turn_id"))
 		yield* sql`
 		UPDATE session_turns
@@ -164,8 +160,6 @@ export const Migration0064SessionGraph = Effect.gen(function* () {
 		)
 	`;
 
-	// Databases created by older migration subsets may lack some of these
-	// columns; drop whichever exist.
 	const columns = yield* sql<{ readonly name: string }>`
 		PRAGMA table_info(sessions)
 	`;

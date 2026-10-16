@@ -37,12 +37,6 @@ interface CodexSkillMetadata {
 	readonly enabled: boolean;
 }
 
-/**
- * Parse YAML-like frontmatter at the top of a SKILL.md / prompt file.
- * Memoize only needs `name`, `description`, and `argument-hint`; we
- * deliberately keep the parser minimal — full YAML support belongs in
- * the provider, not here. Anything we don't recognise is ignored.
- */
 const parseFrontmatter = (
 	content: string,
 ): { name?: string; description?: string; argumentHint?: string } => {
@@ -77,11 +71,6 @@ const fileStem = (p: string): string => {
 	return dot > 0 ? base.slice(0, dot) : base;
 };
 
-/**
- * Read a single file safely; returns null on any error so the walker can
- * keep going. Skill discovery is best-effort — one malformed file should
- * not blank the whole popover.
- */
 const readSafe = (
 	fs: FileSystem.FileSystem,
 	abs: string,
@@ -105,11 +94,6 @@ const isDirSafe = (
 		Effect.orElseSucceed(() => false),
 	);
 
-/**
- * Project a parsed file into the wire `Skill` shape. The folder containing
- * the file becomes the canonical name when frontmatter omits it, mirroring
- * Claude Code's `~/.claude/skills/<name>/SKILL.md` convention.
- */
 const toSkill = (
 	raw: RawSkill,
 	scope: "global" | "project",
@@ -146,8 +130,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 		const fs = yield* FileSystem.FileSystem;
 		const configStore = yield* ConfigStoreService;
 		const home = os.homedir();
-		// Set after a native Codex skill toggle so the next `skills/list`
-		// bypasses the app-server's cached skill set.
+
 		let codexForceReload = false;
 		const codexSkills = createCodexSkillBatcher<CodexSkillMetadata>((cwds) => {
 			const forceReload = codexForceReload;
@@ -176,12 +159,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Walk a Claude skills root. Skills can be either:
-		 *   <root>/<name>/SKILL.md
-		 *   <root>/<name>.md
-		 * Both forms appear in the wild; we accept either.
-		 */
 		const readClaudeSkillsRoot = (
 			root: string,
 		): Effect.Effect<ReadonlyArray<RawSkill>> =>
@@ -222,11 +199,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				return out;
 			});
 
-		/**
-		 * Plugins lay out as `~/.claude/plugins/<plugin>/skills/<skill>/SKILL.md`.
-		 * Surface them with `<plugin>:<skill>` so they don't collide with
-		 * top-level user skills, matching Claude Code's plugin namespacing.
-		 */
 		const readClaudePluginsRoot = (
 			root: string,
 		): Effect.Effect<ReadonlyArray<RawSkill>> =>
@@ -249,15 +221,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				return out;
 			});
 
-		/**
-		 * Marketplace plugins installed through Claude Code live wherever
-		 * `~/.claude/plugins/installed_plugins.json` points (`installPath`),
-		 * with skills under `<installPath>/skills/<skill>/SKILL.md`. Plugins
-		 * the user switched off (`enabledPlugins[id] === false` in
-		 * `~/.claude/settings.json`) and project installs for other checkouts
-		 * are skipped. Without these, a Claude skills allowlist would silently
-		 * hide every marketplace plugin skill.
-		 */
 		const readClaudeInstalledPlugins = (
 			projectCwd: string | null,
 		): Effect.Effect<
@@ -303,11 +266,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				return out;
 			});
 
-		/**
-		 * Codex prompts: `<root>/<name>.md`. First-line `# Title` is allowed
-		 * but the canonical name comes from the filename. Description is the
-		 * first non-blank, non-heading line.
-		 */
 		const readCodexPromptsRoot = (
 			root: string,
 		): Effect.Effect<ReadonlyArray<RawSkill>> =>
@@ -378,8 +336,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				ensureBundledZuseSkillInstalled("codex", home);
 				const viaAppServer = yield* Effect.tryPromise({
 					try: async (): Promise<ReadonlyArray<Skill>> => {
-						// Global-only listing asks Codex about the home directory and
-						// keeps user/system/admin skills; repo skills need a project.
 						const skills = await codexSkills.load(projectCwd ?? home);
 						return skills
 							.filter((skill) => projectCwd !== null || skill.scope !== "repo")
@@ -392,7 +348,7 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 									arguments: [],
 									filePath: skill.path,
 									providerId: "codex",
-									// Codex's native config is the source of truth.
+
 									enabled: skill.enabled,
 									toggleSupported: true,
 								}),
@@ -402,9 +358,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 				}).pipe(Effect.catch(() => Effect.succeed(null)));
 				if (viaAppServer !== null) return dedupeProjectFirst(viaAppServer);
 
-				// Disk fallback (app-server unavailable): native enablement is
-				// unknown and toggles cannot be written, so these stay enabled with
-				// `toggleSupported: false`.
 				const globalRoot = path.join(home, ".codex", "prompts");
 				const globalSkillsRoot = path.join(home, ".codex", "skills");
 				const projectRaw =
@@ -492,8 +445,6 @@ export const SkillDiscoveryServiceLive = Layer.effect(
 					return enabled;
 				}
 				if (providerId === "codex") {
-					// Codex owns its skill config — write the native flag. This
-					// affects Codex everywhere, including outside Zuse.
 					const response = yield* withCodexApp(null, (app) =>
 						app.request<SkillsConfigWriteResponse>("skills/config/write", {
 							name,

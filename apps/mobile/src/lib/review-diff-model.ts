@@ -12,10 +12,6 @@ export type PreparedReviewPatch = {
 	readonly truncated: boolean;
 };
 
-/**
- * Detach parsed line strings from the full patch allocation. The prepared model
- * deliberately omits the raw patch so it can be reclaimed after streaming.
- */
 const detachLine = (line: DiffLine): DiffLine => ({
 	...line,
 	text: ` ${line.text}`.slice(1),

@@ -69,9 +69,7 @@ setInterval(() => {}, 1000);
 			restore();
 			try {
 				if (child.pid !== undefined) originalKill(-child.pid, "SIGKILL");
-			} catch {
-				/* Already stopped. */
-			}
+			} catch {}
 		}
 	},
 );

@@ -8,7 +8,6 @@ const decodeMessageIds = Schema.decodeUnknownEffect(
 
 /** Native history coverage is recorded only at an idle provider-switch boundary. */
 export const makeProviderContexts = (sql: SqlClient.SqlClient) => {
-	/** Call only after the driver has proved an exact restored native boundary. */
 	const rememberVerified = (
 		sessionId: SessionId,
 		threadId: string,
@@ -27,7 +26,7 @@ export const makeProviderContexts = (sql: SqlClient.SqlClient) => {
 			const latest = yield* sql<{
 				status: string;
 			}>`SELECT status FROM session_turns WHERE session_id=${sessionId} ORDER BY ordinal DESC LIMIT 1`;
-			// An interrupted/failed turn can contain only a prefix of canonical history.
+
 			if (latest[0] !== undefined && latest[0].status !== "completed") {
 				yield* sql`DELETE FROM session_provider_contexts WHERE provider_thread_id=${threadId}`;
 				return;
@@ -45,8 +44,6 @@ export const makeProviderContexts = (sql: SqlClient.SqlClient) => {
 		});
 	const returning = (sessionId: SessionId, providerId: ProviderId) =>
 		Effect.gen(function* () {
-			// These drivers have verified native continuation semantics. Other harnesses
-			// receive portable full context until their continuation outcome is explicit.
 			if (providerId !== "claude" && providerId !== "codex") return null;
 			const rows = yield* sql<{
 				provider_thread_id: string;

@@ -16,7 +16,7 @@ export const PluginDefinition = Schema.Struct({
 	id: Schema.String,
 	name: Schema.String,
 	description: Schema.String,
-	/** Provider domain, used for the catalog icon. */
+
 	domain: Schema.String.pipe(
 		Schema.withConstructorDefault(Effect.succeed("")),
 		Schema.withDecodingDefaultType(Effect.succeed("")),
@@ -25,22 +25,22 @@ export const PluginDefinition = Schema.Struct({
 		Schema.withConstructorDefault(Effect.succeed(null)),
 		Schema.withDecodingDefaultType(Effect.succeed(null)),
 	),
-	/** Hand-picked, well-known entries shown first in Browse. */
+
 	featured: Schema.Boolean.pipe(
 		Schema.withConstructorDefault(Effect.succeed(false)),
 		Schema.withDecodingDefaultType(Effect.succeed(false)),
 	),
-	/** A remote MCP server this workspace added by URL, not a catalog entry. */
+
 	custom: Schema.Boolean.pipe(
 		Schema.withConstructorDefault(Effect.succeed(false)),
 		Schema.withDecodingDefaultType(Effect.succeed(false)),
 	),
-	/** Custom servers only: the URL the workspace entered. */
+
 	url: Schema.NullOr(Schema.String).pipe(
 		Schema.withConstructorDefault(Effect.succeed(null)),
 		Schema.withDecodingDefaultType(Effect.succeed(null)),
 	),
-	/** Custom servers that authenticate with a key send it in this header. */
+
 	apiKeyHeader: Schema.NullOr(Schema.String).pipe(
 		Schema.withConstructorDefault(Effect.succeed(null)),
 		Schema.withDecodingDefaultType(Effect.succeed(null)),
@@ -55,7 +55,7 @@ export const PluginConnection = Schema.Struct({
 	owner: Schema.Literals(["user", "organization"]),
 	state: Schema.Literals(["connecting", "connected", "needs-auth", "error"]),
 	createdAt: Schema.Number,
-	/** Off keeps the credentials but hides the plugin's tools from agents. */
+
 	enabled: Schema.Boolean.pipe(
 		Schema.withConstructorDefault(Effect.succeed(true)),
 		Schema.withDecodingDefaultType(Effect.succeed(true)),
@@ -64,7 +64,6 @@ export const PluginConnection = Schema.Struct({
 export type PluginConnection = typeof PluginConnection.Type;
 
 export const PluginSnapshot = Schema.Struct({
-	/** Organization members use connections; admins manage them. */
 	canManage: Schema.Boolean.pipe(
 		Schema.withConstructorDefault(Effect.succeed(true)),
 		Schema.withDecodingDefaultType(Effect.succeed(true)),
@@ -93,17 +92,17 @@ export type PluginReturnTo = typeof PluginReturnTo.Type;
 /** Why connecting failed, so the app can say what to fix. */
 export const PluginConnectError = Schema.Literals([
 	"plugin_operation_failed",
-	/** The OAuth server needs a pre-registered client (no dynamic registration). */
+
 	"plugin_client_registration_unsupported",
-	/** Neither public nor OAuth, for example an API key is required. */
+
 	"plugin_auth_unsupported",
-	/** The MCP server did not answer, timed out, or is temporarily failing. */
+
 	"plugin_unreachable",
-	/** Not a public HTTPS URL on the default port. */
+
 	"plugin_url_rejected",
-	/** The server rejected the API key. */
+
 	"plugin_credentials_rejected",
-	/** The provider returned from sign-in, but finishing the connection failed. */
+
 	"plugin_sign_in_failed",
 	"plugin_limit_reached",
 ]);
@@ -116,12 +115,12 @@ export const PluginAttempt = Schema.Struct({
 	state: Schema.Literals(["pending", "connected", "failed", "cancelled"]),
 	authorizationUrl: Schema.NullOr(Schema.String),
 	expiresAt: Schema.Number,
-	/** Set on failed attempts. */
+
 	error: Schema.NullOr(PluginConnectError).pipe(
 		Schema.withConstructorDefault(Effect.succeed(null)),
 		Schema.withDecodingDefaultType(Effect.succeed(null)),
 	),
-	/** The plugin this attempt connects; custom servers are created with it. */
+
 	pluginId: Schema.String.pipe(
 		Schema.withConstructorDefault(Effect.succeed("")),
 		Schema.withDecodingDefaultType(Effect.succeed("")),
@@ -141,23 +140,23 @@ export const PluginRequest = Schema.Union([
 		label: Schema.String,
 		requestId: Schema.String,
 		returnTo: Schema.optional(PluginReturnTo),
-		/** Required by custom servers that authenticate with a key. */
+
 		apiKey: Schema.optional(Schema.String),
 	}),
-	/** Adds a remote MCP server by URL and connects its first account. */
+
 	Schema.Struct({
 		action: Schema.Literal("addServer"),
 		tenantId: Schema.String,
 		requestId: Schema.String,
 		name: Schema.String,
 		url: Schema.String,
-		/** Omit to detect OAuth or public access. */
+
 		apiKey: Schema.optional(
 			Schema.Struct({ header: Schema.String, value: Schema.String }),
 		),
 		returnTo: Schema.optional(PluginReturnTo),
 	}),
-	/** Removes a custom server and every connection to it. */
+
 	Schema.Struct({
 		action: Schema.Literal("removeServer"),
 		tenantId: Schema.String,

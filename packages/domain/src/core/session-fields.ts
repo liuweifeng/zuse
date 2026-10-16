@@ -21,9 +21,9 @@ export const SessionConfigurationFields = {
 	providerId: Schema.String,
 	model: Schema.String,
 	status: SessionStatus,
-	/** Legacy resume token; new sessions bind a provider thread instead. */
+
 	cursor: Schema.optionalKey(Schema.NullOr(Schema.String)),
-	/** Legacy resume label; ignored by the session graph. */
+
 	resumeStrategy: Schema.optionalKey(
 		Schema.Union([ProviderResumeStrategy, Schema.Literal("none")]),
 	),

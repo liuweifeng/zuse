@@ -118,8 +118,6 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 				};
 			if (property === "send")
 				return (data: Parameters<WebSocket["send"]>[0]) => {
-					// Like native CLOSING sockets, do not write while the close event
-					// is in flight. Effect rejects these RPCs through SocketCloseError.
 					if (retiring) return;
 					if (!available) throw new Error("workspace runtime pending");
 					target.send(data);
@@ -145,13 +143,8 @@ export const cloudGatewaySocket = (socket: WebSocket): WebSocket => {
 		const state = decode(JSON.parse(event.data));
 		available = state.state === "available";
 		if ((!available && exposed) || (available && state.reset === true)) {
-			// RPC streams belong to the old runtime connection. Recreating them
-			// uses the existing connection owner and durable subscription cursors.
-			// Signal transport closure as soon as an established peer disappears:
-			// throwing from send would be an Effect defect, not a retryable close.
 			retiring = true;
-			// Native close handshakes can take seconds. Retire this RPC transport
-			// immediately so its owner can reconnect without waiting for TCP teardown.
+
 			try {
 				socket.close(
 					WORKSPACE_GATEWAY_RUNTIME_UNAVAILABLE_CLOSE.code,

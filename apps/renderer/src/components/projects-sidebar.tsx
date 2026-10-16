@@ -263,8 +263,6 @@ function SidebarErrorToasts(): null {
 	return null;
 }
 
-// GitHub serves owner/org avatars at this path; works for users and orgs alike.
-// Returns null for non-GitHub remotes so the caller falls back to a dither avatar.
 const githubOwnerAvatarUrl = (host: string, owner: string): string | null =>
 	host.toLowerCase() === "github.com"
 		? `https://github.com/${encodeURIComponent(owner)}.png?size=80`
@@ -273,7 +271,6 @@ const githubOwnerAvatarUrl = (host: string, owner: string): string | null =>
 const avatarUrlFor = (origin: GitOriginInfo | null): string | null =>
 	origin === null ? null : githubOwnerAvatarUrl(origin.host, origin.owner);
 
-/** Same avatar for a cloud chat's `host/owner/repo` repository identity. */
 const avatarUrlForRepositoryIdentity = (identity: string): string | null => {
 	const [host, owner] = identity.split("/");
 	return host === undefined || owner === undefined
@@ -281,7 +278,6 @@ const avatarUrlForRepositoryIdentity = (identity: string): string | null => {
 		: githubOwnerAvatarUrl(host, owner);
 };
 
-/** `compact` drops " ago" ("5m") for dense rows that need the title room. */
 const formatRelative = (iso: Date, compact = false): string => {
 	const ms = Date.now() - iso.getTime();
 	const sec = Math.floor(ms / 1000);
@@ -426,18 +422,11 @@ export function ProjectsSidebar() {
 		);
 	}, [initializeEnvironmentCatalog]);
 
-	// Auto-expand the selected project so newly opened workspaces immediately
-	// reveal their session list.
 	useEffect(() => {
 		if (selectedFolderId === null) return;
 		const key = environmentProjectKey(activeEnvironmentId, selectedFolderId);
 		setExpanded((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
 	}, [activeEnvironmentId, selectedFolderId]);
-
-	// PR state is keyed per-session by `(folderId, worktreeId)` because each
-	// worktree has its own branch and therefore its own PR. Hydration happens
-	// inside `SessionRow` so each row pulls the entry that matches its
-	// session — no per-project bulk hydrate.
 
 	const onToggleKey = (key: string) => {
 		setExpanded((previous) => ({ ...previous, [key]: !previous[key] }));
@@ -450,8 +439,6 @@ export function ProjectsSidebar() {
 		desktopCatalogEnabled &&
 		catalogEntries.filter((entry) => entry.status === "connected").length > 1;
 
-	// One merged timeline: computers never form sections. The same repo across
-	// machines collapses into one logical group; the computer is a row property.
 	const logicalGroups = useMemo(
 		() =>
 			desktopCatalogEnabled
@@ -544,7 +531,7 @@ export function ProjectsSidebar() {
 	const hiddenArchivedChatIds = useChatsStore(
 		(state) => state.hiddenArchivedChatIds,
 	);
-	// Same sources the tree shows: live chats, other computers, and cloud.
+
 	const threadListEntries = useMemo(
 		() =>
 			threadListSidebar
@@ -993,11 +980,8 @@ export function ProjectsSidebar() {
 	);
 }
 
-// Rows past this stay unmounted until asked for; each row subscribes to its
-// sessions' timelines, so a long history shouldn't all render up front.
 const THREAD_LIST_INITIAL_ROWS = 100;
 
-/** Experimental thread list sidebar body: every thread, newest first. */
 function ThreadListSection({
 	entries,
 	origins,
@@ -1009,7 +993,7 @@ function ThreadListSection({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const [showAll, setShowAll] = useState(false);
-	// Cloud rows open into their matching sidebar project, as in the tree.
+
 	const projectByRepository = useMemo(
 		() =>
 			new Map(
@@ -1466,17 +1450,12 @@ function SidebarFolderRow({
 	);
 }
 
-/**
- * Quick actions pinned at the top of the sidebar — the two things you reach
- * for constantly (start a chat, add a project) as plain rows instead of
- * hunting for the small + icons.
- */
 function SidebarActions() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const pluginsOpen = useUiStore(
 		(state) => state.view === "chat" && state.activeMainTab === "plugins",
 	);
-	// Plugins follow the selected workspace and require a signed-in account.
+
 	const { isSignedIn } = useAuth();
 
 	return (
@@ -1599,11 +1578,6 @@ function SidebarAgentCount() {
 	);
 }
 
-/**
- * The account's plan: a quiet Cloud label that opens billing, or an Upgrade
- * button that starts Cloud checkout. Profile and sign-out live in the
- * workspace switcher and General settings.
- */
 function SidebarPlan() {
 	const { message: uiMessage } = useUiMessages(["projects"]);
 	const { user } = useAuth();
@@ -1620,7 +1594,6 @@ function SidebarPlan() {
 				if (live) setEntitled(hasCloudEntitlement(result));
 			})
 			.catch(() => {
-				// Show Upgrade rather than nothing when the plan can't be read.
 				if (live) setEntitled(false);
 			});
 		return () => {
@@ -1671,7 +1644,6 @@ function SidebarPlan() {
 	);
 }
 
-/** Sign-in affordance while signed out; the plan once signed in. */
 function SidebarAccount() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -1775,7 +1747,6 @@ function SidebarFooterIcon({
 	);
 }
 
-/** A remote chat row plus whether its computer is currently reachable. */
 type RemoteChatRow = {
 	readonly ref: LogicalChatRef;
 	readonly connected: boolean;
@@ -1789,9 +1760,7 @@ const remoteChatRows = (
 			.filter((member) => member.connected)
 			.map((member) => member.environmentId),
 	);
-	// Data-source split: everything NOT from the active environment's live
-	// stores renders as a catalog row. The remote BADGE is `ref.remote`,
-	// which is anchored to this physical desktop instead.
+
 	return group.chats
 		.filter((ref) => !ref.live)
 		.map((ref) => ({
@@ -1800,11 +1769,6 @@ const remoteChatRows = (
 		}));
 };
 
-/**
- * Connection problems no longer occupy sidebar blocks — one quiet line under
- * the "Computers" strip carries them, with the details in a tooltip and a
- * click-through to the connect dialog.
- */
 function CatalogConnectionNotice({
 	entries,
 }: {
@@ -1963,11 +1927,6 @@ function SidebarProjectHoverCard({
 	);
 }
 
-/**
- * A logical project group with no folder on the active environment: a light
- * header (avatar ↔ chevron swap, same anatomy as the full `ProjectGroup`)
- * over `CatalogChatRow`s. Clicking a chat switches to its computer.
- */
 function LogicalCatalogGroup({
 	group,
 	isExpanded,
@@ -2082,13 +2041,6 @@ function LogicalCatalogGroup({
 	);
 }
 
-/**
- * A chat rendered from the environment catalog (any computer that is not the
- * ACTIVE environment), mirroring `ChatRow`'s anatomy — including the branch
- * icon and `+N −N` diff stats, fetched from the chat's own computer. The
- * muted computer icon marks rows on a different physical machine than this
- * desktop. Clicking switches the whole app to that chat's environment.
- */
 function CatalogChatRow({
 	chatRef,
 	connected,
@@ -2098,16 +2050,14 @@ function CatalogChatRow({
 	chatRef: LogicalChatRef;
 	connected: boolean;
 	repositoryName: string;
-	/** Same layouts as `ChatRow`, so remote and local rows line up. */
+
 	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
 	const isArchived = chat.archivedAt !== null;
-	// Sidebar discovery is cache-only and must never wake a remote environment.
-	// Runtime Git state is retained only after selecting the environment, so a
-	// catalog placeholder uses its monotonic metadata and relative activity.
+
 	const prInfo = null;
 	return (
 		<li>
@@ -2260,9 +2210,9 @@ function ProjectGroup({
 		readonly archivedAt: Date | null;
 		readonly status: SessionStatus;
 	}>;
-	/** Same-repo chats on other computers, interleaved into the chat list. */
+
 	remoteChats?: ReadonlyArray<RemoteChatRow>;
-	/** Durable cloud chats remain visible independently of sandbox state. */
+
 	cloudChats?: ReadonlyArray<CloudChatSummary>;
 	environmentId: EnvironmentId;
 	onSelect: () => void;
@@ -2324,8 +2274,6 @@ function ProjectGroup({
 		);
 	}, [chats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
-	// One merged timeline inside the group: local chats and same-repo chats on
-	// other computers interleave by recency instead of forming sections.
 	const chatRows = useMemo(() => {
 		const local = visibleChats.map((chat) => ({
 			kind: "local" as const,
@@ -2358,8 +2306,6 @@ function ProjectGroup({
 		);
 	}, [visibleChats, remoteChats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
-	// Surface the highest-priority attention hint on the collapsed project
-	// header when any session inside this project needs attention.
 	const liveSessions = useMemo(
 		() => projectSessions.filter((session) => session.archivedAt === null),
 		[projectSessions, uiMessage],
@@ -2414,8 +2360,7 @@ function ProjectGroup({
 		() => new Set(liveSessionIds),
 		[liveSessionIds, uiMessage],
 	);
-	// Pending permission prompts never become messages, so they bypass
-	// `headerMessageAttention`. Pull them straight from the permissions store.
+
 	const permissionRequests =
 		useEnvironmentPermissions().data?.requestsById ?? {};
 	const headerPermissionAttention = derivePermissionAttention(
@@ -2437,8 +2382,6 @@ function ProjectGroup({
 
 	return (
 		<li>
-			{/* Project header toggles expansion only. Explicit actions below select
-          the project when they need project context. */}
 			<Tooltip>
 				<TooltipTrigger
 					render={
@@ -2469,9 +2412,7 @@ function ProjectGroup({
 								</span>
 							</button>
 							<DropLine line={dropLine} />
-							{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
-              live in the same grid cell so the row never reflows; opacity
-              fades between them. motion-reduce drops the transition. */}
+
 							<div className="pointer-events-none relative grid size-5 shrink-0 place-items-center">
 								<Avatar
 									className={cn(
@@ -2671,9 +2612,9 @@ function CloudChatRow({
 }: {
 	readonly summary: CloudChatSummary;
 	readonly projectId?: FolderId;
-	/** Shown on `threadList` rows; defaults to the cloud repository name. */
+
 	readonly projectName?: string;
-	/** Same layouts as `ChatRow`, so cloud and local rows line up. */
+
 	readonly variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
@@ -3054,15 +2995,8 @@ function ProjectContextMenu({
  * don't need prop drilling.
  */
 export function createNewSession(projectId: FolderId): void {
-	// The landing lives on the chat tab. Return there before clearing the
-	// selection so creating a chat from Usage or Archives is immediately
-	// visible instead of leaving that takeover surface mounted.
 	useUiStore.getState().setActiveMainTab("chat");
-	// Select the project first (synchronous: `workspace.select` sets
-	// `selectedFolderId` before awaiting persistence), then clear the chat +
-	// session selection for it. `chats.select(null)` cascades into
-	// `sessions.select(null)`, so both the tab strip and the chat surface fall
-	// back to the empty landing for this project.
+
 	if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
 		void useWorkspaceStore.getState().select(projectId);
 	}
@@ -3133,15 +3067,11 @@ function ChatRow({
 }: {
 	chat: Chat;
 	projectRoot: string;
-	/** Shown on `threadList` rows, which have no project header above them. */
+
 	projectName?: string;
-	/** Repository owner's GitHub avatar; `threadList` rows lead with it. */
+
 	projectAvatarUrl?: string | null;
-	/**
-	 * `tree` is the indented row under a project header. `threadList` is the
-	 * self-describing row used by the experimental flat list. Behavior
-	 * (select, unread, archive, menu, hover card) is shared; only layout differs.
-	 */
+
 	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
@@ -3164,8 +3094,6 @@ function ChatRow({
 		(s) => s.pendingCreationByChat[chat.id] !== undefined,
 	);
 
-	// Live rows always belong to the ACTIVE environment; the row is "remote"
-	// when that environment is not this physical desktop.
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
@@ -3198,7 +3126,6 @@ function ChatRow({
 	const prInfo = gitView.data?.pr ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 
-	// Merged across ANY non-archived tab in this chat, not just the selected one.
 	const { chatSessions, sessionIds, attentionState, permissionAttention } =
 		useChatAttention(chat, activeEnvironmentId, creationPending);
 	const hoverSession =
@@ -3207,18 +3134,13 @@ function ChatRow({
 		null;
 	const hoverStatus = chatAttentionLabel(attentionState, creationPending);
 
-	// Highlight this row when its own chat is selected, OR when the active
-	// session (any tab inside this chat) lives in it. Covers the transient
-	// window where `selectedChatId` hasn't caught up to `selectedSessionId`.
 	const sessionBelongsToChat = useMemo(() => {
 		if (selectedSessionId === null) return false;
 		return sessionIds.includes(selectedSessionId);
 	}, [selectedSessionId, sessionIds, uiMessage]);
 	const isSelected = selectedChatId === chat.id || sessionBelongsToChat;
 	const isArchived = chat.archivedAt !== null;
-	// Unread = new activity the user hasn't seen. A pending permission prompt
-	// also counts: the agent is blocked on the user even though no new message
-	// landed to advance `lastMessageAt`. Never on the selected row.
+
 	const isUnread =
 		!isSelected &&
 		(isChatUnread(chat, selectedChatId) ||
@@ -3331,7 +3253,7 @@ function ChatRow({
 									!isSelected &&
 										isArchived &&
 										"text-muted-foreground hover:bg-sidebar-accent/40",
-									// Read rows sit dim; unread rows brighten + bold so new activity pops.
+
 									!isSelected &&
 										!isArchived &&
 										!isUnread &&
@@ -3488,14 +3410,6 @@ function ChatRow({
 	);
 }
 
-/**
- * Body for `threadList` rows, anchored by the repository's GitHub logo.
- *   logo  — repo owner avatar (a dither avatar seeded by the project name when
- *           there is none); a small corner badge appears only while the
- *           agent works or needs you (status words live in the hover card)
- *   line 1 — title · time
- *   line 2 — project name, GitHub PR icon, number, and state · diff
- */
 function ThreadListRowBody({
 	title,
 	attentionState,
@@ -3538,8 +3452,6 @@ function ThreadListRowBody({
 				{working || attentionState !== "idle" ? (
 					<span className="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-sidebar ring-1 ring-sidebar">
 						{working ? (
-							// A solid ring stays legible at badge size, where the
-							// dotted Spinner glyph washes out.
 							<span
 								aria-hidden="true"
 								className="size-2.5 animate-spin rounded-full border-[1.5px] border-foreground/25 border-t-foreground motion-reduce:animate-none"
@@ -3597,7 +3509,6 @@ function ThreadListRowBody({
 	);
 }
 
-/** Hover-revealed archive/unarchive action that sits on top of a chat row. */
 function ChatArchiveButton({
 	icon,
 	label,

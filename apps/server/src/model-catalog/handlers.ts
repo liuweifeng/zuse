@@ -3,7 +3,6 @@ import { Effect, Layer, Stream } from "effect";
 
 import { ModelCatalogService } from "./services/model-catalog-service.ts";
 
-/** Forced refreshes spawn provider processes; cap how long a caller waits. */
 const FORCED_REFRESH_TIMEOUT = "20 seconds";
 
 const ModelCatalog = MemoizeRpcs.toLayerHandler("model.catalog", (payload) =>

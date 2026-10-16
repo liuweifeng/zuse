@@ -10,12 +10,6 @@ import {
 } from "@zuse/utils/port-inspector";
 import { Effect, Layer } from "effect";
 
-/**
- * Lists dev servers listening on this environment. Because the same server
- * binary runs on the laptop, an SSH box, and a cloud sandbox, this one
- * handler gives every environment kind port discovery over its existing RPC
- * transport.
- */
 const PreviewsListServers = MemoizeRpcs.toLayerHandler(
 	"previews.listServers",
 	() =>

@@ -26,7 +26,6 @@ on:
         type: string
         required: true
 
-# Serialize allocation and publication across channels. Do not interrupt uploads.
 concurrency:
   group: desktop-release
   cancel-in-progress: false
@@ -221,8 +220,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Promotion builds the Preview source, but publication uses the
-          # current workflow tooling so older Preview tags can receive fixes.
+
           ref: ${{ github.sha }}
       - uses: oven-sh/setup-bun@v2
         with:

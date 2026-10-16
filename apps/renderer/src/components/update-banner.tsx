@@ -35,16 +35,11 @@ export function UpdateBanner() {
 
 	const [status, setStatus] = useState<UpdateStatus>({ kind: "idle" });
 	const [dismissed, setDismissed] = useState(false);
-	// Whether the in-toast "restart anyway?" confirmation is showing (set when
-	// the user clicks "Restart now" while agents are running).
+
 	const [confirming, setConfirming] = useState(false);
-	// When true, we install automatically the moment the running-agent count
-	// reaches zero. Survives a dismiss so "restart when idle" still fires after
-	// the user tucks the toast away.
+
 	const [installWhenIdle, setInstallWhenIdle] = useState(false);
 
-	// Global count of sessions with an in-flight turn. Primitive selector, so
-	// this only re-renders when the number actually changes.
 	const { sessionsByProject } = useActiveEnvironmentEntities();
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
@@ -76,9 +71,6 @@ export function UpdateBanner() {
 		return updates.onStatus(setStatus);
 	}, []);
 
-	// Re-surface a fresh `ready`/`error` even if a previous toast was dismissed,
-	// and reset the transient confirm state. `installWhenIdle` is intentionally
-	// NOT reset here so it persists across a dismiss.
 	useEffect(() => {
 		if (status.kind === "ready" || status.kind === "error") {
 			setConfirming(false);
@@ -86,7 +78,6 @@ export function UpdateBanner() {
 		}
 	}, [status.kind]);
 
-	// Install automatically once agents finish, if the user chose "when idle".
 	useEffect(() => {
 		if (installWhenIdle && status.kind === "ready" && runningCount === 0) {
 			void window.zuse?.updates?.installNow();
@@ -127,11 +118,6 @@ export function UpdateBanner() {
 
 	const isError = status.kind === "error";
 
-	// Portal to document.body so the toast escapes any ancestor that creates a
-	// containing block — `<main>` uses `backdrop-blur-3xl`, and any
-	// backdrop-filter (or transform/filter/perspective) traps `position: fixed`
-	// to that ancestor instead of the viewport. Without the portal the toast
-	// sticks to the bottom-right of the chat pane, not the window.
 	return createPortal(
 		<div
 			role="status"

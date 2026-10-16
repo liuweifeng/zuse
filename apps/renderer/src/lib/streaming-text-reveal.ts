@@ -19,7 +19,7 @@ export class StreamingTextReveal {
 		if (text === this.target && animate) return;
 		const append = text.startsWith(this.target);
 		this.target = text;
-		// Replacements, initial/history loads, and very large pastes render directly.
+
 		if (!animate || !append || text.length - this.value.length > 4000) {
 			this.value = text;
 			this.deadline = 0;
@@ -27,7 +27,7 @@ export class StreamingTextReveal {
 		}
 		this.from = this.value.length;
 		this.startedAt = now;
-		// A continuous stream cannot push the oldest pending chunk back forever.
+
 		this.deadline = this.deadline > now ? this.deadline : now + 120;
 	}
 	frame(now: number): string {
@@ -41,7 +41,7 @@ export class StreamingTextReveal {
 		);
 		let end =
 			this.from + Math.floor((this.target.length - this.from) * progress);
-		// Never expose half of a surrogate pair (emoji/CJK supplementary characters).
+
 		if (
 			end > 0 &&
 			end < this.target.length &&

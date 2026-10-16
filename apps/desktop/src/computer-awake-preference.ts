@@ -26,9 +26,7 @@ export const readComputerAwakePreference = async (
 		) {
 			return parsed.mode;
 		}
-	} catch {
-		// Missing and corrupt preferences intentionally use the product default.
-	}
+	} catch {}
 	return DEFAULT_COMPUTER_AWAKE_MODE;
 };
 
@@ -53,7 +51,7 @@ export const watchComputerAwakePreference = (
 			if (!disposed && current === generation) onMode(mode);
 		});
 	};
-	// Poll metadata only; reread JSON on replacement/change, including after sleep.
+
 	watchFile(path, { persistent: false, interval: 2000 }, refresh);
 	refresh();
 	return () => {

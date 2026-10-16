@@ -14,11 +14,6 @@ import type { SymbolHit } from "../types.ts";
 import { isVectorAvailable, vectorSearch } from "./vector.ts";
 import type { SearchHit, SearchInput } from "../types.ts";
 
-/**
- * Used by `search` to resolve a symbol to its enclosing chunk's id + content
- * so the agent gets actual code text, not just `function foo(...)`. Returns
- * `null` when the symbol has no anchored chunk (type aliases, properties).
- */
 const fetchChunkBySymbol = (
   db: IndexDb,
   symbolId: number,
@@ -69,7 +64,6 @@ export const search = (
     const wantsBm25 = tiers.includes("bm25");
     const wantsVector = tiers.includes("vector");
 
-    // Tier 1 — symbol lookup. Single-source path returns directly.
     const symbolHits = wantsSymbol
       ? yield* lookupSymbol(db, input.query, branch, undefined, 20, pathGlob).pipe(
           Effect.catch(() =>
@@ -89,7 +83,6 @@ export const search = (
       return out as ReadonlyArray<SearchHit>;
     }
 
-    // Tier 2 / Tier 3 — gather candidates, fuse via RRF.
     const fanout = 30;
     const rankings: ReadonlyArray<{ chunkId: number }>[] = [];
 
@@ -122,13 +115,12 @@ export const search = (
       );
     }
 
-    // Over-fetch into RRF; we'll narrow with rerank before returning.
     const fanForRerank = Math.max(20, limit * 4);
     const fused = reciprocalRankFusion(rankings).slice(0, fanForRerank);
     const out: SearchHit[] = [];
     for (const { chunkId, score } of fused) {
       if (chunkId < 0) {
-        // Symbol-derived placeholder id. Convert back, fetch its chunk.
+
         const symbolId = -1 - chunkId;
         const sh = (symbolHits as ReadonlyArray<SymbolHit>).find(
           (h) => h.symbolId === symbolId,
@@ -175,9 +167,7 @@ export const search = (
         });
       }
     }
-    // Phase D: rerank the over-fetched fused candidates and trim to `limit`.
-    // No-op when the active provider is NullRerankProvider (default), so
-    // local installs without a paid backend still get the RRF ordering.
+
     const reranked = yield* Effect.tryPromise({
       try: () => applyRerank(input.query, out, limit),
       catch: () => new Error("rerank failed"),

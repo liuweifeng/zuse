@@ -242,8 +242,7 @@ export const runConversation = async (
 	const imported = await scoped.THREADS.get(`submitted:${key}`);
 	if (!imported) {
 		const cached = await scoped.THREADS.get(`context:${key}`);
-		// Only import history when first invited into an existing conversation.
-		// Keep the cached decision across retries, even after workspace creation.
+
 		const importHistory = !workspaceId && job.threadTs !== job.messageTs;
 		await updateProgress(
 			scoped,
@@ -360,7 +359,7 @@ export const runConversation = async (
 			await scoped.THREADS.put(`source:${key}`, JSON.stringify(source), {
 				expirationTtl: 86400,
 			});
-		// Save progress before submission: a very fast completed webhook must never be overwritten.
+
 		await updateProgress(scoped, key, "Working on your request");
 		const message = await sendMessage(config, {
 			workspaceId,
@@ -472,7 +471,7 @@ export const pollProgress = async (
 		);
 		return;
 	}
-	// Keep recovery polling for long turns, but reduce load after the first hour.
+
 	const delaySeconds = Date.now() - job.startedAt > 60 * 60 * 1000 ? 300 : 30;
 	const phase =
 		workspace.agentStatus === "working"

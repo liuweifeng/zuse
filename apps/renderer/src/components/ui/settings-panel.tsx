@@ -192,7 +192,7 @@ export function SettingsRow({
 	className,
 }: {
 	icon?: IconSvgElement;
-	/** Visual identity before the title, such as an avatar; at most `size-7`. */
+
 	leading?: ReactNode;
 	title: string;
 	description?: ReactNode;

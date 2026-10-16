@@ -238,7 +238,6 @@ export const makeSessionTimelineResourceDriver = <
 						const silentCatchUp =
 							catchingUp &&
 							!showingProgressiveSnapshot &&
-							// First paint must not wait for replay or older server metadata.
 							!(frame.kind === "snapshot" && previous.projection === null) &&
 							frame.kind !== "synchronized" &&
 							state.phase !== "stale";

@@ -296,8 +296,7 @@ export const handleAcpNativePermissionRequest = async (
 		ctx.getPermissionMode(),
 	);
 	const isStandardAcp = lower(method) === "session/request_permission";
-	// Auto-mode requests reaching the client are native reviewer escalations.
-	// A locally read-only classification must not silently override that decision.
+
 	if (policy.kind === "auto-allow" && runtimeMode !== "auto")
 		return isStandardAcp
 			? standardAcpPermissionResponse(params, "allow-once")

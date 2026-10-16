@@ -66,8 +66,7 @@ export function BottomTerminalDock({
 	directoryUnavailable?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-	// ChatView intentionally derives this value inline. Keep a stable domain ref
-	// so streamed parent renders cannot retrigger terminal catalog discovery.
+
 	const catalogRef = useMemo<ChatRef>(
 		() => ({
 			environmentId: chatRef.environmentId,
@@ -82,10 +81,7 @@ export function BottomTerminalDock({
 	);
 	const layout =
 		storedLayout ?? bottomTerminalLayoutForChat(useUiStore.getState(), chatRef);
-	// A chat can be left and revisited with the same string key, and an
-	// unavailable directory can become usable again. Give every committed
-	// identity transition a fresh token so an old response cannot mark the new
-	// surface authoritative (the A → B → A case).
+
 	const catalogRequestKey = useMemo(
 		() => Symbol("bottom-terminal-catalog-request"),
 		[directoryUnavailable, key, layout.open, rootPath],
@@ -137,9 +133,7 @@ export function BottomTerminalDock({
 		if (directoryUnavailable) return;
 		let active = true;
 		setCatalogStatus({ requestKey: catalogRequestKey, state: "loading" });
-		// This dock is always mounted for the selected chat, even while collapsed.
-		// Restore both independent collections before the user asks for another
-		// shell, so a renderer reload reconnects instead of silently duplicating it.
+
 		const discovery = layout.open
 			? restoreOrOpenBottomTerminal(catalogRef, rootPath, {
 					isCurrent: () => active,

@@ -51,9 +51,7 @@ export const createAcpSession = async (
 			) {
 				try {
 					return await load(await options.fallbackServers());
-				} catch {
-					// The cursor itself is unavailable; create a replacement below.
-				}
+				} catch {}
 			}
 			if (options.shouldReplaceMissingSession?.(cause) !== true) throw cause;
 			console.warn(

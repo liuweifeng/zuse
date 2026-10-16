@@ -195,8 +195,7 @@ describe("Electron performance measurement bridge", () => {
 				0,
 				(await readCumulativeCpuSeconds()) - beforeCpuSeconds,
 			);
-			// Burst the complete sampling → aggregation → IPC → renderer callback
-			// path, then amortize its measured CPU time at the production cadence.
+
 			const samplingOverhead = {
 				normalCpuPercent: (usedCpuSeconds / (overheadIterations * 15)) * 100,
 				recordingCpuPercent: (usedCpuSeconds / (overheadIterations * 5)) * 100,
@@ -246,9 +245,7 @@ describe("Electron performance measurement bridge", () => {
 				await new Promise<void>((resolve) => {
 					requestAnimationFrame(() => {
 						const startedAt = performance.now();
-						while (performance.now() - startedAt < 180) {
-							// Deliberately block one frame to exercise the real observer.
-						}
+						while (performance.now() - startedAt < 180) {}
 						resolve();
 					});
 				});

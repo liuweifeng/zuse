@@ -90,19 +90,6 @@ import { Migration0086Automation } from "./migrations/0086_automation.ts";
 import { Migration0087ScratchFolders } from "./migrations/0087_scratch_folders.ts";
 import { Migration0088ScratchFoldersRepair } from "./migrations/0088_scratch_folders_repair.ts";
 
-/**
- * Runs every numbered migration on boot. `fromRecord` keys must match
- * `^\d+_<name>$` — the leading number is the migration id, used by the
- * `effect_sql_migrations` table to track what's applied.
- *
- * Uses the generic `@effect/sql` Migrator (not the driver-specific
- * `SqliteMigrator`): identical `fromRecord` semantics and tracking table,
- * but it only requires the generic `SqlClient` tag, so it runs on any
- * driver — the node:sqlite client in prod, the bun client in tests.
- *
- * Add new migrations by appending entries. Never edit a shipped migration —
- * supersede it with a new id.
- */
 const MigrationDefinitionsThrough0045 = {
 	"0001_initial": Migration0001Initial,
 	"0002_permissions": Migration0002Permissions,
@@ -222,8 +209,6 @@ const MigrationDefinitionsThrough0064 = {
 	"0064_provider_accounts": Migration0064ProviderAccounts,
 } as const;
 
-// Keep historical module names for development database fixtures; only these
-// registry IDs identify the current migration ledger. Main owns slots 63 and 64.
 const MigrationDefinitionsThrough0086 = {
 	...MigrationDefinitionsThrough0064,
 	"0065_jobs": Migration0063Jobs,
@@ -283,9 +268,6 @@ export const MigrationsLive = Layer.effectDiscard(
 		const tables =
 			yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
 		if (tables.length > 0) {
-			// Recognize both unpublished engine ledgers before occupying main's slots.
-			// Schema additions and ledger relocation commit together; unknown history
-			// fails without touching application data or recording partial repairs.
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
 					const legacy = yield* sql<{
@@ -345,8 +327,6 @@ export const MigrationsLive = Layer.effectDiscard(
 				}),
 			);
 
-			// Earlier branch builds used 58, then 59, for collaboration.
-			// Apply the intervening main migrations before advancing the ledger.
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
 					const legacy = yield* sql<{
@@ -356,8 +336,6 @@ export const MigrationsLive = Layer.effectDiscard(
 					const masters =
 						yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 58 AND name = 'masters'`;
 					if (legacy[0]?.migration_id === 58 || masters.length > 0) {
-						// Some development builds used 58 for masters. Preserve those
-						// tables while applying main's missing question-receipt schema.
 						yield* Migration0058QuestionAnswerDeliveries;
 						yield* sql`UPDATE effect_sql_migrations SET name = 'question_answer_deliveries' WHERE migration_id = 58`;
 					}
@@ -376,8 +354,7 @@ export const MigrationsLive = Layer.effectDiscard(
 					yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (61, 'collaboration_foundation')`;
 				}),
 			);
-			// Slot 61 belonged to shared-host tables in organization previews.
-			// Keep those tables, but apply main's schema before repairing its ledger.
+
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
 					const legacy =

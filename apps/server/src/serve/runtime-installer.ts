@@ -42,9 +42,7 @@ export const installDurableServeRuntime = async (input: {
 	try {
 		await access(executable);
 		return executable;
-	} catch {
-		// Install below.
-	}
+	} catch {}
 	const prefix = join(input.dataDir, "runtime", input.version);
 	await mkdir(prefix, { recursive: true, mode: 0o700 });
 	await execFileAsync(input.npmExecutable ?? "npm", [

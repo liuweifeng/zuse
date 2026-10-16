@@ -259,9 +259,7 @@ const monitorArchiveJob = (chatId: ChatId): void => {
 				notifyArchiveFailure(job);
 				return;
 			}
-		} catch {
-			// Retry after reconnect; transport failures are not archive failures.
-		}
+		} catch {}
 		archiveStatusTimers.set(chatId, window.setTimeout(poll, 2_000));
 	};
 	archiveStatusTimers.set(chatId, window.setTimeout(poll, 2_000));
@@ -271,38 +269,24 @@ export const chatArchiveProgressLabel = (
 	_phase: ChatArchiveProgressPhase,
 ): string => "Archiving chat…";
 
-/**
- * Ephemeral chat selection/creation UI state and commands. Canonical chat
- * entities are owned by the qualified environment-shell ClientBus resource.
- *
- * `activeSessionId` (mirrored from the server's `chats.active_session_id`
- * column) is the last tab the user was on inside a chat. Clicking a chat in
- * the sidebar restores that tab — no in-memory memo required.
- */
 type ChatsState = {
-	/** Mirror of `selectedChatByProject[selectedFolderId]`. */
 	readonly selectedChatId: ChatId | null;
-	/** A fresh landing for every explicit New Chat request, including repeats. */
+
 	readonly landingRevision: number;
 	readonly selectedChatByProject: Record<string, ChatId | null>;
 	readonly loadingByProject: Record<string, boolean>;
-	/** Per-project in-flight flag for `create()`. Drives the sidebar
-	 * "New chat" button's icon swap (SquarePen → Spinner). */
+
 	readonly creatingByProject: Record<string, boolean>;
-	/**
-	 * Optimistic creation shells keyed by their stable chat id. These exist
-	 * before `chat.create` acknowledges, allowing every surface to render the
-	 * same truthful lifecycle without issuing session-scoped RPCs prematurely.
-	 */
+
 	readonly pendingCreationByChat: Record<string, PendingChatCreation>;
-	/** Archive tombstones prevent stale summary frames from reviving hidden rows. */
+
 	readonly hiddenArchivedChatIds: ReadonlySet<ChatId>;
 	readonly retryCreation: (
 		chatId: ChatId,
 		preserveFocus?: boolean,
 	) => Promise<boolean>;
 	readonly continueCreation: (chatId: ChatId) => Promise<boolean>;
-	/** Provider output proves the startup lifecycle crossed into a live turn. */
+
 	readonly completeCreation: (chatId: ChatId) => void;
 	readonly discardCreation: (chatId: ChatId) => void;
 	readonly archiveProgressByChat: Record<string, ChatArchiveProgressPhase>;
@@ -314,13 +298,7 @@ type ChatsState = {
 		model: string,
 		opts?: {
 			readonly title?: string;
-			/**
-			 * Create the chat on another computer. When set to a non-active
-			 * environment the RPC is addressed to that environment's own client,
-			 * every local-store write is skipped (the target's stores are seeded
-			 * during the follow-up switch), and only the prompt TEXT of
-			 * `startupInput` is delivered via the server-side `initialPrompt`.
-			 */
+
 			readonly environmentId?: string;
 			readonly runtimeMode?: RuntimeMode;
 			readonly worktreeId?: WorktreeId | null | Promise<WorktreeId | null>;
@@ -330,10 +308,10 @@ type ChatsState = {
 			readonly permissionMode?: PermissionMode;
 			readonly toolSearch?: boolean;
 			readonly startupInput?: ComposerInput;
-			/** False while the renderer must still materialize context/attachments. */
+
 			readonly startupReady?: boolean;
 			readonly workspaceRequested?: boolean;
-			/** Stable retry fields used only by the creation lifecycle. */
+
 			readonly operationId?: string;
 			readonly chatId?: ChatId;
 			readonly initialSessionId?: SessionId;
@@ -346,7 +324,7 @@ type ChatsState = {
 		readonly initialSessionId: SessionId;
 		readonly worktreeId: WorktreeId | null;
 		readonly startupQueueId: string | null;
-		/** Present only for remote-targeted creates: entities to seed during the switch. */
+
 		readonly remoteSeed?: {
 			readonly chat: Chat;
 			readonly initialSession: Session;
@@ -375,16 +353,9 @@ type ChatsState = {
 	readonly unarchive: (chatId: ChatId) => Promise<ChatUnarchiveOutcome>;
 	readonly remove: (chatId: ChatId) => Promise<void>;
 	readonly select: (chatId: ChatId | null) => void;
-	/**
-	 * Stamp the chat read (clears its unread style). Optimistic — patches the
-	 * cached `lastReadAt` immediately, then persists via `chat.markRead`.
-	 */
+
 	readonly markRead: (chatId: ChatId) => Promise<void>;
-	/**
-	 * Optimistically advance a chat's cached `lastMessageAt` to "now". Driven
-	 * by the live per-session status signal so a background chat lights up
-	 * unread the instant its agent finishes a turn, without a chat re-hydrate.
-	 */
+
 	readonly noteChatActivity: (chatId: ChatId) => void;
 };
 
@@ -684,12 +655,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			targetEnvironmentId !== undefined &&
 			targetEnvironmentId !== getActiveEnvironment()
 		) {
-			// Remote-targeted create: talk to the target computer directly and
-			// touch NOTHING local — this desktop's stores describe the active
-			// environment, and anything written here would be snapshotted away
-			// by the follow-up switch anyway. The returned `remoteSeed` is
-			// handed to `switchToEnvironment` so the chat is selectable the
-			// moment the target environment activates.
 			const remoteChatId =
 				opts?.chatId ?? ChatId.make(`chat_${crypto.randomUUID()}`);
 			const remoteSessionId =
@@ -995,15 +960,11 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					),
 				},
 			}));
-			// Refresh the worktree projection without gating the acknowledged chat.
-			// This side request can be delayed independently of chat creation; awaiting
-			// it leaves the provisional setup surface mounted while the real turn runs
-			// behind it, so the transcript only appears after a navigation remount.
+
 			if (chat.worktreeId !== null) {
 				void useWorktreesStore.getState().refresh(projectId);
 			}
-			// Land the new chat in front of the project's existing list and
-			// mark it active so the renderer immediately swaps to it.
+
 			set((s) => {
 				const stillOwnsSelection =
 					s.selectedChatId === chatId &&
@@ -1026,15 +987,12 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					},
 				};
 			});
-			// Mirror the initial session into the sessions store and select it
-			// so the chat surface (composer, message list, cost footer) wires up
-			// on the very next render.
+
 			useSessionsStore.setState((s) => {
 				const stillOwnsSelection =
 					s.selectedSessionId === initialSessionId &&
 					s.selectedSessionByProject[projectId] === initialSessionId;
-				// The live chat stream can hydrate this row before create() resolves.
-				// Deduplicate the row without dropping the selection transition.
+
 				return {
 					selectedSessionId: stillOwnsSelection
 						? initialSession.id
@@ -1057,9 +1015,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		} catch (err) {
 			const reportableError = chatStoreErrorMessage(err);
 			if (reportableError === null) {
-				// Replacing a retained stream interrupts the in-flight RPC fiber. The
-				// durable command/outbox remains authoritative, so keep the optimistic
-				// chat selected while its creation projection catches up.
 				set((s) => ({
 					error: null,
 					creatingByProject: {
@@ -1085,9 +1040,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					(command) => command.commandId === commandId && command.retryable,
 				);
 			if (retryable) {
-				// Transport interruption does not reject a retry-safe creation. Keep
-				// its provisional shell and durable outbox entry until replay or the
-				// creation-status stream supplies an authoritative outcome.
 				set((s) => ({
 					error: null,
 					creatingByProject: {
@@ -1277,10 +1229,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					kind: "chat.creation.discard",
 					payload: { operationId: creation.operationId },
 				});
-			} catch {
-				// Local discard remains responsive; a reconnect list can reconcile
-				// the durable operation if the server did not receive this request.
-			}
+			} catch {}
 		})();
 		if (creation.startupQueueId !== null) {
 			dropQueuedMessage(
@@ -1378,8 +1327,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				kind: "chat.setWorktree",
 				payload: { chatId, worktreeId },
 			});
-			// Mirror the worktree change onto every member session in the
-			// renderer cache; the server has already updated the DB rows.
+
 			overlayActiveEnvironmentShell((shell) => {
 				const projectId = findChatProject(shell.chatsByProject, chatId);
 				if (projectId === null) return undefined;
@@ -1408,9 +1356,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		}
 	},
 	setActiveSession: async (chatId, sessionId) => {
-		// Optimistic — patch local state first so the sidebar's last-active
-		// memo is immediate. Server reconciles on success; on failure we just
-		// log via `error`.
 		overlayActiveEnvironmentShell((shell) => {
 			const projectId = findChatProject(shell.chatsByProject, chatId);
 			if (projectId === null) return undefined;
@@ -1428,9 +1373,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				},
 			};
 		});
-		// Persist cloud selection whenever compute is already online so the
-		// metadata-only catalog can restore the same live thread after sleep. A
-		// cache-only selection while paused still must not wake the sandbox.
+
 		const cloudSummary = cloudSummaryForChat(chatId);
 		if (
 			cloudSummary !== null &&
@@ -1569,10 +1512,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				} else {
 					definitiveFailure = true;
 				}
-			} catch {
-				// A disconnect after commit is ambiguous. Reconcile on hydration and do
-				// not offer a destructive override until the server answers definitively.
-			}
+			} catch {}
 			if (reconciled !== null) {
 				result = reconciled;
 			} else {
@@ -1639,9 +1579,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 			}
 		}
 
-		// The RPC is the commit point. Reconcile every local store synchronously
-		// before starting optional refresh work so the archived live view cannot
-		// linger or turn a successful mutation into a reported failure.
 		const projectId = projectIdBeforeArchive ?? result.chat.projectId;
 		useArchivePreviewStore.getState().upsertChat(result.chat);
 		if (result.job?.status === "queued" || result.job?.status === "running") {
@@ -1894,9 +1831,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 					selectedChatByProject: perProject,
 				};
 			});
-			// Drop the chat's sessions from the renderer cache. The server has
-			// cascaded the rows; this just keeps the UI in lockstep without a
-			// re-hydrate round-trip.
+
 			const projectSessions =
 				projectId === null ? [] : (activeSessionsByProject()[projectId] ?? []);
 			const deletedSessions = projectSessions.filter(
@@ -1945,8 +1880,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 							: s.selectedSessionId,
 				};
 			});
-			// Dispose the deleted chat's terminals (closing their PTYs) and drop its
-			// dock layout so nothing lingers after the chat is gone.
+
 			useTerminalsStore.getState().disposeChat(ref);
 			useUiStore.getState().clearChatPanels(ref);
 		} catch (err) {
@@ -1985,9 +1919,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		) {
 			void useWorkspaceStore.getState().select(projectId);
 		}
-		// Land on the chat's last-active live tab, or another live tab when that
-		// memo is stale. An active chat with no live tabs is interrupted legacy
-		// state, so explicitly restore its persisted active tab below.
+
 		const chat = chatsByProject[projectId ?? ""]?.find((c) => c.id === chatId);
 		if (chat === undefined) return;
 		const projectSessions =
@@ -2007,7 +1939,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				selection.recoverArchivedSessionId,
 			);
 		}
-		// Viewing a chat marks it read. `markRead` no-ops for archived chats.
+
 		void get().markRead(chatId);
 	},
 	markRead: async (chatId) => {
@@ -2017,7 +1949,7 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 		if (projectId === null) return;
 		const chat = (chatsByProject[projectId] ?? []).find((c) => c.id === chatId);
 		if (chat === undefined || chat.archivedAt !== null) return;
-		// Already read and no fresh activity — skip the round-trip.
+
 		if (!isChatUnread(chat, null)) return;
 		const now = new Date();
 		const patch = (target: Chat, lastReadAt: Date): Chat =>
@@ -2048,7 +1980,6 @@ export const useChatsStore = create<ChatsState>((set, get) => ({
 				},
 			}));
 		} catch (err) {
-			// Non-fatal — the optimistic stamp already cleared the unread style.
 			set({ error: formatError(err) });
 		}
 	},
@@ -2116,8 +2047,6 @@ export async function archiveChatWithConfirm(chatId: ChatId): Promise<void> {
 	}
 }
 
-// Mirror `selectedChatId` from the active project's slot — same pattern
-// as `useSessionsStore` so switching projects swaps the active chat too.
 useWorkspaceStore.subscribe((ws, prev) => {
 	if (ws.selectedFolderId === prev.selectedFolderId) return;
 	const slot =

@@ -46,10 +46,7 @@ const ConnectIdentityClaims = Schema.Struct({
 
 const PAIRING_TTL_MS = 5 * 60 * 1000;
 const NEARBY_PAIRING_TTL_MS = 2 * 60 * 1000;
-/**
- * Live pairing codes allowed at once, so the settings dialog and the serve
- * terminal's boot code can coexist without invalidating each other.
- */
+
 const MAX_ACTIVE_PAIRING_CODES = 3;
 
 const SAFETY_WORDS = [
@@ -131,11 +128,6 @@ interface ApiConfigAuthRow {
 	readonly api_mint_public_key: string | null;
 }
 
-/**
- * Human-typable pairing code: unambiguous uppercase alphabet, rejection
- * sampling so every character is uniform. Displayed as `ABCD-EFGH`; stored
- * and redeemed in canonical dash-less form.
- */
 const randomShortPairingCode: Effect.Effect<string> = Effect.sync(() => {
 	const alphabet = SHORT_PAIRING_CODE_ALPHABET;
 	const limit = 256 - (256 % alphabet.length);
@@ -258,7 +250,6 @@ export const LanAuthServiceLive = Layer.effect(
 		const nearbyAdmission = yield* Semaphore.make(1);
 		const nearbyChallenges = yield* Ref.make(new Map<string, number>());
 
-		// Gateway credentials live only for the local connection, never in the paired-device table.
 		const workspaceTokens = new Map<
 			string,
 			{
@@ -633,7 +624,6 @@ export const LanAuthServiceLive = Layer.effect(
 							requestId: request.requestId,
 							cause,
 						});
-						// Presentation must never invalidate a valid pairing request.
 					}
 				});
 			}
@@ -941,7 +931,7 @@ export const LanAuthServiceLive = Layer.effect(
 							[...codes].filter(([, entry]) => entry.expiresAtMs > now),
 						);
 						next.set(code, { expiresAtMs });
-						// Insertion order is creation order — drop the oldest first.
+
 						while (next.size > MAX_ACTIVE_PAIRING_CODES) {
 							const oldest = next.keys().next().value;
 							if (oldest === undefined) break;
@@ -959,8 +949,6 @@ export const LanAuthServiceLive = Layer.effect(
 				}).pipe(Effect.mapError(toLanAuthError)),
 			redeemPairingCode: (code, device) =>
 				Effect.gen(function* () {
-					// Typed short codes tolerate case and the display dash; legacy
-					// `zp_…` codes pass through the normalizer untouched.
 					const canonical = normalizePairingCodeInput(code);
 					const now = yield* Clock.currentTimeMillis;
 					const status = yield* Ref.modify(pairingCodes, (codes) => {

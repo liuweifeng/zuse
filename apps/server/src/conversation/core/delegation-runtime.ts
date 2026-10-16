@@ -119,7 +119,7 @@ export const makeDelegationRuntime = (
 				(current.child_exists === 1 && !ended.has(current.child_status ?? ""))
 			)
 				return;
-			// A child response is not its final result while nested work or its completion continuation is pending.
+
 			const descendants = yield* pendingDescendants(row);
 			if (descendants.length > 0) return;
 			const rows = yield* queries.messageList({
@@ -305,7 +305,6 @@ export const makeDelegationRuntime = (
 			);
 		});
 	const sweep = Effect.gen(function* () {
-		// Eligible rows only: long-running parents cannot starve later completed work.
 		const rows = yield* sql<DelegationRow>`SELECT d.* FROM session_delegations d
    LEFT JOIN sessions parent ON parent.id=d.parent_session_id
    LEFT JOIN session_turns pt ON pt.id=d.parent_turn_id AND pt.session_id=d.parent_session_id

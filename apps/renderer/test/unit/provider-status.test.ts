@@ -115,7 +115,7 @@ describe("provider update state", () => {
 					IDLE_PROVIDER_UPDATE_STATE,
 			).toEqual(IDLE_PROVIDER_UPDATE_STATE);
 		}
-		// A second request while running does not start another update.
+
 		await useProvidersStore.getState().updateProvider("local", "claude");
 		expect(update.stream).toHaveBeenCalledTimes(1);
 	});

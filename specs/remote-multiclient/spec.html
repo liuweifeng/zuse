@@ -121,7 +121,6 @@
     <span>Companion: <code>README.md</code>, <code>parallel-handoffs.md</code></span>
   </div>
 
-  <!-- ============================ SUMMARY ============================ -->
   <h2 id="summary">Executive summary</h2>
   <p>Zuse today is a single Electron process: the renderer talks to <code>@zusehq/server</code> over Electron IPC, chats live in SQLite as mutable CRUD rows, and live updates come from an in-memory pub/sub. We want the same server to be driven by <b>many clients</b> (desktop, mobile, browser) running on <b>many hosts</b> (laptop, SSH dev-box, cloud container) — all over one WebSocket contract.</p>
   <div class="box key">
@@ -130,7 +129,6 @@
   </div>
   <p>The single genuine architectural gap is <b>persistence</b>: mutable CRUD + in-memory pub/sub cannot give a mobile client gap-free reconnect, offline snapshots, or multi-writer ordering. We close it with <b>event sourcing</b> (an append-only log with a global <code>sequence</code>, projected into the existing tables) and, in the same pass, swap the SQLite driver to Node's built-in <b><code>node:sqlite</code></b> so one persistence layer runs identically under Electron and headless Node.</p>
 
-  <!-- ============================ PART I ============================ -->
   <h2 id="today">1 · Where we are today</h2>
 
   <h3 id="today-process">Process model</h3>
@@ -186,7 +184,6 @@ Electron main
     <tr><td>Run off the laptop</td><td>better-sqlite3 native binding, Electron-only boot</td><td>Headless/cloud needs a host-agnostic boot + a portable SQLite.</td></tr>
   </table>
 
-  <!-- ============================ PART II ============================ -->
   <h2 id="future">2 · Where we're going</h2>
 
   <h3 id="future-env">The environment model</h3>
@@ -232,7 +229,6 @@ Electron main
     <div class="box note"><div class="t">Cloud worktree</div><p style="margin:0">A provisioner boots <code>zuse serve</code> in a container with a persistent volume, clones the repo / creates the worktree on it, registers <code>providerKind:"cloud"</code>. Identical UI, identical sync — the laptop can be asleep.</p></div>
   </div>
 
-  <!-- ============================ DECISIONS ============================ -->
   <h2 id="decisions" style="border:none; margin-bottom:0">3 · Decisions</h2>
   <p class="lead" style="margin-top:6px">Each decision is recorded ADR-style: context, the call, alternatives weighed, and consequences.</p>
 
@@ -306,7 +302,6 @@ Electron main
     <p>No long-lived secrets on the device; revocation is per-device at the api; the LAN path works with zero cloud dependency.</p>
   </div>
 
-  <!-- ============================ CHANGES ============================ -->
   <h2 id="changes">4 · What changes, concretely</h2>
   <p>Change inventory by area. <span class="add">green = add</span>, <span class="del">red = change/replace</span>.</p>
   <table>
@@ -325,7 +320,6 @@ Electron main
     <tr><td>Auth/pairing</td><td><code>apps/server</code> connect handlers, <code>credentials-service.ts</code></td><td><span class="add">+ register <code>connect.*</code>, bearer/QR pairing, device DPoP, WorkOS wiring</span></td><td>C</td></tr>
   </table>
 
-  <!-- ============================ DEEP DIVE ============================ -->
   <h2 id="deep">5 · Core design</h2>
 
   <h3>5.1 Events table + projector</h3>
@@ -418,7 +412,6 @@ export const wsClientProtocolLayer = (url) =&gt;
   <h3>5.6 Mobile: offline &amp; reconcile</h3>
   <p>The Expo client imports <code>MemoizeRpcs</code> from <code>@zuse/contracts</code> directly (the contract is transport-agnostic — no type duplication). It caches shell/thread snapshots as JSON in <code>expo-file-system</code> and the connection catalog (host + bearer, keyed by <code>environmentId</code>) in <code>expo-secure-store</code>. On launch it renders the snapshot instantly, then opens the stream with the snapshot's highest <code>sequence</code> as <code>sinceSequence</code> and reconciles the delta.</p>
 
-  <!-- ============================ DATA MODEL ============================ -->
   <h2 id="datamodel">6 · Data model reference</h2>
   <p>After D1/D2 the write model is event-sourced; the read model is the same tables, now projections. The <code>events</code> table is the only truth; everything else is rebuildable.</p>
   <table>
@@ -431,7 +424,6 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td><code>projection_state</code> (optional)</td><td>Projector high-water mark for catch-up</td><td><code>ProjectorCatchup</code></td></tr>
   </table>
 
-  <!-- ============================ EXEC ============================ -->
   <h2 id="exec">7 · Execution &amp; parallelism</h2>
   <div class="diagram"><pre>PR0 wire-contract ✅ ── enables everything
    ├──► A  sync-core (event sourcing + node:sqlite)     ── persistence track
@@ -465,7 +457,6 @@ export const wsClientProtocolLayer = (url) =&gt;
   </table>
   <p><b>Merge order:</b> A lands the <code>wire</code> flip first, then rebase B-renderer. F, G, D touch disjoint trees and merge in any order. C → E → H serialize after their deps.</p>
 
-  <!-- ============================ RISKS ============================ -->
   <h2 id="risks">8 · Risks &amp; mitigations</h2>
   <table>
     <tr><th>#</th><th>Risk</th><th>Mitigation</th></tr>
@@ -479,7 +470,6 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td>R8</td><td>API is a new attack surface.</td><td>Short-lived DPoP tokens, WorkOS-gated, no chat data in path; pen-test before exposing.</td></tr>
   </table>
 
-  <!-- ============================ VERIFY ============================ -->
   <h2 id="verify">9 · Verification &amp; rollout</h2>
   <ul>
     <li><b>A</b> — <code>appendEvent</code> ordering + unique-violation retry tests; property test "replay from 0 reproduces the <code>messages</code> projection"; reconnect test (stream → drop → resubscribe <code>sinceSequence</code> → zero gaps/dupes), in-memory sqlite. Electron app still streams a chat end-to-end.</li>
@@ -492,7 +482,6 @@ export const wsClientProtocolLayer = (url) =&gt;
   </ul>
   <p><b>Rollout:</b> the Electron in-process path is the control throughout — every PR keeps it green. WS, SSH, mobile, and cloud light up additively behind their own entry points, so partial progress never regresses the shipping desktop app.</p>
 
-  <!-- ============================ FUTURE ============================ -->
   <h2 id="future-scope">10 · Future / explicitly out of scope (v1)</h2>
   <table>
     <tr><th>Item</th><th>Why deferred</th></tr>
@@ -503,7 +492,6 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td><b>API-mediated folder prompts</b></td><td>Headless FolderPicker returns null in v1; forwarding the prompt to a connected client is a later refinement.</td></tr>
   </table>
 
-  <!-- ============================ GLOSSARY ============================ -->
   <h2 id="glossary">Glossary</h2>
   <table>
     <tr><td><b>Environment</b></td><td>A host running <code>@zusehq/server</code>; has a <code>providerKind</code> + endpoint.</td></tr>
@@ -515,7 +503,6 @@ export const wsClientProtocolLayer = (url) =&gt;
     <tr><td><b>Managed tunnel</b></td><td>Cloudflare Tunnel that exposes the environment's WS endpoint for reach-anywhere.</td></tr>
   </table>
 
-  <!-- ============================ PROGRESS ============================ -->
   <h2 id="progress">Progress log</h2>
   <table>
     <tr><th>Date</th><th>Commit</th><th>What</th></tr>

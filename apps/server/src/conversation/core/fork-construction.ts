@@ -104,7 +104,7 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 					background: true,
 					forkFromResume: plan.forkMode === "resume",
 				};
-				// A crash may have committed the chat before its initial session.
+
 				const chats =
 					yield* sql`SELECT id FROM chats WHERE id=${plan.chatId}`.pipe(
 						Effect.orDie,
@@ -124,14 +124,13 @@ export const makeForkConstruction = (options: TranscriptOperationsOptions) => {
 			if (record.completed_at !== null)
 				return { chat, session, forkMode: plan.forkMode };
 			for (const message of plan.messages) {
-				// The domain receipt for this stable ID also makes crash retries idempotent.
 				yield* options.persistMessage(
 					session.id,
 					message.content,
 					forkMessageId(session.id, message.id),
 				);
 			}
-			// Admission cannot open until the provider context and entire transcript agree.
+
 			yield* sql
 				.withTransaction(
 					Effect.gen(function* () {

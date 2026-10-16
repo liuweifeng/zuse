@@ -1,15 +1,3 @@
-/**
- * Shared spec for the `emit_ui` generative-UI surface. One module owns the
- * component catalogue — names, prop schemas, and descriptions — so the
- * orchestration tool description (packages/agents), the server-side
- * validator (apps/server), and the transcript renderer's component library
- * (apps/renderer) can never drift.
- *
- * Specs are OpenUI Lang text parsed by `@openuidev/lang-core`:
- * `root = Component(arg, ...)`, strictly positional arguments, children
- * nested via arrays or `name = ...` references.
- */
-
 import {
 	type ASTNode,
 	createParser,
@@ -27,7 +15,6 @@ export const UI_SPEC_VERSION = 1;
 /** Hard cap applied before parsing — specs are chat content, keep them small. */
 export const UI_SPEC_MAX_CHARS = 32 * 1024;
 
-/** Nested component calls or `name = ...` references, e.g. `[stat1, stat2]`. */
 const elementList = z.array(z.unknown()).max(64);
 const tone = z.enum(["neutral", "good", "warn", "bad"]);
 const fieldName = z
@@ -216,8 +203,6 @@ export const generativeUiComponents = {
 		}),
 	},
 	FollowUps: {
-		// Buttons that send a new message read as unclear actions; answers
-		// should end in prose or a visual instead.
 		advertised: false,
 		description:
 			"Suggested next steps as buttons. Clicking one sends its prompt as the user's next message. 1-6 items.",
@@ -329,7 +314,6 @@ const unwrapDef = (schema: z.core.$ZodType): Record<string, unknown> => {
 	return def;
 };
 
-/** Short type label for a prop, matching the syntax lang-core prompts use. */
 const propTypeLabel = (schema: z.core.$ZodType): string => {
 	const def = unwrapDef(schema);
 	switch (def.type) {
@@ -399,8 +383,6 @@ const uiSpecParser = createParser(
 	generativeUiJsonSchema() as Parameters<typeof createParser>[0],
 );
 
-/** Bound reference expansion BEFORE materialization, which otherwise duplicates
- * shared subtrees exponentially. Only the static language subset is supported. */
 const validateStaticProgram = (spec: string): void => {
 	const statements = split(tokenize(spec));
 	const expressions = new Map<string, ASTNode>();
@@ -476,11 +458,8 @@ const requireElement = (value: unknown, where: string): ElementNode => {
 	return value;
 };
 
-/** Fields in the enclosing Form, keyed by name; null outside a Form. */
 type FormScope = Set<string> | null;
 
-/** Apply the full Zod constraints plus structural rules lang-core does not
- * know: ranges, collection caps, table shape, and Form/field nesting. */
 const validateElement = (element: ElementNode, form: FormScope): void => {
 	const name = element.typeName;
 	if (!Object.hasOwn(generativeUiComponents, name))
@@ -583,7 +562,7 @@ export const validateGenerativeUiSpec = (
 	try {
 		validateStaticProgram(spec);
 		result = uiSpecParser.parse(spec);
-		// lang-core's own errors name the exact field; report them first.
+
 		if (result.root && result.meta.errors.length === 0)
 			validateElement(result.root, null);
 	} catch (error) {
@@ -606,8 +585,7 @@ export const validateGenerativeUiSpec = (
 	if (result.meta.incomplete) {
 		problems.push("Spec looks truncated (incomplete input).");
 	}
-	// Query()/Mutation() would call tools at render time; the renderer never
-	// wires a tool provider. The only interactions are user-sent messages.
+
 	if (
 		result.queryStatements.length > 0 ||
 		result.mutationStatements.length > 0

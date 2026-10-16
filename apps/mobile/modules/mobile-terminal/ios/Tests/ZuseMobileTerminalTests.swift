@@ -182,7 +182,7 @@ final class ZuseMobileTerminalTests: XCTestCase {
       object: UIPasteboard.general
     )
     UIPasteboard.general.string = "hello\nworld\u{1B}"
-    // Let UIKit deliver its main-thread change notification before the read.
+
     wait(for: [pasteboardChange], timeout: 5)
     view.paste(nil)
     XCTAssertEqual(
@@ -400,7 +400,7 @@ final class ZuseMobileTerminalTests: XCTestCase {
         action: GHOSTTY_MOUSE_ACTION_PRESS,
         button: GHOSTTY_MOUSE_BUTTON_LEFT,
         modifierFlags: [],
-        // The fresh press must work after reset, independent of font metrics.
+
         location: .zero
       ),
       .remote

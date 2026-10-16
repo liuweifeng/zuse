@@ -54,8 +54,6 @@ export const reconcileCloudThenDrainMailboxLifecycleOutbox = async (input: {
 	readonly drain: () => Promise<number>;
 	readonly onReconcileFailure?: (cause: unknown) => void;
 }): Promise<number> => {
-	// Start delivery independently so a slow provider reconciliation cannot hold
-	// already-committed destructive fences hostage.
 	const drain = input.drain();
 	try {
 		await input.reconcile();

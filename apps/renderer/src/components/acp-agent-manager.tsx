@@ -621,7 +621,6 @@ function AcpCatalogDialog({
 
 class UnclosedQuoteError extends Error {}
 
-/** Splits a command line with POSIX-style quoting (no expansion). */
 const splitCommandLine = (line: string): string[] => {
 	const tokens: string[] = [];
 	let current: string | null = null;
@@ -665,7 +664,7 @@ function AcpCommandDialog({
 	agent?: AcpDefinition;
 	busy: boolean;
 	onClose: () => void;
-	/** Resolves to the failure message when the agent was not saved. */
+
 	save: (input: AcpDefinitionInput) => Promise<string | null>;
 }) {
 	const { message: t } = useMessages(["common", "settings"]);

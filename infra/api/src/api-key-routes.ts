@@ -12,7 +12,6 @@ import type { WorkosVerifier } from "./workos.ts";
 
 export type ApiKeyRouteContext = CloudWorkspaceStore | WorkosVerifier;
 
-/** Number of secret characters echoed back for display (`zk_` + 9). */
 const API_KEY_PREFIX_LENGTH = 12;
 
 const publicApiKey = (key: ApiKeyRecord) => ({

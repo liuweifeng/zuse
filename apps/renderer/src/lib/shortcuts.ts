@@ -16,7 +16,7 @@ const IS_MAC = isMacHost();
  */
 export function formatShortcut(id: Command): string {
 	const rules = keybindingsSnapshot().resolvedRules;
-	// Prefer an unconditional rule (matches menu accelerator semantics).
+
 	for (let i = rules.length - 1; i >= 0; i--) {
 		const r = rules[i];
 		if (r === undefined) continue;

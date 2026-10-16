@@ -149,10 +149,7 @@ let serverPromise: Promise<{
 	readonly server: HttpServer;
 	readonly port: number;
 }> | null = null;
-// Credentials belong to the live provider handle, including idle time between
-// turns. Drivers close that handle on disposal or transport loss; replacement
-// also revokes its token. A wall-clock expiry strands long-lived clients because
-// their bearer token is fixed at process startup and cannot be refreshed.
+
 const recordsBySession = new Map<string, RegistryRecord>();
 const recordsByHash = new Map<string, RegistryRecord>();
 
@@ -587,8 +584,7 @@ const ensureServer = async (): Promise<{
 				reject(new Error("Could not bind MCP gateway."));
 				return;
 			}
-			// Provider handles and active requests own execution lifetime. The shared
-			// listener must not keep an otherwise fully shut-down engine alive.
+
 			server.unref();
 			console.info(`[mcp-gateway] listening on 127.0.0.1:${address.port}`);
 			resolve({ server, port: address.port });

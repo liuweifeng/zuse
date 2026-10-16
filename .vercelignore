@@ -1,4 +1,3 @@
-# Local workspace context and credentials are never deployment inputs.
 .context
 .conductor
 .zuse

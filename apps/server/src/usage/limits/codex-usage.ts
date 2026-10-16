@@ -14,7 +14,6 @@ export const fetchCodexUsage = async (
 	return withCodexControlClient(
 		codexPath,
 		async (client) => {
-			// The shared client bounds startup separately. Give the read its full deadline.
 			const requestSignal = AbortSignal.any([
 				AbortSignal.timeout(5_000),
 				...(signal ? [signal] : []),

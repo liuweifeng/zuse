@@ -326,7 +326,6 @@ const endpointCandidates = (
 	},
 ];
 
-/** Routes a request to the matching endpoint. Failures surface as ApiError. */
 const route = (
 	request: Request,
 ): Effect.Effect<Response, ApiError, ApiContext> =>
@@ -364,8 +363,7 @@ const route = (
 		const githubOrganizationResponse =
 			yield* routeGithubOrganizationRequest(request);
 		if (githubOrganizationResponse !== null) return githubOrganizationResponse;
-		// Loading organizations is when members are matched to auto-join.
-		// Matching is best effort: it must never block listing organizations.
+
 		if (
 			(path === ApiPaths.organizations ||
 				path === ApiPaths.organizationCapabilities) &&
@@ -400,8 +398,7 @@ const route = (
 		if (machineResponse !== null) return machineResponse;
 		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
 		if (cloudBillingResponse !== null) return cloudBillingResponse;
-		// Route the narrow API-key management surface before the broad
-		// `/v1/cloud/**` workspace router.
+
 		const apiKeyResponse = yield* routeApiKeyRequest(request);
 		if (apiKeyResponse !== null) return apiKeyResponse;
 		const cloudWorkspaceResponse = yield* routeCloudWorkspaceRequest(request);
@@ -448,7 +445,6 @@ const route = (
 			return yield* Effect.fail(badRequest("invalid_auth_grant"));
 		}
 
-		// 1. Issue a link challenge (desktop, WorkOS-authenticated).
 		if (
 			method === "POST" &&
 			path === "/v1/client/environment-link-challenges"
@@ -472,7 +468,6 @@ const route = (
 			});
 		}
 
-		// 2. Link an environment: verify the Ed25519 proof, mint a credential.
 		if (method === "POST" && path === "/v1/client/environment-links") {
 			const principal = yield* requireWorkos(request);
 			const body = yield* readJson<{
@@ -576,9 +571,6 @@ const route = (
 				createdAtMs: nowMs,
 			});
 
-			// Provision a managed Cloudflare tunnel when requested and enabled, so the
-			// environment is reachable from anywhere. On failure we don't fail the
-			// link — the desktop keeps its LAN endpoint and can retry.
 			const tunnel = yield* ManagedTunnelProvider;
 			let tunnelHostname: string | undefined;
 			let connectorToken: string | undefined;
@@ -630,8 +622,6 @@ const route = (
 			});
 		}
 
-		// 2b. Unlink an environment (WorkOS-authenticated): deprovision its managed
-		// tunnel and delete the record so it disappears from the account.
 		if (method === "POST" && path === "/v1/client/environment-unlink") {
 			const principal = yield* requireWorkos(request);
 			const body = yield* readJson<{ readonly environmentId?: string }>(
@@ -660,7 +650,6 @@ const route = (
 			return json({ ok: true });
 		}
 
-		// 3. List the caller's environments (WorkOS-authenticated).
 		if (method === "GET" && path === "/v1/environments") {
 			const principal = yield* requireWorkos(request);
 			const environments = yield* store.listEnvironments(principal.accountId);
@@ -704,7 +693,6 @@ const route = (
 			});
 		}
 
-		// 4. DPoP token exchange.
 		if (method === "POST" && path === "/v1/client/dpop-token") {
 			const minted = yield* mintAccessToken(request, [
 				API_SCOPES.status,
@@ -717,7 +705,6 @@ const route = (
 			});
 		}
 
-		// 5. Register a mobile device (DPoP-scoped).
 		if (method === "POST" && path === "/v1/mobile/devices") {
 			const principal = yield* requireDpop(request, API_SCOPES.register);
 			const body = yield* readJson<{
@@ -765,9 +752,6 @@ const route = (
 			return json({ ok: true });
 		}
 
-		// Permanently delete the authenticated account. API records and managed
-		// infrastructure are removed first; a still-valid bearer can safely retry
-		// if the final identity-provider request is temporarily unavailable.
 		if (method === "DELETE" && path === "/v1/account") {
 			const principal = yield* requireWorkos(request);
 			const machineStore = yield* MachineStore;
@@ -778,10 +762,7 @@ const route = (
 					try: () => connections.value.removeAccount(principal.accountId),
 					catch: () => serviceUnavailable("connection_storage_unavailable"),
 				});
-			// Revoke API credentials and cloud entitlement before asynchronous
-			// infrastructure cleanup. This keeps new work from racing a 202 deletion.
-			// Otherwise a still-active key can create more work while deletion is
-			// converging and keep the account from ever reaching its terminal state.
+
 			for (const key of yield* cloudStore.listApiKeys(principal.accountId)) {
 				if (key.revokedAtMs === undefined)
 					yield* cloudStore.revokeApiKey(principal.accountId, key.keyId, nowMs);
@@ -929,7 +910,6 @@ const route = (
 			return json({ ok: true, cleanupPending: false });
 		}
 
-		// Path-parameterised environment routes.
 		const statusMatch = /^\/v1\/environments\/([^/]+)\/status$/.exec(path);
 		if (method === "POST" && statusMatch !== null) {
 			const environmentId = decodeURIComponent(statusMatch[1] ?? "");
@@ -1064,7 +1044,6 @@ const route = (
 			});
 		}
 
-		// 6. Heartbeat (desktop, environment-credential auth) — presence origin.
 		const heartbeatMatch = /^\/v1\/environments\/([^/]+)\/heartbeat$/.exec(
 			path,
 		);
@@ -1209,7 +1188,6 @@ const route = (
 			});
 		}
 
-		// 7. Agent activity (desktop, environment-credential auth) — never chat data.
 		const activityMatch = /^\/v1\/environments\/([^/]+)\/agent-activity$/.exec(
 			path,
 		);

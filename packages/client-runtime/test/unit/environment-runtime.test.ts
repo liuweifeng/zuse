@@ -340,18 +340,17 @@ describe("EnvironmentRuntimeRegistry", () => {
 		runtime.subscribe((view) => phases.push(view.phase));
 		const lease = runtime.retain("connect");
 		await waitUntil(() => scheduled.length === 1);
-		// The user-driven first attempt shows progress before failing.
+
 		expect(phases).toContain("connecting");
 		const failuresBeforeRetries = resolves;
 
 		expect(runtime.snapshot().phase).toBe("reconnecting");
-		// Drain the automatic ladder: each fired retry remains reconnecting until
-		// the final attempt exhausts the bounded retry policy.
+
 		phases.length = 0;
 		for (let index = 0; index < 6; index += 1) {
 			scheduled[index]?.task();
 			await waitUntil(() => resolves === failuresBeforeRetries + index + 1);
-			// Let the failure handling settle before inspecting the schedule.
+
 			for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
 		}
 		expect(scheduled.length).toBe(6);
@@ -359,7 +358,6 @@ describe("EnvironmentRuntimeRegistry", () => {
 		expect(phases).not.toContain("connecting");
 		expect(phases).toContain("reconnecting");
 
-		// An explicit retry starts a fresh, visible episode with new backoff.
 		const beforeManualRetry = resolves;
 		await runtime.retryNow().catch(() => undefined);
 		await waitUntil(() => resolves === beforeManualRetry + 1);
@@ -404,7 +402,6 @@ describe("EnvironmentRuntimeRegistry", () => {
 		const lease = runtime.retain("connect");
 		await waitUntil(() => scheduled.length === 1);
 
-		// Drain well past the bounded ladder; every failure schedules another try.
 		for (let index = 0; index < 9; index += 1) {
 			const before = resolves;
 			scheduled[index]?.();
@@ -415,7 +412,6 @@ describe("EnvironmentRuntimeRegistry", () => {
 		expect(runtime.snapshot().phase).toBe("reconnecting");
 		expect(delays.slice(6)).toEqual([30_000, 30_000, 30_000, 30_000]);
 
-		// The computer wakes: the next steady retry connects without user action.
 		available = true;
 		scheduled[9]?.();
 		await waitUntil(() => runtime.snapshot().phase === "connected");

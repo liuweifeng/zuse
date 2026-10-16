@@ -204,7 +204,7 @@ export const startPiSession = (
 							precision: "estimated",
 							source: "pi-message-usage",
 						});
-					// Settle failures at agent_end, after Pi's retries and tools have stopped.
+
 					break;
 				}
 				case "tool_execution_start": {
@@ -308,7 +308,7 @@ export const startPiSession = (
 				}
 			}
 		};
-		// A native file is the only resume authority; never fall back to --continue.
+
 		if (resumeCursor !== null) {
 			yield* attempt(async () => {
 				if (!isAbsolute(resumeCursor))
@@ -323,7 +323,7 @@ export const startPiSession = (
 						throw new Error("Invalid Pi session file.");
 					headerSeen = true;
 				};
-				// Validate incrementally so large histories do not get loaded twice in memory.
+
 				for await (const chunk of createReadStream(resumeCursor, {
 					encoding: "utf8",
 					signal: startup.signal,
@@ -361,7 +361,7 @@ export const startPiSession = (
 				);
 				await mkdir(root, { recursive: true, mode: 0o700 });
 				const file = join(root, `${randomUUID()}.jsonl`);
-				// Pi recognizes an empty explicit file and initializes its own native header.
+
 				await writeFile(file, "", { flag: "wx", mode: 0o600 });
 				return file;
 			}).pipe(
@@ -392,10 +392,6 @@ export const startPiSession = (
 		const rpc = new PiRpcClient(
 			binary,
 			[
-				// Agents get Zuse plugins only through the gateway extension below;
-				// `--no-mcp` keeps Pi's built-in MCP extension from connecting the
-				// user's `mcp.json` servers. Keep it before a dash argument: older
-				// Pi treats unknown flags as extension flags that take a value.
 				"--no-mcp",
 				"--mode",
 				"rpc",
@@ -532,7 +528,7 @@ export const startPiSession = (
 					const state = text.trim().startsWith("/")
 						? await rpc.request("get_state")
 						: {};
-					// Extension commands may complete without invoking the agent loop.
+
 					if (
 						active &&
 						dialogs.size === 0 &&
@@ -572,13 +568,11 @@ export const startPiSession = (
 					interrupted = true;
 					cancelDialogs();
 					finish();
-					// Let Pi stop tools in their own process groups before terminating the RPC process.
+
 					try {
 						await rpc.request("clear_queue", {}, 1000);
 						await rpc.request("abort", {}, 1000);
-					} catch {
-						/* A crashed process still needs bounded teardown. */
-					}
+					} catch {}
 					await rpc.close();
 					await extension?.close();
 					if (active) {

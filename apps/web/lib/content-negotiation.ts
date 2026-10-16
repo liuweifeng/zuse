@@ -99,7 +99,6 @@ export const negotiateContent = (
 		return markdown.specificity > html.specificity ? "markdown" : "html";
 	}
 
-	// Wildcards match both representations equally, so keep the web default.
 	return markdown.index < html.index && markdown.specificity > 0
 		? "markdown"
 		: "html";

@@ -51,7 +51,6 @@ export const createSharedResourcePool = <
 				const resource = await entry.resource;
 				await resource.close();
 			} catch {
-				/* Creation or teardown failed; no usable resource remains. */
 			} finally {
 				owned.delete(entry);
 			}

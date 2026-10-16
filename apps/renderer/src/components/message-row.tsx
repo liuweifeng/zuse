@@ -177,14 +177,6 @@ const formatCompactTokenDelta = (
 	return null;
 };
 
-/**
- * Render a single chat row. Variants are dispatched on `content._tag` rather
- * than `role` because role collapses tool_use and assistant text into one
- * bucket, but their visual treatment differs.
- *
- * Tool and user-question pairing data lives in ChatLookups context so settled
- * text rows can be memoized without receiving fresh lookup-map props.
- */
 function MessageRowImpl({
 	message,
 	sessionId,
@@ -206,7 +198,7 @@ function MessageRowImpl({
 	smoothStreaming?: boolean;
 	forkDestination?: ForkDestination;
 	sourceProjectId?: FolderId;
-	/** Generated UI in the latest turn may send messages. */
+
 	interactive?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
@@ -295,8 +287,7 @@ function MessageRowImpl({
 						)}
 					</div>
 				);
-			// The paired `user_question` row above renders the answer inline, so
-			// the standalone answer row is suppressed.
+
 			return null;
 		case "context_compaction":
 			return (
@@ -343,9 +334,7 @@ function MessageRowImpl({
 			return null;
 		case "error": {
 			if (readOnly) return <ToolErrorRow output={message.content.message} />;
-			// Failures stay quiet in the transcript. Anything that needs action
-			// (sign-in, usage limits, reconnecting an account) is surfaced above
-			// the composer by the provider error and sign-in trays.
+
 			return (
 				<ProviderErrorRow
 					error={classifyErrorContent(message.content, providerId)}
@@ -357,8 +346,6 @@ function MessageRowImpl({
 		case "model_switch":
 			return <ModelSwitchRow content={message.content} />;
 		case "interrupted":
-			// The user stopped the turn — a normal action, so render a small muted
-			// badge rather than an error bubble.
 			return (
 				<div className="flex justify-center py-1">
 					<span className="rounded-full bg-muted/50 px-2.5 py-0.5 text-[11px] text-muted-foreground">
@@ -369,7 +356,6 @@ function MessageRowImpl({
 	}
 }
 
-/** Tags selectable rows so text in them can be annotated. */
 function SelectableMessageRow(props: Parameters<typeof MessageRowImpl>[0]) {
 	const source = chatSelectionSource(props.message.content);
 	const row = <MessageRowImpl {...props} />;
@@ -459,7 +445,6 @@ function ThinkingMessageRow({
 	text: string;
 	redacted: boolean;
 }) {
-	// Shimmer while this thinking block is the live tip of a running turn.
 	const timeline = useOptionalRendererSessionTimeline(
 		sessionId ?? null,
 		"cache-only",
@@ -561,9 +546,7 @@ function ToolResultMessageRow({
 	content: MessageContent<"tool_result">;
 }) {
 	const { resultsByItemId } = useChatLookups();
-	// Suppress paired results — the matching ToolRow renders them inline.
-	// Only orphan errors (no tool_use found, e.g. driver dropped the use
-	// event) surface as a standalone error row.
+
 	const paired = resultsByItemId.has(content.itemId);
 	if (paired) return null;
 	return content.isError ? <ToolErrorRow output={content.output} /> : null;
@@ -575,10 +558,7 @@ function UserQuestionMessageRow({
 	content: MessageContent<"user_question">;
 }) {
 	const { answersByItemId } = useChatLookups();
-	// Pending questions live in the composer slot — ChatComposer swaps the
-	// editor for a QuestionCard. Once answered, the question + the user's
-	// selections render here as a `UserInputRow` accordion so the Q&A
-	// stays visible in scrollback like every other tool call.
+
 	const answers = answersByItemId.get(content.itemId);
 	if (answers === undefined || answers.length === 0) return null;
 	return <UserInputRow questions={content.questions} answers={answers} />;
@@ -639,13 +619,6 @@ function CompactRow({
 	);
 }
 
-/**
- * Strip the inline chip tokens (`[image:<id>]`, `@<path>`, `$<skill>`) from
- * text we render in the user bubble. The chips are surfaced as visual
- * thumbnails / chips below the bubble, so showing the raw token in-line is
- * just noise. Tokens for chip kinds the row didn't receive (legacy `user`
- * content, copy-pasted text) pass through unchanged.
- */
 const stripChipTokens = (
 	text: string,
 	attachments: ReadonlyArray<AttachmentRef>,
@@ -656,9 +629,7 @@ const stripChipTokens = (
 	for (const a of attachments) {
 		out = out.replaceAll(`[image:${a.id}]`, "");
 	}
-	// Attachments uploaded but submitted while still holding the renderer-side
-	// temp id — we strip them defensively too so the bubble doesn't show
-	// `[image:pending-xxx]`.
+
 	out = out.replace(/\[image:pending-[a-z0-9]+\]/gi, "");
 	for (const f of fileRefs) {
 		out = out.replaceAll(`@${f.relPath}`, "");
@@ -1013,8 +984,7 @@ function ProviderErrorRow({
 	const notice = describeProviderError(error, providerId, environmentId);
 	const copy = describe(notice, error);
 	const fullText = error.message.trim();
-	// Only unexplained failures get a red icon; limits, reconnects and sign-in
-	// prompts are expected states with recovery above the composer.
+
 	const quiet =
 		notice.kind !== "generic" &&
 		notice.kind !== "terminal" &&
@@ -1174,8 +1144,6 @@ function AttachmentChip({
 							name: a.originalName,
 						});
 					if (src.startsWith("blob:")) {
-						// The draft owns this URL and releases it after upload. An open
-						// image tab needs its own portable copy.
 						void fetch(src)
 							.then((response) => response.arrayBuffer())
 							.then((bytes) =>

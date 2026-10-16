@@ -1,5 +1,5 @@
--- Per-account counter locks serialize publication with the mutation transaction.
--- A compact latest-change index retains deletion tombstones without storing tokens/messages.
+
+
 CREATE TABLE api_cloud_catalog_heads (account_id text PRIMARY KEY, revision bigint NOT NULL DEFAULT 0);
 --> statement-breakpoint
 CREATE TABLE api_cloud_catalog_changes (

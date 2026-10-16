@@ -153,11 +153,6 @@ const isSystemdUserAvailable = async (): Promise<boolean> => {
 	}
 };
 
-/**
- * Earlier SSH bootstraps installed under the default `sh.zuse.serve` label.
- * Retire that install when it is SSH-managed so the host doesn't run twice;
- * a user's own `zuse serve` under the same label is never touched.
- */
 const retireLegacySshService = async (
 	paths: ServeServicePaths,
 ): Promise<void> => {

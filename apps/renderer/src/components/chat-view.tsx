@@ -213,7 +213,7 @@ export function ChatView({
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
 	readonly session: Session;
-	/** Height of the floating composer overlay; padded into the scroll range. */
+
 	readonly endInset?: number;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -266,8 +266,7 @@ export function ChatView({
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
 	const commandError = localError ?? pendingSessionCommandError(sessionRef);
-	// Command failures are presented by the provider error tray above the
-	// composer; a pre-ack failure the timeline already recovered from is cleared.
+
 	const recoveredPreAckError =
 		commandError !== null &&
 		isRecoveredPreAckSessionError(commandError, timeline.view);
@@ -374,8 +373,7 @@ export function ChatView({
 		() =>
 			(cloudSummary === null ? deriveChatTimelineRows : cloudRows)({
 				messages,
-				// The durable creation accordion exclusively narrates startup. Generic
-				// in-flight UI resumes only after that lifecycle projection is gone.
+
 				inFlight: shouldRenderGenericAgentStartup({
 					inFlight,
 					agentStarting,

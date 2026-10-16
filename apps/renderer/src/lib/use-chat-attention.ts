@@ -93,8 +93,7 @@ export function useChatAttention(
 		[timelines, questionAttachmentsByKey],
 	);
 	const sessionIdSet = useMemo(() => new Set(sessionIds), [sessionIds]);
-	// Supervised-mode permission prompts live only in the permissions store —
-	// they never arrive as messages, so they'd otherwise leave the row dark.
+
 	const permissionRequests =
 		useEnvironmentPermissions().data?.requestsById ?? {};
 	const permissionAttention = derivePermissionAttention(

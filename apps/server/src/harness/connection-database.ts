@@ -52,7 +52,7 @@ export const modelConnectionDatabase = (
 			const envelope = JSON.stringify(
 				sealStorage(previous, await key(), context(namespace, id)),
 			);
-			// A concurrent writer or disconnect wins over migration. Reread committed state.
+
 			await Effect.runPromise(
 				sql`INSERT INTO model_connection_secrets(namespace,connection_id,envelope,updated_at) VALUES(${namespace},${id},${envelope},${Date.now()}) ON CONFLICT(namespace,connection_id) DO NOTHING`,
 			);
@@ -73,7 +73,7 @@ export const modelConnectionDatabase = (
 			await Effect.runPromise(
 				sql`INSERT INTO model_connection_secrets(namespace,connection_id,envelope,updated_at) VALUES(${namespace},${id},${envelope},${Date.now()}) ON CONFLICT(namespace,connection_id) DO UPDATE SET envelope=excluded.envelope,updated_at=excluded.updated_at`,
 			);
-			// Tombstones prevent old vault entries from being restored if cleanup fails.
+
 			await Effect.runPromise(legacy.removeIntegration(namespace, id));
 		};
 		return {

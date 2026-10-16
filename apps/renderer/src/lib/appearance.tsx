@@ -20,9 +20,7 @@ export function AppearanceController() {
 		applyResolvedAppearance(resolvedAppearance);
 		try {
 			window.localStorage.setItem(LAST_APPEARANCE_MODE_KEY, appearanceMode);
-		} catch {
-			// Storage can be unavailable in private windows; the theme still applies.
-		}
+		} catch {}
 		window.zuse?.window?.setAppearanceMode?.(appearanceMode);
 		window.dispatchEvent(
 			new CustomEvent("zuse:appearance-change", {

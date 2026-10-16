@@ -45,7 +45,6 @@ describe("Ghostty browser key mapping", () => {
 		expect(shortcut("Insert", { ctrlKey: true })).toBe("copy");
 		expect(shortcut("Insert", { shiftKey: true })).toBe("paste");
 
-		// Ctrl+C must always reach the PTY as SIGINT, even when text is selected.
 		expect(shortcut("c", { ctrlKey: true })).toBeNull();
 		expect(shortcut("a", { ctrlKey: true })).toBeNull();
 		expect(shortcut("c", { metaKey: true, altKey: true })).toBeNull();

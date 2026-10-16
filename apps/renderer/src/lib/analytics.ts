@@ -87,7 +87,6 @@ const applyContext = (context: AnalyticsContext) => {
 		previousContext?.identityKind === "account" &&
 		context.identityKind === "anonymous"
 	) {
-		// Do not alias post-deletion/sign-out activity back to the old account.
 		analyticsSdk.dispatch((posthog) => posthog.reset(true));
 	}
 	analyticsSdk.dispatch((posthog) => {

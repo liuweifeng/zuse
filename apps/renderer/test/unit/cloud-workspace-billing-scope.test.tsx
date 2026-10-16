@@ -83,7 +83,7 @@ it.each([
 	expect(markup).not.toContain("Cloud · Personal");
 	if (role === "admin" || role === "billing") {
 		expect(markup).not.toContain("Subscribe");
-		// Billing remains accessible before activation and after cancellation.
+
 		expect(markup).toContain("Manage or cancel your Zuse subscription");
 		expect(markup).toContain("Buy credits");
 	} else {

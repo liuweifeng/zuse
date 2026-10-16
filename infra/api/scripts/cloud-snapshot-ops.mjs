@@ -58,7 +58,7 @@ try {
 		).rows.map((row) => row.record);
 		const refs = await readReferences(primary);
 		const other = reference ? await readReferences(reference) : null;
-		// A captured list can be supplied for read-only offline investigation; cleanup always rechecks Boat.
+
 		const provider = process.env.SNAPSHOT_INVENTORY_FILE
 			? JSON.parse(readFileSync(process.env.SNAPSHOT_INVENTORY_FILE, "utf8"))
 			: key
@@ -108,7 +108,7 @@ try {
 				"Snapshot must have exactly one attributable build; unknown snapshots are preserved",
 			);
 		const owner = candidates[0];
-		// Lock both account lifecycle domains before rechecking every reference and provider identity.
+
 		for (const client of [primary, reference])
 			await client.query(
 				"SELECT pg_advisory_xact_lock(hashtextextended($1,0))",

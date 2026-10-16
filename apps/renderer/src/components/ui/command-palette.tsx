@@ -82,7 +82,7 @@ export function CommandPaletteDialog<Value>({
 	const confirm = (item: CommandPaletteItem<Value> | undefined) => {
 		if (item === undefined) return;
 		confirmedRef.current = true;
-		// Unmount before dispatch: commands may focus content made inert by this modal.
+
 		flushSync(onClose);
 		onSelect(item.value);
 	};

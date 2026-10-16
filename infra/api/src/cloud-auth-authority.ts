@@ -54,8 +54,6 @@ export const canSeedCloudAuthSnapshot = (
 	targetProviderId === authorityProviderId &&
 	authorityProviderId === CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
 
-// Shared across real operations so a broker request cannot shorten a concurrent
-// device login's window. Passive status/login polling never extends this lease.
 const AUTH_TIMEOUT_SECONDS = 15 * 60;
 const AUTH_PROVISIONING_LEASE_MS = 2 * 60 * 1000;
 const PROVIDERS = ["claude", "codex", "cursor", "grok"] as const;
@@ -99,8 +97,6 @@ export const parseDeviceLoginOutput = (
 	};
 };
 
-// Retained authentication machines outlive template updates. Every auth operation
-// must use the same validated CLI without changing the account's credential home.
 const AUTH_CODEX_PATH_SOURCE = `const authCodexPrefix = (process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth") + "/toolchains/codex-${CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}";
 process.env.PATH = authCodexPrefix + "/node_modules/.bin:" + (process.env.PATH ?? "");
 `;
@@ -562,7 +558,6 @@ emitTiming();
 /** Compatibility name retained for the Codex-only grant contract test. */
 export const CODEX_GRANT_SOURCE = AUTH_GRANT_SOURCE;
 
-/** Where a persisted authority lives; carries no observed power state. */
 type AuthorityLocation = {
 	readonly provider: SandboxProviderAdapter;
 	readonly sandboxId: string;
@@ -630,10 +625,6 @@ const authorityProvider = Effect.gen(function* () {
 		);
 });
 
-// A persisted authority stays on the provider that hosts it. Changing the
-// configured authority provider moves new authorities only; an existing one
-// whose provider is no longer registered fails loudly instead of being
-// mistaken for a lost sandbox and forcing the account to reconnect.
 const providerForAuthority = (locator: { readonly provider: string } | null) =>
 	Effect.gen(function* () {
 		if (locator === null) return yield* authorityProvider;
@@ -650,7 +641,6 @@ const providerForAuthority = (locator: { readonly provider: string } | null) =>
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
 	options?: {
-		/** Only a persisted ready locator qualifies; never adopt a sandbox by label. */
 		readonly existingOnly?: boolean;
 	},
 ) {
@@ -676,8 +666,7 @@ const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 				storageIncarnationId: locator.storageIncarnationId,
 				authEpoch: locator.authEpoch,
 			} satisfies Authority;
-		// A persisted locator is authoritative. Never guess after its storage is
-		// lost; the account must explicitly reconnect Codex.
+
 		return null;
 	}
 	const stable = yield* provider
@@ -753,8 +742,6 @@ const waitForFile = Effect.fn("waitForCloudAuthFile")(function* (
 	return yield* Effect.fail(serviceUnavailable("cloud_auth_operation_timeout"));
 });
 
-// The version covers every uploaded program, including pinned CLI versions.
-// Keep readiness on the sandbox so API restarts do not repeat initialization.
 const AUTH_BOOTSTRAP_FILES = [
 	[AUTH_INITIALIZER, AUTH_INITIALIZER_SOURCE],
 	[AUTH_CONFIGURATOR, CONFIGURATOR_SOURCE],
@@ -839,7 +826,7 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 			);
 		});
 		if (ready) return authority;
-		// A failed repair must not leave a previously valid readiness marker behind.
+
 		yield* authority.provider
 			.writeTextFile(authority.sandboxId, AUTH_BOOTSTRAP_VERSION, "", "zuse")
 			.pipe(
@@ -917,13 +904,12 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 				serviceUnavailable("codex-auth-update-required"),
 			);
 		}
-		// Failed Grok installs must remain repairable on the next request.
+
 		const grokVersion = yield* readOptional(
 			authority,
 			`${AUTH_HOME}/grok-toolchain-version`,
 		);
 		if (grokVersion?.includes(GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION)) {
-			// Publish readiness only after initialization and toolchain validation succeed.
 			yield* authority.provider
 				.writeTextFile(
 					authority.sandboxId,
@@ -1139,7 +1125,7 @@ const readCloudAuthStatus = Effect.fn("readCloudAuthStatus")(function* (
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
-	// Passive reads must not perform legacy discovery/initialization either.
+
 	if (!wake && locator === null)
 		return new CloudAuthStatus({
 			authorityState: "not-created",
@@ -1249,8 +1235,7 @@ export const cloudAuthStatus = Effect.fn("cloudAuthStatus")(function* (
 	);
 	if (locator?.state === "ready" && locator.status !== undefined)
 		return locator.status;
-	// Even provider file reads can auto-wake an idle VM. Never contact the
-	// provider here, including on a cold cache after upgrading an old account.
+
 	return new CloudAuthStatus({
 		authorityState: locator === null ? "not-created" : "error",
 		providers: PROVIDERS.map(
@@ -1270,8 +1255,6 @@ export const cloudAuthStatus = Effect.fn("cloudAuthStatus")(function* (
 export const provisionCloudAuth = Effect.fn("provisionCloudAuth")(function* (
 	accountId: string,
 ) {
-	// This RPC is an explicit account action, so it may replace a persisted
-	// authority locator only after the provider proves its storage is gone.
 	yield* provisionAuthority(accountId, true);
 	return yield* readCloudAuthStatus(accountId, false, false);
 });
@@ -1549,7 +1532,6 @@ export interface IssueProviderGrantInput {
 
 type IssueAuthorityGrantInput = AuthorityGrantRequest;
 
-/** The durable request, lock, and cache identity shared by every grant attempt. */
 const grantPaths = (input: IssueAuthorityGrantInput, operationId: string) => ({
 	requestPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`,
 	resultPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`,
@@ -1584,15 +1566,9 @@ const grantRequestJson = (
 		authorityEpoch: authority.authEpoch,
 	});
 
-// Keep the same durable request/cache and refresh lock, but execute the
-// short operation directly instead of installing a service and polling.
-// Guest timing rides on stdout as sentinel lines the control plane strips and
-// allowlists before the existing JSON parse; the result value and exit status
-// are unchanged. Numbers only; the adapter returns no stderr.
 const GUEST_TIMING_PREFIX = "@zuse-auth-timing ";
 const GRANT_SHELL = `umask 077; printf %s "$1" > "$2" || exit $?; g0=$(date +%s%3N); flock -x "$3" node "$4" "$2" "$5" "$6"; code=$?; g1=$(date +%s%3N); printf '\n${GUEST_TIMING_PREFIX}{"grantNodeMs":%s}\n' "$((g1-g0))"; [ "$code" -eq 0 ] || exit "$code"; cat "$5"`;
-// Readiness is proven in the same guest run; a stale or missing bootstrap
-// reports "repair" and exits before any request is written or lock taken.
+
 const READINESS_REPAIR_EXIT = 75;
 const READINESS_CHECK_FAILED_EXIT = 70;
 const READY_GRANT_SHELL = `r0=$(date +%s%3N); state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; r1=$(date +%s%3N); printf '${GUEST_TIMING_PREFIX}{"readinessNodeMs":%s}\n' "$((r1-r0))"; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
@@ -1695,13 +1671,6 @@ const grantShellArgs = (
 	paths.cachePath,
 ];
 
-/**
- * One guest run for a persisted ready authority: verify the exact bootstrap,
- * incarnation and keys, then execute the grant, while the idle timeout is
- * extended concurrently. Anything short of a proven-ready execution returns
- * null so the caller takes the existing provisioning path with the same
- * request identity; the grant cache makes a lost response idempotent.
- */
 const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 	input: IssueAuthorityGrantInput,
 	operationId: string,
@@ -1777,8 +1746,7 @@ const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 		console.warn("[cloud-auth] authority timeout extension failed", {
 			sandboxId: location.sandboxId,
 		});
-	// Readiness was proven, so a failing grant is this attempt's answer, never a
-	// reason to run a second refresh through the provisioning path.
+
 	if (result.exitCode !== 0)
 		return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
 	return { authority: location, value };
@@ -2008,8 +1976,6 @@ export const issueProviderGrant = Effect.fn("issueProviderGrant")(function* (
 export const snapshotCloudAuthAuthority = Effect.fn(
 	"snapshotCloudAuthAuthority",
 )(function* (accountId: string, name: string, targetProviderId: string) {
-	// The pure check first: a target off E2B never seeds, whichever provider
-	// the authority runs on, and answering that needs no configuration.
 	if (!canSeedCloudAuthSnapshot(targetProviderId)) return undefined;
 	const recovered = yield* recoverAuthority(accountId);
 	if (recovered === null) return undefined;

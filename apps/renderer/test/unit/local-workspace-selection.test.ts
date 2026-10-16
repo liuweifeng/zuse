@@ -156,8 +156,6 @@ it("selects an unhydrated local tab without sending files, Git or a new terminal
 	});
 	useTerminalsStore.setState({ byKey: {}, ownerCatalogsByKey: {} });
 
-	// This is the real selection action, before the session summary arrives.
-	// It updates the transcript's selection but cannot discover the project slot.
 	useSessionsStore.getState().select(sessionId);
 	expect(useSessionsStore.getState().selectedSessionByProject[projectId]).toBe(
 		previousSessionId,
@@ -175,7 +173,7 @@ it("selects an unhydrated local tab without sending files, Git or a new terminal
 		worktreeId,
 		rootPath: worktreePath,
 	});
-	// Capture the resolved context outside React for the same consumers as the UI.
+
 	const resolved = ((): ReturnType<typeof useActiveContext> => context)();
 	if (resolved.status !== "ready") throw new Error("Workspace not ready");
 	expect(readFileSync(join(resolved.rootPath, "location.txt"), "utf8")).toBe(

@@ -86,7 +86,7 @@ export function SwitchAccountAction({
 	const currentId = sessionAccountId ?? null;
 	const current = all.find((option) => option.id === currentId) ?? all[0];
 	const targets = all.filter((option) => option.id !== currentId);
-	// Prefer the account chosen for new chats; it is usually the fresh one.
+
 	const preferredId = accounts.find((account) => account.preferred)?.id ?? null;
 	const suggested =
 		targets.find((option) => option.id === preferredId) ?? targets[0];
@@ -272,7 +272,6 @@ function ModeItem({
 	);
 }
 
-/** The "to" account: a plain label with one target, a dropdown with several. */
 function TargetPicker({
 	targets,
 	target,

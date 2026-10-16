@@ -13,9 +13,7 @@ export const PermissionKind = Schema.Union([
 	Schema.TaggedStruct("FileWrite", { path: Schema.String }),
 	Schema.TaggedStruct("Bash", { command: Schema.String }),
 	Schema.TaggedStruct("Network", { url: Schema.String }),
-	// Catch-all for tools we don't classify yet (`Read`, `Glob`, MCP, …). The
-	// server defaults these to AllowOnce auto-pass for now; surfacing the union
-	// member keeps the protocol open without a separate "unknown" path.
+
 	Schema.TaggedStruct("Other", {
 		tool: Schema.String,
 		summary: Schema.String,
@@ -115,10 +113,6 @@ export const PermissionRequestChange = Schema.Union([
 	}),
 ]);
 export type PermissionRequestChange = typeof PermissionRequestChange.Type;
-
-// ---------------------------------------------------------------------------
-// RPCs
-// ---------------------------------------------------------------------------
 
 /**
  * Live stream of pending requests across every session. The renderer

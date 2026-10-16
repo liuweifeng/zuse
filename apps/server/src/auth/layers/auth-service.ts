@@ -34,25 +34,14 @@ import {
 	type SessionBundle,
 } from "./workos.ts";
 
-/** Refresh when the access token is within this window of expiry. */
 const REFRESH_SKEW_MS = 60_000;
-/**
- * Re-check often enough to refresh production's five-minute access tokens
- * inside the skew window. The check only rotates when expiry is near; polling
- * itself never consumes a refresh token.
- */
+
 const REFRESH_POLL_INTERVAL = "30 seconds";
 
-/** How long `signIn` waits for the browser callback before giving up. */
 const SIGN_IN_TIMEOUT = "45 seconds";
 
 const SIGNED_OUT: AuthState = { _tag: "SignedOut" };
 
-/**
- * The build-time WorkOS client id. Public (safe to embed) — inlined by tsdown
- * `define` from `process.env.WORKOS_CLIENT_ID`, with the shared public AuthKit
- * identifier as the source-mode and Serve fallback.
- */
 const CLIENT_ID =
 	(process.env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 
@@ -66,9 +55,7 @@ const parseKeychainBundle = (raw: string | null): SessionBundle | null => {
 	if (raw === null) return null;
 	try {
 		return parseSessionBundle(JSON.parse(raw) as unknown);
-	} catch {
-		// Corrupt entry — treat as signed out.
-	}
+	} catch {}
 	return null;
 };
 
@@ -97,8 +84,7 @@ export const AuthServiceLive = Layer.effect(
 		const pubsub = yield* PubSub.unbounded<AuthState>();
 		const pending = yield* Ref.make<PendingSignIn | null>(null);
 		const lastKnown = yield* Ref.make<SessionBundle | null>(null);
-		// Serializes refreshes so two concurrent `getSession`/`getAccessToken`
-		// calls can't both mint a new token and clobber the keychain entry (R5).
+
 		const refreshLock = yield* Semaphore.make(1);
 
 		const readBundle = (): Effect.Effect<SessionBundle | null> =>
@@ -130,8 +116,6 @@ export const AuthServiceLive = Layer.effect(
 					),
 				);
 
-		// Refresh under the lock, re-reading first so a concurrent refresh that
-		// already ran is reused instead of repeated.
 		const mapStoreError = (cause: SessionStoreError): AuthTokenError =>
 			new AuthTokenError({
 				reason: `Failed to access auth session: ${cause.reason}`,
@@ -191,8 +175,6 @@ export const AuthServiceLive = Layer.effect(
 
 		const getAccessToken = (): Effect.Effect<string, AuthTokenError> =>
 			Effect.gen(function* () {
-				// Read request context here, not when constructing the shared service.
-				// Workspace access never delegates the host owner's account credentials.
 				const identity = yield* Effect.serviceOption(ConnectionIdentity);
 				if (Option.isSome(identity) && identity.value.kind === "workspace")
 					return yield* new AuthTokenError({
@@ -220,20 +202,15 @@ export const AuthServiceLive = Layer.effect(
 					return bundle.accessToken;
 				}
 				const fresh = yield* doRefresh(bundle);
-				// Refresh re-reads under the cross-process lock and may observe a
-				// different signed-in account, or outlive the connection credential.
+
 				yield* authorize(fresh);
 				return fresh.accessToken;
 			});
 
-		// Called (out of band) by the host shell when the deep link arrives. Always
-		// resolves or rejects the in-flight sign-in; never fails itself, so the
-		// host can fire-and-forget it.
 		const deliverCallback = (url: string): Effect.Effect<void> =>
 			Effect.gen(function* () {
 				const inflight = yield* Ref.get(pending);
-				// No sign-in in flight: a deep link arriving unsolicited is ignored —
-				// `zuse://` is an OS-wide surface any process can invoke (R4).
+
 				if (inflight === null) return;
 
 				const { code, state, error } = parseCallbackUrl(url);
@@ -371,7 +348,6 @@ export const AuthServiceLive = Layer.effect(
 			}
 		});
 
-		// An expired token refreshes on launch; a still-valid token is only read.
 		yield* Effect.forkScoped(
 			refreshIfPresent().pipe(
 				Effect.andThen(
@@ -384,9 +360,6 @@ export const AuthServiceLive = Layer.effect(
 			),
 		);
 
-		// Register our callback sink with the host. From here on, every
-		// `zuse://auth/callback` deep link the shell receives is funneled into
-		// `deliverCallback` (fire-and-forget — the effect never fails).
 		yield* shell.onCallbackUrl((url) => {
 			Effect.runFork(deliverCallback(url));
 		});

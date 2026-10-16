@@ -50,7 +50,6 @@ export function SessionSecretRequests({
 						requests: rows.filter((request) => request.status === "pending"),
 					});
 			} catch (cause) {
-				// A feature absent from an older runtime stays absent until reconnect/remount.
 				unsupported =
 					/unknown request tag|method not found|not implemented|unsupported.*rpc/i.test(
 						String(cause),

@@ -21,7 +21,7 @@ export const homeSelectionDefaults = (
 		!/^\d{1,10}\.\d{1,6}$/u.test(selection.actionTs)
 	)
 		return null;
-	// Only merge across other Home edits. Picker/default writes still invalidate old views.
+
 	const base =
 		profile.defaults.homeRevision?.current === profile.revision
 			? profile.defaults.homeRevision.base

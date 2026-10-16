@@ -5,8 +5,6 @@ import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { createServer } from "vite-plus";
 
-// Real IndexedDB and image decoding: verify reloads and failed writes preserve
-// the last committed wallpaper. No backend or user data is involved.
 const root = resolve(import.meta.dirname, "../..");
 const cacheDir = await mkdtemp(join(tmpdir(), "zuse-wallpaper-test-"));
 const server = await createServer({
@@ -163,7 +161,6 @@ try {
 	await settled();
 	assert.equal((await state()).opacity, 0.4);
 
-	// Simulate a wallpaper saved before automatic dithering was introduced.
 	for (const previousVersion of [0, 1, 2]) {
 		await page.evaluate(async (previousVersion) => {
 			const database = await new Promise((resolve, reject) => {

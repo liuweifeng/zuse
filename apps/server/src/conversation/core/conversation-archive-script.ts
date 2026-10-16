@@ -1,4 +1,3 @@
-/** Executes the configured chat archive cleanup script. */
 import { spawn } from "node:child_process";
 import {
 	ChatArchiveScriptError,

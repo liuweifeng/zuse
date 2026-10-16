@@ -133,8 +133,7 @@ export interface SandboxProviderAdapter {
 	readonly supportsIdempotentAllocation?: boolean;
 	/** Create/restore configures the requested timeout, including adopted machines. */
 	readonly configuresAllocationTimeout?: boolean;
-	// The placement choices this provider advertises. Providers with one fixed
-	// profile expose a single entry matching `resources`.
+
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
 	readonly create: (input: {
 		readonly sandboxId: string;

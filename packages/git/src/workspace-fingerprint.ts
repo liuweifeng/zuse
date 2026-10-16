@@ -177,8 +177,6 @@ export const observeWorkspaceFingerprintPaths = <Error, Requirements>(
 				continue;
 			}
 
-			// A single disappearing or unreadable path must not discard exact hashes
-			// for every healthy peer in its batch.
 			for (const relativePath of batch) {
 				const result = yield* attemptHash([relativePath]);
 				const hashes =

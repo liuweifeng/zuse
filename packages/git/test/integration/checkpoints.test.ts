@@ -65,7 +65,7 @@ describe("Git turn checkpoints", () => {
 		expect(await git(cwd, "show", ":file.txt")).toBe("staged");
 		expect(await git(cwd, "status", "--porcelain")).toBe(status);
 		expect(await git(cwd, "rev-parse", "HEAD")).toBe(head);
-		await restoreGitCheckpoint(cwd, baseline.id, after.id); // crash/retry after success
+		await restoreGitCheckpoint(cwd, baseline.id, after.id);
 	});
 	it("reuses durable refs after restart and rejects external edits, changed HEAD, and different worktrees", async () => {
 		const cwd = await repo();

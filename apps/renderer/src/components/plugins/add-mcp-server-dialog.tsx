@@ -46,7 +46,6 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip.tsx";
 /** Called once the server exists: connected, or waiting for browser sign-in. */
 export type McpServerAdded = (attempt: PluginAttempt, name: string) => void;
 
-/** Away from the Plugins page, adding a server lands on it. */
 const showOnPluginsPage: McpServerAdded = (attempt, name) =>
 	openPluginsPage(
 		attempt.state === "pending"
@@ -65,7 +64,7 @@ const EMPTY_DRAFT: CustomServerDraft = {
 
 type AddMcpServer = {
 	readonly open: () => void;
-	/** Why adding is unavailable here, or null when the user can add. */
+
 	readonly blockedReason: string | null;
 };
 
@@ -210,7 +209,6 @@ export function AddMcpServerDialog({
 			});
 			if (result.kind !== "attempt") throw new Error("Unexpected response");
 			if (result.state === "failed" || result.state === "cancelled") {
-				// The server isn't kept, so the user can fix the form and retry.
 				setInvalid(
 					result.error === "plugin_url_rejected" ||
 						result.error === "plugin_unreachable"

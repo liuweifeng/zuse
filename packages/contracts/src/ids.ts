@@ -44,8 +44,6 @@ export type CommandId = typeof CommandId.Type;
 export const EventId = makeEntityId("EventId");
 export type EventId = typeof EventId.Type;
 
-// App-owned execution and checkpoint identities.
-
 export const AttemptId = makeEntityId("AttemptId");
 export type AttemptId = typeof AttemptId.Type;
 

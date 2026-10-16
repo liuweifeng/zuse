@@ -63,6 +63,6 @@ it("merges an organization's local checkout with its cloud project", () => {
 		scoped.originsByFolder,
 		[{ projectId: "p1", repositoryIdentity: "github.com/acme/app" } as never],
 	);
-	// The cloud project is represented by the local checkout, not duplicated.
+
 	expect(merged.folders.map((f) => f.id)).toEqual(["org"]);
 });

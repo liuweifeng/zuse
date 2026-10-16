@@ -15,9 +15,7 @@ export const WORKSPACE_BOOTSTRAP_FILE =
 	"/var/lib/zuse/project-build/workspace-bootstrap.sh";
 export const WORKSPACE_RUNTIME_FILE =
 	"/var/lib/zuse/project-build/workspace-runtime.sh";
-// GitHub auth ships with the build for the same reason the bootstrap does:
-// base images are republished by hand, so an image older than the `gh` shim
-// would otherwise leave every workspace with an unauthenticated `gh`.
+
 export const GITHUB_AUTH_FILE = "/var/lib/zuse/project-build/github-auth.sh";
 export const WORKSPACE_REPOSITORY_FILE =
 	"/var/lib/zuse/project-build/workspace-repository.sh";

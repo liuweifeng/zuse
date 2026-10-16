@@ -17,8 +17,7 @@ export function openNewChatLanding(projectId: FolderId | null): void {
 	batchAtomUpdates(() => {
 		useUiStore.getState().setView("chat");
 		useUiStore.getState().setActiveMainTab("chat");
-		// Clear the destination slots before switching projects. Subscribers must
-		// never restore its previous chat while opening the landing.
+
 		if (projectId !== null) {
 			useChatsStore.setState((state) => ({
 				selectedChatByProject: {

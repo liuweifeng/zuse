@@ -17,7 +17,6 @@ type PageProps = {
 	params: Promise<{ slug?: string[] }>;
 };
 
-// All documentation is bundled and enumerated at build time.
 export const dynamicParams = false;
 
 export function generateStaticParams() {

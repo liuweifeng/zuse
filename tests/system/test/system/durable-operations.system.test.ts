@@ -268,9 +268,7 @@ describe("durable RPC operations", () => {
 			scope.defer(() => {
 				try {
 					blocker.exec("ROLLBACK");
-				} catch {
-					// The successful-path rollback already released the transaction.
-				}
+				} catch {}
 			});
 			blocker.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
 			const startedAt = Date.now();

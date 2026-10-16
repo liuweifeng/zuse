@@ -276,11 +276,9 @@ function ThreadScreen() {
 	const serverQueuePaused = useAtomValue(sessionQueuePausedAtom(stateKey));
 	const messages = useMemo(() => sanitizeMessages(rawMessages), [rawMessages]);
 	const turns = useMemo(() => groupTimelineTurns(messages), [messages]);
-	// A chat opened right after New Chat already holds its first prompt, so it
-	// never went through a send here. Pin that prompt to the top like a send.
+
 	const anchoredFirstTurnFor = useRef<string | null>(null);
-	// Computed here (not in the composer) so keystrokes never touch it and the
-	// composer needs no subscription to the message store.
+
 	const composerActivity = summarizeComposerActivity(turns.at(-1));
 	const transcriptScroll = useTranscriptScrollCoordinator({
 		initiallyDetached: restoredViewState?.mode === "detached",
@@ -308,9 +306,7 @@ function ThreadScreen() {
 		() => bundles.flatMap((bundle) => bundle.sessions),
 		[bundles],
 	);
-	// Plain derivations (not useMemo): several inputs flow into module-level
-	// atom actions, which the React Compiler treats as possibly mutating — it
-	// refuses to preserve manual memoization on them but auto-memoizes fine.
+
 	const chatThreads =
 		chatId === null
 			? detail === null
@@ -353,10 +349,6 @@ function ThreadScreen() {
 		return watchConnection(connKey, options);
 	}, [connKey, options]);
 
-	// One attempt per (chat, session) pair: if the RPC fails (or the chat
-	// stream echoes a stale active thread back), re-running would optimistic-
-	// patch → roll back → re-run forever — the "maximum update depth exceeded"
-	// crash when opening a freshly created thread.
 	const activationAttemptRef = useRef<string | null>(null);
 	useEffect(() => {
 		if (chatId === null || options === null) return;
@@ -377,9 +369,6 @@ function ThreadScreen() {
 
 	useEffect(() => {
 		if (normalizedSessionId.length > 0 && options !== null) {
-			// Paint the retained in-memory projection or disk snapshot first.
-			// Replacing the stream on every screen mount makes thread switching
-			// blank and needlessly replays the entire transcript.
 			void hydrateMessages(connKey, options, normalizedSessionId);
 			void hydrateGoal(connKey, options, normalizedSessionId);
 			void hydrateOutbox(connKey, normalizedSessionId);
@@ -414,8 +403,7 @@ function ThreadScreen() {
 		) {
 			return;
 		}
-		// A real transport replacement invalidates the old stream. This is the
-		// only screen lifecycle event that should force an authoritative replay.
+
 		void refreshMessages(connKey, options, normalizedSessionId);
 	}, [connKey, connectionSnapshot?.generation, normalizedSessionId, options]);
 
@@ -431,8 +419,7 @@ function ThreadScreen() {
 	useEffect(() => {
 		if (!pinnedHydrated) void hydratePinnedChats();
 	}, [pinnedHydrated]);
-	// Mark the chat read on open/focus (and when the chat resolves after a
-	// hydrate) so the inbox unread styling clears. Idempotent server-side.
+
 	useEffect(() => {
 		if (chatId === null || options === null) return;
 		if (
@@ -461,8 +448,6 @@ function ThreadScreen() {
 			: (connectionProblem ??
 				(connectionRecovering ? "Trying to reach your computer…" : null));
 
-	// Transfer editable offline drafts once into the durable ClientBus outbox.
-	// ClientBus owns every retry after this handoff.
 	useEffect(() => {
 		if (
 			!transportOnline ||
@@ -475,8 +460,6 @@ function ThreadScreen() {
 		void submitOutboxDrafts(connKey, options, normalizedSessionId);
 	}, [connKey, normalizedSessionId, transportOnline, options, queuedCount]);
 
-	// Cross-reference question rows so answered prompts collapse and the answer
-	// row can resolve selected option labels.
 	const { answeredQuestionIds, questionsByItemId } = useMemo(() => {
 		const answered = new Set<string>();
 		const questions = new Map<string, readonly UserQuestion[]>();
@@ -522,18 +505,14 @@ function ThreadScreen() {
 		queuePaused: serverQueuePaused,
 	});
 
-	// The live "working" row shows the whole time the agent runs, but not while a
-	// prompt takeover (permission / question / plan) owns the bottom slot.
 	const workingActive =
 		sessionActive &&
-		// Nothing runs while the cloud workspace itself is starting or asleep.
 		cloudLifecycleState === null &&
 		headPermission === null &&
 		(pendingQuestion === null || pendingQuestion.expired === true) &&
 		pendingPlanInteraction === null;
 	const workingSince = turns.at(-1)?.startedAt.getTime() ?? screenOpenedAt;
-	// Desktop-style wording: "Codex is working", or "Waiting for Codex" while a
-	// cloud message still sits in the mailbox for its runtime to claim.
+
 	const delivery = useAtomValue(sessionDeliveryAtom(stateKey));
 	const cloudSendWaiting =
 		options?.cloudWorkspaceId !== undefined &&
@@ -546,8 +525,7 @@ function ThreadScreen() {
 	const workingLabel = cloudSendWaiting
 		? `Waiting for ${agentName}`
 		: `${agentName} is working`;
-	// Like desktop's attach after create: once compute is up, connect so the
-	// runtime is recovered if it never came online to claim the message.
+
 	const attachedFor = useRef<string | null>(null);
 	useEffect(() => {
 		if (
@@ -745,9 +723,6 @@ function ThreadScreen() {
 		);
 	}, [messages, transcriptScroll.readerDetached]);
 
-	// Scroll events persist reader position only. LegendList and the keyboard-aware
-	// scroll view own end detection; duplicating that geometry here caused the jump
-	// control to disagree with the actual keyboard-adjusted end.
 	const onScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
 		const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
 		if (
@@ -1264,8 +1239,6 @@ function ThreadScreen() {
 							anchoredEndSpace,
 						})}
 				maintainScrollAtEnd={
-					// While a sent message holds the top, a growing reply extends
-					// below the fold (desktop behavior) instead of dragging it down.
 					transcriptScroll.readerDetached ||
 					transcriptScroll.anchorIndex !== null
 						? false
@@ -1333,8 +1306,6 @@ function ThreadScreen() {
 			/>
 			{initialTranscriptLoading &&
 			turns.length === 0 &&
-			// A preparing or resuming workspace has no history yet; its setup
-			// card is the loading state, never a false "couldn't load".
 			cloudLifecycleState === null ? (
 				<View
 					pointerEvents="box-none"
@@ -1452,8 +1423,7 @@ function ThreadScreen() {
 						left: 0,
 						right: 0,
 						bottom: 0,
-						// A soft fade, not an opaque floor: the transcript stays visible
-						// through the composer's glass so the blur reads as iOS material.
+
 						height: bottomAccessoryHeight + 16,
 						experimental_backgroundImage:
 							theme === "dark"
@@ -1616,8 +1586,6 @@ function ThreadScreen() {
 								session={detail?.session ?? null}
 								status={cloudLifecycleState === null ? sessionStatus : "idle"}
 								fresh={fresh}
-								// Cloud sends go to the account mailbox, which accepts them
-								// while the sandbox boots or sleeps.
 								online={
 									options.cloudWorkspaceId !== undefined || transportOnline
 								}

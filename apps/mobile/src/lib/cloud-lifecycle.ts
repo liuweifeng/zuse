@@ -10,8 +10,7 @@ export const cloudLifecycle = (
 	if (summary === undefined) return null;
 	if (summary.startupPhase === "failed" || summary.state === "failed")
 		return "failed";
-	// Once the agent is starting, the chat's own working/queued states take
-	// over; the workspace is no longer the thing being waited on.
+
 	if (cloudWorkspaceIsStarting(summary)) return "starting";
 	if (summary.state === "resuming") return "resuming";
 	if (summary.state === "paused") return "paused";

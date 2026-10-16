@@ -60,12 +60,6 @@ import {
 import { decodeBody, decodePathSegment, json } from "./http.ts";
 import { resolveWorkspaceActorAccess } from "./workspace-authorization.ts";
 
-// The `/v1/api/**` surface: the machine-caller (API-key) counterpart of the
-// first-party `/v1/cloud/**` routes. It exposes only the core loop — create a
-// workspace with a prompt, send follow-up messages, poll the conversation
-// ledger, manage webhook endpoints — and shares the underlying create/resume
-// implementations with the WorkOS surface.
-
 const API_MESSAGE_PAGE_LIMIT = 200;
 const API_MESSAGE_EXPIRY_MS = 24 * 60 * 60 * 1_000;
 const API_PROMPT_MAX_LENGTH = 65_536;
@@ -231,9 +225,9 @@ export const routeAccountWorkspaceRequest = (
 	accountId: string,
 	options?: {
 		readonly githubBot?: boolean;
-		/** Slack asks the user rather than inheriting another workspace's agent. */
+
 		readonly requireExplicitAgent?: boolean;
-		/** Organization scope for authenticated internal integrations. */
+
 		readonly organizationId?: string;
 		readonly internalWebhookTarget?: (url: string) => boolean;
 	},
@@ -310,9 +304,7 @@ export const routeAccountWorkspaceRequest = (
 			);
 			const selectedIdempotencyKey =
 				requestedIdempotencyKey ?? (yield* randomToken("apicreate", 16));
-			// Fingerprint what the caller supplied, rather than mutable inferred
-			// defaults. A later retry must keep resolving to its original receipt even
-			// if projects, billing state, or the account's recent workspace changed.
+
 			const requestDigest = yield* digestApiString(
 				`workspace-create-receipt\n${principal.accountId}\n${selectedIdempotencyKey}`,
 				JSON.stringify({
@@ -325,8 +317,7 @@ export const routeAccountWorkspaceRequest = (
 					branch: body.branch ?? null,
 					agent: body.agent ?? null,
 					model: body.model ?? null,
-					// Keep omitted-mode receipts compatible with requests made before
-					// API callers could select access. Retries never upgrade old workspaces.
+
 					...(body.runtimeMode === undefined
 						? {}
 						: { runtimeMode: body.runtimeMode }),
@@ -487,9 +478,7 @@ export const routeAccountWorkspaceRequest = (
 				return yield* Effect.fail(
 					conflict("idempotency_key_reused_with_different_request"),
 				);
-			// Mirror the launch prompt into the conversation ledger so polling
-			// clients see the full exchange. The launch intent itself delivers the
-			// prompt; the ledger row is settled by the first turn event.
+
 			if (prompt !== undefined) {
 				const sealedPrompt = yield* sealApiString(
 					apiMessageSealContext(
@@ -730,8 +719,7 @@ export const routeAccountWorkspaceRequest = (
 					return yield* Effect.fail(
 						conflict("workspace_not_accepting_messages"),
 					);
-				// Authorization is a precondition for the durable command. A denied
-				// request must never leave a row that can execute on a later wake.
+
 				yield* requireCloudBillingCapacity(
 					principal.accountId,
 					nowMs,

@@ -42,13 +42,6 @@ import {
 import { Popover, PopoverPopup, PopoverTrigger } from "./ui/popover.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
-/**
- * Right-pane terminal host. Each right-dock terminal tab carries a
- * chat-relative `slot`; `TerminalSlotPane` resolves it against the active
- * chat's terminal list and mounts one `PtyTerminal`. The Ghostty surface + PTY live in
- * `terminal-registry.ts`, so unmounting (e.g. switching chats) detaches the
- * DOM but leaves the shell running — re-selecting the chat reconnects.
- */
 function TerminalPlaceholder({ children }: { children: ReactNode }) {
 	return (
 		<div className="flex h-full w-full items-center justify-center bg-background text-xs text-muted-foreground">
@@ -97,9 +90,7 @@ function PlainTerminalSlot({
 	placement: TerminalPlacement;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-	// Callers may construct an equivalent ChatRef on every render. Preserve its
-	// domain identity so catalog effects do not turn unrelated parent renders
-	// (notably streamed chat output) into repeated pty.list requests.
+
 	const catalogRef = useMemo<ChatRef>(
 		() => ({
 			environmentId: chatRef.environmentId,
@@ -167,9 +158,7 @@ function PlainTerminalSlot({
 	const catalogEnvironmentId =
 		instance?.environmentId ?? catalogRef.environmentId;
 	const catalogOwnerId = terminalOwnerId(catalogRef, placement);
-	// A reconnect must earn a fresh authoritative catalog result. Including the
-	// concrete connection state makes ready → detached → ready a new identity,
-	// while scalar ref/owner fields prevent parent renders from restarting it.
+
 	const catalogRequestKey = useMemo(
 		() => Symbol("terminal-catalog-request"),
 		[
@@ -678,8 +667,7 @@ export function PtyTerminal({
 			onStatusChanged,
 		});
 		return () => terminalRegistry.detach(environmentId, instanceId);
-		// `cwd`/`command` only matter on first open; reconnects reuse the live
-		// entry, so the instance id is the sole identity that should re-run this.
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [environmentId, instanceId]);
 

@@ -30,16 +30,8 @@ import { useLocalConnectivityRuntime } from "~/store/local-connectivity-runtime"
 import { AppAtomProvider } from "~/store/registry";
 import { colors } from "~/theme";
 
-// The app follows the device appearance. Reset any development-session theme
-// override before the first screen renders so light mode cannot inherit dark
-// utility styles while native navigation is already light.
 Uniwind.setTheme("system");
 
-/**
- * Runs the connectivity runtime inside AppAtomProvider — a component's own
- * hooks execute outside the providers it renders, so the hook cannot live
- * directly in RootLayout once it reads atoms.
- */
 function ConnectivityRuntimeBridge() {
 	useLocalConnectivityRuntime();
 	useCloudRuntimeLifecycle();
@@ -94,8 +86,6 @@ export default function RootLayout() {
 						<StatusBar style="auto" />
 						<Stack
 							screenOptions={{
-								// Keep the native header transparent so UIKit can sample scrolling
-								// content for its own material at the top edge.
 								headerLargeTitle: true,
 								headerTransparent: Platform.OS === "ios",
 								headerShadowVisible: false,

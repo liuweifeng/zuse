@@ -108,7 +108,6 @@ export const makeContextLinkOperations = (
 				},
 				() =>
 					Effect.gen(function* () {
-						// Both sides must stay writable until the message and context link commit.
 						const blocked = yield* sql<{
 							blocked: number;
 						}>`SELECT EXISTS(SELECT 1 FROM session_fork_constructions WHERE session_id IN (${source.id},${parent.id}) AND completed_at IS NULL) OR EXISTS(SELECT 1 FROM session_checkpoint_restores WHERE session_id IN (${source.id},${parent.id}) AND completed_at IS NULL) AS blocked`;

@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-// Migration 55 was also used by staging_api_origin in development profiles.
-// Preserve tables and grants if an earlier bridge build already created them.
+
 export const Migration0056DeviceBridge = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* sql`CREATE TABLE IF NOT EXISTS device_bridge_config (id INTEGER PRIMARY KEY CHECK(id = 1), link_key TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0)`;

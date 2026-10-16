@@ -174,8 +174,6 @@ describe("plan feedback routing", () => {
 	});
 
 	it("never uses the transcript heuristic for a native-plan provider (Claude)", () => {
-		// Claude in plan mode, idle, tail is assistant text, but no ExitPlanMode
-		// request — the tray must NOT show (this is the "Yo!" false-positive).
 		expect(
 			hasEmulatedPlanAwaitingAction({
 				permissionMode: "plan",
@@ -188,8 +186,6 @@ describe("plan feedback routing", () => {
 	});
 
 	it("does not flicker the emulated tray mid-turn while streaming", () => {
-		// Same transcript, but the turn is still running — must stay hidden so the
-		// banner can't toggle on/off as chunks stream in.
 		expect(
 			hasEmulatedPlanAwaitingAction({
 				permissionMode: "plan",

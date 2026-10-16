@@ -11,7 +11,6 @@ import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 
 import { ProviderService } from "./services/provider-service.ts";
 
-/** Hard ceiling on the one-shot turn; on timeout we fall back to truncation. */
 const TITLE_TIMEOUT_MS = 25_000;
 export const MAX_GENERATED_TITLE_LENGTH = 60;
 
@@ -69,9 +68,6 @@ export const limitNamingMessage = (text: string, limit = 6_000): string => {
 	return `${trimmed.slice(0, half).trimEnd()}\n[Content truncated]\n${trimmed.slice(-half).trimStart()}`;
 };
 
-/* ──────────────────────────── pure helpers ──────────────────────────── */
-
-/** Cut at the last word boundary within `limit`, or hard-cut one long word. */
 const clampWords = (text: string, limit: number): string => {
 	if (text.length <= limit) return text;
 	const cut = text.slice(0, limit);
@@ -143,9 +139,7 @@ export const parseNamingReply = (
 				title: typeof value.title === "string" ? cleanTitle(value.title) : "",
 				branch: typeof value.branch === "string" ? value.branch.trim() : "",
 			};
-		} catch {
-			// Fall through to the plain-text reading below.
-		}
+		} catch {}
 	}
 	return { title: start === -1 ? cleanTitle(raw) : "", branch: "" };
 };
@@ -219,8 +213,6 @@ export const formatBranchName = (
 	}
 };
 
-/* ───────────────────────────── service ──────────────────────────────── */
-
 export interface GenerateNamesInput {
 	/** Project the chat belongs to (resolves provider auth + default cwd). */
 	readonly folderId: FolderId;
@@ -263,11 +255,7 @@ export const TitleGeneratorLive = Layer.effect(
 	TitleGenerator,
 	Effect.gen(function* () {
 		const provider = yield* ProviderService;
-		// Run the throwaway session in a scratch dir, not the worktree: the title
-		// only needs the message text (it's in the prompt), so an empty cwd means
-		// the agent can't read/edit the repo even if it ignores the no-tools
-		// instruction. Paired with a full-access runtime mode below so the turn
-		// never raises a permission toast the user would see for a hidden session.
+
 		const scratchCwd = os.tmpdir();
 		const runtimeMode: RuntimeMode = "full-access";
 

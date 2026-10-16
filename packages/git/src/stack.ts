@@ -42,7 +42,7 @@ export function parseStackView(output: string): GitStackResult | null {
 								pr: {
 									number: branch.pr.number,
 									url: typeof branch.pr.url === "string" ? branch.pr.url : null,
-									// gh-stack does not distinguish draft/open or reliably report closed PRs.
+
 									state:
 										branch.isMerged === true
 											? ("merged" as const)

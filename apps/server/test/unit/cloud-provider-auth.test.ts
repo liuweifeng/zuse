@@ -169,13 +169,12 @@ describe("CloudProviderAuth", () => {
 			expect(first.secret).toBe("claude-access-only-token");
 			await auth.resolve("claude");
 			expect(issueCount).toBe(2);
-			// Seeding is per provider: another provider's session still refreshes.
+
 			await auth.prepare("cursor");
 			expect(issueCount).toBe(3);
 			await auth.resolve("claude");
 			expect(issueCount).toBe(4);
-			// A grant refreshed moments ago (recovery, proactive) seeds without a
-			// further round trip, and the launch session still consumes it once.
+
 			await auth.prepare("claude");
 			expect(issueCount).toBe(4);
 			await auth.resolve("claude");
@@ -368,7 +367,7 @@ describe("CloudProviderAuth bootstrap seeding", () => {
 					}),
 				),
 			).rejects.toThrow("update-required");
-			// Nothing was cached; the launch request id still drives the first refresh.
+
 			await auth.prepare("claude", "11111111-2222-8333-9444-555555555555");
 			expect(requests).toEqual(["11111111-2222-8333-9444-555555555555"]);
 		} finally {

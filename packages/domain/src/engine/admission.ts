@@ -47,8 +47,7 @@ export const makeSqlAdmission = (sql: SqlClient.SqlClient) => {
 					Effect.gen(function* () {
 						if (closed) return true;
 						if (activeOperations > 0 || !(yield* restore(idle))) return false;
-						// After the decision, cancellation cannot reopen admission while another
-						// shutdown caller has already observed it closed. Commit failures stay closed.
+
 						closed = true;
 						return true;
 					}),

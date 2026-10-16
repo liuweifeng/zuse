@@ -15,9 +15,6 @@ const assistant = (
 		...extra,
 	}) as never;
 
-// The CLI reports missing or expired credentials as a synthetic assistant
-// message tagged `error: "authentication_failed"`; that tag, not the prose, is
-// what turns it into a typed sign-in failure.
 describe("claudeAuthFailureText", () => {
 	it("reads the CLI's tagged authentication failures", () => {
 		expect(

@@ -157,9 +157,7 @@ export class HarnessProcesses {
 				});
 				entry.record[field] = true;
 				await this.persist(entry);
-			} catch {
-				/* Keep the outbox pending. Resume replays it with the same ID. */
-			}
+			} catch {}
 		}
 	}
 	private evict(): void {
@@ -360,7 +358,7 @@ export class HarnessProcesses {
 				throw new Error("Output cursor is outside the artifact");
 			const buffer = Buffer.alloc(Math.min(64_000, Math.max(4, maxBytes)));
 			const { bytesRead } = await handle.read(buffer, 0, buffer.length, cursor);
-			// Leave an incomplete UTF-8 suffix for the next poll, unless the process is finished.
+
 			let end = bytesRead;
 			if (cursor + bytesRead < size || entry.record.status === "running") {
 				let start = end - 1;

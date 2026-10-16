@@ -151,7 +151,7 @@ describe("cloud auth setup reuse", () => {
 					expectedRevision: locator?.revision ?? -1,
 					status,
 				});
-				// No registry at all: cached reads must not touch the provider.
+
 				expect(yield* cloudAuthStatus("account")).toEqual(status);
 				yield* store.saveCloudAuthStatus({
 					accountId: "account",
@@ -369,7 +369,7 @@ describe("cloud auth authority identity", () => {
 				),
 			),
 		);
-		// Stop at resume: only the persisted E2B authority may reach snapshot preparation.
+
 		expect(resumed).toBe(providerId === "e2b");
 		expect(result._tag).toBe(providerId === "e2b" ? "Failure" : "Success");
 	});
@@ -481,7 +481,7 @@ describe("cloud auth authority Codex grants", () => {
 					},
 				);
 			const firstStdout = run();
-			// Guest timing is numeric only and never carries token or account data.
+
 			const firstTiming = parseAuthorityGrantOutput(firstStdout);
 			expect(firstTiming.value).toBe("");
 			expect(firstTiming.timing).toMatchObject({
@@ -1139,8 +1139,6 @@ describe("cloud auth authority grant fast path", () => {
 			});
 		const { result, calls, counters } = await Effect.runPromise(
 			harness({
-				// Guest timing lines surround the result, including malformed and
-				// hostile ones; only allowlisted numbers may reach the log.
 				readyGrant: (input) =>
 					Effect.succeed({
 						exitCode: 0,
@@ -1183,7 +1181,7 @@ describe("cloud auth authority grant fast path", () => {
 				authorityIncarnationId: "incarnation",
 			});
 		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
-		// The exact readiness program, bootstrap hash and incarnation ride along.
+
 		const args = calls[0]?.args ?? [];
 		expect(args).toContain(AUTH_READINESS_SOURCE);
 		expect(args.at(-1)).toBe("incarnation");
@@ -1229,7 +1227,7 @@ describe("cloud auth authority grant fast path", () => {
 			RunProcessInput,
 		];
 		expect(requestArg(retry).requestId).toBe(requestArg(first).requestId);
-		// Same cache path: the grant script serves the cached result if the first run completed.
+
 		expect(retry.args?.at(-1)).toBe(first.args?.[8]);
 	});
 
@@ -1289,7 +1287,7 @@ describe("authority guest timing parsing", () => {
 			].join("\n"),
 		);
 		expect(parsed.value).toBe("value");
-		// Only the first eight sentinel lines are considered; all later ones are ignored.
+
 		expect(parsed.timing).toEqual({ sealMs: 103 });
 		expect(JSON.stringify(parsed.timing)).not.toContain("secret");
 	});

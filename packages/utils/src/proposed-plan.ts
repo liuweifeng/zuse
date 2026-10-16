@@ -58,10 +58,6 @@ export const latestProposedPlanMarkdown = (
 		if (markdown !== null) return markdown;
 	}
 
-	// Compatibility for transcripts persisted before assistant plan items carried
-	// `isPlan`. The approval handoff is durable evidence that the immediately
-	// preceding assistant response was the proposed plan, even after the session
-	// has switched back to its default permission mode.
 	for (let index = messages.length - 1; index >= 0; index -= 1) {
 		const approval = asRecord(messages[index]?.content);
 		if (

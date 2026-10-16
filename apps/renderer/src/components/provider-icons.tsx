@@ -15,11 +15,6 @@ type ProviderIconProps = SVGProps<SVGSVGElement> & {
 	providerId: ProviderId;
 };
 
-/**
- * OpenCode brand mark. We inline the official SVG from the opencode brand kit
- * and tint both paths via currentColor (the inner block at reduced opacity to
- * preserve the original two-tone look).
- */
 function OpencodeBrandIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 	return (
 		<svg
@@ -35,10 +30,6 @@ function OpencodeBrandIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 	);
 }
 
-/**
- * Cursor brand mark. We inline the official brand SVG and tint it to match the
- * surrounding text colour (foreground in light/dark themes).
- */
 function CursorBrandIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
 	return (
 		<svg

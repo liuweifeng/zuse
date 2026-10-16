@@ -4,7 +4,7 @@ export const siteConfig = {
 	name: "Zuse",
 	description:
 		"Run open source cloud agents with Zuse. Work locally or in isolated cloud workspaces, use your existing model subscriptions, and review every change.",
-	// Override in production via NEXT_PUBLIC_SITE_URL.
+
 	url: process.env.NEXT_PUBLIC_SITE_URL ?? "https://zuse.sh",
 	ogImage: "/og.png",
 	icon: "/app-icon.png",

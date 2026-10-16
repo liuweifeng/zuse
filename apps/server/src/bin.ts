@@ -1,16 +1,5 @@
 #!/usr/bin/env node
-/**
- * Standalone (headless) server entrypoint — `zuse serve`. Builds the host-shell
- * deps without Electron: file-backed AppPaths resolved from env/XDG, a no-op
- * FolderPicker, and the WebSocket transport. This same binary is what runs on
- * an SSH dev-box and (later) on a cloud container — there is no laptop
- * assumption anywhere in `@zusehq/server` (ADR 0007).
- *
- * Per ADR 0007, transport modules live under `transports/` — never inside a
- * service domain. The factory (`makeMainLayer`) is re-exported so the Electron
- * shim and tests keep a stable import surface; importing this module is
- * side-effect free (the server only boots when the file is the process entry).
- */
+
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -31,12 +20,6 @@ import { wsServerProtocolLayer } from "./transports/ws.ts";
 
 export { type MainLayerDeps, makeMainLayer } from "./runtime.ts";
 
-/**
- * Where persistence files (zuse.sqlite, attachments, logs) live on a headless
- * host. Electron uses `app.getPath("userData")`; here we honor an explicit
- * `ZUSE_USER_DATA` override, else `$XDG_DATA_HOME/zuse`, else
- * `~/.local/share/zuse`.
- */
 const resolveUserData = (): string => {
 	if (process.env.ZUSE_USER_DATA) return process.env.ZUSE_USER_DATA;
 	const home = process.env.HOME ?? process.env.USERPROFILE ?? ".";
@@ -156,8 +139,7 @@ export const runHeadlessServer = (
 ): void => {
 	const { port, host, dataDir: userData, policy } = options;
 	const cliHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
-	// A wildcard binding is reachable on the LAN, so advertise the machine's
-	// LAN address; a specific binding advertises exactly what it listens on.
+
 	const advertisedHost =
 		process.env.ZUSE_ADVERTISED_HOST ??
 		(host === "0.0.0.0" || host === "::" ? firstReachableIpv4() : host);
@@ -237,8 +219,7 @@ export const runHeadlessServer = (
 	const layer = makeMainLayer({
 		userData,
 		telemetryIdentity: { kind: "serve", instance: `${host}:${port}` },
-		// Headless has no native dialog; surfacing the prompt to a connected client
-		// is a later refinement. Returning null is the documented contract.
+
 		folderPicker: { pick: () => Effect.succeed(null) },
 		serverProtocol: wsServerProtocolLayer({
 			port,
@@ -249,8 +230,6 @@ export const runHeadlessServer = (
 			apiEnabled: options.apiEnabled,
 			trustProxy: options.trustProxy,
 			onPairing: (pairing) => {
-				// Persist the boot pairing details so the serve CLI can print
-				// real links without scraping service logs.
 				try {
 					writeFileSync(
 						join(userData, "pairing.json"),
@@ -263,9 +242,7 @@ export const runHeadlessServer = (
 						})}\n`,
 						{ mode: 0o600 },
 					);
-				} catch {
-					// Best-effort: links still print to stdout.
-				}
+				} catch {}
 				if (options.open) openBrowser(pairing.browserUrl);
 			},
 			onListening: (address) => {
@@ -287,11 +264,7 @@ export const runHeadlessServer = (
 				if (options.open && policy === "local") openBrowser(browserUrl);
 			},
 		}),
-		// Inert AuthShell for headless boot. The WorkOS deep-link flow needs a host
-		// to open a browser and receive the callback; a headless server's proper
-		// variant is a loopback-HTTP listener, wired with the auth/pairing work.
-		// Until then this no-op satisfies the seam without offering server-side
-		// login (clients authenticate to the environment via pairing/api tokens).
+
 		authShell: {
 			redirectUri:
 				process.env.ZUSE_AUTH_REDIRECT_URI ?? "http://127.0.0.1/auth/callback",
@@ -329,8 +302,6 @@ export const runHeadlessServer = (
 	);
 };
 
-// Only boot when this file is the process entrypoint, so the re-export above
-// stays import-safe (Vite HMR, tests, the Electron shim).
 export const isProcessEntrypoint = (
 	entry: string | undefined,
 	moduleUrl = import.meta.url,

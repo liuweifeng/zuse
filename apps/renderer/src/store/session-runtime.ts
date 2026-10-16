@@ -12,7 +12,6 @@ type SessionTerminalListener = (
 ) => void;
 
 type SessionRuntimeStore = {
-	/** Catalog lifecycle used while a timeline is absent or only cached. */
 	readonly bySession: Readonly<Record<string, SessionRuntimeState>>;
 	readonly observeSummary: (
 		sessionId: SessionId,

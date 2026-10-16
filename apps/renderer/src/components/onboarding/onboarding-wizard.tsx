@@ -106,7 +106,6 @@ export function OnboardingWizard() {
 
 	return (
 		<div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-background">
-			{/* Drag region so users can move the Electron window. */}
 			<div className="h-8 shrink-0 [-webkit-app-region:drag]" />
 
 			<div className="flex min-h-0 flex-1 overflow-y-auto px-5 pb-8">

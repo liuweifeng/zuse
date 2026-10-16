@@ -69,7 +69,7 @@ export const makeEngineRpcConnection = (options: {
 		send: (id: string, payload: unknown): void => {
 			const attachment = attachments.get(id);
 			if (attachment === undefined) return;
-			// A missing channel is not a buffer: the caller must finish open before sending.
+
 			if (
 				typeof payload !== "string" ||
 				attachment.channel === null ||

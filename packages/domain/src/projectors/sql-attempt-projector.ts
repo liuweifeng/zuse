@@ -28,7 +28,6 @@ export const projectSessionAttempt = (
 			const reason = initial ? "initial" : event.reason;
 			const startedAt = new Date(event.startedAt).toISOString();
 			if (!initial) {
-				// Ignore orphan retry events, just as the aggregate reducer does.
 				const existing =
 					yield* sql`SELECT 1 FROM session_attempts WHERE session_id = ${streamId} AND turn_id = ${event.turnId} LIMIT 1`;
 				if (existing.length === 0) return;
@@ -48,8 +47,7 @@ export const projectSessionAttempt = (
 		}
 		if (event._tag === "TurnSettled") {
 			const status = event.outcome === "error" ? "failed" : event.outcome;
-			// Event sequence selects the attempt that existed at settlement, so
-			// replaying an old terminal cannot settle a newer retry of that turn.
+
 			yield* sql`
 			UPDATE session_attempts SET status = ${status}, completed_at = ${new Date(event.settledAt).toISOString()}, updated_sequence = ${sequence}
 			WHERE session_id = ${streamId} AND updated_sequence < ${sequence}

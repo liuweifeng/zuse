@@ -79,7 +79,7 @@ export const routePluginRequest = (request: Request) =>
 		if (mcp) {
 			const tenant = decodeURIComponent(mcp[1] ?? "");
 			const { identity } = yield* pluginAccess(request, tenant, "content");
-			// The MCP SDK loads on first use to keep Worker startup within limits.
+
 			return yield* attempt(async () => {
 				const { servePluginMcp } = await import("./plugin-mcp.ts");
 				return servePluginMcp(request, identity, host.value);
@@ -87,7 +87,7 @@ export const routePluginRequest = (request: Request) =>
 		}
 		if (request.method !== "POST")
 			return yield* Effect.fail(badRequest("invalid_plugin_method"));
-		// Check origin on browser management operations. Desktop requests have no Origin.
+
 		const config = yield* ApiConfiguration;
 		const origin = request.headers.get("origin");
 		if (origin && !config.allowedBrowserOrigins.includes(origin))

@@ -1,11 +1,6 @@
 import { jsonError } from "@/lib/api-error";
 import { methodNotAllowed, preflightResponse } from "@/lib/api-method";
 
-// Minimal cloud-waitlist capture: validate the email and forward it, with a
-// timestamp, to whatever webhook WAITLIST_WEBHOOK_URL points at (form
-// provider, sheet script, internal service). Keeping the sink configurable
-// means the site never hard-codes a vendor.
-
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(request: Request) {

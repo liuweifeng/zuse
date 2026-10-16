@@ -13,10 +13,6 @@ import { colors } from "~/theme";
 
 export type PresenceTone = "online" | "offline" | "checking" | "error";
 
-// Live-presence tones. Mirrors the `--color-presence-*` tokens in `global.css`;
-// kept as plain strings here because the animated halo/core are styled inline
-// (RN inline styles can't read CSS custom properties). The halo reuses the same
-// tone at a lower, animated opacity rather than a separate translucent color.
 const TONE: Record<PresenceTone, ColorValue> = {
 	online: colors.success,
 	offline: colors.secondaryFg,

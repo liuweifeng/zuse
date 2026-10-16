@@ -11,13 +11,12 @@ export type CustomServerAuth = "auto" | "bearer" | "header";
 
 export const CUSTOM_SERVER_NAME_LIMIT = 60;
 const BEARER_HEADER = "Authorization";
-// RFC 9110 field-name token characters.
+
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const BEARER_PREFIX = /^bearer\s+/i;
-// Display-only: strip well-known service prefixes so the logo lookup finds the brand.
+
 const SERVICE_PREFIX = /^(?:www|mcp|api|server)\./i;
 
-/** Host of an http(s) URL, or null when it doesn't parse. */
 const hostOf = (url: string | null): string | null => {
 	if (url === null) return null;
 	try {

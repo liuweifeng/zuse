@@ -186,7 +186,6 @@ export function ArchivedChatsPage({
 					setDirectoryStatus(statusReceipt.result);
 				}
 			} catch {
-				// The preview remains readable while the connection recovers.
 			} finally {
 				if (!cancelled) timer = window.setTimeout(poll, 2_000);
 			}

@@ -120,11 +120,6 @@ import { ProviderService } from "../services/provider-service.ts";
 import { RuntimeGitExecution } from "../services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
 
-/**
- * Live provider runtime. Handles own their scopes and are published through a
- * generation-checked registry, so an older asynchronous startup cannot replace
- * the provider selected by a newer session command.
- */
 type SessionHandle = TurnScopedProviderSessionHandle;
 
 const isPublicProviderEvent = (
@@ -132,11 +127,6 @@ const isPublicProviderEvent = (
 ): envelope is ProviderEventEnvelope =>
 	envelope.event._tag !== "QuestionCallbackReleased";
 
-/**
- * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
- * Grok forwards to its native `/goal` slash command with driver-local state.
- * Both share the same method shape so the goal routes treat them uniformly.
- */
 type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
 	readonly providerSessionId: string;
@@ -183,9 +173,7 @@ export const ProviderServiceLive = Layer.effect(
 			SessionEntry
 		>();
 		yield* ownProviderRegistry(registry);
-		// Identical startup requests serialize and reuse the published handle;
-		// different provider/model generations may start concurrently so a slow,
-		// stale process can never head-of-line block the user's latest selection.
+
 		const startupWorker = new KeyedEffectSerialWorker<string>();
 		const lifecycleWorker = new KeyedEffectSerialWorker<AgentSessionId>();
 		const startupPermits = yield* Semaphore.make(4);
@@ -205,9 +193,6 @@ export const ProviderServiceLive = Layer.effect(
 				const attachment = { sessionId, itemId };
 				const admission = questionAttachments.attach(attachment, questions);
 				if (admission === "conflict") {
-					// A replay with different metadata must not replace or cancel the
-					// original callback authority. Suppress only the conflicting envelope;
-					// the first, exact question remains visible and answerable.
 					yield* Effect.logWarning(
 						`[ProviderService] suppressed conflicting question metadata for ${sessionId}/${itemId}`,
 					);
@@ -215,9 +200,6 @@ export const ProviderServiceLive = Layer.effect(
 				}
 				if (admission === "duplicate") return admission;
 				if (admission === "full") {
-					// Never forward a durable question that has no corresponding live
-					// authority. Cancel the exact callback; if a broken driver cannot do
-					// that, close it so its bounded waiter registry is still drained.
 					yield* (
 						handle.cancelQuestion === undefined
 							? handle.close()
@@ -257,10 +239,6 @@ export const ProviderServiceLive = Layer.effect(
 				yield* publishQuestionSnapshot();
 			});
 
-		// The Claude SDK's `canUseTool` callback returns a Promise; here we
-		// shim PermissionService.request into that signature using the live
-		// runtime captured at layer construction. `projectId` is bound at
-		// start() time so the driver doesn't need to know about projects.
 		const buildRequestPermission =
 			(
 				projectId: FolderId,
@@ -308,9 +286,7 @@ export const ProviderServiceLive = Layer.effect(
 						),
 						Effect.provideService(FileSystem.FileSystem, fs),
 					);
-					// Keychain enumeration is best-effort for CLI-backed providers. The
-					// bundled provider is overlaid from its app-managed credential and
-					// never trusts a local login or inherited environment value.
+
 					const configured = yield* credentials
 						.listConfigured()
 						.pipe(
@@ -559,8 +535,7 @@ export const ProviderServiceLive = Layer.effect(
 										: "GitHub connection is unavailable.",
 							}),
 					});
-					// Reserve ownership before awaiting process teardown. If `begin` moved
-					// below `handle.close()`, an older startup could outrank a later switch.
+
 					const reservation = yield* reserveProviderStartup({
 						registry,
 						lifecycle: lifecycleWorker,
@@ -625,9 +600,7 @@ export const ProviderServiceLive = Layer.effect(
 						);
 					}
 					const cwd = input.cwdOverride ?? folder.path;
-					// Canonicalize retired / shorthand slugs and attach the resolved
-					// descriptor (curated seed merged with the live inventory) so
-					// drivers never read a static model list.
+
 					const canonicalModel =
 						input.model === undefined
 							? undefined
@@ -843,9 +816,6 @@ export const ProviderServiceLive = Layer.effect(
 									orchestrationTools,
 								);
 							} else if (input.providerId === "gemini") {
-								// Same story as Grok: hand the driver the user's installed
-								// `gemini` binary. Surface a clean install message rather than
-								// letting spawn fail with ENOENT inside the driver.
 								const geminiPath = yield* resolveCliPath(
 									"gemini",
 									binaryPaths,
@@ -925,8 +895,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "kiro") {
-								// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
-								// (`kiro-cli login`); we only need the binary on PATH.
 								const kiroPath = yield* resolveCliPath(
 									"kiro-cli",
 									binaryPaths,
@@ -981,10 +949,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "grok") {
-								// Same story as Claude/Codex: hand the driver the user's
-								// installed `grok` binary (no bundled CLI in our package).
-								// Surface a clean install message rather than letting spawn
-								// fail with ENOENT inside the driver.
 								const grokPath = yield* resolveCliPath(
 									"grok",
 									binaryPaths,
@@ -1032,10 +996,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "opencode") {
-								// OpenCode spawns a local HTTP server (`opencode serve`) and we
-								// drive it via @opencode-ai/sdk. Same install-message pattern
-								// as the other CLI-backed drivers — surface a clean error
-								// before the driver tries to spawn.
 								const opencodePath = yield* resolveCliPath(
 									"opencode",
 									binaryPaths,
@@ -1054,10 +1014,7 @@ export const ProviderServiceLive = Layer.effect(
 										}),
 									);
 								}
-								// Custom OpenAI-compatible providers are injected into
-								// `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
-								// live in opencode's own auth.json (written via
-								// `agent.opencodeSetProviderAuth`), so no key is threaded here.
+
 								const opencodeSettings = yield* configStore.getSettings();
 								providerHandle = yield* startOpencodeSession(
 									driverInput,
@@ -1114,12 +1071,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "claude") {
-								// Point the SDK at the user's installed `claude` binary. We
-								// don't ship the SDK's bundled optional native CLI (216 MB per
-								// arch) — if `which claude` finds nothing here, the SDK would
-								// throw a cryptic "Native CLI binary for darwin-arm64 not
-								// found" error. Surface a clean install-Claude-Code message
-								// instead.
 								const claudePath = yield* resolveCliPath(
 									"claude",
 									binaryPaths,
@@ -1138,8 +1089,7 @@ export const ProviderServiceLive = Layer.effect(
 										}),
 									);
 								}
-								// Disabled Claude skills are enforced through the SDK `skills`
-								// allowlist; skip discovery entirely when nothing is disabled.
+
 								const skillAllowlist = hasDisabledSkillsFor(
 									(yield* configStore.getSettings()).disabledSkills,
 									"claude",
@@ -1169,10 +1119,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else {
-								// Same story as Claude: we don't ship the SDK's bundled native
-								// CLI, so hand it the user's installed `codex` binary. Surface a
-								// clean install message if it's missing instead of the SDK's
-								// "Unable to locate Codex CLI binaries" error.
 								const codexPath = yield* resolveCliPath(
 									"codex",
 									binaryPaths,
@@ -1200,17 +1146,7 @@ export const ProviderServiceLive = Layer.effect(
 										executor,
 									),
 								);
-								// We used to also fail-fast here when `codex --version` was below
-								// the SDK pin. Pulled because `session.create` calls
-								// `provider.start` synchronously — failing at start blocked
-								// session creation outright, leaving the user with no surface to
-								// upgrade *from*. The renderer's `CliUpgradeBanner` is the
-								// canonical signal (driven by the periodic availability probe),
-								// and the codex driver translates the SDK's
-								// "unexpected argument '--experimental-json'" failure on the
-								// first turn into a clean upgrade message — so the user sees
-								// either the banner before sending or the friendly error after,
-								// never the cryptic SDK trace.
+
 								providerHandle = yield* startCodexSession(
 									driverInput,
 									cwd,
@@ -1668,8 +1604,7 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.sync(() => questionAttachments.has(sessionId, itemId)),
 			validateQuestionAnswer: (sessionId, itemId, answers) =>
 				questionAttachments.validateAnswer(sessionId, itemId, answers),
-			// Attachment authority serializes each callback. Holding the session
-			// lifecycle lane here would prevent close from revoking a hung delivery.
+
 			answerQuestion: (sessionId, itemId, answers) =>
 				Effect.gen(function* () {
 					const { handle } = yield* lookup(sessionId);

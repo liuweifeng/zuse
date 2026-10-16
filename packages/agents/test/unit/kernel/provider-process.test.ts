@@ -31,7 +31,7 @@ const processHasExited = async (pid: number): Promise<boolean> => {
 	}
 	try {
 		const stat = await readFile(`/proc/${pid}/stat`, "utf8");
-		// Orphan zombies are dead and may wait for the VM's init to reap them.
+
 		return stat.slice(stat.lastIndexOf(")") + 2).startsWith("Z ");
 	} catch (error) {
 		if (
@@ -60,9 +60,7 @@ const forceCleanup = (child: ChildProcess) => {
 		if (process.platform !== "win32" && child.pid !== undefined)
 			process.kill(-child.pid, "SIGKILL");
 		else child.kill("SIGKILL");
-	} catch {
-		/* already gone */
-	}
+	} catch {}
 };
 
 describe("provider process shutdown", () => {

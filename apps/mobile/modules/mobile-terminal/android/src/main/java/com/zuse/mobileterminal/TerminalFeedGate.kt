@@ -2,7 +2,6 @@ package com.zuse.mobileterminal
 
 import java.nio.charset.StandardCharsets
 
-/** Rejects duplicate and out-of-order React props without retaining transcript bytes. */
 internal class TerminalFeedGate {
   private var latestSequence = -1L
 

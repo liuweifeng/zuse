@@ -923,10 +923,7 @@ export const MachineControlServiceLive: Layer.Layer<
 						),
 					);
 					const connectUrl = `${apiUrl}${ApiPaths.connect(environmentId)}`;
-					// Always demand a managed (tunnel/public-TLS) endpoint. Without
-					// this the api may fall back to the environment's advertised
-					// endpoint, which for a default `zuse serve` is its own loopback —
-					// a remote client would then dial 127.0.0.1 on the wrong machine.
+
 					const response = yield* Effect.tryPromise({
 						try: async () =>
 							fetch(connectUrl, {

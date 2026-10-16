@@ -3,10 +3,6 @@ import { describe, expect, test } from "vitest";
 import { makeE2bSandboxProvider } from "../../src/e2b.ts";
 import type { ProviderSandbox } from "../../src/index.ts";
 
-// Live verification against production E2B. Runs only when E2B_API_KEY is
-// set; costs a few cents of sandbox time per run. This is the standing gate
-// the quarantine research asks for: it proves the hand-rolled REST surface
-// still matches provider behavior.
 const apiKey = process.env.E2B_API_KEY;
 
 const LIVE_TEMPLATE = "base";
@@ -42,7 +38,6 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 		let snapshotId: string | null = null;
 
 		try {
-			// create — quarantined from the first instant
 			const created = await Effect.runPromise(
 				adapter.create({
 					sandboxId: `live_${runId}`,
@@ -57,15 +52,12 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			expect(created.providerSandboxId).not.toBe("");
 			expect(created.state).toBe("running");
 
-			// inspect
 			const inspected = await Effect.runPromise(
 				adapter.inspect(created.providerSandboxId),
 			);
 			expect(inspected?.state).toBe("running");
 			expect(inspected?.providerLabel).toBe(label);
 
-			// envd process start — this is the same control path the api uses to
-			// launch the managed server after create-time enrollment values exist.
 			await Effect.runPromise(
 				adapter.startProcess(created.providerSandboxId, {
 					command: "/bin/bash",
@@ -86,14 +78,12 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			);
 			expect(publicResponse.ok).toBe(true);
 
-			// recoverByLabel — the metadata filter must find exactly this sandbox
 			const recovered = await pollUntil(
 				() => Effect.runPromise(adapter.recoverByLabel(label)),
 				(value): value is ProviderSandbox => value !== null,
 			);
 			expect(recovered?.providerSandboxId).toBe(created.providerSandboxId);
 
-			// pause, then pause again (must be tolerated, not fail)
 			await Effect.runPromise(adapter.pause(created.providerSandboxId));
 			const paused = await pollUntil(
 				() => Effect.runPromise(adapter.inspect(created.providerSandboxId)),
@@ -102,7 +92,6 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			expect(paused?.state).toBe("paused");
 			await Effect.runPromise(adapter.pause(created.providerSandboxId));
 
-			// resume via connect
 			const resumed = await Effect.runPromise(
 				adapter.resume(
 					created.providerSandboxId,
@@ -112,18 +101,15 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			);
 			expect(resumed.state).toBe("running");
 
-			// extend timeout
 			await Effect.runPromise(
 				adapter.extendTimeout(created.providerSandboxId, LIVE_TIMEOUT_SECONDS),
 			);
 
-			// snapshot
 			snapshotId = await Effect.runPromise(
 				adapter.snapshot(created.providerSandboxId, `zuse-live-${runId}`),
 			);
 			expect(snapshotId).not.toBe("");
 
-			// fork from the snapshot — adapter hard-codes quarantine on this path
 			const forked = await Effect.runPromise(
 				adapter.fork({
 					sandboxId: `live_fork_${runId}`,
@@ -139,14 +125,13 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			expect(forked.state).toBe("running");
 			expect(forked.providerSandboxId).not.toBe(created.providerSandboxId);
 
-			// open the fork's network in one call
 			await Effect.runPromise(
 				adapter.setNetwork(forked.providerSandboxId, { kind: "open" }),
 			);
 		} finally {
 			for (const providerSandboxId of createdIds) {
 				await Effect.runPromise(adapter.kill(providerSandboxId));
-				// idempotency: a second kill of a dead sandbox must succeed
+
 				await Effect.runPromise(adapter.kill(providerSandboxId));
 			}
 			if (snapshotId !== null) {
@@ -155,7 +140,6 @@ describe.skipIf(apiKey === undefined)("E2B live lifecycle", () => {
 			}
 		}
 
-		// killed sandboxes must disappear from label recovery
 		const gone = await pollUntil(
 			() => Effect.runPromise(adapter.recoverByLabel(label)),
 			(value) => value === null,

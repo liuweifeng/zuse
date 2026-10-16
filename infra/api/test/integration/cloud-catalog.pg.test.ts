@@ -241,7 +241,7 @@ test.skipIf(!url).each(["a", "organization:org_a"])(
 				(await runtime.runPromise(store.getWorkspace("w")))?.requestConfig
 					.sharingPolicy,
 			).toEqual({ ...policy, ...sharingUpdate.sharing, revision: 1 });
-			// Exercise renewal against real row locks, rather than only the memory store.
+
 			await pool.query(
 				"UPDATE api_cloud_workspaces SET runtime_credential_hash='old', request_config=request_config || $1::jsonb WHERE workspace_id='w'",
 				[
@@ -285,7 +285,7 @@ test.skipIf(!url).each(["a", "organization:org_a"])(
 				generation: 4,
 			});
 			expect(receipts[1]).toEqual(receipts[0]);
-			// A lost response followed by two days asleep must still renew safely.
+
 			const wakeAt = 2 * 24 * 60 * 60_000;
 			expect(
 				await renew({ nowMs: wakeAt, expiresAtMs: wakeAt + 1_000 }),

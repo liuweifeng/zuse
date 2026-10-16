@@ -50,10 +50,7 @@ const looksLikeCode = (q: string): boolean => CODE_TOKENS.test(q);
  */
 export const route = (query: string, override?: string): ReadonlyArray<Tier> => {
   const tiers = routeRaw(query, override);
-  // Drop the vector tier when no real embedding provider is configured.
-  // NullProvider returns zero vectors, which makes sqlite-vec MATCH return
-  // arbitrary chunks and poison the RRF fusion. Until a real local provider
-  // ships (transformers.js, task #10), the honest behavior is BM25-only.
+
   if (getEmbeddingProvider().id === "null") {
     return tiers.filter((t) => t !== "vector");
   }

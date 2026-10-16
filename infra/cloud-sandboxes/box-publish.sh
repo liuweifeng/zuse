@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# Publishes the zuse base template for the Box provider as a named snapshot.
-# Box has no custom-image API, so the template is built by provisioning a
-# fresh box with the shared provision.sh stages plus the Box-specific pieces
-# (provider-owned agents and unprivileged runtime user), then freezing it.
-#
-# Usage: BOAT_API_KEY=... box-publish.sh <version>
-#   e.g. box-publish.sh 1   →  named snapshot "zuse-base-v1"
-#
-# Prints the BOAT_TEMPLATE_SNAPSHOT / BOAT_TEMPLATE_VERSION values to copy into
-# the API wrangler configuration.
+
 set -euo pipefail
 
 version="${1:?usage: box-publish.sh <version>}"
@@ -41,7 +32,6 @@ box_command() {
 			'{command: $command, timeoutSeconds: $timeout}')"
 }
 
-# Long installs exceed the 600s synchronous cap: run detached and poll.
 box_command_detached() {
 	local box_id="$1" command="$2" process_id status
 	process_id="$(api_json POST "/sandboxes/$box_id/commands" \
@@ -64,10 +54,7 @@ box_command_detached() {
 
 upload_file_part() {
 	local box_id="$1" source="$2" target="$3" encoded status=0
-	# The v1 file API accepts JSON, including base64 for binary artifacts.
-	# Keep large runtime tarballs out of shell arguments. A real temporary file
-	# is used instead of process substitution because jq reopens --rawfile paths
-	# after the producer's file descriptor can already be gone.
+
 	encoded="$(mktemp)"
 	base64 <"$source" | tr -d '\n' >"$encoded"
 	jq -n --arg path "$target" \
@@ -90,8 +77,6 @@ upload_file() {
 		return
 	fi
 
-	# Box rejects large JSON file bodies. Upload bounded binary chunks, then
-	# reassemble them through the command channel before provisioning starts.
 	chunk_dir="$(mktemp -d)"
 	split -b 4000000 "$source" "$chunk_dir/part-"
 	for part in "$chunk_dir"/part-*; do
@@ -120,9 +105,7 @@ echo "==> building runtime artifacts"
 "$script_dir/prepare-artifacts.sh"
 
 echo "==> creating builder box"
-# The Box account environment is inherited on purpose: shared credentials
-# configured there become part of the base template so runtimes launch with
-# them already present (account-image architecture).
+
 box_id="$(api_json POST /sandboxes '{"ttlSeconds": 7200}' | jq -r '.sandbox.id')"
 echo "    box: $box_id"
 trap 'api DELETE "/sandboxes/$box_id" -H "x-ascii-confirm-delete: '"$box_id"'" >/dev/null || true' EXIT

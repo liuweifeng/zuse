@@ -152,7 +152,6 @@ export function classifyPublicLink(
 	return null;
 }
 
-// Only public page paths and stable categories are recorded; never link text or search input.
 export function installPublicSiteTracking(
 	sdk: Pick<import("posthog-js").PostHog, "capture">,
 	surface: PublicSiteSurface,

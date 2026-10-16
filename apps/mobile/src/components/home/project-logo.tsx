@@ -13,8 +13,7 @@ export function ProjectLogo({
 	size?: number;
 }) {
 	const reduceMotion = useReducedMotion();
-	// Track the URL that failed (not a sticky flag) so a better URL arriving
-	// later — e.g. the canonical owner avatar once the origin loads — still shows.
+
 	const [failedUrl, setFailedUrl] = useState<string | null>(null);
 	const source =
 		avatarUrl !== null && avatarUrl !== failedUrl ? avatarUrl : null;

@@ -10,10 +10,6 @@ export type SwitchEnvironmentResult = {
 	readonly selectedFolderId: FolderId | null;
 };
 
-/**
- * Environment activation is serialized so selection cannot be applied to a
- * different environment than the shell generation it came from.
- */
 let switchInFlight = false;
 
 /**

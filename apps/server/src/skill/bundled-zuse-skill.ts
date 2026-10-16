@@ -155,9 +155,7 @@ export const readBundledZuseSkill = (): string => {
 	for (const candidate of assetCandidates()) {
 		try {
 			return fsSync.readFileSync(candidate, "utf8");
-		} catch {
-			// Try the next dev/packaged location.
-		}
+		} catch {}
 	}
 	return FALLBACK_SKILL;
 };

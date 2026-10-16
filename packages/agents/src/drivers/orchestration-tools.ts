@@ -31,32 +31,6 @@ import {
 	type OrchestrationReadInput,
 } from "./orchestration-discovery.ts";
 
-/**
- * In-process MCP "control-plane" tools — the primitives that let an agent
- * orchestrate its OWN work the way a human operator would: spin up a git
- * worktree, open a new chat/session ("thread"), hand that thread a task, and
- * read back its progress. This is the Layer-1 foundation the loop engine
- * (heartbeat / goal loops) builds on in a later phase.
- *
- * These mirror `buildIndexTools` / `buildBrowserTools`: the handlers are plain
- * async functions the Claude SDK invokes directly, kept free of any Effect
- * wiring. `ConversationServices` binds the deps below to its own Effect methods via
- * `Runtime.runPromise`, and — crucially — translates every failure into a
- * `{ ok: false, error }` result so these handlers never throw. That keeps the
- * tool surface free of raw try/catch and matches the `BrowserCommandResult`
- * convention.
- *
- * Registration is gated on autonomy: `ConversationServices` only builds + passes these
- * when the session's autonomy level is not `"off"`. The mutating tools
- * (create_thread / create_session / send_to_thread) fall through the driver's
- * permission policy to a prompt, which IS the approval gate for the
- * `approval-gated` level; the read-only tools (read_thread / list_threads /
- * list_models / whoami) are auto-allowed by the driver alongside the index
- * reads.
- */
-
-// ── Result contracts (set by ConversationServices, never thrown) ────────────────────
-
 export type CreateWorktreeResult =
 	| {
 			readonly ok: true;
@@ -274,8 +248,6 @@ export interface OrchestrationSessionTools {
 	readonly deps: OrchestrationToolDeps;
 	readonly claudeTools: ReturnType<typeof buildOrchestrationTools>;
 }
-
-// ── MCP text-result helpers ─────────────────────────────────────────────────
 
 type JsonObject = JsonSchemaObject;
 
@@ -592,8 +564,7 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"list_threads",
 	"list_models",
 	"whoami",
-	// emit_ui is display-only: it appends a rendered spec block to the
-	// transcript and carries no callbacks — same blast radius as a read.
+
 	"emit_ui",
 ]);
 

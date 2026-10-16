@@ -145,8 +145,6 @@ export const submitOutboxDrafts = async (
 		sessionId,
 	);
 
-	// Stage each safe command durably before deleting its editable source draft.
-	// After the stage commits, ClientBus is the sole retry and receipt owner.
 	for (const item of queued) {
 		const commandId = CommandId.make(item.clientId);
 		await stageMobileSessionCommand({

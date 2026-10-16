@@ -35,8 +35,6 @@ vi.mock("../../src/lib/cloud-workspaces.ts", async (original) => ({
 			: null,
 }));
 
-// Provider/model inventory is independent of applied access and requires a live client.
-// Plugins need a signed-in account; the composer layout doesn't.
 vi.mock("../../src/components/plugins/plugins-popover.tsx", () => ({
 	PluginsPopover: () => null,
 }));

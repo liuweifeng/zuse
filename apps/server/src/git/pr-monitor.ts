@@ -154,7 +154,7 @@ export const GitPrMonitorLive = Layer.effect(
 							}),
 						),
 					);
-					// Cached Effect shares completion without creating detached fibers.
+
 					return Effect.cached(program).pipe(
 						Effect.flatMap((shared) => {
 							sharedRefresh = shared;
@@ -229,7 +229,7 @@ export const GitPrMonitorLive = Layer.effect(
 			snapshot: (folderId, worktreeId, branch, scopeKey) => {
 				const identity = scopedIdentity(folderId, worktreeId, scopeKey);
 				const cached = state.getPrSnapshot(identity);
-				// Bind an initial read failure to the first locally observed branch without losing the error.
+
 				if (
 					cached?.value.branch === null &&
 					branch !== null &&

@@ -1,12 +1,3 @@
-/**
- * Pages served by the sign-in loopback (`127.0.0.1:8976-8979`). They render in
- * the user's system browser, so they must be entirely self-contained: no
- * scripts, no network fonts, no external assets — the loopback answers a single
- * request and nothing else is fetchable. The markup is a hand-port of the
- * product's Ticket (account sign-in) and Stamp (integration connect) surfaces to
- * plain HTML + CSS.
- */
-
 import {
 	browserPageHeaders,
 	clampedText,
@@ -37,7 +28,6 @@ export interface AuthCallbackPageInput {
 	readonly nowMs?: number;
 }
 
-/** Providers echo arbitrary text in `error_description`. */
 const DETAIL_MAX_LENGTH = 180;
 const INTEGRATION_NAME_MAX_LENGTH = 40;
 
@@ -309,10 +299,6 @@ ${input.backdrop ? DITHER_BACKGROUND_SCRIPT : ""}
 
 const ARROW = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M3.5 8.5l5-5M4.5 3.5h4v4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-/**
- * Artwork plus a footer rule in the artwork's own label type: what to do next
- * on the left, the way back on the right. Both share the artwork's width.
- */
 const piece = (input: {
 	readonly width: string;
 	readonly artwork: string;

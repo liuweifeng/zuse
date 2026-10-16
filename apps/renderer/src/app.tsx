@@ -46,7 +46,6 @@ import { useUiStore } from "./store/ui.ts";
 
 import { useWorkspaceStore } from "./store/workspace.ts";
 
-// Build monitoring starts after account access is ready and needs no startup UI.
 const CloudBuildMonitor = lazy(() =>
 	import("./components/cloud-build-monitor.tsx").then((module) => ({
 		default: module.CloudBuildMonitor,
@@ -121,8 +120,6 @@ const LazyPluginReturnHandler = lazy(() =>
 	})),
 );
 
-// Plugin callbacks run across every surface without making their client and
-// schemas part of the shell's static startup graph.
 function PluginReturnHandler() {
 	return (
 		<Suspense fallback={null}>
@@ -260,26 +257,16 @@ function ReadyApp({
 			stop?.();
 		};
 	}, []);
-	// Native Application Menu → renderer action dispatcher. Lives on the
-	// root so the bindings work in every view (chat, settings, onboarding).
+
 	useMenuShortcuts();
 
-	// Document-level keybinding dispatcher. Walks the live keybindings store
-	// on every keydown and fires the matching application command. Composer
-	// and editor commands are handled by CodeMirror keymaps, so this hook
-	// ignores them.
 	useKeybindingDispatch();
 
-	// Warm the analytics surface after the shell settles so opening Usage never
-	// pauses on parsing the chart renderer. The data request still starts only
-	// when the user opens the surface.
 	useEffect(() => {
 		const timeout = window.setTimeout(() => void loadUsageDashboard(), 1_500);
 		return () => window.clearTimeout(timeout);
 	}, []);
 
-	// Mirror Electron's fullscreen state into the ui store so the top bars
-	// can drop the macOS traffic-light gutter.
 	const setFullScreen = useUiStore((s) => s.setFullScreen);
 	useEffect(() => {
 		const win = window.zuse?.window;
@@ -287,8 +274,6 @@ function ReadyApp({
 		return win.onFullScreenChange((value) => setFullScreen(value));
 	}, [setFullScreen]);
 
-	// One-shot RPC ping so we know the bridge is alive early. Only the failure
-	// is logged — the success path is silent to keep the renderer console clean.
 	useEffect(() => {
 		if (isHostedProduct()) return;
 		let cancelled = false;

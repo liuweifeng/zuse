@@ -83,7 +83,7 @@ export const WaitlistForm = () => {
 					{submitting ? t("showcase:sending") : t("showcase:request_access")}
 				</button>
 			</div>
-			{/* Fixed-height status row so errors never shift the layout. */}
+
 			<p
 				role="status"
 				className="text-dusty-red min-h-5 text-xs font-medium"

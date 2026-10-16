@@ -37,7 +37,6 @@ export const ACTIVE_SESSION_TURN_STATUSES = [
 	"finalizing",
 ] as const;
 
-/** Keep the denormalized chat selection pointed at a live sibling session. */
 const replaceUnavailableActiveSession = (
 	sql: SqlClient.SqlClient,
 	sessionId: string,
@@ -96,7 +95,6 @@ export const makeSqlSessionProjector = (
 			WHERE id = ${sessionId}
 		`;
 
-	/** A provider or worktree change retires the active provider thread. */
 	const retireActiveProviderThread = (sessionId: string, updatedAt: string) =>
 		Effect.gen(function* () {
 			yield* sql`
@@ -109,7 +107,6 @@ export const makeSqlSessionProjector = (
 			yield* setActiveProviderThread(sessionId, null, updatedAt);
 		});
 
-	/** Legacy resume tokens bind a provider thread keyed by the session's provider. */
 	const bindLegacyResume = (
 		sessionId: string,
 		nativeThreadId: string,

@@ -22,9 +22,7 @@ export const buildComposerKeymap = (
 ): KeyBinding[] => {
 	const rules = keybindingsSnapshot().resolvedRules;
 	const bindings: KeyBinding[] = [];
-	// Walk in declaration order; CodeMirror tries bindings top-down and stops
-	// at the first that returns true, so put later (user) overrides first
-	// when they share a chord with a default.
+
 	const ordered = [...rules].reverse();
 	const seenKeys = new Set<string>();
 
@@ -33,8 +31,7 @@ export const buildComposerKeymap = (
 		if (!command.startsWith("composer.")) continue;
 		const key = keyToCodeMirrorKey(r.shortcut);
 		if (key === null) continue;
-		// Dedupe on key — once the user's binding wins for a chord, drop the
-		// default(s) for the same chord so CodeMirror doesn't double-fire.
+
 		if (seenKeys.has(key)) continue;
 		seenKeys.add(key);
 
@@ -64,8 +61,7 @@ const makeComposerBinding = (
 				preventDefault: true,
 				run: (view) => {
 					if (view.composing) return false;
-					// Force-submit ignores submit guards (popover open, etc.) since
-					// users pressing this chord explicitly want to send.
+
 					callbacks.onSubmit();
 					return true;
 				},

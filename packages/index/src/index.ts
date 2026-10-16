@@ -37,9 +37,6 @@ export type {
   SymbolSummary,
 } from "./types.ts";
 
-// Internal helpers exposed for the test harness and the upcoming
-// apps/mcp-server scaffold (Phase F builds its own Layer using these
-// without going through Effect Service composition).
 export { blakeOf, hexOf } from "./blob/hash.ts";
 export { detectLanguage } from "./chunker/language.ts";
 export { chunkSource } from "./chunker/index.ts";

@@ -121,9 +121,7 @@ private final class NearbyListener {
     listener?.cancel()
     listener = nil
     let parameters = NWParameters.tcp
-    // No peer-to-peer: advertising over AWDL keeps the Mac's Wi-Fi radio
-    // time-slicing and degrades the network for everything else. The phone
-    // browses infrastructure Wi-Fi only, so the AWDL publication was unused.
+
     parameters.allowLocalEndpointReuse = true
     do {
       let listener = try NWListener(using: parameters, on: .any)
@@ -246,8 +244,6 @@ private let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue
 termination.setEventHandler { stopHelper() }
 termination.resume()
 
-// The launcher owns stdin's pipe. EOF also covers SIGKILL and engine crashes,
-// when no graceful termination signal can reach this helper.
 private let ownerLifetime = DispatchSource.makeReadSource(fileDescriptor: STDIN_FILENO, queue: queue)
 ownerLifetime.setEventHandler {
   if FileHandle.standardInput.availableData.isEmpty { stopHelper() }

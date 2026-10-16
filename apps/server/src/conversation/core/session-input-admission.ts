@@ -10,8 +10,6 @@ export const assertSessionInputUnblocked = (
 	commandId?: string,
 ) =>
 	Effect.gen(function* () {
-		// A retry of committed intent must reach normal receipt/fingerprint validation,
-		// even when that earlier execution is now awaiting input.
 		if (commandId !== undefined) {
 			const prior =
 				yield* sql`SELECT command_id FROM command_receipts WHERE command_id=${commandId} AND stream_id=${sessionId} LIMIT 1`.pipe(

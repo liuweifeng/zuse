@@ -13,8 +13,7 @@ export class RemoteEnvironmentProfileStore {
 		this.store = new AtomicProfileStore(userData, {
 			fileName: "remote-environments.json",
 			decode: Schema.decodeUnknownSync(RemoteEnvironmentProfile),
-			// Early builds wrote the profile array directly. Accept it and rewrite
-			// the versioned envelope on the next mutation.
+
 			decodeLegacy: (value) =>
 				Array.isArray(value)
 					? Schema.decodeUnknownSync(Schema.Array(RemoteEnvironmentProfile))(

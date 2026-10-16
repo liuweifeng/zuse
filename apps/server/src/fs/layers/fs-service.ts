@@ -27,25 +27,15 @@ import { WorkspaceService } from "../../workspace/services/workspace-service.ts"
 import { watchDirectoryTree } from "../directory-tree-watcher.ts";
 import { FsService } from "../services/fs-service.ts";
 
-// Directories never shown in the code tree. Match by basename. Hidden dotfiles
-// other than these still show up — users often want `.env`, `.github/`, etc.
 const SKIP_DIRS = new Set([".git", ".zuse", ".DS_Store"]);
-// Directories shown in the tree but not listed, walked, or watched until the
-// user expands them. Gitignored directories (virtualenvs, build output,
-// caches) are deferred too, so they cannot crowd out the project's sources.
+
 const DEFERRED_DIR_NAMES = new Set(["node_modules"]);
 const WATCH_BATCH_MS = 120;
 
-// Cap how much we'll ship across the RPC for a single file. Anything larger
-// surfaces as `FsTooLargeError` so the editor can render a placeholder
-// instead of trying to load gigabytes into a CodeMirror buffer.
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 
-// Hard cap on how many paths `fs.listPaths` returns for the file tree. The
-// path-first tree wants the whole universe up front; this keeps a pathological
-// monorepo from streaming hundreds of thousands of entries across the RPC.
 const MAX_TREE_PATHS = 50_000;
-// Leave framing/schema overhead under the 1 MiB initial-sync budget.
+
 const MAX_TREE_PATH_BYTES = 900 * 1024;
 const FS_WRITE_RECEIPT_RETENTION_MS = 7 * 24 * 60 * 60 * 1_000;
 const MAX_APPLIED_FS_WRITE_RECEIPTS = 10_000;
@@ -68,10 +58,6 @@ type TreeWatchState = {
 const toForwardSlash = (p: string): string =>
 	path.sep === "/" ? p : p.split(path.sep).join("/");
 
-/**
- * Whether `rel` (root-relative, forward-slash) is a deferred directory or lies
- * inside one. `ignoredDirs` comes from `GitService.ignoredDirectories`.
- */
 const isDeferredPath = (
 	rel: string,
 	ignoredDirs: ReadonlySet<string>,
@@ -173,20 +159,12 @@ export const FsServiceLive = Layer.effect(
 						? toForwardSlash(pathSvc.relative(root, changed))
 						: null;
 				if (canonical.kind === "denied" || candidate === root) return null;
-				// Deleted paths no longer resolve. Invalidate only the first missing
-				// child of a verified parent, never names below an unresolved link.
+
 				changed = candidate;
 				candidate = pathSvc.dirname(candidate);
 			}
 		});
 
-		// Resolve a project-root-relative request path to an absolute path,
-		// failing with the appropriate wire error if the folder is unknown or
-		// the path escapes the project root. When `worktreeId` is set and the
-		// worktree belongs to `folderId`, root-swaps to the worktree's path so
-		// every fs surface (tree / read / write) follows the active session.
-		// Shared by tree / readFile / writeFile so path-validation lives in
-		// exactly one place.
 		const resolveInsideFolder = (
 			folderId: FolderId,
 			relPath: string,
@@ -254,7 +232,7 @@ export const FsServiceLive = Layer.effect(
 					);
 					if (!isInsideRoot(canonical.root, canonical.requested))
 						return yield* new FsPathOutsideError({ folderId, path: relPath });
-					// Read the resolved path, not the symlink we just inspected.
+
 					return { rootAbs: canonical.root, requestedAbs: canonical.requested };
 				}
 				return { rootAbs, requestedAbs } as const;
@@ -295,10 +273,6 @@ export const FsServiceLive = Layer.effect(
 					),
 				);
 
-				// Stat every entry in parallel — sequential stats blow up for any
-				// folder with more than a few dozen files. A failed stat (broken
-				// symlink, racey delete) just drops that entry so one bad child
-				// doesn't blank the whole listing.
 				const stats = yield* Effect.forEach(
 					names,
 					(name) =>
@@ -326,7 +300,7 @@ export const FsServiceLive = Layer.effect(
 				);
 
 				const entries = stats.filter((e): e is FsEntry => e !== null);
-				// Dirs first, then files; case-insensitive within each group.
+
 				entries.sort((a, b) => {
 					if (a.kind !== b.kind) return a.kind === "directory" ? -1 : 1;
 					return a.name.localeCompare(b.name, undefined, {
@@ -361,8 +335,7 @@ export const FsServiceLive = Layer.effect(
 					let ignoredDirs = yield* ignoredDirectories(folderId, worktreeId);
 					let handle: Awaited<ReturnType<typeof watchDirectoryTree>> | null =
 						null;
-					// Register cleanup before acquiring native resources so failed
-					// attachment and request cancellation also release the queue.
+
 					yield* Effect.addFinalizer(() =>
 						Effect.andThen(
 							Effect.sync(() => {
@@ -393,7 +366,6 @@ export const FsServiceLive = Layer.effect(
 					};
 
 					const schedule = () => {
-						// Keep reporting activity during sustained writes so sync can wait for quiet.
 						if (timer === null) timer = setTimeout(flush, WATCH_BATCH_MS);
 					};
 
@@ -432,7 +404,6 @@ export const FsServiceLive = Layer.effect(
 							err instanceof Error ? err : new Error(String(err)),
 					}).pipe(Effect.result);
 					if (attached._tag === "Failure") {
-						// An unwatched tree cannot claim live continuity.
 						console.warn(
 							`[fs.watchTree] could not watch ${rootAbs}: ${attached.failure.message}`,
 						);
@@ -483,8 +454,7 @@ export const FsServiceLive = Layer.effect(
 						Stream.filter(
 							(event) => event._tag !== "changed" || event.paths.length > 0,
 						),
-						// Hidden activity must neither disclose paths nor cause a false
-						// continuity gap in the existing watcher consumer.
+
 						Stream.map((event) => ({
 							...event,
 							sequence:
@@ -494,14 +464,6 @@ export const FsServiceLive = Layer.effect(
 				}).pipe(Effect.catchTag("FsReadError", redactReadError)),
 			);
 
-		// Full recursive path listing for the `@pierre/trees` file tree. DFS with
-		// dirs-first-then-name ordering so the result is already presorted
-		// (parent before children) for `preparePresortedFileTreeInput`.
-		// Directories carry a trailing "/" so empty ones still render. Bounded by
-		// MAX_TREE_PATHS; a failed stat drops that entry rather than the branch.
-		// Deferred directories (`node_modules` and gitignored ones such as
-		// virtualenvs and build output) are listed but not walked; the tree loads
-		// them with `fs.tree` when expanded. Gitignored files like `.env` stay.
 		const listPaths: FsService["Service"]["listPaths"] = (
 			folderId,
 			worktreeId,
@@ -608,8 +570,6 @@ export const FsServiceLive = Layer.effect(
 				};
 			}).pipe(Effect.catchTag("FsReadError", redactReadError));
 
-		// Rename/move for the file tree's inline rename + drag-and-drop. Both
-		// endpoints are containment-validated; refuses to clobber an existing dest.
 		const move: FsService["Service"]["move"] = (
 			folderId,
 			fromPath,
@@ -690,9 +650,6 @@ export const FsServiceLive = Layer.effect(
 					),
 				);
 
-				// Decode strict-UTF-8. A failure means the file is binary — return
-				// it as such so the editor can render a placeholder instead of
-				// garbage. We don't attempt other encodings.
 				try {
 					const decoder = new TextDecoder("utf-8", { fatal: true });
 					const content = decoder.decode(bytes);
@@ -998,10 +955,6 @@ export const FsServiceLive = Layer.effect(
 				return {};
 			});
 
-		// External (outside-folder) read/write. Same decode / size-cap / mtime
-		// concurrency as readFile/writeFile, but the path is absolute and there's
-		// no folder containment check — deliberately so, to open files the agent
-		// wrote elsewhere on disk. Errors key off `path` instead of `folderId`.
 		const readExternal: FsService["Service"]["readExternal"] = (absPath) =>
 			Effect.gen(function* () {
 				const target = pathSvc.resolve(absPath);

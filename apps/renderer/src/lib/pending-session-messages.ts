@@ -5,8 +5,6 @@ import {
 import type { Message, MessageId } from "@zuse/contracts";
 import { createAtomStore } from "../state/atom-store.ts";
 
-// Preparation precedes durable mailbox submission. Keep that intent outside
-// history snapshots so a checkpoint/reconnect cannot erase an unsent prompt.
 const EMPTY_MESSAGES: readonly Message[] = [];
 export const usePendingSessionMessages = createAtomStore<{
 	byResource: Readonly<Record<string, readonly Message[]>>;

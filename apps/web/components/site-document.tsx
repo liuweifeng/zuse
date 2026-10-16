@@ -86,8 +86,7 @@ export async function SiteDocument({
 						) : (
 							<>
 								<DownloadShortcut />
-								{/* Framed column with dotted rails on both edges — the base layout's
-            signature. Everything on the site lives inside these rails. */}
+
 								<div className="relative mx-auto w-full max-w-6xl">
 									<VerticalLine />
 									<VerticalLine className="right-0 left-auto" />

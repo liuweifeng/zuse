@@ -31,7 +31,7 @@ export const renderHandoffContext = (
 /** Frozen context belongs to the application session, independently of native handles. */
 export const makeContextHandoff = (sql: SqlClient.SqlClient) => {
 	const queries = makeSqlSessionQueries(sql);
-	// Keep provider prompts bounded; the complete transcript stays in the session.
+
 	const capture = (
 		sessionId: SessionId,
 		providerId: ProviderId,

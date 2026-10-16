@@ -224,8 +224,7 @@ export const projectEnvironmentShell = (
 		optimisticChats.set(pending.chat.id, pending.chat);
 		optimisticSessions.set(pending.session.id, pending.session);
 	}
-	// ClientBus overlays already survive into `normalized`; pending metadata is
-	// retained below only to drive the creation progress surface.
+
 	if (options.seed !== undefined) {
 		optimisticChats.set(options.seed.chat.id, options.seed.chat);
 		optimisticSessions.set(
@@ -333,11 +332,7 @@ export const projectEnvironmentShell = (
 		error: null,
 	});
 	markRendererStartupMilestone("projects-visible");
-	// This function projects the canonical shell cell into compatibility stores.
-	// Never write the projection back into that same cell: ClientBus notifies its
-	// shell listener synchronously, so doing so recursively re-enters this
-	// projector until the JavaScript stack overflows. Optimistic mutations are
-	// applied at their command boundaries before this projection runs.
+
 	useChatsStore.setState({
 		selectedChatId,
 		selectedChatByProject:
@@ -367,10 +362,7 @@ export const projectEnvironmentShell = (
 		creatingByChat: {},
 		error: null,
 	});
-	// A creation can outlive the RPC scope that started it (app reload, HMR,
-	// laptop sleep, or a transport generation change). The canonical creation
-	// stream is therefore also the recovery trigger. `retryCreation` is keyed by
-	// operation id, so repeated snapshots cannot start competing attempts.
+
 	for (const [chatId, creation] of Object.entries(restoredPending)) {
 		if (
 			creation.phase !== "failed" &&
@@ -396,7 +388,7 @@ type EnvironmentCatalogState = {
 	initialize: () => Promise<void>;
 	syncAccountEnvironments: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
-	/** Resolves with the connected computer's label once the link settles. */
+
 	addTailnet: (pairingLink: string, label?: string) => Promise<string>;
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
@@ -448,13 +440,9 @@ const writeHiddenApiEnvironmentIds = (ids: ReadonlyArray<string>): void => {
 		} else {
 			window.localStorage.setItem(HIDDEN_API_STORAGE_KEY, JSON.stringify(ids));
 		}
-	} catch {
-		// Persisting hidden computers is best-effort.
-	}
+	} catch {}
 };
 
-// Everything stored in `entry.error` is user-facing (project picker, sidebar
-// notice, settings rows) — always humanize through the shared formatter.
 const errorMessage = (cause: unknown): string => formatError(cause);
 
 const profileEntry = (
@@ -792,8 +780,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			}
 		});
 		if (import.meta.hot) import.meta.hot.dispose(unsubscribeAccount);
-		// This desktop's projects are split by workspace at read time. Re-project
-		// on switch so stores never keep the previous workspace's projects.
+
 		const unsubscribeWorkspace = subscribeRendererWorkspace(() => {
 			const state = get();
 			if (
@@ -886,8 +873,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					return normalizeEnvironmentShellData(fallback);
 				throw cause;
 			});
-			// Connection work can finish after the user has opened another draft.
-			// Check before changing either the active environment or its selection.
+
 			if (
 				selection?.isCurrent?.() === false ||
 				rendererWorkspaceSnapshot() !== workspace
@@ -1107,8 +1093,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					set({ initialized: true, initializing: false });
 					return Promise.resolve();
 				}
-				// Discovery can fail before a shell lease exists. The shared local
-				// transport still reconnects, so use that edge to resume discovery.
+
 				unsubscribeLocalRecovery ??= subscribeRendererRpcConnection(
 					(snapshot) => {
 						if (snapshot.status !== "connected" || get().initialized) return;
@@ -1157,8 +1142,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							localEntry.environmentId,
 							"cache-only",
 						);
-						// Discover the desktop in any workspace, but only activate its
-						// Personal shell while that workspace is selected.
+
 						if (environmentBelongsToWorkspace(localEntry.environmentId)) {
 							await activateRuntime(
 								entryKey(localEntry),
@@ -1171,8 +1155,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						}
 						set({ initialized: true, initializationError: null });
 
-						// Remote catalogs are optional. A corrupt saved profile or an
-						// unavailable account service must never hide the local workspace.
 						const account = rendererAccountSnapshot();
 						const revision = ++discoveryRevision;
 						const { profiles, tailnetProfiles, apiEnvironments, apiError } =
@@ -1192,8 +1174,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							),
 						);
 						const hiddenApiIds = new Set(hiddenApiEnvironmentIds);
-						// A sign-in refresh can finish before saved device profiles load.
-						// Retire any API route before the same host becomes device-owned.
+
 						removeAccountEnvironments(profileEnvironmentIds);
 						const currentDiscovery =
 							rendererAccountSnapshot() === account &&
@@ -1243,8 +1224,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						set({ initializing: false });
 					}
 				}).finally(() => {
-					// A new connection may arrive before the failed RPC settles.
-					// Wait for the initialization gate to release before retrying.
 					const retry = initializeAfterReconnect;
 					initializeAfterReconnect = false;
 					if (retry && !get().initialized && get().initializationError !== null)
@@ -1304,9 +1283,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				for (const environment of accountEnvironments) {
 					apiRecords.set(environment.environmentId, environment);
 				}
-				// Refresh presence for computers already in the catalog. A computer
-				// whose heartbeat just turned fresh came back from sleep or a network
-				// drop: skip its retry backoff so it reconnects right away.
+
 				const now = Date.now();
 				const cameOnline: string[] = [];
 				set((state) => ({

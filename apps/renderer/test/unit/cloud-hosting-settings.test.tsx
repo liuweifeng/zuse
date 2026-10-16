@@ -48,7 +48,7 @@ it("keeps checkout secondary while the user's own hosting is in use", () => {
 	const markup = render(false, { activeMode: "provider" });
 	const subscribe = markup.match(/<button[^>]*>[^<]*Subscribe/)?.[0] ?? "";
 	expect(subscribe).not.toContain("bg-primary");
-	// Own-account hosting is only marked in use once a key is actually connected.
+
 	expect(markup).not.toContain("In use");
 });
 it("respects billing and provider permissions while retaining status", () => {

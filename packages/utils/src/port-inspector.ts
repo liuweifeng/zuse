@@ -34,7 +34,6 @@ const isLoopbackHost = (host: string): boolean => {
 	);
 };
 
-/** Merge per-listener entries: first-seen name wins, loopback is AND-ed. */
 const collect = (
 	entries: Iterable<ListenerEntry>,
 ): ReadonlyArray<ListeningServer> => {
@@ -121,9 +120,6 @@ export const parseNetstatListeners = (
 	return collect(entries);
 };
 
-// /proc/net/tcp{,6} local addresses are per-32-bit-word byte-swapped hex:
-// IPv4 loopback is 0100007F, IPv6 loopback and the IPv4-mapped form end in
-// the same swapped words; all-zero means the wildcard address.
 const isLoopbackHexAddress = (hex: string): boolean =>
 	hex === "0100007F" ||
 	hex === "00000000000000000000000001000000" ||
@@ -167,7 +163,6 @@ export const listListeningServers = async (
 			});
 			return parseSsListeners(stdout, excludedPid);
 		} catch {
-			// Without process ownership, do not advertise potentially internal sockets.
 			if (excludedPid !== undefined) return [];
 			const contents = await Promise.all(
 				["/proc/net/tcp", "/proc/net/tcp6"].map((path) =>

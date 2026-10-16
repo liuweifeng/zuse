@@ -20,8 +20,6 @@ type Feedback = {
 	diff_hunk?: string;
 };
 
-// `gh api --paginate --slurp` returns an array of pages. A failed fetch is
-// distinct from an empty collection so callers can keep existing feedback.
 export const parseFeedbackPages = (stdout: string): Feedback[] | null => {
 	try {
 		const pages: unknown = JSON.parse(stdout);
@@ -106,8 +104,6 @@ export const feedbackReviews = (
 		});
 	});
 
-// Fetch only each thread's root; REST replies point to it via in_reply_to_id.
-// This avoids truncating long conversations and paginates all review threads.
 export const PR_REVIEW_THREADS_QUERY = `query($owner: String!, $repo: String!, $number: Int!, $endCursor: String) {
  repository(owner: $owner, name: $repo) {
   pullRequest(number: $number) {
@@ -129,7 +125,7 @@ export function parseReviewThreads(stdout: string): ReviewThreads {
 		if (!Array.isArray(pages)) return result;
 		for (const page of pages) {
 			const connection = page?.data?.repository?.pullRequest?.reviewThreads;
-			// A partial response must not classify an incomplete review as resolved.
+
 			if (page.errors?.length || !Array.isArray(connection?.nodes))
 				return new Map();
 			for (const thread of connection.nodes) {

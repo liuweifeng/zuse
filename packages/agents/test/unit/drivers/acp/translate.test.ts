@@ -6,8 +6,6 @@ import {
 import type { AgentEvent } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
-// Narrowing helpers — the translator returns the AgentEvent union; tests below
-// assert on concrete variants, so pull the tag out and cast for convenience.
 const tags = (events: ReadonlyArray<AgentEvent>): string[] =>
 	events.map((e) => e._tag);
 
@@ -241,7 +239,7 @@ describe("translateAcpSessionUpdate — result normalization", () => {
 				{
 					sessionUpdate: "tool_result",
 					toolCallId: "g1",
-					output: { stdout: [72, 105], stderr: [] }, // "Hi"
+					output: { stdout: [72, 105], stderr: [] },
 				},
 				"grok",
 			),
@@ -467,7 +465,7 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
 			locations: [{ path: "/a.ts" }],
 		});
 		expect(tags(first)).toEqual(["ToolUse"]);
-		// Same locations, no content, no terminal status → nothing new to emit.
+
 		const second = t.translate({
 			sessionUpdate: "tool_call_update",
 			toolCallId: "d1",
@@ -555,7 +553,7 @@ describe("createAcpTranslator — tool_call_update dedup & re-emit", () => {
 			status: "completed",
 		});
 		expect(tags(done)).toEqual(["ToolResult"]);
-		// A late duplicate terminal update must not stack a second result row.
+
 		const late = t.translate({
 			sessionUpdate: "tool_call_update",
 			toolCallId: "b1",

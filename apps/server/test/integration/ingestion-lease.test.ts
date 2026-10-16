@@ -283,7 +283,7 @@ test.each([
 				expect(
 					yield* sql`SELECT 1 FROM jobs WHERE kind = 'provider.turn.send'`,
 				).toHaveLength(0);
-				// A later pass recovers the retained lease without resending input.
+
 				yield* sweepIngestionLeases(sql, domain, 130);
 				expect(yield* domain.activeAttempt("blocked-session")).toBeNull();
 				expect(yield* sql`SELECT 1 FROM session_ingestion_leases`).toHaveLength(

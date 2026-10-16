@@ -12,8 +12,7 @@ export const cloudCommandTransport = makeCloudCommandTransport(
 			(summary === null
 				? undefined
 				: (summary.workspaceScope ?? { kind: "personal" as const }));
-		// Missing scope is not evidence of Personal ownership. Recovery must wait
-		// for its catalog/connection rather than misroute an organization command.
+
 		if (scope === undefined)
 			throw new Error("Cloud workspace ownership is not available yet.");
 		return getCloudControlClient(scope);

@@ -155,7 +155,7 @@ test("uninterrupted ownership is checked before receipt replay and transactional
 				}
 				expect(callbacks).toBe(0);
 				expect(yield* sql`SELECT 1 FROM messages`).toHaveLength(1);
-				// The interrupt worker retains authority to acknowledge and settle cancellation.
+
 				yield* domain.dispatch({
 					commandId: "settle-interrupted",
 					streamId: "session-1",

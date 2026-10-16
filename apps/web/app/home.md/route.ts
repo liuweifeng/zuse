@@ -1,6 +1,5 @@
 import { HOME_MARKDOWN } from "@/lib/agent-content";
 
-// Repository content changes only when a new deployment is built.
 export const dynamic = "force-static";
 
 export function GET() {

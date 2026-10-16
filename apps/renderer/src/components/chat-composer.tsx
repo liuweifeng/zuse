@@ -248,37 +248,20 @@ export function ChatComposer({
 	composerDraftKey?: string;
 	constrain?: boolean;
 	directoryUnavailable?: boolean;
-	/** Disable sending while keeping the editor interactive and mounted. */
+
 	submitDisabled?: boolean;
 	cloudProviderIds?: ReadonlyArray<ProviderId>;
-	/**
-	 * Optional content rendered as a header row inside the composer frame, above
-	 * the editor. Used by the new-chat landing to host the "Create from…" picker
-	 * (draft mode only). Non-draft composers pass nothing.
-	 */
+
 	headerSlot?: ReactNode;
-	/**
-	 * Draft-only notice rendered in the attached tray above the editor, next to
-	 * the offline notice. The new-chat landing uses it to explain why Send is
-	 * blocked.
-	 */
+
 	draftTray?: ReactNode;
 	projectlessDraft?: boolean;
-	/**
-	 * When set, the composer runs in "draft" mode for the new-chat landing:
-	 * `session` is a synthetic draft (see `sessions.beginDraft`) with no real
-	 * server row. Submit routes here instead of send/queue so the landing can
-	 * create the worktree + chat on first send; session-state trays (queue,
-	 * plan, annotations, context, location, workspace) are hidden; and the
-	 * permission-hydration polling is skipped (there's nothing to hydrate). The
-	 * model/runtime/permission/provider toggles still work — their store setters
-	 * route to the draft slot — so the user's picks carry into `create()`.
-	 */
+
 	onDraftSubmit?: (
 		input: ComposerInput,
 		opts: {
 			readonly asGoal: boolean;
-			/** Consume the draft only after landing validation succeeds. */
+
 			readonly accept: () => void;
 			readonly pendingAttachments: ReadonlyArray<PendingDraftAttachment>;
 			readonly pendingContextFiles: ReadonlyArray<PendingDraftContextFile>;
@@ -302,8 +285,7 @@ export function ChatComposer({
 			: state.pendingCreationByChat[session.chatId] !== undefined,
 	);
 	const [reasoningLevel, setReasoningLevel] = useState<string | null>(null);
-	// Provider features the installed CLI supports (from the availability
-	// probe). Codex goal mode is version-gated; Grok advertises it natively.
+
 	const capabilities = useProvidersStore((s) =>
 		s.capabilitiesFor(session.providerId, qualifiedEnvironmentId),
 	);
@@ -316,8 +298,7 @@ export function ChatComposer({
 		isDraft ? "cache-only" : "connect",
 		qualifiedEnvironmentId,
 	);
-	// Catalog placeholders describe launch intent. Only the session timeline
-	// knows which access mode the runtime actually applied (also across devices).
+
 	const appliedRuntimeMode = isDraft
 		? session.runtimeMode
 		: (timeline.projection?.runtimeMode ?? session.runtimeMode);
@@ -328,8 +309,7 @@ export function ChatComposer({
 		() => ({ environmentId: qualifiedEnvironmentId, sessionId }),
 		[qualifiedEnvironmentId, sessionId, uiMessage],
 	);
-	// Existing goals are authoritative runtime state, independent of the
-	// lazily loaded CLI inventory used to offer creation controls.
+
 	const tracksGoals =
 		session.providerId === "codex" || session.providerId === "grok";
 	const goalView = useSessionGoalResource(
@@ -375,9 +355,7 @@ export function ChatComposer({
 		cloudActivity === null
 			? timeline.presentation.turnInFlight
 			: cloudChatShowsWorking(cloudActivity, timeline.view.pendingCommands);
-	// Hold messages only while the provider is unavailable or an earlier message
-	// is already queued. Worktree setup is independent background work and must
-	// not delay an agent that has finished booting.
+
 	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
 	const goal = goalView.data?.goal ?? null;
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
@@ -390,9 +368,7 @@ export function ChatComposer({
 			providerId: session.providerId,
 		});
 	const platformOnline = usePlatformOnline();
-	// A message queued while offline must wait for the network. The server has
-	// no connectivity signal, so its immediate flush is suppressed here and the
-	// held queue drains through the shared online-edge recovery.
+
 	const queue = async (input: ComposerInput) => {
 		const options = {
 			providerId: session.providerId,
@@ -409,11 +385,6 @@ export function ChatComposer({
 	const saveComposerDraft = useComposerDraftsStore((s) => s.save);
 	const clearComposerDraft = useComposerDraftsStore((s) => s.clear);
 
-	// Pending AskUserQuestion takes over the composer slot — that's where
-	// the user types anyway, and floating it inline above the chat
-	// crowded the timeline. Swap to QuestionCard while one is unanswered;
-	// otherwise render the normal editor.
-	//
 	const sessionMessages = timeline.messages;
 	const questionAttachmentsByKey =
 		useEnvironmentQuestionAttachments(qualifiedEnvironmentId).data
@@ -429,10 +400,6 @@ export function ChatComposer({
 	);
 	const pendingQuestion = presentedQuestion?.question ?? null;
 
-	// Pending permission requests also take over the composer slot. Same
-	// motivation as AskUserQuestion: the user's eyes are already on the
-	// composer, so put the decision there. Permissions outrank questions
-	// because the agent is already mid-tool-call.
 	const requestsById =
 		useEnvironmentPermissions(qualifiedEnvironmentId).data?.requestsById ??
 		EMPTY_PERMISSION_REQUESTS;
@@ -446,7 +413,7 @@ export function ChatComposer({
 			requestsById,
 		).filter((item) => {
 			const req = item.interaction.request;
-			// ExitPlanMode is approved on the plan card itself.
+
 			return !(
 				req.recoveryState !== "expired" &&
 				req.kind._tag === "Other" &&
@@ -543,24 +510,18 @@ export function ChatComposer({
 	const hydrateDraftSkills = useSessionsStore((s) => s.loadDraftSkills);
 	const pendingDraftAttachmentsRef = useRef<PendingDraftAttachment[]>([]);
 	const pendingDraftContextFilesRef = useRef<PendingDraftContextFile[]>([]);
-	// Submit reads through a ref so the keymap, captured at editor creation
-	// time, always sees the current sessionId / send / inFlight without
-	// recreating the editor on every render.
+
 	const submitRef = useRef<() => boolean>(() => false);
 	const sendTextRef = useRef<(text: string) => Promise<boolean>>(
 		async () => false,
 	);
-	// Same indirection for file drops — the editor extension is bound once
-	// and we want it to call the latest closure with the current sessionId.
+
 	const filesDroppedRef = useRef<(files: ReadonlyArray<File>) => void>(
 		() => undefined,
 	);
-	// Same indirection for large text pastes. Returns whether the paste was
-	// consumed (diverted to a `.context/files` file chip) so CodeMirror knows
-	// to skip its default insert.
+
 	const textPastedRef = useRef<(text: string) => boolean>(() => false);
-	// Same pattern for the Shift+Tab plan-mode toggle. Latest session +
-	// mode without reconstructing the editor on every state change.
+
 	const togglePlanModeRef = useRef<() => void>(() => undefined);
 
 	const setModel = useSessionsStore((s) => s.setModel);
@@ -572,9 +533,7 @@ export function ChatComposer({
 	const workspaceRoot = useActiveWorkspaceRoot(session.projectId);
 	const workspaceRootRef = useRef(workspaceRoot);
 	workspaceRootRef.current = workspaceRoot;
-	// Image chip metadata by attachment id, remembered across cut/paste so a
-	// pasted `[image:<id>]` token can rehydrate into its chip (thumbnail and
-	// all) even though the cut removed it from the document.
+
 	const knownImageChipMetaRef = useRef(new Map<string, ChipMeta>());
 	const composerContexts = useComposerDraftsStore(
 		(s) => s.contextsByKey[draftKey] ?? EMPTY_COMPOSER_CONTEXTS,
@@ -600,8 +559,6 @@ export function ChatComposer({
 		session.providerId,
 	]);
 
-	// Stacked annotations are a valid message on their own, so they enable Send
-	// even with an empty text box.
 	const canSend =
 		!directoryUnavailable &&
 		!submitDisabled &&
@@ -610,10 +567,6 @@ export function ChatComposer({
 		uploadingAttachmentCount === 0 &&
 		(hasText || annotationCount > 0 || composerContexts.length > 0);
 
-	// Mount the CodeMirror view once per ChatComposer instance. The parent keys
-	// live chat composers by session id, and the landing keys them by project id,
-	// so the initial snapshot below is the right one for the lifetime of this
-	// editor view.
 	useEffect(() => {
 		const host = editorHostRef.current;
 		if (host === null) return;
@@ -641,8 +594,6 @@ export function ChatComposer({
 				setHasText(next);
 			},
 			onSnapshotChange: (state: EditorView["state"]) => {
-				// Remember image chip metadata so a later paste of the token can
-				// rebuild the chip after a cut removed it from the doc.
 				for (const chip of allChips(state)) {
 					if (chip.meta.kind === "image") {
 						knownImageChipMetaRef.current.set(chip.meta.id, chip.meta);
@@ -690,16 +641,10 @@ export function ChatComposer({
 		editorViewRef.current = view;
 		view.focus();
 
-		// Live-reconfigure the composer keymap when the user edits keybindings.
-		// The compartment swap is a single CodeMirror transaction, so the
-		// cursor / selection / pending text are preserved.
 		const unsubKeybindings = subscribeKeybindings(() => {
 			reconfigureComposerKeymap(view, callbacks);
 		});
 
-		// Register imperative entrypoints on the composer bridge so the file tree
-		// (and the top-bar workflow buttons) can drop chips / text into this view
-		// without prop-drilling the EditorView ref.
 		const bridge = useComposerBridge.getState();
 		bridge.setAttachFile((ref) => {
 			const v = editorViewRef.current;
@@ -823,7 +768,7 @@ export function ChatComposer({
 				}
 			})();
 		});
-		// Join the pane Tab-walk (F6 / Ctrl+`) so focus can hop into the composer.
+
 		usePaneFocus.getState().register("composer", () => {
 			editorViewRef.current?.focus();
 		});
@@ -848,14 +793,6 @@ export function ChatComposer({
 		};
 	}, [draftKey, saveComposerDraft, uiMessage]);
 
-	// Picker-triggered session changes (model / provider) can shift the
-	// composer's surrounding layout — chip icon swap, CliUpgradeBanner
-	// appearing or disappearing for the new provider, etc. CodeMirror's
-	// internal measurement occasionally lags those shifts, leaving the
-	// contentDOM mis-sized so typed keystrokes land in state but aren't
-	// painted until the editor is forced to re-measure. Forcing it here
-	// also returns focus to the editor after the Menu closes, so the user
-	// can type immediately without re-clicking into the composer.
 	useEffect(() => {
 		const view = editorViewRef.current;
 		if (view === null) return;
@@ -905,7 +842,6 @@ export function ChatComposer({
 	}): void => {
 		switch (parsed.command.name) {
 			case "clear":
-				// Editor is already cleared by the caller; nothing else to do.
 				break;
 			case "model":
 				if (!parsed.args) setModelPickerOpen(true);
@@ -979,19 +915,10 @@ export function ChatComposer({
 				break;
 			case "new":
 			case "help":
-				// `/new` and `/help` are wired in a follow-up — for 0.03 we accept
-				// them silently rather than show an error toast that doesn't yet
-				// have a destination.
 				break;
 		}
 	};
 
-	/**
-	 * Insert chips for `files`. Image files render with a thumbnail; other types
-	 * (PDFs, docs, archives) get a generic file-icon chip. The chip's underlying
-	 * token swaps from a temp id to a `zuse://attachments/<id>` URL once the
-	 * upload resolves. Files beyond the per-turn cap are dropped with a warning.
-	 */
 	const attachFiles = (files: readonly File[]): void => {
 		if (directoryUnavailable) return;
 		const view = editorViewRef.current;
@@ -1097,20 +1024,9 @@ export function ChatComposer({
 		}
 	};
 
-	/**
-	 * A paste counts as "big" when it spans more than 10 lines or 2,000
-	 * characters. Such pastes become a `.context/files/paste-<uuid>.md` file
-	 * chip instead of flooding the composer with inline text.
-	 */
 	const isBigTextPaste = (text: string): boolean =>
 		text.split("\n").length > 10 || text.length > 2000;
 
-	/**
-	 * Persist a large paste as a workspace file and drop a file chip for it.
-	 * Reuses the `@`-file pipeline (`FileRef`), so the agent reads the file
-	 * from its cwd. On failure, fall back to inserting the raw text so nothing
-	 * the user pasted is ever lost.
-	 */
 	const attachPastedText = async (text: string): Promise<void> => {
 		if (editorViewRef.current === null) return;
 		if (isDraft) {
@@ -1160,7 +1076,6 @@ export function ChatComposer({
 		}
 	};
 
-	// Paperclip → hidden file input.
 	const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files;
 		if (files === null) return;
@@ -1168,10 +1083,6 @@ export function ChatComposer({
 		e.target.value = "";
 	};
 
-	// Paste handler — accepts any file type pasted into the composer (images,
-	// PDFs, docs, etc.). Large *text* pastes are handled one layer down, inside
-	// CodeMirror (`onTextPaste`), because CM inserts pasted text before this
-	// React handler runs — see `textPastedRef` / composer.ts.
 	const onPaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
 		const items = e.clipboardData?.items;
 		if (!items) return;
@@ -1196,8 +1107,6 @@ export function ChatComposer({
 	};
 	const onDragOver = (e: React.DragEvent<HTMLDivElement>) => {
 		if (e.dataTransfer.types.includes("Files")) {
-			// Both calls are required: preventDefault marks the element as a
-			// valid drop target, dropEffect tells the OS what cursor to show.
 			e.preventDefault();
 			e.dataTransfer.dropEffect = "copy";
 		}
@@ -1242,7 +1151,7 @@ export function ChatComposer({
 			durableCloudSendPending
 		)
 			return false;
-		// Don't submit while a popover is open — Enter belongs to the popover.
+
 		if (trigger !== null || modelPickerOpen) return false;
 		if (uploadingAttachmentCount > 0) return false;
 
@@ -1253,8 +1162,7 @@ export function ChatComposer({
 		const contexts =
 			useComposerDraftsStore.getState().contextsByKey[draftKey] ??
 			EMPTY_COMPOSER_CONTEXTS;
-		// Allow a pure-annotation submit (no typed text) — the stacked comments
-		// are the message.
+
 		if (
 			docText.length === 0 &&
 			annotations.length === 0 &&
@@ -1295,9 +1203,6 @@ export function ChatComposer({
 					})
 				: null;
 		const commitComposerSubmission = () => {
-			// Acceptance can arrive after the next draft has been entered. Only
-			// clear the submitted document, never edits made while the send awaited
-			// its durable owner. Document identity also protects identical retyping.
 			if (editorViewRef.current === view && view.state.doc === submittedDoc) {
 				clearComposer(view, {
 					clearPendingAttachments: onDraftSubmit === undefined,
@@ -1309,14 +1214,12 @@ export function ChatComposer({
 				contexts.map((item) => item.id),
 			);
 			setGoalSendMode(false);
-			// Drain the tray only once the input has a durable owner. Before cloud
-			// acceptance, it remains the user's recoverable draft.
+
 			useAnnotationsStore.getState().clear(sessionId);
 			editingQueuedItemRef.current = null;
 			setEditingQueuedItem(null);
 		};
-		// Draft mode (new-chat landing): hand the input back to the landing, which
-		// creates the worktree + chat and queues this as the first message.
+
 		if (onDraftSubmit !== undefined) {
 			const pendingDraftAttachments = pendingDraftAttachmentsRef.current;
 			const pendingDraftContextFiles = pendingDraftContextFilesRef.current;
@@ -1392,9 +1295,6 @@ export function ChatComposer({
 				sendAndCommitAfterAcceptance({ asGoal: true });
 				break;
 			case "queue":
-				// Mid-turn submit — or a submit while the provider is still coming up
-				// — becomes a queue chip; auto-flushed when the turn ends or steered
-				// manually.
 				setSubmitting(true);
 				void commitAcceptedComposerDelivery(
 					queue(
@@ -1414,11 +1314,8 @@ export function ChatComposer({
 		return true;
 	};
 
-	// Keep the keymap-bound submit pointing at the latest closure so it sees
-	// the current sessionId after a session switch / re-render.
 	submitRef.current = submit;
-	// Messages raised by generated UI (form answers, follow-ups) take the same
-	// send-or-queue path as typed text, but never touch the user's draft.
+
 	sendTextRef.current = async (text) => {
 		if (
 			onDraftSubmit !== undefined ||
@@ -1428,8 +1325,7 @@ export function ChatComposer({
 			text.trim().length === 0
 		)
 			return false;
-		// Notes pinned to the transcript (often to this very UI) belong with the
-		// response, exactly as with a typed submit.
+
 		const annotations = annotationsForSession(sessionId);
 		const input = ComposerInput.make({
 			text,
@@ -1438,13 +1334,13 @@ export function ChatComposer({
 			skillRefs: [],
 			annotations,
 		});
-		// Drain only what was sent; notes added meanwhile stay in the tray.
+
 		const drainSent = () => {
 			const store = useAnnotationsStore.getState();
 			for (const annotation of annotations)
 				store.remove(sessionId, annotation.id);
 		};
-		// A queued message has no delivery promise; queueing is the acceptance.
+
 		if (shouldQueueNow()) {
 			queue(input);
 			drainSent();
@@ -1463,8 +1359,6 @@ export function ChatComposer({
 		);
 	};
 	filesDroppedRef.current = (files) => {
-		// CM's drop handler stops propagation so our React onDrop never fires —
-		// clear the drag overlay state here instead.
 		dragDepthRef.current = 0;
 		setIsDragging(false);
 		attachFiles(files);
@@ -1491,13 +1385,7 @@ export function ChatComposer({
 		if (interrupting) return;
 		await interruptSession(goalRef, session.providerId);
 	};
-	// Keep the editor mounted at all times. Permissions / questions render as
-	// a sibling above it, and we hide the editor block with `display: none`
-	// while a card is up. Unmounting the editor branch detaches the CodeMirror
-	// view from the DOM, and the view-creation `useEffect` (empty deps) never
-	// re-runs to re-attach it — so the host reappears blank: no placeholder,
-	// cursor won't land. Staying mounted also preserves any in-progress draft
-	// when a permission prompt interrupts mid-typing.
+
 	const showCard =
 		headPermission !== undefined ||
 		headDeviceCommand !== undefined ||
@@ -1647,9 +1535,6 @@ export function ChatComposer({
 			>
 				<div className={constrain ? "mx-auto w-full max-w-4xl" : "w-full"}>
 					<div className="relative">
-						{/* With a header toolbar (new-chat landing), notices and the
-						    toolbar share one attached surface so they read as a
-						    single strip on top of the composer. */}
 						{headerSlot !== undefined ? (
 							<div className="composer-attached-toolbar relative z-10 mx-auto w-14/15 overflow-hidden rounded-b-none rounded-t-[1.2rem]">
 								{composerTrays}
@@ -1757,8 +1642,7 @@ export function ChatComposer({
 									worktreeId={session.worktreeId}
 								/>
 							</CardPanel>
-							{/* One bottom action row. Access and tools lead; the combined
-							    model/reasoning control stays beside the send action. */}
+
 							<div className="relative z-10 flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
 								<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 									<Tooltip>
@@ -1980,10 +1864,6 @@ export function ChatComposer({
 	);
 }
 
-/**
- * Claude Fast Mode is a boolean model option, persisted in the same
- * per-session sessionStorage namespace the send path already reads.
- */
 function FastModeToggle({
 	sessionId,
 	environmentId,
@@ -2080,13 +1960,6 @@ function FastModeToggle({
 	);
 }
 
-/**
- * Binary plan-mode toggle. Off → just the map icon (tooltip explains).
- * On → map icon + "Plan" label with a peach accent so it pops next to
- * the other small chips. `Shift+Tab` from the composer flips the same
- * toggle. The runtime-mode (Supervised / Auto-accept / Full access)
- * chip on the right cluster is independent — plan mode is its own axis.
- */
 function PlanModeToggle({
 	sessionId,
 	environmentId,
@@ -2101,9 +1974,6 @@ function PlanModeToggle({
 	const setPermissionMode = useSessionsStore((s) => s.setPermissionMode);
 	const isPlan = current === "plan";
 
-	// Toggle is binary: pressing flips between `default` and `plan`. The
-	// wider mode space (`acceptEdits`) lives on the runtime-mode chip — a
-	// user wanting auto-accept-edits goes there, not here.
 	const onClick = () => {
 		void setPermissionMode(
 			sessionId,
@@ -2429,17 +2299,6 @@ function GoalEditorDialog({
 	);
 }
 
-/**
- * Reasoning / variant selector. Reads the model's `reasoning` / `effort`
- * SelectOptionDescriptor from the resolved model catalog. For opencode the
- * server folds each model's live variant list into that descriptor, so
- * models like `anthropic/claude-sonnet-4-5` show their actual variants and
- * models without variants render nothing.
- *
- * Selection persists per-session; the messages store reads it back at
- * send time and forwards it as `modelOptions.reasoning` — which the
- * opencode driver in turn translates into the prompt body's `model.variant`.
- */
 function ComposerModelPicker({
 	cloudProviderIds,
 	environmentId,
@@ -2464,8 +2323,6 @@ function ComposerModelPicker({
 	const model = session.model;
 	const catalog = useModelCatalogStore((s) => s.catalog);
 
-	// Claude's descriptor is keyed `effort` (with tiers up through
-	// ultracode); everything else uses `reasoning`.
 	const resolved = useMemo((): {
 		label: string;
 		options: ReadonlyArray<{ id: string; label: string }>;
@@ -2499,7 +2356,7 @@ function ComposerModelPicker({
 			legacyStorageKey,
 		]);
 		if (stored !== null) return stored;
-		// One-shot legacy migration so users mid-session keep their pick.
+
 		const legacy = readStorageWithLegacy(
 			window.sessionStorage,
 			`zuse.reasoning.${sessionId}`,
@@ -2657,12 +2514,6 @@ const descriptorContextWindowTokens = (
 	return contextWindowTokensFromId(contextDescriptor?.defaultId);
 };
 
-/**
- * Best-known context window for a session before Claude/Codex report the
- * exact number — the user's selected window if any, else the model's
- * default. This is a real capacity (not a fabricated usage figure), so the
- * control can stay visible from the first message.
- */
 const selectedContextWindowTokens = (
 	environmentId: EnvironmentId,
 	sessionId: SessionId,
@@ -2693,12 +2544,6 @@ const formatTokens = (value: number): string => {
 		: `${formatted}`;
 };
 
-/**
- * Mini donut gauge for the composer status trigger. The faint track is the
- * full window; the bright arc fills clockwise from the top with the percent
- * of context used. `percent === null` (no usage reported yet) shows just the
- * track. Inherits `currentColor`, so it turns amber when the button does.
- */
 function ContextRing({ percent }: { percent: number | null }) {
 	const r = 6;
 	const circumference = 2 * Math.PI * r;

@@ -86,10 +86,7 @@ export const launchMobileCloudChat = async (input: {
 	const key = cloudConnectionKey(summary.workspaceId);
 	if (launch.initialMessageDelivery === "mailbox-v1") {
 		const messageId = MessageId.make(intent.messageId);
-		// Like desktop, open the chat as soon as the workspace exists: show the
-		// prompt now and let the durable outbox deliver it while the sandbox
-		// boots. The draft (with its idempotent launch intent) is cleared only
-		// once the mailbox accepts, so a killed app can still recover it.
+
 		addOptimisticMessage(
 			connectionSessionKey(key, launch.initialSessionId),
 			Message.make({

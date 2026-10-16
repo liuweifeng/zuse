@@ -31,32 +31,15 @@ interface ProviderProbe {
 	readonly providerId: CliProviderId;
 	readonly displayName: string;
 	readonly cliBinary: string;
-	/**
-	 * Minimum CLI version the bundled SDK requires. `null` means we don't
-	 * enforce a floor for this provider — version status is reported as
-	 * `"unknown"` and the renderer treats it as "let them try".
-	 */
+
 	readonly minVersion: CliVersion | null;
-	/**
-	 * Suggested one-liner the renderer shows in the upgrade card. Per-provider
-	 * because npm vs brew vs cargo channels differ.
-	 */
+
 	readonly upgradeCommand: string | null;
-	/**
-	 * npm package name used to resolve the *latest published* version (for the
-	 * informational "update available" layer). `null` for providers installed
-	 * outside npm (curl scripts) — those report `latestVersionStatus: "unknown"`
-	 * and surface no update affordance.
-	 */
+
 	readonly npmPackage: string | null;
-	/** Homebrew formula, when the CLI is also distributed via brew. */
+
 	readonly homebrewFormula: string | null;
-	/**
-	 * Native self-update (e.g. `claude update`, `opencode upgrade`) used when
-	 * the on-PATH binary is the provider's own native install rather than a
-	 * package-manager one. `matches` is given the normalized (lowercased,
-	 * forward-slash) binary path.
-	 */
+
 	readonly nativeUpdate: {
 		readonly command: string;
 		readonly matches: (normalizedPath: string) => boolean;
@@ -83,15 +66,12 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 	},
 	{
 		...PROVIDER_CLI_REGISTRY.claude,
-		// Claude Agent SDK 0.2 doesn't break on older CLIs the way codex-sdk
-		// 0.128 does — leave the floor open until we see a concrete failure
-		// mode we can pin to a version.
+
 		minVersion: null,
 		upgradeCommand: null,
 		npmPackage: "@anthropic-ai/claude-code",
 		homebrewFormula: "claude-code",
-		// Native installer drops the binary in `~/.local/bin/claude` and ships a
-		// `claude update` self-updater. npm can't touch that install.
+
 		nativeUpdate: {
 			command: "claude update",
 			matches: (p) => p.endsWith("/.local/bin/claude"),
@@ -109,17 +89,14 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 		...PROVIDER_CLI_REGISTRY.grok,
 		minVersion: MIN_GROK_CLI_VERSION,
 		upgradeCommand: "curl -fsSL https://x.ai/cli/install.sh | bash",
-		// xAI ships Grok via a curl installer, not npm — no registry to poll.
-		// The installer reinstalls the latest build, so it doubles as the updater.
+
 		npmPackage: null,
 		homebrewFormula: null,
 		nativeUpdate: null,
 	},
 	{
 		...PROVIDER_CLI_REGISTRY.gemini,
-		// We speak ACP directly via `gemini --experimental-acp`, so there's no
-		// SDK pin to keep in lock-step with. Revisit if Google renames the
-		// flag or breaks the handshake.
+
 		minVersion: null,
 		upgradeCommand: "npm i -g @google/gemini-cli",
 		npmPackage: "@google/gemini-cli",
@@ -136,8 +113,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 		upgradeCommand: "curl -fsSL https://opencode.ai/install | bash",
 		npmPackage: "opencode-ai",
 		homebrewFormula: "anomalyco/tap/opencode",
-		// Native installer drops the binary in `~/.opencode/bin/opencode` and
-		// ships an `opencode upgrade` self-updater.
+
 		nativeUpdate: {
 			command: "opencode upgrade",
 			matches: (p) => p.endsWith("/.opencode/bin/opencode"),
@@ -145,8 +121,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 	},
 	{
 		...PROVIDER_CLI_REGISTRY.opencode2,
-		// OpenCode 2 ships as `opencode2` (`@opencode/cli@beta`). Versions are
-		// currently `0.0.0-beta-*` so we don't pin a numeric floor.
+
 		minVersion: null,
 		upgradeCommand: "curl -fsSL https://opencode.ai/v2/install | bash",
 		npmPackage: "@opencode/cli",
@@ -160,9 +135,7 @@ const PROBES: ReadonlyArray<ProviderProbe> = [
 	},
 	{
 		...PROVIDER_CLI_REGISTRY.kiro,
-		// ACP landed in recent Kiro CLI builds (`kiro-cli acp`). We don't pin a
-		// hard floor here — missing `acp` surfaces as a clear session-start
-		// error from the driver. The native self-updater is `kiro-cli update`.
+
 		minVersion: null,
 		upgradeCommand: "kiro-cli update",
 		npmPackage: null,
@@ -187,7 +160,6 @@ const collectText = (
 		),
 	);
 
-/** Capture a scoped CLI process, draining both streams concurrently when stderr is requested. */
 const runCapture = (cmd: Command.Command, includeStderr = false) =>
 	Effect.gen(function* () {
 		const executor = yield* CommandExecutor.ChildProcessSpawner;
@@ -216,9 +188,6 @@ export const selectCliPathCandidate = (
 	if (candidates.length === 0) return null;
 	if (cliBinary !== "codex") return candidates[0] ?? null;
 
-	// Some environments can prepend a managed Codex shim to PATH for internals.
-	// Provider settings should report the user's real Codex install, not that
-	// managed binary.
 	return (
 		candidates.find(
 			(candidate) => !isManagedCodexShimPath(normalizeCommandPath(candidate)),
@@ -268,13 +237,6 @@ export const extraWellKnownCliPaths = (
 	return [];
 };
 
-/**
- * Codex has a managed-shim collision; OpenCode 1 has a Homebrew formula that
- * ships a different `opencode` binary (0.0.x, no `serve`) earlier on PATH
- * than the native 1.x install. OpenCode 2 can similarly expose both an npm
- * `opencode2` and the native installer at `~/.opencode/bin/opencode2`.
- * All three need newest-version selection.
- */
 const CLI_BINARIES_SELECT_NEWEST = new Set(["codex", "opencode", "opencode2"]);
 
 const executableCliPath = (path: string): string | null => {
@@ -307,9 +269,7 @@ export const resolveCliPath = (
 		if (override) {
 			return executableCliPath(override);
 		}
-		// Managed images already validated their pinned tools at build time.
-		// Cold filesystem reads can time out a version probe and incorrectly
-		// select an older global CLI. Prefer that known toolchain directly.
+
 		const toolchain = process.env.ZUSE_MANAGED_TOOLCHAIN_BIN;
 		if (toolchain) {
 			const pinned = executableCliPath(join(toolchain, cliBinary));
@@ -349,7 +309,7 @@ export const resolveCliPath = (
 				),
 			{ concurrency: "unbounded" },
 		);
-		// Well-known extras that aren't on PATH and don't actually run are noise.
+
 		const usable = versioned.filter(
 			(candidate) =>
 				candidate.version !== null || fromWhichSet.has(candidate.path),
@@ -375,29 +335,15 @@ export const MIN_CODEX_CLI_VERSION: CliVersion = {
 	raw: "0.128.0",
 };
 
-// Per-feature minimum Codex CLI version. This is the *pre-session* gate: the
-// renderer reads the resolved `capabilities` list off `AgentAvailability` to
-// show/hide a feature's control before any session exists. Each entry is one
-// `CodexFeature`. Adding a feature is additive — add it here and to the wire
-// `CodexFeature` literal, then gate the UI on the capability.
-//
-// Note for `fastMode`: the live `model/list` `serviceTiers` (emitted by the
-// driver as a `Capabilities` event) are the authoritative per-model gate, so
-// this floor only governs when the toggle first becomes visible — an
-// approximate value is safe.
 export const CODEX_FEATURE_FLOORS: ReadonlyArray<{
 	readonly feature: CodexFeature;
 	readonly min: CliVersion;
 }> = [
-	// Goal mode uses the `thread/goal/*` RPCs, which exist as of our SDK floor
-	// (0.128). Pinned at the floor so it's effectively always-on whenever Codex
-	// is new enough to run at all.
 	{
 		feature: "goalMode",
 		min: { major: 0, minor: 128, patch: 0, raw: "0.128.0" },
 	},
-	// Fast mode (`serviceTier: "fast"`) landed in a later release. TODO: confirm
-	// the exact CLI version; the runtime `serviceTiers` check is the real gate.
+
 	{
 		feature: "fastMode",
 		min: { major: 0, minor: 145, patch: 0, raw: "0.145.0" },
@@ -418,10 +364,6 @@ export const resolveCodexCapabilities = (
 				({ min }) => compareCliVersion(parsed, min) >= 0,
 			).map(({ feature }) => feature);
 
-// `codex --version` prints `codex-cli 0.27.0`; `claude --version` prints
-// `1.0.123 (Claude Code)`. Pull the first dotted triple we can find; ignore
-// surrounding labels and pre-release suffixes — the comparator only cares
-// about the major.minor.patch baseline.
 export const parseCliVersion = (raw: string): CliVersion | null => {
 	const match = raw.match(/(\d+)\.(\d+)\.(\d+)/);
 	if (match === null || !match[1] || !match[2] || !match[3]) return null;
@@ -463,18 +405,6 @@ export const probeCliVersion = (
 		return parseCliVersion(result.value.stdout);
 	});
 
-// ---------------------------------------------------------------------------
-// Latest-version advisory (informational "update available" layer).
-//
-// Separate from the SDK floor above: this polls the npm registry for the
-// latest *published* release and compares it to what's installed. Everything
-// here is failure-tolerant — any miss collapses to `"unknown"` so a flaky
-// network never blocks (or even surfaces in) availability.
-// ---------------------------------------------------------------------------
-
-// In-memory cache so we hit the registry at most once per package per hour.
-// `probeProvidersWithPaths` runs on every settings open + window focus; without this
-// every focus would fan out a burst of registry calls.
 const LATEST_VERSION_CACHE_TTL_MS = 60 * 60 * 1_000;
 const latestVersionCache = new Map<
 	string,
@@ -485,12 +415,6 @@ interface NpmLatestResponse {
 	readonly version?: unknown;
 }
 
-/**
- * Resolve the latest published version of an npm package via the registry's
- * lightweight `/<pkg>/latest` endpoint. Returns `null` on any failure
- * (offline, non-2xx, malformed JSON, timeout) so callers treat it as
- * "unknown" rather than erroring.
- */
 const fetchNpmLatestVersion = (
 	packageName: string,
 ): Effect.Effect<string | null> =>
@@ -515,10 +439,6 @@ const fetchNpmLatestVersion = (
 		Effect.catch(() => Effect.succeed(null)),
 	);
 
-/**
- * Cached wrapper around {@link fetchNpmLatestVersion}. Returns `null` for
- * providers with no npm package (curl-installed CLIs we don't version-check).
- */
 const resolveLatestVersion = (
 	probe: ProviderProbe,
 ): Effect.Effect<string | null> =>
@@ -553,14 +473,6 @@ export const deriveLatestAdvisory = (
 	return compareCliVersion(installed, latest) < 0 ? "behind" : "current";
 };
 
-// ---------------------------------------------------------------------------
-// Install-method detection. The right update command depends on HOW the
-// on-PATH binary was installed — a native install (`~/.local/bin/claude`)
-// can't be updated by npm, a brew install needs `brew upgrade`, etc. We
-// inspect the resolved binary path (and its realpath, since global bins are
-// symlinks into `…/lib/node_modules/…`).
-// ---------------------------------------------------------------------------
-
 const normalizeCommandPath = (p: string): string =>
 	p.replaceAll("\\", "/").replaceAll("/./", "/").toLowerCase();
 
@@ -582,18 +494,10 @@ const isHomebrewPath = (p: string): boolean =>
 	p.startsWith("/opt/homebrew/bin/") ||
 	p.startsWith("/usr/local/bin/");
 
-// Desktop apps that bundle a managed Codex binary place it under their
-// Application Support directory. These copies may omit sibling helpers such
-// as `codex-code-mode-host`, so they must not be selected as the user's CLI.
 const isManagedCodexShimPath = (p: string): boolean =>
 	/\/application support\/[^/]+\/bin\/codex$/.test(p) ||
 	(p.includes("/agent-binaries/codex/") && p.endsWith("/codex"));
 
-// A plain `npm i -g <pkg>@latest` re-install fails with ENOTEMPTY during npm's
-// "retire old dir" rename step when a prior install left files behind (common
-// with packages shipping optional per-platform binaries, e.g.
-// @anthropic-ai/claude-code). Uninstall first so install lays down a clean
-// tree; `|| true` keeps a not-installed case from aborting the chain.
 const npmGlobalUpdate = (pkg: string): string =>
 	`npm uninstall -g ${pkg} || true; npm install -g ${pkg}@latest`;
 
@@ -638,13 +542,10 @@ export const buildUpdateCommand = (
 		if (candidatePaths.some((p) => p.includes("/") || p.includes("\\"))) {
 			return null;
 		}
-		// No path available: default to npm, which is how these packages are most
-		// commonly installed. Unknown absolute paths stay manual-only so we don't
-		// update a different install than the one being probed.
+
 		return npmGlobalUpdate(probe.npmPackage);
 	}
 
-	// Non-npm providers reinstall via their official one-liner.
 	return probe.upgradeCommand;
 };
 
@@ -665,8 +566,6 @@ export const resolveUpdateCommand = (
 		if (probe === undefined) return null;
 		const cliPath = yield* resolveCliPath(probe.cliBinary);
 		if (cliPath === null) {
-			// Not on PATH — fall back to a path-less resolution (npm default /
-			// install one-liner) so the command still does something sensible.
 			return buildUpdateCommand(providerId, []);
 		}
 		const fs = yield* FileSystem.FileSystem;
@@ -676,25 +575,12 @@ export const resolveUpdateCommand = (
 		return buildUpdateCommand(providerId, [cliPath, realPath]);
 	});
 
-// ---------------------------------------------------------------------------
-// Verified-auth probes per provider.
-//
-// `cliLoggedIn` proves a credential *file* exists; `AccountInfo` proves we
-// could actually parse the credential and extract a user identity (email +
-// subscription tier). The renderer uses both: `cliLoggedIn` lights up the dot
-// before the slow per-driver verification finishes, and `AccountInfo`
-// upgrades the card to "Authenticated as <email> · <subscription>".
-// ---------------------------------------------------------------------------
-
 interface AccountInfo {
 	readonly authStatus: ProviderAuthStatus;
 	readonly authEmail?: string;
 	readonly authLabel?: string;
 	readonly authType?: string;
-	/**
-	 * One-line probe error to display under the "Needs attention" headline
-	 * when verification failed even though a credential file is present.
-	 */
+
 	readonly statusMessage?: string;
 }
 
@@ -723,14 +609,6 @@ const codexAccountLabel = (account: Account): string | undefined => {
 	}
 };
 
-/**
- * Read `account/read` through the shared control client and pull email + plan
- * label off the response. Always resolves to an `AccountInfo`
- * — spawn failures, timeouts, and protocol errors all flow through to a
- * tagged "unknown" result with the error message in `statusMessage` so the
- * UI can show "Needs attention" without crashing the whole availability
- * RPC.
- */
 const probeCodexAccount = (
 	codexPath: string,
 	accountHome?: string,
@@ -772,10 +650,7 @@ const probeCodexAccount = (
 const CLAUDE_SUB_LABEL: Record<string, string> = {
 	max: "Claude Max Subscription",
 	pro: "Claude Pro Subscription",
-	// Only an *explicitly* free tier surfaces as "Requires …" so the renderer's
-	// subscription-gate rail (matches authLabel.includes("require")) disables the
-	// toggle and shows the Subscribe CTA, same as Grok/Cursor. Unknown/missing
-	// tiers are NOT gated — see parseClaudeCredentials.
+
 	free: "Requires Claude Pro",
 };
 
@@ -806,14 +681,7 @@ const parseClaudeCredentials = (raw: string): AccountInfo => {
 	const oauth = parsed.claudeAiOauth;
 	if (!oauth) return { authStatus: "authenticated" };
 	const email = oauth.emailAddress ?? oauth.email;
-	// A present OAuth login already proves a paid Claude account — Claude Code
-	// agent usage is not available on the free tier. So only an *explicitly*
-	// recognised free tier surfaces the subscription gate; an unknown or missing
-	// subscriptionType is treated as a valid (non-blocking) login, with the
-	// runtime performing the real entitlement check. (Mirrors the Grok probe,
-	// which only blocks on a *confirmed* below-entitlement tier.) Defaulting
-	// unknown tiers to "Requires …" wrongly nagged Pro users — and anyone whose
-	// tier string we don't map — to subscribe despite an active subscription.
+
 	const authLabel = claudeSubscriptionLabel(oauth.subscriptionType);
 	return {
 		authStatus: "authenticated",
@@ -873,7 +741,6 @@ const probeClaudeAccount: Effect.Effect<
 		: parseClaudeCredentials(credentialsRaw);
 });
 
-/** The CLI owns login and entitlement checks; JWT tier numbers are not a plan API. */
 const parseGrokModelsAuth = (output: string): AccountInfo => {
 	if (/not authenticated|not logged in/i.test(output)) {
 		return { authStatus: "unauthenticated" };
@@ -888,7 +755,6 @@ const parseGrokModelsAuth = (output: string): AccountInfo => {
 	return { authStatus: "unknown" };
 };
 
-/** Check CLI-reported login within the probe deadline; failures remain inconclusive. */
 const probeGrokAccount = (
 	cliPath: string,
 ): Effect.Effect<AccountInfo, never, CommandExecutor.ChildProcessSpawner> =>
@@ -908,11 +774,6 @@ const probeGrokAccount = (
 
 export const grokAuthTestHelpers = { parseGrokModelsAuth, probeGrokAccount };
 
-// Gemini CLI writes OAuth tokens + settings under `~/.gemini/` after the
-// first interactive sign-in. We
-// don't yet have a verified-auth call we can make to the gemini CLI to
-// extract email/plan, so the card stays at "Authenticated" without the
-// subscription label.
 const probeGeminiAccount: Effect.Effect<
 	AccountInfo,
 	never,
@@ -928,10 +789,6 @@ const probeGeminiAccount: Effect.Effect<
 		: ({ authStatus: "unauthenticated" } satisfies AccountInfo);
 });
 
-// Kiro CLI keeps the live OIDC token in its app-support SQLite
-// (`auth_kv` / `kirocli:odic:token`). The `~/.aws/sso/cache/kiro-auth-token*.json`
-// files can lag behind. Prefer the SQLite read (via `readKiroAuthContext`);
-// fall back to cache-file presence for older installs.
 const probeKiroAccount: Effect.Effect<
 	AccountInfo,
 	never,
@@ -969,9 +826,6 @@ const probeKiroAccount: Effect.Effect<
 	return { authStatus: "unauthenticated" } satisfies AccountInfo;
 });
 
-// Legacy credentials are positive evidence only: OpenCode can also use env,
-// config, and (v2) database credentials. The shared live inventory owns the
-// definitive connected-provider status once it has loaded.
 interface OpencodeAuthBlob {
 	readonly [providerId: string]: unknown;
 }
@@ -1089,7 +943,6 @@ const probeAccount = (
 		case "opencode":
 			return probeOpencodeAccount;
 		case "opencode2":
-			// V2 stores credentials in its database, independently of v1 auth.json.
 			return Effect.succeed({ authStatus: "unknown" } satisfies AccountInfo);
 		case "kiro":
 			return probeKiroAccount;
@@ -1102,11 +955,6 @@ const probeAccount = (
 	}
 };
 
-/**
- * Roll the per-field signals (`cliInstalled`, `cliVersionStatus`, `authStatus`)
- * up into the single dot color the renderer paints. The precedence keeps the
- * server-derived status aligned with the client-side fallback when both run.
- */
 const computeHealthStatus = (input: {
 	cliInstalled: boolean;
 	cliVersionStatus: CliVersionStatus;
@@ -1154,7 +1002,6 @@ const probeNamedClaudeAccount = (
 		}
 	});
 
-// Exported for tests only. Not part of the public module surface.
 export const claudeAuthTestHelpers = {
 	parseClaudeCredentials,
 	probeNamedClaudeAccount,
@@ -1200,10 +1047,6 @@ const probeOne = (
 				? versionResult.value.stdout.split(/\r?\n/)[0]?.trim() || undefined
 				: undefined;
 
-		// Compute the version verdict alongside the raw string so the renderer
-		// doesn't need its own parser. `unknown` covers both "no min tracked for
-		// this provider" and "we tried to parse and failed" — both are
-		// "let them try" cases as far as the upgrade card is concerned.
 		const parsedVersion =
 			cliVersion !== undefined ? parseCliVersion(cliVersion) : null;
 		let cliVersionStatus: CliVersionStatus = "unknown";
@@ -1221,11 +1064,6 @@ const probeOne = (
 			}
 		}
 
-		// Version-gated features the installed CLI supports (pre-session UI gate).
-		// Codex resolves its set from the CLI version; Grok ships a single
-		// curl-installed channel with no version floor, so we advertise its
-		// `goalMode` (native `/goal`, forwarded as a slash command by the driver)
-		// unconditionally. Other providers resolve to `[]`.
 		const capabilities =
 			probe.providerId === "codex"
 				? resolveCodexCapabilities(parsedVersion)
@@ -1233,19 +1071,13 @@ const probeOne = (
 					? ["goalMode"]
 					: [];
 
-		// Informational "update available" layer — independent of the SDK floor.
-		// Only providers with a registry package are checked; the rest report
-		// `"unknown"` and surface no update affordance.
 		const latestVersionRaw = yield* resolveLatestVersion(probe);
 		const latestVersion = latestVersionRaw ?? undefined;
 		const latestVersionStatus = deriveLatestAdvisory(
 			cliVersion,
 			latestVersionRaw,
 		);
-		// Install-method-aware update command (native / brew / bun / pnpm / npm /
-		// curl). Resolve the binary's realpath too, since global bins are symlinks
-		// into `…/lib/node_modules/…`. Set for every provider that has any update
-		// path so the renderer can offer one-click update.
+
 		const fs = yield* FileSystem.FileSystem;
 		const realPath = yield* fs
 			.realPath(cliPath)

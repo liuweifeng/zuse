@@ -4,7 +4,7 @@ import type { NativeAccountProvider } from "@zuse/contracts";
 
 const SAFE_CURSOR = /^[A-Za-z0-9_-]+$/;
 const CODEX_ROLLOUT_ROOTS = ["sessions", "archived_sessions"] as const;
-// Codex shards rollouts by date: sessions/YYYY/MM/DD/rollout-…-<thread>.jsonl.
+
 const CODEX_MAX_DEPTH = 4;
 
 const exists = (path: string) =>
@@ -18,7 +18,6 @@ const directories = async (path: string) =>
 		(entry) => entry.isDirectory(),
 	);
 
-/** Claude keeps `<config>/projects/<cwd-slug>/<session>.jsonl`; the slug is not recomputed. */
 const findClaudeTranscript = async (home: string, cursor: string) => {
 	const projects = join(home, "projects");
 	for (const project of await directories(projects)) {
@@ -39,7 +38,7 @@ const findCodexRollout = async (home: string, cursor: string) => {
 		);
 		if (match) return join(path, match.name);
 		if (depth === 0) return null;
-		// Newest shards first: an active thread is almost always recent.
+
 		const children = entries
 			.filter((entry) => entry.isDirectory())
 			.map((entry) => entry.name)
@@ -87,7 +86,6 @@ export const copyProviderTranscript = async (
 	const target = join(targetHome, relative(sourceHome, source));
 	await copyAtomically(source, target);
 	if (provider === "claude") {
-		// Subagent transcripts and spilled tool results live beside the session.
 		const sidecar = join(dirname(source), cursor);
 		if (await exists(sidecar))
 			await cp(sidecar, join(dirname(target), cursor), {

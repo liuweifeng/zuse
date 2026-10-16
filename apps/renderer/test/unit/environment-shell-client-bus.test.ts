@@ -24,8 +24,6 @@ const folder = (id: string) => ({
 
 describe("environment shell ClientBus driver", () => {
 	it("replaces persisted projects after the renderer's epoch counter restarts", async () => {
-		// A renderer reload resets module counters while IndexedDB keeps the
-		// previous run's cursor. This is the cursor format shipped before UUIDs.
 		vi.resetModules();
 		const { makeEnvironmentShellResourceDriver: restartedDriver } =
 			await import("../../src/lib/environment-shell-client-bus.ts");

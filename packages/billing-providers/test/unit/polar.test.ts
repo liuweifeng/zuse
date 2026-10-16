@@ -457,7 +457,6 @@ describe("Polar billing provider", () => {
 
 		expect(stolen).toBeNull();
 
-		// Older checkouts carry the identity on the customer instead.
 		fake.setCheckout({
 			...checkout(),
 			externalCustomerId: null,

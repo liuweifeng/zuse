@@ -47,12 +47,12 @@ export function ComposerTextInput({
 	ref: Ref<ComposerTextInputHandle>;
 	initialText: string;
 	placeholder: string;
-	/** Focus on mount only when the user tapped the collapsed pill. */
+
 	autoFocusOnMountRef: MutableRefObject<boolean>;
 	onHasTextChange: (hasText: boolean) => void;
 	onFocus: () => void;
 	onBlur: () => void;
-	/** Called with the current text on blur and unmount (draft persistence). */
+
 	onPersist: (text: string) => void;
 	onTextChange?: (text: string) => void;
 	onTriggerChange?: (trigger: ComposerTrigger | null) => void;
@@ -68,7 +68,7 @@ export function ComposerTextInput({
 	useEffect(() => {
 		onPersistRef.current = onPersist;
 	});
-	// Persist the draft when this input unmounts (thread switch, collapse).
+
 	useEffect(
 		() => () => {
 			onPersistRef.current(textRef.current);
@@ -156,8 +156,6 @@ export function ComposerTextInput({
 
 	return (
 		<TextInput
-			// Focus on mount only when the user opened the bar by tapping the
-			// collapsed pill — avoids popping the keyboard on auto-expand.
 			ref={(node) => {
 				if (node && autoFocusOnMountRef.current) {
 					autoFocusOnMountRef.current = false;

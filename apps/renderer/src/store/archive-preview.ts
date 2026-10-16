@@ -219,8 +219,6 @@ export const useArchivePreviewStore = create<ArchivePreviewState>(
 				}));
 				const cloud = cloudSummaryForChat(chat.id);
 				if (cloud !== null) {
-					// Archived compute is offline. Read its retained transcript through
-					// the cloud timeline, without dispatching to the active local shell.
 					const session = cloudSessionPlaceholder(
 						cloud,
 						chat.projectId,

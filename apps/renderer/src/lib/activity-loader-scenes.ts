@@ -48,9 +48,8 @@ export type ActivityLoaderFrame = {
 /** Representative frame shown when motion is reduced. */
 export const ACTIVITY_LOADER_STILL_TIME = 1_200;
 
-/** Below this size the donut swaps ASCII glyphs for a lit point cloud. */
 const ASCII_DONUT_MIN_SIZE = 48;
-/** Below this size the Möbius band uses fewer, larger dots. */
+
 const DENSE_MOBIUS_MIN_SIZE = 32;
 
 const TAU = Math.PI * 2;
@@ -87,7 +86,6 @@ const smoothstep = (from: number, to: number, value: number): number => {
 	return t * t * (3 - 2 * t);
 };
 
-/** Stable pseudo-random value in [0, 1) for a pair of integers. */
 const hash = (a: number, b: number): number => {
 	const v = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453;
 	return v - Math.floor(v);
@@ -113,23 +111,16 @@ function dot(
 type SceneDraw = (
 	ctx: ActivityLoaderContext,
 	time: number,
-	/** One CSS pixel in scene units, for minimum mark sizes. */
+
 	px: number,
 	size: number,
 ) => void;
 
-/** 4×4 ordered-dither (Bayer) thresholds, normalised to 0..1. */
 const BAYER_4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(
 	(rank) => (rank + 0.5) / 16,
 );
 
-/**
- * 4×4 dot grid that fills and empties in ordered-dither order. Dots grow and
- * shrink rather than fade, a slow ripple keeps neighbours out of step, and a
- * rare flicker makes it feel alive at inline sizes.
- */
 const drawDither: SceneDraw = (ctx, time, px) => {
-	// Pulled-in pitch and fine dots so the grid reads as one compact cluster.
 	const pitch = 0.4;
 	const radius = 0.09;
 	const cycle = (time / 1_300) % 2;
@@ -153,7 +144,6 @@ const drawDither: SceneDraw = (ctx, time, px) => {
 	});
 };
 
-/** Double helix of particles with rungs, turning in depth. */
 const drawHelix: SceneDraw = (ctx, time, px) => {
 	const points: Array<Projected & { readonly rung: boolean }> = [];
 	for (let strand = 0; strand < 2; strand += 1) {
@@ -193,7 +183,6 @@ const drawHelix: SceneDraw = (ctx, time, px) => {
 	}
 };
 
-/** donut.c: an ASCII-lit torus, rasterised on a character grid. */
 function drawAsciiDonut(ctx: ActivityLoaderContext, time: number): void {
 	const grid = 20;
 	const a = 0.95 + 0.55 * Math.sin(time * 0.0007);
@@ -248,7 +237,6 @@ function drawAsciiDonut(ctx: ActivityLoaderContext, time: number): void {
 	});
 }
 
-/** Lit point-cloud torus: the tube rolls while the ring turns and tilts. */
 function drawPointDonut(
 	ctx: ActivityLoaderContext,
 	time: number,
@@ -317,7 +305,6 @@ const VORTEX_PARTICLES = Array.from({ length: 46 }, (_, index) => ({
 	phase: hash(index, 7),
 }));
 
-/** Particles spiralling into a bright core, accelerating as they fall in. */
 const drawVortex: SceneDraw = (ctx, time, px) => {
 	const at = (angle: number, progress: number) => {
 		const radius = 0.92 * (1 - progress) ** 0.85 + 0.04;
@@ -343,7 +330,6 @@ const drawVortex: SceneDraw = (ctx, time, px) => {
 	dot(ctx, 0, 0, Math.max(px * 1.2, 0.09 + 0.02 * Math.sin(time * 0.008)), 1);
 };
 
-/** 9×9 dot plane in perspective with ripples spreading from the centre. */
 const drawWave: SceneDraw = (ctx, time, px) => {
 	const points: Array<Projected & { readonly height: number }> = [];
 	for (let j = 0; j < 9; j += 1) {
@@ -373,7 +359,6 @@ const drawWave: SceneDraw = (ctx, time, px) => {
 	}
 };
 
-/** Dotted Möbius band rolling through space. */
 const drawMobius: SceneDraw = (ctx, time, px, size) => {
 	const sparse = size < DENSE_MOBIUS_MIN_SIZE;
 	const around = sparse ? 24 : 44;

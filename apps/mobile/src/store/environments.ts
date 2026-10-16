@@ -52,7 +52,7 @@ export const refreshEnvironments = async (): Promise<void> => {
 			);
 			appAtomRegistry.set(environmentsLoadingAtom, false);
 		});
-		// Fan out presence checks; update each as it lands.
+
 		await Promise.all(
 			list.environments.map(async (environment) => {
 				try {

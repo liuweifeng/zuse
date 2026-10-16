@@ -2,11 +2,6 @@ import { isPrivateOrLocalHost } from "@zuse/contracts";
 
 export const API_WEBHOOK_URL_MAX_LENGTH = 2_048;
 
-/**
- * Parse the webhook destination accepted by both registration and delivery.
- * Delivery revalidates persisted rows so a legacy or manually altered record
- * cannot bypass the same SSRF boundary enforced at the public route.
- */
 const normalizedHostname = (value: string): string | null => {
 	try {
 		const url = new URL(value);

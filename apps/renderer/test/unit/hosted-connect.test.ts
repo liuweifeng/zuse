@@ -207,7 +207,7 @@ describe("hosted account ownership", () => {
 			headers.resolve(response);
 			await vi.waitFor(() => expect(json).toHaveBeenCalledOnce());
 		}
-		// Returning to the same subject must not revive the earlier request.
+
 		observeRendererAccount("another-account");
 		observeRendererAccount(user.id);
 		headers.resolve(response);

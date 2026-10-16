@@ -33,8 +33,7 @@ describe("cloud command crypto", () => {
 			...metadata,
 			actor: { subject: "alice", membershipId: "member_alice" },
 		};
-		// The API adds attribution after encryption; it must not rewrite client
-		// ciphertext or invalidate existing Personal command recovery records.
+
 		expect(cloudCommandAdditionalData(serverAttributed)).toEqual(
 			additionalData,
 		);

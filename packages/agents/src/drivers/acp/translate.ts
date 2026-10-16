@@ -100,16 +100,9 @@ const extractCallId = (u: Record<string, unknown>): AgentItemId => {
 	return raw !== null ? (raw as AgentItemId) : nextItemId();
 };
 
-/**
- * Convert a snake_case or camelCase identifier into a nice TitleCase label
- * suitable for display in the UI (e.g. "list_dir" → "List Dir",
- * "readFile" → "Read File"). Used both for unknown tool normalization and
- * as the fallback label in the renderer when we still don't have an exact
- * mapping.
- */
 const toNiceToolLabel = (raw: string): string => {
 	if (!raw) return "Tool";
-	// Split on underscores or camelCase boundaries
+
 	const words = raw
 		.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 		.split(/[_\s-]+/)
@@ -120,12 +113,6 @@ const toNiceToolLabel = (raw: string): string => {
 
 const GENERIC_ACP_TOOL_KINDS = new Set(["other", "tool", "mcp"]);
 
-/**
- * Map an ACP `kind` (or tool name) string to the Claude-canonical tool name
- * the renderer's ToolRow switch + iconForTool expect. We now handle the
- * full set of common Grok / ACP FS & shell tools so "list_dir", "read_file"
- * etc. stop showing up as the generic "tool" / "Other" rows the user saw.
- */
 const normalizeAcpKind = (rawKind: string): string => {
 	const k = rawKind.toLowerCase();
 	if (k.startsWith("zuse-browser__browser_")) {
@@ -140,7 +127,7 @@ const normalizeAcpKind = (rawKind: string): string => {
 	if (k.startsWith("mcp__zuse-orchestration__")) {
 		return k;
 	}
-	// Zuse's generative-UI tool keeps its identity so the renderer can label it.
+
 	if (k === "emit_ui" || /^(?:mcp__)?zuse(?:-orchestration)?__emit_ui$/.test(k))
 		return "mcp__zuse__emit_ui";
 	if (
@@ -224,9 +211,6 @@ const normalizeAcpKind = (rawKind: string): string => {
 		case "todowrite":
 			return "TodoWrite";
 		default:
-			// Fall back to a clean Title Case label (handles the rest of Grok's
-			// native tools gracefully even if we haven't wired a dedicated case
-			// in the renderer yet).
 			return toNiceToolLabel(rawKind);
 	}
 };
@@ -240,12 +224,6 @@ const firstLocationPath = (u: Record<string, unknown>): string | null => {
 	return typeof p === "string" ? p : null;
 };
 
-/**
- * Walk an ACP `tool_call.content` array (or single block) and pluck the
- * first `diff` block if present. Gemini's ACP emits these for `edit` calls:
- *   `{ type: "diff", path, oldText, newText }`
- * (older variants spell them `old_text` / `new_text`).
- */
 const extractDiffBlock = (
 	content: unknown,
 ): { path?: string; oldText: string; newText: string } | null => {
@@ -274,15 +252,6 @@ const extractDiffBlock = (
 	return null;
 };
 
-/**
- * Locate a Grok `SearchReplace` edit envelope anywhere in an update's
- * result-bearing fields. Grok returns the applied diff in the tool *result*
- * (not the call input), shaped like:
- *   { type: "SearchReplace", EditsApplied: { absolute_path, old_string,
- *     new_string, edits: { details: [{ old_string, new_string, ... }] } } }
- * Walks arrays + one level of `content` wrapping so we find it regardless of
- * how the provider nests it.
- */
 const asSearchReplaceEnvelope = (
 	v: unknown,
 ): Record<string, unknown> | null => {
@@ -319,12 +288,6 @@ const findSearchReplaceEnvelope = (
 	return null;
 };
 
-/**
- * Pull `(file_path, [{ old_string, new_string }])` out of a SearchReplace
- * envelope so the Edit/MultiEdit row can render a real diff. Tolerates the
- * fields living either under `EditsApplied` or at the top level, and both the
- * `edits.details[]` array form and a single top-level old/new pair.
- */
 const extractSearchReplaceEdits = (
 	env: Record<string, unknown>,
 ): {
@@ -393,22 +356,12 @@ const extractSearchReplaceEdits = (
 	return { filePath, edits };
 };
 
-/**
- * Build a canonical `input` object for the given tool name. ACP frames put
- * the same info in several different fields depending on provider/version,
- * so we look in each common spelling. The keys we emit match the
- * "Normalized Tool-Call Contract" enumerated next to `ToolUseEvent`.
- */
 const buildCanonicalInput = (
 	toolName: string,
 	u: Record<string, unknown>,
 ): unknown => {
 	const title = typeof u["title"] === "string" ? (u["title"] as string) : null;
 
-	// Cursor stuffs the tool arguments under `rawInput` instead of `input` /
-	// `arguments` / `locations` — merge it into the lookup so the per-tool
-	// cases below can find `file_path`/`path`/`command`/etc the same way as
-	// for other providers.
 	const rawInput =
 		u["rawInput"] !== null &&
 		typeof u["rawInput"] === "object" &&
@@ -433,8 +386,6 @@ const buildCanonicalInput = (
 	switch (toolName) {
 		case "Edit":
 		case "MultiEdit": {
-			// Grok's SearchReplace returns the applied diff in its result envelope,
-			// not the call input — recover it so the row shows a real diff.
 			const sr = findSearchReplaceEnvelope(u);
 			if (sr !== null) {
 				const { filePath, edits } = extractSearchReplaceEdits(sr);
@@ -547,8 +498,6 @@ const buildCanonicalInput = (
 		}
 	}
 
-	// Generic fallback — preserve whatever the provider sent so the renderer
-	// can still render *something* even for tool names we don't recognize.
 	if (rawInput !== null) {
 		return rawInput;
 	}
@@ -564,7 +513,6 @@ const buildCanonicalInput = (
 };
 
 const extractToolName = (u: Record<string, unknown>): string => {
-	// Direct fields first (most ACP implementations put the kind here)
 	const kind = typeof u["kind"] === "string" ? (u["kind"] as string) : null;
 	if (
 		kind !== null &&
@@ -583,9 +531,6 @@ const extractToolName = (u: Record<string, unknown>): string => {
 	if (typeof u["command"] === "string" && u["command"].length > 0)
 		return u["command"] as string;
 
-	// Grok (and some other agents) sometimes nest the tool identity under
-	// toolCall / tool_call / toolInfo. Look one level deeper so we don't
-	// fall back to the useless generic "tool" label the user reported.
 	const nestedCandidates = [
 		u["toolCall"],
 		u["tool_call"],
@@ -614,11 +559,8 @@ const extractToolName = (u: Record<string, unknown>): string => {
 		}
 	}
 
-	// Last-ditch: sometimes the title/description of the call *is* the tool
-	// (e.g. Grok sends title: "list_dir" with no kind). Use it.
 	const title = typeof u["title"] === "string" ? (u["title"] as string) : null;
 	if (title && title.length > 0 && title.length < 40) {
-		// Heuristic: if it looks like a tool identifier, normalize it.
 		if (
 			/^(?:mcp__)?zuse-(?:browser|images|orchestration)__[a-z0-9_]+$/i.test(
 				title,
@@ -629,16 +571,9 @@ const extractToolName = (u: Record<string, unknown>): string => {
 		if (/^[a-z0-9_]+$/i.test(title)) return normalizeAcpKind(title);
 	}
 
-	// Give the caller a chance to log the raw payload under debug before we
-	// return the ultimate fallback.
 	return "tool";
 };
 
-// Grok (and some MCP servers) emit tool results as an array of content blocks
-// where the actual text is buried two levels deep:
-//   [{ type: "content", content: { type: "text", text: "..." } }]
-// We flatten that into a single string so the renderer can show the file
-// contents directly instead of a stringified JSON blob.
 const flattenMcpContent = (val: unknown): string | null => {
 	if (!Array.isArray(val) || val.length === 0) return null;
 	const parts: string[] = [];
@@ -657,7 +592,7 @@ const flattenMcpContent = (val: unknown): string | null => {
 				continue;
 			}
 		}
-		// Unknown block shape — bail out so the caller falls back to raw value.
+
 		return null;
 	}
 	return parts.join("");
@@ -675,12 +610,6 @@ const unwrap = (o: unknown): unknown => {
 	return o;
 };
 
-/**
- * Grok serialises Node streams (a tool's stdout/stderr) as JSON — either a
- * bare array of byte values `[60, 119, …]` or `{ type: "Buffer", data: [...] }`.
- * Decode either back to a UTF-8 string. Returns null for anything that isn't a
- * clean byte array so callers can fall back to the raw value.
- */
 const decodeByteArray = (v: unknown): string | null => {
 	const data = Array.isArray(v)
 		? v
@@ -705,32 +634,12 @@ const decodeByteArray = (v: unknown): string | null => {
 	}
 };
 
-/**
- * Grok's read tool prefixes every line with an `N→` marker (`1→{`, `2→  …`).
- * The renderer's CodeBlock draws its own line-number gutter, so strip the
- * markers (keeping the original indentation that follows) to avoid a doubled
- * gutter.
- */
 const stripLineMarkers = (content: string): string =>
 	content
 		.split("\n")
 		.map((line) => line.replace(/^\s*\d+→/, ""))
 		.join("\n");
 
-/**
- * Flatten Grok's grep result envelope into a grouped, human-readable string:
- *
- *   relative/path/to/file.tsx
- *   \t13: matching line content
- *   \t40: another match
- *   other/file.tsx
- *   \t5: ...
- *
- * The renderer's Grep view parses this back into per-file groups with a file
- * chip + the matched lines. Paths are relativised against the workspace root
- * (recovered from the `<workspace_result workspace_path="…">` marker Grok
- * embeds in `stdout`) so they read as short repo paths, not absolute ones.
- */
 const buildGrepText = (o: Record<string, unknown>): string | null => {
 	const fileMatches = o["file_matches"];
 	if (!Array.isArray(fileMatches) || fileMatches.length === 0) return null;
@@ -769,26 +678,10 @@ const buildGrepText = (o: Record<string, unknown>): string | null => {
 	return lines.length > 0 ? lines.join("\n") : null;
 };
 
-/**
- * Grok's internal FS/search tools (list_dir, grep, shell, …) return structured
- * result envelopes rather than plain text. Recognise the common shapes and
- * flatten them to the clean text the renderer's per-tool views already know how
- * to display, so the user sees a tidy file tree / match list instead of a raw
- * JSON blob or an array of char codes.
- */
-/**
- * Markers that identify a Grok tool-result envelope. We only re-parse a string
- * result when it carries one of these, so a real file whose contents merely
- * happen to be JSON is never disturbed.
- */
 const ENVELOPE_SIGNATURE =
 	/"type"\s*:\s*"(ReadFile|ListDir|GrepSearch|SearchReplace)"|"FileContent"|"file_matches"|"EditsApplied"/;
 
 const normalizeNativeToolResult = (output: unknown): unknown => {
-	// Grok delivers these envelopes two ways: as a JSON object, or — when it
-	// wraps them in an MCP text block — as a JSON *string* (already flattened by
-	// flattenMcpContent before we get here). Re-parse the string form so both
-	// paths normalize identically.
 	if (typeof output === "string") {
 		const trimmed = output.trim();
 		if (trimmed.startsWith("{") && ENVELOPE_SIGNATURE.test(trimmed)) {
@@ -796,9 +689,7 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 				const parsed = JSON.parse(trimmed) as unknown;
 				const normalized = normalizeNativeToolResult(parsed);
 				if (typeof normalized === "string") return normalized;
-			} catch {
-				// Not valid JSON after all — fall through and return the raw string.
-			}
+			} catch {}
 		}
 		return output;
 	}
@@ -809,7 +700,6 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 	const type =
 		typeof o["type"] === "string" ? (o["type"] as string).toLowerCase() : null;
 
-	// list_dir → the indented tree string the tool already formatted.
 	if (type === "listdir" || type === "list_dir" || type === "list_directory") {
 		const container = o["Content"] ?? o["content"];
 		if (container !== null && typeof container === "object") {
@@ -821,10 +711,6 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 		}
 	}
 
-	// read_file → the file contents. Grok wraps them in a FileContent envelope.
-	// `raw_output` is the clean file text; `content` is the same but with an
-	// "N→" line-number marker per line that the CodeBlock gutter would
-	// duplicate, so strip those when raw_output isn't present.
 	if (type === "readfile" || type === "read_file" || "FileContent" in o) {
 		const fc =
 			o["FileContent"] !== null && typeof o["FileContent"] === "object"
@@ -846,7 +732,6 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 		if (marked !== null) return stripLineMarkers(marked);
 	}
 
-	// grep / search → grouped "path \n \t line: content" text.
 	if (
 		type === "grepsearch" ||
 		type === "grep_search" ||
@@ -857,9 +742,6 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 		if (grep !== null) return grep;
 	}
 
-	// SearchReplace (edit) → a short summary. The diff itself is surfaced via
-	// the canonical Edit input (see buildCanonicalInput); this is the fallback
-	// for any path that renders the raw result instead of the Edit row.
 	if (
 		type === "searchreplace" ||
 		type === "search_replace" ||
@@ -872,9 +754,6 @@ const normalizeNativeToolResult = (output: unknown): unknown => {
 		}
 	}
 
-	// Generic stdout/stderr envelope (shell-like tools), where Grok serialises
-	// the streams as byte arrays. Decode + concatenate so the row shows real
-	// terminal text instead of an array of char codes.
 	if ("stdout" in o || "stderr" in o) {
 		const out =
 			decodeByteArray(o["stdout"]) ??
@@ -893,9 +772,7 @@ const extractOutput = (u: Record<string, unknown>): unknown => {
 	const raw =
 		u["output"] !== undefined
 			? unwrap(u["output"])
-			: // Cursor's spelling: `rawOutput.content` carries the actual result
-				// payload (file contents for Read, command stdout for Bash, etc).
-				u["rawOutput"] !== undefined
+			: u["rawOutput"] !== undefined
 				? unwrap(u["rawOutput"])
 				: u["content"] !== undefined
 					? (flattenMcpContent(u["content"]) ?? u["content"])
@@ -926,12 +803,6 @@ const safeStringify = (u: Record<string, unknown>): string => {
 	}
 };
 
-/**
- * When extractToolName still returns the generic fallback "tool", dump the
- * full raw ACP update under the existing ACP debug flag so we can quickly
- * add the missing mapping on the next Grok (or Gemini/Cursor) release.
- * This directly implements the user's request for "add some logs".
- */
 const logUnknownToolIfNeeded = (
 	provider: AcpProviderTag,
 	u: Record<string, unknown>,
@@ -943,22 +814,9 @@ const logUnknownToolIfNeeded = (
 	trace(provider, `unknown tool ${phase} — raw payload=${safePreview(u, 800)}`);
 };
 
-/**
- * Whether the update kind contributes to an in-flight assistant message
- * burst. ACP streams text as many tiny `agent_message_chunk` frames
- * (sometimes mid-token, like `monore` + `po`); the renderer would render
- * each as its own bubble unless we coalesce. Anything else flushes the
- * buffer.
- */
 const isAssistantTextChunk = (kind: string): boolean =>
 	kind === "agent_message_chunk" || kind === "message";
 
-/**
- * Whether the update kind is a streaming thinking/reasoning delta.
- * Grok (and other ACP agents) emit one token per `agent_thought_chunk` /
- * `thinking_chunk`. Without coalescing we would emit a separate Thinking
- * row for every word — exactly the bug the user reported.
- */
 const isThinkingChunk = (kind: string): boolean =>
 	kind === "agent_thought_chunk" ||
 	kind === "agent_reasoning_chunk" ||
@@ -967,17 +825,9 @@ const isThinkingChunk = (kind: string): boolean =>
 
 interface AcpTranslator {
 	finishTools(reason: string): ReadonlyArray<AgentEvent>;
-	/**
-	 * Translate one ACP `session/update` payload. May return zero events
-	 * (chunk got buffered for coalescing) or multiple (a flush of buffered
-	 * assistant text plus the new event).
-	 */
+
 	translate(update: unknown): ReadonlyArray<AgentEvent>;
-	/**
-	 * Drain any buffered assistant text as a final `AssistantMessage` event.
-	 * Call when the turn ends (`stopReason`) or the session closes so the
-	 * last burst doesn't sit silently in memory.
-	 */
+
 	flush(): ReadonlyArray<AgentEvent>;
 }
 
@@ -987,26 +837,15 @@ export interface AcpTranslatorCheckpointOptions {
 	readonly maxBytes?: number;
 }
 
-/**
- * Per-tool-call state we keep so we can dedupe events. ACP servers re-send
- * `tool_call_update` frames for the same id as a call progresses (pending →
- * in_progress → completed); without dedupe each update becomes its own row
- * in the renderer.
- */
 interface ToolCallState {
 	genericOutput?: unknown;
-	/** What we last emitted as `ToolUse.input` — used to skip identical re-emits. */
+
 	lastInputJson: string | null;
-	/** True once we've emitted a `ToolResult` for this call. */
+
 	resultEmitted: boolean;
-	/** True once we've emitted a `ToolUse` for this call. */
+
 	useEmitted: boolean;
-	/**
-	 * Canonical tool name (e.g. "Read", "Edit") captured from the FIRST
-	 * frame for this call. Cursor's `tool_call_update` frames carry no
-	 * `kind` field, so without this we'd fall back to the generic "tool"
-	 * label on every update and lose the input mapping (diff blocks etc).
-	 */
+
 	toolName: string | null;
 }
 
@@ -1157,17 +996,11 @@ export const createAcpTranslator = (
 	provider: AcpProviderTag,
 	checkpointOptions?: AcpTranslatorCheckpointOptions,
 ): AcpTranslator => {
-	// Buffers are cumulative for the lifetime of one logical provider item.
-	// Checkpoint emission never clears them; only a final/order boundary does.
 	let assistantBuffer = "";
 	let assistantItemId: AgentItemId | null = null;
 	let assistantCheckpointLength = 0;
 	let assistantRevision = 0;
 
-	// Parallel buffer for thinking/reasoning chunks (Grok agent streams these
-	// one token at a time). We coalesce them into a single Thinking event so
-	// the UI shows one nice collapsible "Thinking" row instead of 20 one-word
-	// rows.
 	let thinkingBuffer = "";
 	let thinkingItemId: AgentItemId | null = null;
 	let thinkingCheckpointLength = 0;
@@ -1229,12 +1062,6 @@ export const createAcpTranslator = (
 		return [ev];
 	};
 
-	/**
-	 * Drain any pending thinking + assistant text. Order: thinking first
-	 * (the model usually emits reasoning before its final answer), then the
-	 * assistant message. Used both on explicit flush() and before every
-	 * non-streaming event.
-	 */
 	const flushPending = (): ReadonlyArray<AgentEvent> => {
 		const t = flushThinking();
 		const a = flushAssistant();
@@ -1507,17 +1334,11 @@ export const createAcpTranslator = (
 				kind === "tool_search_output")
 		);
 
-		// 1. Thinking / reasoning delta — buffer (coalesce) exactly like assistant
-		//    text. This is the fix for the "Thinking The user is asking if I can..."
-		//    word-by-word explosion the user reported with Grok.
 		if (isThinkingChunk(kind)) {
 			const flushed = flushAssistant();
 			let text = asText(u["content"]);
 			if (text === null || text.length === 0) return flushed;
-			// Grok often starts its first thinking chunk by literally echoing the
-			// user prompt ("The user says: \"...\" First, the user's query...").
-			// We aggressively strip this meta-reasoning prefix so the Thinking row
-			// shows the agent's actual work instead of the prompt copy.
+
 			if (provider === "grok" && thinkingBuffer.length === 0) {
 				const cleaned = text
 					.replace(/^the user (says|asked|wants|is asking)[^"]*"\s*/i, "")
@@ -1536,7 +1357,6 @@ export const createAcpTranslator = (
 			return flushed;
 		}
 
-		// 2. Assistant text delta — buffer, don't emit yet.
 		if (isAssistantTextChunk(kind)) {
 			const flushed = flushThinking();
 			const text =
@@ -1557,9 +1377,6 @@ export const createAcpTranslator = (
 			return flushed;
 		}
 
-		// 3. Any other event: flush both pending thinking + assistant text first
-		//    so the timeline order stays correct ("reasoning burst → next tool /
-		//    final answer").
 		const flushed = shouldFlushBeforeEvent ? flushPending() : [];
 
 		const tail = ((): ReadonlyArray<AgentEvent> => {
@@ -1605,9 +1422,7 @@ export const createAcpTranslator = (
 				case "image_generation_call": {
 					const rawKind =
 						typeof u["kind"] === "string" ? (u["kind"] as string) : null;
-					// Gemini emits a `think` tool call to advertise an internal
-					// thought — we already surface those via `thinking_chunk`,
-					// so don't double-render as a tool row.
+
 					if (provider === "gemini" && rawKind === "think") {
 						trace(provider, `skip think tool_call`);
 						return [];
@@ -1628,13 +1443,9 @@ export const createAcpTranslator = (
 					);
 					const inputJson = toolInputFingerprint(input);
 					const state = getOrInitToolState(callId);
-					// Pin the canonical tool name on first sight so later update
-					// frames (which omit `kind` for Cursor) still resolve to the
-					// right Edit/Read/Write/Bash branch in buildCanonicalInput.
+
 					if (state.toolName === null) state.toolName = toolName;
-					// Dedupe: if we already emitted ToolUse with this exact input,
-					// skip. Happens when an ACP server sends the same `tool_call`
-					// twice (some implementations do for pending/in_progress).
+
 					if (state.useEmitted && state.lastInputJson === inputJson) {
 						trace(
 							provider,
@@ -1660,24 +1471,13 @@ export const createAcpTranslator = (
 					];
 				}
 
-				// ACP sends `tool_call_update` frames to amend an in-flight call.
-				// Three shapes we care about:
-				//   - completed Read/Bash/Search → content carries result text
-				//   - completed Edit → content carries a `diff` block (input)
-				//   - status/title bump only → no new info
-				// Dedupe carefully so progress updates don't stack rows in the
-				// renderer: re-emit ToolUse only if the input meaningfully
-				// changed (e.g. a diff arrived), and emit ToolResult once.
 				case "tool_call_update": {
 					const rawKind =
 						typeof u["kind"] === "string" ? (u["kind"] as string) : null;
 					if (provider === "gemini" && rawKind === "think") return [];
 					const callId = extractCallId(u);
 					const state = getOrInitToolState(callId);
-					// Prefer the tool name we captured from the original tool_call —
-					// cursor's update frames carry no `kind`, so re-extracting would
-					// collapse to the generic "tool" label and break the Edit/Read/…
-					// input mapping in buildCanonicalInput.
+
 					const updateToolName = extractToolName(u);
 					const toolName =
 						state.toolName !== null && state.toolName !== "tool"
@@ -1697,9 +1497,6 @@ export const createAcpTranslator = (
 					);
 					const events: AgentEvent[] = [];
 
-					// Re-emit ToolUse only when input changed substantively —
-					// typically when a diff block first appears for an Edit. If the
-					// input is identical to what we last emitted, skip.
 					if (input !== null) {
 						if (
 							provider === "grok" &&
@@ -1751,11 +1548,6 @@ export const createAcpTranslator = (
 					if (provider === "generic" && hasContent && !isDiffOnly)
 						state.genericOutput = extractOutput(u);
 
-					// Emit a ToolResult at most once per call. Triggers:
-					//   - Non-diff content arrived (the actual result payload)
-					//   - Status flipped to completed/failed (terminal — even if
-					//     there's no content, the renderer needs to know the call
-					//     finished so spinners stop).
 					if (
 						!state.resultEmitted &&
 						((provider !== "generic" && hasContent && !isDiffOnly) || completed)
@@ -2031,14 +1823,7 @@ export const createAcpTranslator = (
 				case "current_mode_update":
 					return [];
 
-				// --- Grok agent swarming (collab agents) support ---
-				// The Grok Build ACP emits collabAgentToolCall ThreadItems (via session/update
-				// or wrapped in item_started / item_completed notifications) when the main
-				// agent uses spawnAgent / sendInput / closeAgent etc. to orchestrate 10+
-				// parallel sub-agents. We surface them as first-class ToolUse rows so the
-				// swarm activity is visible immediately; richer SwarmRow UI comes later.
 				case "collabAgentToolCall": {
-					// The payload may be the collab item directly or wrapped: { item: ThreadItem, threadId, ... }
 					const candidate = wrappedItem ?? u;
 					if (candidate["type"] !== "collabAgentToolCall") {
 						return [];
@@ -2123,8 +1908,6 @@ export const createAcpTranslator = (
 					const isTerminal = status === "completed" || status === "failed";
 					const toolName = `Collab${tool.charAt(0).toUpperCase()}${tool.slice(1)}`;
 
-					// Emit (or re-emit with richer input) on first sight and on terminal transitions
-					// so the renderer row can show a final result panel with the ending agentsStates.
 					if (!state.useEmitted || isTerminal) {
 						state.useEmitted = true;
 						state.lastInputJson = JSON.stringify(input);
@@ -2142,7 +1925,6 @@ export const createAcpTranslator = (
 							},
 						];
 						if (isTerminal) {
-							// Surface a clean result so the row collapses / shows "done" state.
 							events.push({
 								_tag: "ToolResult",
 								itemId: callId,
@@ -2165,9 +1947,6 @@ export const createAcpTranslator = (
 						return events;
 					}
 
-					// Intermediate state updates (agentsStates changing while running) — we can
-					// optionally emit a non-intrusive result or just trace. For v1 we stay silent
-					// to avoid spamming the timeline; the live states live in the initial row's input.
 					trace(
 						provider,
 						`skip duplicate collab update id=${callId} tool=${tool}`,

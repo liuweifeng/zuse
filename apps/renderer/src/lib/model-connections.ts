@@ -13,7 +13,7 @@ type ConnectionMethods = Pick<
 	| "modelConnections.disconnect"
 	| "modelConnections.acknowledgePlan"
 >;
-// Expose the default (non-discard, non-queue) calls used by this controller.
+
 export type ModelConnectionsClient = {
 	-readonly [K in keyof ConnectionMethods]: (
 		input: Parameters<Client[K]>[0],

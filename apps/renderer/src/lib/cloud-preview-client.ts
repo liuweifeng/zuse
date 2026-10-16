@@ -81,8 +81,6 @@ export const revokeCloudPreviewUrls = (workspaceId: string): Promise<void> => {
 	return cloudPreviewPublication(workspaceId).revoke();
 };
 
-// A renderer may have closed or lost its connection before cleanup completed.
-// Reconcile that durable journal before issuing any more links after restart.
 for (const [id, settings] of Object.entries(
 	usePreviewSettings.getState().environments,
 )) {

@@ -26,11 +26,11 @@ import { signEnvironmentLinkProof } from "./link-proof.ts";
 import { ManagedTunnelRuntime } from "./managed-tunnel-runtime.ts";
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
-/** Quick retries after a failed heartbeat so a blip doesn't read as offline. */
+
 const HEARTBEAT_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
-/** Granularity at which the heartbeat wait notices the host waking up. */
+
 const HEARTBEAT_WAKE_CHECK_MS = 5_000;
-/** Wall-clock drift beyond one wait tick that means this machine slept. */
+
 const HEARTBEAT_WAKE_GAP_MS = 10_000;
 
 /** Delay before the next heartbeat after `consecutiveFailures` failures. */
@@ -119,7 +119,6 @@ export class ApiLinkError extends Data.TaggedError("ApiLinkError")<{
 	readonly reason: string;
 }> {}
 
-/** The account already has as many linked computers as its plan allows. */
 const COMPUTER_LIMIT_REASON = "api_409:computer_limit_reached";
 const AUTO_LINK_LIMIT_RETRY_MS = 10 * 60_000;
 const AUTO_LINK_MAX_RETRY_MS = 60_000;
@@ -137,12 +136,6 @@ export const autoLinkRetryDelayMs = (
 		? AUTO_LINK_LIMIT_RETRY_MS
 		: Math.min(3_000 * 2 ** failures, AUTO_LINK_MAX_RETRY_MS);
 
-/**
- * Keep trying to link until it sticks. Linking must never block or fail
- * server boot, and persistent causes (signed out, api down, a full account)
- * heal on a later attempt without a restart. A full account is reported once
- * with what to do, not as a warning every attempt.
- */
 const RETIRE_RETRY_MAX_MS = 10 * 60_000;
 
 /**
@@ -190,7 +183,7 @@ export const autoLinkUntilLinked = (
 								"api auto-link paused: this account is at its computer limit. Remove an unused computer in Settings → Devices; linking resumes automatically.",
 							)
 					: Effect.logWarning("api auto-link attempt failed", error);
-				// Jitter keeps parallel dev instances from retrying in lockstep.
+
 				const delay =
 					autoLinkRetryDelayMs(error, failures) * (0.8 + Math.random() * 0.4);
 				return report.pipe(
@@ -280,7 +273,6 @@ export const makeDisabledApiLinkService = (
 	);
 };
 
-/** The account no longer has this computer (or never did). */
 const isApiNotFound = (error: ApiLinkError): boolean =>
 	error.reason === "api_404" || error.reason.startsWith("api_404:");
 
@@ -296,9 +288,7 @@ const apiHttpErrorReason = async (response: Response): Promise<string> => {
 			}
 			return `api_${response.status}:${body.error}`;
 		}
-	} catch {
-		// Fall through to the status-only reason; api bodies should be JSON.
-	}
+	} catch {}
 	return fallback;
 };
 
@@ -383,8 +373,7 @@ const makeApiLinkService = (options: {
 		const tunnel = yield* ManagedTunnelRuntime;
 		const telemetry = yield* TelemetryStore;
 		const serviceScope = yield* Effect.scope;
-		// Shared DPoP refresh/registration can outlive an individual RPC, but never
-		// this service. Each operation also has a deadline so a hung cache heals.
+
 		let accountLifetime = new AbortController();
 		yield* Effect.addFinalizer(() =>
 			Effect.sync(() => accountLifetime.abort()),
@@ -615,7 +604,6 @@ const makeApiLinkService = (options: {
 			readonly credential: string;
 		}) =>
 			heartbeatUntilInterrupted(heartbeatOnce(input), {
-				// Report the start of an outage once, not every quick retry.
 				onFailure: (error, failures) =>
 					failures === 1
 						? log("heartbeat.failed", {
@@ -659,7 +647,6 @@ const makeApiLinkService = (options: {
 				},
 			);
 
-		// Resume heartbeating (and the managed-tunnel connector) on boot if linked.
 		const existing =
 			options.resumeExistingLink === false
 				? null
@@ -673,14 +660,9 @@ const makeApiLinkService = (options: {
 			});
 			if (existing.connectorToken !== undefined) {
 				const connectorToken = existing.connectorToken;
-				// Remote tunnel repair must not hold up the local engine. Keep it
-				// scoped, and cancel it before a user relinks or unlinks.
+
 				restoreTunnel = yield* Effect.forkIn(
 					Effect.gen(function* () {
-						// The desktop's HTTP port can change between app versions or dev
-						// launches. Repair the existing tunnel ingress before starting its
-						// connector so a successful WebSocket upgrade always reaches this
-						// runtime rather than whatever now owns the old port.
 						yield* log("service.existing_tunnel_reconcile", {
 							environmentId: existing.environmentId,
 							origin: computeOrigin(config),
@@ -696,12 +678,10 @@ const makeApiLinkService = (options: {
 									reason: error.reason,
 								}),
 							),
-							// Non-fatal on boot: presence and LAN access must still work while
-							// the api or tunnel control plane is temporarily unavailable.
+
 							Effect.ignore,
 						);
-						// Non-fatal on boot: if cloudflared is missing the desktop still works
-						// on LAN; the tunnel just won't come up until relinked.
+
 						yield* log("service.existing_tunnel_start");
 						yield* tunnel.start(connectorToken).pipe(
 							Effect.tap(() => log("service.existing_tunnel_start.ok")),
@@ -732,7 +712,7 @@ const makeApiLinkService = (options: {
 						apiUrl: input.apiUrl,
 						hasLabel: input.label !== undefined && input.label.length > 0,
 					});
-					// Give api-listed environments the same human name as LAN clients.
+
 					const label = input.label ?? (yield* defaultEnvironmentLabel());
 					const token = yield* authService
 						.getAccessToken()
@@ -811,9 +791,7 @@ const makeApiLinkService = (options: {
 							endpoint: computeEndpoint(config),
 							label,
 							...apiRuntimeMetadata(),
-							// Ask the api to provision a managed Cloudflare tunnel so the
-							// phone can reach this Mac from anywhere. If the api has tunnels
-							// disabled it simply returns no connector token and we stay on LAN.
+
 							managedTunnel: true,
 							origin: computeOrigin(config),
 						},
@@ -830,8 +808,6 @@ const makeApiLinkService = (options: {
 						),
 					);
 
-					// Launch the connector before persisting so a missing `cloudflared`
-					// surfaces as a link error rather than a silently-dead tunnel.
 					if (linked.connectorToken !== undefined) {
 						yield* log("link.tunnel_start");
 						yield* tunnel
@@ -1021,9 +997,7 @@ const makeApiLinkService = (options: {
 					yield* tunnel
 						.stop()
 						.pipe(Effect.mapError((error) => failApi(error.reason)));
-					// Best-effort api deprovision (tears down the Cloudflare tunnel +
-					// removes the environment from the account). Local unlink proceeds
-					// even if the api is unreachable or we're signed out.
+
 					if (cfg !== null) {
 						yield* authService.getAccessToken().pipe(
 							Effect.flatMap((token) =>

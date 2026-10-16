@@ -1,28 +1,21 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Dependencies
 node_modules
 .pnp
 .pnp.js
 
-# Local env files
 .env
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
 
-# Testing
 coverage
 
-# Turbo
 .turbo
 
-# Vercel
 .vercel
 .wrangler/
 
-# Build Outputs
 .next/
 out/
 build
@@ -32,24 +25,16 @@ dist-electron
 .electron-runtime
 apps/desktop/native/*/bin/
 
-# electron-builder packaged artifacts (root-level dist/) — separately ignored
-# above. Below: re-include the apps/desktop/build/ directory which holds
-# committed packaging resources (icon, entitlements) that the global `build`
-# rule would otherwise hide.
 !apps/desktop/build
 !apps/desktop/build/**
 
-
-# Debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Misc
 .DS_Store
 *.pem
 
-# Local-only project data (workspace + private agent notes)
 .context
 .notes
 .memoize
@@ -61,11 +46,9 @@ yarn-error.log*
 .gstack/
 .seo-cache/
 
-# Hugeicons migrate CLI artifacts (backups + HTML reports)
 apps/renderer/hugeicons-migrate-backup-*/
 apps/renderer/hugeicons-migration-report-*.html
 .gstack/
 .pstack/
 
-# Cloud runtime and orchestration CLI bundles
 dist-cloud/

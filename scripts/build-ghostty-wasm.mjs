@@ -112,8 +112,6 @@ try {
 	releaseBootstrap();
 }
 
-// Zig writes executable outputs by default. These are packaged data assets,
-// so normalize their modes rather than leaking the build host's defaults.
 chmodSync(output, 0o644);
 chmodSync(callbackOutput, 0o644);
 

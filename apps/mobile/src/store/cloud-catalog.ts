@@ -27,13 +27,13 @@ type CloudCatalog = Readonly<{
 	accountId: string | null;
 	chats: readonly CloudChatSummary[];
 	projects: readonly CloudProject[];
-	/** Sandbox providers (boxd, Boat, E2B…) this account can run cloud chats on. */
+
 	providers: readonly CloudProviderOption[];
-	/** Each provider's account image, for per-repository readiness. */
+
 	providerImages: readonly CloudAccountImage[];
-	/** Cloud Workspace subscription; `null` until known. */
+
 	subscribed: boolean | null;
-	/** Why the sandbox provider list could not load, if it failed. */
+
 	providersError: string | null;
 	image: CloudAccountImage | null;
 	auth: CloudAuthStatus | null;
@@ -210,8 +210,7 @@ export const refreshCloudCatalog = (): Promise<void> => {
 		]);
 		if (epoch !== generation) return;
 		const [chats, projects, auth, image, providers] = results;
-		// Placement readiness, as on desktop: each provider's image and the
-		// subscription. Failures leave the previous values (shown as unavailable).
+
 		const [providerImages, subscribed] =
 			providers.status === "fulfilled"
 				? await Promise.all([

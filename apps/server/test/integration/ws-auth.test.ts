@@ -815,8 +815,6 @@ describe("WS LAN auth", () => {
 						port,
 					},
 					{
-						// Keep this transport test on Effect's Node WebSocket implementation.
-						// Node's built-in Undici client currently aborts this valid compressed frame.
 						makeWebSocket: (url, protocols) =>
 							new NodeSocket.NodeWS.WebSocket(
 								url,

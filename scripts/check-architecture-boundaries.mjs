@@ -114,14 +114,11 @@ export const architectureRules = [
 		],
 		(path, line) =>
 			/cloud-workspace-launch-intent\.ts$/u.test(path) ||
-			// Only the named sealed public-automation symbols/table are exempt.
-			// A file-wide exception would also hide a future parallel chat surface.
 			isSealedPublicAutomationBoundary(path, line) ||
 			(path === "packages/contracts/src/cloud-workspaces.ts" &&
 				/^\s*firstMessage:\s*Schema\.optional\(Schema\.String\),?\s*$/u.test(
 					line,
 				)) ||
-			// The public API's create route feeds the same one-shot launch intent.
 			(path === "infra/api/src/public-api-routes.ts" &&
 				/^\s*firstMessage:\s*prompt,\s*$/u.test(line)),
 	),

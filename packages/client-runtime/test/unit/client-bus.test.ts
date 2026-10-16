@@ -242,7 +242,7 @@ describe("ClientBus", () => {
 
 		namespace = "second";
 		const stale = bus.snapshot(timelineKey);
-		// No listener may run synchronously inside a React render read.
+
 		expect(notified).toEqual([]);
 		expect(stale.data).toBeNull();
 		expect(bus.snapshot(timelineKey)).toBe(stale);
@@ -693,8 +693,7 @@ describe("ClientBus", () => {
 				payload: { bytes: new Uint8Array([1, 2, 4]) },
 			}),
 		).not.toBe(commandFingerprint(binary));
-		// Uint8Array's enumerable shape is { "0": 1, ... }. It must retain a
-		// distinct identity from a real application object with those keys.
+
 		expect(
 			commandFingerprint({
 				...binary,
@@ -915,7 +914,7 @@ describe("ClientBus", () => {
 		});
 		expect(starts).toBe(1);
 		lease.release();
-		// Keep the denial marker until an authorized runtime frame replaces it.
+
 		expect(bus.forget(timelineKey)).toBe(false);
 		await bus.dispose();
 	});
@@ -2003,8 +2002,6 @@ describe("ClientBus", () => {
 		await waitUntil(() => mailboxSelections.length === 2);
 		expect(mailboxSelections).toEqual(["fallback-first", "fallback-second"]);
 
-		// Even when the second capability check loses the race first, its live RPC
-		// cannot overtake the command submitted ahead of it.
 		secondFallback.resolve();
 		await Promise.resolve();
 		expect(liveExecutions).toEqual([]);
@@ -2681,7 +2678,7 @@ describe("ClientBus", () => {
 						};
 					}),
 			});
-			// Drain the constructor's empty startup scan before creating fresh work.
+
 			await vi.advanceTimersByTimeAsync(0);
 			const command = {
 				kind: "messages.send",
@@ -3019,8 +3016,6 @@ describe("ClientBus", () => {
 			]);
 			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
 
-			// A catalog/reconnect scan must not create another attempt while the
-			// original dispatch promise owns its retry delay.
 			await bus.flushDurableOutbox(environmentId);
 			expect(mailboxDispatches).toBe(1);
 			expect(liveExecutions).toBe(0);
@@ -3128,7 +3123,6 @@ describe("ClientBus", () => {
 		let dispatches = 0;
 		let resumes = 0;
 		const transport: CloudCommandTransport = {
-			// Accepted rows remain drainable even after a rollout narrows support.
 			supports: () => false,
 			dispatch: () => {
 				dispatches += 1;
@@ -3208,8 +3202,6 @@ describe("ClientBus", () => {
 		let resumedEnvelope: unknown;
 		let resumedAcceptance: unknown = "not-called";
 		const transport: CloudCommandTransport = {
-			// Prepared rows remain owned by v3 even if a later rollout narrows new
-			// command eligibility; falling back would create a second execution path.
 			supports: () => false,
 			dispatch: () => {
 				dispatches += 1;
@@ -3327,7 +3319,6 @@ describe("ClientBus", () => {
 				persistedEnvelope,
 			);
 
-			// Discovery cannot create a second attempt while the original promise owns it.
 			await bus.flushDurableOutbox(environmentId);
 			expect(mailboxDispatches).toBe(1);
 			await bus.dispose();
@@ -3628,7 +3619,6 @@ describe("ClientBus", () => {
 			},
 		});
 
-		// Canonical key ordering and local scheduling time do not alter identity.
 		await expect(
 			bus.dispatch({
 				...original,

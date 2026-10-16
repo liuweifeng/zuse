@@ -41,7 +41,7 @@ it.each<WorkspaceScope>([
 		runtimeMode: "full-access" as const,
 	};
 	const summary = summaryFromLaunch(input);
-	// Attachment and catalog filtering use this scope, defaulting legacy rows to Personal.
+
 	expect(summary.workspaceScope).toEqual(workspaceScope);
 	expect(summary.workspaceId).toBe(input.workspace.workspaceId);
 });

@@ -26,7 +26,7 @@ describe("codexNativeMcpIsolation", () => {
 					{
 						linear: { url: "https://mcp.linear.app/mcp" },
 						zuse: { url: "https://x/mcp" },
-						// An override without a transport is not a definition.
+
 						corp: { enabled: true },
 						onlyOverride: { enabled: false },
 					},

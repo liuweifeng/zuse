@@ -135,8 +135,6 @@ const itemKey = (message: Message): string | null =>
 		? `${message.sessionId}:${message.content.itemId}`
 		: null;
 
-/** A successful emit_ui call is shown by its `ui_spec` row alone; failed
- * calls keep their tool rows so the error stays visible. */
 const withoutRenderedUiCalls = (messages: Message[]): Message[] => {
 	const calls = new Set<string>();
 	const failed = new Set<string>();

@@ -34,8 +34,6 @@ const runtimeWorkflowUrl = new URL(
 );
 const apiDirectory = fileURLToPath(new URL("../..", import.meta.url));
 
-// Deployment prerequisite tests use a signed local fixture, never the moving
-// production channel (which may intentionally precede this branch's protocol).
 const runtimeKey = generateKeyPairSync("ed25519");
 const runtimeManifest = {
 	wireProtocol: { min: WIRE_PROTOCOL_VERSION, max: WIRE_PROTOCOL_VERSION },
@@ -118,8 +116,6 @@ describe("api deployment safety", () => {
 		});
 	});
 
-	// Production once shipped without API_PUBLIC_ORIGIN: every plugin OAuth
-	// redirect_uri became "undefined/v1/plugins/callback/…" and was rejected.
 	test.each([
 		["staging", wranglerConfigUrl, STAGING_API_URL],
 		["production", productionWranglerConfigUrl, PRODUCTION_API_URL],
@@ -248,7 +244,7 @@ else process.exit(2);
 		try {
 			const config = parse(await readFile(productionWranglerConfigUrl, "utf8"));
 			Object.assign(config.vars, fixtureRuntimeVars);
-			// Isolate sandbox prerequisites from Stripe's checkout rollout gates.
+
 			config.vars.BILLING_DEFAULT_PROVIDER = "polar";
 			config.vars.CLOUD_BILLING_ENFORCEMENT_ENABLED =
 				scenario === "billing" || scenario === "paid-billing-ready"
@@ -259,7 +255,7 @@ else process.exit(2);
 				config.vars.BOXD_BILLING_ENABLED = "true";
 				config.vars.BOXD_BILLING_CUTOVER_AT = "2026-10-06T17:15:42Z";
 			}
-			// The login authority may only name an enabled adapter.
+
 			config.vars.BOXD_ADAPTER_ENABLED =
 				scenario === "auth-provider" ? "false" : "true";
 			if (scenario === "auth-provider")

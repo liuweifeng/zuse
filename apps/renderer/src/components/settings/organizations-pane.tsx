@@ -131,14 +131,13 @@ export function OrganizationsPane({
 	);
 }
 
-/** One organization's members, invitations, and GitHub joining policy. */
 function OrganizationManagement({
 	organizationId,
 }: {
 	organizationId: string;
 }) {
 	const { busy, error, setError, guard, run } = useOrganizationAction();
-	// Open from the cached snapshot; only a first visit shows loading.
+
 	const [details, setDetails] = useState<OrganizationDetails | null>(
 		() => peekOrganizationDetails(organizationId) ?? null,
 	);

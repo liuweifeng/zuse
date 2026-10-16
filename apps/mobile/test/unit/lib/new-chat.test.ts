@@ -103,7 +103,6 @@ describe("new chat helper", () => {
 			},
 		]);
 
-		// Current branch is excluded.
 		const branchOpts = sourceOptionsForKind("branch", branches, prs);
 		expect(branchOpts).toHaveLength(1);
 		expect(branchOpts[0]?.source).toMatchObject({

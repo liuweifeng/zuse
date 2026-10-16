@@ -1068,7 +1068,7 @@ describe("E2B shared control connections", () => {
 				apiBaseUrl: "https://other.test",
 			}),
 		).not.toBe(base);
-		// Two adapters on a custom transport never see each other's tokens.
+
 		const a = makeHttp([detail("token-a"), { status: 200 }]);
 		const b = makeHttp([detail("token-b"), { status: 200 }]);
 		return Promise.all([

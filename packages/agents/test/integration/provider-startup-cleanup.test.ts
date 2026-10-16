@@ -84,7 +84,7 @@ it.each([
 	const root = await mkdtemp(join(tmpdir(), "zuse-startup-cancel-"));
 	const executable = join(root, "provider-cli");
 	const pidFile = join(root, "pid");
-	// Report only after the driver sends its first handshake request. Never reply.
+
 	await writeFile(
 		executable,
 		`#!/usr/bin/env node\nimport { writeFileSync } from "node:fs";\nprocess.on("SIGTERM", () => {});\n${providerId.startsWith("opencode") ? `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));` : ""}\nprocess.stdin.on("data", () => writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)));\n`,
@@ -177,9 +177,7 @@ it.each([
 		if (pid !== undefined) {
 			try {
 				process.kill(pid, "SIGKILL");
-			} catch {
-				/* already exited */
-			}
+			} catch {}
 		}
 		await rm(root, { recursive: true, force: true });
 	}
@@ -247,9 +245,7 @@ server.listen(0, "127.0.0.1", () => {
 		if (pid !== undefined) {
 			try {
 				process.kill(pid, "SIGKILL");
-			} catch {
-				/* already exited */
-			}
+			} catch {}
 		}
 		await rm(root, { recursive: true, force: true });
 	}

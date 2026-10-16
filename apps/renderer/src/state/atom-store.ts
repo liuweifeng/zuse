@@ -47,8 +47,7 @@ export function createAtomStore<State>(
 	};
 	pendingInitial = initializer(set, get);
 	const initialState = pendingInitial;
-	// Application stores outlive any one mounted selector. Keep their writable
-	// atoms alive so a temporarily unmounted pane cannot reset domain state.
+
 	stateAtom = Atom.make(initialState).pipe(Atom.setIdleTTL(Duration.infinity));
 
 	const useStore = (<Selected = State>(

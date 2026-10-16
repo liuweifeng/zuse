@@ -6,16 +6,6 @@ import { Effect } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { Socket as SocketNs } from "effect/unstable/socket";
 
-/**
- * WebSocket ↔ sshd bridge for cloud workspaces.
- *
- * There is no listening SSH daemon in the sandbox. Each authorized WebSocket
- * connection spawns `sshd -i` (single-connection inetd mode) and pipes frames
- * to its stdio. Access requires a api-issued ticket: the api stages the
- * ticket's SHA-256 hash and expiry in a sandbox file (like the runtime boot
- * token) and hands the plain ticket to the desktop's ProxyCommand bridge.
- */
-
 const SSH_TICKET_FILE =
 	process.env.ZUSE_SSH_TICKET_FILE ?? "/home/zuse/.zuse-ssh-ticket";
 const SSHD_BINARY = "/usr/sbin/sshd";
@@ -86,9 +76,7 @@ export const pumpSshd = (socket: SocketNs.Socket) =>
 					child.kill("SIGKILL");
 				});
 			});
-			// Ending or interrupting runRaw closes the socket's write latch. Never
-			// write after the race: either winner makes that write wait forever.
-			// The upgraded socket's acquisition scope owns WebSocket closure.
+
 			yield* Effect.race(
 				socket
 					.runRaw((data) => {

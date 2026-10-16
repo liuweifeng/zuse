@@ -79,7 +79,7 @@ describe("parseCliVersion", () => {
 
 	it("returns null for output without a version triple", () => {
 		expect(parseCliVersion("no version here")).toBe(null);
-		expect(parseCliVersion("1.2")).toBe(null); // only a pair, not a triple
+		expect(parseCliVersion("1.2")).toBe(null);
 		expect(parseCliVersion("")).toBe(null);
 	});
 });
@@ -129,7 +129,6 @@ describe("resolveCodexCapabilities — version-gated feature floors", () => {
 	});
 
 	it("enables only goalMode at the SDK floor but below the fast floor", () => {
-		// 0.128.0 meets goalMode's 0.128.0 floor but is below fastMode's floor.
 		expect(resolveCodexCapabilities(parseCliVersion("0.128.0"))).toEqual([
 			"goalMode",
 		]);
@@ -314,9 +313,6 @@ describe("parseClaudeCredentials — subscription gating", () => {
 	});
 
 	it("does NOT gate an unknown/unmapped tier (a paid login is still valid)", () => {
-		// Regression: a base Pro user whose tier string we don't map (or whose blob
-		// omits it) must not be told to subscribe — the OAuth login proves a paid
-		// account and the runtime does the real entitlement check.
 		const info = parseClaudeCredentials(blob("max_5x_20250101"));
 		expect(info.authStatus).toBe("authenticated");
 		expect(info.authLabel?.toLowerCase()).not.toContain("require");
@@ -357,7 +353,6 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 	});
 
 	it("tolerates label-wrapped version strings (parser pulls the triple)", () => {
-		// `claude --version` prints "1.0.123 (Claude Code)"
 		expect(deriveLatestAdvisory("1.0.123 (Claude Code)", "1.0.140")).toBe(
 			"behind",
 		);
@@ -508,7 +503,6 @@ describe("buildUpdateCommand — install-method detection", () => {
 	});
 
 	it("uses npm (uninstall-then-install) for an nvm/npm-global install", () => {
-		// `which` returns the bin symlink; realpath points into node_modules.
 		const cmd = buildUpdateCommand("codex", [
 			"/Users/me/.nvm/versions/node/v23.10.0/bin/codex",
 			"/Users/me/.nvm/versions/node/v23.10.0/lib/node_modules/@openai/codex/bin/codex.js",

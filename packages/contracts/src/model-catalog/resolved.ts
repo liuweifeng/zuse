@@ -13,11 +13,11 @@ export const ModelLiveMeta = Schema.Struct({
 	autoCompactTokenLimit: Schema.optional(Schema.Number),
 	effectiveContextWindowPercent: Schema.optional(Schema.Number),
 	rateMultiplier: Schema.optional(Schema.Number),
-	/** OpenCode per-model variant names (rendered as the reasoning picker). */
+
 	variants: Schema.optional(Schema.Array(Schema.String)),
-	/** Codex `supportedReasoningEfforts`. */
+
 	reasoningEfforts: Schema.optional(Schema.Array(Schema.String)),
-	/** Codex: model advertises a "fast" service tier. */
+
 	fastTier: Schema.optional(Schema.Boolean),
 	description: Schema.optional(Schema.String),
 });
@@ -51,7 +51,7 @@ export type LiveListingState = typeof LiveListingState.Type;
 
 export const LiveListingStatus = Schema.Struct({
 	status: LiveListingState,
-	/** When true, models missing from the live list are marked unavailable. */
+
 	authoritative: Schema.Boolean,
 	fetchedAt: Schema.NullOr(Schema.Number),
 	error: Schema.NullOr(Schema.String),
@@ -70,7 +70,7 @@ export const ResolvedModelCatalogProvider = Schema.Struct({
 	aliases: Schema.Record(Schema.String, Schema.String),
 	defaultModelId: Schema.String,
 	live: LiveListingStatus,
-	/** Raw OpenCode inventory for the provider manager UI. */
+
 	opencode: Schema.optional(OpencodeInventory),
 	opencode2: Schema.optional(OpencodeInventory),
 });

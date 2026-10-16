@@ -57,7 +57,7 @@ describe("tokenmaxer aggregation", () => {
 		]);
 		expect(report.summary.inputTokens).toBe(1200);
 		expect(report.summary.outputTokens).toBe(600);
-		// One model is priced, the other is unknown → partial.
+
 		expect(report.summary.costStatus).toBe("partial");
 		expect(report.summary.costUsd).toBeCloseTo(1000 * 3e-6 + 500 * 1.5e-5);
 	});

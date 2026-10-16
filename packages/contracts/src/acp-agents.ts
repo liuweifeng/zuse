@@ -41,7 +41,7 @@ export const AcpDefinition = Schema.Struct({
 	version: Schema.optional(Schema.String),
 	icon: Schema.optional(Schema.String),
 	probe: Schema.optional(AcpProbe),
-	/** Named account home owned by this ACP instance; credentials stay on the host. */
+
 	accountProvider: Schema.optional(Schema.Literals(["claude", "codex"])),
 });
 export type AcpDefinition = typeof AcpDefinition.Type;

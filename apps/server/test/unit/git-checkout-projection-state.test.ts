@@ -94,8 +94,6 @@ describe("Git checkout projection state", () => {
 		state.setPrSnapshot(checkout, { value: "baseline", nextPollAt: 100 });
 		const oldRefresh = state.beginPrRefresh(checkout);
 
-		// Starting the mutation refresh revokes old commit authority. A failure
-		// intentionally leaves that authority claimed until a future retry.
 		state.beginPrRefresh(checkout);
 		expect(
 			state.commitPrRefresh(oldRefresh, {

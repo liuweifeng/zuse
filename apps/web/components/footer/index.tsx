@@ -25,8 +25,6 @@ import {
 	X_URL,
 } from "@/lib/site";
 
-// Every link here must resolve. No placeholder hrefs — pages get linked when
-// they exist.
 const legalLabels: Record<string, WebsiteMessageKey> = {
 	"/privacy": "navigation:privacy",
 	"/terms": "navigation:terms",

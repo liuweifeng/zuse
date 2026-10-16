@@ -87,11 +87,6 @@ export { WorkspaceGateway } from "./workspace-gateway.ts";
 
 import { WorkspaceMailbox as WorkspaceMailboxTask } from "./workspace-mailbox.ts";
 
-/**
- * Cloudflare Worker bindings. Secrets (`RELAY_MINT_PRIVATE_JWK`) are set via
- * `wrangler secret put`; the rest are `vars` in wrangler.jsonc. `HYPERDRIVE`
- * is the Hyperdrive binding fronting PlanetScale Postgres.
- */
 interface Env extends SlackBindings, BillingEnvironment {
 	readonly WORKSPACE_STARTUP: WorkspaceStartupNamespace;
 	readonly HYPERDRIVE: { readonly connectionString: string };
@@ -145,7 +140,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly GITHUB_APP_PRIVATE_KEY?: string;
 	readonly GITHUB_APP_CLIENT_SECRET?: string;
 	readonly GITHUB_APP_WEBHOOK_SECRET?: string;
-	/** Legacy binding retained so existing encrypted staging data remains readable. */
+
 	readonly CLOUD_CREDENTIAL_VAULT_KEY?: string;
 	readonly CLOUD_WORKSPACE_IDLE_TIMEOUT_MS?: string;
 	readonly CLOUD_REPOSITORY_CACHE_MAX_BYTES?: string;
@@ -155,7 +150,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly ORGANIZATION_ROLLOUT_ENABLED?: string;
 	readonly ORGANIZATION_POSTHOG_KEY?: string;
 	readonly ORGANIZATION_POSTHOG_HOST?: string;
-	// Managed Cloudflare tunnel (optional — absent disables provisioning).
+
 	readonly CF_API_TOKEN?: string;
 	readonly CF_ACCOUNT_ID?: string;
 	readonly CF_ZONE_ID?: string;
@@ -185,7 +180,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly BOAT_MACHINE_TYPE?: string;
 	readonly BOAT_HOSTED_PORT_DOMAIN?: string;
 	readonly BOAT_WEBHOOK_SECRET?: string;
-	// Legacy bindings remain valid during the Boat configuration migration.
+
 	readonly BOX_ADAPTER_ENABLED?: string;
 	readonly BOX_API_KEY?: string;
 	readonly BOX_API_BASE_URL?: string;
@@ -226,7 +221,7 @@ interface Env extends SlackBindings, BillingEnvironment {
 	readonly CLOUD_USAGE_EXPORT_ENABLED?: string;
 	readonly CLOUD_BILLING_CUTOVER_AT?: string;
 	readonly CLOUD_SNAPSHOT_BILLING_CUTOVER_AT?: string;
-	/** Additive rollout gate. Accepted rows continue draining when disabled. */
+
 	readonly CLOUD_COMMAND_MAILBOX_ENABLED?: string;
 	readonly CLOUD_WORKSPACE_RECOVERY_ENABLED?: string;
 	readonly CLOUD_WORKSPACE_RECOVERY_WORKSPACE_IDS?: string;
@@ -299,12 +294,6 @@ const managedTunnelConfig = (
 	};
 };
 
-/**
- * Tell a workspace's gateway Durable Object that pending public-API commands
- * are waiting so it pushes a `runtime.command` control frame to the runtime.
- * Best-effort: a missed nudge is recovered by the cron sweep and by the
- * runtime's reconnect drain.
- */
 const nudgeWorkspaceGateway = (env: Env, target: string): Promise<unknown> => {
 	const id = env.WORKSPACE_GATEWAY.idFromName(target);
 	return env.WORKSPACE_GATEWAY.get(id)
@@ -656,7 +645,6 @@ const build = (env: Env, directStartup = false): ReturnType<typeof makeApi> => {
 					...slackConfig,
 					workspaceAppOrigin: env.PLUGIN_APP_ORIGIN ?? HOSTED_APP_URL,
 					dispatch: async (response) => {
-						// The outer request/queue owns the runtime. Individual operations must not dispose it.
 						const scoped = { ...api, dispose: async () => {} };
 						return (
 							(await coordinateCloudMailboxResponse({
@@ -692,8 +680,6 @@ export default {
 		env: Env,
 		context: { readonly waitUntil: (promise: Promise<unknown>) => void },
 	): Promise<Response> {
-		// Cloudflare recommends request-scoped database clients for Hyperdrive.
-		// A shared max-one pool stranded concurrent mobile auth requests.
 		const api = build(env);
 		let response: Response;
 		try {

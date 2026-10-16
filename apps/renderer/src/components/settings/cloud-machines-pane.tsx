@@ -325,9 +325,7 @@ export function CloudMachinesPane() {
 			setNetwork(status);
 			setSshMode(status.sshMode);
 			setSshKeys(keys.keys);
-		} catch {
-			// Connection recovery remains owned by the environment catalog.
-		}
+		} catch {}
 	}, [machineCommand, machineEnvironment?.status, machineEnvironmentId]);
 
 	useEffect(() => {
@@ -366,7 +364,6 @@ export function CloudMachinesPane() {
 			setRuntimeStatusUnavailable(false);
 		} catch {
 			setRuntimeStatusUnavailable(true);
-			// Keep any last durable progress visible while the runtime reconnects.
 		}
 	}, [machineCommand, machineEnvironment?.status, machineEnvironmentId]);
 

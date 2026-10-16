@@ -41,7 +41,6 @@ const PollPage = Schema.Struct({
 
 const WEBHOOK_TIMESTAMP_TOLERANCE_MS = 5 * 60_000;
 
-// X-Ascii-Signature: `v1=` + HMAC-SHA256 over `deliveryId.timestamp.rawBody`.
 export const verifyBoxSignature = (input: {
 	readonly rawBody: string;
 	readonly deliveryId: string;
@@ -159,12 +158,7 @@ export const BoxBillingUsageSourceModule: BillingUsageSourceModule = {
 					nowMs,
 				}),
 		}),
-	// Box has no provider-side event log to replay, so recovery synthesizes
-	// close events from currently archived/errored boxes. The synthetic event
-	// id is stable per box transition (`updatedAt`), and window pairing plus
-	// execution finalization keep re-observations idempotent. Webhooks
-	// (at-least-once, 8 retries) remain the primary path; this only narrows
-	// the crash window.
+
 	poll: async ({ env, api, nowMs }) => {
 		const config = Schema.decodeUnknownSync(PollEnvironment)({
 			...env,

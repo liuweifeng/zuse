@@ -1,5 +1,3 @@
-// Prefer Boat names while retaining already-installed Box secrets and settings.
-// Explicit empty/false Boat values must not fall back to legacy configuration.
 export const readBoatEnvironment = (environment: object) => {
 	const env = environment as Readonly<Record<string, string | undefined>>;
 	const settings = {

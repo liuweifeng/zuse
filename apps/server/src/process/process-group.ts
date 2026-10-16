@@ -15,8 +15,6 @@ export const signalProcessGroup = (
 
 export const SUPERVISED_COMMAND_LEASE_MS = 15_000;
 
-// The supervisor shares a process group with the command. Losing the private
-// stdin pipe means the server died, so no command survives without its authority.
 const SUPERVISOR = `
 const { spawn } = require('node:child_process');
 const [specJson, initialDeadline, hasInput] = process.argv.slice(1);
@@ -74,7 +72,7 @@ export const spawnSupervisedProcess = (
 			env: { ...(options.env ?? process.env), ELECTRON_RUN_AS_NODE: "1" },
 		},
 	);
-	// The shell may exit with descendants still holding its output pipes open.
+
 	if (options.killDescendantsOnExit)
 		child.once("exit", () => signalProcessGroup(child, "SIGKILL"));
 	return child;

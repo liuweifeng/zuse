@@ -371,7 +371,7 @@ describe("persistent display cache", () => {
 				peekControlPlaneCache("plugins:list:personal", decode, "account"),
 			).toEqual({ connected: true });
 			clearControlPlaneSessionCache();
-			// Restored from storage after a reload, in any workspace.
+
 			expect(
 				peekControlPlaneCache("plugins:list:personal", decode, "account"),
 			).toEqual({ connected: true });

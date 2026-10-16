@@ -50,8 +50,7 @@ it.each([
 					yield* Migration0059EventSequenceIndex;
 					yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (59, 'event_sequence_index')`;
 				}
-				// Existing installations keep their historical tables; new installs
-				// only reserve the migration slot while shared-host work is deferred.
+
 				yield* sql`CREATE TABLE collaboration_teams (id TEXT PRIMARY KEY, name TEXT, created_at TEXT, updated_at TEXT)`;
 				yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${legacyId}, 'collaboration_foundation')`;
 				yield* sql`INSERT INTO collaboration_teams (id, name, created_at, updated_at) VALUES ('team', 'Preserved', '2026-09-01', '2026-09-01')`;

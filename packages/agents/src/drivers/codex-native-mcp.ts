@@ -77,8 +77,6 @@ export const codexNativeMcpIsolation = (
 	const projectNames = new Set<string>();
 	const legacy = new Set<string>();
 	for (const layer of response.layers ?? []) {
-		// Disabled layers (e.g. an untrusted project) do not load, so a name
-		// defined only there must not be referenced.
 		if (layer.disabledReason !== null) continue;
 		if (layer.name.type === "sessionFlags") continue;
 		const servers = isRecord(layer.config) ? layer.config.mcp_servers : null;
@@ -109,11 +107,6 @@ export const codexNativeMcpIsolation = (
 
 const execFileAsync = promisify(execFile);
 
-/**
- * Removes app-owned loopback entries older Zuse versions wrote into the
- * user's Codex config (they point at a dead per-process port and break the
- * user's own Codex). Returns the names actually removed.
- */
 const removeLegacyAppOwnedServers = async (
 	codexPath: string | null,
 	names: ReadonlyArray<string>,
@@ -174,8 +167,7 @@ export const resolveCodexNativeMcpIsolation = async (options: {
 		);
 	}
 	if (isolation.legacyAppOwnedServerNames.length === 0) return isolation;
-	// Removed entries no longer exist, so they must not be referenced by the
-	// launch overrides (an override without a transport is invalid config).
+
 	const removed = new Set(
 		await removeLegacyAppOwnedServers(
 			options.codexPath,

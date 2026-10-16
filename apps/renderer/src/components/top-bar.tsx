@@ -125,11 +125,6 @@ const RenameDialog = lazy(() =>
 	loadRenameDialog().then((module) => ({ default: module.RenameDialog })),
 );
 
-/**
- * Open a URL in the user's real browser via the desktop bridge, falling back
- * to `window.open` when running outside Electron (Storybook / web preview).
- * Mirrors `pr-pane.tsx`'s helper.
- */
 const openExternal = (url: string): void => {
 	const bridge = window.zuse?.app;
 	if (bridge !== undefined) {
@@ -224,9 +219,6 @@ export function TopBarMain() {
 		"common",
 	]);
 
-	// Pull folderId + worktreeId from the canonical active context so the
-	// branch label can never disagree with the terminal cwd, file tree root,
-	// or composer chip — they all read from the same hook.
 	const ctx = useActiveContext();
 	const executionRef = executionRefFor(ctx);
 	const environmentId =
@@ -303,9 +295,7 @@ export function TopBarMain() {
 	const toggleEnvironmentSummary = useUiStore(
 		(s) => s.toggleEnvironmentSummary,
 	);
-	// On the empty new-chat landing (no session yet) we hide the repo/branch
-	// label + open-in menu so the surface reads as a clean blank chat. The
-	// sidebar toggle buttons stay.
+
 	const hasSession = useSessionsStore((s) => s.selectedSessionId !== null);
 	const isCloudWorkspace = useIsCloudWorkspace(
 		ctx.status === "ready" ? ctx.environmentId : null,
@@ -322,10 +312,6 @@ export function TopBarMain() {
 				)?.branch ?? null),
 	);
 
-	// After a worktree/project switch the status row in `byKey` is keyed by
-	// the *new* (folderId, worktreeId), so reading `status` returns null
-	// until the first refresh lands — which is the correct behavior. No
-	// stale-branch flash during the swap.
 	const resolvedBranch = resolveBranchLabel(
 		status?.branch ?? null,
 		projectedWorktreeBranch,
@@ -334,11 +320,7 @@ export function TopBarMain() {
 	const branchLabel = resolvedBranch.label;
 	const branchIsCached = resolvedBranch.cached;
 	const showLeftToggle = !leftSidebarOpen;
-	// When the left panel is open its own header carries the traffic-light
-	// gutter, so this section starts flush. When it's collapsed we slide the
-	// open-toggle into the leading slot — and in windowed mode reserve 80px
-	// for the macOS controls. Native fullscreen hides those controls, so we
-	// skip the reserve.
+
 	const leftPad =
 		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
 
@@ -666,7 +648,7 @@ export function BranchMenuButton({
 	onOpen: () => void;
 	onRename: () => void;
 	onSwitch: (branch: GitBranchInfo) => void;
-	/** The Summary aside already shows the change count on its own row. */
+
 	variant?: "toolbar" | "summary";
 }) {
 	const { message: uiMessage } = useUiMessages([
@@ -1047,20 +1029,6 @@ function OpenInMenu({ rootPath }: { rootPath: string | null }) {
 	);
 }
 
-/**
- * Top bar over the files panel: a PR-integration cluster on the left
- * (clickable hash + live CI status) and the primary action(s) on the right.
- *
- * Mechanical actions run directly with a spinner (Merge, Mark ready, Push
- * commits, Auto-merge toggle, capturing CI logs). Actions that need the agent
- * (Resolve conflicts, Create PR, Commit & push, Fix CI) auto-submit a new chat
- * message — they never just pre-fill the composer.
- */
-/**
- * Run the project's configured run script in a fresh dock terminal. Only
- * shown on a worktree whose repository has a non-empty `runScript` (matching
- * the old worktree pane's Run affordance, now promoted to the top bar).
- */
 function RunButton() {
 	const { message: uiMessage } = useUiMessages([
 		"connections",
@@ -1097,8 +1065,6 @@ function RunButton() {
 
 	const worktreeId = ctx.worktreeId;
 	const onRun = async () => {
-		// The Run button only renders for the active worktree, which belongs to
-		// the selected chat — so the run terminal lands in that chat's dock.
 		const chatId = useChatsStore.getState().selectedChatId;
 		if (chatId === null) return;
 		const run = await startRun(worktreeId);
@@ -1232,11 +1198,6 @@ export function TopBarRightContent({
 	);
 }
 
-/**
- * The branch workflow action strip (Commit & push, Push commits, Create PR,
- * Archive chat, Resolve conflicts, Fix CI, Mark ready, Merge) — shared by
- * the top bar and the environment summary so both surfaces stay in sync.
- */
 type WorkflowActionPresentation = "glass" | "inline";
 
 function WorkflowActionButton({
@@ -1384,7 +1345,6 @@ export function WorkflowActions({
 				/>
 			) : null}
 			{workflow.kind === "ahead" && folderId !== null ? (
-				// Pushing committed changes needs no agent — do it directly.
 				<DirectActionButton
 					presentation={presentation}
 					tone="pink"
@@ -1538,10 +1498,6 @@ const openPrChipTone = (w: OpenPrWorkflow): GlassTone => {
 	return "green";
 };
 
-/**
- * PR number pill. Clicking it opens the PR on GitHub in the OS browser.
- * Tinted by the same workflow tone the merge button uses.
- */
 function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
 	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
@@ -1588,13 +1544,6 @@ function PrHashChip({ workflow }: { workflow: OpenPrWorkflow }) {
 	);
 }
 
-/**
- * Live CI rollup readout sourced from the canonical Git workspace snapshot.
- *   running → spinner + "N checks running"
- *   failing → "N checks failing" (red)
- *   passing → "Checks passed" (green)
- *   none    → nothing
- */
 function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 	const { message: uiMessage } = useUiMessages(["chat", "projects", "common"]);
 
@@ -1615,11 +1564,6 @@ function CiStatus({ workflow }: { workflow: OpenPrWorkflow }) {
 	return null;
 }
 
-/**
- * GlassActionButton wrapper for direct (non-agent) git/gh actions. Shows a
- * spinner while the RPC is in flight and reports failures through the global
- * toast surface. The user can retry once loading clears.
- */
 function DirectActionButton({
 	presentation = "glass",
 	tone,
@@ -1684,12 +1628,6 @@ const MERGE_METHOD_LABEL: Record<GitMergeMethod, string> = {
 	rebase: "Rebase and merge",
 };
 
-/**
- * Direct Merge button + method picker. The chevron opens a menu to choose
- * merge / squash / rebase; the choice is remembered (merge-prefs store) so the
- * next PR defaults to it, mirroring GitHub's behaviour. Disabled while checks
- * are still pending.
- */
 function MergeButton({
 	presentation = "glass",
 	folderId,
@@ -1767,13 +1705,6 @@ function MergeButton({
 	);
 }
 
-/**
- * Auto-merge toggle. Arms / disarms GitHub-native auto-merge via
- * `gh pr merge --auto` / `--disable-auto`. The enabled state is sourced from
- * canonical PR state (`autoMergeEnabled`), so it reflects GitHub's truth even
- * across app restarts. If the repo doesn't allow auto-merge, gh's error
- * surfaces in the warning tooltip.
- */
 function AutoMergeToggle({
 	presentation = "glass",
 	folderId,
@@ -1963,8 +1894,6 @@ export function FixActionsButton({
 				input,
 			);
 		} catch {
-			// Server already surfaces a GitCommandError; nothing useful to render
-			// in-place. The user can retry — leave the button enabled.
 		} finally {
 			setLoading(false);
 		}

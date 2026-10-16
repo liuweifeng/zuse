@@ -20,15 +20,12 @@ import {
 } from "../../src/box-process.ts";
 import type { SandboxProcessInput } from "../../src/index.ts";
 
-// Run the real generated launcher without requiring root or touching /var/lib.
-// Ownership flags alone are omitted; locking, journal persistence and process
-// manager ordering are exercised unchanged.
 const sandboxedCommand = (command: string, directory: string): string => {
 	const encoded = command.match(/printf %s ([A-Za-z0-9+/=]+)/)?.[1];
 	if (encoded === undefined) throw new Error("Missing launcher script");
 	const script = Buffer.from(encoded, "base64")
 		.toString("utf8")
-		// Other fixture guests share this host's /proc during parallel tests.
+
 		.replaceAll(
 			"const info=fs.readFileSync",
 			`if(!path.startsWith("${directory}/"))continue;const info=fs.readFileSync`,
@@ -364,7 +361,7 @@ describe("Box quarantined fork ownership reset", () => {
 				await resetFork("child-a");
 				expect(await state()).toEqual(childState);
 				expect(await owner()).toBe("1 child\n");
-				// A copied marker for a previous child cannot suppress grandchild reset.
+
 				await resetFork("child-b");
 				expect(await state()).toMatchObject({
 					stops: childState.stops + 1,
@@ -433,7 +430,7 @@ describe("Box systemd process launcher", () => {
 				"613f62.pid",
 			]);
 			const other = await readFile(join(directory, "613f62.pid"), "utf8");
-			// Seed pre-upgrade records explicitly; new launches use provider ownership.
+
 			await promisify(execFile)(
 				"bash",
 				[
@@ -469,7 +466,7 @@ describe("Box systemd process launcher", () => {
 		try {
 			const targetHome = join(directory, "home with spaces");
 			const capture = join(directory, "captured.json");
-			// Managed services must not depend on writable legacy PID storage.
+
 			await mkdir(targetHome);
 			await writeFile(
 				join(targetHome, ".zuse-processes"),

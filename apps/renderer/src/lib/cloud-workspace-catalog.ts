@@ -138,8 +138,7 @@ export const mergeCloudChatSummaries = (
 	);
 	for (const summary of incoming) {
 		const previous = byEnvironment.get(summary.workspaceId);
-		// Project binding can register the currently selected row from a React
-		// effect. Keep its identity stable so binding does not restart that effect.
+
 		if (summary === previous) continue;
 		const comparison =
 			previous === undefined
@@ -189,8 +188,6 @@ export const hydrateCloudChatCatalogPersistence = async (): Promise<void> => {
 	const persistence = cloudChatCatalogPersistence;
 	if (catalogPersistenceReady || persistence === null) return;
 	catalogHydration ??= (async () => {
-		// Old account writes retain their captured owner and must finish before
-		// that account is rehydrated, including an A -> B -> A transition.
 		await catalogWriteTail;
 		if (
 			rendererAccountSnapshot() !== account ||
@@ -203,7 +200,7 @@ export const hydrateCloudChatCatalogPersistence = async (): Promise<void> => {
 			rendererWorkspaceSnapshot() !== workspace
 		)
 			return;
-		// Unowned legacy cloud history cannot safely be assigned to this account.
+
 		const persisted = decodePersistedCatalog(stored);
 		useCloudChatCatalogStore.setState((current) => ({
 			summaries: mergeCloudChatSummaries(
@@ -240,7 +237,7 @@ const resetCatalog = () => {
 	useCloudChatCatalogStore.setState(EMPTY_CATALOG);
 	void hydrateCloudChatCatalogPersistence();
 };
-// Account changes already reset the workspace; one notification owns hydration.
+
 const unsubscribeWorkspace = subscribeRendererWorkspace(resetCatalog);
 if (import.meta.hot)
 	import.meta.hot.dispose(() => {

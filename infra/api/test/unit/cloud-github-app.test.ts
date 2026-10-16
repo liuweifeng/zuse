@@ -236,7 +236,7 @@ describe("GitHub installation failure isolation", () => {
 					);
 				if (url.includes("/user/installations/789/repositories"))
 					return Response.json({ repositories: [] });
-				// The installation lacks the Members permission.
+
 				if (url.endsWith("/memberships/orgs/no-members-org"))
 					return new Response("{}", { status: 403 });
 				if (url.includes("/memberships/orgs/"))
@@ -328,7 +328,7 @@ describe("GitHub installation failure isolation", () => {
 			);
 			const html = await chooser.text();
 			expect(html).toContain("Use this account: octocat");
-			// Shown with the fix, never as a linkable choice.
+
 			expect(html).not.toContain("Use this account: no-members-org");
 			if (role === "admin") {
 				expect(html).toContain("Request approval: no-members-org");
@@ -398,7 +398,7 @@ describe("GitHub installation failure isolation", () => {
 					store.listGithubInstallations("other-account"),
 				),
 			).toEqual([]);
-			// Idempotent duplicate form submission never makes duplicate installations.
+
 			await runtime.runPromise(githubAuthorizationCallback(select()));
 			expect(
 				await runtime.runPromise(store.listGithubInstallations(ownerId)),
@@ -605,7 +605,7 @@ describe("GitHub account linking without a second choice", () => {
 				throw new Error(`Unexpected GitHub request ${url}`);
 			}),
 		);
-	/** Follows the callback through GitHub OAuth like a browser would. */
+
 	const returnFromGithub = async (
 		runtime: ReturnType<typeof makeRuntime>,
 		entry: URL,
@@ -719,7 +719,7 @@ describe("GitHub account linking without a second choice", () => {
 				.exec(chooser)?.[1]
 				?.replaceAll("&amp;", "&");
 			expect(resume).toBeDefined();
-			stubGithub(true); // The organization approved the Members permission.
+			stubGithub(true);
 			const page = await returnFromGithub(runtime, new URL(resume ?? ""));
 			expect(await page.text()).toContain("acme is connected");
 			expect(

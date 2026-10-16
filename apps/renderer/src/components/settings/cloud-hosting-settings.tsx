@@ -44,7 +44,7 @@ export function CloudHostingSettings({
 	readonly canManageBilling: boolean;
 	readonly canManageProviders: boolean;
 	readonly activeMode: CloudHostingMode | null;
-	/** Provider new workspaces use; its connected key overrides Zuse hosting. */
+
 	readonly selectedProviderId: string | null;
 	readonly snapshot: CloudAccountImage | null;
 	readonly busy: string | null;
@@ -74,7 +74,7 @@ export function CloudHostingSettings({
 			</Badge>
 		) : null;
 	const snapshotConfig = snapshot?.snapshot;
-	// A connected key replaces Zuse hosting for that provider until disconnected.
+
 	const overridingKey = keys.active.find(
 		(connection) => connection.providerId === selectedProviderId,
 	);
@@ -230,7 +230,6 @@ export function CloudHostingSettings({
 	);
 }
 
-/** A hosting choice whose setup expands in place instead of in another section. */
 function HostingOption({
 	title,
 	description,

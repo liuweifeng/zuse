@@ -1,5 +1,5 @@
--- Frozen schema produced by the last v29 release. Do not regenerate this file
--- from current migration code: it is intentionally an independent upgrade input.
+
+
 CREATE TABLE app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE attachments (
   id TEXT PRIMARY KEY, session_id TEXT NOT NULL, mime_type TEXT NOT NULL,

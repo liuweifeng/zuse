@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 
 const historicalPaths = [
 	/^infra\/api\/drizzle\/migrations\/0021_link_challenge_api_issuer\.sql$/u,
-	// Removes the constraint by its shipped, pre-rename database identifier.
+
 	/^infra\/api\/drizzle\/migrations\/0032_classify_legacy_lifecycle_usage\.sql$/u,
 	/^infra\/api\/drizzle\/migrations\/(?:000\d|001[0-5])_/u,
 	/^infra\/api\/drizzle\/migrations\/meta\//u,
@@ -12,7 +12,7 @@ const historicalPaths = [
 	/^internal-docs\/adr\/0003-api-control-plane-naming\.md$/u,
 	/^infra\/api\/drizzle\/migrations\/0016_api_naming\.sql$/u,
 	/^infra\/api\/test\/unit\/migration-safety\.test\.ts$/u,
-	// Exercises the shipped pre-rename GitHub installation table during upgrade.
+
 	/^infra\/api\/test\/integration\/github-member-scope\.pg\.test\.ts$/u,
 	/^apps\/server\/test\/integration\/api-config-migration\.test\.ts$/u,
 	/^tests\/system\/fixtures\/legacy-v29\.sql$/u,
@@ -50,7 +50,6 @@ const violations = grep.stdout
 		const path = separator === -1 ? line : line.slice(0, separator);
 		return (
 			!isHistorical(path) &&
-			// Reproducible third-party bundle: upstream network terminology is not our API name.
 			path !== "packages/executor-v2/vendor/runtime.mjs" &&
 			forbiddenTerm.test(
 				removeInfrastructureExceptions(line.slice(separator + 1)),

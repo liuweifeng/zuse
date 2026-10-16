@@ -161,7 +161,6 @@ describe("mobile terminal feed channel", () => {
 			clearFeed: () => cleanupOrder.push("feed-cleared"),
 		});
 
-		// React runs the previous passive-effect cleanup before new setup.
 		oldResourceCleanup();
 		oldResourceCleanup();
 		await revoked;
@@ -175,7 +174,6 @@ describe("mobile terminal feed channel", () => {
 			channel.acknowledge(feed);
 		};
 
-		// Simulate an old setState publication reaching a later React commit.
 		commitToNative(stale.feed);
 		let replacementCommitted = false;
 		replacement.committed.then(() => {

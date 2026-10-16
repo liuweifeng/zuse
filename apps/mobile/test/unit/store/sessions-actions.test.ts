@@ -48,8 +48,6 @@ vi.mock("~/offline/cache", () => ({
 	writeSessionsSnapshot: () => Effect.void,
 }));
 
-// The real messages store imports react-native (AppState), which vitest
-// cannot parse; sessions.ts only needs the base atom for its cross-write.
 vi.mock("~/store/messages", async () => {
 	const { Atom } = await import("effect/unstable/reactivity");
 	return {

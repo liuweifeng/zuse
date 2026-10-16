@@ -43,9 +43,6 @@ export const applyResponseEffects = async (
 	]);
 	let inlineStartup: Promise<unknown> | null = null;
 	if (cloudWorkspaceId !== null) {
-		// A fresh creation runs its first step now, fenced by the same lease the
-		// alarm uses, while the durable enqueue proceeds; it re-arms the alarm
-		// afterwards so a lease collision cannot lose the handoff.
 		inlineStartup = api
 			.startCloudWorkspaceInline(cloudWorkspaceId)
 			.then((ran) =>
@@ -55,7 +52,6 @@ export const applyResponseEffects = async (
 				console.error("[api] inline workspace startup failed", error);
 			});
 		try {
-			// This awaits durable enqueue only. The alarm owns provider execution.
 			await api.reconcileCloudWorkspaceStartup(cloudWorkspaceId);
 		} catch (error) {
 			await inlineStartup;

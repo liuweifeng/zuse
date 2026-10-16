@@ -10,20 +10,6 @@ export {
 	WORKOS_STAGING_PUBLIC_CLIENT_ID,
 } from "./deployment.ts";
 
-/**
- * WorkOS AuthKit identity — the first user-account primitive in Zuse.
- *
- * The desktop app authenticates the user against WorkOS via a PKCE OAuth flow
- * (public client, no secret) that round-trips through the system browser and a
- * `zuse://auth/callback` deep link. The access/refresh tokens never cross
- * this wire — they live only in the OS keychain on the server side, mirroring
- * the `apiKey:` / `browserCred:` discipline. Only the non-secret profile and an
- * expiry timestamp are renderer-visible.
- *
- * This contract is transport-agnostic on purpose: a future mobile shell or
- * headless WS server reuses these exact schemas (see ADR 0007).
- */
-
 /** Non-secret identity surfaced to the renderer for display. */
 export class AuthUser extends Schema.Class<AuthUser>("AuthUser")({
 	id: Schema.String,
@@ -68,10 +54,6 @@ export class AuthCancelledError extends Schema.TaggedErrorClass<AuthCancelledErr
 	"AuthCancelledError",
 	{},
 ) {}
-
-// ---------------------------------------------------------------------------
-// RPCs
-// ---------------------------------------------------------------------------
 
 /**
  * Cold-load the current session. Runs a refresh-on-demand if the stored access

@@ -79,10 +79,10 @@ export function PrActionsMenu({
 	sessionId: SessionId | null;
 	action?: EnvironmentPrAction | null;
 	className?: string;
-	/** Replaces the default title trigger, e.g. with a compact "…" button. */
+
 	trigger?: ReactNode;
 	popupSide?: "left" | "bottom";
-	/** Omitted where the PR view is already visible. */
+
 	onView?: () => void;
 	onChat: () => void;
 }) {

@@ -49,7 +49,7 @@ it("replays a server-committed renewal after response loss and process restart w
 		});
 		const fetcher = vi.fn().mockImplementationOnce(() => {
 			committed();
-			// The server has rotated. Its response is lost and the runtime then exits.
+
 			return new Promise<Response>(() => {});
 		});
 		vi.stubGlobal("fetch", fetcher);

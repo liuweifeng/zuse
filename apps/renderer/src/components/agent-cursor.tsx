@@ -38,10 +38,6 @@ export function AgentCursor({
 	const [pulseKey, setPulseKey] = useState(0);
 	const [pulseAt, setPulseAt] = useState<{ x: number; y: number } | null>(null);
 
-	// Fire the click pulse after the glide settles. We schedule it a hair after
-	// the transition duration so the ripple radiates from the *destination*, not
-	// somewhere along the path. If the user has reduced motion on, snap+pulse
-	// immediately.
 	useEffect(() => {
 		if (intent === null || intent.click !== true) return;
 		const reduced =
@@ -86,11 +82,6 @@ export function AgentCursor({
 }
 
 function CursorArrow() {
-	// Clean modern pointer — single triangle with a soft concave underside, no
-	// legacy "tail" line. White fill + dark outline reads on dark and light
-	// pages equally. Tip sits at (1.5, 1.5) of the viewBox so the parent's
-	// `translate(x, y)` lands the click point right at the tip with a ~2px
-	// optical offset that matches what users expect from an OS cursor.
 	return (
 		<svg
 			width="20"

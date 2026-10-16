@@ -119,9 +119,7 @@ export const makeTranscriptOperations = (
 				const content = messageFromRecord(row).content;
 				const markdown = proposedPlanMarkdownFromContent(content);
 				if (markdown !== null) return markdown;
-				// Compatibility for plan items persisted before providers preserved
-				// their semantic marker. Codex remains in plan mode while the final
-				// plan awaits feedback, and its newest assistant row is that plan.
+
 				if (
 					session.providerId === "codex" &&
 					session.permissionMode === "plan" &&
@@ -195,8 +193,7 @@ export const makeTranscriptOperations = (
 			const providerId = input.providerId ?? source.providerId;
 			const model = input.model ?? source.model;
 			const isTail = forkIndex === rows.length - 1;
-			// Native forks are safe only with a provider-supported immutable cutoff
-			// correlated to this exact visible message. A mutable thread ID is not enough.
+
 			const providerCanFork =
 				providerId === "claude" &&
 				matchesClaudeForkPoint(

@@ -20,7 +20,6 @@ const release = async (close: () => void | Promise<void>): Promise<void> => {
 			}),
 		]);
 	} catch {
-		// Do not include provider credentials or replace the startup failure.
 		console.warn("[agents] Provider startup resource cleanup failed");
 	} finally {
 		clearTimeout(timer);
@@ -47,7 +46,7 @@ export const withProviderStartup = <
 			acquire: async (open, close) => {
 				abort.signal.throwIfAborted();
 				const resource = await open();
-				// The Promise may complete after the Effect awaiting it was interrupted.
+
 				if (abort.signal.aborted) {
 					await release(() => close(resource));
 					abort.signal.throwIfAborted();

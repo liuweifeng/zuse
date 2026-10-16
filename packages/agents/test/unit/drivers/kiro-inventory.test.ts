@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
 
-// Pure mapping is exercised via a thin re-export of the shape contract.
-// CLI/API I/O is covered live; this guards the inventory schema assumptions
-// used by the renderer.
-
 describe("Kiro inventory model shape", () => {
 	it("accepts control-plane style model entries", () => {
 		const model = {

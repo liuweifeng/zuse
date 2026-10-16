@@ -98,11 +98,6 @@ export const SessionProviderThread = Schema.Struct({
 });
 export type SessionProviderThread = typeof SessionProviderThread.Type;
 
-// `RuntimeMode` and `DEFAULT_RUNTIME_MODE` are defined in `agent.ts` so the
-// new `AgentDefinition.permissionMode` can reuse the same literal set
-// without an import cycle. Re-exported above for back-compat with the
-// existing `import { RuntimeMode } from "@zuse/contracts"` callers.
-
 export class Session extends Schema.Class<Session>("Session")({
 	id: SessionId,
 	/** Durable app-managed delegation parent; absent on older runtimes. */
@@ -178,7 +173,6 @@ export type MessageRole = typeof MessageRole.Type;
  * by the human. Additive + optional: old rows decode without it.
  */
 export const MessageOrigin = Schema.Struct({
-	/** Sender name retained if its session is later renamed or removed. */
 	title: Schema.optional(Schema.String),
 	chatId: ChatId,
 	sessionId: SessionId,
@@ -208,20 +202,13 @@ const UserContent = Schema.TaggedStruct("user", {
 	goal: Schema.optional(Schema.Boolean),
 });
 
-/**
- * User message that carries chips: typed file/directory tags, image
- * attachments, and skill invocations. Coexists with `user` — old rows still
- * render via the plain `user` variant. The renderer prefers `user_rich` when
- * a submission has any non-text segments.
- */
 const UserRichContent = Schema.TaggedStruct("user_rich", {
 	text: Schema.String,
 	actor: Schema.optional(WorkspaceActor),
 	attachments: Schema.Array(AttachmentRef),
 	fileRefs: Schema.Array(FileRef),
 	skillRefs: Schema.Array(SkillRef),
-	// Additive + back-compat: rows persisted before code annotations existed
-	// decode with an empty list rather than failing.
+
 	annotations: Schema.Array(ComposerAnnotation).pipe(
 		Schema.withDecodingDefaultType(Effect.succeed([])),
 	),
@@ -235,17 +222,11 @@ const AssistantContent = Schema.TaggedStruct("assistant", {
 	itemId: Schema.optional(AgentItemId),
 	text: Schema.String,
 	checkpoint: Schema.optional(ProviderMessageCheckpoint),
-	/** Preserves a provider's dedicated final-plan item through persistence. */
+
 	isPlan: Schema.optional(Schema.Boolean),
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * Extended-thinking / reasoning text emitted by the model before its final
- * answer. `redacted` mirrors Anthropic's `redacted_thinking` blocks where
- * the content is hidden but the row still appears so users see something
- * was thought about.
- */
 const ThinkingContent = Schema.TaggedStruct("thinking", {
 	itemId: AgentItemId,
 	text: Schema.String,
@@ -281,23 +262,12 @@ const ToolResultContent = Schema.TaggedStruct("tool_result", {
 
 const ErrorContent = Schema.TaggedStruct("error", {
 	message: Schema.String,
-	/**
-	 * The driver's typed classification, when it had positive evidence (e.g.
-	 * Claude's `authentication_failed`). Absent on older rows; the renderer then
-	 * falls back to classifying the message text.
-	 */
+
 	kind: Schema.optional(AgentErrorKind),
 });
 
-/**
- * Persisted marker for a turn the user explicitly interrupted. Rendered as a
- * small muted "Interrupted by user" badge — distinct from `error`, which is a
- * real failure. Carries no fields; its presence in the message list is the
- * whole signal.
- */
 const InterruptedContent = Schema.TaggedStruct("interrupted", {});
 
-/** A committed configuration change, retained in the conversation timeline. */
 const ModelSwitchContent = Schema.TaggedStruct("model_switch", {
 	fromProviderId: ProviderId,
 	fromModel: Schema.String,
@@ -306,11 +276,6 @@ const ModelSwitchContent = Schema.TaggedStruct("model_switch", {
 	context: Schema.Literals(["preserved", "handoff"]),
 });
 
-/**
- * Closing summary persisted for a sub-agent run. Mirrors the streaming
- * `SubagentSummaryEvent` so resume parity holds: the wrapper-row footer
- * reads `summary` / `turns` / `durationMs` from this row when collapsed.
- */
 const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
 	itemId: AgentItemId,
 	agentName: Schema.String,
@@ -324,7 +289,6 @@ const SubagentSummaryContent = Schema.TaggedStruct("subagent_summary", {
 });
 
 const SubagentProgressContent = Schema.TaggedStruct("subagent_progress", {
-	/** The native root finished while this child remains active. */
 	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
@@ -339,11 +303,6 @@ const SubagentProgressContent = Schema.TaggedStruct("subagent_progress", {
 	errorCount: Schema.Number,
 });
 
-/**
- * Per-turn token usage. Persisted (rather than transient) so resume parity
- * gives us the per-agent cost footer for free. `parentItemId` set means
- * the usage belongs to a sub-agent; absent means main-agent usage.
- */
 const UsageContent = Schema.TaggedStruct("usage", {
 	parentItemId: Schema.optional(AgentItemId),
 	inputTokens: Schema.Number,
@@ -379,29 +338,17 @@ const UsageLimitContent = Schema.TaggedStruct("usage_limit", {
 	providerId: ProviderId,
 	label: Schema.String,
 	usedPercent: Schema.NullOr(Schema.Number),
-	// ISO-8601 string — see `UsageLimitEvent` in agent.ts for why this isn't
-	// a `Date` schema (constructor validates against the decoded `Date`).
+
 	resetsAt: Schema.NullOr(Schema.String),
 	windowMinutes: Schema.NullOr(Schema.Number),
 });
 
-/**
- * Persisted form of a `UserQuestion` event. `itemId` is the application
- * callback identity allocated at provider acquisition; the paired
- * `user_question_answer` row uses the same `itemId`.
- */
 const UserQuestionContent = Schema.TaggedStruct("user_question", {
 	itemId: AgentItemId,
 	questions: Schema.Array(UserQuestion),
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * One answer per question. `questionIndex` indexes into the original
- * `questions` array. `selected` lists picked option indices (empty when the
- * user typed free-text); `other` is the free-text "Other" entry. Either
- * field may be empty, but never both.
- */
 const UserQuestionCoordinate = Schema.Number.check(
 	Schema.isInt(),
 	Schema.makeFilter((value) =>
@@ -423,13 +370,6 @@ const UserQuestionAnswerContent = Schema.TaggedStruct("user_question_answer", {
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * A generative-UI block emitted by the agent via the `emit_ui`
- * orchestration tool. `spec` is OpenUI Lang text validated server-side
- * against the shared component catalogue (`@zuse/utils/generative-ui`);
- * the renderer re-parses it into `@repo/ui`-styled components at render
- * time. `version` gates future spec-format changes.
- */
 const UiSpecContent = Schema.TaggedStruct("ui_spec", {
 	spec: Schema.String,
 	version: Schema.Literal(1),
@@ -611,7 +551,6 @@ export type SessionRuntimeObservation = typeof SessionRuntimeObservation.Type;
 
 /** Durable provider execution tree. Native children are scoped to their owning attempt. */
 export const SessionExecutionStep = Schema.Struct({
-	/** Native notifications do not provide an atomic filesystem barrier. */
 	checkpointCapability: Schema.Literal("unsupported"),
 	id: Schema.String,
 	turnId: Schema.String,
@@ -672,7 +611,7 @@ export const SessionTimelineEvent = Schema.Union([
 	}),
 	Schema.TaggedStruct("StatusSet", { status: SessionStatus }),
 	Schema.TaggedStruct("TurnStarted", { turn: SessionTurn }),
-	/** Attempt or status change on the active turn. */
+
 	Schema.TaggedStruct("TurnUpdated", {
 		turn: SessionTurn,
 		updatedAt: Schema.optional(Schema.Number),
@@ -740,13 +679,13 @@ export const SessionTimelineFrame = Schema.Union([
 		sessionId: SessionId,
 		throughVersion: Schema.Number,
 		projection: SessionTimelineProjection,
-		/** Present on new runtimes; omitted by older peers during protocol rollout. */
+
 		cursor: Schema.optional(SessionStreamCursor),
-		/** Sequence immediately before the oldest included message, if any. */
+
 		olderMessageSequence: Schema.optional(Schema.NullOr(Schema.Number)),
-		/** Complete durable message count represented by this snapshot series. */
+
 		totalMessageCount: Schema.optional(Schema.Number),
-		/** Opt-in recent head; older rows travel through the page RPC. */
+
 		historyMode: Schema.optional(Schema.Literal("background")),
 	}),
 	Schema.Struct({
@@ -754,7 +693,7 @@ export const SessionTimelineFrame = Schema.Union([
 		sessionId: SessionId,
 		throughVersion: Schema.Number,
 		messages: Schema.Array(Message),
-		/** Sequence immediately before the oldest included message, if any. */
+
 		olderMessageSequence: Schema.NullOr(Schema.Number),
 		cursor: Schema.optional(SessionStreamCursor),
 	}),
@@ -855,10 +794,6 @@ export class SessionConfigurationError extends Schema.TaggedErrorClass<SessionCo
 	{ sessionId: SessionId, reason: Schema.String },
 ) {}
 
-// ---------------------------------------------------------------------------
-// Session RPCs
-// ---------------------------------------------------------------------------
-
 export const SessionListRpc = Rpc.make("session.list", {
 	payload: Schema.Struct({
 		projectId: FolderId,
@@ -901,35 +836,21 @@ export const SessionStreamChangesRpc = Rpc.make("session.streamChanges", {
 
 export const SessionCreateRpc = Rpc.make("session.create", {
 	payload: Schema.Struct({
-		/** Stable identity minted by optimistic clients before the RPC starts. */
 		sessionId: Schema.optional(SessionId),
-		/**
-		 * The chat (sidebar entry) the new session is created in. Worktree
-		 * and project are inherited from the chat row — clients never pick
-		 * them at session-create time anymore.
-		 */
+
 		chatId: ChatId,
 		providerId: ProviderId,
 		model: Schema.String,
 		title: Schema.optional(Schema.String),
 		initialPrompt: Schema.optional(Schema.String),
 		runtimeMode: Schema.optional(RuntimeMode),
-		// Sub-agents the new session may delegate to. The renderer reads
-		// these from the user's preset settings and injects them at create
-		// time so the wire stays the single source of truth.
+
 		agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
 		enableSubagents: Schema.optional(Schema.Boolean),
-		/**
-		 * Start the session in plan mode. The agent will explore read-only
-		 * and end its first turn by calling `ExitPlanMode`. Defaults to
-		 * `'default'` (immediate execution).
-		 */
+
 		permissionMode: Schema.optional(PermissionMode),
 		modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-		/**
-		 * Persist the deferred-tools toggle for this session. Reserved for
-		 * 0.04 code-index MCP servers; no-op today.
-		 */
+
 		toolSearch: Schema.optional(Schema.Boolean),
 	}),
 	success: Session,
@@ -979,7 +900,7 @@ export const SessionSetProviderRpc = Rpc.make("session.setProvider", {
 	error: Schema.Union([
 		SessionNotFoundError,
 		SessionConfigurationError,
-		// Legacy cloud runtimes cannot hand off a started provider conversation.
+
 		SessionAlreadyStartedError,
 	]),
 });
@@ -1045,10 +966,6 @@ export const SessionLatestPlanRpc = Rpc.make("session.latestPlan", {
 	success: Schema.Struct({ plan: Schema.NullOr(Schema.String) }),
 	error: SessionNotFoundError,
 });
-
-// ---------------------------------------------------------------------------
-// Chats (sidebar containers; each chat hosts ≥1 session as tabs)
-// ---------------------------------------------------------------------------
 
 /**
  * A chat is the sidebar-level container. It owns a workspace (project +
@@ -1336,7 +1253,6 @@ export const ChatCreationRecoverRpc = Rpc.make("chat.creation.recover", {
 
 export const ChatCreateRpc = Rpc.make("chat.create", {
 	payload: Schema.Struct({
-		/** Stable identities minted before optimistic entities are inserted. */
 		operationId: Schema.optional(Schema.String),
 		chatId: Schema.optional(ChatId),
 		initialSessionId: Schema.optional(SessionId),
@@ -1347,23 +1263,20 @@ export const ChatCreateRpc = Rpc.make("chat.create", {
 		initialPrompt: Schema.optional(Schema.String),
 		runtimeMode: Schema.optional(RuntimeMode),
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
-		/** Server-owned workspace bootstrap. Supersedes `worktreeId` when set. */
+
 		workspacePolicy: Schema.optional(ChatWorkspacePolicy),
 		startupInput: Schema.optional(ComposerInput),
 		startupQueueId: Schema.optional(Schema.String),
-		/** False while attachment or generated context preparation is pending. */
+
 		startupReady: Schema.optional(Schema.Boolean),
 		agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
 		enableSubagents: Schema.optional(Schema.Boolean),
 		permissionMode: Schema.optional(PermissionMode),
 		toolSearch: Schema.optional(Schema.Boolean),
-		/**
-		 * Lineage — set by orchestration control-plane tools to the spawning
-		 * session id. Omitted for user-created chats.
-		 */
+
 		originSessionId: Schema.optional(SessionId),
 		modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-		/** Return after durable rows exist while provider startup continues. */
+
 		background: Schema.optional(Schema.Boolean),
 	}),
 	success: Schema.Struct({
@@ -1390,7 +1303,6 @@ export const ChatRenameRpc = Rpc.make("chat.rename", {
  */
 export const SessionForkRpc = Rpc.make("session.fork", {
 	payload: Schema.Struct({
-		/** Stable client identity; retry returns the same frozen fork. */
 		commandId: Schema.optional(Schema.String),
 		sourceSessionId: SessionId,
 		fromMessageId: MessageId,
@@ -1434,13 +1346,6 @@ export const ChatStreamChangesRpc = Rpc.make("chat.streamChanges", {
 });
 
 /**
- * Change the chat's worktree. Allowed only when no session in the chat has
- * any user message yet — fails with `ChatAlreadyStartedError` otherwise.
- * Updates `chat.worktreeId` AND mirrors the change onto every member
- * session's `worktreeId` so renderer reads of `session.worktreeId` stay
- * accurate without a second round-trip.
- */
-/**
  * Mark a chat read by stamping `last_read_at` to "now". Returns the refreshed
  * chat so the renderer can reconcile its optimistic patch. Idempotent.
  */
@@ -1474,7 +1379,7 @@ export const ChatSetActiveSessionRpc = Rpc.make("chat.setActiveSession", {
 export const ChatArchiveRpc = Rpc.make("chat.archive", {
 	payload: Schema.Struct({
 		chatId: ChatId,
-		/** Ignored compatibility field for older clients. */
+
 		force: Schema.optional(Schema.Boolean),
 	}),
 	success: ChatArchiveResult,
@@ -1510,10 +1415,6 @@ export const ChatDeleteRpc = Rpc.make("chat.delete", {
 	error: ChatNotFoundError,
 });
 
-// ---------------------------------------------------------------------------
-// Message RPCs
-// ---------------------------------------------------------------------------
-
 export const MessagesListRpc = Rpc.make("messages.list", {
 	payload: Schema.Struct({ sessionId: SessionId }),
 	success: Schema.Array(Message),
@@ -1544,11 +1445,7 @@ export const MessagesSendRpc = Rpc.make("messages.send", {
 		input: Schema.optional(ComposerInput),
 		asGoal: Schema.optional(Schema.Boolean),
 		modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-		// Optional renderer-minted id for the user message. When present the
-		// server persists the row under this id instead of generating one, so the
-		// renderer can insert the message optimistically and have the live-stream
-		// echo dedupe against it. Omitted by non-interactive callers (queue
-		// flush), which keep server-generated ids.
+
 		clientMessageId: Schema.optional(MessageId),
 	}),
 	success: Schema.Void,
@@ -1576,7 +1473,7 @@ export const MessagesInterruptRpc = Rpc.make("messages.interrupt", {
 	payload: Schema.Struct({
 		commandId: CommandId,
 		sessionId: SessionId,
-		/** Fences retries to the turn visible when the user pressed Stop. */
+
 		expectedTurnId: Schema.optional(AgentTurnId),
 	}),
 	success: TurnInterruptReceipt,
@@ -1593,14 +1490,14 @@ export const MessagesQueueAddRpc = Rpc.make("messages.queue.add", {
 	payload: Schema.Struct({
 		commandId: CommandId,
 		sessionId: SessionId,
-		/** Stable identity used to make persistence retries idempotent. */
+
 		queueId: Schema.optional(Schema.String),
 		input: ComposerInput,
-		/** Persist visibly now, but do not claim until an update finalizes it. */
+
 		ready: Schema.optional(Schema.Boolean),
-		/** Skip the idle auto-flush when restoring a cancelled composer edit. */
+
 		flush: Schema.optional(Schema.Boolean),
-		/** Ordinary composer auto-queue must refuse pending input; explicit queue may omit. */
+
 		rejectIfBlocked: Schema.optional(Schema.Boolean),
 	}),
 	success: QueuedMessage,

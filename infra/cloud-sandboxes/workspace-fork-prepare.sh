@@ -1,18 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Runs only in the quarantined child after the copied runtime cgroup is stopped.
-# Preserve the complete database directory, including WAL, as the import source.
-# Never execute copied queues or reuse the parent's runtime identity.
 source_dir="/var/lib/zuse/fork-source/${ZUSE_CLOUD_WORKSPACE_ID:?}"
-# The managed provider embeds this helper; the installed file supports direct repair.
+
 if ! declare -F resolve_workspace_runtime_data >/dev/null; then
   runtime_launcher=/var/lib/zuse/project-build/workspace-runtime.sh
   [[ -f "$runtime_launcher" ]] || runtime_launcher=/usr/local/lib/zuse/workspace-runtime.sh
   source "$runtime_launcher"
 fi
-# The child uses its configured canonical target. Only the preserved parent
-# source is selected from legacy aliases; no old source lock inode is inherited.
+
 user_data=$(readlink -m "${ZUSE_USER_DATA:-/var/lib/zuse/user-data}")
 mkdir -p "$source_dir"
 trap 'touch "$source_dir/failed"' ERR
@@ -33,13 +29,13 @@ try {
 JS
     mv "$source_data" "$source_dir/user-data"
   fi
-  # The preserved import source includes SQLite/WAL, never the parent runtime capability.
+
   rm -f "$source_dir/user-data/cloud-runtime-identity.json" "$source_dir/user-data"/cloud-runtime-identity.json.*.next
   export ZUSE_USER_DATA="$user_data"
   unset ZUSE_WORKSPACE_RUNTIME_LOCK_FD
   mkdir -p "$user_data"
   chmod 700 "$source_dir" "$user_data"
-  # File attachments retain their stable paths in the new runtime.
+
   if [[ -d "$source_dir/user-data/attachments" ]]; then
     mkdir -p "$user_data/attachments"
     cp -a "$source_dir/user-data/attachments/." "$user_data/attachments/"

@@ -29,7 +29,7 @@ const configSource = await readFile(
 	join(projectDir, "electron-builder.cjs"),
 	"utf8",
 );
-/** Load the build configuration for a platform without changing the host process. */
+
 function loadConfig(platform) {
 	const module = { exports: {} };
 	runInNewContext(configSource, {
@@ -49,7 +49,6 @@ test("macOS retains its product name and platform file filters", () => {
 	assert.equal(config.linux.files, undefined);
 });
 
-/** Generate the builder's actual Debian scripts inside a disposable fixture. */
 async function fixture(run) {
 	const root = await mkdtemp(join(tmpdir(), "zuse-linux-package-"));
 	try {
@@ -91,7 +90,6 @@ test("deb install directory and desktop launcher use a space-free path", async (
 	});
 });
 
-/** Run a generated hook with mocked mutations and filesystem probes confined to the fixture. */
 async function runScript(root, script, args = [], failure = "") {
 	const log = join(root, "commands");
 	await writeFile(log, "");

@@ -883,7 +883,7 @@ describe("Box sandbox provider", () => {
 				.replaceAll("/srv/zuse", `${dir}/persist`)
 				.replaceAll("/home/zuse", `${dir}/logical/zuse`)
 				.replaceAll("/home/repos", `${dir}/logical/repos`)
-				// Fixtures share /proc, unlike independent provider guests.
+
 				.replaceAll(
 					"const info=fs.readFileSync",
 					`if(!path.startsWith("${dir}/"))continue;const info=fs.readFileSync`,
@@ -894,7 +894,7 @@ describe("Box sandbox provider", () => {
 				"-c",
 				`${shim}; node() { exit 95; }; export -f node; ${command}`,
 			]);
-			// Executables may still be lazily restored after all writable state is on disk.
+
 			await promisify(execFile)("bash", [
 				"-c",
 				`${shim}; findmnt() { if [[ "\${*: -1}" == /usr || "\${*: -1}" == /opt ]]; then echo fuse; else echo ext4; fi; }; ${command}`,
@@ -911,7 +911,7 @@ describe("Box sandbox provider", () => {
 					`${shim}; findmnt() { printf 'ext4\\nfuse\\n'; }; install() { exit 94; }; ${command}`,
 				]),
 			).rejects.toMatchObject({ code: 75 });
-			// A restored temporary home must never overwrite authoritative data.
+
 			await rm(join(dir, "logical/zuse"));
 			await mkdir(join(dir, "logical/zuse/.zuse-data"), { recursive: true });
 			await writeFile(
@@ -921,7 +921,6 @@ describe("Box sandbox provider", () => {
 			const legacyDatabase = join(dir, "logical/zuse/.zuse-data/zuse.sqlite");
 			const writer = await open(legacyDatabase, "r+");
 			try {
-				// Destination is empty: conflict checks alone cannot protect this writer.
 				await expect(
 					promisify(execFile)("bash", ["-c", `${shim}; ${command}`]),
 				).rejects.toMatchObject({ code: 1 });
@@ -948,7 +947,7 @@ describe("Box sandbox provider", () => {
 				join(dir, "persist/home/.zuse-data/zuse.sqlite"),
 			]);
 			expect(preserved.stdout).toBe("original chat");
-			// Two cold migration commands must not copy/remove this source together.
+
 			await rm(join(dir, "persist/home/.zuse-data/zuse.sqlite"));
 			await mkdir(join(dir, "logical/zuse/.ssh"));
 			const copying = join(dir, "copying");

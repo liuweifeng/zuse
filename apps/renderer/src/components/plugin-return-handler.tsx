@@ -9,8 +9,6 @@ import {
 import { openPluginsPage } from "~/lib/plugins-navigation.ts";
 import { toastManager } from "./ui/toast.tsx";
 
-// Tickets are single-use; a duplicate loopback hit or re-render must not
-// redeem twice or toast twice.
 const seen = new Set<string>();
 
 /**
@@ -41,12 +39,11 @@ export function PluginReturnHandler() {
 			const id = value.ticket ?? `${value.tenantId}:${value.error}`;
 			if (seen.has(id)) continue;
 			seen.add(id);
-			// The web app returns on its root; bring the user back to Plugins.
+
 			if (window.zuse === undefined) {
 				openPluginsPage();
 			}
-			// Return capture remains immediate; catalog/RPC redemption is loaded only
-			// for an actual callback, never for the ordinary application startup.
+
 			let loaded = false;
 			void import("./plugin-return-redemption.ts")
 				.then(({ redeemPluginReturn }) => {
@@ -55,8 +52,6 @@ export function PluginReturnHandler() {
 					return redeemPluginReturn(value);
 				})
 				.catch((cause: unknown) => {
-					// A chunk failure has not consumed the one-use ticket. Keep the hosted
-					// return in storage for reload and allow native callback redelivery.
 					if (!loaded) seen.delete(id);
 					toastManager.add({
 						type: "error",

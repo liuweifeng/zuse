@@ -28,7 +28,6 @@ export const readCodexThread = async (
 			{ timeoutMs: 10_000 },
 		);
 	} catch {
-		// Transport errors may contain credentials or local transcript content.
 		throw new CodexThreadReadError("read_failed");
 	}
 	if (

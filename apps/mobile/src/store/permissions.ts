@@ -87,10 +87,7 @@ export const retainPermissionConnection = (
 	const unsubscribe = bus.subscribe(key, publish);
 	connections.set(connKey, { release: lease.release, unsubscribe });
 	publish();
-	return () => {
-		// Connection resources intentionally remain warm while the account is
-		// active; resetPermissionsRuntime owns their deterministic teardown.
-	};
+	return () => {};
 };
 
 export const resetPermissionsRuntime = async (): Promise<void> => {

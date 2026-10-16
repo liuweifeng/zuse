@@ -4,7 +4,7 @@ import { Rpc } from "effect/unstable/rpc";
 import { SessionId, SessionNotFoundError } from "./session.ts";
 
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
-// Base64 and RPC framing must fit comfortably inside the cloud gateway's 8 MiB limit.
+
 export const ATTACHMENT_CHUNK_BYTES = 2 * 1024 * 1024;
 
 export const AttachmentUploadResult = Schema.Struct({

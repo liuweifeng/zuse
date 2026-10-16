@@ -13,15 +13,9 @@ import { SkillDiscoveryService } from "../services/skill-discovery.ts";
 import { isZuseSkillOverrideProvider } from "../skill-enablement.ts";
 import { shouldRefreshSkillsForWatch } from "../skill-watch-filter.ts";
 
-/**
- * Cache key — one set of skills per provider+projectCwd. The same cwd /
- * provider pair is shared by every session in that project, so we don't
- * re-walk disk per session.
- */
 const cacheKey = (providerId: ProviderId, projectCwd: string): string =>
 	`${providerId}:${projectCwd}`;
 
-/** Providers with on-disk skills — the ones skill discovery supports. */
 const SKILL_PROVIDERS: ReadonlyArray<ProviderId> = PROVIDER_IDS.filter(
 	(providerId) => PROVIDER_CAPABILITIES[providerId].skillFolders.length > 0,
 );
@@ -29,12 +23,6 @@ const ZUSE_OVERRIDE_SKILL_PROVIDERS: ReadonlySet<ProviderId> = new Set(
 	SKILL_PROVIDERS.filter(isZuseSkillOverrideProvider),
 );
 
-/**
- * Watch the directory roots that influence a `(providerId, projectCwd)`
- * pair and call `onChange` (debounced) whenever anything changes. Failing
- * watchers are silently dropped — discovery is best-effort, and we'd
- * rather miss a hot-reload than crash the bridge.
- */
 const watchRoots = (
 	providerId: ProviderId,
 	projectCwd: string,
@@ -66,8 +54,7 @@ const watchRoots = (
 	const fire = (_event: string, filename: string | Buffer | null): void => {
 		if (!shouldRefreshSkillsForWatch(providerId, filename)) return;
 		if (timer !== null) clearTimeout(timer);
-		// Debounce: editors save by writing twice or rotating files; coalesce
-		// a flurry into a single discovery pass.
+
 		timer = setTimeout(() => {
 			timer = null;
 			onChange();
@@ -77,15 +64,9 @@ const watchRoots = (
 	for (const root of roots) {
 		try {
 			const w = fsSync.watch(root, { recursive: true }, fire);
-			w.on("error", () => {
-				/* ignore — root may not exist yet */
-			});
+			w.on("error", () => {});
 			watchers.push(w);
-		} catch {
-			// Root doesn't exist or isn't watchable — fine. If the user creates
-			// it later we'll miss the hot-reload until next list call; pragmatic
-			// tradeoff to keep the watcher set bounded.
-		}
+		} catch {}
 	}
 
 	return () => {
@@ -93,9 +74,7 @@ const watchRoots = (
 		for (const w of watchers) {
 			try {
 				w.close();
-			} catch {
-				/* ignore */
-			}
+			} catch {}
 		}
 	};
 };
@@ -114,16 +93,11 @@ export const SkillBridgeLive = Layer.effect(
 			readonly skills: ReadonlyArray<Skill>;
 			readonly stop: () => void;
 			readonly hub: PubSub.PubSub<ReadonlyArray<Skill>>;
-			/** Bumped per refresh; only the latest refresh may publish. */
+
 			readonly generation: number;
 		}
 		const cache = new Map<string, CacheEntry>();
 
-		/**
-		 * Re-discover one cached (provider, cwd) pair and republish. Refreshes
-		 * can overlap (watcher + toggle); a slower, older pass never overwrites
-		 * a newer one.
-		 */
 		const refreshEntry = (key: string): Effect.Effect<void> =>
 			Effect.gen(function* () {
 				const started = cache.get(key);
@@ -164,13 +138,10 @@ export const SkillBridgeLive = Layer.effect(
 				const hub = yield* PubSub.unbounded<ReadonlyArray<Skill>>();
 				const raced = cache.get(key);
 				if (raced !== undefined) {
-					// A concurrent caller populated the entry while we discovered.
 					yield* PubSub.shutdown(hub);
 					return raced;
 				}
 				const stop = watchRoots(providerId, projectCwd, () => {
-					// Re-discover and republish on watcher fire. Effect.runFork is
-					// safe here — the entry's hub outlives any one publish.
 					Effect.runFork(refreshEntry(key));
 				});
 				const entry: CacheEntry = {
@@ -191,8 +162,7 @@ export const SkillBridgeLive = Layer.effect(
 			Effect.gen(function* () {
 				const session = yield* store.getSession(sessionId);
 				const folder = yield* workspace.findById(session.projectId);
-				// If the workspace row has gone missing fall back to cwd — the
-				// discovery pass will simply find no project-scoped skills.
+
 				const projectCwd = folder?.path ?? process.cwd();
 				return { providerId: session.providerId, projectCwd };
 			});
@@ -220,10 +190,7 @@ export const SkillBridgeLive = Layer.effect(
 				Effect.gen(function* () {
 					const { providerId, projectCwd } = yield* resolveSession(sessionId);
 					const entry = yield* ensureEntry(providerId, projectCwd);
-					// Subscribe before reading the snapshot so a republish racing
-					// this call (e.g. a toggle) is never lost. Emit the current list
-					// immediately, then every republish; the renderer treats each
-					// emission as the full list (no diffs).
+
 					const subscription = yield* PubSub.subscribe(entry.hub);
 					const current =
 						cache.get(cacheKey(providerId, projectCwd))?.skills ?? entry.skills;
@@ -234,7 +201,6 @@ export const SkillBridgeLive = Layer.effect(
 				}),
 			);
 
-		/** Last `disabledSkills` value the bridge has republished for. */
 		let lastDisabledSkills: string | null = null;
 
 		const listGlobal: SkillBridge["Service"]["listGlobal"] = () =>
@@ -255,17 +221,13 @@ export const SkillBridgeLive = Layer.effect(
 					name,
 					enabled,
 				);
-				// Republish now so open composers update before the RPC returns,
-				// and mark the new `disabledSkills` as seen so the settings
-				// subscription below doesn't republish the same change again.
+
 				const settings = yield* configStore.getSettings();
 				lastDisabledSkills = JSON.stringify(settings.disabledSkills);
 				yield* refreshProviders(new Set([providerId]));
 				return { providerId, name, enabled: effective };
 			});
 
-		// `disabledSkills` can also change by hand-editing settings.json (or a
-		// settings sync); republish the Zuse-overridden providers when it does.
 		yield* configStore.settingsChanges().pipe(
 			Stream.runForEach((settings) => {
 				const next = JSON.stringify(settings.disabledSkills);

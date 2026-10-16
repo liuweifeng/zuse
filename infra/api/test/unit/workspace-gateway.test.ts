@@ -310,8 +310,7 @@ describe("workspace gateway", () => {
 		});
 		const runtime = new FakeSocket({ role: "runtime", protocol, ...fence });
 		const { gateway } = makeGateway({ runtimes: [runtime], clients: [client] });
-		// The retained runtime opens localhost with its own wire version.
-		// The gateway only forwards the new client's handshake and typed rejection.
+
 		const hello = JSON.stringify({
 			_tag: "Request",
 			id: "1",

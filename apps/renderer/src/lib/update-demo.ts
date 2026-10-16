@@ -1,19 +1,5 @@
 import type { UpdateStatus } from "@zuse/contracts";
 
-/**
- * Dev console helper for previewing the UpdateBanner without cutting a real
- * release. Round-trips through the real IPC channel via the preload bridge's
- * `__demoSet`, so the banner sees payloads that are byte-identical to what
- * `electron-updater` would emit in production.
- *
- * Usage in DevTools:
- *   __zuseUpdateDemo.set({ kind: "available", version: "0.1.4" })
- *   __zuseUpdateDemo.cycle()   // available → downloading → ready over ~6s
- *   __zuseUpdateDemo.clear()   // back to idle
- *
- * Imported only when `import.meta.env.DEV` (see main.tsx) so it can never
- * leak into a packaged build.
- */
 declare global {
 	interface Window {
 		__zuseUpdateDemo?: {

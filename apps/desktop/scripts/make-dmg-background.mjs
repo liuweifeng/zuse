@@ -1,5 +1,3 @@
-// Compose the wallpaper and editable typography into Finder's background.
-// electron-builder combines the 1x and 2x PNGs into a Retina TIFF on macOS.
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 

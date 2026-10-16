@@ -12,10 +12,6 @@ export type BrowserSend = (
 	command: BrowserCommand,
 ) => Promise<BrowserCommandResult>;
 
-/**
- * Standard text tool result from a command outcome: the `detail` note on
- * success (or `fallback`), or the `error` with `isError` on failure.
- */
 const textResult = (result: BrowserCommandResult, fallback: string) => ({
 	content: [
 		{

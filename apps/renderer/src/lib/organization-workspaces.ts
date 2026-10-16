@@ -33,7 +33,6 @@ export const useOrganizationWorkspaces = createAtomStore<{
 	capabilitiesLoaded: false,
 }));
 
-/** Clearing team access must always leave a usable Personal workspace. */
 const reconcileSelectedOrganization = (
 	organizations: ReadonlyArray<Organization>,
 ): void => {

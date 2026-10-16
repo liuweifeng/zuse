@@ -114,7 +114,7 @@ const makeRuntime = () =>
 			}),
 		),
 	);
-/** GitHub accounts each Zuse account linked through Zuse's GitHub App. */
+
 const githubSignIns: Record<string, number> = {
 	user_alice: 10,
 	user_bob: 11,
@@ -587,7 +587,7 @@ describe("GitHub organization joining", () => {
 			),
 		);
 		expect(response?.status).toBe(200);
-		// Returning from GitHub only asks to confirm the named Zuse account.
+
 		const page = (await response?.text()) ?? "";
 		expect(page).toContain("member@example.com");
 		expect(page).toContain("Link @octocat");

@@ -1,9 +1,6 @@
 import type { ProviderId } from "@zuse/contracts";
 import type { ImageSourcePropType } from "react-native";
 
-// Bundled brand logos (template silhouettes — tint at render time). Copied from
-// the iOS asset catalog into JS assets so a standard RN <Image> can size and
-// align them predictably. Regenerate with the app icons if the marks change.
 export const PROVIDER_LOGOS: Record<ProviderId, ImageSourcePropType> = {
 	zuse: require("../../assets/icon.png"),
 	claude: require("../../assets/providers/claude.png"),

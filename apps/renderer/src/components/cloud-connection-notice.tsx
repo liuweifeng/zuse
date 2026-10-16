@@ -143,8 +143,7 @@ export function CloudConnectionNotice() {
 					runtime,
 					timeline: timeline.view,
 				});
-	// Only observe an already-connected, active turn. A resource subscription
-	// must never wake paused compute or keep an idle sandbox alive.
+
 	const observeMemory = shouldObserveCloudMemory(
 		summary,
 		shell.connection,
@@ -169,8 +168,7 @@ export function CloudConnectionNotice() {
 		activity,
 		shell.connection,
 	);
-	// Waiting prompts carry the compute lifecycle in the queue header; showing
-	// it here too would stack two statuses for the same wait.
+
 	const presentation =
 		queuedPrompts > 0 &&
 		(lifecycle === "paused" ||
@@ -178,8 +176,7 @@ export function CloudConnectionNotice() {
 			lifecycle === "updating")
 			? "hidden"
 			: lifecycle;
-	// A signed-out session can never reconnect a cloud workspace, so it shows
-	// one steady sign-in banner immediately — never the reconnect states.
+
 	const blockedAuth =
 		(!isLoading && !isSignedIn) || shell.connection === "blocked-auth";
 	const connectionError = getRendererClientBus().connection(

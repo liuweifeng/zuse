@@ -1,7 +1,3 @@
-// Template from the launch-video skill: set PROJECT and FRAMES for the new film.
-// Writes the four film entry points from one frame list:
-//   index.html (16:9, with fork) · index-nofork.html (16:9) · index-square.html (1:1, with fork) · index-square-nofork.html
-// Usage: node scripts/build-index.mjs
 import {
 	copyFileSync,
 	existsSync,
@@ -25,9 +21,6 @@ const FRAMES = [
 	{ id: "f10-close", dur: 4 },
 ];
 
-// The master is the project's index.html. The other cuts are tiny sibling projects under
-// variants/<name>/ whose compositions/ and assets/ link back to this project, because a
-// HyperFrames project may only have one root composition.
 const variants = [
 	{ name: "master", W: 1920, H: 1080, fork: true },
 	{ name: "wide-nofork", W: 1920, H: 1080, fork: false },

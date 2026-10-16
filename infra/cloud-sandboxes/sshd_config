@@ -1,6 +1,3 @@
-# Used exclusively in single-connection mode (`sshd -i`) by the workspace
-# runtime's WebSocket SSH bridge. There is no listening SSH daemon; reachability
-# is gated by the api-issued bridge ticket before sshd ever runs.
 HostKey /home/zuse/.ssh/host_ed25519_key
 AuthorizedKeysFile /home/zuse/.ssh/authorized_keys
 PubkeyAuthentication yes
@@ -8,12 +5,8 @@ PasswordAuthentication no
 KbdInteractiveAuthentication no
 AllowUsers zuse
 UsePAM no
-# The bridge ticket and public-key auth are the perimeter; skip home-directory
-# permission checks so runtime-written authorized_keys can never lock users out.
 StrictModes no
 PidFile none
-# A peer that vanishes without a close (desktop killed, tunnel dropped) must
-# not leave the per-connection sshd behind: probe it and give up quickly.
 ClientAliveInterval 15
 ClientAliveCountMax 2
 Subsystem sftp internal-sftp

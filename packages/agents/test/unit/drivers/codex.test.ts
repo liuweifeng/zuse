@@ -40,8 +40,6 @@ const only = <T extends AgentEvent["_tag"]>(
 };
 
 describe("Codex subAgentActivity items", () => {
-	// Shape captured from a live codex 0.144.1 app-server: spawn_agent surfaces
-	// on the parent thread as an item/completed subAgentActivity notification.
 	const capturedStart = {
 		type: "subAgentActivity",
 		id: "call_MmBpqT9m0rI5n89NEKXVuvjO",

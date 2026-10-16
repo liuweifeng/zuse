@@ -54,7 +54,6 @@ describe("MCP server smoke (standalone index for external agents)", () => {
 			expect(statusPayload.populated).toBe(true);
 			expect(statusPayload.stats.blobs).toBeGreaterThan(0);
 
-			// Exercise the newly-wired hybrid search path (non-symbol query → BM25)
 			const cs = tools.find((t) => t.name === "code_search")!;
 			const csValidated = cs.validator.parse({
 				query: "thing",
@@ -67,7 +66,7 @@ describe("MCP server smoke (standalone index for external agents)", () => {
 				hits: unknown[];
 			};
 			expect(Array.isArray(csPayload.hits)).toBe(true);
-			// The tiny file contains the identifier, so we should get at least one hit
+
 			expect(csPayload.hits.length).toBeGreaterThan(0);
 
 			await handle.close();

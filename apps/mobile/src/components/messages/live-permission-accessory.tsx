@@ -30,10 +30,7 @@ export function LivePermissionAccessory({
 		request: PermissionRequest,
 		decision: PermissionDecision,
 	) => void | Promise<void>;
-	/**
-	 * Deny the request and hand the agent free-text guidance to try next. Empty
-	 * text falls back to a plain Deny.
-	 */
+
 	onDenyWithMessage: (
 		request: PermissionRequest,
 		message: string,

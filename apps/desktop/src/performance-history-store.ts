@@ -65,9 +65,7 @@ export class PerformanceHistoryStore {
 					const parsed = this.decodeLine(line);
 					if (parsed !== null) entries.push(parsed);
 				}
-			} catch {
-				// Missing and corrupted telemetry files must not affect startup.
-			}
+			} catch {}
 		}
 		const cutoff = this.now() - this.retentionMs;
 		for (const entry of entries) {
@@ -217,9 +215,7 @@ export class PerformanceHistoryStore {
 					sample: Schema.decodeUnknownSync(LagSampleSchema)(parsed.sample),
 				};
 			}
-		} catch {
-			// A malformed line is skipped while the remaining history stays useful.
-		}
+		} catch {}
 		return null;
 	}
 

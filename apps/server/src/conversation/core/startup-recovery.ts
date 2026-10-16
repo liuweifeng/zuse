@@ -111,7 +111,7 @@ export const reconcileSessionRuntime = (
 							AND json_extract(payload_json, '$.turnId') = ${row.turn_id} LIMIT 1`.pipe(
 								Effect.orDie,
 							);
-						// Workspace setup may intentionally hold the initial turn across restart.
+
 						if (requests.length === 0) continue;
 					}
 					if (yield* hasRecoverableProviderSend(sql, row.id, attempt)) {
@@ -122,8 +122,7 @@ export const reconcileSessionRuntime = (
 						);
 						continue;
 					}
-					// A known startup failure has already been reported. Preserve its
-					// request for explicit Retry instead of treating it as process loss.
+
 					if (row.status === "error") {
 						const failedSend = yield* sql`SELECT 1 FROM jobs
 							WHERE session_id = ${row.id} AND kind = 'provider.turn.send'

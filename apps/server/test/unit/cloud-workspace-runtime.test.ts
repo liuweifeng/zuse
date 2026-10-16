@@ -963,8 +963,7 @@ describe("cloud workspace bootstrap", () => {
 				}),
 			);
 		await start();
-		// The first acknowledgement can disappear between runtime and API. A
-		// repeated encrypted intent must carry exactly the same durable identities.
+
 		await start();
 
 		expect(createChat).toHaveBeenCalledTimes(2);
@@ -1242,8 +1241,7 @@ describe("cloud workspace mailbox runtime", () => {
 
 	it("recovers an applied message receipt before acknowledging it", async () => {
 		const durable = await makeDurableMessageLease();
-		// This is the crash boundary after SessionDomain atomically committed the
-		// prompt and mailbox identity but before the runtime sent the ACK.
+
 		const receipts = makeReceiptStore(boundReceiptFor(durable));
 		const sendMessage = vi.fn(() =>
 			Effect.die(new Error("provider must not be re-entered")),
@@ -2353,10 +2351,10 @@ describe("launch agent credential readiness", () => {
 					recovery,
 				}).pipe(Effect.forkScoped({ startImmediately: true }));
 				yield* TestClock.adjust("10 minutes");
-				// No readiness and no retry storm while the provider stays refused.
+
 				expect(fiber.pollUnsafe()).toBeUndefined();
 				expect(attempts).toBe(1);
-				// Another provider recovering is not evidence for the selected one.
+
 				recovery.notify("cursor");
 				yield* TestClock.adjust("1 second");
 				expect(fiber.pollUnsafe()).toBeUndefined();
@@ -2423,7 +2421,7 @@ describe("launch agent credential readiness", () => {
 		expect(
 			providerCredentialFailureIsTerminal("provider-auth-legacy-workspace"),
 		).toBe(true);
-		// A snapshot-native tool has no recovery notification; retry rechecks it.
+
 		expect(
 			providerCredentialFailureIsTerminal("claude-snapshot-missing-tool"),
 		).toBe(true);
@@ -2495,11 +2493,11 @@ describe("bootstrap launch grant startup identity", () => {
 		expect(first).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
 		);
-		// Later initial retries after expiry must use a fresh request.
+
 		expect(
 			await Effect.runPromise(absent.requestId("claude", thumbprint)),
 		).toBeUndefined();
-		// Never for a provider that is not the launch agent.
+
 		expect(
 			await Effect.runPromise(
 				make("claude", undefined).requestId("codex", thumbprint),

@@ -37,9 +37,7 @@ export const saveHostedLaptopPreference = (
 			hostedLaptopPreferenceKey(accountId),
 			JSON.stringify(preference),
 		);
-	} catch {
-		/* Session-only fallback when storage is unavailable. */
-	}
+	} catch {}
 };
 
 /** Forget a removed selection without changing another computer's preference. */
@@ -57,7 +55,5 @@ export function forgetHostedLaptop(
 				...preference,
 				environmentId: null,
 			});
-	} catch {
-		/* Storage may be disabled. */
-	}
+	} catch {}
 }

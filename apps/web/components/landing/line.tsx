@@ -3,9 +3,9 @@ import { cn } from "@/lib/utils";
 
 type LineCommonProps = {
 	className?: string;
-	/** Center-to-center spacing between dots (px) */
+
 	gap?: number;
-	/** Dot radius (px) */
+
 	dotRadius?: number;
 };
 
@@ -97,7 +97,6 @@ export function VerticalLine({
 						cx={patternW / 2}
 						cy={patternH / 2}
 						r={dotRadius}
-						// fill={color}
 						className={fillClassName}
 					/>
 				</pattern>

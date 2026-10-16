@@ -85,8 +85,6 @@ export const withClaudeControlClient = async <A>(
 		abort.abort();
 		try {
 			client?.close();
-		} catch {
-			/* Already exited. */
-		}
+		} catch {}
 	}
 };

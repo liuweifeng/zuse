@@ -58,7 +58,7 @@ export const githubLinkAccess = Effect.fn("githubLinkAccess")(function* (
 	if (membership.role === "admin") return { kind: "owner" };
 	if (membership.role !== "member") return { kind: "denied" };
 	const repositories = new Set<string>();
-	// GitHub limits a repository-scoped installation token to 500 repos.
+
 	for (let page = 1; page <= 5; page++) {
 		const result = yield* githubRequest<unknown>(
 			`https://api.github.com/user/installations/${installation.id}/repositories?per_page=100&page=${page}`,

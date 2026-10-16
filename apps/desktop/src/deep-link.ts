@@ -1,8 +1,3 @@
-/**
- * Pure deep-link helpers for the main process. Kept free of Electron imports
- * so routing decisions and delivery buffering stay unit-testable.
- */
-
 const PAIRING_SCHEMES = new Set(["zuse:", "memoize:"]);
 
 /**

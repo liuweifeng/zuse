@@ -27,7 +27,7 @@ describe("engine ownership", () => {
 				_tag: "EngineOwnershipError",
 				dataDirectory: directory,
 			});
-			// A failed contender must not release the first runtime's ownership.
+
 			await second.dispose();
 			const third = openRuntime(directory);
 			try {

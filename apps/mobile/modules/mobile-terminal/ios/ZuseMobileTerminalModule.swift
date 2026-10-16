@@ -521,8 +521,6 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
     context.saveGState()
     context.clip(to: rect)
 
-    // Paint all backgrounds before any glyph. A wide glyph may extend into its
-    // spacer-tail cell, so interleaving the two passes would erase its tail.
     for row in rowRange {
       for col in 0..<frame.cols {
         let cell = frame.cells[row][col]
@@ -1245,14 +1243,14 @@ public final class ZuseMobileTerminalView: ExpoView, UIKeyInput {
     frame.cursorColor.setFill()
     frame.cursorColor.setStroke()
     switch frame.cursorStyle {
-    case 0: // Bar
+    case 0:
       context.fill(CGRect(x: rect.minX, y: rect.minY, width: 2, height: rect.height))
-    case 2: // Underline
+    case 2:
       context.fill(CGRect(x: rect.minX, y: rect.maxY - 2, width: rect.width, height: 2))
-    case 3: // Hollow block
+    case 3:
       context.setLineWidth(1.5)
       context.stroke(rect.insetBy(dx: 0.75, dy: 0.75))
-    default: // Solid block
+    default:
       context.fill(rect)
       let cell = frame.cells[frame.cursorY][frame.cursorX]
       drawCell(

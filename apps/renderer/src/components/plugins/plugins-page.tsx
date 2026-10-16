@@ -67,10 +67,8 @@ type Tab = "browse" | "connected";
 const PAGE_SIZE = 40;
 const FEATURED_LIMIT = 12;
 
-/** A sign-in in progress; `name` covers servers the snapshot doesn't list yet. */
 type PendingAttempt = PluginAttempt & { readonly name?: string };
 
-/** Connection failures say what to fix, for catalog plugins and custom servers alike. */
 const toastConnectFailed = (
 	m: (key: MessageKey, values?: Record<string, string>) => string,
 	plugin: Pick<PluginDefinition, "name" | "custom"> | undefined,
@@ -91,7 +89,7 @@ function usePlugins() {
 	const tenant = usePluginTenant();
 	const [attempt, setAttempt] = useState<PendingAttempt | null>(null);
 	const [busy, setBusy] = useState<string | null>(null);
-	// Shared, persisted snapshot: shown instantly, revalidated in the background.
+
 	const { snapshot, failed, refresh } = usePluginSnapshot(account, tenant);
 	const load = refresh;
 
@@ -99,7 +97,6 @@ function usePlugins() {
 		setAttempt(null);
 	}, [account, tenant]);
 
-	// Resume an attempt started before the page was closed.
 	const pendingId = snapshot?.connections.find(
 		(connection) => connection.state === "connecting",
 	);
@@ -132,8 +129,6 @@ function usePlugins() {
 		};
 	}, [pendingId?.id, pendingId?.pluginId, pendingTenant]);
 
-	// The browser hands the ticket to the app, which redeems it; polling only
-	// notices that the attempt left `pending` so the row can settle.
 	useEffect(() => {
 		if (!attempt || !snapshot) return;
 		let stopped = false;
@@ -159,9 +154,7 @@ function usePlugins() {
 					await load();
 					return;
 				}
-			} catch {
-				// Transient; keep polling until the attempt expires server-side.
-			}
+			} catch {}
 			if (!stopped) timer = setTimeout(poll, 2000);
 		};
 		timer = setTimeout(poll, 1500);
@@ -193,7 +186,7 @@ export function PluginsPage() {
 function WorkspacePluginsPage() {
 	const { message: m } = useUiMessages(["plugins"]);
 	const { isSignedIn, isLoading } = useAuth();
-	// Plugins belong to an account: leave the page on sign-out.
+
 	useEffect(() => {
 		if (!isLoading && !isSignedIn)
 			useUiStore.getState().setActiveMainTab("chat");
@@ -207,7 +200,6 @@ function WorkspacePluginsPage() {
 	const [limit, setLimit] = useState(PAGE_SIZE);
 	const toggle = usePluginConnectionToggle(snapshot);
 
-	// Other surfaces (settings, the composer) can land here on a plugin or a sign-in.
 	useEffect(() => {
 		const apply = () => {
 			const focus = takePluginsPageFocus();
@@ -252,14 +244,13 @@ function WorkspacePluginsPage() {
 	);
 	useEffect(() => setLimit(PAGE_SIZE), [deferredQuery, tab]);
 
-	/** Validate account names before starting an independent connection attempt. */
 	const connect = async (
 		plugin: PluginDefinition,
 		label?: string,
 		apiKey?: string,
 	): Promise<boolean> => {
 		if (!snapshot || busy || attempt) return false;
-		// Names are optional: an empty name takes the next free default.
+
 		const trimmedLabel =
 			label?.trim() ||
 			nextPluginConnectionLabel(snapshot.connections, plugin.id, plugin.name);
@@ -350,7 +341,6 @@ function WorkspacePluginsPage() {
 		}
 	};
 
-	/** Removes a custom server and every account connected to it. */
 	const removeServer = async (plugin: PluginDefinition): Promise<boolean> => {
 		if (!snapshot) return false;
 		state.setBusy(plugin.id);
@@ -409,7 +399,6 @@ function WorkspacePluginsPage() {
 			}
 			onOpen={() => setSelected(plugin.id)}
 			onConnect={() => {
-				// Key-authenticated servers need a key per account: ask on the detail page.
 				if (plugin.apiKeyHeader !== null) setSelected(plugin.id);
 				else void connect(plugin);
 			}}

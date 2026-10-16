@@ -77,7 +77,6 @@ export function FileTagPopover({
 	const [highlight, setHighlight] = useState(0);
 	const query = trigger.query;
 
-	// Debounce searches lightly so fast typing doesn't flood the server.
 	useEffect(() => {
 		let cancelled = false;
 		const run = async () => {
@@ -102,11 +101,7 @@ export function FileTagPopover({
 					},
 				});
 				if (cancelled) return;
-				// Belt-and-braces: drop any hit whose absPath isn't under the
-				// current workspace root. The server already reroots correctly
-				// when worktreeId matches, but a race where this effect fires
-				// mid-session-switch could otherwise show the previous root's
-				// files for a frame.
+
 				const filtered =
 					workspaceRoot === null
 						? (results as readonly SearchHit[])
@@ -126,7 +121,6 @@ export function FileTagPopover({
 		};
 	}, [environmentId, projectId, worktreeId, workspaceRoot, query]);
 
-	// Connected plugins lead: there are few, and naming one is a strong intent.
 	const items = useMemo<readonly Item[]>(() => {
 		const needle = query.toLowerCase();
 		const matchingPlugins = plugins
@@ -195,8 +189,6 @@ export function FileTagPopover({
 		};
 		window.addEventListener("keydown", onKey, true);
 		return () => window.removeEventListener("keydown", onKey, true);
-		// confirm is stable for `items[highlight]` reference per render — fine to
-		// re-bind on each iteration.
 	}, [items, highlight, onClose]);
 
 	const anchor = useComposerAnchor(view);
@@ -211,8 +203,6 @@ export function FileTagPopover({
 			active ? "bg-accent text-accent-foreground" : "hover:bg-muted/60",
 		);
 
-	// Portaled to body: inside the composer the glass blur can't sample the
-	// page (nested backdrop-filter roots), so the popup escapes it.
 	return createPortal(
 		<div
 			role="listbox"

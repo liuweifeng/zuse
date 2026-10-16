@@ -118,8 +118,7 @@ const events = async (
 	) {
 		await store.remove(installation);
 		const zuse = installation.credentials.zuse;
-		// Local credentials and sessions are removed before acknowledgement.
-		// Subscription cleanup is best effort after local access is removed.
+
 		if (zuse)
 			context.waitUntil(
 				deleteWebhook(
@@ -378,7 +377,7 @@ export default {
 					const ownerConnection = (
 						await env.store.member(installation, installation.ownerId)
 					).connection;
-					// A settings change disables old queued work, including dry-run → live.
+
 					const rule = installation.credentials.rules.find(
 						(candidate) =>
 							candidate.id === job.ruleId &&

@@ -1,9 +1,4 @@
-/**
- * Pure parsing + evaluation for keybindings. No platform/IO imports — safe to
- * run in main, renderer, or a worker.
- */
 
-/* ────────────────────────── Key tokens ──────────────────────────────── */
 
 /**
  * Parsed binary form of a `KeybindingRule.key` string. `modKey` is the
@@ -62,9 +57,6 @@ export function parseKey(input: string): KeybindingShortcut | null {
   const trimmed = input.trim();
   if (trimmed.length === 0) return null;
 
-  // `+` as the bare key is allowed but its splitter is also `+`; preserve a
-  // trailing `+` as the literal key by splitting on the *internal* `+` only.
-  // Walk char-by-char: every `+` that's not the last char is a separator.
   const tokens: string[] = [];
   let current = "";
   for (let i = 0; i < trimmed.length; i++) {
@@ -114,7 +106,7 @@ export function parseKey(input: string): KeybindingShortcut | null {
       continue;
     }
     if (baseKey !== null) {
-      // Two non-modifier tokens — not supported in v1.
+
       return null;
     }
     baseKey = tok;
@@ -123,8 +115,6 @@ export function parseKey(input: string): KeybindingShortcut | null {
   if (baseKey === null) return null;
   return { key: baseKey, modKey, metaKey, ctrlKey, altKey, shiftKey };
 }
-
-/* ────────────────────────── Event matching ──────────────────────────── */
 
 export interface KeyEventLike {
   readonly key: string;
@@ -151,7 +141,7 @@ export function matchesShortcut(
   shortcut: KeybindingShortcut,
   isMac: boolean,
 ): boolean {
-  // Resolve `mod` to the platform's physical modifier.
+
   const wantMeta = shortcut.metaKey || (shortcut.modKey && isMac);
   const wantCtrl = shortcut.ctrlKey || (shortcut.modKey && !isMac);
 
@@ -166,7 +156,7 @@ export function matchesShortcut(
 /** Map DOM `KeyboardEvent.key` values onto the same vocabulary as `parseKey`. */
 export function normalizeEventKey(key: string): string {
   if (key.length === 1) {
-    // Single-char keys: lower-case for letters; preserve punctuation as-is.
+
     return key.toLowerCase();
   }
   const lower = key.toLowerCase();
@@ -204,7 +194,7 @@ export function keyStringFromEvent(
   isMac: boolean,
 ): string | null {
   const base = normalizeEventKey(event.key);
-  // Reject events that are just a modifier press.
+
   if (
     base === "shift" ||
     base === "ctrl" ||
@@ -216,9 +206,7 @@ export function keyStringFromEvent(
   }
 
   const parts: string[] = [];
-  // Emit `mod` when the platform's mod modifier is held; emit the literal
-  // form for the *other* physical modifier when the user crossed platforms
-  // (e.g. holding Ctrl on macOS).
+
   if (isMac) {
     if (event.metaKey) parts.push("mod");
     if (event.ctrlKey) parts.push("ctrl");
@@ -231,8 +219,6 @@ export function keyStringFromEvent(
   parts.push(base);
   return parts.join("+");
 }
-
-/* ────────────────────────── When-clause AST ─────────────────────────── */
 
 export type KeybindingWhenNode =
   | { readonly type: "identifier"; readonly name: string }
@@ -441,8 +427,6 @@ function renderNode(node: KeybindingWhenNode, parentPrecedence: number): string 
   return own < parentPrecedence ? `(${text})` : text;
 }
 
-/* ────────────────────────── Display formatting ──────────────────────── */
-
 /**
  * Format a key string for on-screen display. Mirrors `formatAccelerator` in
  * `apps/renderer/src/lib/shortcuts.ts`, but operates on the new `mod+...`
@@ -517,7 +501,7 @@ export function keyToElectronAccelerator(key: string): string | null {
 
 function keyToElectronBase(key: string): string | null {
   if (key.length === 1) {
-    // Letters/digits → uppercase for letters, themselves for everything else.
+
     return /[a-z]/.test(key) ? key.toUpperCase() : key;
   }
   switch (key) {

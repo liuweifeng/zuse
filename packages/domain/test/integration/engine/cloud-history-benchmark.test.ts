@@ -47,7 +47,6 @@ test("recent cloud synchronization remains bounded as history grows", async () =
 					});
 				};
 				for (const count of [10, 1000, 10000]) {
-					// Seed the immutable log in one fixture batch, then use the real projector.
 					const storage = makeSqlDispatchStorage(sql);
 					const expectedVersion =
 						yield* domain.currentStreamVersion("session-1");

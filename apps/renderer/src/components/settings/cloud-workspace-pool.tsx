@@ -176,7 +176,6 @@ export function CloudWorkspacePool({
 	);
 }
 
-/** Displays cloud workspaces, saved images and billing controls for the selected workspace scope. */
 function ScopedCloudWorkspacePool({
 	onboarding,
 	section,
@@ -296,7 +295,6 @@ function ScopedCloudWorkspacePool({
 				result.installations.some((installation) => !installation.suspended),
 			);
 		} catch {
-			// Keep the last successful repository list during transient failures.
 		} finally {
 			setReposLoading(false);
 		}
@@ -526,8 +524,7 @@ function ScopedCloudWorkspacePool({
 			(section !== "repositories" && section !== "all")
 		)
 			return;
-		// Webhooks update the existing API state. Reuse its scoped cache instead
-		// of introducing a second realtime transport for settings.
+
 		const timer = window.setInterval(() => {
 			if (document.visibilityState === "visible") void loadGithubRepos();
 		}, 30_000);
@@ -635,8 +632,7 @@ function ScopedCloudWorkspacePool({
 				const connected = results.flatMap((result) =>
 					result.status === "fulfilled" ? [result.value] : [],
 				);
-				// Reads started before this write cannot replace the confirmed projects,
-				// including when only part of a multi-repository connection succeeds.
+
 				loadSequence.current += 1;
 				invalidateCloudProjects();
 				setProjects((current) => {
@@ -774,8 +770,6 @@ function ScopedCloudWorkspacePool({
 					? `You have used ${overageCapPercent}% of this period's overage cap.`
 					: null;
 
-	// Once GitHub is connected, adding repositories is the common task; before
-	// that, connecting GitHub is the only way forward.
 	const githubGroup = (
 		<CloudWorkspaceGithub
 			status={githubStatus}
@@ -921,8 +915,6 @@ function ScopedCloudWorkspacePool({
 
 			{setupVisible ? (
 				<>
-					{/* Show image status after hosting and provider configuration. */}
-					{/* A single-provider custom snapshot is fully described under Hosting. */}
 					{showsSection("image", "image") &&
 					(snapshotImage === null || providers.length > 1) ? (
 						<CloudSettingsGroup
@@ -1272,7 +1264,6 @@ function ScopedCloudWorkspacePool({
 				)
 			) : null}
 
-			{/* Reachable without an active subscription for invoices and reactivation. */}
 			{canManageBilling && usageVisible ? (
 				<CloudSettingsGroup title={uiMessage("settings:workspace_billing")}>
 					<PrepaidCredits
@@ -1356,7 +1347,6 @@ function ScopedCloudWorkspacePool({
 	);
 }
 
-/** Rarely needed controls stay out of the main setup flow until asked for. */
 function CloudAdvancedSettings({ children }: { readonly children: ReactNode }) {
 	const { message: uiMessage } = useUiMessages(["settings"]);
 	const [open, setOpen] = useState(false);

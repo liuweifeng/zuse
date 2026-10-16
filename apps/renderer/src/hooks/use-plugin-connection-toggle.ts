@@ -29,7 +29,7 @@ export function usePluginConnectionToggle(
 	const [overrides, setOverrides] = useState<ReadonlyMap<string, boolean>>(
 		new Map(),
 	);
-	// A fresh snapshot is authoritative again.
+
 	useEffect(() => setOverrides(new Map()), [snapshot]);
 	const tenantId = snapshot?.tenantId ?? null;
 

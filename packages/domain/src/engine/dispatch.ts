@@ -253,13 +253,12 @@ export class DispatchEngine<
 		if (input.expectedAttempt !== undefined) {
 			const expected = input.expectedAttempt;
 			const turn = state.turns.get(expected.turnId);
-			// A provider may emit its final resume cursor after Completed. Accept that
-			// tail only for the newest turn's exact attempt; never reopen old ownership.
+
 			const ownsTail =
 				input.command._tag === "BindProviderThread" &&
 				turn?.ordinal === state.turnCount;
 			let ownsToolTail = false;
-			// Residency is checked above; never let an unfenced caller revive old work.
+
 			if (
 				input.expectedProviderSessionId !== undefined &&
 				turn?.status === "completed" &&
@@ -272,7 +271,6 @@ export class DispatchEngine<
 					? providerToolReference(content.success)
 					: undefined;
 				if (reference !== undefined) {
-					// A retry can reuse native item ids: anchors before the latest attempt do not qualify.
 					for (let index = stored.length - 1; index >= 0; index--) {
 						const event = stored[index]?.event;
 						if (

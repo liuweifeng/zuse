@@ -64,9 +64,7 @@ export async function GET(request: Request) {
 		if (installer !== null) {
 			return finish(installer.browser_download_url, "installer");
 		}
-	} catch {
-		// Fall through to the public releases page.
-	}
+	} catch {}
 
 	return finish(FALLBACK_URL, "releases_fallback");
 }

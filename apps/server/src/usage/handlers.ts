@@ -42,7 +42,6 @@ import {
 	resetUsageReportCacheForTest as resetPricedUsageCacheForTest,
 } from "./report-cache.ts";
 
-/** Sessions table is paginated client-side; cap the payload to the heaviest N. */
 const MAX_SESSIONS_IN_PAYLOAD = 250;
 
 const sessionTokens = (s: {
@@ -115,8 +114,6 @@ export const resetUsageReportCacheForTest = (): void => {
 export const trimUsageReportForPayload = (
 	report: ReturnType<typeof buildUsageReport>,
 ) => {
-	// The renderer never reads per-record rows, and the sessions table is
-	// paginated client-side — trim both so the RPC payload stays small.
 	const bySession = report.bySession
 		.slice()
 		.sort((a, b) => sessionTokens(b) - sessionTokens(a))
@@ -186,11 +183,6 @@ export const prepareUsageOverviewForRpc = (
 		sources: report.sources,
 	});
 
-/**
- * Path roots that scope a report to a single codebase. Agents run in Memoize
- * worktrees at `~/.zuse/<name>-<id-prefix>/<worktree>` (not the project's
- * own repo path), so we match both the repo path and that worktree root.
- */
 const projectPathsFor = (projectId: FolderId | undefined) =>
 	Effect.gen(function* () {
 		if (projectId === undefined) return undefined;

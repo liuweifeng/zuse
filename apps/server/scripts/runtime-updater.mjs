@@ -214,8 +214,6 @@ const fetchManifest = () =>
 
 const targetAppVersion = await requestedTargetAppVersion();
 
-// Persist intents before changing a release pointer. fsync the directory as well
-// as the file so a reboot cannot lose the rename that protects the prior release.
 const durableJson = async (path, value) => {
 	await mkdir(dirname(path), { recursive: true, mode: 0o755 });
 	const temporary = `${path}.next-${randomUUID()}`;
@@ -343,8 +341,6 @@ if (checkOnly) {
 	process.exit(0);
 }
 
-// flock is held by the updater process itself and is released even on SIGKILL.
-// A killed download cannot leave a stale lock that blocks recovery forever.
 if (process.env.ZUSE_RUNTIME_UPDATER_LOCKED !== "1") {
 	await mkdir(dirname(journalFile), { recursive: true, mode: 0o755 });
 	const child = spawn(
@@ -457,8 +453,6 @@ async function update() {
 		try {
 			return { ...(await verifiedRelease(release)), signed: true };
 		} catch {
-			// Old images did not retain a signature. Preserve them but never claim
-			// that an unverified binary is a compatible signed rollback target.
 			return {
 				release,
 				version: metadata?.runtimeVersion ?? null,
@@ -485,10 +479,6 @@ async function update() {
 		});
 	};
 	const prepare = async () => {
-		// Image installers activate bytes without owning a workspace generation.
-		// Adopt that installed baseline into the first control-plane transaction;
-		// it remains unconfirmed and its signed release becomes the rollback target.
-		// A prepared API operation or any fenced activation cannot be superseded.
 		const legacyBaseline =
 			journal?.phase === "activated" &&
 			journal.generation === null &&
@@ -752,8 +742,7 @@ async function update() {
 				"Runtime confirmation version or generation does not match",
 			);
 		await verifiedRelease(target.release);
-		// The authenticated control plane invokes this only after the matching
-		// runtime has enrolled and reported readiness. Local /healthz is not proof.
+
 		await save({
 			phase: "confirmed",
 			confirmedVersion: target.version,
@@ -761,9 +750,6 @@ async function update() {
 		});
 	};
 	try {
-		// Boat exposes restored tools through FUSE before the writable mount is
-		// handed over. Reading executables is safe then; replacing release pointers
-		// can stall the handover. Wait only when updating, never on normal startup.
 		let filesystemPath = releasesRoot;
 		const filesystemDeadline = Date.now() + 120_000;
 		while (true) {
@@ -779,7 +765,7 @@ async function update() {
 				filesystemPath = dirname(filesystemPath);
 				continue;
 			}
-			if (filesystem.type !== 0x65735546) break; // Linux FUSE_SUPER_MAGIC
+			if (filesystem.type !== 0x65735546) break;
 			if (Date.now() >= filesystemDeadline)
 				throw new Error("Runtime update filesystem is still restoring");
 			await new Promise((resolve) => setTimeout(resolve, 500));
@@ -793,8 +779,7 @@ async function update() {
 			await activate(true);
 			if (!installOnly) {
 				await run("systemctl", ["restart", "zuse.service"]);
-				// Preserve legacy service restart behavior, without confusing local
-				// liveness with authenticated enrollment or reusing a boot token.
+
 				const waitForHealthyRuntime = async () => {
 					for (let attempt = 0; attempt < 15; attempt += 1) {
 						await new Promise((resolve) => setTimeout(resolve, 1_000));
@@ -809,9 +794,7 @@ async function update() {
 								body.wireProtocolVersion === expectedWireProtocol
 							)
 								return true;
-						} catch {
-							/* Keep the fixed local-liveness budget. */
-						}
+						} catch {}
 					}
 					return false;
 				};

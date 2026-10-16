@@ -73,8 +73,6 @@ export const makeContextLinks = (sql: SqlClient.SqlClient) => {
 		sql
 			.withTransaction(
 				Effect.gen(function* () {
-					// Once claimed, a link belongs to that logical turn across attempts. Never
-					// inject a merge into work that was already admitted when the merge happened.
 					const rows =
 						yield* sql<ContextLinkRow>`SELECT link.* FROM session_context_links link
 		JOIN session_turns turn ON turn.id=${turnId} AND turn.session_id=link.target_session_id

@@ -71,8 +71,6 @@ const ACCOUNT = "user_a";
 const WORKOS_HEADERS = { authorization: `Bearer test-token:${ACCOUNT}` };
 const PROVIDER_ID = "fake-cloud";
 
-// The default fake adapter is unadvertised; the public create path selects
-// among advertised providers, so register one the way api.test.ts does.
 const advertisedAdapter: SandboxProviderAdapter = {
 	providerId: PROVIDER_ID,
 	displayName: "Test cloud",
@@ -576,7 +574,7 @@ describe("public API (/v1/api)", () => {
 				-suffix(first.workspaceId).length - 1,
 			);
 			expect(second.branch).toBe(`${mascot}-${suffix(second.workspaceId)}`);
-			// A bare name may belong to an old/local PR unknown to this account.
+
 			const explicit = await create("branch-explicit", mascot);
 			expect(explicit.branch).toBe(mascot);
 			const replay = await create("branch-first");
@@ -729,13 +727,13 @@ describe("public API (/v1/api)", () => {
 			expect(checking?.requestConfig.runtimeSessionRecoveryPending).not.toBe(
 				true,
 			);
-			// Another client cannot extend the deadline or fence the same live turn.
+
 			expect((await recover("connection-recovery-2")).status).toBe(200);
 			expect(
 				(await runtime.runPromise(store.getWorkspace(workspaceId)))
 					?.nextActionAtMs,
 			).toBe(checking?.nextActionAtMs);
-			// A stored mailbox fence still requires recovery independently of the ignored hint.
+
 			const healthy = await runtime.runPromise(store.getWorkspace(workspaceId));
 			if (healthy === null) throw new Error("workspace missing");
 			await runtime.runPromise(
@@ -1138,8 +1136,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: project.updatedAtMs + 1,
 			}),
 		);
-		// Receipt replay is read-only and must not be blocked by project state
-		// changing after the original workspace was created.
+
 		expect(
 			(
 				await serve(runtime, "/v1/api/workspaces", {
@@ -1168,9 +1165,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: storedWorkspace.updatedAtMs + 1,
 			}),
 		);
-		// Workspaces written by the original public-API migration have no request
-		// digest. Their immutable launch prompt and any explicitly supplied config
-		// are the compatibility receipt.
+
 		expect(
 			(
 				await serve(runtime, "/v1/api/workspaces", {
@@ -1554,8 +1549,7 @@ describe("public API (/v1/api)", () => {
 			attachments: [{ assetId: uploaded.asset.assetId }],
 		});
 		expect(commands.commands[0]).not.toHaveProperty("githubBot", true);
-		// Web/mobile mailbox ACKs share the URL but must reach their own receipt
-		// authority, even while the public API queue has an outstanding command.
+
 		const mailboxAck = await serve(
 			runtime,
 			`/v1/cloud/workspaces/${workspaceId}/runtime/commands/ack`,
@@ -2295,7 +2289,7 @@ describe("public API (/v1/api)", () => {
 				"Updated the button using your screenshot.",
 			),
 		});
-		// A duplicate alert must not submit a second turn or create a workspace.
+
 		expect(
 			(await slackModule.fetch(await signed("/slack/events", alert))).status,
 		).toBe(200);
@@ -2439,7 +2433,7 @@ describe("public API (/v1/api)", () => {
 				turnId: historicalTurn,
 				outcome: "completed",
 				status: "settled",
-				// The original API persisted receipt time, not domain settledAt.
+
 				createdAtMs: historicalSettledAt + 100,
 			}),
 		);
@@ -2522,7 +2516,6 @@ describe("public API (/v1/api)", () => {
 		expect(created.workspace.agentStatus).toBe("working");
 		expect(created.workspace.latestSeq).toBe(1);
 
-		// Same Idempotency-Key → the existing workspace, not a duplicate.
 		const replayed = await json<{ workspace: { workspaceId: string } }>(
 			await serve(runtime, "/v1/api/workspaces", {
 				method: "POST",
@@ -2537,7 +2530,6 @@ describe("public API (/v1/api)", () => {
 		);
 		expect(replayed.workspace.workspaceId).toBe(workspaceId);
 
-		// The launch turn settles before the runtime accepts FIFO follow-ups.
 		await stageRuntimeCredential(runtime, store, workspaceId, "runtime-secret");
 		const runtimeHeaders = {
 			authorization: "Bearer runtime-secret",
@@ -2595,7 +2587,6 @@ describe("public API (/v1/api)", () => {
 		expect(receiptReplay.messageId).toBe(receipt.messageId);
 		expect(receiptReplay.seq).toBe(receipt.seq);
 
-		// Simulate the in-sandbox runtime draining and acking the command.
 		const commands = await json<{
 			commands: ReadonlyArray<{
 				messageId: string;
@@ -2748,8 +2739,6 @@ describe("public API (/v1/api)", () => {
 		expect(status.workspace.agentStatus).toBe("idle");
 		expect(status.workspace.lastTurn?.turnId).toBe(commandTurnId);
 
-		// Retrying a terminal message after a later pause is a read-only receipt
-		// replay: it must not wake billable compute with no pending command.
 		const settledWorkspace = await runtime.runPromise(
 			store.getWorkspace(workspaceId),
 		);
@@ -2795,7 +2784,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: pausedWorkspace.updatedAtMs + 1,
 			}),
 		);
-		// A terminal workspace still permits replaying an already-settled receipt.
+
 		expect(
 			(
 				await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
@@ -2806,7 +2795,6 @@ describe("public API (/v1/api)", () => {
 			).status,
 		).toBe(200);
 
-		// Deliver the enqueued webhook with a captured fetch and verify signing.
 		const deliveries: Array<{ url: string; body: string; headers: Headers }> =
 			[];
 		vi.stubGlobal(
@@ -2846,7 +2834,7 @@ describe("public API (/v1/api)", () => {
 			delivery.body,
 		);
 		expect(match?.[2]).toBe(expected);
-		// Delivered rows are not claimed again.
+
 		expect(await runtime.runPromise(deliverPendingApiWebhooks)).toBe(0);
 	});
 
@@ -3030,7 +3018,6 @@ describe("public API (/v1/api)", () => {
 		);
 		expect(conflict.status).toBe(409);
 
-		// Another account's key cannot see the workspace at all.
 		const foreignKey = await json<{ secret: string }>(
 			await serve(runtime, "/v1/cloud/api-keys", {
 				method: "POST",

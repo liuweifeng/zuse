@@ -7,4 +7,3 @@ const session = await issueMcpGatewaySession({
 });
 await session.close();
 console.log("gateway-session-cleanup-complete");
-// No explicit server close or process.exit: disposing the provider must permit natural exit.

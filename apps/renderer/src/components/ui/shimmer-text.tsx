@@ -2,16 +2,6 @@ import { GradientShimmer, type GradientStop } from "gradient-shimmer";
 import type React from "react";
 import { usePrefersReducedMotion } from "~/hooks/use-media-query";
 
-/**
- * `muted` — a soft near-white highlight that brightens the text's own (usually
- * muted) color; the default for plain loading/status text.
- * `lime` — the theme lime accent, reserved for agent-activity text (Thinking,
- * tool inline hints) so the eye reads "the agent is working".
- *
- * Only the highlight band is specified — `GradientShimmer`'s `baseColor`
- * defaults to `currentColor`, so the sweep fades back into whatever color the
- * call site already uses. That keeps each site's resting look unchanged.
- */
 type ShimmerTone = "muted" | "lime";
 
 const TONE_STOPS: Record<ShimmerTone, GradientStop[]> = {
@@ -20,7 +10,6 @@ const TONE_STOPS: Record<ShimmerTone, GradientStop[]> = {
 };
 
 type ShimmerTextProps = {
-	/** Plain string only — the gradient sweeps over it. */
 	children: string;
 	tone?: ShimmerTone;
 	className?: string;

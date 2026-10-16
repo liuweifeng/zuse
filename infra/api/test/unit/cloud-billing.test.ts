@@ -65,7 +65,6 @@ describe("cloud billing", () => {
 	});
 
 	it("prices allocated compute resources in integer micro-USD", () => {
-		// 2 vCPU + 1 GiB for one hour = $0.117
 		expect(
 			allocatedComputeCostMicros({
 				durationMs: 3_600_000,

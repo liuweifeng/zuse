@@ -2,7 +2,7 @@ import "@zuse/i18n/english/chat";
 import { useMessages } from "@zuse/i18n/react";
 import { View } from "react-native";
 import { Button } from "~/components/ui/button";
-// iOS owns the full native menu; expose history on other mobile platforms too.
+
 export function SessionActionsMenu(props: {
 	isPinned: boolean;
 	onNewChat: () => void;

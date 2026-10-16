@@ -61,8 +61,6 @@ describe("ssh bridge cleanup", () => {
 		await Effect.runPromise(
 			Effect.scoped(
 				Effect.gen(function* () {
-					// Use the real Effect socket so runRaw's write-latch lifecycle is
-					// exercised, including interruption when the child wins the race.
 					const socket = yield* Socket.fromWebSocket(
 						Effect.acquireRelease(
 							Effect.succeed(ws as unknown as WebSocket),

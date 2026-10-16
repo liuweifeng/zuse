@@ -6,10 +6,6 @@ import {
 	DITHER_BACKGROUND_STYLES,
 } from "./dither-background.ts";
 
-/**
- * After an action finishes in another tab (approving permissions on GitHub),
- * returning to this tab resumes the flow at the row's same-origin resume URL.
- */
 const RESUME_SCRIPT = `(()=>{const k="zuse.integration.resume";document.addEventListener("click",e=>{const a=e.target instanceof Element?e.target.closest("a[data-resume]"):null;if(a)sessionStorage.setItem(k,a.dataset.resume);});const go=()=>{if(document.visibilityState!=="visible")return;const u=sessionStorage.getItem(k);if(!u)return;sessionStorage.removeItem(k);const t=new URL(u,location.href);if(t.origin===location.origin)location.assign(t.href);};document.addEventListener("visibilitychange",go);addEventListener("focus",go);})();`;
 const RESUME_SCRIPT_SOURCE = `'sha256-${createHash("sha256").update(RESUME_SCRIPT).digest("base64")}'`;
 const SUBMIT_SCRIPT = `(()=>{let busy=false;const reset=()=>{busy=false;document.querySelectorAll("form[aria-busy]").forEach(f=>f.removeAttribute("aria-busy"));document.querySelector("[data-submit-status]").hidden=true;document.querySelectorAll("button[data-original-label]").forEach(b=>{b.disabled=false;b.textContent=b.dataset.originalLabel;});};document.addEventListener("submit",e=>{const f=e.target;if(!(f instanceof HTMLFormElement)||!f.dataset.pending)return;if(busy){e.preventDefault();return;}busy=true;f.setAttribute("aria-busy","true");const s=document.querySelector("[data-submit-status]");s.textContent=f.dataset.pending;s.hidden=false;document.querySelectorAll("button[type=submit]").forEach(b=>{b.dataset.originalLabel=b.textContent;b.disabled=true;});const b=f.querySelector("button");b.textContent=f.dataset.pendingLabel;});document.addEventListener("click",e=>{if(busy&&e.target instanceof Element&&e.target.closest("a"))e.preventDefault();},true);addEventListener("pageshow",e=>{if(e.persisted)reset();});})();`;
@@ -17,14 +13,13 @@ const SUBMIT_SCRIPT_SOURCE = `'sha256-${createHash("sha256").update(SUBMIT_SCRIP
 
 /** Integration pages run the backdrop and, when needed, submit and resume feedback. */
 export const INTEGRATION_PAGE_SCRIPT_SOURCE = DITHER_BACKGROUND_SCRIPT_SOURCE;
-/** Account avatars are the only remote resource these pages load. */
+
 const AVATAR_ORIGIN = "https://avatars.githubusercontent.com";
 export const INTEGRATION_PAGE_HEADERS = browserPageHeaders(
 	[INTEGRATION_PAGE_SCRIPT_SOURCE, RESUME_SCRIPT_SOURCE, SUBMIT_SCRIPT_SOURCE],
 	[AVATAR_ORIGIN],
 );
 
-// Colours match the dither backdrop's paper so the card floats on one surface.
 const STYLES = `
 :root{color-scheme:light dark;--bg:#f4f4f2;--panel:rgb(255 255 255 / 86%);--fg:#181713;--muted:#6c6c64;--ring:rgb(24 23 19 / 8%);--soft:rgb(24 23 19 / 4%);--hover:rgb(24 23 19 / 6%);--grid:rgb(24 23 19 / 10%);--font:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;--mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace}
 @media(prefers-color-scheme:dark){:root{--bg:#0d0d0d;--panel:rgb(22 22 21 / 84%);--fg:#f2f2f2;--muted:#9a9a93;--ring:rgb(255 255 255 / 7%);--soft:rgb(255 255 255 / 3%);--hover:rgb(255 255 255 / 6%);--grid:rgb(242 242 242 / 7%)}}
@@ -74,22 +69,22 @@ const PLUS = `<svg viewBox="0 0 12 12" fill="none" aria-hidden="true" focusable=
 type LinkAction = {
 	readonly label: string;
 	readonly href: string;
-	/** Renders the link as an account row that needs action elsewhere first. */
+
 	readonly accountName?: string;
 	readonly description?: string;
 	readonly avatarUrl?: string;
-	/** Same-origin URL that resumes the flow when the person returns. */
+
 	readonly resumeHref?: string;
 };
 type FormAction = {
 	readonly label: string;
 	readonly action: string;
 	readonly csrf: string;
-	/** Renders the action as a row in the account list. */
+
 	readonly accountName?: string;
 	readonly description?: string;
 	readonly manageUrl?: string;
-	/** GitHub avatar; other hosts fall back to the initial. */
+
 	readonly avatarUrl?: string;
 };
 
@@ -134,8 +129,7 @@ const isAccount = (
 export const renderIntegrationPage = (input: IntegrationPageInput): string => {
 	const accounts = input.actions.filter(isAccount);
 	const others = input.actions.filter((action) => !isAccount(action));
-	// With accounts to pick from, the remaining links join the list as quiet
-	// rows; otherwise they are the page's buttons, the first one primary.
+
 	const body =
 		accounts.length > 0
 			? `<div class="list">${accounts.map(accountRow).join("")}${others

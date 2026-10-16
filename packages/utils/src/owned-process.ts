@@ -35,8 +35,7 @@ export const stopOwnedProcess = (
 	};
 	const hasLiveGroupMember = async (): Promise<boolean> => {
 		if (!groupExists()) return false;
-		// kill(0) also sees orphan zombies. They cannot mutate files, so inspect
-		// state before treating a dead group's unreaped members as live work.
+
 		const states = await new Promise<string>((resolve, reject) => {
 			execFile(
 				"ps",
@@ -61,9 +60,7 @@ export const stopOwnedProcess = (
 		try {
 			if (group && pid !== undefined) process.kill(-pid, value);
 			else if (!exited()) child.kill(value);
-		} catch {
-			// The process can exit between checking it and signalling it.
-		}
+		} catch {}
 	};
 	const run = async (): Promise<void> => {
 		if (exited() && !groupExists()) return;
@@ -93,7 +90,7 @@ export const stopOwnedProcess = (
 				await new Promise<void>((resolve) => setTimeout(resolve, 20));
 			}
 		}
-		// A group may still contain descendants after its original parent exited.
+
 		signal("SIGKILL");
 		const killDeadline = performance.now() + GRACE_MS;
 		while (performance.now() < killDeadline) {
@@ -105,8 +102,6 @@ export const stopOwnedProcess = (
 	const result = run();
 	stopping.set(child, result);
 	void result.catch(() => {
-		// A failed observation is not proof of quiescence. Keep successful closes
-		// idempotent, but allow an explicit retry to verify/stop the group again.
 		if (stopping.get(child) === result) stopping.delete(child);
 	});
 	return result;

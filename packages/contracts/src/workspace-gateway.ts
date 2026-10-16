@@ -26,7 +26,7 @@ export const CloudRuntimeAccessResponse = Schema.Struct({
 	actor: Schema.optional(WorkspaceActor),
 });
 
-const FRAME_MAGIC = [0x5a, 0x55, 0x53, 0x45] as const; // "ZUSE"
+const FRAME_MAGIC = [0x5a, 0x55, 0x53, 0x45] as const;
 const FRAME_VERSION = 1;
 const FRAME_HEADER_BYTES = 9;
 const MAX_CONNECTION_ID_BYTES = 512;

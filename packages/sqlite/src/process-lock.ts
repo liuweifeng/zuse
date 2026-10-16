@@ -17,8 +17,6 @@ export const tryAcquireProcessLock = (
 ): SqliteProcessLock | null => {
 	const database = new DatabaseSync(filename);
 	try {
-		// Only SQLite may open descriptors for this file. Closing unrelated file
-		// descriptors can release POSIX record locks held by the same process.
 		chmodSync(filename, 0o600);
 		database.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
 	} catch (cause) {

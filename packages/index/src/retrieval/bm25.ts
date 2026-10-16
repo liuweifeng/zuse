@@ -20,12 +20,6 @@ export interface Bm25Hit {
   readonly symbolId: number | null;
 }
 
-/**
- * Sanitize a query string for FTS5. Trigram tokenizer doesn't need
- * elaborate escaping but the MATCH grammar still hates unmatched quotes
- * and prefix-operator stars. We strip everything but word chars, dots,
- * dashes, slashes, and spaces — empirically what code identifiers need.
- */
 const sanitize = (q: string): string =>
   q
     .replace(/[^\w./\- ]+/g, " ")
@@ -82,7 +76,7 @@ export const bm25Search = (
     return rows.map((r, i) => ({
       chunkId: r.chunk_id,
       rank: i + 1,
-      score: -r.rank, // bm25 is "lower is better"; flip so larger = better
+      score: -r.rank,
       file: r.file_path,
       content: r.content,
       startLine: r.start_line,

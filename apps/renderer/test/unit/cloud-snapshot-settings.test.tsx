@@ -26,7 +26,6 @@ test("snapshot setup offers discovery, explicit paths and separate agent/Git aut
 		if (
 			!control.includes('data-slot="switch"') &&
 			!control.includes("tooltip") &&
-			// Base UI's visually hidden form input behind each switch.
 			!control.includes("clip-path")
 		)
 			expect(control).toMatch(/h-7|size-6/);

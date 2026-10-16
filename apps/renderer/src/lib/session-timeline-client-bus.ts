@@ -206,11 +206,6 @@ export const registerRendererResourcePersistence = (
 	kind: string,
 	persistence: RendererResourcePersistence,
 ): (() => void) => {
-	// Registration is a single replaceable slot per resource kind. Vite HMR
-	// evaluates the replacement module before disposing the previous instance, so
-	// rejecting a new object here crashes the renderer during development. The
-	// identity-checked cleanup below prevents the old module from deleting the
-	// replacement when its dispose callback eventually runs.
 	registeredPersistence.set(kind, persistence);
 	return () => {
 		if (
@@ -1048,7 +1043,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 let commandOutbox = createClientCommandOutbox();
 
 type EnvironmentActivation = Readonly<{
-	/** The catalog authority that registered this resolver. */
 	readonly environmentKind: "cloud-workspace" | "other";
 	readonly account?: RendererAccountSnapshot;
 	prepare: (
@@ -1091,9 +1085,6 @@ export const registerEnvironmentActivation = (
 	};
 	activationByEnvironment.set(environmentId, registration);
 	if (environmentKind === "cloud-workspace") {
-		// Catalog hydration can happen after ClientBus's initial outbox scan. Resume
-		// durable rows as soon as their stable environment identity is known; this
-		// does not acquire a gateway ticket or wake compute.
 		void rendererClientBus
 			.flushDurableOutbox(environmentId)
 			.catch(() => undefined);
@@ -1149,9 +1140,7 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 		Effect.tryPromise({
 			try: async () => {
 				const registered = activationByEnvironment.get(environmentId);
-				// Cloud gateway discovery/ticket issuance must finish before socket
-				// acquisition. Keeping this inside the EnvironmentRuntime resolver
-				// prevents chat navigation and ClientBus from racing two attach paths.
+
 				await registered?.prepare(activation, wakeIntent);
 				let generation: number | null = null;
 				let pendingFault: Error | null = null;
@@ -1197,9 +1186,6 @@ const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
 	activationByEnvironment.get(environmentId)?.environmentKind ===
 	"cloud-workspace";
 
-// Cloud API failures remain bounded until terminal lifecycle errors can be
-// distinguished from transport outages. Wake intent has a separate acknowledgment.
-// Self-hosted computers retry until they come back from sleep.
 export const environmentRetryPolicy = (
 	environmentId: EnvironmentId,
 ): EnvironmentRetryPolicy =>
@@ -1243,10 +1229,6 @@ export const registerRendererResourceDriver = (
 	kind: string,
 	factory: RendererResourceDriverFactory,
 ): (() => void) => {
-	// One slot still means one owner: replacement changes which factory future
-	// resource activations use; it never starts a second driver for an existing
-	// resource. Identity-checked cleanup makes this safe when HMR installs the new
-	// module before disposing the old one.
 	registeredDriverFactories.set(kind, factory);
 	return () => {
 		if (registeredDriverFactories.get(kind) === factory) {
@@ -1370,7 +1352,7 @@ const olderSessionMessageLoads = makeSessionMessagePager({
 		const cloud = isCloudTimelineEnvironment(ref.environmentId);
 		const namespace = rendererResourceCacheNamespace(ref.environmentId);
 		const account = rendererAccountSnapshot();
-		// The synchronizer validates the authoritative head before history starts.
+
 		const loadCachedPage = (allowEarlierVersion = false) =>
 			cloud &&
 			cursor !== null &&
@@ -1557,9 +1539,7 @@ export const addOptimisticSessionMessage = (
 	message: Message,
 ): boolean => {
 	const key = sessionTimelineResourceKey(ref);
-	// Cloud launches stage their durable chat before any transcript consumer is
-	// mounted. Materialize the canonical cell so their first optimistic message
-	// is not discarded during that handoff.
+
 	rendererClientBus.snapshot(key);
 	return rendererClientBus.overlay(key, {
 		initialData: emptyTimelineProjection(),

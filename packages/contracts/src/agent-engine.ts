@@ -2,7 +2,6 @@ import { Schema } from "effect";
 
 import { ProviderId } from "./agent.ts";
 
-/** Shared values persisted by session events and exposed by session snapshots. */
 const NonNegativeInt = Schema.Number.check(
 	Schema.isInt(),
 	Schema.makeFilter((value) =>

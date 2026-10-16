@@ -20,7 +20,6 @@ import {
 import { requireOrganizationMember } from "./organizations.ts";
 import { ApiStore } from "./store.ts";
 
-/** Shared mailbox providers: owning an address there proves nothing about a team. */
 const PUBLIC_EMAIL_DOMAINS = new Set([
 	"gmail.com",
 	"googlemail.com",
@@ -52,7 +51,6 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
 	"tutanota.com",
 ]);
 
-/** The team domain an account's verified email proves, if any. */
 const verifiedTeamDomain = Effect.fn("verifiedTeamDomain")(function* (
 	accountId: string,
 ) {
@@ -95,8 +93,7 @@ export const syncDomainAutoJoin = Effect.fn("syncDomainAutoJoin")(function* (
 			if (memberships.some((m) => m.status === "active")) return false;
 			if (!enrollment && memberships.length > 0) return false;
 			if (yield* organizationSeatsFull(organizationId, accountId)) return false;
-			// Record provenance first so a lost WorkOS response still lets an
-			// admin removal block rejoining.
+
 			const pending = {
 				organizationId,
 				accountId,
@@ -172,7 +169,7 @@ export const routeOrganizationDomainRequest = Effect.fn(
 		if (existing?.organizationId === input.organizationId)
 			return json({ ok: true });
 		if (existing) return yield* conflict("organization_domain_claimed");
-		// An admin can only add the domain their own verified email proves.
+
 		if ((yield* verifiedTeamDomain(accountId)) !== input.domain)
 			return yield* forbidden("organization_domain_unverified");
 		if (

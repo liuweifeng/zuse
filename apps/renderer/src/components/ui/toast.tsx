@@ -5,8 +5,6 @@ import { type ComponentProps, lazy, type ReactElement, Suspense } from "react";
 
 import { ErrorBoundary } from "./error-boundary.tsx";
 
-// Keep managers and providers eager so notifications emitted during startup are
-// retained while their visual surfaces load.
 const Toasts = lazy(() =>
 	import("./toast-surfaces.tsx").then((module) => ({ default: module.Toasts })),
 );

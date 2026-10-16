@@ -27,8 +27,7 @@ const fixture = () => {
 	const legacy = join(root, "legacy");
 	const persisted = join(root, "persisted");
 	const status = join(root, "status");
-	// Execute the production shell logic, relocating only the sandbox's absolute
-	// candidate paths. No fixture writes /var/lib, /home/zuse, or /srv/zuse.
+
 	const source = readFileSync(
 		new URL("../../../cloud-sandboxes/workspace-runtime.sh", import.meta.url),
 		"utf8",
@@ -185,8 +184,7 @@ test("bootstrap loads native snapshot paths before selecting and locking storage
 	);
 	const boundary = bootstrap.indexOf("\nworkspace=");
 	expect(boundary).toBeGreaterThan(0);
-	// Execute the real bootstrap prefix through lock acquisition. Later SSH,
-	// runtime, and repository actions are outside this storage-ordering test.
+
 	const prefix = bootstrap
 		.slice(0, boundary)
 		.replaceAll("/var/lib/zuse/workspace", f.status)
@@ -246,11 +244,12 @@ test("fresh bootstrap selects a delivered 0600 GitHub helper over the old execut
 		new URL("../../../cloud-sandboxes/workspace-bootstrap.sh", import.meta.url),
 		"utf8",
 	);
+	const helperStart = source.indexOf("github_auth=");
+	const helperEnd = source.indexOf("mkdir -p /home/zuse/.ssh", helperStart);
+	expect(helperStart).toBeGreaterThanOrEqual(0);
+	expect(helperEnd).toBeGreaterThan(helperStart);
 	const block = source
-		.slice(
-			source.indexOf("github_auth="),
-			source.indexOf("# The SSH host identity"),
-		)
+		.slice(helperStart, helperEnd)
 		.replaceAll("/var/lib/zuse/project-build/github-auth.sh", delivered)
 		.replaceAll("/usr/local/bin/zuse-github-auth", legacy)
 		.replaceAll("/home/zuse", home);
@@ -262,7 +261,6 @@ test("fresh bootstrap selects a delivered 0600 GitHub helper over the old execut
 	expect(readFileSync(capture, "utf8")).toBe(delivered);
 });
 
-/** Run the real bootstrap launch tail with a fake runtime and repository step. */
 const bootstrapHarness = (runtimeBehavior: "credentials" | "exit-early") => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-bootstrap-order-"));
 	roots.push(root);

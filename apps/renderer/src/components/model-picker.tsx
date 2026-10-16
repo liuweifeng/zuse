@@ -59,11 +59,7 @@ interface ModelPickerEntry {
 	modelId: string;
 	label: string;
 	badgeLabel?: string;
-	/**
-	 * When set, render a small context-window pill on this row. We only show
-	 * a pill when the model's `contextWindow` descriptor defaults to `"1m"`
-	 * — otherwise the chip would clutter every legacy 200k row.
-	 */
+
 	contextWindowLabel?: string;
 }
 
@@ -109,7 +105,6 @@ export function ModelPicker(props: ModelPickerProps) {
 	const providerEnvironmentId =
 		props.mode === "session" ? props.environmentId : null;
 
-	// Live values
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
@@ -153,7 +148,6 @@ export function ModelPicker(props: ModelPickerProps) {
 			? (defaultModelByProvider[providerId] ?? "default")
 			: props.currentModel);
 
-	// Setters
 	const selectSessionModel = useSessionsStore((s) => s.selectModel);
 	const setDefaultProviderAndModel = useSettingsStore(
 		(s) => s.setDefaultProviderAndModel,
@@ -202,16 +196,11 @@ export function ModelPicker(props: ModelPickerProps) {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [scope, setScope] = useState<Scope>("all");
-	// Inline feedback for failed picks. The session-mode handlers
-	// (setSessionProvider / setSessionModel) used to fire-
-	// and-forget, so a failed provider startup just closed the popover with no
-	// clue why.
-	// We now await them and surface the reason here.
+
 	const [pickError, setPickError] = useState<string | null>(null);
 	const [picking, setPicking] = useState(false);
 	const popupRef = useRef<HTMLDivElement | null>(null);
 
-	// Forward open state to parent so ChatComposer can block Enter submit
 	const onOpenChange = props.onOpenChange;
 	useEffect(() => {
 		onOpenChange?.(open);
@@ -222,7 +211,6 @@ export function ModelPicker(props: ModelPickerProps) {
 			void loadCloudAuth(true).catch(() => undefined);
 	}, [open, props.cloudProviderIds !== undefined]);
 
-	// Reset transient state every time the popover opens.
 	useEffect(() => {
 		if (open) {
 			setQuery("");
@@ -241,15 +229,11 @@ export function ModelPicker(props: ModelPickerProps) {
 		): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
 			const provider = catalog.providers[pid];
 			const selectedId = pid === providerId ? currentModel : null;
-			// Authoritative live inventories (Codex, Cursor, Kiro, OpenCode) mark
-			// curated models the account can't use as unavailable; keep the
-			// current selection visible so the user can see what they're on.
+
 			const available = (provider?.models ?? []).filter(
 				(m) => m.available || m.id === selectedId,
 			);
-			// OpenCode ids are `<provider>/<model>`. The provider manager lets the
-			// user hide connected providers / individual models from the picker;
-			// respect both here (missing entry ⇒ visible).
+
 			const visible =
 				pid === "opencode" || pid === "opencode2"
 					? available.filter((m) => {
@@ -305,9 +289,7 @@ export function ModelPicker(props: ModelPickerProps) {
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
 		return selectableCatalogProviderIds(catalog).filter((pid) => {
 			if (pid === "zuse" && !experimentalHarnessAllowed) return false;
-			// Settings must keep the selected provider's catalog editable even when
-			// its local runtime is signed out. Session pickers remain restricted to
-			// providers that can actually start a session.
+
 			if (
 				isDefault &&
 				pid === providerId &&
@@ -349,8 +331,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				);
 				const selectedHidden = pid === providerId && m.id === currentModel;
 				if (!visible && !selectedHidden) continue;
-				// The resolved catalog folds live context-window facts into the
-				// descriptor, so one lookup covers curated and live models alike.
+
 				let contextWindowLabel: string | undefined;
 				{
 					const descriptor = findModelDescriptor(catalog, pid, m.id);
@@ -363,8 +344,7 @@ export function ModelPicker(props: ModelPickerProps) {
 						ctxDescriptor !== undefined
 							? ctxDescriptor.options.find((o) => o.id === ctxDefault)?.label
 							: undefined;
-					// Only surface a pill when the default is the larger window —
-					// 200k-by-default rows would be noise.
+
 					if (ctxDefault === "1m") {
 						contextWindowLabel = ctxLabel ?? "1M";
 					}
@@ -476,8 +456,6 @@ export function ModelPicker(props: ModelPickerProps) {
 		return out;
 	}, [inGroupedView, modelGroups, flatMatches, uiMessage]);
 
-	// STABLE REFS — this is the fix so shortcuts actually work while the
-	// composer editor is focused and causing re-renders.
 	const shortcutTargetsRef = useRef(shortcutTargets);
 	const handlePickRef = useRef(handlePick);
 	useEffect(() => {
@@ -908,8 +886,7 @@ function ModelRow({
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
 			)}
-			{/* Name + optional provider subtitle. Chips live outside this column so
-			    two-line recent rows don't pull 1M / credit badges off the row center. */}
+
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="min-w-0 font-medium break-words leading-snug">
 					{entry.label}

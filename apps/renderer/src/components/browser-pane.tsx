@@ -79,21 +79,8 @@ import { AgentCursor, type AgentCursorIntent } from "./agent-cursor.tsx";
 import { BrowserSettingsMenu } from "./browser-settings-menu.tsx";
 import { BrowserShutter } from "./browser-shutter.tsx";
 
-/**
- * How long the cursor's CSS `transition: transform` lasts. Mirror of GLIDE_MS
- * inside `agent-cursor.tsx` — we wait this long after publishing a move
- * intent before firing the real CDP click so the visible click pulse lands at
- * the destination instead of somewhere along the path.
- */
 const CURSOR_GLIDE_MS = 350;
 
-/**
- * Duration of the JS-driven smooth scroll animation injected into the page.
- * Chosen for a clearly human pace — long enough that the user can read
- * what's passing, short enough that a multi-step scroll sequence doesn't
- * drag. The page-side rAF loop uses this exact value; the command waits
- * this long plus a small buffer before letting the next command run.
- */
 const SMOOTH_SCROLL_MS = 700;
 
 type BrowserViewportSetting = {
@@ -170,7 +157,6 @@ const annotationTools: ReadonlyArray<{
 	},
 ];
 
-/** A dev server row rendered by the empty state (see `PreviewServer`). */
 type PreviewServerInfo = DiscoveredPreview;
 
 const fallbackLocalServers: ReadonlyArray<PreviewServerInfo> = [
@@ -352,17 +338,6 @@ const compositeBrowserImage = async (
 };
 
 /**
- * In-app Browser tab — toolbar (back/forward/refresh/URL bar) + Electron
- * `<webview>`. The webview runs in its own process with `nodeIntegration:
- * false` by default so arbitrary user-entered URLs can't reach the host.
- *
- * State is held locally: switching away from the Browser tab keeps the
- * component mounted (RightPane uses `hidden` toggling), so URL bar value
- * and the underlying webview's history stay alive across tab switches.
- * Reloading the renderer resets the URL to blank — persistence is out of
- * scope for v1.
- */
-/**
  * Owns the single browser command subscription and the lazily-created
  * browser controller for every chat that has a Browser panel. Hidden
  * controllers stay mounted so switching chats preserves webview history and
@@ -445,20 +420,11 @@ export function BrowserPane({
 	}, [chatId, visible]);
 
 	const webviewRef = useRef<HTMLElement | null>(null);
-	// Ring buffer of console messages + page errors, captured per page load so
-	// `browser_console` can report them to the agent. Cleared on navigation.
+
 	const consoleBufferRef = useRef<string[]>([]);
-	// Which snapshot minted the refs the agent is currently holding, and (for
-	// the CDP a11y path) the ref → backendNodeId map actions resolve through.
-	// DOM-mode refs live in the page itself as `data-mz-ref` attributes, so the
-	// map stays empty there. Reset on navigation — stale refs must fail with
-	// "re-snapshot" rather than land on the wrong node of a new page.
+
 	const refStoreRef = useRef<RefStore>({ mode: "dom", map: new Map() });
-	// The embedded webview's webContents id — handed to main once we see
-	// `dom-ready` so main can attach Chrome DevTools Protocol and dispatch real
-	// input events. `null` until the first dom-ready; null disables CDP paths
-	// (Click/Type/Hover/Press fall back to the previous synthetic behaviour so
-	// we never silently no-op if the bridge somehow doesn't load).
+
 	const webContentsIdRef = useRef<number | null>(null);
 	const recordingRef = useRef(new BrowserRecordingController());
 	const actionTimelineRef = useRef<BrowserActionEvent[]>([]);
@@ -516,12 +482,9 @@ export function BrowserPane({
 	});
 	const viewportRef = useRef(viewport);
 	const loadingRef = useRef(isLoading);
-	// Bumped each time the agent takes a screenshot — drives the shutter flash.
+
 	const [shutterNonce, setShutterNonce] = useState(0);
-	// The current "intent" for the agent cursor overlay. Bumped on every
-	// ref-targeted action (click/hover/type/press-with-ref) so the user can see
-	// *where* the agent is acting. Stays at the last position once visible —
-	// mirrors how a real mouse cursor doesn't disappear between actions.
+
 	const [cursorIntent, setCursorIntent] = useState<AgentCursorIntent | null>(
 		null,
 	);
@@ -820,9 +783,7 @@ export function BrowserPane({
 			try {
 				setCanGoBack(wv.canGoBack());
 				setCanGoForward(wv.canGoForward());
-			} catch {
-				// webview not ready yet — events fire later
-			}
+			} catch {}
 		};
 		const registerForCdp = () => {
 			const browserBridge = window.zuse?.browser;
@@ -831,24 +792,17 @@ export function BrowserPane({
 			try {
 				id = wv.getWebContentsId();
 			} catch {
-				// Pre-Chromium-21 / non-Electron environment — leave id null.
 				return;
 			}
 			if (typeof id !== "number") return;
-			// Drop the ref while attach is in flight so an agent action that
-			// arrives between dom-ready and a successful attach can't race ahead
-			// and hit `Browser input bridge is not ready`. Only set it back after
-			// main confirms the debugger attached.
+
 			webContentsIdRef.current = null;
 			void browserBridge
 				.registerWebview(id)
 				.then((ok) => {
 					if (ok) webContentsIdRef.current = id;
 				})
-				.catch(() => {
-					// Attach failure is non-fatal — leave id null and CDP-using tools
-					// fall back to the synthetic path with a clean cursor animation.
-				});
+				.catch(() => {});
 		};
 		const onDidNavigate = (e: Event) => {
 			const ev = e as Event & { url?: string };
@@ -860,7 +814,7 @@ export function BrowserPane({
 		};
 		const onStart = () => {
 			setIsLoading(true);
-			// Fresh page — drop the previous page's console history and refs.
+
 			consoleBufferRef.current = [];
 			refStoreRef.current = { mode: "dom", map: new Map() };
 			setAnnotating(false);
@@ -930,9 +884,6 @@ export function BrowserPane({
 		};
 	}, []);
 
-	// Register this chat's browser with the single BrowserPaneHost dispatcher.
-	// The host routes command.sessionId → chatId, so background agents never
-	// drive whichever chat merely happens to be selected.
 	useEffect(() => {
 		const executeBrowserCommand = async (
 			req: BrowserCommandRequest,
@@ -1065,10 +1016,7 @@ export function BrowserPane({
 			if (!result.ok) action.error = result.error;
 			try {
 				await respondToBrowserCommand(chatRef.environmentId, result);
-			} catch {
-				// A failed respond just means this command times out server-side;
-				// the agent gets a clean "browser didn't respond" tool result.
-			}
+			} catch {}
 		};
 
 		return registerBrowserController(chatRef, executeBrowserCommand);
@@ -1081,10 +1029,7 @@ export function BrowserPane({
 		setUrl(resolved);
 		setInputValue(resolved);
 		const wv = webviewRef.current as WebviewElement | null;
-		// Setting `src` programmatically also works, but loadURL is more
-		// predictable when the same URL is re-entered (forces a reload). The
-		// rejection catch matters: a load superseded by a newer navigation
-		// rejects with ERR_ABORTED, which is routine, not an error.
+
 		if (wv !== null) {
 			void waitForBrowserSession().then(() => {
 				try {
@@ -1108,9 +1053,7 @@ export function BrowserPane({
 		try {
 			if (dir === "back" && wv.canGoBack()) wv.goBack();
 			if (dir === "forward" && wv.canGoForward()) wv.goForward();
-		} catch {
-			// ignore
-		}
+		} catch {}
 	};
 
 	const reload = () => {
@@ -1119,9 +1062,7 @@ export function BrowserPane({
 		try {
 			if (isLoading) wv.stop();
 			else wv.reload();
-		} catch {
-			// ignore
-		}
+		} catch {}
 	};
 
 	const changeViewportMode = (mode: BrowserViewportMode) => {
@@ -1544,9 +1485,7 @@ export function BrowserPane({
 					/>
 				</ToolbarButton>
 				<ToolbarButton
-					onClick={() => {
-						/* bookmark placeholder */
-					}}
+					onClick={() => {}}
 					disabled={true}
 					ariaLabel={uiMessage("common:bookmark")}
 				>
@@ -1853,11 +1792,6 @@ export function BrowserPane({
 					>
 						<webview
 							ref={webviewRef as unknown as React.RefObject<HTMLElement>}
-							// src is intentionally NOT bound to `url` state. All navigation is
-							// imperative (loadURL); if src tracked state, every navigation would
-							// fire twice — once from loadURL, once from React re-setting the
-							// attribute — and the loads abort each other (ERR_ABORTED -3, agent
-							// navigations intermittently reporting about:blank).
 							src="about:blank"
 							{...({
 								allowpopups: "true",
@@ -2140,11 +2074,6 @@ async function inspectBrowserTarget(
 	})()`);
 }
 
-/**
- * Drive the webview for one agent browser command and build the reply. Pure
- * helper (no React state beyond the passed-in setters) so the executor effect
- * stays small. Never throws — failures come back as `{ ok: false, error }`.
- */
 async function runBrowserCommand(
 	req: BrowserCommandRequest,
 	wv: WebviewElement | null,
@@ -2153,24 +2082,17 @@ async function runBrowserCommand(
 		setInputValue: (u: string) => void;
 		flashShutter: () => void;
 		readConsole: () => string;
-		/**
-		 * Glide the agent cursor toward (x, y) in webview-relative CSS pixels.
-		 * `click: true` also fires the click pulse once the glide settles.
-		 */
+
 		moveCursor: (
 			x: number,
 			y: number,
 			opts?: { click?: boolean; pressed?: boolean },
 		) => void;
-		/**
-		 * The embedded webview's webContents id once main has attached CDP.
-		 * `null` before the first `dom-ready`, or if the preload bridge isn't
-		 * available (non-Electron build of the renderer).
-		 */
+
 		getWebContentsId: () => number | null;
-		/** Current snapshot ref store (mode + ref → backendNodeId map). */
+
 		getRefStore: () => RefStore;
-		/** Replace the ref store after a fresh snapshot. */
+
 		setRefStore: (store: RefStore) => void;
 		getLoading: () => boolean;
 		getViewport: () => BrowserViewportSetting;
@@ -2284,12 +2206,9 @@ async function runBrowserCommand(
 				if (current === "" || current === "about:blank") {
 					return fail("No page is loaded — navigate to a URL first.");
 				}
-				// The tab was just made visible; give the compositor a beat to paint
-				// before capturing, otherwise the frame can come back blank.
+
 				await delay(180);
-				// Full-page goes through CDP (captures beyond the viewport); without
-				// the debugger we degrade to the viewport capture below rather than
-				// failing — a partial screenshot beats none.
+
 				if (command.fullPage === true) {
 					const wcId = hooks.getWebContentsId();
 					if (wcId !== null) {
@@ -2332,10 +2251,6 @@ async function runBrowserCommand(
 				});
 			}
 			case "Snapshot": {
-				// Prefer the a11y tree over CDP: full-document coverage, roles and
-				// states the DOM walk can't see, and ~an order of magnitude cheaper
-				// for the model than a screenshot. Any failure (debugger detached,
-				// experimental domain missing) falls back to the v1 DOM walk.
 				const wcId = hooks.getWebContentsId();
 				if (wcId !== null) {
 					const built = await buildA11ySnapshot(wcId);
@@ -2387,10 +2302,7 @@ async function runBrowserCommand(
 					return fail("Click requires a browser target or snapshot ref.");
 				const target = await resolveBrowserTarget(wv, wcId, store, spec);
 				if (!target.ok) return fail(target.error);
-				// Without CDP attached (preload bridge missing, attach failed) we
-				// can't deliver real input. Fall back to the synthetic click so the
-				// agent still makes progress — the cursor animation still runs so
-				// the user sees *where* the click landed.
+
 				hooks.moveCursor(target.cx, target.cy, { click: true });
 				const delivered =
 					wcId !== null &&
@@ -2430,19 +2342,12 @@ async function runBrowserCommand(
 					return fail("Type requires a browser target or snapshot ref.");
 				const target = await resolveBrowserTarget(wv, wcId, store, spec);
 				if (!target.ok) return fail(target.error);
-				// Glide the cursor to the field with a click pulse — visually frames
-				// the field activation. Real focus happens via CDP click (or .focus()
-				// when CDP isn't available) so the input shows its native focus ring.
+
 				hooks.moveCursor(target.cx, target.cy, { click: true });
 				if (wcId !== null) {
 					await dispatchClickViaCdp(wcId, target.cx, target.cy);
 				}
-				// FILL_FIELD_FN keeps v1's prototype-descriptor value setter: it
-				// bypasses React's value tracker — without it, React thinks the
-				// controlled value didn't change and the next render reverts the
-				// input. Switching to CDP's `Input.insertText` here would regress on
-				// common SPA login forms; the real click above already gave the
-				// field a true focus event.
+
 				const res =
 					spec._tag === "Ref"
 						? await callOnRefElement(wv, wcId, store, spec.ref, FILL_FIELD_FN, [
@@ -2468,8 +2373,6 @@ async function runBrowserCommand(
 				return resultFromJs(req.id, res, `Typed into ${target.label}.`);
 			}
 			case "Wait": {
-				// Bounded below the bridge's 30s deadline so a hopeless wait comes
-				// back as a clean tool error instead of a bridge timeout.
 				const timeoutMs = Math.min(
 					Math.max(command.timeoutMs ?? 10000, 100),
 					25000,
@@ -2560,11 +2463,7 @@ async function runBrowserCommand(
 					if (!isValidRef(command.ref)) return fail("Invalid element ref.");
 					const wcId = hooks.getWebContentsId();
 					const store = hooks.getRefStore();
-					// Use a JS-driven rAF animation instead of `scrollIntoView({behavior:
-					// 'smooth'})` — native smooth scroll varies wildly across pages (some
-					// override `scroll-behavior`, some cut the animation short on tiny
-					// deltas) and feels choppy. We control duration + easing here so the
-					// glide looks the same regardless of the page.
+
 					const res = await callOnRefElement(
 						wv,
 						wcId,
@@ -2579,9 +2478,7 @@ async function runBrowserCommand(
 					return resultFromJs(req.id, res, "Scrolled into view.");
 				}
 				const dir = command.direction ?? "down";
-				// Page-step (up/down) glides smoothly. Top/bottom stay instant — on a
-				// long page that's a ten-thousand-pixel scroll and animation just
-				// wastes the agent's wall-clock without helping the user follow.
+
 				const res = await runJsObject(wv, buildSmoothScrollDirJs(dir));
 				if (dir === "up" || dir === "down") {
 					await delay(SMOOTH_SCROLL_MS + 60);
@@ -2636,9 +2533,7 @@ async function runBrowserCommand(
 				if (hasRef && !isValidRef(command.ref as string)) {
 					return fail("Invalid element ref.");
 				}
-				// Focus the target first (so the keystroke lands on the right
-				// element). With CDP we do a real click → cursor moves to it; without
-				// CDP we just call `.focus()` via JS.
+
 				if (hasRef) {
 					const target = await resolveRefTarget(
 						wv,
@@ -2738,10 +2633,6 @@ async function runBrowserCommand(
 				});
 			}
 			case "Console": {
-				// Three sources merged: the webview's console-message events (v1),
-				// uncaught exceptions captured via CDP in main (v2), and — because a
-				// blocked page is the most confusing failure mode — a note when a JS
-				// dialog is sitting open.
 				const parts = [hooks.readConsole()];
 				const wcId = hooks.getWebContentsId();
 				const bridge = window.zuse?.browser;
@@ -2782,7 +2673,7 @@ async function runBrowserCommand(
 							}.`,
 						);
 					}
-					// Glide (no click pulse) so the user can follow field to field.
+
 					hooks.moveCursor(target.cx, target.cy);
 					const res = await callOnRefElement(
 						wv,
@@ -3044,26 +2935,13 @@ async function runBrowserCommand(
 	}
 }
 
-// Snapshot refs are minted as `e<number>` — validate before string-injecting
-// into a querySelector so a crafted ref can't break out of the selector.
 const isValidRef = (ref: string): boolean => /^e\d+$/.test(ref);
 
-/**
- * Which snapshot mode minted the refs the agent currently holds. `cdp` refs
- * resolve through backendNodeIds (a11y tree); `dom` refs live in the page as
- * `data-mz-ref` attributes (v1 fallback). A store from one page never
- * survives navigation — see the `did-start-loading` reset.
- */
 type RefStore = {
 	mode: "dom" | "cdp";
 	map: Map<string, { backendNodeId: number; label: string }>;
 };
 
-/**
- * One allowlisted CDP call through the preload bridge. Returns the raw CDP
- * result object, or null on any failure (bridge absent, method rejected,
- * debugger detached) — callers treat null as "fall back or fail soft".
- */
 async function cdpCall(
 	webContentsId: number,
 	method: string,
@@ -3079,13 +2957,6 @@ async function cdpCall(
 	}
 }
 
-/**
- * Resolve a snapshot ref to webview-relative CSS-pixel center coords + label,
- * scrolling the element into view first (so a click can't miss because the
- * page moved between snapshot and action). CDP mode goes backendNodeId →
- * `DOM.scrollIntoViewIfNeeded` → `DOM.getContentQuads`; DOM mode keeps the
- * v1 querySelector path. Null → ref is stale, tell the agent to re-snapshot.
- */
 async function resolveRefTarget(
 	wv: WebviewElement,
 	webContentsId: number | null,
@@ -3123,13 +2994,6 @@ async function resolveRefTarget(
 	return resolveRefRect(wv, ref);
 }
 
-/**
- * Run one of the `*_FN` page functions against a ref's element, whichever
- * mode minted the ref. CDP mode: `DOM.resolveNode` → `Runtime.callFunctionOn`
- * with the element as `this` (works for a11y refs that have no DOM marker).
- * DOM mode: the same function source is applied to the `data-mz-ref` element
- * via `executeJavaScript`. Both return the function's `{ ok, ... }` object.
- */
 async function callOnRefElement(
 	wv: WebviewElement,
 	webContentsId: number | null,
@@ -3185,12 +3049,6 @@ async function callOnRefElement(
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Page functions shared by both ref modes. Each runs with the target element
-// as `this` and returns a plain `{ ok, error?, detail?, text? }` object —
-// callOnRefElement handles the mode-specific delivery and serialization.
-// ---------------------------------------------------------------------------
-
 const CLICK_FN = `function () { this.click(); return { ok: true }; }`;
 
 const FOCUS_FN = `function () { if (typeof this.focus === 'function') this.focus(); return { ok: true }; }`;
@@ -3199,27 +3057,12 @@ const HOVER_FN = `function () { const el = this; const r = el.getBoundingClientR
 
 const READ_TEXT_FN = `function () { const el = this; return { ok: true, text: (el.innerText || el.textContent || '').replace(/\\n{3,}/g, '\\n\\n').trim().slice(0, 8000) }; }`;
 
-/**
- * Fill an input/textarea/select/contenteditable. Keeps v1's prototype-
- * descriptor value setter (bypasses React's value tracker so controlled
- * inputs don't revert on the next render) and folds in <select> matching so
- * FillForm can hit mixed forms with one function.
- */
 const FILL_FIELD_FN = `function (v) { const el = this; el.focus(); const tag = el.tagName; if (tag === 'SELECT') { const opt = Array.from(el.options).find((o) => o.value === v || (o.textContent || '').trim() === v); if (!opt) return { ok: false, error: 'No option matching "' + v + '".' }; el.value = opt.value; } else if (tag === 'INPUT' || tag === 'TEXTAREA') { const proto = tag === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype; const d = Object.getOwnPropertyDescriptor(proto, 'value'); if (d && d.set) d.set.call(el, v); else el.value = v; } else { el.textContent = v; } el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, detail: 'Filled ' + ((el.getAttribute('name') || el.getAttribute('aria-label') || el.tagName) || '') }; }`;
 
 const SELECT_OPTION_FN = `function (v) { const el = this; if (el.tagName !== 'SELECT') return { ok: false, error: 'That ref is not a <select> dropdown.' }; const opt = Array.from(el.options).find((o) => o.value === v || (o.textContent || '').trim() === v); if (!opt) return { ok: false, error: 'No option matching "' + v + '".' }; el.value = opt.value; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return { ok: true, detail: 'Selected ' + (opt.textContent || opt.value) }; }`;
 
 const ENTER_FN = `function () { const el = this; const o = { key: 'Enter', keyCode: 13, which: 13, bubbles: true }; el.dispatchEvent(new KeyboardEvent('keydown', o)); el.dispatchEvent(new KeyboardEvent('keyup', o)); const f = el.form; if (f && typeof f.requestSubmit === 'function') { try { f.requestSubmit(); } catch (e) {} } return { ok: true }; }`;
 
-/**
- * Resolve a snapshot ref to webview-relative pixel coords + a short label.
- * Scrolls the element into view first so the agent's click can't miss because
- * it scrolled out between snapshot and action. The label drives the human-
- * readable detail strings ("Clicked Sign in"); we read it page-side because
- * it's cheaper than copying the snapshot back across the bridge.
- *
- * Returns null when the ref no longer matches anything (snapshot is stale).
- */
 async function resolveRefRect(
 	wv: WebviewElement,
 	ref: string,
@@ -3248,11 +3091,6 @@ async function resolveRefRect(
 	}
 }
 
-/**
- * Send one CDP input action through the preload bridge. Returns false if
- * the bridge isn't present (renderer running outside Electron) or main
- * reports the dispatch failed (debugger not attached, webContents destroyed).
- */
 async function dispatchInput(
 	webContentsId: number,
 	action: BrowserInputAction,
@@ -3266,13 +3104,6 @@ async function dispatchInput(
 	}
 }
 
-/**
- * Move-then-press-then-release at (x, y). Waits the cursor's glide duration
- * between the move and the press so the visible click pulse lands at the
- * destination, not somewhere mid-glide. The two-event press/release pair is
- * what makes pages see a "real" click (vs `el.click()`, which fires only a
- * synthetic `click` event and skips mousedown/mouseup).
- */
 async function dispatchClickViaCdp(
 	webContentsId: number,
 	x: number,
@@ -3292,8 +3123,7 @@ async function dispatchClickViaCdp(
 		button: "left",
 		clickCount: 1,
 	});
-	// A few ms between press/release looks more natural to long-press
-	// detectors and matches real-mouse cadence. Most pages don't care.
+
 	await delay(15);
 	await dispatchInput(webContentsId, {
 		type: "mouseReleased",
@@ -3328,14 +3158,8 @@ async function dispatchKeyTap(
 	});
 }
 
-/**
- * Center the element in the viewport with the same rAF glide as directional
- * scroll. Self-contained (returns `{ ok }` on every path — the early-exit
- * for tiny deltas must not fall through to `undefined`).
- */
 const SMOOTH_SCROLL_REF_FN = `function () { const el = this; const r = el.getBoundingClientRect(); const targetY = Math.max(0, window.scrollY + r.top - (window.innerHeight - r.height) / 2); const start = window.scrollY; const dist = targetY - start; if (Math.abs(dist) < 2) { window.scrollTo(0, targetY); return { ok: true, detail: 'Already in view.' }; } const dur = ${SMOOTH_SCROLL_MS}; const t0 = performance.now(); const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2); function step(now) { const p = Math.min(1, (now - t0) / dur); window.scrollTo(0, start + dist * ease(p)); if (p < 1) requestAnimationFrame(step); } requestAnimationFrame(step); return { ok: true, detail: 'Scrolled element into view.' }; }`;
 
-/** Run page JS that returns a JSON string and parse it; null on any failure. */
 async function runJsObject(
 	wv: WebviewElement,
 	code: string,
@@ -3378,12 +3202,6 @@ const resultFromJs = (
 					: { error: res.error ?? "Action failed." }),
 			});
 
-// ---------------------------------------------------------------------------
-// Accessibility-tree snapshot (v2). Fetches the full AX tree over CDP and
-// renders the Playwright-style compact text the whole industry converged on:
-// one line per meaningful node, interactive elements carrying `ref=eN`.
-// ---------------------------------------------------------------------------
-
 type AxValue = { value?: unknown };
 type AxNode = {
 	nodeId: string;
@@ -3397,7 +3215,6 @@ type AxNode = {
 	parentId?: string;
 };
 
-/** Roles the agent can act on — these get a `ref` (needs a backing DOM node). */
 const INTERACTIVE_ROLES = new Set([
 	"link",
 	"button",
@@ -3423,7 +3240,6 @@ const INTERACTIVE_ROLES = new Set([
 	"disclosuretriangle",
 ]);
 
-/** Structural roles worth a line for context even without interactivity. */
 const STRUCTURAL_ROLES = new Set([
 	"heading",
 	"banner",
@@ -3463,12 +3279,6 @@ const STRUCTURAL_ROLES = new Set([
 const SNAPSHOT_MAX_LINES = 800;
 const SNAPSHOT_MAX_CHARS = 20000;
 
-/**
- * Fetch `Accessibility.getFullAXTree` and render the pruned text tree +
- * ref map. Null on any failure (domain unavailable, empty tree) so the
- * caller can fall back to the v1 DOM snapshot. The `DOM.getDocument` call
- * warms the DOM agent so later backendNodeId lookups resolve reliably.
- */
 async function buildA11ySnapshot(webContentsId: number): Promise<{
 	text: string;
 	map: Map<string, { backendNodeId: number; label: string }>;
@@ -3520,9 +3330,7 @@ async function buildA11ySnapshot(webContentsId: number): Promise<{
 				typeof node.backendDOMNodeId === "number";
 			const isText = lrole === "statictext" || lrole === "text";
 			const structural = STRUCTURAL_ROLES.has(lrole);
-			// Emit: everything actionable; structure with a name (or a heading —
-			// its text is its name); text that isn't just repeating its parent's
-			// label. Nameless generic containers are flattened away.
+
 			const emit = interactive
 				? true
 				: isText
@@ -3587,12 +3395,6 @@ async function buildA11ySnapshot(webContentsId: number): Promise<{
 	return { text: lines.join("\n"), map };
 }
 
-/**
- * Page-side DOM snapshot (v1 fallback — used when CDP isn't attached).
- * Clears stale refs, then tags every visible interactive element with a
- * fresh `data-mz-ref` and returns a compact JSON array
- * `[{ ref, role, name, value, tag }]` for the agent to target.
- */
 const SNAPSHOT_JS = `(() => {
   document.querySelectorAll('[data-mz-ref]').forEach((e) => e.removeAttribute('data-mz-ref'));
   const sel = 'a[href], button, input, textarea, select, [role="button"], [role="link"], [role="textbox"], [role="checkbox"], [role="tab"], [role="menuitem"], [onclick], [contenteditable="true"]';
@@ -3616,12 +3418,6 @@ const SNAPSHOT_JS = `(() => {
   return JSON.stringify(out);
 })()`;
 
-/**
- * Page-side rAF smooth-scroll loop. Cubic ease-in-out over a fixed duration
- * so the animation looks identical on every site — `window.scrollTo({behavior:
- * 'smooth'})` honors per-site `scroll-behavior` overrides and finishes faster
- * than the user can read what passed, which is why this exists.
- */
 const SMOOTH_SCROLL_BODY = `
   const start = window.scrollY;
   const dist = targetY - start;
@@ -3661,12 +3457,6 @@ const safeCall = <T,>(fn: () => T, fallback: T): T => {
 	}
 };
 
-/**
- * Load a URL and resolve once the page settles (or a 20s cap, so a hung load
- * can't pin the agent's command). Resolves on the first `did-stop-loading`
- * or `did-fail-load` after the load starts.
- */
-/** Wait for the next `did-stop-loading` (or a 15s cap) after a history nav. */
 function waitForStop(wv: WebviewElement): Promise<void> {
 	return new Promise<void>((resolve) => {
 		let done = false;
@@ -3823,7 +3613,7 @@ function BrowserEmptyState({
 	isRemote: boolean;
 	publicLoopbackSupported: boolean;
 	onOpenServer: (server: PreviewServerInfo) => Promise<void>;
-	/** Cloud workspaces only: mint and copy the public preview link. */
+
 	onCopyPublicLink: ((server: PreviewServerInfo) => Promise<void>) | null;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -4200,9 +3990,6 @@ function ToolbarButton({
 	);
 }
 
-// Best-effort URL normalization: a string with a scheme passes through,
-// bare host[:port][/path] becomes https://… (except localhost / IP literals
-// which default to http so dev servers work without typing the scheme).
 function resolveUrl(input: string): string | null {
 	const trimmed = input.trim();
 	if (trimmed === "") return null;
@@ -4227,17 +4014,12 @@ type WebviewElement = HTMLElement & {
 	canGoForward: () => boolean;
 	getURL: () => string;
 	getTitle: () => string;
-	/**
-	 * The embedded webContents id used by `webContents.fromId` on the main
-	 * side. Required so main can attach CDP and route real input events.
-	 */
+
 	getWebContentsId: () => number;
 	capturePage: () => Promise<NativeImageLike>;
 	executeJavaScript: (code: string) => Promise<unknown>;
 };
 
-// Minimal surface of Electron's NativeImage we touch from the renderer.
-// `toDataURL` keeps us off `Buffer`, which the sandboxed renderer lacks.
 type NativeImageLike = {
 	toDataURL: () => string;
 	toPNG: () => Uint8Array | ArrayBuffer;

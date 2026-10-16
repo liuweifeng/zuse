@@ -198,8 +198,6 @@ export function AddComputerDialog({
 	const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 	const [editedLabel, setEditedLabel] = useState("");
 
-	// Fresh dialog on every open: reset to the link view, prefill a deep link
-	// when one arrived, and make sure the catalog is hydrated.
 	useEffect(() => {
 		if (!open) return;
 		setView(initialView ?? "link");
@@ -213,8 +211,6 @@ export function AddComputerDialog({
 		void initialize().catch((cause) => setLinkError(errorText(cause)));
 	}, [open, initialLink, initialView, initialize]);
 
-	// SSH host discovery is advanced-mode only; its failures never leak into
-	// the pairing-link flow.
 	useEffect(() => {
 		if (!open || view !== "ssh") return;
 		let cancelled = false;

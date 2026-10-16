@@ -38,21 +38,18 @@ export const runBaselineTask = (
 ): RunResult => {
   const t0 = Date.now();
   const pattern = task.grepPattern ?? task.symbol ?? task.id;
-  // Mimic the `Bash` tool call signature in the agent transcript.
+
   const toolCalls: string[] = [];
   const toolCall = `Bash(rg --json -n -S '${pattern.replace(/'/g, "")}' .)`;
   toolCalls.push(toolCall);
   let inputChars = charsOf(toolCall);
 
-  // Use `git grep` — Bun subprocesses don't always inherit a full PATH,
-  // so ripgrep may be missing. `git grep` is guaranteed available wherever
-  // we're indexing and respects .gitignore by definition.
   const rg = spawnSync(
     "git",
     [
       "grep",
       "-n",
-      "-I", // skip binary files
+      "-I",
       "--max-count=20",
       "-e",
       pattern,
@@ -76,8 +73,7 @@ export const runBaselineTask = (
     const idx = line.indexOf(":");
     if (idx < 1) continue;
     const raw = line.slice(0, idx).trim();
-    // rg in `.` produces `./foo/bar:42:…` — normalize so dedup + the
-    // acceptableFiles check both work.
+
     const path = raw.replace(/^\.\//, "");
     if (path.length === 0) continue;
     if (path.endsWith(":")) continue;
@@ -92,15 +88,13 @@ export const runBaselineTask = (
       succeeded = true;
     }
     const abs = resolve(repoRoot, cp);
-    // The agent would `Read` the whole file. Mimic with a 400-line cap
-    // (matches Claude SDK Read default).
+
     const { content } = tryRead(abs, 400);
     const readCall = `Read(${cp})`;
     toolCalls.push(readCall);
     inputChars += charsOf(readCall) + charsOf(content);
   }
 
-  // Output: a single 1-line model response.
   const outputChars = 80;
   const totalChars = inputChars + outputChars;
 

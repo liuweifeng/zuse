@@ -130,9 +130,7 @@ const writeCache = (cachePath: string, data: unknown): void => {
 	try {
 		mkdirSync(dirname(cachePath), { recursive: true });
 		writeFileSync(cachePath, JSON.stringify(data));
-	} catch {
-		// Cache writes are best-effort; failure just means we refetch next time.
-	}
+	} catch {}
 };
 
 /**

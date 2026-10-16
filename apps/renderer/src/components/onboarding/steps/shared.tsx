@@ -2,8 +2,6 @@ export function StepHeader({
 	title,
 	subtitle,
 }: {
-	// `kicker` was removed — the StepIndicator dots already communicate position,
-	// and the extra uppercase line just pushed the meaningful content down.
 	title: string;
 	subtitle: string;
 }) {

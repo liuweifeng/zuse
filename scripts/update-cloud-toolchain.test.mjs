@@ -66,7 +66,6 @@ function fixture(t) {
 	};
 }
 
-// No network: the executable registry fixture provides candidate versions.
 import { chmodSync } from "node:fs";
 
 for (const version of ["1.0.0", "1.1.0", "0.9.0", "2.0.0-beta.1"]) {

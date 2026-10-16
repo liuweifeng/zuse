@@ -376,7 +376,7 @@ describe("organization access and lifecycle", () => {
 				enrollments++;
 				const entry = member("new-owner", "alice", "new-org", "admin");
 				members.push(entry);
-				// Another admin saves defaults while creation finishes enrolling its owner.
+
 				if (organization)
 					organization.metadata.zuse_chat_sharing =
 						'{"audience":"private","permission":"view"}';

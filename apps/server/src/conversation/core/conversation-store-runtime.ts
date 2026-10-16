@@ -210,9 +210,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 			turnIdOverride ?? (`turn_${crypto.randomUUID()}` as AgentTurnId);
 		return Effect.gen(function* () {
 			const startedAt = yield* currentTimestamp;
-			// The durable decider is the authority. After a restart (or if two
-			// callers race before the cache is populated), it returns the already
-			// running turn instead of letting this process invent a second one.
+
 			const resolvedTurnId = (yield* sessionDomain
 				.dispatch({
 					commandId: crypto.randomUUID(),
@@ -347,10 +345,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 
 	const goalState = yield* makeConversationGoalState();
 
-	// Single hub for chat-row changes (create / title / worktree binding).
-	// Chats are few and updates rare, so one project-filtered hub keeps it
-	// simple. `streamChatChanges` subscribes to this hub before reading its SQL
-	// snapshot, closing the backfill-to-live gap for orchestrated creates.
 	const chatChangesHub = yield* PubSub.unbounded<ChatChangeEvent>();
 	let chatRevision = 0;
 	const currentChatRevision = (): number => chatRevision;
@@ -362,9 +356,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 				change: { _tag: "change", chat },
 			});
 		});
-
-	// Chats whose LLM auto-name is in flight — cleared when the fiber ends.
-	// Chats that already received a successful LLM title this process lifetime.
 
 	const lookupSession = (
 		sessionId: SessionId,
@@ -379,9 +370,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 							: Effect.die(error),
 					),
 				);
-			// Hydrate the agents cache from the row on first sight after boot
-			// so resume / lazy-restart pick up the same roster the session was
-			// created with.
+
 			if (state.agents(sessionId) === undefined) {
 				const parsed = parseAgents(record.agentsJson);
 				if (parsed !== null && "agents" in parsed) {
@@ -441,9 +430,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					) {
 						return true;
 					}
-				} catch {
-					// Ignore malformed legacy rows; the normal schema path keeps JSON valid.
-				}
+				} catch {}
 			}
 			return false;
 		});
@@ -461,10 +448,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 		AttemptOwnershipConflict | ProviderSessionOwnershipConflict
 	> =>
 		Effect.gen(function* () {
-			// `idOverride` is the renderer-minted `clientMessageId` for an
-			// optimistic user message — reuse it so the live-stream echo carries
-			// the same id the renderer already inserted. All other persists
-			// (assistant/tool/error/goal) omit it and get a fresh server id.
 			const id = idOverride ?? MessageId.make(crypto.randomUUID());
 			const role = roleForContent(content);
 			const now = new Date();
@@ -614,11 +597,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 					),
 				);
 			}
-			// The transport may lose the first successful response. A retry carries
-			// the same command id but can mint a different local message/turn id, and
-			// can arrive after the original turn settled or a successor started. Read
-			// the original result from the receipt's events instead of assuming this
-			// attempt's ids were appended.
+
 			const projected = yield* sql<{
 				readonly id: string;
 				readonly turn_id: string | null;
@@ -649,10 +628,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 				);
 			}
 
-			// Keep the synchronous provider callback cache aligned to the durable
-			// head, but only if another task has not changed it while this query was
-			// in flight. In particular, replaying an old receipt must never clear or
-			// replace a successor turn.
 			const cachedTurnBeforeHeadRead = state.activeTurn(sessionId);
 			const heads = yield* sql<{ readonly id: string }>`
 				SELECT id FROM session_turns
@@ -669,12 +644,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 				}
 			});
 
-			// Reactor effects are receipt-backed as well. Running reconciliation on
-			// every retry closes the crash window between accepting the prompt and
-			// starting the provider without duplicating already-completed effects.
 			if (options.isWorkspaceReady?.() === false) {
-				// The receipt is already durable. Preparation must not hold the RPC
-				// response open, and its runner belongs to the runtime, not this socket.
 				yield* Effect.forkIn(runSessionReactors(sessionId), serviceScope, {
 					startImmediately: true,
 				});
@@ -728,14 +698,6 @@ export const makeConversationStoreRuntime = Effect.fn(
 				),
 			);
 
-	/**
-	 * Fork a daemon that consumes the provider's event stream for one
-	 * session and persists each renderable event into `messages` while
-	 * fanning a copy out to live subscribers. Lifecycle events drive
-	 * `sessions.status`. Failure paths are swallowed at the daemon
-	 * boundary — the alternative is a runaway error that bubbles into the
-	 * RPC server and tears down the whole transport.
-	 */
 	const dispatchProviderCommand = (
 		sessionId: SessionId,
 		command: SessionCommand,
@@ -888,9 +850,7 @@ export const makeConversationStoreRuntime = Effect.fn(
 						`[ConversationEvents] failed to reconcile durable question resolution for ${sessionId}/${itemId}`,
 					).pipe(
 						Effect.andThen(Effect.logError(cause)),
-						// A failed local callback must not remain attached but hidden behind
-						// an already-resolved timeline item. Closing forces the provider to
-						// reissue it on the next resume, when this receipt is retried.
+
 						Effect.andThen(
 							provider.close(sessionId).pipe(Effect.catch(() => Effect.void)),
 						),

@@ -89,7 +89,7 @@ try {
 			throw new Error(
 				"Stripe prices do not match the existing $40 + $0.01/overage-cent policy",
 			);
-		// Verify the entire cohort before the first remote mutation.
+
 		const plans = [];
 		for (const item of manifest) {
 			const current = await Effect.runPromise(
@@ -187,7 +187,6 @@ try {
 			process.stdout.write(`${JSON.stringify(plans, null, 2)}\n`);
 		else
 			for (const { item, params } of plans) {
-				// Commit intent before calling Stripe; retain it across interruption.
 				await db.query(
 					"INSERT INTO api_stripe_subscription_migrations (polar_subscription_id,account_id,customer_id,payload,first_attempt_at) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
 					[
@@ -239,8 +238,7 @@ try {
 					.then(({ rows }) => {
 						if (rows.length !== 1) throw new Error("Customer binding conflict");
 					});
-				// Canceling Polar renewals is a separate reviewed operator action. Never
-				// revoke an existing paid entitlement or erase its outstanding usage.
+
 				process.stdout.write(
 					`${JSON.stringify({ accountId: item.accountId, polarSubscriptionId: item.polarSubscriptionId, stripeScheduleId: scheduleId, renewalAtMs: item.renewalAtMs, nextAction: "verify-schedule-then-disable-polar-renewal" })}\n`,
 				);

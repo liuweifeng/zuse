@@ -253,9 +253,7 @@ export function createGhosttyBuildBootstrap({
 	const sourceRoot = path.join(cacheRoot, `source-${revision.slice(0, 12)}`);
 	const zigRoot = path.join(cacheRoot, zigRootName);
 	const cachedZigExecutable = path.join(zigRoot, "zig");
-	// Always execute Zig from the distribution reconstructed from the pinned,
-	// checksum-verified archive. A matching external executable does not prove
-	// that its adjacent standard library is genuine.
+
 	const zigExecutable = cachedZigExecutable;
 	const zigArchive = path.join(cacheRoot, zigDistribution);
 	const lockPath = path.join(cacheRoot, "ZUSE-BOOTSTRAP.lock");

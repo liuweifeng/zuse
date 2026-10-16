@@ -1,5 +1,3 @@
-// Runs after transactional Drizzle migrations, using a dedicated autocommit
-// connection. Never run this function inside BEGIN/COMMIT.
 export async function ensureBillingIndex(client) {
 	await client.query("SET lock_timeout = '5s'");
 	await client.query("SET statement_timeout = '10min'");
@@ -21,7 +19,7 @@ export async function ensureBillingIndex(client) {
 			const result = await client.query(
 				`SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('public.${index.name}')`,
 			);
-			// Interrupted concurrent builds leave invalid indexes. Drop and retry.
+
 			if (result.rows[0]?.indisvalid === false)
 				await client.query(`DROP INDEX CONCURRENTLY public.${index.name}`);
 			await client.query(

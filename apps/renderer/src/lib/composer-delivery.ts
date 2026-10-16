@@ -27,7 +27,6 @@ export const cloudComposerSubmissionBlocked = (
 	waitingMessages.length > 0 ||
 	pendingCommands.some((command) => command.kind === "messages.send");
 
-/** The user-actionable reason a blocked send waits, if it has one. */
 const blockedCommandLabel = (command: PendingCommand): string | null => {
 	const presentation = cloudFailurePresentation({
 		category: command.category,

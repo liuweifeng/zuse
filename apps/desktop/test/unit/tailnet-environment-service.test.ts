@@ -246,8 +246,6 @@ describe("Tailnet environment pairing", () => {
 		const ids = (profiles: ReadonlyArray<{ profileId: string }>) =>
 			profiles.map((item) => item.profileId).sort();
 
-		// A malformed timestamp would win a string comparison ("z" > "2"); it
-		// must sort as oldest instead.
 		expect(
 			ids(
 				supersededTailnetProfiles([
@@ -256,7 +254,7 @@ describe("Tailnet environment pairing", () => {
 				]),
 			),
 		).toEqual(["tailnet_broken"]);
-		// Equal timestamps keep the same profile regardless of input order.
+
 		const tied = [
 			profile("tailnet_a", "2026-09-01T00:00:00.000Z"),
 			profile("tailnet_b", "2026-09-01T00:00:00.000Z"),

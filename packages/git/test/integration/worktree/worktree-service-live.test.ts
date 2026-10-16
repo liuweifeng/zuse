@@ -196,7 +196,7 @@ describe("WorktreeServiceLive", () => {
 			"origin",
 			"https://github.com/acme/app.git",
 		);
-		// Git's URL rewrite lets the production HTTPS path fetch a local fixture.
+
 		git(
 			repositoryRoot,
 			"config",
@@ -275,7 +275,7 @@ describe("WorktreeServiceLive", () => {
 		};
 
 		const remoteTip = pushToOrigin("first.txt");
-		// A noisy Git transport must not block stderr behind stdout EOF.
+
 		const uploadPack = join(temporaryRoot, "noisy-upload-pack");
 		writeFileSync(
 			uploadPack,
