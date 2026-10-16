@@ -220,6 +220,7 @@ jobs:
     uses: ./.github/workflows/windows-tests.yml
     with:
       ref: ${{ needs.resolve.outputs.sha }}
+      release_metadata: true
 
   publish:
     needs: [resolve, build]

@@ -19,9 +19,11 @@ if (process.platform !== "linux" && process.platform !== "win32") {
 	throw new Error("Package content smoke supports Linux and Windows x64");
 }
 validateDesktopPackageEntries(entries, process.platform);
-validateDesktopMainBundle(
-	extractFile(archivePath, "dist-electron/main.cjs").toString("utf8"),
-);
+for (const entry of ["main", "engine-main"]) {
+	validateDesktopMainBundle(
+		extractFile(archivePath, `dist-electron/${entry}.cjs`).toString("utf8"),
+	);
+}
 const resourcesRoot = Path.dirname(archivePath);
 const cursorLicense = await readFile(
 	Path.join(resourcesRoot, "app/licenses/Cursor-SDK.LICENSE.md"),

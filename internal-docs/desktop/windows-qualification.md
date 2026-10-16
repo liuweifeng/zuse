@@ -4,6 +4,22 @@ Windows support is under qualification. A successful hosted CI job is not eviden
 that the installed application is reliable on a 4 GB laptop. Windows artifacts are
 not included in the public release publisher or update feeds yet.
 
+## Initial Windows evidence
+
+The [2026-10-16 compatibility run](https://github.com/swarajbachu/zuse/actions/runs/38936057456)
+at `16a76003` passed native rebuilding, Biome, type checks, focused regression
+tests, and two development launches. Its Windows build was `10.0.26100`, with
+16 GB RAM and four logical processors. Engine readiness took 23.5 and 13.4 seconds;
+both runs exited with code 0 and no observed surviving processes. Sampled summed
+development process working sets peaked at 3,693 and 3,760 MiB. These sums can
+double-count shared pages; they describe development tooling, not installed-app
+memory or a 4 GB qualification. The laptop's original crash remains unconfirmed.
+
+That run then stopped at the renderer bundle budget: 554.7 KiB versus the 501 KiB
+default-route limit. The renderer build plugin compared native Windows paths with
+Vite-normalized paths, preventing its existing schema test-data exclusion from
+matching. The Windows fix normalizes those paths and retains the original budget.
+
 ## Build and compatibility lane
 
 Use Node 24 and Bun 1.3.10 on native Windows x64, with Visual Studio C++ build tools

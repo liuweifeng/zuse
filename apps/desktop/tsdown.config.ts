@@ -128,6 +128,9 @@ export default defineConfig(
 		(target): UserConfig => ({
 			entry: { [target.name]: target.source },
 			format: "cjs",
+			// Keep external loads lazy, but resolve their CommonJS entrypoints.
+			// The packaged Cursor SDK deliberately excludes its duplicate ESM tree.
+			outputOptions: { dynamicImportInCjs: false },
 			outDir: process.env.ZUSE_DESKTOP_OUT_DIR?.trim() || "dist-electron",
 			outExtensions: () => ({ js: ".cjs" }),
 			sourcemap: true,

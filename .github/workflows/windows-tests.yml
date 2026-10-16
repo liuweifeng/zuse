@@ -19,6 +19,9 @@ on:
       ref:
         type: string
         required: true
+      release_metadata:
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-compatibility-${{ github.ref }}
@@ -36,6 +39,7 @@ jobs:
         shell: pwsh
     env:
       ZUSE_DISABLE_DEEP_ENERGY_PROFILE: '1'
+      RELEASE_METADATA: ${{ inputs.release_metadata && 'desktop-release.json' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,6 +73,15 @@ jobs:
           exit $LASTEXITCODE
       - name: Reproduce development startup and repeated shutdown
         run: node --import tsx tests/system/scripts/windows-dev-smoke.ts
+      - name: Download Preview release metadata
+        if: inputs.release_metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-metadata
+          path: ${{ github.workspace }}
+      - name: Set Preview candidate version
+        if: inputs.release_metadata
+        run: node scripts/desktop-release.mjs version
       - name: Build unsigned Windows candidate and validate native runtime
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
