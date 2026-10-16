@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { watch } from "node:fs";
 import {
 	access,
 	mkdir,
@@ -2418,7 +2417,8 @@ const writeCredentialsReady = Effect.tryPromise({
 	catch: () => fail("workspace_credentials_ready_failed"),
 });
 
-const waitForRepository = (
+/** Startup markers are durable state; they must not depend on inotify capacity. */
+export const waitForRepository = Effect.fn("waitForRepository")(function* (
 	onProgress: (
 		phase:
 			| "checking-repository"
@@ -2426,67 +2426,59 @@ const waitForRepository = (
 			| "fetching-repository"
 			| "preparing-credentials",
 	) => void,
-) =>
-	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
-		let settled = false;
-		let progress: string | undefined;
-		const finish = (
-			effect: Effect.Effect<void, CloudWorkspaceRuntimeError>,
-		) => {
-			if (settled) return;
-			settled = true;
-			watcher.close();
-			resume(effect);
-		};
-		const check = () => {
-			void readFile(
-				join(dirname(REPOSITORY_READY_MARKER), "repository-progress"),
-				"utf8",
-			).then(
-				(value) => {
-					const phase = value.trim();
-					if (settled || phase === progress) return;
+	readyMarker = REPOSITORY_READY_MARKER,
+) {
+	const directory = dirname(readyMarker);
+	const exists = async (path: string): Promise<boolean> => {
+		try {
+			await access(path);
+			return true;
+		} catch (cause) {
+			if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+				return false;
+			throw cause;
+		}
+	};
+	let progress: string | undefined;
+	while (true) {
+		const state = yield* Effect.tryPromise({
+			try: async () => {
+				if (await exists(join(directory, "failed"))) return { failed: true };
+				if (await exists(readyMarker)) return { ready: true };
+				const phase = await readFile(
+					join(directory, "repository-progress"),
+					"utf8",
+				).catch((cause: unknown) => {
 					if (
-						phase === "checking-repository" ||
-						phase === "switching-branch" ||
-						phase === "fetching-repository"
-					) {
-						progress = phase;
-						onProgress(phase);
-					}
-				},
-				() => undefined,
-			);
-			void access(join(dirname(REPOSITORY_READY_MARKER), "failed")).then(
-				() => finish(Effect.fail(fail("workspace_repository_ready_failed"))),
-				() =>
-					access(REPOSITORY_READY_MARKER).then(
-						() => finish(Effect.void),
-						() => undefined,
-					),
-			);
-		};
-		const watcher = watch(
-			dirname(REPOSITORY_READY_MARKER),
-			(event, filename) => {
-				if (
-					(event === "rename" || event === "change") &&
-					(filename === "repository-ready" ||
-						filename === "failed" ||
-						filename === "repository-progress")
-				)
-					check();
+						cause instanceof Error &&
+						"code" in cause &&
+						cause.code === "ENOENT"
+					)
+						return "";
+					throw cause;
+				});
+				return { phase: phase.trim() };
 			},
-		);
-		watcher.once("error", () =>
-			finish(Effect.fail(fail("workspace_repository_ready_failed"))),
-		);
-		check();
-		return Effect.sync(() => {
-			settled = true;
-			watcher.close();
+			catch: () => fail("workspace_repository_ready_failed"),
 		});
-	});
+		if (state.failed)
+			return yield* Effect.fail(fail("workspace_repository_ready_failed"));
+		if (state.ready) return;
+		const phase = state.phase;
+		if (
+			phase !== progress &&
+			(phase === "checking-repository" ||
+				phase === "switching-branch" ||
+				phase === "fetching-repository")
+		) {
+			progress = phase;
+			onProgress(phase);
+		}
+		// This loop exists only during preparation and is interrupted with the
+		// runtime scope. Sequential reads avoid overlapping filesystem probes.
+		yield* Effect.sleep("250 millis");
+	}
+});
 
 const recoverProviderAuthFailedSessions = Effect.fn(
 	"CloudWorkspaceRuntime.recoverProviderAuthFailedSessions",

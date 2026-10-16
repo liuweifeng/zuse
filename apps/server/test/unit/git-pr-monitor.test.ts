@@ -1,7 +1,7 @@
-import { FolderId, GitPrInfo } from "@zuse/contracts";
+import { FolderId, GitCommandError, GitPrInfo } from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
 import { Effect, Fiber, Layer, Stream } from "effect";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import {
 	emptyPrSnapshot,
 	GitPrMonitor,
@@ -57,7 +57,7 @@ test("rate-limit pauses never count toward eight read failures; explicit refresh
 			value = { ...value, prCapability: "offline" };
 			yield* monitor.refresh(folder, null);
 			expect(monitor.snapshot(folder, null, "feature").monitoringPaused).toBe(
-				true,
+				false,
 			);
 			value = { ...pr, prCapability: "available" };
 			yield* monitor.refresh(folder, null, true);
@@ -189,7 +189,7 @@ test("members monitoring the same checkout have independent status authority", a
 	);
 });
 
-test("initial thrown errors survive snapshot reads and pause after eight failures", async () => {
+test("initial thrown errors survive snapshot reads while retries back off", async () => {
 	await Effect.runPromise(
 		Effect.gen(function* () {
 			const monitor = yield* GitPrMonitor;
@@ -199,7 +199,7 @@ test("initial thrown errors survive snapshot reads and pause after eight failure
 					branch: "feature",
 					prCapability: "unknown",
 					stale: true,
-					monitoringPaused: i === 7,
+					monitoringPaused: false,
 				});
 			}
 			expect(monitor.snapshot(folder, null, "other")).toMatchObject({
@@ -217,4 +217,73 @@ test("initial thrown errors survive snapshot reads and pause after eight failure
 			),
 		),
 	);
+});
+
+test("local Git failures include an actionable explanation", async () => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const monitor = yield* GitPrMonitor;
+			yield* monitor.refresh(folder, null);
+			expect(monitor.snapshot(folder, null, "feature").observationError).toBe(
+				"GitHub actor context is unavailable. Reconnect this workspace.",
+			);
+		}).pipe(
+			Effect.provide(
+				layer(() =>
+					Effect.fail(
+						new GitCommandError({
+							folderId: folder,
+							reason:
+								"GitHub actor context is unavailable. Reconnect this workspace.",
+						}),
+					),
+				),
+			),
+		),
+	);
+});
+
+test("observation recovers automatically after eight failures without reconnecting", async () => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	let reads = 0;
+	let healthy = false;
+	try {
+		await Effect.runPromise(
+			Effect.gen(function* () {
+				const monitor = yield* GitPrMonitor;
+				yield* Effect.forkScoped(
+					Stream.runDrain(monitor.changes(folder, null, true)),
+				);
+				while (reads < 1) yield* Effect.yieldNow;
+				yield* monitor.refresh(folder, null);
+				while (reads < 8) yield* monitor.refresh(folder, null);
+				healthy = true;
+				vi.setSystemTime(Date.now() + 5 * 60_000 + 1);
+				yield* Effect.sleep("1100 millis");
+				expect(reads).toBe(9);
+				expect(monitor.snapshot(folder, null, "feature")).toMatchObject({
+					stale: false,
+					monitoringPaused: false,
+				});
+			}).pipe(
+				Effect.scoped,
+				Effect.provide(
+					layer(() =>
+						Effect.sync(() => {
+							reads++;
+							return healthy
+								? pr
+								: GitPrInfo.make({
+										...pr,
+										stale: true,
+										prCapability: "offline",
+									});
+						}),
+					),
+				),
+			),
+		);
+	} finally {
+		vi.useRealTimers();
+	}
 });

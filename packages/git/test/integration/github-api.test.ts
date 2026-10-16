@@ -8,7 +8,11 @@ import { Effect, Layer } from "effect";
 import { expect, test } from "vitest";
 import { GitService } from "../../src/git-service.ts";
 import { GitServiceLive } from "../../src/git-service-live.ts";
-import { GitHubClient, GitHubClientService } from "../../src/github-client.ts";
+import {
+	GitHubClient,
+	GitHubClientService,
+	GitHubRequestScope,
+} from "../../src/github-client.ts";
 import { RepositoryLocator } from "../../src/repository-locator.ts";
 import { pr } from "../github-fixture.ts";
 
@@ -98,7 +102,16 @@ test.each([
 		await Effect.runPromise(
 			Effect.gen(function* () {
 				const service = yield* GitService;
-				const initial = yield* service.prState(folder, null, { force: true });
+				const nativeScope = {
+					key: "actor-with-unavailable-native-helper",
+					body: "{}",
+					resolveEnv: async () => {
+						throw new Error("Native Git helper unavailable");
+					},
+				};
+				const initial = yield* service
+					.prState(folder, null, { force: true })
+					.pipe(Effect.provideService(GitHubRequestScope, nativeScope));
 				expect(initial).toMatchObject({
 					state: "open",
 					branch: "feature",
@@ -106,6 +119,15 @@ test.each([
 					checksComplete: true,
 					headSha: head,
 				});
+				// Network Git must still fail closed when the actor helper is unavailable.
+				const push = yield* Effect.result(
+					service
+						.push(folder, null)
+						.pipe(Effect.provideService(GitHubRequestScope, nativeScope)),
+				);
+				expect(push._tag).toBe("Failure");
+				// Establish a separate desktop snapshot for the remaining recovery checks.
+				yield* service.prState(folder, null, { force: true });
 				writeFileSync(join(cwd, "untracked.txt"), "keep local changes");
 				const merged = yield* service.mergePr(
 					folder,

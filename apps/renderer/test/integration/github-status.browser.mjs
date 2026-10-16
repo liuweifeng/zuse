@@ -76,6 +76,13 @@ if (process.env.ZUSE_STATUS_PROBE === "1") {
 		await page
 			.getByRole("button", { name: "GitHub offline · Cached status" })
 			.waitFor();
+		assert.equal(
+			await page
+				.locator('[data-state="Loading"] [data-slot="popover-trigger"]')
+				.count(),
+			0,
+		);
+		assert.equal(await page.locator(".animate-spin").count(), 0);
 		await page
 			.getByRole("button", { name: "GitHub offline · Cached status" })
 			.click();

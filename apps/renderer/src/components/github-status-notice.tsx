@@ -38,10 +38,8 @@ export function GitHubStatusNotice({
 		const timer = setTimeout(() => setClock((tick) => tick + 1), remaining);
 		return () => clearTimeout(timer);
 	}, [retryAtMs]);
-	if (!label) return null;
+	if (!label || key === "projects:github_observation_loading") return null;
 	const waiting = retryAtMs > Date.now();
-	const loading = key === "projects:github_observation_loading" || busy;
-	const Icon = loading ? RefreshCw : CircleAlert;
 	return (
 		<Popover>
 			<PopoverTrigger
@@ -49,10 +47,7 @@ export function GitHubStatusNotice({
 				title={label}
 				className={`flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-md text-[11px] text-muted-foreground hover:bg-muted/40 hover:text-foreground ${compact ? "w-7" : "px-1.5"}`}
 			>
-				<Icon
-					aria-hidden="true"
-					className={`size-3.5 ${loading ? "animate-spin" : ""}`}
-				/>
+				<CircleAlert aria-hidden="true" className="size-3.5" />
 				{compact ? null : message("chat:review_annotation_github")}
 			</PopoverTrigger>
 			<PopoverPopup align="end" className="w-64">
@@ -84,10 +79,7 @@ export function GitHubStatusNotice({
 								.finally(() => setBusy(false));
 						}}
 					>
-						<RefreshCw
-							aria-hidden="true"
-							className={`size-3 ${busy ? "animate-spin" : ""}`}
-						/>
+						<RefreshCw aria-hidden="true" className="size-3" />
 						{busy
 							? message("projects:github_observation_refreshing")
 							: message("common:refresh")}

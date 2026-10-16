@@ -248,6 +248,31 @@ describe("GitServiceLive", () => {
 		}
 	});
 
+	test("a clean branch with thousands of stale file stats lists only its committed edit", async () => {
+		mkdirSync(join(repositoryRoot, "many"));
+		for (let i = 0; i < 5120; i++) {
+			writeFileSync(join(repositoryRoot, "many", `${i}.txt`), "unchanged\n");
+		}
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "base files");
+		git(repositoryRoot, "switch", "-c", "feature");
+		writeFileSync(join(repositoryRoot, "README.md"), "real branch edit\n");
+		git(repositoryRoot, "commit", "-am", "edit readme");
+		const index = readFileSync(join(repositoryRoot, ".git", "index"));
+		const later = new Date(Date.now() + 2_000);
+		for (let i = 0; i < 5120; i++) {
+			utimesSync(join(repositoryRoot, "many", `${i}.txt`), later, later);
+		}
+		const snapshot = await run((service) =>
+			service.workspaceSnapshot(folderId),
+		);
+		expect(snapshot.status.dirtyFiles).toBe(0);
+		expect(snapshot.reviewSummary.files.map((file) => file.path)).toEqual([
+			"README.md",
+		]);
+		expect(readFileSync(join(repositoryRoot, ".git", "index"))).toEqual(index);
+	});
+
 	test("keeps committed and staged binary edits while excluding unchanged binary files", async () => {
 		for (const name of ["committed.pdf", "unchanged.pdf"]) {
 			writeFileSync(join(repositoryRoot, name), Buffer.from([0, 1, 2, 3]));
