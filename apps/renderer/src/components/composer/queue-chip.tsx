@@ -85,6 +85,7 @@ export function QueueChip({
 	};
 
 	const edit = () => {
+		if (runningNow) return;
 		useComposerBridge.getState().editQueuedMessage?.(item);
 	};
 
@@ -99,22 +100,29 @@ export function QueueChip({
 			title={text}
 			subtitle={subtitle}
 			className={cn("group text-[11px]", dragging && "bg-muted/55")}
-			draggable
+			draggable={!runningNow}
 			onDragStart={(event) => {
+				if (runningNow) {
+					event.preventDefault();
+					return;
+				}
 				event.dataTransfer.effectAllowed = "move";
 				onDragStart();
 			}}
 			onDragOver={(event) => {
 				event.preventDefault();
+				if (runningNow) return;
 				onDragOver();
 			}}
 			onDrop={(event) => {
 				event.preventDefault();
+				if (runningNow) return;
 				onDrop();
 			}}
 			leading={
 				<button
 					type="button"
+					disabled={runningNow}
 					className="-ml-1 flex size-4 shrink-0 cursor-grab items-center justify-center text-muted-foreground/60 opacity-0 hover:text-foreground group-hover:opacity-100 active:cursor-grabbing"
 					aria-label={uiMessage("chat:queue_chip_drag_queued_message")}
 				>
@@ -167,6 +175,7 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
+									disabled={runningNow}
 									onClick={edit}
 									className={trayPillActionClass}
 									aria-label={uiMessage("chat:queue_chip_edit_queued_message")}
@@ -182,7 +191,10 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
-									onClick={() => dropQueuedMessage(ref, item.id)}
+									disabled={runningNow}
+									onClick={() => {
+										if (!runningNow) dropQueuedMessage(ref, item.id);
+									}}
 									className={cn(trayPillActionClass, "hover:text-destructive")}
 									aria-label={uiMessage(
 										"chat:queue_chip_remove_queued_message",
@@ -199,6 +211,7 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
+									disabled={runningNow}
 									className={trayPillActionClass}
 									aria-label={uiMessage("chat:queue_chip_more_queue_actions")}
 								>
@@ -211,15 +224,19 @@ export function QueueChip({
 						/>
 						<MenuPopup align="end" sideOffset={4}>
 							<MenuItem
-								onClick={() => onMove(index, index - 1)}
-								disabled={index === 0}
+								onClick={() => {
+									if (!runningNow) onMove(index, index - 1);
+								}}
+								disabled={runningNow || index === 0}
 							>
 								<ChevronUp />
 								{uiMessage("chat:queue_chip_move_up")}
 							</MenuItem>
 							<MenuItem
-								onClick={() => onMove(index, index + 1)}
-								disabled={index >= count - 1}
+								onClick={() => {
+									if (!runningNow) onMove(index, index + 1);
+								}}
+								disabled={runningNow || index >= count - 1}
 							>
 								<ChevronDown />
 								{uiMessage("chat:queue_chip_move_down")}

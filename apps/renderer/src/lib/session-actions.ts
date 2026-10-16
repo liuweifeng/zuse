@@ -690,6 +690,7 @@ export const takeQueuedMessageForEdit = async (
 	}
 };
 
+/** Keeps queue controls locked while delivery is pending or scheduled for retry. */
 export const queuedMessageRunPending = (
 	view: Pick<ResourceView<unknown>, "pendingCommands" | "failedCommands">,
 	queueId: string,

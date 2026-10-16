@@ -79,6 +79,7 @@ export function resolveReadingPositionTarget(
 	return latest;
 }
 
+/** Waits for the saved turn before allowing fallback to a newer, already loaded turn. */
 export function isTimelineReadingPositionReady({
 	rows,
 	position,
