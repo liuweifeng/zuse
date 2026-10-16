@@ -163,6 +163,7 @@ import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
+import { imageBuildRuntime } from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
@@ -790,6 +791,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 					},
 		providerId: provider?.providerId,
 		runtimeVersion: active?.templateVersion ?? provider?.templateVersion,
+		runtime: active === undefined ? undefined : imageBuildRuntime(active),
 		buildMode: buildMode(statusBuild),
 		progressPhase: building?.state,
 		errorCode: latestFailedAfterActive ? latest.lastErrorCode : undefined,

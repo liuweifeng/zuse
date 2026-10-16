@@ -16,6 +16,7 @@
 		"./cloud-transcript": "./src/cloud-transcript.ts",
 		"./cloud-catalog": "./src/cloud-catalog.ts",
 		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
+		"./cloud-image-runtime": "./src/cloud-image-runtime.ts",
 		"./cloud-sandbox-providers": "./src/cloud-sandbox-providers.ts",
 		"./cloud-send-delivery": "./src/cloud-send-delivery.ts",
 		"./cloud-startup-presentation": "./src/cloud-startup-presentation.ts",

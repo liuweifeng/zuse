@@ -1,5 +1,6 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 import { reconcileCloudImages } from "./cloud-image-group.ts";
+import { catchUpCloudImageRuntimes } from "./cloud-runtime-catch-up.ts";
 import { setCloudSettingsUnbuiltChanges } from "./cloud-settings-guard.ts";
 import {
 	hasCloudEntitlement,
@@ -65,6 +66,7 @@ export const refreshCloudImages = async (): Promise<
 			),
 	);
 	for (const listener of listeners) listener(latestImages);
+	catchUpCloudImageRuntimes(latestImages);
 	if (results.some((result) => result.status === "rejected"))
 		throw new Error("Some cloud image statuses could not be refreshed.");
 	return latestImages;

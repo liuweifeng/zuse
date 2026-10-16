@@ -115,6 +115,7 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
+import { useCloudRuntimeUpdating } from "../lib/cloud-runtime-catch-up.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,
@@ -341,12 +342,16 @@ export function ChatComposer({
 					timeline: timeline.view,
 				});
 	const cloudMessageQueue = useCloudMessageQueue(timeline);
+	const cloudRuntimeUpdating = useCloudRuntimeUpdating(
+		cloudSummary?.workspaceId ?? null,
+	);
 	const durableCloudSendPending =
 		isCloudSession &&
-		cloudComposerSubmissionBlocked(
-			timeline.view.pendingCommands,
-			cloudMessageQueue.waiting,
-		);
+		(cloudRuntimeUpdating ||
+			cloudComposerSubmissionBlocked(
+				timeline.view.pendingCommands,
+				cloudMessageQueue.waiting,
+			));
 	const interrupting =
 		cloudActivity === null
 			? runtimeState === "stopping"

@@ -43,6 +43,7 @@ import {
 import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { cn } from "../../lib/utils.ts";
 import { useUiStore } from "../../store/ui.ts";
+import { CopyButton } from "../copy-button.tsx";
 import { useProviderErrorCopy } from "../provider-error-copy.ts";
 import { SwitchAccountAction } from "./switch-account-action.tsx";
 import {
@@ -82,6 +83,8 @@ export function ProviderErrorTray({
 	const dismissedId = useDismissedProviderErrors(
 		(state) => state.dismissedBySession[sessionKey] ?? null,
 	);
+	// Keyed by message so a new failure always starts collapsed.
+	const [expandedMessage, setExpandedMessage] = useState<string | null>(null);
 
 	const commandError = localError ?? pendingSessionCommandError(ref);
 	const transcriptError = latestTranscriptError(timeline.messages, providerId);
@@ -113,6 +116,10 @@ export function ProviderErrorTray({
 	const notice = describeProviderError(source.error, providerId, environmentId);
 	if (notice.kind === "sign-in") return null;
 	const copy = describe(notice, source.error);
+	// The row shows one truncated line; the full provider text stays readable
+	// and copyable for bug reports.
+	const fullMessage = source.error.message.trim();
+	const expanded = fullMessage.length > 0 && expandedMessage === fullMessage;
 
 	return (
 		<TrayPill
@@ -123,6 +130,26 @@ export function ProviderErrorTray({
 			icon={<HugeiconsIcon icon={noticeIcon(notice)} className="size-3.5" />}
 			title={copy.title}
 			subtitle={copy.detail.length > 0 ? copy.detail : undefined}
+			{...(fullMessage.length > 0
+				? {
+						onPillClick: () =>
+							setExpandedMessage(expanded ? null : fullMessage),
+						ariaExpanded: expanded,
+						ariaLabel: uiMessage(
+							expanded ? "common:collapse" : "common:expand",
+							{
+								title: copy.title,
+							},
+						),
+					}
+				: {})}
+			expanded={
+				expanded ? (
+					<p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground select-text">
+						{fullMessage}
+					</p>
+				) : undefined
+			}
 			actions={
 				<>
 					{notice.kind === "usage-limit" &&
@@ -148,6 +175,13 @@ export function ProviderErrorTray({
 						}
 						environmentId={environmentId}
 					/>
+					{fullMessage.length > 0 ? (
+						<CopyButton
+							text={fullMessage}
+							label={uiMessage("common:startup_surface_copy_details")}
+							className="size-7"
+						/>
+					) : null}
 					<button
 						type="button"
 						onClick={source.dismiss}
