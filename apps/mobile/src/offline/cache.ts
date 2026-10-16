@@ -8,6 +8,7 @@ import { commandFingerprint } from "@zuse/client-runtime/client-persistence";
 import {
 	CommandId,
 	EnvironmentId,
+	GitHubTarget,
 	MessageEnvelope,
 	ResolvedModelCatalog,
 	SessionStreamCursor,
@@ -29,6 +30,7 @@ export const clearOfflineCache = () => deletePath(ROOT);
 const downloadedPaths = (connectionRoot: string) => [
 	`${connectionRoot}/sessions.json`,
 	`${connectionRoot}/messages`,
+	`${connectionRoot}/github`,
 ];
 
 const pathSize = async (path: string): Promise<number> => {
@@ -411,3 +413,16 @@ export const deletePath = (path: string) =>
 		},
 		catch: (cause) => cause,
 	});
+
+const githubTargetPath = (connection: string, checkout: string) =>
+	`${ROOT}/${slugConnectionKey(connection)}/github/${slugConnectionKey(checkout)}.json`;
+export const readGithubTarget = (connection: string, checkout: string) =>
+	readJson(
+		githubTargetPath(connection, checkout),
+		Schema.decodeUnknownSync(GitHubTarget),
+	).pipe(Effect.catch(() => Effect.succeed(null)));
+export const writeGithubTarget = (
+	connection: string,
+	checkout: string,
+	target: GitHubTarget,
+) => writeJson(githubTargetPath(connection, checkout), target);

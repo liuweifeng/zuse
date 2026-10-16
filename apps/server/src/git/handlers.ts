@@ -1,10 +1,12 @@
 import {
 	GitCommandError,
+	GitHubObservationError,
 	GitWorkspaceSnapshot,
 	MemoizeRpcs,
 } from "@zuse/contracts";
 import { GitService } from "@zuse/git/git-service";
-import { GitHubRequestScope } from "@zuse/git/github-client";
+import { GitHubClient, GitHubRequestScope } from "@zuse/git/github-client";
+import { GitHubObservations } from "@zuse/git/github-observations";
 import { WorktreeNameAllocator } from "@zuse/git/worktree-ports";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Effect, Layer, Semaphore, Stream } from "effect";
@@ -120,12 +122,21 @@ const UserName = MemoizeRpcs.toLayerHandler("git.userName", ({ folderId }) =>
 
 const WorkspaceChanges = MemoizeRpcs.toLayerHandler(
 	"git.workspaceChanges",
-	({ folderId, worktreeId, visible }) =>
+	({ folderId, worktreeId, visible, localOnly }) =>
 		withGitHubActorStream(
 			Stream.unwrap(
-				Effect.map(GitPrMonitor, (monitor) =>
-					monitor.changes(folderId, worktreeId ?? null, visible ?? false),
-				),
+				Effect.gen(function* () {
+					if (localOnly)
+						return (yield* GitService).workspaceChanges(
+							folderId,
+							worktreeId ?? null,
+						);
+					return (yield* GitPrMonitor).changes(
+						folderId,
+						worktreeId ?? null,
+						visible ?? false,
+					);
+				}),
 			),
 		),
 );
@@ -174,6 +185,7 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 						scope?.key,
 					);
 					return GitWorkspaceSnapshot.make({
+						githubTarget: yield* svc.githubContext(folderId, selectedWorktree),
 						status,
 						changes,
 						reviewSummary: summary,
@@ -194,6 +206,38 @@ const WorkspaceSnapshot = MemoizeRpcs.toLayerHandler(
 
 const Origin = MemoizeRpcs.toLayerHandler("git.origin", ({ folderId }) =>
 	withGitHubActor(Effect.flatMap(GitService, (svc) => svc.origin(folderId))),
+);
+
+// This capability belongs to the desktop host, independent of the selected checkout.
+const desktopObservations = new GitHubObservations(new GitHubClient());
+const GitHubObserve = MemoizeRpcs.toLayerHandler("github.observe", (input) =>
+	Effect.tryPromise({
+		try: (signal) => {
+			if (process.env.ZUSE_CLOUD_WORKSPACE_ID)
+				throw new Error(
+					"Use the account GitHub connection for cloud workspaces.",
+				);
+			return desktopObservations.observe(
+				input.target,
+				{ ...input.target, cwd: process.cwd() },
+				signal,
+				input.details,
+				input.force,
+			);
+		},
+		catch: (error) =>
+			new GitHubObservationError({
+				reason:
+					error instanceof Error ? error.message : "GitHub request failed.",
+			}),
+	}),
+);
+const GitHubContext = MemoizeRpcs.toLayerHandler(
+	"git.githubContext",
+	({ folderId, worktreeId }) =>
+		Effect.flatMap(GitService, (git) =>
+			git.githubContext(folderId, worktreeId),
+		),
 );
 
 const PrState = MemoizeRpcs.toLayerHandler(
@@ -551,6 +595,8 @@ export const GitHandlersLayer = Layer.mergeAll(
 	WorkspaceSnapshot,
 	Origin,
 	PrState,
+	GitHubObserve,
+	GitHubContext,
 	PrNotificationClaim,
 	PrDetails,
 	CreateReviewComment,

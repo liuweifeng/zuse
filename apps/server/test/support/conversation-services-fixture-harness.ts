@@ -378,6 +378,7 @@ export const makeConversationFixtureRuntime = (
 	});
 
 	const StubGitLive = Layer.succeed(GitService, {
+		githubContext: () => Effect.succeed(null),
 		isRepository: () => Effect.succeed(true),
 		ignoredDirectories: () => Effect.succeed(new Set<string>()),
 		log: () => Effect.die("not used"),

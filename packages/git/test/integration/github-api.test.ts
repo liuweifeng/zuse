@@ -109,6 +109,28 @@ test.each([
 						throw new Error("Native Git helper unavailable");
 					},
 				};
+				const context = yield* service
+					.githubContext(folder, null)
+					.pipe(Effect.provideService(GitHubRequestScope, nativeScope));
+				expect(context).toEqual({
+					host: "github.com",
+					owner: "acme",
+					repo: "app",
+					branch: "feature",
+					headOwner: "acme",
+					headSha: head,
+				});
+				expect(client.metrics.graphql).toBe(0);
+				git("remote", "set-url", "origin", "https://github.com/alice/app.git");
+				git("remote", "add", "upstream", "https://github.com/acme/app.git");
+				expect(yield* service.githubContext(folder, null)).toMatchObject({
+					owner: "acme",
+					repo: "app",
+					headOwner: "alice",
+					branch: "feature",
+				});
+				git("remote", "remove", "upstream");
+				git("remote", "set-url", "origin", "https://github.com/acme/app.git");
 				const initial = yield* service
 					.prState(folder, null, { force: true })
 					.pipe(Effect.provideService(GitHubRequestScope, nativeScope));

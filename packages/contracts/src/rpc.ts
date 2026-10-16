@@ -87,6 +87,7 @@ import {
 import {
 	CloudGithubDisconnectRpc,
 	CloudGithubInstallRpc,
+	CloudGithubObserveRpc,
 	CloudGithubStatusRpc,
 } from "./cloud-github.ts";
 import {
@@ -181,6 +182,8 @@ import {
 	GitCreateReviewCommentRpc,
 	GitDiffRpc,
 	GitFixFailingChecksRpc,
+	GitHubContextRpc,
+	GitHubObserveRpc,
 	GitInitRpc,
 	GitIssueMarkdownRpc,
 	GitListIssuesRpc,
@@ -527,6 +530,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudAuthLoginCancelRpc,
 	CloudAuthDisconnectRpc,
 	CloudGithubStatusRpc,
+	CloudGithubObserveRpc,
 	CloudGithubInstallRpc,
 	CloudGithubDisconnectRpc,
 	CloudAccountImageStatusRpc,
@@ -642,6 +646,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitWorkspaceSnapshotRpc,
 	GitOriginRpc,
 	GitPrStateRpc,
+	GitHubObserveRpc,
+	GitHubContextRpc,
 	GitPrNotificationClaimRpc,
 	GitPrDetailsRpc,
 	GitListPrsRpc,

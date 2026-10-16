@@ -20,7 +20,7 @@ import { getControlPlaneRpcClient, type MemoizeClient } from "./rpc-client.ts";
 const runScopedControlPlane = async <Client, Result>(
 	getClient: (scope: WorkspaceScope) => Promise<Client>,
 	effect: (client: Client) => Effect.Effect<Result, unknown>,
-	options?: { readonly scope?: "account" },
+	options?: { readonly scope?: "account"; readonly signal?: AbortSignal },
 ): Promise<Result> => {
 	const account = rendererAccountSnapshot();
 	const workspace = rendererWorkspaceSnapshot();
@@ -30,7 +30,7 @@ const runScopedControlPlane = async <Client, Result>(
 	assertRendererAccountCurrent(account);
 	if (options?.scope !== "account") assertRendererWorkspaceCurrent(workspace);
 	try {
-		return await Effect.runPromise(effect(client));
+		return await Effect.runPromise(effect(client), { signal: options?.signal });
 	} finally {
 		assertRendererAccountCurrent(account);
 		if (options?.scope !== "account") assertRendererWorkspaceCurrent(workspace);
@@ -39,7 +39,7 @@ const runScopedControlPlane = async <Client, Result>(
 
 export const runControlPlane = <Result>(
 	effect: (client: MemoizeClient) => Effect.Effect<Result, unknown>,
-	options?: { readonly scope?: "account" },
+	options?: { readonly scope?: "account"; readonly signal?: AbortSignal },
 ): Promise<Result> =>
 	runScopedControlPlane(getControlPlaneRpcClient, effect, options);
 
@@ -47,7 +47,7 @@ export const runCloudControl = <Result>(
 	effect: (
 		client: Awaited<ReturnType<typeof getCloudControlClient>>,
 	) => Effect.Effect<Result, unknown>,
-	options?: { readonly scope?: "account" },
+	options?: { readonly scope?: "account"; readonly signal?: AbortSignal },
 ): Promise<Result> =>
 	runScopedControlPlane(
 		async (scope) =>

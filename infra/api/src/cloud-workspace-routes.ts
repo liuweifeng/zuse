@@ -36,6 +36,8 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	DEVICE_BRIDGE_VERSION,
 	DeviceBridgeAction,
+	GitHubObservation,
+	GitHubObserveRequest,
 	ProviderGrantRequest,
 	RuntimeAcknowledgment,
 	RuntimeMode,
@@ -201,6 +203,7 @@ import {
 	unauthorized,
 } from "./errors.ts";
 import { githubCallbackPageHeaders } from "./github-callback-page.ts";
+import { observeGithub } from "./github-observations.ts";
 import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
@@ -3619,6 +3622,19 @@ const routeCloudWorkspaceRequestWithAccess = (
 						)
 					: attachMailboxLifecycle(response, workspace);
 			}
+		}
+		if (method === "POST" && path === ApiPaths.cloudGithubObserve) {
+			const input = yield* decodeBody(GitHubObserveRequest, request);
+			const result = yield* observeGithub(
+				access.actor.accountId,
+				ownerId,
+				input,
+			);
+			return json(
+				yield* Schema.encodeEffect(GitHubObservation)(result).pipe(
+					Effect.orDie,
+				),
+			);
 		}
 		if (method === "GET" && path === "/v1/cloud/github") {
 			const installations = yield* refreshGithubConnections(ownerId);

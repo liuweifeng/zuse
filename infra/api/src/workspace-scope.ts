@@ -25,6 +25,7 @@ export const workspaceAccessForPath = (
 	if (/^\/v1\/plugins\/[^/]+\/mcp$/.test(path)) return "content";
 	if (
 		(method === "GET" && path === ApiPaths.cloudGithub) ||
+		(method === "POST" && path === ApiPaths.cloudGithubObserve) ||
 		(method === "POST" && path === ApiPaths.cloudGithubInstall)
 	)
 		return "content";
