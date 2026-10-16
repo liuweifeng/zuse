@@ -116,6 +116,8 @@ export class TranscriptScrollCoordinator {
 	}
 
 	prepareNewTurn(index: number, anchorOffset = TRANSCRIPT_TURN_INSET_PX): void {
+		this.cancelPending();
+		this.navigationGeneration += 1;
 		this.anchorIndex = index;
 		this.anchorOffset = anchorOffset;
 		this.anchorPositioned = false;
@@ -195,7 +197,9 @@ export class TranscriptScrollCoordinator {
 		}
 	}
 
-	readerTookControl(intent: "interaction" | "scroll" = "interaction"): void {
+	readerTookControl(
+		intent: "interaction" | "scroll" | "scroll-backward" = "interaction",
+	): void {
 		this.navigationGeneration += 1;
 		this.cancelPending();
 		this.anchorIndex = null;

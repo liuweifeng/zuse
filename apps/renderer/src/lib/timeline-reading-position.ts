@@ -19,6 +19,11 @@ export interface TimelineReadingPosition {
 }
 
 export interface TimelineReadingPositionStore {
+	/** Undefined means this position has not been read in this app session. */
+	readonly peek: (
+		ref: SessionRef,
+		namespace?: string,
+	) => TimelineReadingPosition | null | undefined;
 	readonly load: (
 		ref: SessionRef,
 		namespace?: string,

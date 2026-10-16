@@ -7,9 +7,23 @@ import { build } from "esbuild";
 const result = await build({
 	stdin: {
 		contents: `
-    import { sessionTimelineCache, rememberCloudTimelineHead } from './apps/renderer/src/lib/session-timeline-cache.ts';
+    import { sessionTimelineCache, rememberCloudTimelineHead, timelineReadingPositionStore } from './apps/renderer/src/lib/session-timeline-cache.ts';
     import { makeSessionTimelineCacheEntry } from './packages/client-runtime/src/session-timeline-cache.ts';
     import { SessionTimelineProjection, Message, QueueState } from '@zuse/contracts';
+    window.readingProbe = async () => {
+      const ref = { environmentId: 'reading-workspace', sessionId: 'reading-session' };
+      const position = { schemaVersion: 1, sessionId: ref.sessionId, userTurnMessageId: 'old-turn', viewportOffset: -50, updatedAt: 1 };
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== undefined) throw new Error('unexpected warm position');
+      await timelineReadingPositionStore.load(ref, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== null) throw new Error('empty position not remembered');
+      const saving = timelineReadingPositionStore.save(ref, position, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a')?.userTurnMessageId !== 'old-turn') throw new Error('warm position unavailable during save');
+      await saving;
+      if (timelineReadingPositionStore.peek(ref, 'account-b') !== undefined) throw new Error('position leaked across accounts');
+      await timelineReadingPositionStore.remove(ref, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== null) throw new Error('removed position remains cached');
+      return true;
+    };
     window.probe = async (seed = true) => {
       const ref = { environmentId: 'workspace-cache-repro', sessionId: 'session-cache-repro' };
       const cursor = { epoch: 'same-runtime', version: 10 };
@@ -108,6 +122,7 @@ try {
 		changedEnvironment: null,
 		changedBoundary: null,
 	};
+	assert.equal(await page.evaluate(() => window.readingProbe()), true);
 	assert.deepEqual(await page.evaluate(() => window.probe()), expected);
 	await page.reload();
 	await page.waitForFunction(() => typeof window.probe === "function");
