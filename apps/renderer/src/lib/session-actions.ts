@@ -111,6 +111,9 @@ export const classifyErrorContent = (
 	content: Readonly<{ message: string; kind?: AgentErrorKind }>,
 	providerId?: ProviderId,
 ): ChatError => {
+	const presentation = cloudFailurePresentation({ cause: content.message });
+	if (presentation?.kind === "github-auth-required")
+		return chatErrorForPresentation(presentation);
 	if (content.kind === "auth")
 		return providerId === undefined
 			? { kind: "auth", message: content.message }

@@ -84,7 +84,11 @@ export type ProviderErrorNotice =
 	| { readonly kind: "sign-in"; readonly providerId: ProviderId }
 	| { readonly kind: "auth"; readonly providerId?: ProviderId }
 	| { readonly kind: "network" }
-	| { readonly kind: "terminal"; readonly headline: string }
+	| {
+			readonly kind: "terminal";
+			readonly headline: string;
+			readonly category: Extract<ChatError, { kind: "terminal" }>["category"];
+	  }
 	| { readonly kind: "generic" };
 
 export const describeProviderError = (
@@ -116,7 +120,11 @@ export const describeProviderError = (
 		case "network":
 			return { kind: "network" };
 		case "terminal":
-			return { kind: "terminal", headline: error.headline };
+			return {
+				kind: "terminal",
+				headline: error.headline,
+				category: error.category,
+			};
 		case "generic":
 			return { kind: "generic" };
 	}

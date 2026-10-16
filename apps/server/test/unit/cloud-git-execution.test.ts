@@ -375,3 +375,36 @@ test.each([
 		await rm(directory, { recursive: true, force: true });
 	}
 });
+
+test.each([
+	["github_user_connection_required", "GitHub authentication required"],
+	[
+		"workspace_access_denied",
+		"You do not have permission to edit this workspace",
+	],
+	[
+		"github_execution_identity_invalid",
+		"GitHub execution identity could not be verified",
+	],
+	["unknown", "GitHub access could not be verified"],
+])("preserves the reason for GitHub credential refusal: %s", async (code, message) => {
+	const directory = await mkdtemp(join(tmpdir(), "git-refusal-"));
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => Response.json({ error: code }, { status: 403 })),
+	);
+	try {
+		await expect(
+			prepareGitExecution({
+				directory,
+				authHelperPath,
+				key: "test",
+				context: {},
+				credentialUrl: "https://api.test/token",
+				credential: "runtime",
+			}),
+		).rejects.toThrow(message);
+	} finally {
+		await rm(directory, { recursive: true, force: true });
+	}
+});
