@@ -702,3 +702,45 @@ it("accepts only live runtime evidence for the same cursor and attempt, without 
 	});
 	expect(cached.projection.runtimeObservation).toBeUndefined();
 });
+
+it.each([
+	5, 6,
+])("preserves loaded history only when reconnect replays the same cursor (version %s)", (version) => {
+	const messages = ["old", "recent"].map((id) =>
+		Message.make({
+			id: MessageId.make(id),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: id },
+			createdAt: new Date(0),
+		}),
+	);
+	const frame = {
+		kind: "snapshot" as const,
+		sessionId,
+		throughVersion: 5,
+		cursor: cursor("same", 5),
+		projection: SessionTimelineProjection.make({
+			...projection,
+			messages,
+			olderMessageSequence: null,
+		}),
+	};
+	const loaded = reduceSessionTimelineFrame(emptySessionTimelineState(), frame);
+	const replay = reduceSessionTimelineFrame(loaded, {
+		...frame,
+		throughVersion: version,
+		cursor: cursor("same", version),
+		projection: SessionTimelineProjection.make({
+			...projection,
+			messages: messages.slice(1),
+			olderMessageSequence: 1,
+		}),
+	});
+	expect(replay.projection?.messages).toEqual(
+		version === 5 ? messages : messages.slice(1),
+	);
+	expect(replay.projection?.olderMessageSequence).toBe(
+		version === 5 ? null : 1,
+	);
+});

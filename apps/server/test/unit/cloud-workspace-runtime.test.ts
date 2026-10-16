@@ -417,7 +417,7 @@ describe("cloud workspace bootstrap", () => {
 		expect(result._tag).toBe("Failure");
 	});
 
-	it("publishes bounded older transcript pages only for an urgent checkpoint", async () => {
+	it("keeps a complete checkpoint readable until the next history publication", async () => {
 		const sessionId = AgentSessionId.make("session-pages");
 		const older = Message.make({
 			id: MessageId.make("message-older"),
@@ -426,6 +426,7 @@ describe("cloud workspace bootstrap", () => {
 			content: { _tag: "assistant", text: "older durable output" },
 			createdAt: new Date(1),
 		});
+		let version = 9;
 		const headWrites: unknown[] = [];
 		const pageWrites: Array<{ readonly beforeSequence: number }> = [];
 		const publisher = await Effect.runPromise(
@@ -433,8 +434,8 @@ describe("cloud workspace bootstrap", () => {
 				workspaceId: "workspace-pages",
 				sessionId,
 				transcriptKey: bytesToBase64Url(new Uint8Array(32).fill(7)),
-				read: Effect.succeed({
-					cursor: { epoch: "epoch-pages", version: 9 },
+				read: Effect.sync(() => ({
+					cursor: { epoch: "epoch-pages", version },
 					projection: SessionTimelineProjection.make({
 						messages: [],
 						olderMessageSequence: 20,
@@ -445,7 +446,7 @@ describe("cloud workspace bootstrap", () => {
 						permissionMode: "default",
 						runtimeMode: "approval-required",
 					}),
-				}),
+				})),
 				readPage: () =>
 					Effect.succeed({
 						messages: [older],
@@ -469,6 +470,14 @@ describe("cloud workspace bootstrap", () => {
 			expect.objectContaining({ beforeSequence: 20 }),
 		]);
 		expect(await Effect.runPromise(publisher.flush)).toBe(false);
+		version = 10;
+		publisher.mark();
+		expect(await Effect.runPromise(publisher.flush)).toBe(false);
+		expect(headWrites).toHaveLength(1);
+		publisher.mark(true);
+		expect(await Effect.runPromise(publisher.flush)).toBe(true);
+		expect(headWrites).toHaveLength(2);
+		expect(pageWrites).toHaveLength(2);
 	});
 
 	it("publishes monotonic metadata and throttles only activity checkpoints", async () => {

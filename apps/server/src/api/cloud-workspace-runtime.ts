@@ -655,6 +655,12 @@ export const makeCloudRuntimeCheckpointPublisher = Effect.fn(
 		Effect.gen(function* () {
 			const pendingRevision = dirtyRevision;
 			const snapshot = yield* input.read;
+			// Page keys include the head version. Advancing only the head would make
+			// the last complete history unreachable to paused/cold readers. Keep
+			// that checkpoint until a settled turn requests a complete publication;
+			// active clients continue receiving the live stream.
+			if (!historyRequested && snapshot.projection.olderMessageSequence != null)
+				return false;
 			const publishHead = snapshot.cursor.version > acceptedVersion;
 			const publishHistory =
 				historyRequested && snapshot.cursor.version > historyVersion;

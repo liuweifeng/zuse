@@ -252,3 +252,19 @@ it("ignores settlement and releases from a replaced job, retaining current reade
 	expect(scheduler.status("chat")).toBe("idle");
 	releaseReader();
 });
+
+it.each([
+	"cache",
+	"checkpoint",
+])("loads paused %s history without waiting for a runtime connection", async (origin) => {
+	vi.useFakeTimers();
+	const h = historyHarness();
+	h.view.origin = origin;
+	h.view.sync = "cached";
+	h.view.connection = "dormant";
+	const load = vi.fn((_signal: AbortSignal) => new Promise<never>(() => {}));
+	const release = retainSessionHistory({ ...h, load });
+	await vi.advanceTimersByTimeAsync(16);
+	expect(load).toHaveBeenCalledTimes(1);
+	release();
+});
