@@ -672,7 +672,7 @@ export function BranchMenuButton({
 					) : (
 						<HugeiconsIcon
 							icon={ArrowDown01Icon}
-							className="size-3 shrink-0 text-muted-foreground"
+							className={`size-3 shrink-0 text-muted-foreground ${variant === "summary" ? "opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[popup-open]:opacity-100" : ""}`}
 						/>
 					)}
 				</MenuTrigger>

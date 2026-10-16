@@ -35,6 +35,7 @@ import {
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { PrStateIcon } from "./branch-icon.tsx";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
 import {
 	compactMenuItemClass,
@@ -166,10 +167,7 @@ export function PrActionsMenu({
 			) : (
 				<div className={className}>
 					<MenuTrigger className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
-						<HugeiconsIcon
-							icon={pr.isDraft ? GitPullRequestDraftIcon : GitPullRequestIcon}
-							className="size-4 shrink-0 text-muted-foreground"
-						/>
+						<PrStateIcon pr={pr} className="size-4" />
 						<span className="min-w-0 flex-1 truncate">
 							{details?.title ||
 								uiMessage("projects:github_pr_number", {

@@ -14,6 +14,7 @@ import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	GitBranchIcon,
+	GithubIcon,
 	GitPullRequestIcon,
 	RecordIcon,
 	Search01Icon,
@@ -332,19 +333,16 @@ export function CreateFromMenu({
 		>
 			<PopoverPrimitive.Trigger
 				className={cn(
-					"flex h-7 items-center gap-1.5 rounded-full border border-transparent bg-transparent px-2.5 text-[11px] text-foreground transition-colors",
+					"flex h-7 items-center gap-1 rounded-md border border-transparent bg-transparent px-1.5 text-muted-foreground transition-colors hover:text-foreground data-[popup-open]:text-foreground",
 					"hover:bg-accent data-[popup-open]:bg-accent",
 					folderId === null && "pointer-events-none opacity-50",
 				)}
 				aria-label={uiMessage(
 					"chat:create_from_menu_create_from_an_existing_pr_branch_or_issue_tracker_ticket",
 				)}
+				title={uiMessage("chat:create_from_menu_create_from")}
 			>
-				<HugeiconsIcon
-					icon={GitPullRequestIcon}
-					className="size-3.5 text-muted-foreground"
-				/>
-				<span>{uiMessage("chat:create_from_menu_create_from")}</span>
+				<HugeiconsIcon icon={GithubIcon} className="size-4" />
 				<ChevronDown className="size-3 opacity-60" />
 			</PopoverPrimitive.Trigger>
 			<PopoverPrimitive.Portal>

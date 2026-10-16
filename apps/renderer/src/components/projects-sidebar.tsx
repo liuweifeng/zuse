@@ -35,6 +35,7 @@ import {
 	type ProviderId,
 	type SessionId,
 	type SessionStatus,
+	type ThreadGoal,
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -43,12 +44,14 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
+	DashboardSpeedIcon,
 	Delete02Icon,
 	Edit01Icon,
 	Folder01Icon,
 	FolderAddIcon,
 	GitBranchIcon,
 	HelpCircleIcon,
+	Layers01Icon,
 	Login03Icon,
 	PencilIcon,
 	PuzzleIcon,
@@ -97,6 +100,10 @@ import { isHostedProduct } from "~/lib/hosted-session.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
+	type ChatPullRequest,
+	chatPullRequests,
+} from "../lib/chat-pull-requests.ts";
+import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
@@ -118,6 +125,7 @@ import {
 } from "../lib/cloud-workspaces.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import { formatElapsed } from "../lib/delegation-display.ts";
 import {
 	useEnvironmentShellCatalog,
 	useEnvironmentShellResource,
@@ -148,6 +156,11 @@ import {
 	environmentBelongsToWorkspace,
 	getLocalEnvironmentId,
 } from "../lib/rpc-client.ts";
+import { useSessionGoalResource } from "../lib/session-goal-client-bus.ts";
+import {
+	GOAL_STATUS_LABEL,
+	isGoalInProgress,
+} from "../lib/session-goal-presentation.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import {
 	useOptionalRendererSessionTimeline,
@@ -176,6 +189,7 @@ import {
 	environmentCatalogViewState,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
+import { gitStackKey, useGitStackStore } from "../store/git-stack.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { subscribeSessionTerminals } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -184,6 +198,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState, PrStateIcon } from "./branch-icon.tsx";
+import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { SlackIcon } from "./icons/slack-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
@@ -1849,6 +1864,8 @@ function SidebarChatHoverCard({
 	providerId,
 	model,
 	status,
+	goal = null,
+	pullRequests = [],
 }: {
 	readonly title: string;
 	readonly repository: string;
@@ -1857,12 +1874,26 @@ function SidebarChatHoverCard({
 	readonly providerId?: ProviderId | null;
 	readonly model?: string | null;
 	readonly status: string;
+	readonly goal?: ThreadGoal | null;
+	readonly pullRequests?: ReadonlyArray<ChatPullRequest>;
 }) {
 	return (
-		<div className="min-w-48 max-w-72 space-y-1 px-1 py-0.5 text-[12px]">
+		<div className="w-72 space-y-1 px-1 py-0.5 text-[12px]">
 			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
 				{title || uiMessage("projects:projects_sidebar_new_chat")}
 			</div>
+			{goal !== null ? (
+				<div className="mb-1.5 flex items-start gap-2">
+					<GoalGlyph goal={goal} />
+					<div className="min-w-0 flex-1">
+						<div className="text-[11px] text-muted-foreground tabular-nums">
+							{GOAL_STATUS_LABEL[goal.status]} ·{" "}
+							{formatElapsed(goal.timeUsedSeconds * 1000)}
+						</div>
+						<p className="line-clamp-2 text-foreground/80">{goal.objective}</p>
+					</div>
+				</div>
+			) : null}
 			<div className="flex items-center gap-2 text-muted-foreground">
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
 				<span className="truncate">{repository}</span>
@@ -1883,10 +1914,59 @@ function SidebarChatHoverCard({
 					<span className="truncate">{model || providerId}</span>
 				</div>
 			) : null}
+			{pullRequests.length > 0 ? (
+				<div className="-mx-1 border-t border-border/50 pt-1">
+					<ChatPullRequestList
+						pullRequests={pullRequests}
+						limit={6}
+						density="compact"
+					/>
+				</div>
+			) : null}
 			<div className="pt-0.5 text-[11px] text-muted-foreground/80">
 				{status}
 			</div>
 		</div>
+	);
+}
+
+/** The composer's goal mark, so a goal reads the same wherever it shows. */
+function GoalGlyph({ goal }: { readonly goal: ThreadGoal }) {
+	return (
+		<HugeiconsIcon
+			icon={DashboardSpeedIcon}
+			aria-label={GOAL_STATUS_LABEL[goal.status]}
+			className="size-3.5 shrink-0 text-muted-foreground"
+		/>
+	);
+}
+
+/** Layers + count when a chat has several linked PRs (a stack or chain). */
+function LinkedPullRequestsBadge({
+	pullRequests,
+}: {
+	readonly pullRequests: ReadonlyArray<ChatPullRequest>;
+}) {
+	const open = pullRequests.some((pr) => pr.state === "open");
+	const merged = pullRequests.every((pr) => pr.state === "merged");
+	return (
+		<span
+			className={cn(
+				"flex items-center gap-0.5 text-[10px] tabular-nums",
+				merged
+					? "text-purple-400"
+					: open
+						? "text-success"
+						: "text-muted-foreground",
+			)}
+		>
+			<HugeiconsIcon
+				icon={Layers01Icon}
+				className="size-3"
+				aria-hidden="true"
+			/>
+			{pullRequests.length}
+		</span>
 	);
 }
 
@@ -3133,6 +3213,38 @@ function ChatRow({
 		chatSessions[0] ??
 		null;
 	const hoverStatus = chatAttentionLabel(attentionState, creationPending);
+	const goalRef = useMemo(
+		() =>
+			hoverSession === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						sessionId: hoverSession.id,
+					},
+		[activeEnvironmentId, hoverSession?.id],
+	);
+	const goal = useSessionGoalResource(goalRef, "cache-only").data?.goal ?? null;
+	const activeGoal = isGoalInProgress(goal) ? goal : null;
+	const stackBranch = gitView.data?.status?.branch ?? prInfo?.branch ?? null;
+	const stack = useGitStackStore((state) =>
+		stackBranch === null || worktreePath === null
+			? null
+			: (state.entries[
+					gitStackKey(
+						{
+							environmentId: EnvironmentId.make(activeEnvironmentId),
+							folderId: chat.projectId,
+							worktreeId: chat.worktreeId,
+							rootPath: worktreePath,
+						},
+						stackBranch,
+					)
+				]?.result ?? null),
+	);
+	const pullRequests = useMemo(
+		() => chatPullRequests({ pr: prInfo, title: null, stack }),
+		[prInfo, stack],
+	);
 
 	const sessionBelongsToChat = useMemo(() => {
 		if (selectedSessionId === null) return false;
@@ -3302,6 +3414,8 @@ function ChatRow({
 													state={attentionState}
 													selected={isSelected}
 												/>
+											) : activeGoal !== null ? (
+												<GoalGlyph goal={activeGoal} />
 											) : (
 												<BranchIcon state={branchState} selected={isSelected} />
 											)}
@@ -3310,8 +3424,11 @@ function ChatRow({
 											text={chat.title}
 											className="pointer-events-none min-w-0 flex-1 truncate"
 										/>
-										<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
+										<div className="pointer-events-none relative flex h-4 min-w-16 shrink-0 items-center justify-end gap-1.5">
 											{remoteIndicator}
+											{pullRequests.length > 1 ? (
+												<LinkedPullRequestsBadge pullRequests={pullRequests} />
+											) : null}
 											<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 												{showDiff && stats !== null ? (
 													<>
@@ -3348,6 +3465,8 @@ function ChatRow({
 							providerId={hoverSession?.providerId}
 							model={hoverSession?.model}
 							status={hoverStatus}
+							goal={activeGoal}
+							pullRequests={pullRequests}
 						/>
 					</TooltipPopup>
 				</Tooltip>

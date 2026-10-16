@@ -3,6 +3,7 @@ import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
+import { GOAL_STATUS_LABEL } from "../lib/session-goal-presentation.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
 import "@zuse/i18n/english/common";
@@ -39,8 +40,10 @@ import {
 	MapsIcon,
 	PencilEdit01Icon,
 	PlayIcon,
+	PlusSignIcon,
 	SentIcon,
 	SquareIcon,
+	Tick02Icon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
@@ -56,6 +59,14 @@ import {
 	DialogTitle,
 } from "~/components/ui/dialog";
 import { Input } from "~/components/ui/input";
+import {
+	compactMenuItemClass,
+	Menu,
+	MenuItem,
+	MenuPopup,
+	MenuShortcut,
+	MenuTrigger,
+} from "~/components/ui/menu";
 import { Slider } from "~/components/ui/slider";
 import { Spinner } from "~/components/ui/spinner";
 import { Textarea } from "~/components/ui/textarea";
@@ -1356,6 +1367,11 @@ export function ChatComposer({
 		if (accepted) drainSent();
 		return accepted;
 	};
+	const planModeAvailable =
+		session.providerId !== "pi" &&
+		(findModelDescriptor(composerCatalog, session.providerId, session.model)
+			?.supportsPlanMode ??
+			true);
 	togglePlanModeRef.current = () => {
 		if (session.providerId === "pi") return;
 		void setPermissionMode(
@@ -1651,30 +1667,39 @@ export function ChatComposer({
 
 							<div className="relative z-10 flex items-center justify-between gap-2 px-2.5 pb-2 pt-1">
 								<div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-									<Tooltip>
-										<TooltipTrigger
-											render={
-												<button
-													type="button"
-													onClick={() => fileInputRef.current?.click()}
-													aria-label={uiMessage(
-														"chat:chat_composer_attach_files",
-													)}
-													className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-												>
-													<HugeiconsIcon
-														icon={AttachmentIcon}
-														className="size-3.5"
-													/>
-												</button>
-											}
+									<ComposerAddMenu
+										onAttach={() => fileInputRef.current?.click()}
+										plan={
+											planModeAvailable
+												? {
+														active: session.permissionMode === "plan",
+														toggle: () => togglePlanModeRef.current(),
+													}
+												: null
+										}
+										goal={
+											goalCapable
+												? {
+														active: goalSendMode,
+														toggle: () => setGoalSendMode((v) => !v),
+													}
+												: null
+										}
+									/>
+									{session.permissionMode === "plan" && planModeAvailable ? (
+										<PlanModeToggle
+											sessionId={sessionId}
+											environmentId={qualifiedEnvironmentId}
+											current={session.permissionMode}
 										/>
-										<TooltipPopup>
-											{uiMessage(
-												"chat:chat_composer_attach_files_paste_drop_also_work",
-											)}
-										</TooltipPopup>
-									</Tooltip>
+									) : null}
+									{goalSendMode && goalCapable ? (
+										<GoalModeToggle
+											active={goalSendMode}
+											hasGoal={goal !== null}
+											onClick={() => setGoalSendMode((v) => !v)}
+										/>
+									) : null}
 									<RuntimeAccessPicker
 										onChange={(mode) =>
 											void setRuntimeMode(
@@ -1688,26 +1713,6 @@ export function ChatComposer({
 										pending={runtimeModePending}
 										confirmed={isDraft || timeline.projection !== null}
 									/>
-									{goalCapable ? (
-										<GoalModeToggle
-											active={goalSendMode}
-											hasGoal={goal !== null}
-											onClick={() => setGoalSendMode((v) => !v)}
-										/>
-									) : null}
-									{session.providerId !== "pi" &&
-										(findModelDescriptor(
-											composerCatalog,
-											session.providerId,
-											session.model,
-										)?.supportsPlanMode ??
-											true) && (
-											<PlanModeToggle
-												sessionId={sessionId}
-												environmentId={qualifiedEnvironmentId}
-												current={session.permissionMode}
-											/>
-										)}
 									<PluginsPopover />
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
@@ -1966,6 +1971,68 @@ function FastModeToggle({
 	);
 }
 
+type ComposerModeToggle = {
+	readonly active: boolean;
+	readonly toggle: () => void;
+};
+
+/**
+ * The composer's "+" menu: attachments and the per-message modes (plan,
+ * goal) live here so the toolbar stays a row of icons. An active mode also
+ * shows as an icon chip beside it.
+ */
+function ComposerAddMenu({
+	onAttach,
+	plan,
+	goal,
+}: {
+	onAttach: () => void;
+	plan: ComposerModeToggle | null;
+	goal: ComposerModeToggle | null;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
+	const check = (
+		<HugeiconsIcon
+			icon={Tick02Icon}
+			className="ms-auto size-3.5 text-foreground"
+		/>
+	);
+	return (
+		<Menu modal={false}>
+			<MenuTrigger
+				aria-label={uiMessage("chat:chat_composer_add_menu")}
+				className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground outline-none hover:bg-muted/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 data-[popup-open]:bg-muted/60 data-[popup-open]:text-foreground"
+			>
+				<HugeiconsIcon icon={PlusSignIcon} className="size-4" />
+			</MenuTrigger>
+			<MenuPopup side="top" align="start" sideOffset={6} className="w-56">
+				<MenuItem className={compactMenuItemClass} onClick={onAttach}>
+					<HugeiconsIcon icon={AttachmentIcon} className="size-[15px]" />
+					{uiMessage("chat:chat_composer_attach_files")}
+				</MenuItem>
+				{plan !== null ? (
+					<MenuItem className={compactMenuItemClass} onClick={plan.toggle}>
+						<HugeiconsIcon icon={MapsIcon} className="size-[15px]" />
+						{uiMessage("chat:chat_composer_plan_mode")}
+						{plan.active ? (
+							check
+						) : (
+							<MenuShortcut>{uiMessage("chat:chat_composer_tab")}</MenuShortcut>
+						)}
+					</MenuItem>
+				) : null}
+				{goal !== null ? (
+					<MenuItem className={compactMenuItemClass} onClick={goal.toggle}>
+						<HugeiconsIcon icon={DashboardSpeedIcon} className="size-[15px]" />
+						{uiMessage("chat:chat_composer_set_goal")}
+						{goal.active ? check : null}
+					</MenuItem>
+				) : null}
+			</MenuPopup>
+		</Menu>
+	);
+}
+
 function PlanModeToggle({
 	sessionId,
 	environmentId,
@@ -2002,16 +2069,13 @@ function PlanModeToggle({
 						}
 						aria-pressed={isPlan}
 						className={cn(
-							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
+							"flex size-7 items-center justify-center rounded-md text-xs transition-colors",
 							isPlan
 								? "bg-rose-400/20 text-rose-700 hover:bg-rose-400/30 dark:bg-rose-300/15 dark:text-rose-200 dark:hover:bg-rose-300/25"
 								: "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
 						)}
 					>
 						<HugeiconsIcon icon={MapsIcon} className="size-3.5" />
-						{isPlan ? (
-							<span>{uiMessage("chat:chat_composer_plan")}</span>
-						) : null}
 					</button>
 				}
 			/>
@@ -2052,7 +2116,7 @@ function GoalModeToggle({
 						}
 						aria-pressed={active}
 						className={cn(
-							"flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs transition-colors",
+							"flex size-7 items-center justify-center rounded-md text-xs transition-colors",
 							active
 								? "bg-amber-400/20 text-amber-700 hover:bg-amber-400/30 dark:bg-amber-300/15 dark:text-amber-200 dark:hover:bg-amber-300/25"
 								: hasGoal
@@ -2061,9 +2125,6 @@ function GoalModeToggle({
 						)}
 					>
 						<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />
-						{active ? (
-							<span>{uiMessage("chat:chat_composer_goal")}</span>
-						) : null}
 					</button>
 				}
 			/>
@@ -2075,15 +2136,6 @@ function GoalModeToggle({
 		</Tooltip>
 	);
 }
-
-const GOAL_LABEL: Record<ThreadGoal["status"], string> = {
-	active: "Pursuing goal",
-	paused: "Goal paused",
-	budgetLimited: "Goal budget reached",
-	usageLimited: "Goal usage limited",
-	blocked: "Goal blocked",
-	complete: "Goal complete",
-};
 
 function GoalBanner({
 	goal,
@@ -2113,7 +2165,7 @@ function GoalBanner({
 			<TrayPill
 				flush
 				icon={<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />}
-				title={GOAL_LABEL[goal.status]}
+				title={GOAL_STATUS_LABEL[goal.status]}
 				subtitle={objective}
 				actions={
 					<>

@@ -1,4 +1,5 @@
 {
+	"show_more_count": "⟦Shôôw {{count}} môôrëë⟧",
 	"device_preferences_save_failed": "⟦Côôüüld nôôt sààvëë dëëvïïcëë prëëfëërëëncëës. Yôôüür prëëvïïôôüüs prëëfëërëëncëës ààrëë üünchààngëëd.⟧",
 	"workspace_settings_load_failed": "⟦Côôüüld nôôt lôôààd wôôrkspààcëë sëëttïïngs. Try ààgààïïn.⟧",
 	"workspace_settings_save_failed": "⟦Côôüüld nôôt sààvëë wôôrkspààcëë sëëttïïngs. Rëëfrëësh bëëfôôrëë tryïïng ààgààïïn.⟧",
