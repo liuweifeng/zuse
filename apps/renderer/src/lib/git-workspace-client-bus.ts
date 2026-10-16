@@ -50,7 +50,11 @@ import { Cause, Effect, Fiber, Stream } from "effect";
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toastManager } from "../components/ui/toast.tsx";
 import { classifyGit, type GitErrorTag } from "./git-rpc.ts";
-import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
+import {
+	isCloudWorkspaceEnvironment,
+	isRpcClientTransportError,
+	type MemoizeClient,
+} from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -680,6 +684,7 @@ const projectResourceView = <Source, Data>(
 });
 
 const reviewHydrationRequests = new Map<string, Promise<void>>();
+const prDetailsRequests = new Map<string, Promise<void>>();
 const manualRefreshes = new Map<string, Promise<void>>();
 
 const hydrateGitReviewPatches = (
@@ -768,6 +773,67 @@ const hydrateGitReviewPatches = (
 	return request;
 };
 
+const hydrateGitPrDetails = (
+	ref: ExecutionRef,
+	force = false,
+): Promise<void> => {
+	if (isCloudWorkspaceEnvironment(ref.environmentId)) return Promise.resolve();
+	const key = gitWorkspaceResourceKey(ref);
+	const bus = getRendererClientBus();
+	const initial = bus.snapshot(key);
+	const data = initial.data;
+	if (data === null || data.pr === null || data.pr.state === "none") {
+		return Promise.resolve();
+	}
+	const identity = pullRequestIdentity(data.pr);
+	if (!force && data.prDetailsIdentity === identity) return Promise.resolve();
+	const requestId = `${resourceKeyId(key)}:pr-details:${identity}:${data.revision}`;
+	const existing = prDetailsRequests.get(requestId);
+	if (existing !== undefined) return existing;
+	const client = bus.client(ref.environmentId);
+	if (client === null) return Promise.resolve();
+	bus.update(key, {
+		expectedGeneration: initial.generation,
+		expectedCursor: initial.cursor,
+		update: (current) =>
+			pullRequestIdentity(current.pr) !== identity
+				? undefined
+				: { ...current, prDetailsLoading: true },
+	});
+	const request = (async () => {
+		const result = await classifyGit(
+			client["git.prDetails"]({
+				folderId: ref.folderId,
+				worktreeId: ref.worktreeId,
+			}),
+		);
+		bus.update(key, {
+			expectedGeneration: initial.generation,
+			expectedCursor: initial.cursor,
+			persist: result.ok,
+			update: (current) => {
+				if (pullRequestIdentity(current.pr) !== identity) return undefined;
+				return result.ok
+					? {
+							...current,
+							prDetails: result.value,
+							prDetailsIdentity: identity,
+							prDetailsLoading: false,
+							prDetailsError: null,
+						}
+					: {
+							...current,
+							prDetailsIdentity: identity,
+							prDetailsLoading: false,
+							prDetailsError: { tag: result.tag, message: result.message },
+						};
+			},
+		});
+	})().finally(() => prDetailsRequests.delete(requestId));
+	prDetailsRequests.set(requestId, request);
+	return request;
+};
+
 export const useGitChangesResource = (
 	ref: ExecutionRef | null,
 	activation: ResourceActivation = "connect",
@@ -835,6 +901,13 @@ export const useGitPrDetailsResource = (
 		target ? rendererGitHubObserver.key(target) : "",
 	]);
 	const revision = view.data?.pr?.observedAt?.getTime();
+	const legacyIdentity = view.data?.pr
+		? pullRequestIdentity(view.data.pr)
+		: null;
+	useEffect(() => {
+		if (ref && !target && (activation === "connect" || activation === "wake"))
+			void hydrateGitPrDetails(ref);
+	}, [ref, target, activation, legacyIdentity]);
 	useEffect(() => {
 		if (!target || activation === "cache-only") return;
 		const controller = new AbortController();
@@ -882,7 +955,19 @@ export const refreshGitPrStatus = async (ref: ExecutionRef): Promise<void> => {
 		ref,
 		getRendererClientBus().snapshot(gitWorkspaceResourceKey(ref)).data,
 	);
-	if (target) await rendererGitHubObserver.refresh(target, true);
+	if (target) {
+		await rendererGitHubObserver.refresh(target, true);
+	} else if (!isCloudWorkspaceEnvironment(ref.environmentId)) {
+		const client = getRendererClientBus().client(ref.environmentId);
+		if (client)
+			await Effect.runPromise(
+				client["git.prState"]({
+					folderId: ref.folderId,
+					worktreeId: ref.worktreeId,
+				}),
+			).catch(() => undefined);
+		await refreshGitWorkspace(ref);
+	}
 };
 
 export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
@@ -897,6 +982,7 @@ export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
 			AbortSignal.timeout(30_000),
 			true,
 		);
+	else await hydrateGitPrDetails(ref, true);
 };
 
 export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
@@ -1036,6 +1122,7 @@ export const resetGitWorkspaceClientBusForTest = (): void => {
 	workspaceDriverStarts = 0;
 	workspaceRefreshers.clear();
 	reviewHydrationRequests.clear();
+	prDetailsRequests.clear();
 	rendererGitHubObserver.clear();
 	manualRefreshes.clear();
 	patchRequests.clear();

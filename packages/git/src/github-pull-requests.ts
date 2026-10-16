@@ -373,7 +373,11 @@ export class GitHubPullRequests {
 				if (
 					!headOwner &&
 					new Set(
-						candidates.map((pr) => pr.headRepositoryOwner?.login.toLowerCase()),
+						candidates.flatMap((pr) =>
+							pr.headRepositoryOwner
+								? [pr.headRepositoryOwner.login.toLowerCase()]
+								: [],
+						),
 					).size > 1
 				)
 					throw new GitHubFailure(

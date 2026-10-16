@@ -40,6 +40,12 @@ export const RpcAuthorizationLive = Layer.effect(
 				)
 					return yield* new RpcAccessDeniedError({ code: "access-denied" });
 				const identity = yield* Effect.serviceOption(ConnectionIdentity);
+				// Arbitrary repository reads may use the host's private GitHub credentials.
+				if (
+					rpc._tag === "github.observe" &&
+					(Option.isNone(identity) || identity.value.kind !== "local")
+				)
+					return yield* new RpcAccessDeniedError({ code: "access-denied" });
 				if (Option.isSome(identity) && identity.value.kind === "workspace")
 					return yield* authorizeWorkspaceRpc(
 						request,

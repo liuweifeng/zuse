@@ -1,4 +1,8 @@
-import type { GitHubObservation, GitHubObserveRequest } from "@zuse/contracts";
+import {
+	type GitHubObservation,
+	type GitHubObserveRequest,
+	GitPrInfo,
+} from "@zuse/contracts";
 import {
 	credentialFingerprint,
 	GitHubClient,
@@ -38,7 +42,7 @@ export const observeGithub = Effect.fn("observeGithub")(function* (
 					? "authentication"
 					: "offline";
 		return {
-			pr: {
+			pr: GitPrInfo.make({
 				...emptyPr(input.target.branch, kind),
 				observationError:
 					kind === "access"
@@ -46,17 +50,17 @@ export const observeGithub = Effect.fn("observeGithub")(function* (
 						: kind === "authentication"
 							? "Reconnect GitHub in settings to restore access."
 							: "GitHub access is temporarily unavailable. Retrying automatically.",
-			},
+			}),
 			details: null,
 		};
 	}
 	const credential = authorization.success;
 	if (!credential)
 		return {
-			pr: {
+			pr: GitPrInfo.make({
 				...emptyPr(input.target.branch, "authentication"),
 				observationError: "Connect your GitHub account in settings.",
-			},
+			}),
 			details: null,
 		};
 	// Reauthorize before cache lookup; never reuse another user's permissions.

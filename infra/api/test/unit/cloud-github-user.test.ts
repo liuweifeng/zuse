@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
-import { Layer, ManagedRuntime, Redacted } from "effect";
+import { GitHubObservation } from "@zuse/contracts";
+import { Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { openApiString, sealApiString } from "../../src/api-sealing.ts";
 import {
@@ -568,6 +569,7 @@ test("account GitHub observations work without a runtime and recheck installatio
 		const other = await runtime.runPromise(
 			observeGithub("different-user", "organization", input),
 		);
+		expect(() => Schema.encodeSync(GitHubObservation)(other)).not.toThrow();
 		expect(other.pr).toMatchObject({
 			state: "none",
 			prCapability: "authentication",
@@ -578,6 +580,7 @@ test("account GitHub observations work without a runtime and recheck installatio
 		const revoked = await runtime.runPromise(
 			observeGithub("independent-user", "organization", input),
 		);
+		expect(() => Schema.encodeSync(GitHubObservation)(revoked)).not.toThrow();
 		expect(revoked.pr.state).toBe("none");
 		expect(revoked.pr.stale).toBe(true);
 		expect(fetcher).toHaveBeenCalledTimes(calls);

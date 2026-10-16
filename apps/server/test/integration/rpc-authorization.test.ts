@@ -1,5 +1,6 @@
 import {
 	AuthState,
+	AuthTokenId,
 	ChatId,
 	ConnectHandshakeRpc,
 	FolderId,
@@ -115,6 +116,7 @@ const Rpcs = RpcGroup.make(
 		success: Schema.String,
 		stream: true,
 	}),
+	Rpc.make("github.observe", { success: Schema.String }),
 	Rpc.make("host.secret", { success: Schema.String }),
 	Rpc.make("machines.checkout", { success: Schema.String }),
 	Rpc.make("machines.billingPortal", { success: Schema.String }),
@@ -200,6 +202,7 @@ const handlers = Rpcs.toLayer({
 	"attachments.read": () => Effect.succeed("attachment"),
 	"session.events": () =>
 		Stream.concat(Stream.succeed("connected"), Stream.never),
+	"github.observe": () => Effect.succeed("desktop-credential-read"),
 	"host.secret": () => Effect.succeed("host-only"),
 });
 const makeClient = RpcTest.makeClient(Rpcs, { flatten: true });
@@ -264,6 +267,18 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 			),
 		);
 	try {
+		await expect(
+			call({ kind: "local" }, (client) => client("github.observe", undefined)),
+		).resolves.toBe("desktop-credential-read");
+		for (const identity of [
+			undefined,
+			{ kind: "paired", tokenId: AuthTokenId.make("paired"), deviceId: null },
+			{ kind: "account", subject: "owner", expiresAt: Date.now() + 60_000 },
+		] as const) {
+			await expect(
+				call(identity, (client) => client("github.observe", undefined)),
+			).rejects.toMatchObject({ code: "access-denied" });
+		}
 		await runtime.runPromise(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;

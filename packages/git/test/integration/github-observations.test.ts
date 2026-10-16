@@ -122,3 +122,53 @@ test("catalog fallback never chooses an arbitrary fork with the same branch name
 		client.close();
 	}
 });
+
+test("a deleted fork does not make the remaining known owner ambiguous", async () => {
+	const merged = pr({
+		state: "MERGED",
+		headRepositoryOwner: { login: "upstream" },
+	});
+	const client = new GitHubClient({
+		resolveCredential: async () => ({ token: "user" }),
+		fetch: async (_url, init) => {
+			const { query } = JSON.parse(String(init?.body));
+			return Response.json({
+				data: Object.fromEntries(
+					[...query.matchAll(/(p\d+):/g)].map((match) => [
+						match[1],
+						{
+							pullRequest: merged,
+							pullRequests: {
+								nodes: [
+									merged,
+									pr({ number: 2, state: "CLOSED", headRepositoryOwner: null }),
+								],
+								pageInfo: { hasNextPage: false, endCursor: null },
+							},
+						},
+					]),
+				),
+			});
+		},
+	});
+	try {
+		const target = {
+			host: "github.com",
+			owner: "upstream",
+			repo: "app",
+			branch: "feature",
+		};
+		const result = await new GitHubObservations(client).observe(
+			target,
+			{ ...target, cwd: "" },
+			new AbortController().signal,
+		);
+		expect(result.pr).toMatchObject({
+			number: 1,
+			state: "merged",
+			stale: false,
+		});
+	} finally {
+		client.close();
+	}
+});
