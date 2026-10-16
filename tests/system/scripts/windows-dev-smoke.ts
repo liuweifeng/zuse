@@ -54,6 +54,7 @@ for (let run = 0; run < 2; run++) {
 	const observed = new Set<number>();
 	let readyMs: number | undefined;
 	let success = false;
+	const cleanupErrors: string[] = [];
 	try {
 		while (Date.now() - startedAt < 180_000) {
 			if (failure) throw failure;
@@ -114,15 +115,27 @@ for (let run = 0; run < 2; run++) {
 		}
 		assert.equal(child.exitCode, 0);
 		success = true;
+	} catch (error) {
+		failure = error instanceof Error ? error : new Error(String(error));
+		throw error;
 	} finally {
-		const endpoint = await readEngineEndpoint(userData);
-		if (endpoint)
-			assert.equal(
-				await requestIdleEngineShutdown(endpoint, { userData }),
-				"stopped",
-			);
-		if (child.exitCode === null && child.signalCode === null)
-			await stopOwnedProcess(child);
+		// Preserve diagnostics even when cleanup itself fails.
+		try {
+			if (child.exitCode === null && child.signalCode === null)
+				await stopOwnedProcess(child);
+		} catch (error) {
+			cleanupErrors.push(String(error));
+		}
+		try {
+			const endpoint = await readEngineEndpoint(userData);
+			if (endpoint)
+				assert.equal(
+					await requestIdleEngineShutdown(endpoint, { userData }),
+					"stopped",
+				);
+		} catch (error) {
+			cleanupErrors.push(String(error));
+		}
 		const survivors = (await readProcessTreeSnapshot()).filter((item) =>
 			observed.has(item.pid),
 		);
@@ -134,7 +147,10 @@ for (let run = 0; run < 2; run++) {
 			resolve(output, `run-${run}.json`),
 			JSON.stringify(
 				{
-					success,
+					success:
+						success && cleanupErrors.length === 0 && survivors.length === 0,
+					error: failure?.message,
+					cleanupErrors,
 					readyMs,
 					exitCode: child.exitCode,
 					signal: child.signalCode,
@@ -149,6 +165,7 @@ for (let run = 0; run < 2; run++) {
 				2,
 			),
 		);
+		assert.deepEqual(cleanupErrors, [], "Development cleanup failed");
 		assert.deepEqual(
 			survivors,
 			[],
