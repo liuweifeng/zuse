@@ -1,5 +1,5 @@
 import type { EnvironmentId, Message, SessionId } from "@zuse/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
 	describeProviderError,
@@ -7,11 +7,40 @@ import {
 	parseRateLimit,
 	parseReconnectingStatus,
 } from "../../src/lib/provider-error-notice.ts";
-import { latestTranscriptError } from "../../src/lib/session-actions.ts";
+import {
+	classifyErrorContent,
+	latestTranscriptError,
+} from "../../src/lib/session-actions.ts";
+
+vi.mock("../../src/lib/rpc-client.ts", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../../src/lib/rpc-client.ts")>()),
+	isCloudWorkspaceEnvironment: (id: string) => id === "workspace_test",
+}));
 
 const local = "local" as EnvironmentId;
 
 describe("provider error notices", () => {
+	it.each([
+		undefined,
+		"auth",
+	] as const)("keeps GitHub failures separate from Codex (%s)", (kind) => {
+		const error = classifyErrorContent(
+			{
+				kind,
+				message:
+					"GitHub authentication required. Connect your own GitHub account in Cloud settings.",
+			},
+			"codex",
+		);
+		expect(
+			describeProviderError(error, "codex", "workspace_test" as EnvironmentId),
+		).toMatchObject({
+			kind: "terminal",
+			headline: "Connect GitHub to continue",
+			category: "github-auth-required",
+		});
+	});
+
 	it("parses usage limits with their reset time or period", () => {
 		expect(
 			parseRateLimit("You've hit your limit · resets 3pm (Europe/London)"),

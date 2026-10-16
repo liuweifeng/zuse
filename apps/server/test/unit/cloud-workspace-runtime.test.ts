@@ -2344,6 +2344,7 @@ describe("launch agent credential readiness", () => {
 
 	it("keeps waiting through a refused grant until that provider recovers", async () => {
 		const recovery = new ProviderReadySignal();
+		const onUnavailable = vi.fn(() => Effect.void);
 		let attempts = 0;
 		const prepare = vi.fn((_: string) => {
 			attempts += 1;
@@ -2358,11 +2359,13 @@ describe("launch agent credential readiness", () => {
 					agent: "claude",
 					prepare,
 					recovery,
+					onUnavailable,
 				}).pipe(Effect.forkScoped({ startImmediately: true }));
 				yield* TestClock.adjust("10 minutes");
 
 				expect(fiber.pollUnsafe()).toBeUndefined();
 				expect(attempts).toBe(1);
+				expect(onUnavailable).toHaveBeenCalledWith("claude");
 
 				recovery.notify("cursor");
 				yield* TestClock.adjust("1 second");

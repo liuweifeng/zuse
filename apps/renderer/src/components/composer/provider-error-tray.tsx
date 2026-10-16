@@ -323,6 +323,19 @@ function ProviderErrorActions({
 		case "generic":
 			return <RetryAction onRetry={onRetry} />;
 		case "terminal":
+			return notice.category === "github-auth-required" ? (
+				<>
+					<button
+						type="button"
+						className={trayPillTextActionClass}
+						onClick={() => openSettings("machines")}
+					>
+						<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
+						{uiMessage("chat:message_row_open_cloud_authentication")}
+					</button>
+					<RetryAction onRetry={onRetry} />
+				</>
+			) : null;
 		case "sign-in":
 			return null;
 	}
