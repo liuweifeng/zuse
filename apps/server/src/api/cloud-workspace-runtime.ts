@@ -3278,7 +3278,13 @@ export const makeCloudWorkspaceRuntimeLayer = (
 										undefined,
 										undefined,
 										preparationPhase,
-									).pipe(Effect.ignore);
+									).pipe(
+										Effect.retry({
+											schedule: cloudRuntimeRetrySchedule,
+											times: 3,
+										}),
+										Effect.ignore,
+									);
 								}),
 						}).pipe(
 							Effect.tapError((error) =>
