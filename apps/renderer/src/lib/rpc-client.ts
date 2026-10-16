@@ -27,6 +27,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { reportCloudRuntimeConnection } from "./cloud-runtime-updating.ts";
 import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
@@ -316,13 +317,11 @@ const makeRendererRpcSession = async (
 			allowLegacyCloud: legacyCloud,
 			onNegotiated: (version) => {
 				negotiatedVersion = version;
-				if (legacyCloud) {
-					const workspaceId = options.key.slice("workspace:".length);
-					void import("./cloud-runtime-catch-up.ts").then(
-						({ noteCloudRuntimeConnection }) =>
-							noteCloudRuntimeConnection(workspaceId, version),
+				if (legacyCloud)
+					reportCloudRuntimeConnection(
+						options.key.slice("workspace:".length),
+						version,
 					);
-				}
 			},
 			perform: (client, hello) => client["connect.handshake"](hello),
 		}),

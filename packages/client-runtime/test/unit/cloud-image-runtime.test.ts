@@ -1,6 +1,6 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
-import { cloudImageRuntimeBehind } from "../../src/cloud-sandbox-providers.ts";
+import { cloudImageRuntimeBehind } from "../../src/cloud-image-runtime.ts";
 
 const image = (patch: Partial<CloudAccountImage>): CloudAccountImage => ({
 	providerId: "boxd",

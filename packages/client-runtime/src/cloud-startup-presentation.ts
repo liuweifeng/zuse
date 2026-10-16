@@ -10,6 +10,13 @@ export const cloudWorkspaceIsStarting = (summary: CloudChatSummary): boolean =>
 	summary.startupPhase === "authenticating-runtime" ||
 	summary.startupPhase === "syncing-repository";
 
+/** The durable lifecycle is still replacing this workspace's runtime. */
+export const cloudRuntimeUpdateInProgress = (statusCode: string): boolean =>
+	statusCode === "update-queued" ||
+	statusCode === "runtime-update-preparing" ||
+	statusCode === "runtime-update-rolling-back" ||
+	statusCode === "resume-runtime-restarting";
+
 /** Setup step index (0 workspace, 1 runtime, 2 repository, 3 agent). */
 export const cloudPhaseRank: Record<CloudStartupPhase, number> = {
 	allocating: 0,

@@ -1,14 +1,26 @@
-import { cloudImageRuntimeBehind } from "@zuse/client-runtime/cloud-sandbox-providers";
+import { cloudImageRuntimeBehind } from "@zuse/client-runtime/cloud-image-runtime";
+import { cloudRuntimeUpdateInProgress } from "@zuse/client-runtime/cloud-startup-presentation";
+import { getClientProtocolVersion } from "@zuse/client-runtime/connection";
+import { supportsStartedProviderHandoff } from "@zuse/client-runtime/legacy-runtime-capabilities";
 import {
 	type CloudAccountImage,
 	EnvironmentId,
+	type SessionId,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
-import { useSyncExternalStore } from "react";
 import { useChatsStore } from "../store/chats.ts";
-import { cloudSummaryForChat } from "./cloud-workspace-catalog.ts";
+import {
+	clearCloudRuntimeUpdating,
+	setCloudRuntimeUpdating,
+	subscribeCloudRuntimeConnections,
+} from "./cloud-runtime-updating.ts";
+import {
+	cloudSummaryForChat,
+	cloudSummaryForEnvironment,
+} from "./cloud-workspace-catalog.ts";
 import { runCloudControl } from "./control-plane-client.ts";
 import { environmentShellSnapshot } from "./environment-shell-client-bus.ts";
+import { RuntimeUpdatePendingError } from "./pending-model-change.ts";
 import { subscribeRendererAccount } from "./renderer-account.ts";
 import { getRpcClient } from "./rpc-client.ts";
 import {
@@ -25,62 +37,29 @@ import {
  */
 
 const requestedImages = new Set<string>();
-const workspaceUpdates = new Map<
-	string,
-	{ readonly client: object; readonly request: Promise<boolean> }
->();
-const waitingWorkspaces = new Map<string, ReturnType<typeof setTimeout>>();
-
-// The server abandons an update after its preparation and activation
-// deadlines (10 + 2 minutes); sending must not stay blocked past that.
-const RUNTIME_UPDATE_SEND_BLOCK_MS = 12 * 60_000;
-const updatingWorkspaces = new Map<string, ReturnType<typeof setTimeout>>();
-const updatingListeners = new Set<() => void>();
-
-const setRuntimeUpdating = (workspaceId: string, updating: boolean) => {
-	const timer = updatingWorkspaces.get(workspaceId);
-	if (timer === undefined && !updating) return;
-	clearTimeout(timer);
-	if (updating)
-		updatingWorkspaces.set(
-			workspaceId,
-			setTimeout(
-				() => setRuntimeUpdating(workspaceId, false),
-				RUNTIME_UPDATE_SEND_BLOCK_MS,
-			),
-		);
-	else updatingWorkspaces.delete(workspaceId);
-	for (const listener of updatingListeners) listener();
+type WorkspaceUpdate = {
+	readonly client: object;
+	request: Promise<boolean>;
+	settled: boolean;
 };
+const workspaceUpdates = new Map<string, WorkspaceUpdate>();
 
-const subscribeRuntimeUpdating = (listener: () => void) => {
-	updatingListeners.add(listener);
-	return () => {
-		updatingListeners.delete(listener);
-	};
-};
-
-/**
- * True from an update request until the workspace reconnects. A turn sent
- * meanwhile would start on the old runtime and be cut off by its restart.
- */
-export const cloudRuntimeUpdating = (workspaceId: string): boolean =>
-	updatingWorkspaces.has(workspaceId);
-
-export const useCloudRuntimeUpdating = (workspaceId: string | null): boolean =>
-	useSyncExternalStore(
-		subscribeRuntimeUpdating,
-		() => workspaceId !== null && cloudRuntimeUpdating(workspaceId),
-		() => false,
+// A reconnect alone says nothing about the update: the request may still be in
+// flight, or the server may still be preparing or restarting the runtime.
+const updateInProgress = (workspaceId: string, update: WorkspaceUpdate) =>
+	!update.settled ||
+	cloudRuntimeUpdateInProgress(
+		cloudSummaryForEnvironment(workspaceId)?.statusCode ?? "",
 	);
+
+const waitingWorkspaces = new Map<string, ReturnType<typeof setTimeout>>();
 
 subscribeRendererAccount(() => {
 	requestedImages.clear();
 	workspaceUpdates.clear();
 	for (const timer of waitingWorkspaces.values()) clearTimeout(timer);
 	waitingWorkspaces.clear();
-	for (const workspaceId of [...updatingWorkspaces.keys()])
-		setRuntimeUpdating(workspaceId, false);
+	clearCloudRuntimeUpdating();
 });
 
 export const catchUpCloudImageRuntimes = (
@@ -109,10 +88,10 @@ export const catchUpCloudImageRuntimes = (
 };
 
 /**
- * Replaces the runtime of a connected workspace. Resolves true while that
- * connection's update is in flight. A rejected request may be retried, but an
- * accepted one is never repeated: a later connection that is still legacy
- * means the update rolled back, and it must not loop.
+ * Replaces the runtime of a connected workspace. Resolves true while the
+ * update is in progress. A rejected request may be retried, but an accepted
+ * one is never repeated: a later legacy connection after the update finished
+ * means it rolled back, and it must not loop.
  */
 export const requestCloudWorkspaceRuntimeUpdate = (
 	workspaceId: string,
@@ -122,26 +101,58 @@ export const requestCloudWorkspaceRuntimeUpdate = (
 	if (existing !== undefined)
 		return existing.client === client
 			? existing.request
-			: Promise.resolve(false);
+			: Promise.resolve(updateInProgress(workspaceId, existing));
 	// Block sending before the request leaves: the restart can follow quickly.
-	setRuntimeUpdating(workspaceId, true);
-	const request = runCloudControl((control) =>
+	setCloudRuntimeUpdating(workspaceId, true);
+	const update: WorkspaceUpdate = {
+		client,
+		request: Promise.resolve(false),
+		settled: false,
+	};
+	update.request = runCloudControl((control) =>
 		control["cloud.workspaces.update"]({
 			workspaceId,
 			commandId: `runtime-catch-up:${crypto.randomUUID()}`,
 		}),
 	).then(
-		() => true,
 		() => {
-			if (workspaceUpdates.get(workspaceId)?.request === request) {
+			update.settled = true;
+			return true;
+		},
+		() => {
+			update.settled = true;
+			if (workspaceUpdates.get(workspaceId) === update) {
 				workspaceUpdates.delete(workspaceId);
-				setRuntimeUpdating(workspaceId, false);
+				setCloudRuntimeUpdating(workspaceId, false);
 			}
 			return false;
 		},
 	);
-	workspaceUpdates.set(workspaceId, { client, request });
-	return request;
+	workspaceUpdates.set(workspaceId, update);
+	return update.request;
+};
+
+/**
+ * Retained cloud runtimes reject provider changes once the chat has started.
+ * Update the runtime in place; the selection applies after it reconnects.
+ */
+export const awaitCloudProviderHandoff = async (ref: {
+	environmentId: EnvironmentId;
+	sessionId: SessionId;
+}): Promise<void> => {
+	const client = await getRpcClient(ref.environmentId);
+	if (supportsStartedProviderHandoff(getClientProtocolVersion(client))) return;
+	const timeline = getRendererClientBus().snapshot(
+		sessionTimelineResourceKey(ref),
+	).data;
+	const started =
+		timeline !== null &&
+		(timeline.turnCount > 0 ||
+			timeline.messages.some((message) => message.role === "user"));
+	if (!started) return;
+	// When no update can start, the runtime's own rejection explains why.
+	if (await requestCloudWorkspaceRuntimeUpdate(ref.environmentId, client))
+		throw new RuntimeUpdatePendingError();
 };
 
 const BACKGROUND_UPDATE_DELAY_MS = 60_000;
@@ -192,7 +203,14 @@ export const noteCloudRuntimeConnection = (
 	workspaceId: string,
 	protocolVersion: number,
 ): void => {
-	setRuntimeUpdating(workspaceId, false);
+	const update = workspaceUpdates.get(workspaceId);
+	// A reconnect mid-update (network loss) keeps sending held.
+	if (
+		protocolVersion >= WIRE_PROTOCOL_VERSION ||
+		update === undefined ||
+		!updateInProgress(workspaceId, update)
+	)
+		setCloudRuntimeUpdating(workspaceId, false);
 	if (protocolVersion >= WIRE_PROTOCOL_VERSION) return;
 	if (workspaceUpdates.has(workspaceId) || waitingWorkspaces.has(workspaceId))
 		return;
@@ -222,3 +240,5 @@ export const noteCloudRuntimeConnection = (
 		);
 	schedule();
 };
+
+subscribeCloudRuntimeConnections(noteCloudRuntimeConnection);

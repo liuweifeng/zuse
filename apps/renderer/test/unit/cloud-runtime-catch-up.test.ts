@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const control = vi.hoisted(() => ({
 	calls: [] as { method: string; input: unknown }[],
 	reject: false,
+	statusCode: null as string | null,
 }));
 
 vi.mock("../../src/lib/control-plane-client.ts", () => ({
@@ -30,6 +31,10 @@ vi.mock("../../src/store/chats.ts", () => ({
 }));
 vi.mock("../../src/lib/cloud-workspace-catalog.ts", () => ({
 	cloudSummaryForChat: () => null,
+	cloudSummaryForEnvironment: (workspaceId: string) =>
+		control.statusCode === null
+			? null
+			: { workspaceId, statusCode: control.statusCode },
 }));
 vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 	environmentShellSnapshot: () => ({ connection: "offline" }),
@@ -47,10 +52,12 @@ vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 
 const {
 	catchUpCloudImageRuntimes,
-	cloudRuntimeUpdating,
 	noteCloudRuntimeConnection,
 	requestCloudWorkspaceRuntimeUpdate,
 } = await import("../../src/lib/cloud-runtime-catch-up.ts");
+const { cloudRuntimeUpdating } = await import(
+	"../../src/lib/cloud-runtime-updating.ts"
+);
 
 const image = (patch: Partial<CloudAccountImage>): CloudAccountImage => ({
 	providerId: "boxd",
@@ -65,6 +72,7 @@ const image = (patch: Partial<CloudAccountImage>): CloudAccountImage => ({
 beforeEach(() => {
 	control.calls = [];
 	control.reject = false;
+	control.statusCode = null;
 });
 
 describe("cloud runtime catch-up", () => {
@@ -108,6 +116,27 @@ describe("cloud runtime catch-up", () => {
 		expect(cloudRuntimeUpdating("workspace-a")).toBe(false);
 		// A new connection that is still legacy means the update did not take.
 		expect(await requestCloudWorkspaceRuntimeUpdate("workspace-a", {})).toBe(
+			false,
+		);
+		expect(control.calls).toHaveLength(1);
+	});
+
+	it("keeps a provider switch pending across a reconnect while the server is still updating", async () => {
+		expect(await requestCloudWorkspaceRuntimeUpdate("workspace-c", {})).toBe(
+			true,
+		);
+		// Network loss mid-update: a new legacy connection, update still running.
+		control.statusCode = "runtime-update-preparing";
+		noteCloudRuntimeConnection("workspace-c", WIRE_PROTOCOL_VERSION - 1);
+		expect(cloudRuntimeUpdating("workspace-c")).toBe(true);
+		expect(await requestCloudWorkspaceRuntimeUpdate("workspace-c", {})).toBe(
+			true,
+		);
+		// The server finished without a newer runtime: stop waiting, no retry.
+		control.statusCode = "runtime-update-prepare-failed";
+		noteCloudRuntimeConnection("workspace-c", WIRE_PROTOCOL_VERSION - 1);
+		expect(cloudRuntimeUpdating("workspace-c")).toBe(false);
+		expect(await requestCloudWorkspaceRuntimeUpdate("workspace-c", {})).toBe(
 			false,
 		);
 		expect(control.calls).toHaveLength(1);

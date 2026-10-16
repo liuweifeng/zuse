@@ -115,7 +115,7 @@ import {
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
-import { useCloudRuntimeUpdating } from "../lib/cloud-runtime-catch-up.ts";
+import { useCloudRuntimeUpdating } from "../lib/cloud-runtime-updating.ts";
 import { useCloudChatSummaryForSelection } from "../lib/cloud-workspaces.ts";
 import {
 	cloudComposerSubmissionBlocked,

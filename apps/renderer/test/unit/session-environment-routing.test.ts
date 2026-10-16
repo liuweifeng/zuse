@@ -54,9 +54,12 @@ vi.mock("@zuse/client-runtime/connection", async (original) => ({
 
 vi.mock("../../src/lib/rpc-client.ts", () => ({
 	getVerifiedRpcClient: async () => ({}),
-	// No negotiated protocol: a current runtime that hands off providers directly.
-	getRpcClient: async () => ({}),
 	getActiveEnvironment: () => mocks.activeEnvironment,
+}));
+
+// A current runtime hands off providers directly.
+vi.mock("../../src/lib/cloud-runtime-catch-up.ts", () => ({
+	awaitCloudProviderHandoff: async () => {},
 }));
 
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
