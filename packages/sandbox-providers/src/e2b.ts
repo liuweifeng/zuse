@@ -366,6 +366,11 @@ export const makeE2bSandboxProvider = (
 			...networkCreateFields(input.network),
 			autoPause: input.onTimeout === "pause",
 		}).pipe(
+			Effect.catchTag("SandboxProviderError", (error) =>
+				Effect.fail(
+					error.code === "not-found" ? providerError("rejected") : error,
+				),
+			),
 			Effect.tap((created) =>
 				Effect.sync(() => rememberControlConnection(created)),
 			),
@@ -737,12 +742,8 @@ export const makeE2bSandboxProvider = (
 
 	const resources = config.resources ?? { vcpuCount: 2, memoryMib: 1_024 };
 	return {
-		validateTemplate: () =>
-			request(
-				"GET",
-				`/templates/aliases/${encodeURIComponent(config.templateId)}`,
-				Schema.Struct({ templateID: Schema.String, public: Schema.Boolean }),
-			).pipe(Effect.asVoid),
+		// Template metadata endpoints require ownership, even for public bases.
+		// Sandbox creation is the authoritative cross-team access check.
 		withCredentials: (credentials) =>
 			makeE2bSandboxProvider(
 				{
