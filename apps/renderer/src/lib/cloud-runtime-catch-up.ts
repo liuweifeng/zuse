@@ -8,19 +8,16 @@ import {
 	type SessionId,
 	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
+import { useSyncExternalStore } from "react";
 import { useChatsStore } from "../store/chats.ts";
-import {
-	clearCloudRuntimeUpdating,
-	setCloudRuntimeUpdating,
-	subscribeCloudRuntimeConnections,
-} from "./cloud-runtime-updating.ts";
+import { connectCloudRuntimeCatchUp } from "./cloud-runtime-bridge.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForEnvironment,
 } from "./cloud-workspace-catalog.ts";
 import { runCloudControl } from "./control-plane-client.ts";
 import { environmentShellSnapshot } from "./environment-shell-client-bus.ts";
-import { RuntimeUpdatePendingError } from "./pending-model-change.ts";
+import { RUNTIME_UPDATE_PENDING } from "./pending-model-change.ts";
 import { subscribeRendererAccount } from "./renderer-account.ts";
 import { getRpcClient } from "./rpc-client.ts";
 import {
@@ -53,6 +50,53 @@ const updateInProgress = (workspaceId: string, update: WorkspaceUpdate) =>
 	);
 
 const waitingWorkspaces = new Map<string, ReturnType<typeof setTimeout>>();
+
+// The server abandons an update after its preparation and activation
+// deadlines (10 + 2 minutes); sending must not stay blocked past that.
+const RUNTIME_UPDATE_SEND_BLOCK_MS = 12 * 60_000;
+const updatingWorkspaces = new Map<string, ReturnType<typeof setTimeout>>();
+const listeners = new Set<() => void>();
+
+const setCloudRuntimeUpdating = (
+	workspaceId: string,
+	updating: boolean,
+): void => {
+	const timer = updatingWorkspaces.get(workspaceId);
+	if (timer === undefined && !updating) return;
+	clearTimeout(timer);
+	if (updating)
+		updatingWorkspaces.set(
+			workspaceId,
+			setTimeout(
+				() => setCloudRuntimeUpdating(workspaceId, false),
+				RUNTIME_UPDATE_SEND_BLOCK_MS,
+			),
+		);
+	else updatingWorkspaces.delete(workspaceId);
+	for (const listener of listeners) listener();
+};
+
+const clearCloudRuntimeUpdating = (): void => {
+	for (const workspaceId of [...updatingWorkspaces.keys()])
+		setCloudRuntimeUpdating(workspaceId, false);
+};
+
+export const cloudRuntimeUpdating = (workspaceId: string): boolean =>
+	updatingWorkspaces.has(workspaceId);
+
+const subscribe = (listener: () => void) => {
+	listeners.add(listener);
+	return () => {
+		listeners.delete(listener);
+	};
+};
+
+export const useCloudRuntimeUpdating = (workspaceId: string | null): boolean =>
+	useSyncExternalStore(
+		subscribe,
+		() => workspaceId !== null && cloudRuntimeUpdating(workspaceId),
+		() => false,
+	);
 
 subscribeRendererAccount(() => {
 	requestedImages.clear();
@@ -152,7 +196,12 @@ export const awaitCloudProviderHandoff = async (ref: {
 	if (!started) return;
 	// When no update can start, the runtime's own rejection explains why.
 	if (await requestCloudWorkspaceRuntimeUpdate(ref.environmentId, client))
-		throw new RuntimeUpdatePendingError();
+		throw Object.assign(
+			new Error(
+				"The cloud runtime is updating before this model change applies.",
+			),
+			{ _tag: RUNTIME_UPDATE_PENDING },
+		);
 };
 
 const BACKGROUND_UPDATE_DELAY_MS = 60_000;
@@ -241,4 +290,7 @@ export const noteCloudRuntimeConnection = (
 	schedule();
 };
 
-subscribeCloudRuntimeConnections(noteCloudRuntimeConnection);
+connectCloudRuntimeCatchUp(
+	noteCloudRuntimeConnection,
+	awaitCloudProviderHandoff,
+);

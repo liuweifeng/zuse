@@ -57,11 +57,6 @@ vi.mock("../../src/lib/rpc-client.ts", () => ({
 	getActiveEnvironment: () => mocks.activeEnvironment,
 }));
 
-// A current runtime hands off providers directly.
-vi.mock("../../src/lib/cloud-runtime-catch-up.ts", () => ({
-	awaitCloudProviderHandoff: async () => {},
-}));
-
 vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 	dispatchSessionCommand: mocks.dispatch,
 	getRendererClientBus: () => ({

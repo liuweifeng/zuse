@@ -52,12 +52,10 @@ vi.mock("../../src/lib/session-timeline-client-bus.ts", () => ({
 
 const {
 	catchUpCloudImageRuntimes,
+	cloudRuntimeUpdating,
 	noteCloudRuntimeConnection,
 	requestCloudWorkspaceRuntimeUpdate,
 } = await import("../../src/lib/cloud-runtime-catch-up.ts");
-const { cloudRuntimeUpdating } = await import(
-	"../../src/lib/cloud-runtime-updating.ts"
-);
 
 const image = (patch: Partial<CloudAccountImage>): CloudAccountImage => ({
 	providerId: "boxd",

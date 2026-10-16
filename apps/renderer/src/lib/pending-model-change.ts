@@ -68,7 +68,7 @@ export function createPendingModelChanges(options: {
 		} catch (error) {
 			if (isBusyModelChange(error)) {
 				entry.blockedCursor = cursor;
-			} else if (error instanceof RuntimeUpdatePendingError) {
+			} else if (isRuntimeUpdatePending(error)) {
 				// Nothing was sent. The reconnect after the runtime restart (not a
 				// timeline cursor change) is what lets this selection apply.
 			} else {
@@ -142,13 +142,12 @@ export function createPendingModelChanges(options: {
 }
 
 /** The runtime is being replaced to support this selection; keep it pending. */
-export class RuntimeUpdatePendingError extends Error {
-	readonly _tag = "RuntimeUpdatePendingError";
-	constructor() {
-		super("The cloud runtime is updating before this model change applies.");
-		this.name = "RuntimeUpdatePendingError";
-	}
-}
+export const RUNTIME_UPDATE_PENDING = "RuntimeUpdatePendingError";
+const isRuntimeUpdatePending = (error: unknown): boolean =>
+	typeof error === "object" &&
+	error !== null &&
+	"_tag" in error &&
+	error._tag === RUNTIME_UPDATE_PENDING;
 
 const BUSY_REASON =
 	"Finish or stop the active turn and clear queued messages before switching provider or model.";

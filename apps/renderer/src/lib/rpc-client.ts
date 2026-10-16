@@ -27,7 +27,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
-import { reportCloudRuntimeConnection } from "./cloud-runtime-updating.ts";
+import { reportCloudRuntimeConnection } from "./cloud-runtime-bridge.ts";
 import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";

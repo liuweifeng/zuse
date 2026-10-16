@@ -20,6 +20,7 @@ import {
 	cloudFailurePresentation,
 	cloudInteractionFailure,
 } from "../lib/cloud-failure-presentation.ts";
+import { awaitCloudProviderHandoff } from "../lib/cloud-runtime-bridge.ts";
 import {
 	cloudSummaryForChat,
 	cloudSummaryForSelection,
@@ -1074,10 +1075,7 @@ const pendingModelChanges = createPendingModelChanges({
 	apply: async (ref, selection) => {
 		const sameProvider =
 			configurationSession(ref)?.providerId === selection.providerId;
-		if (!sameProvider)
-			await (
-				await import("../lib/cloud-runtime-catch-up.ts")
-			).awaitCloudProviderHandoff(ref);
+		if (!sameProvider) await awaitCloudProviderHandoff(ref);
 		const commandId = nextCommandId(
 			sameProvider ? "session-model" : "session-provider",
 		);

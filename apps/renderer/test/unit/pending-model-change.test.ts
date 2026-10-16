@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	createPendingModelChanges,
 	type ModelSelection,
-	RuntimeUpdatePendingError,
+	RUNTIME_UPDATE_PENDING,
 } from "../../src/lib/pending-model-change.ts";
 
 const ref = {
@@ -176,7 +176,7 @@ describe("model selections during active work", () => {
 	});
 	it("keeps a selection pending through a runtime update and applies it after reconnect", async () => {
 		const f = fixture();
-		f.apply.mockRejectedValueOnce(new RuntimeUpdatePendingError());
+		f.apply.mockRejectedValueOnce({ _tag: RUNTIME_UPDATE_PENDING });
 		expect(await f.coordinator.request(ref, target)).toEqual({ ok: true });
 		expect(f.changed).toHaveBeenLastCalledWith(ref, target);
 		// The runtime restarts; nothing applies against a disconnected timeline.
