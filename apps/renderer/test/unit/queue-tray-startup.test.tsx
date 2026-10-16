@@ -24,7 +24,7 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", () => ({
 			queue: { items: [{ id: "startup-queue" }], paused: state.paused },
 		},
 		runtime: state.runtime,
-		view: { pendingCommands: [] },
+		view: { pendingCommands: [], failedCommands: [] },
 	}),
 }));
 vi.mock("../../src/lib/cloud-message-queue.ts", () => ({
@@ -39,7 +39,10 @@ vi.mock("../../src/lib/queue-recovery.ts", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/lib/queue-recovery.ts")>()),
 	holdQueueUntilOnline: vi.fn(),
 }));
-vi.mock("../../src/lib/session-actions.ts", () => ({
+vi.mock("../../src/lib/session-actions.ts", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("../../src/lib/session-actions.ts")
+	>()),
 	reorderSessionQueue: vi.fn(),
 	resumeSessionQueue: vi.fn(),
 }));

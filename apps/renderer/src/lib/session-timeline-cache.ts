@@ -625,20 +625,26 @@ class IndexedDbTimelineReadingPositionStore
 	): Promise<void> {
 		const storageKey = environmentSessionCacheKey(ref, namespace);
 		this.remember(storageKey, position);
-		const database = await this.db();
-		const transaction = database.transaction(
-			READING_POSITION_STORE_NAME,
-			"readwrite",
-		);
-		const store = transaction.objectStore(READING_POSITION_STORE_NAME);
-		store.put(
-			encodeTimelineReadingPosition({ ...position, sessionId: storageKey }),
-		);
-		const values = await requestResult(store.getAll());
-		for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
-			store.delete(sessionId);
+		try {
+			const database = await this.db();
+			const transaction = database.transaction(
+				READING_POSITION_STORE_NAME,
+				"readwrite",
+			);
+			const store = transaction.objectStore(READING_POSITION_STORE_NAME);
+			store.put(
+				encodeTimelineReadingPosition({ ...position, sessionId: storageKey }),
+			);
+			const values = await requestResult(store.getAll());
+			for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
+				store.delete(sessionId);
+			}
+			await transactionComplete(transaction);
+		} catch (error) {
+			if (this.positions.get(storageKey) === position)
+				this.positions.delete(storageKey);
+			throw error;
 		}
-		await transactionComplete(transaction);
 	}
 
 	async remove(ref: SessionRef, namespace?: string): Promise<void> {

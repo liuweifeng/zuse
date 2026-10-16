@@ -88,6 +88,7 @@ import {
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import {
+	isTimelineReadingPositionReady,
 	resolveInitialTimelineTarget,
 	resolveTimelineReadingPosition,
 	type TimelineReadingPosition,
@@ -655,6 +656,35 @@ export function ChatView({
 			document.removeEventListener("visibilitychange", onVisibilityChange);
 	}, []);
 
+	const cachedReadingPosition =
+		readingNamespace === null
+			? undefined
+			: timelineReadingPositionStore?.peek(sessionRef, readingNamespace);
+	const effectiveReadingPosition =
+		currentReadingPositionRef.current?.sessionId === sessionId
+			? currentReadingPositionRef.current
+			: readingState?.sessionId === sessionId
+				? readingState.position
+				: cachedReadingPosition;
+	const readingReady =
+		(readingState?.sessionId === sessionId ||
+			cachedReadingPosition !== undefined) &&
+		(initializedSessionRef.current === sessionId ||
+			isTimelineReadingPositionReady({
+				rows,
+				position: effectiveReadingPosition,
+				historyComplete:
+					timeline.projection !== null &&
+					timeline.projection.olderMessageSequence == null &&
+					timeline.view.sync !== "synchronizing" &&
+					timeline.view.sync !== "hydrating-cache" &&
+					timeline.view.sync !== "empty",
+			}));
+	const initialTarget = resolveInitialTimelineTarget({
+		rows,
+		position: effectiveReadingPosition,
+		recoverAtLiveEdge: false,
+	});
 	useLayoutEffect(() => {
 		const node = listRef.current?.getScrollableNode() ?? null;
 		if (node instanceof HTMLDivElement) {
@@ -664,10 +694,11 @@ export function ChatView({
 		} else {
 			scrollElementRef.current = null;
 		}
-	}, [rows.length, sessionId]);
+	}, [readingReady, rows.length, sessionId]);
 
 	useEffect(() => {
 		if (
+			!readingReady ||
 			readingState?.sessionId !== sessionId ||
 			messages.length === 0 ||
 			initializedSessionRef.current === sessionId
@@ -701,6 +732,7 @@ export function ChatView({
 		inFlight,
 		messages.length,
 		readingState,
+		readingReady,
 		rows,
 		sessionId,
 		timelineVersion,
@@ -810,10 +842,10 @@ export function ChatView({
 			if (frame !== null) cancelAnimationFrame(frame);
 			removeListeners?.();
 		};
-	}, [coordinator, handleScroll, sessionId]);
+	}, [coordinator, handleScroll, readingReady, sessionId]);
 
 	useEffect(() => {
-		if (latestUserMessageId === null) return;
+		if (!readingReady || latestUserMessageId === null) return;
 		const previous = lastObservedUserMessageIdRef.current;
 		if (previous === latestUserMessageId) return;
 		lastObservedUserMessageIdRef.current = latestUserMessageId;
@@ -824,7 +856,7 @@ export function ChatView({
 		setActiveTurnMessageId(latestUserMessageId);
 		setHasOutOfViewUpdates(false);
 		coordinator.prepareNewTurn(turn.rowIndex, TRANSCRIPT_TURN_INSET_PX);
-	}, [coordinator, inFlight, latestUserMessageId, turns]);
+	}, [coordinator, inFlight, latestUserMessageId, readingReady, turns]);
 
 	useLayoutEffect(() => {
 		if (anchoredEndSpace === undefined || timelineAnchorMessageId === null) {
@@ -890,24 +922,6 @@ export function ChatView({
 			timeline.view.pendingCommands,
 		],
 	);
-	const cachedReadingPosition =
-		readingNamespace === null
-			? undefined
-			: timelineReadingPositionStore?.peek(sessionRef, readingNamespace);
-	const readingReady =
-		readingState?.sessionId === sessionId ||
-		cachedReadingPosition !== undefined;
-	const effectiveReadingPosition =
-		currentReadingPositionRef.current?.sessionId === sessionId
-			? currentReadingPositionRef.current
-			: readingState?.sessionId === sessionId
-				? readingState.position
-				: cachedReadingPosition;
-	const initialTarget = resolveInitialTimelineTarget({
-		rows,
-		position: effectiveReadingPosition,
-		recoverAtLiveEdge: false,
-	});
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
 			scrollSnapshot.mode === "navigating" ||
@@ -993,6 +1007,15 @@ export function ChatView({
 							className="flex h-full min-h-0 w-full flex-1 flex-col outline-none"
 						>
 							<ChatLoadingFallback />
+							{historyStatus === "failed" && (
+								<button
+									type="button"
+									className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+									onClick={() => retryCloudHistory(sessionRef)}
+								>
+									{uiMessage("chat:cloud_history_retry")}
+								</button>
+							)}
 						</div>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>

@@ -79,6 +79,22 @@ export function resolveReadingPositionTarget(
 	return latest;
 }
 
+export function isTimelineReadingPositionReady({
+	rows,
+	position,
+	historyComplete,
+}: {
+	readonly rows: ReadonlyArray<ChatTimelineRow>;
+	readonly position: TimelineReadingPosition | null | undefined;
+	readonly historyComplete: boolean;
+}): boolean {
+	return (
+		position == null ||
+		historyComplete ||
+		rows.some((row) => rowAnchorMessageId(row) === position.userTurnMessageId)
+	);
+}
+
 export function resolveInitialTimelineTarget({
 	rows,
 	position,

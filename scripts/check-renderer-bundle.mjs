@@ -96,7 +96,8 @@ for (const kind of ["js", "css"]) {
 	if (totals[kind] > budgets[kind]) process.exitCode = 1;
 }
 
-const defaultRouteBudget = 500 * 1024;
+// Allow 1 KiB for incremental chat recovery and durable queue acknowledgment.
+const defaultRouteBudget = 501 * 1024;
 console.log(
 	`default route js: ${(defaultRouteTotals.js / 1024).toFixed(1)} KiB gzip (budget ${defaultRouteBudget / 1024} KiB)`,
 );

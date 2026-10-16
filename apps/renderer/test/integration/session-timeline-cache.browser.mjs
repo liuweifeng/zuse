@@ -24,6 +24,38 @@ const result = await build({
       if (timelineReadingPositionStore.peek(ref, 'account-a') !== null) throw new Error('removed position remains cached');
       return true;
     };
+    window.failedReadingSaveProbe = async () => {
+      const ref = { environmentId: 'failed-position', sessionId: 'failed-position' };
+      const original = { schemaVersion: 1, sessionId: ref.sessionId, userTurnMessageId: 'persisted', viewportOffset: -5, updatedAt: 1 };
+      await timelineReadingPositionStore.save(ref, original);
+      const put = IDBObjectStore.prototype.put;
+      const failed = { ...original, userTurnMessageId: 'failed', updatedAt: 2 };
+      try {
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'reading-positions') throw new DOMException('Injected failure', 'QuotaExceededError');
+          return put.apply(this, args);
+        };
+        await timelineReadingPositionStore.save(ref, failed).then(() => { throw new Error('expected failure'); }, () => {});
+        if (timelineReadingPositionStore.peek(ref) !== undefined) throw new Error('failed save remains cached');
+      } finally { IDBObjectStore.prototype.put = put; }
+      if ((await timelineReadingPositionStore.load(ref))?.userTurnMessageId !== 'persisted') throw new Error('persisted position not recovered');
+      let newerSave;
+      const newer = { ...original, userTurnMessageId: 'newer', updatedAt: 3 };
+      try {
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'reading-positions') {
+            IDBObjectStore.prototype.put = put;
+            newerSave = timelineReadingPositionStore.save(ref, newer);
+            throw new DOMException('Injected failure', 'QuotaExceededError');
+          }
+          return put.apply(this, args);
+        };
+        await timelineReadingPositionStore.save(ref, failed).catch(() => {});
+        await newerSave;
+        if (timelineReadingPositionStore.peek(ref)?.userTurnMessageId !== 'newer') throw new Error('failed save invalidated newer position');
+      } finally { IDBObjectStore.prototype.put = put; }
+      return true;
+    };
     window.probe = async (seed = true) => {
       const ref = { environmentId: 'workspace-cache-repro', sessionId: 'session-cache-repro' };
       const cursor = { epoch: 'same-runtime', version: 10 };
@@ -156,6 +188,10 @@ try {
 		persistedHead: 101,
 		restoredMessages: 10001,
 	});
+	assert.equal(
+		await page.evaluate(() => window.failedReadingSaveProbe()),
+		true,
+	);
 	assert.equal(await page.evaluate(() => window.readingProbe()), true);
 	assert.deepEqual(await page.evaluate(() => window.probe()), expected);
 	await page.reload();
