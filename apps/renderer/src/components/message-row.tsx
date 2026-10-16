@@ -20,6 +20,7 @@ import type {
 	ForkDestination,
 	Message,
 	MessageOrigin,
+	MessageSource,
 	ProviderId,
 	SessionId,
 	SkillRef,
@@ -82,6 +83,7 @@ import { useChatLookups } from "./chat-lookups.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { DelegationGroup } from "./delegation-group.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
+import { SlackIcon } from "./icons/slack-icon.tsx";
 import { useProviderErrorCopy } from "./provider-error-copy.ts";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { SkillIcon } from "./skill-icon.tsx";
@@ -208,6 +210,7 @@ function MessageRowImpl({
 					text={message.content.text}
 					origin={message.content.origin}
 					origins={message.content.origins}
+					source={message.content.source}
 					environmentId={environmentId}
 					goal={message.content.goal}
 					createdAt={message.createdAt}
@@ -228,6 +231,7 @@ function MessageRowImpl({
 					annotations={message.content.annotations}
 					origin={message.content.origin}
 					origins={message.content.origins}
+					source={message.content.source}
 					environmentId={environmentId}
 					goal={message.content.goal}
 					createdAt={message.createdAt}
@@ -647,6 +651,7 @@ export function UserBubble({
 	annotations,
 	origin,
 	origins,
+	source,
 	environmentId,
 	goal = false,
 	createdAt,
@@ -660,6 +665,8 @@ export function UserBubble({
 	annotations?: ReadonlyArray<ComposerAnnotation>;
 	origin?: MessageOrigin;
 	origins?: ReadonlyArray<MessageOrigin>;
+	/** External chat attribution; its `text` replaces the agent-facing prompt. */
+	source?: MessageSource;
 	environmentId?: EnvironmentId;
 	goal?: boolean;
 	createdAt?: Date;
@@ -682,9 +689,17 @@ export function UserBubble({
 		(attachments !== undefined && attachments.length > 0) ||
 		(fileRefs !== undefined && fileRefs.length > 0) ||
 		(skillRefs !== undefined && skillRefs.length > 0);
-	const display = hasChips
-		? stripChipTokens(text, attachments ?? [], fileRefs ?? [], skillRefs ?? [])
-		: text;
+	const display =
+		source !== undefined
+			? source.text
+			: hasChips
+				? stripChipTokens(
+						text,
+						attachments ?? [],
+						fileRefs ?? [],
+						skillRefs ?? [],
+					)
+				: text;
 	return (
 		<div className={userBubbleRowClass}>
 			<div className={userBubbleColumnClass}>
@@ -760,8 +775,14 @@ export function UserBubble({
 					</div>
 				) : null}
 
-				{display.length > 0 || sources.length > 0 || goal ? (
+				{display.length > 0 ||
+				sources.length > 0 ||
+				source !== undefined ||
+				goal ? (
 					<div data-chat-user-bubble className={userBubbleClass}>
+						{source !== undefined ? (
+							<MessageSourceHeader source={source} />
+						) : null}
 						{sources.map((source) => {
 							const session = Object.values(sessionsByProject)
 								.flat()
@@ -829,6 +850,30 @@ export function UserBubble({
 					className="mt-1"
 				/>
 			</div>
+		</div>
+	);
+}
+
+/** "Ada Lovelace in #eng-alerts" attribution for a message sent from Slack. */
+function MessageSourceHeader({ source }: { source: MessageSource }) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+	const label =
+		source.author !== undefined && source.channel !== undefined
+			? uiMessage("chat:message_row_slack_author_in_channel", {
+					author: source.author,
+					channel: source.channel,
+				})
+			: source.author !== undefined
+				? uiMessage("chat:message_row_slack_author", { value: source.author })
+				: source.channel !== undefined
+					? uiMessage("chat:message_row_slack_channel", {
+							value: source.channel,
+						})
+					: uiMessage("chat:message_row_from_slack");
+	return (
+		<div className="mb-1.5 flex max-w-full items-center gap-1.5 text-[11px] text-user-bubble-foreground/65">
+			<SlackIcon className="size-3" />
+			<span className="truncate">{label}</span>
 		</div>
 	);
 }

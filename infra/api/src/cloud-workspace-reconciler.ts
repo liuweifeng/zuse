@@ -38,6 +38,11 @@ import {
 } from "./cloud-snapshot-storage.ts";
 import { deleteCloudTranscriptObjects } from "./cloud-transcript.ts";
 import { observeCloudRuntimeUsage } from "./cloud-usage.ts";
+import { workspaceArchive } from "./cloud-workspace-archive.ts";
+import {
+	launchWorkspaceArchive,
+	reconcileWorkspaceArchive,
+} from "./cloud-workspace-archive-lifecycle.ts";
 import {
 	forkCloudWorkspaceMachine,
 	machineForkSource,
@@ -65,6 +70,12 @@ import {
 	cloudWorkspaceLayoutEnvironment,
 	cloudWorkspaceRepositoryPath,
 } from "./cloud-workspace-paths.ts";
+import {
+	ARCHIVED_WORKSPACE_RETENTION_MS,
+	archivedWorkspaceExpiry,
+	archivedWorkspaceNeedsRetentionReconciliation,
+	WORKSPACE_DELETION_TOMBSTONE_RETENTION_MS,
+} from "./cloud-workspace-retention.ts";
 import {
 	activationProcessInput,
 	openRuntimeActivationBoot,
@@ -112,7 +123,9 @@ const PROJECT_BUILD_TIMEOUT_MS = 15 * 60 * 1_000;
 
 const PROJECT_SNAPSHOT_POLL_TIMEOUT_MS = 30_000;
 const PROJECT_SNAPSHOT_TIMEOUT_MS = 30 * 60 * 1_000;
-export const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+
+export { ARCHIVED_WORKSPACE_RETENTION_MS } from "./cloud-workspace-retention.ts";
+
 const WORKSPACE_RUNTIME_BOOT_TTL_MS = 30 * 60 * 1_000;
 
 export const WARM_RUNTIME_RECONNECT_GRACE_MS = 12_000;
@@ -420,11 +433,11 @@ export const workspaceRuntimeReconnectTarget = (
 	updatedAtMs: nowMs,
 });
 
-class CloudWorkspaceLeaseLostError extends Data.TaggedError(
+export class CloudWorkspaceLeaseLostError extends Data.TaggedError(
 	"CloudWorkspaceLeaseLostError",
 )<{ readonly workspaceId: string }> {}
 
-type SaveClaimedWorkspace = (
+export type SaveClaimedWorkspace = (
 	workspace: CloudWorkspaceRecord,
 ) => Effect.Effect<void, CloudWorkspaceLeaseLostError>;
 export const workspaceRuntimeProcessSelector = () =>
@@ -831,6 +844,23 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 				return;
 			}
 			const label = providerLabel("build", build.buildId);
+			if (provider.validateTemplate) {
+				const accessible = yield* provider.validateTemplate().pipe(
+					Effect.as(true),
+					Effect.catchTag("SandboxProviderError", (error) =>
+						error.code === "not-found" || error.code === "rejected"
+							? Effect.succeed(false)
+							: Effect.fail(error),
+					),
+				);
+				if (!accessible) {
+					yield* failQueuedBuild(
+						"provider-template-unavailable",
+						`${provider.displayName} cannot access the configured base template with this provider key. Choose an accessible template or reconnect the provider, then rebuild.`,
+					);
+					return;
+				}
+			}
 			const apiConfig = yield* ApiConfiguration;
 			const recovered = yield* unlessRejected(provider.recoverByLabel(label));
 			if (recovered.rejected) {
@@ -1513,9 +1543,8 @@ const pauseWorkspace = (
 			statusCode: archived ? "archived" : "paused",
 			requestConfig: workspace.requestConfig,
 			nextActionAtMs: archived
-				? workspace.archiveDeleteAtMs !== undefined
-					? workspace.archiveDeleteAtMs
-					: nowMs + ARCHIVED_WORKSPACE_RETENTION_MS
+				? (archivedWorkspaceExpiry(workspace) ??
+					nowMs + ARCHIVED_WORKSPACE_RETENTION_MS)
 				: Number.MAX_SAFE_INTEGER,
 			runningSinceMs: undefined,
 			revision: workspace.revision + 1,
@@ -2435,7 +2464,6 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				workspace = lifecyclePrepared;
 			}
 		}
-		const archiveDeleteAtMs = workspace.archiveDeleteAtMs;
 		const workspaceBillingHold = yield* reserveProviderCost({
 			accountId: workspace.accountId,
 			resourceKind: "workspace",
@@ -2491,27 +2519,14 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 		}
 
 		if (
-			workspace.state === "archived" &&
-			archiveDeleteAtMs !== undefined &&
-			nowMs >= archiveDeleteAtMs &&
-			workspace.desiredState !== "deleted"
-		) {
-			const destructionFence = workspaceDestructionFence(workspace) + 1;
-			yield* saveWorkspace({
-				...workspace,
-				desiredState: "deleted",
-				statusCode: "archive-retention-expired",
-				requestConfig: withPendingMailboxLifecycle(
-					workspace.requestConfig,
-					"delete",
-					destructionFence,
-				),
-				nextActionAtMs: nowMs,
-				revision: workspace.revision + 1,
-				updatedAtMs: nowMs,
-			});
+			yield* reconcileWorkspaceArchive(
+				workspace,
+				provider,
+				nowMs,
+				saveWorkspace,
+			)
+		)
 			return;
-		}
 
 		if (workspace.desiredState === "deleted") {
 			if (!(yield* discardUnsafeWorkspaceSandbox(provider, workspace))) {
@@ -2541,7 +2556,8 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				runtimeCredentialHash: undefined,
 				wrappedTranscriptKey: undefined,
 				requestConfig: mailboxLifecycleTombstoneConfig(workspace),
-				deletionTombstoneExpiresAtMs: nowMs + ARCHIVED_WORKSPACE_RETENTION_MS,
+				deletionTombstoneExpiresAtMs:
+					nowMs + WORKSPACE_DELETION_TOMBSTONE_RETENTION_MS,
 				runningSinceMs: undefined,
 				deletedAtMs: nowMs,
 				nextActionAtMs: Number.MAX_SAFE_INTEGER,
@@ -2879,6 +2895,32 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 							"shared",
 						)
 					: yield* allocate;
+			const recoveryArchive = workspaceArchive(workspace);
+			if (recoveryArchive?.phase === "restoring") {
+				const restoringWorkspace = {
+					...workspace,
+					providerSandboxId: sandbox.providerSandboxId,
+					statusCode: "archive-restoring",
+					runningSinceMs: nowMs,
+					requestConfig: {
+						...workspace.requestConfig,
+						...nextCloudWorkspaceRuntimeFence(workspace),
+					},
+					revision: workspace.revision + 1,
+					updatedAtMs: yield* Clock.currentTimeMillis,
+					nextActionAtMs: nowMs + RETRY_MS,
+				};
+				yield* saveWorkspace(restoringWorkspace);
+				if (sandbox.state === "paused")
+					yield* provider.resume(sandbox.providerSandboxId, 3600, "pause");
+				yield* launchWorkspaceArchive(
+					restoringWorkspace,
+					provider,
+					recoveryArchive,
+					sandbox.providerSandboxId,
+				);
+				return;
+			}
 
 			const allocatedWorkspace =
 				machineFork === undefined
@@ -3614,7 +3656,11 @@ export const reconcileCloudWorkspaceStartup = Effect.fn(
 	}
 	const before = yield* store.getWorkspace(workspaceId);
 	const nowMs = yield* Clock.currentTimeMillis;
-	if (before !== null && before.nextActionAtMs <= nowMs) {
+	if (
+		before !== null &&
+		(before.nextActionAtMs <= nowMs ||
+			archivedWorkspaceNeedsRetentionReconciliation(before, nowMs))
+	) {
 		yield* reconcileCloudWorkspace(workspaceId);
 	}
 	const workspace = yield* store.getWorkspace(workspaceId);

@@ -54,7 +54,7 @@ return {chatsByProject:{project:[{id:'chat',archivedAt:null}]},sessionsByProject
 					return `import '/src/styles.css';import React from 'react';import{createRoot}from'react-dom/client';import{UserBubble}from'/src/components/message-row.tsx';
 window.opened=[];const root=createRoot(document.getElementById('root'));
 const source=(sessionId,title)=>({chatId:'chat',sessionId,providerId:'claude',title});
-window.renderOrigins=mode=>root.render(React.createElement('div',{style:{maxWidth:660,padding:24}},React.createElement(UserBubble,{text:'The delegated review is complete.',environmentId:'remote',...(mode==='single'?{origin:source('sender-one','Old title')}:{origins:[source('sender-one','Old title'),source('sender-two','Old second title'),source('unavailable','Archived security review')]})})));
+window.renderOrigins=mode=>root.render(React.createElement('div',{style:{maxWidth:660,padding:24}},mode==='slack'?React.createElement(UserBubble,{text:'Request from Slack (thread 1.0):\\nWhy are webhook deliveries failing since this morning? It started right after the 9:40 deploy.',environmentId:'remote',source:{_tag:'slack',text:'Why are webhook deliveries failing since this morning? It started right after the 9:40 deploy.',author:'Aaron Mahlke',channel:'eng-alerts'}}):React.createElement(UserBubble,{text:'The delegated review is complete.',environmentId:'remote',...(mode==='single'?{origin:source('sender-one','Old title')}:{origins:[source('sender-one','Old title'),source('sender-two','Old second title'),source('unavailable','Archived security review')]})})));
 window.renderOrigins('single');`;
 			},
 		},
@@ -105,6 +105,13 @@ try {
 	);
 	await page.screenshot({
 		path: resolve(root, "../../.context/message-origin.png"),
+	});
+	await page.evaluate(() => window.renderOrigins("slack"));
+	const slackBubble = await page.locator("[data-chat-user-bubble]").innerText();
+	assert.match(slackBubble, /Aaron Mahlke in #eng-alerts/);
+	assert.equal(slackBubble.includes("Request from Slack"), false);
+	await page.screenshot({
+		path: resolve(root, "../../.context/message-source-slack.png"),
 	});
 	assert.deepEqual(errors, []);
 	console.log("Sender attribution browser behavior passed.");

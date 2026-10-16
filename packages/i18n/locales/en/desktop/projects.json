@@ -289,6 +289,7 @@
 	"github_continue_tooltip": "Create and checkout a new branch from origin/main",
 	"github_auto_fix": "Auto Fix",
 	"projects_sidebar_cloud": "Cloud",
+	"projects_sidebar_started_from_slack": "Started from Slack",
 	"github_action_failed": "GitHub action failed",
 	"github_repair_state_changed": "The chat, branch, or agent state changed. Run Repair again from the current PR.",
 	"github_attach_failed": "Could not attach PR context.",

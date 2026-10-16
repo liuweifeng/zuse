@@ -15,6 +15,9 @@ export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProvide
 	},
 ) {}
 
+// Ordinary placements use open networking (ADR 0034). Native live-machine
+// forks require provider-enforced quarantine while copied identity is retired
+// (ADR 0033); restoring a prepared image is not a live-machine fork.
 export type SandboxNetworkPolicy =
 	| { readonly kind: "quarantined" }
 	| { readonly kind: "open" }
@@ -105,6 +108,8 @@ export interface SandboxProviderCredentials {
 }
 
 export interface SandboxProviderAdapter {
+	/** Read-only check that the configured base template is accessible. */
+	readonly validateTemplate?: () => Effect.Effect<void, SandboxProviderError>;
 	/** Rebind infrastructure access without changing the provider identity. */
 	readonly withCredentials?: (
 		credentials: SandboxProviderCredentials,

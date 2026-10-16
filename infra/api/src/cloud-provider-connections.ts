@@ -233,17 +233,24 @@ export const saveProviderConnection = Effect.fn("saveProviderConnection")(
 		const key = input.apiKey.trim();
 		if (!key) return yield* serviceUnavailable("cloud_provider_key_invalid");
 
-		yield* provider
-			.withCredentials({
-				apiKey: Redacted.make(key),
-				templateId: input.templateId,
-				organization: input.organization,
-			})
+		const connected = provider.withCredentials({
+			apiKey: Redacted.make(key),
+			templateId: input.templateId,
+			organization: input.organization,
+		});
+		yield* connected
 			.recoverByLabel(`zuse-key-check-${crypto.randomUUID()}`)
 			.pipe(
 				Effect.timeout("15 seconds"),
 				Effect.mapError(() =>
 					serviceUnavailable("cloud_provider_key_verification_failed"),
+				),
+			);
+		if (connected.validateTemplate)
+			yield* connected.validateTemplate().pipe(
+				Effect.timeout("15 seconds"),
+				Effect.mapError(() =>
+					serviceUnavailable("cloud_provider_template_unavailable"),
 				),
 			);
 		const connectionId = yield* randomToken("provider", 16);

@@ -89,8 +89,10 @@ describe("cloud workspace runtime ready status", () => {
 		expect(contentResult._tag).toBe("Failure");
 	});
 
-	it("publishes lifecycle metadata without archive diagnostics or launch content", () => {
-		const summary = publicCloudWorkspaceSummary(
+	const archivedSummary = (
+		requestConfig: Readonly<Record<string, unknown>> = {},
+	) =>
+		publicCloudWorkspaceSummary(
 			{
 				workspaceId: "workspace-1",
 				accountId: "account-1",
@@ -107,6 +109,7 @@ describe("cloud workspace runtime ready status", () => {
 				statusCode: "archive-failed",
 				idempotencyKey: "workspace-key",
 				requestConfig: {
+					...requestConfig,
 					title: "Public title",
 					agent: "codex",
 					model: "gpt-5",
@@ -139,6 +142,9 @@ describe("cloud workspace runtime ready status", () => {
 			false,
 			2,
 		);
+
+	it("publishes lifecycle metadata without archive diagnostics or launch content", () => {
+		const summary = archivedSummary();
 		expect(summary).toMatchObject({
 			workspaceId: "workspace-1",
 			title: "Public title",
@@ -146,7 +152,15 @@ describe("cloud workspace runtime ready status", () => {
 			activeSessionId: "session-1",
 		});
 		expect(summary).not.toHaveProperty("firstMessage");
+		expect(summary).not.toHaveProperty("source");
 		expect(JSON.stringify(summary)).not.toContain("private");
+	});
+
+	it("marks workspaces started from Slack", () => {
+		const summary = archivedSummary({
+			initialGithubContext: { slackMessageId: "msg_launch_workspace-1" },
+		});
+		expect(summary.source).toBe("slack");
 	});
 
 	it.each([

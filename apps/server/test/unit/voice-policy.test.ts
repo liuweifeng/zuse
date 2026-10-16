@@ -3,10 +3,21 @@ import { describe, expect, it } from "vitest";
 import {
 	classifyVoiceFallback,
 	MAX_VOICE_BYTES,
+	voiceRecordingFilename,
 	voiceValidationReason,
 } from "../../src/voice/policy.ts";
 
 describe("voice transcription policy", () => {
+	it("accepts browser audio and preserves its file format for the provider", () => {
+		expect(
+			voiceValidationReason(new Uint8Array([1]), "audio/webm", 1000),
+		).toBeNull();
+		expect(voiceRecordingFilename("audio/webm")).toBe("recording.webm");
+		expect(voiceRecordingFilename("audio/mp4")).toBe("recording.m4a");
+		expect(voiceRecordingFilename("text/plain")).toBeNull();
+		expect(voiceRecordingFilename("constructor")).toBeNull();
+	});
+
 	it("permits credential fallback only for classified provider failures", () => {
 		expect(classifyVoiceFallback(401, "")).toBe("authentication-rejected");
 		expect(classifyVoiceFallback(403, "Cloudflare challenge")).toBe("blocked");

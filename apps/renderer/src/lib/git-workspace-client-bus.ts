@@ -831,7 +831,7 @@ export const refreshGitReview = async (ref: ExecutionRef): Promise<void> => {
 	await hydrateGitReviewPatches(ref, true);
 };
 
-export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
+export const refreshGitPrStatus = async (ref: ExecutionRef): Promise<void> => {
 	const client = getRendererClientBus().client(ref.environmentId);
 	if (client)
 		await Effect.runPromise(
@@ -841,6 +841,10 @@ export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
 			}),
 		).catch(() => undefined);
 	await refreshGitWorkspace(ref);
+};
+
+export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
+	await refreshGitPrStatus(ref);
 	await hydrateGitPrDetails(ref, true);
 };
 

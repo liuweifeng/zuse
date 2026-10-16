@@ -8,6 +8,7 @@ import {
 	type MessageContent,
 	type MessageId,
 	type MessageOrigin,
+	type MessageSource,
 	type Session,
 	type SessionId,
 	SessionStartError,
@@ -248,6 +249,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 			turnIdOverride?: AgentTurnId,
 			actor?: WorkspaceActor,
 			githubSlackMessageId?: string,
+			source?: MessageSource,
 		): ReturnType<ConversationOperations["sendMessageWithInput"]> =>
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
@@ -332,6 +334,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 							skillRefs: skillRefs ?? [],
 							annotations: annotationList,
 							...(origin !== undefined ? { origin } : {}),
+							...(source !== undefined ? { source } : {}),
 							goal: asGoal === true,
 						}
 					: {
@@ -339,6 +342,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 							...(actor !== undefined ? { actor } : {}),
 							text,
 							...(origin !== undefined ? { origin } : {}),
+							...(source !== undefined ? { source } : {}),
 							goal: asGoal === true,
 						};
 
@@ -425,6 +429,7 @@ export const makeMessageOperations = Effect.fn("MessageOperations.make")(
 						input.turnId,
 						input.actor,
 						input.githubSlackMessageId,
+						input.source,
 					);
 					if (!result.accepted) {
 						const turnId = yield* resolveActiveTurn(input.sessionId);

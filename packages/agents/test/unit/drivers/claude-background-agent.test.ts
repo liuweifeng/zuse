@@ -191,13 +191,16 @@ describe("Claude background agents", () => {
 				durationMs: 1200,
 			}),
 		]);
+		// Progress narrates streamed tool calls; only the final summary is text.
 		expect(
-			events.filter(
-				(event) =>
-					event._tag === "AssistantMessage" &&
-					event.parentItemId === "agent-tool-1",
-			),
-		).toHaveLength(2);
+			events
+				.filter(
+					(event) =>
+						event._tag === "AssistantMessage" &&
+						event.parentItemId === "agent-tool-1",
+				)
+				.map((event) => (event._tag === "AssistantMessage" ? event.text : "")),
+		).toEqual(["Retention audit complete"]);
 	});
 
 	it("does not guess that an unknown task notification is a subagent", () => {

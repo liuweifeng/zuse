@@ -142,6 +142,7 @@ import {
 	cloudWorkspaceActorPermission,
 	cloudWorkspacePermission,
 } from "./cloud-workspace-access.ts";
+import { routeWorkspaceArchiveObject } from "./cloud-workspace-archive.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	hasCloudWorkspaceInitialMessage,
@@ -157,6 +158,7 @@ import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	withoutRuntimeBootstrapReceipt,
 } from "./cloud-workspace-reconciler.ts";
+import { ARCHIVED_WORKSPACE_RETENTION_MS } from "./cloud-workspace-retention.ts";
 import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
@@ -235,7 +237,6 @@ export type CloudWorkspaceRouteContext =
 
 const WORKSPACE_CLIENT_TICKET_TTL_MS = 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 15 * 60_000;
-const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
 
 const WORKSPACE_SSH_TICKET_TTL_MS = 12 * 60 * 60_000;
 const escapeHtml = (value: string): string =>
@@ -846,6 +847,13 @@ const startupTimings = (
 
 export const startupPhase = (workspace: CloudWorkspaceRecord) => {
 	if (workspace.state === "failed") return "failed" as const;
+	if (
+		workspace.statusCode === "archive-restore-queued" ||
+		workspace.statusCode === "archive-restoring"
+	)
+		return workspace.providerSandboxId === undefined
+			? ("allocating" as const)
+			: ("booting" as const);
 
 	if (
 		workspace.statusCode === "agent-running" ||
@@ -970,6 +978,19 @@ const workspaceRuntimeStorageUnavailable = (
 	workspace.statusCode === "runtime-storage-replaced" ||
 	workspace.requestConfig.launchErrorCode === "runtime-storage-replaced";
 
+/** Slack-created workspaces carry the bot's launch identity from creation. */
+const workspaceStartedFromSlack = (
+	workspace: CloudWorkspaceRecord,
+): boolean => {
+	const initialGithub = Schema.decodeUnknownOption(
+		CloudGithubCredentialRequest,
+	)(workspace.requestConfig.initialGithubContext);
+	return (
+		Option.isSome(initialGithub) &&
+		initialGithub.value.slackMessageId !== undefined
+	);
+};
+
 export const publicCloudWorkspaceSummary = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
@@ -1037,6 +1058,9 @@ export const publicCloudWorkspaceSummary = (
 			? {
 					archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
 				}
+			: {}),
+		...(workspaceStartedFromSlack(workspace)
+			? { source: "slack" as const }
 			: {}),
 		createdAt: workspace.createdAtMs,
 		updatedAt: Math.max(
@@ -1948,6 +1972,15 @@ const routeCloudWorkspaceRequestWithAccess = (
 			);
 		}
 		const nowMs = yield* Clock.currentTimeMillis;
+		const archiveResponse = yield* routeWorkspaceArchiveObject(
+			request,
+			nowMs,
+		).pipe(
+			Effect.catchTag("CloudTranscriptStoreError", () =>
+				serviceUnavailable("workspace_archive_storage_unavailable"),
+			),
+		);
+		if (archiveResponse !== null) return archiveResponse;
 		const store = yield* CloudWorkspaceStore;
 		const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 		const apiConfiguration = yield* ApiConfiguration;
@@ -2127,13 +2160,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 				workspace.providerSandboxId === undefined
 			)
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
-			const initialGithub = Schema.decodeUnknownOption(
-				CloudGithubCredentialRequest,
-			)(workspace.requestConfig.initialGithubContext);
 			if (
 				(workspace.accountId.startsWith("organization:") ||
-					(Option.isSome(initialGithub) &&
-						initialGithub.value.slackMessageId !== undefined)) &&
+					workspaceStartedFromSlack(workspace)) &&
 				!body.capabilities?.includes(CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY)
 			)
 				return yield* conflict("github_runtime_update_required");
@@ -2713,6 +2742,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 							...(content.attachments.length === 0
 								? {}
 								: { attachments: content.attachments }),
+							...(content.source === undefined
+								? {}
+								: { source: content.source }),
 							seq: message.seq,
 						};
 					}),

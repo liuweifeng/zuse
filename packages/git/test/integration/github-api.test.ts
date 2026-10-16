@@ -22,6 +22,7 @@ test.each([
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 	let offline = false;
+	let unavailable = false;
 	let token = "account-a";
 	let head = "";
 	const mutations: Record<string, unknown>[] = [];
@@ -29,6 +30,11 @@ test.each([
 		resolveCredential: async () => ({ token }),
 		fetch: async (_url, init) => {
 			if (offline) throw new TypeError("offline");
+			if (unavailable)
+				return Response.json(
+					{ message: "Service Unavailable" },
+					{ status: 503 },
+				);
 			if (init?.method === "DELETE")
 				return Response.json({ message: "Branch protected" }, { status: 403 });
 			const { query, variables } = JSON.parse(String(init?.body));
@@ -132,7 +138,24 @@ test.each([
 					state: "open",
 					stale: true,
 					prCapability: "offline",
+					observationError: "Could not reach GitHub.",
 				});
+				offline = false;
+				unavailable = true;
+				const unavailableStatus = yield* service.prState(folder, null, {
+					force: true,
+				});
+				expect(unavailableStatus).toMatchObject({
+					state: "open",
+					stale: true,
+					prCapability: "unknown",
+					observationError: "Service Unavailable",
+				});
+				unavailable = false;
+				const recovered = yield* service.prState(folder, null, { force: true });
+				expect(recovered.stale).toBe(false);
+				expect(recovered.observationError).toBeUndefined();
+				offline = true;
 				git("switch", "-c", "other");
 				const changed = yield* service.prState(folder, null, { force: true });
 				expect(changed).toMatchObject({

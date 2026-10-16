@@ -648,6 +648,7 @@ const StubGitLive = Layer.succeed(GitService, {
 	createReviewComment: () => Effect.succeed({ url: null }),
 	reviewIdentity: () => Effect.succeed(null),
 	starZuse: () => Effect.void,
+	zuseStarStatus: () => Effect.succeed(false),
 	listPrs: () => Effect.die("not used"),
 	listIssues: () => Effect.die("not used"),
 	issueMarkdown: () => Effect.die("not used"),
@@ -3027,6 +3028,46 @@ describe("ConversationServices — chat & session lifecycle", () => {
 			await expect
 				.poll(() => providerSentTexts)
 				.toContain("do the spawned task");
+		});
+	});
+
+	it("persists Slack attribution while the agent receives the full prompt", async () => {
+		await withRuntime(async (run) => {
+			const created = await run(
+				Effect.flatMap(store, (s) =>
+					s.createChat({
+						projectId: PROJECT_ID,
+						providerId: "claude",
+						model: "claude-opus-4-8",
+					}),
+				),
+			);
+			const source = {
+				_tag: "slack",
+				text: "Why are webhook deliveries failing?",
+				author: "Ada Lovelace",
+				channel: "eng-alerts",
+			} as const;
+			const prompt = `Request from Slack (thread 1.0):\n${source.text}`;
+			await run(
+				Effect.flatMap(store, (service) =>
+					service.sendMessageWithInput({
+						commandId: "slack-attributed-prompt",
+						sessionId: created.initialSession.id,
+						text: prompt,
+						source,
+					}),
+				),
+			);
+			const messages = await run(
+				Effect.flatMap(store, (service) =>
+					service.listMessages(created.initialSession.id),
+				),
+			);
+			expect(
+				messages.find((message) => message.content._tag === "user")?.content,
+			).toMatchObject({ _tag: "user", text: prompt, source });
+			await expect.poll(() => providerSentTexts).toContain(prompt);
 		});
 	});
 

@@ -22,6 +22,10 @@
   <key>com.apple.security.files.user-selected.read-write</key>
   <true/>
 
+  <!-- Microphone capture for user-initiated dictation. -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+
   <!-- Outbound network (Anthropic API, GitHub, model providers, update feed). -->
   <key>com.apple.security.network.client</key>
   <true/>

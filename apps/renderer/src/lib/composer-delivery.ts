@@ -17,10 +17,14 @@ export type WaitingCloudMessagePresentation = Readonly<{
  * The current durable slice has no mailbox-backed queue mutation yet. Keep a
  * second cloud prompt in the composer until the first mailbox send reaches a
  * terminal receipt; otherwise it would silently fall back to fragile live RPC.
+ * Include staged launch prompts: preparation can precede mailbox dispatch, but
+ * a later send must not overtake that already-visible intent.
  */
 export const cloudComposerSubmissionBlocked = (
 	pendingCommands: readonly PendingCommand[],
+	waitingMessages: readonly Message[] = [],
 ): boolean =>
+	waitingMessages.length > 0 ||
 	pendingCommands.some((command) => command.kind === "messages.send");
 
 const blockedCommandLabel = (command: PendingCommand): string | null => {

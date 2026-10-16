@@ -232,6 +232,10 @@ describe("queued image builds that cannot start", () => {
 	const reconcileQueued = (
 		workspaceId: string,
 		override: {
+			readonly validateTemplate?: () => Effect.Effect<
+				void,
+				SandboxProviderError
+			>;
 			readonly recoverByLabel?: (
 				label: string,
 			) => Effect.Effect<null, SandboxProviderError>;
@@ -268,6 +272,7 @@ describe("queued image builds that cannot start", () => {
 					get: () =>
 						Effect.succeed({
 							...provider,
+							validateTemplate: override.validateTemplate,
 							...(override.recoverByLabel === undefined
 								? {}
 								: { recoverByLabel: override.recoverByLabel }),
@@ -280,6 +285,20 @@ describe("queued image builds that cannot start", () => {
 			);
 			return { exit, build: yield* store.getBuild(build.buildId) };
 		});
+
+	test("fails immediately when the configured template is inaccessible", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-template-missing", {
+				validateTemplate: () =>
+					Effect.fail(new SandboxProviderError({ code: "not-found" })),
+				recoverByLabel: () =>
+					Effect.die("must not allocate after a failed template check"),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-template-unavailable");
+		expect(build?.logText).toContain("accessible template");
+	});
 
 	test("fails visibly when the provider refuses the machine lookup", async () => {
 		const { build } = await Effect.runPromise(
@@ -470,6 +489,7 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 		providerSandboxId,
 		runtimeState: input.runtimeState ?? "offline",
 		runtimeCredentialHash: input.runtimeCredentialHash,
+		wrappedTranscriptKey: input.wrappedTranscriptKey,
 		chatId: `chat-${workspaceId}`,
 		initialSessionId: `session-${workspaceId}`,
 		branch: `task/${workspaceId}`,
@@ -1437,12 +1457,12 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("archives by pausing the same sandbox for 30 days", async () => {
+	test("archives by pausing the same sandbox for 10 days", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
 				const control = yield* FakeSandboxProviderControlService;
-				const deleteAt = Date.now() + ARCHIVED_WORKSPACE_RETENTION_MS;
+				const deleteAt = Date.now() - 2_000 + ARCHIVED_WORKSPACE_RETENTION_MS;
 				const workspace = yield* seedWorkspace({
 					workspaceId: "archive-paused",
 					state: "ready",
@@ -1479,7 +1499,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.sandboxes.has("source-archive-paused")).toBe(true);
 	});
 
-	test("permanently deletes an archived sandbox after 30 days", async () => {
+	test("keeps expired archives and their history when no verified recovery point exists", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1491,42 +1511,24 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "archived",
 					requestConfig: {},
 					archiveDeleteAtMs: Date.now() - 1,
+					wrappedTranscriptKey: "preserved-key",
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
-				const expiring = yield* store.getWorkspace(workspace.workspaceId);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
-					expiring,
-					deleted: yield* store.getWorkspace(workspace.workspaceId),
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					sandboxes: yield* Ref.get(control.sandboxes),
 				};
 			}).pipe(Effect.provide(testLayer)),
 		);
-
-		expect(ARCHIVED_WORKSPACE_RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1_000);
-		expect(result.expiring).toMatchObject({
-			desiredState: "deleted",
-			statusCode: "archive-retention-expired",
-			requestConfig: {
-				destructionFence: 2,
-				cloudMailboxLifecyclePending: {
-					action: "delete",
-					destructionFence: 2,
-				},
-			},
+		expect(ARCHIVED_WORKSPACE_RETENTION_MS).toBe(10 * 24 * 60 * 60 * 1_000);
+		expect(result.workspace).toMatchObject({
+			state: "archived",
+			desiredState: "archived",
+			statusCode: "archive-backup-required",
+			providerSandboxId: "source-expired-archive",
+			wrappedTranscriptKey: "preserved-key",
 		});
-		expect(result.deleted).toMatchObject({
-			state: "deleted",
-			providerSandboxId: undefined,
-			requestConfig: {
-				destructionFence: 2,
-				cloudMailboxLifecyclePending: {
-					action: "delete",
-					destructionFence: 2,
-				},
-			},
-		});
-		expect(result.sandboxes.has("source-expired-archive")).toBe(false);
+		expect(result.sandboxes.has("source-expired-archive")).toBe(true);
 	});
 
 	test("preserves a paused runtime and refuses a storage-destructive replacement", async () => {

@@ -17,6 +17,7 @@ import type {
 	PersistedResource,
 	ResourcePersistence,
 } from "@zuse/client-runtime/client-persistence";
+import { isRpcAccessDenied } from "@zuse/client-runtime/connection";
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
@@ -37,9 +38,12 @@ import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-time
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import { cloudCommandEligibility } from "@zuse/cloud-commands";
 import type { EnvironmentId, Message } from "@zuse/contracts";
-import { SessionTimelineProjection } from "@zuse/contracts";
+import {
+	CloudWorkspaceOpError,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
 import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
 	createClientCommandOutbox,
@@ -1347,30 +1351,56 @@ const olderSessionMessageLoads = makeSessionMessagePager({
 	readPage: async (ref, client, cursor, beforeSequence, signal) => {
 		const cloud = isCloudTimelineEnvironment(ref.environmentId);
 		const namespace = rendererResourceCacheNamespace(ref.environmentId);
+		const account = rendererAccountSnapshot();
 
-		const cached =
-			cloud && cursor !== null && namespace !== null
-				? await sessionTimelineCache
-						?.loadHistoryPage(ref, cursor, beforeSequence, namespace)
+		const loadCachedPage = (allowEarlierVersion = false) =>
+			cloud &&
+			cursor !== null &&
+			namespace !== null &&
+			rendererAccountSnapshot() === account &&
+			rendererResourceCacheNamespace(ref.environmentId) === namespace
+				? sessionTimelineCache
+						?.loadHistoryPage(ref, cursor, beforeSequence, namespace, {
+							allowEarlierVersion,
+						})
 						.catch(() => null)
 				: null;
+		const cached = await loadCachedPage();
 		if (cached) return cached;
-		const page = await (client === null
-			? cursor === null
-				? null
-				: olderPageSynchronizers.get(ref.environmentId)?.(
-						ref,
-						cursor,
-						beforeSequence,
-					)
-			: Effect.runPromise(
-					client["session.messages.page"]({
-						sessionId: ref.sessionId,
-						beforeSequence,
-						limit: 100,
-					}),
-					{ signal },
-				));
+		const requestPage = () =>
+			client === null
+				? cursor === null
+					? null
+					: olderPageSynchronizers.get(ref.environmentId)?.(
+							ref,
+							cursor,
+							beforeSequence,
+						)
+				: Effect.runPromise(
+						client["session.messages.page"]({
+							sessionId: ref.sessionId,
+							beforeSequence,
+							limit: 100,
+						}),
+						{ signal },
+					);
+		let page: Awaited<ReturnType<typeof requestPage>>;
+		try {
+			page = await requestPage();
+		} catch (cause) {
+			const denied =
+				isRpcAccessDenied(cause) ||
+				(Schema.is(CloudWorkspaceOpError)(cause) &&
+					(cause.code === "access-denied" ||
+						cause.code === "not-allowed" ||
+						cause.code === "not-found"));
+			if (!signal?.aborted && !denied) {
+				const fallback = await loadCachedPage(true);
+				if (fallback) return fallback;
+			}
+			throw cause;
+		}
+		if (!page && !signal?.aborted) return await loadCachedPage(true);
 		if (
 			!signal?.aborted &&
 			cloud &&

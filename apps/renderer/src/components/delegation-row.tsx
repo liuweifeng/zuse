@@ -1,6 +1,6 @@
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { EnvironmentId, Message } from "@zuse/contracts";
+import type { AgentItemId, EnvironmentId, Message } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ClipboardIcon } from "@zuse/icons/solid-rounded";
 import { Check, ChevronDown, ChevronRight, Minus, X } from "lucide-react";
@@ -16,10 +16,9 @@ import { useRelativeTimeTick } from "~/lib/use-relative-time";
 import { cn } from "~/lib/utils";
 
 import { CopyButton } from "./copy-button.tsx";
-import { MarkdownBody } from "./markdown-body.tsx";
-import { MessageRow } from "./message-row.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { SubagentAvatar } from "./subagent-identity.tsx";
+import { SubagentTranscript } from "./subagent-transcript.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
 const STATUS_LABEL_KEY = {
@@ -54,7 +53,10 @@ export function DelegationElapsed({ timing }: { readonly timing: Timing }) {
 /** The nested transcript of a subagent that has no session to open. */
 export interface DelegationInlineBody {
 	readonly prompt: string;
+	readonly parent: Message;
+	readonly parentItemId: AgentItemId;
 	readonly children: ReadonlyArray<Message>;
+	readonly live: boolean;
 	readonly summaryText: string | null;
 	readonly readOnly: boolean;
 	readonly environmentId: EnvironmentId | undefined;
@@ -191,20 +193,17 @@ function InlineBody({ body }: { readonly body: DelegationInlineBody }) {
 		<div className="ml-5 mt-1 border-l border-border/60 pl-3">
 			<PromptRow text={body.prompt} />
 			<div className="flex flex-col">
-				{body.children.map((child) => (
-					<MessageRow
-						key={child.id}
-						message={child}
-						readOnly={body.readOnly}
-						environmentId={body.environmentId}
-					/>
-				))}
+				<SubagentTranscript
+					parent={body.parent}
+					parentItemId={body.parentItemId}
+					messages={body.children}
+					summaryText={body.summaryText}
+					live={body.live}
+					chatRef={null}
+					environmentId={body.environmentId}
+					readOnly={body.readOnly}
+				/>
 			</div>
-			{body.summaryText !== null && body.summaryText.length > 0 ? (
-				<div className="px-4 py-1">
-					<MarkdownBody className="text-xs">{body.summaryText}</MarkdownBody>
-				</div>
-			) : null}
 		</div>
 	);
 }

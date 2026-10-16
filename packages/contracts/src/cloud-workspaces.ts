@@ -159,7 +159,7 @@ export const CloudProviderAuthMode = CloudCodexAuthMode;
 export type CloudProviderAuthMode = CloudCodexAuthMode;
 
 export const CloudProviderConnectionInput = Schema.Struct({
-	providerId: Schema.Literals(["e2b", "boxd", "box"]),
+	providerId: Schema.Literals(["e2b", "boxd", "box", "daytona"]),
 	apiKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 	templateId: Schema.optional(
 		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
@@ -558,6 +558,8 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	lastMessageAt: Schema.NullOr(Schema.Number),
 	lastUserMessageAt: Schema.optional(Schema.NullOr(Schema.Number)),
 	archivedAt: Schema.optional(Schema.Number),
+	/** Chat integration that started this workspace, when not the desktop app. */
+	source: Schema.optional(Schema.Literal("slack")),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}

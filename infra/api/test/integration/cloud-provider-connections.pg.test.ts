@@ -10,9 +10,9 @@ import {
 } from "../../src/cloud-provider-connections.ts";
 
 const connectionString = process.env.ZUSE_TEST_DATABASE_URL;
-test.skipIf(!connectionString)(
-	"provider key rotation is atomic, durable and owner-scoped",
-	async () => {
+test.skipIf(!connectionString).each(["boxd", "daytona"])(
+	"%s provider key rotation is atomic, durable and owner-scoped",
+	async (providerId) => {
 		const schema = `byok_${crypto.randomUUID().replaceAll("-", "")}`;
 		const admin = new pg.Pool({ connectionString });
 		await admin.query(`CREATE SCHEMA ${schema}`);
@@ -40,13 +40,22 @@ test.skipIf(!connectionString)(
 				),
 			);
 			const store = await runtime.runPromise(CloudProviderConnections);
+			await pool.query(
+				await readFile(
+					new URL(
+						"../../drizzle/migrations/0046_daytona_provider_connections.sql",
+						import.meta.url,
+					),
+					"utf8",
+				),
+			);
 			const record = (
 				id: string,
 				accountId = "alice",
 			): ProviderConnectionRecord => ({
 				connectionId: id,
 				accountId,
-				providerId: "boxd",
+				providerId,
 				envelope: "encrypted-envelope",
 				active: true,
 				createdAt: 1,

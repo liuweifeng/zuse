@@ -30,6 +30,11 @@
 			"types": "./src/testing.ts",
 			"import": "./src/testing.ts",
 			"require": "./src/testing.ts"
+		},
+		"./daytona": {
+			"types": "./src/daytona.ts",
+			"import": "./src/daytona.ts",
+			"require": "./src/daytona.ts"
 		}
 	},
 	"scripts": {

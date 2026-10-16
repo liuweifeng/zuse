@@ -288,6 +288,7 @@
 	"github_continue_tooltip": "origin/main から新しいブランチを作成してチェックアウト",
 	"github_auto_fix": "自動修正",
 	"projects_sidebar_cloud": "クラウド",
+	"projects_sidebar_started_from_slack": "Slack から開始",
 	"github_action_failed": "GitHub 操作に失敗しました",
 	"github_repair_state_changed": "チャット、ブランチ、またはエージェントの状態が変わりました。現在の PR から修復を再実行してください。",
 	"github_attach_failed": "PR のコンテキストを添付できませんでした。",

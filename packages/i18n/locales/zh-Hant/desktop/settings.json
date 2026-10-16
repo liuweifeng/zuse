@@ -1116,6 +1116,7 @@
 	"cloud_snapshot_usage": "本期儲存空間用量費用",
 	"cloud_snapshot_usage_recent": "已計入您的雲端用量費用總額。",
 	"cloud_provider_keys_footer": "金鑰由 Zuse 雲端服務加密，絕不會傳送到工作區執行環境。",
+	"cloud_provider_keys_daytona_network_requirement": "使用自己的 Daytona 金鑰需要 Tier 3 或更高等級才能存取網路，除非 Daytona 支援團隊已為你的組織啟用網路例外。",
 	"cloud_provider_keys_loading": "正在載入供應商金鑰…",
 	"cloud_provider_keys_load_failed": "無法載入供應商金鑰。",
 	"cloud_provider_keys_empty_title": "未連結供應商金鑰",

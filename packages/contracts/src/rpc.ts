@@ -213,6 +213,7 @@ import {
 	GitUserNameRpc,
 	GitWorkspaceChangesRpc,
 	GitWorkspaceSnapshotRpc,
+	GitZuseStarStatusRpc,
 } from "./git.ts";
 import { ConnectHandshakeRpc } from "./handshake.ts";
 import { HostOpenSessionRpc } from "./host.ts";
@@ -652,6 +653,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitReviewFileContentsRpc,
 	GitReviewIdentityRpc,
 	GitStarZuseRpc,
+	GitZuseStarStatusRpc,
 	GitDiffRpc,
 	GitCommitRpc,
 	GitCreateReviewCommentRpc,

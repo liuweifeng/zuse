@@ -384,3 +384,69 @@ export const readSlackThread = async (input: {
 	} while (cursor !== undefined);
 	return messages;
 };
+
+const slackRecord = (value: unknown): Record<string, unknown> | undefined =>
+	value && typeof value === "object"
+		? (value as Record<string, unknown>)
+		: undefined;
+const slackName = (...values: unknown[]): string | undefined => {
+	for (const value of values)
+		if (typeof value === "string" && value.trim().length > 0)
+			return value.trim().slice(0, 128);
+	return undefined;
+};
+/** Read methods take query parameters; failures resolve to `undefined`. */
+const slackRead = async (
+	token: string,
+	method: string,
+	params: Readonly<Record<string, string>>,
+): Promise<Record<string, unknown> | undefined> => {
+	try {
+		const url = new URL(`https://slack.com/api/${method}`);
+		for (const [key, value] of Object.entries(params))
+			url.searchParams.set(key, value);
+		const response = await fetch(url, {
+			headers: { authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+		});
+		const body = slackRecord(await response.json());
+		return response.ok && body?.ok === true ? body : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * Best-effort display names for message attribution. Installs that predate
+ * the `users:read` / `channels:read` scopes simply omit the missing name.
+ */
+export const readSlackSourceNames = async (input: {
+	readonly botToken: string;
+	readonly userId: string;
+	readonly channel: string;
+}): Promise<{ readonly author?: string; readonly channel?: string }> => {
+	const [userPayload, channelPayload] = await Promise.all([
+		slackRead(input.botToken, "users.info", { user: input.userId }),
+		// Direct messages have no channel name worth showing.
+		input.channel.startsWith("D")
+			? undefined
+			: slackRead(input.botToken, "conversations.info", {
+					channel: input.channel,
+				}),
+	]);
+	const user = slackRecord(userPayload?.user);
+	const profile = slackRecord(user?.profile);
+	const author = slackName(
+		profile?.display_name,
+		profile?.real_name,
+		user?.real_name,
+		user?.name,
+	);
+	const conversation = slackRecord(channelPayload?.channel);
+	const channel =
+		conversation?.is_mpim === true ? undefined : slackName(conversation?.name);
+	return {
+		...(author === undefined ? {} : { author }),
+		...(channel === undefined ? {} : { channel }),
+	};
+};

@@ -4,6 +4,10 @@ import {
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
 import {
+	prependSessionTimelineMessages,
+	restoreSessionTimelineState,
+} from "@zuse/client-runtime/session-timeline";
+import {
 	decodeSessionTimelineCacheEntry,
 	encodeSessionTimelineCacheEntry,
 	type SessionTimelineCache,
@@ -153,6 +157,63 @@ const transactionComplete = (transaction: IDBTransaction): Promise<void> =>
 			reject(transaction.error ?? new Error("IndexedDB transaction failed"));
 	});
 
+const cachedHistoryKeys = async (
+	store: IDBObjectStore,
+	resource: string,
+	cursor: SessionStreamCursor,
+	before: number,
+	pinnedVersion?: number,
+): Promise<{ version: number; keys: Map<number, string> } | null> => {
+	const keys = await requestResult(
+		store.index("resource").getAllKeys(resource),
+	);
+	const versions = new Map<number, Map<number, string>>();
+	for (const key of keys) {
+		if (typeof key !== "string") continue;
+		try {
+			const parts: unknown = JSON.parse(key);
+			if (
+				!Array.isArray(parts) ||
+				parts.length !== 4 ||
+				parts[0] !== resource ||
+				parts[1] !== cursor.epoch ||
+				typeof parts[2] !== "number" ||
+				!Number.isSafeInteger(parts[2]) ||
+				parts[2] < 0 ||
+				parts[2] > cursor.version ||
+				(pinnedVersion !== undefined && parts[2] !== pinnedVersion) ||
+				typeof parts[3] !== "number" ||
+				!Number.isSafeInteger(parts[3])
+			)
+				continue;
+			let pages = versions.get(parts[2]);
+			if (pages === undefined) {
+				pages = new Map();
+				versions.set(parts[2], pages);
+			}
+			pages.set(parts[3], key);
+		} catch {
+			// Ignore malformed keys without changing other cached pages.
+		}
+	}
+	let selected: { version: number; keys: Map<number, string> } | null = null;
+	for (const [version, pages] of versions) {
+		if (pages.has(before) && (selected === null || version > selected.version))
+			selected = { version, keys: pages };
+	}
+	return selected;
+};
+
+const decodeHistoryPage = (record: unknown): HistoryPage | null => {
+	if (typeof record !== "object" || record === null || !("page" in record))
+		return null;
+	try {
+		return Schema.decodeUnknownSync(HistoryPage)(record.page);
+	} catch {
+		return null;
+	}
+};
+
 const openDatabase = (): Promise<IDBDatabase> =>
 	new Promise((resolve, reject) => {
 		const request = indexedDB.open(
@@ -201,6 +262,27 @@ const openDatabase = (): Promise<IDBDatabase> =>
 
 class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 	private database: Promise<IDBDatabase> | null = null;
+	// Rollback can delete messages without changing epoch. Keep every page in
+	// an unfinished traversal on the same snapshot, including later fallbacks.
+	private readonly historySelections = new Map<
+		string,
+		{ epoch: string; version: number; before: number }
+	>();
+
+	private rememberHistorySelection(
+		resource: string,
+		cursor: SessionStreamCursor,
+		version: number,
+		before: number | null,
+	): void {
+		this.historySelections.delete(resource);
+		if (before === null) return;
+		this.historySelections.set(resource, {
+			epoch: cursor.epoch,
+			version,
+			before,
+		});
+	}
 
 	private db(): Promise<IDBDatabase> {
 		this.database ??= openDatabase();
@@ -223,22 +305,67 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 			await transactionComplete(transaction);
 			return null;
 		}
+		let decoded: SessionTimelineCacheEntry;
 		try {
-			const decoded = decodeSessionTimelineCacheEntry(raw);
-			const touched = { ...decoded, ref, accessedAt: Date.now() };
-			transaction.objectStore(METADATA_STORE_NAME).put({
-				sessionId: storageKey,
-				accessedAt: touched.accessedAt,
-				estimatedBytes: touched.estimatedBytes,
-			});
-			await transactionComplete(transaction);
-			return touched;
+			decoded = decodeSessionTimelineCacheEntry(raw);
 		} catch {
 			store.delete(storageKey);
 			transaction.objectStore(METADATA_STORE_NAME).delete(storageKey);
 			await transactionComplete(transaction);
 			return null;
 		}
+		const pages = transaction.objectStore(HISTORY_STORE_NAME);
+		const history: ReadonlyArray<Message>[] = [];
+		let before = decoded.projection.olderMessageSequence ?? null;
+		// Reopening a paused chat must not require an API checkpoint before its
+		// already cached history is readable. Scan keys once, then load only the
+		// contiguous pages belonging to this checkpoint's account and epoch.
+		const snapshot =
+			before === null
+				? null
+				: await cachedHistoryKeys(pages, storageKey, decoded.cursor, before);
+		while (before !== null) {
+			const key = snapshot?.keys.get(before);
+			if (key === undefined) break;
+			const page = decodeHistoryPage(await requestResult(pages.get(key)));
+			if (
+				page === null ||
+				(page.olderMessageSequence !== null &&
+					page.olderMessageSequence >= before)
+			)
+				break;
+			history.push(page.messages);
+			before = page.olderMessageSequence;
+		}
+		const projection =
+			history.length === 0
+				? decoded.projection
+				: (prependSessionTimelineMessages(
+						restoreSessionTimelineState(decoded.projection, decoded.cursor),
+						history.reverse().flat(),
+						before,
+					).projection ?? decoded.projection);
+		const touched = {
+			...decoded,
+			ref,
+			projection,
+			accessedAt: Date.now(),
+		};
+		transaction.objectStore(METADATA_STORE_NAME).put({
+			sessionId: storageKey,
+			accessedAt: touched.accessedAt,
+			estimatedBytes: touched.estimatedBytes,
+		});
+		await transactionComplete(transaction);
+		this.historySelections.delete(storageKey);
+		if (snapshot !== null)
+			this.rememberHistorySelection(
+				storageKey,
+				decoded.cursor,
+				snapshot.version,
+				before,
+			);
+		return touched;
 	}
 
 	async save(
@@ -284,21 +411,55 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		cursor: SessionStreamCursor,
 		before: number,
 		namespace?: string,
+		options?: { readonly allowEarlierVersion?: boolean },
 	): Promise<HistoryPage | null> {
 		const database = await this.db();
 		const transaction = database.transaction(HISTORY_STORE_NAME, "readonly");
-		const record = await requestResult(
-			transaction
-				.objectStore(HISTORY_STORE_NAME)
-				.get(historyPageKey(ref, cursor, before, namespace)),
-		);
-		await transactionComplete(transaction);
-		if (!record) return null;
-		try {
-			return Schema.decodeUnknownSync(HistoryPage)(record.page);
-		} catch {
-			return null;
+		const store = transaction.objectStore(HISTORY_STORE_NAME);
+		const resource = environmentSessionCacheKey(ref, namespace);
+		const selected = this.historySelections.get(resource);
+		const pinnedVersion =
+			selected?.epoch === cursor.epoch &&
+			selected.before === before &&
+			selected.version <= cursor.version
+				? selected.version
+				: undefined;
+		let version = pinnedVersion ?? cursor.version;
+		let record =
+			pinnedVersion !== undefined &&
+			pinnedVersion !== cursor.version &&
+			options?.allowEarlierVersion !== true
+				? undefined
+				: await requestResult(
+						store.get(
+							historyPageKey(ref, { ...cursor, version }, before, namespace),
+						),
+					);
+		if (!record && options?.allowEarlierVersion === true) {
+			// An unavailable server must not make previously read history disappear.
+			// Inspect keys only; loading every page here can consume the entire cache.
+			const snapshot = await cachedHistoryKeys(
+				store,
+				resource,
+				cursor,
+				before,
+				pinnedVersion,
+			);
+			const latestKey = snapshot?.keys.get(before);
+			if (snapshot !== null) version = snapshot.version;
+			if (latestKey !== undefined)
+				record = await requestResult(store.get(latestKey));
 		}
+		await transactionComplete(transaction);
+		const page = decodeHistoryPage(record);
+		if (page !== null)
+			this.rememberHistorySelection(
+				resource,
+				cursor,
+				version,
+				page.olderMessageSequence,
+			);
+		return page;
 	}
 	async saveHistoryPage(
 		ref: SessionRef,
@@ -337,6 +498,7 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 			"readwrite",
 		);
 		cloudHeads.delete(storageKey);
+		this.historySelections.delete(storageKey);
 		const pages = transaction.objectStore(HISTORY_STORE_NAME);
 		const pageKeys = await requestResult(
 			pages.index("resource").getAllKeys(storageKey),

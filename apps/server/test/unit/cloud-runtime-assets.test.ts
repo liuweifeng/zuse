@@ -172,10 +172,10 @@ describe("cloud runtime assets", () => {
 			readWorkspaceFile("infra/cloud-sandboxes/provision.sh"),
 		]);
 		expect(dockerfile).toContain(
-			"RUN /tmp/zuse-provision/provision.sh globals",
+			"RUN /opt/zuse-provision/provision.sh globals",
 		);
 		expect(dockerfile).toContain(
-			"RUN /tmp/zuse-provision/provision.sh runtime layout",
+			"RUN /opt/zuse-provision/provision.sh runtime layout",
 		);
 		expect(boxInstall).not.toContain("zuse-host-ports.service");
 		expect(provision).toContain('source "$provision_dir/install-grok.sh"');

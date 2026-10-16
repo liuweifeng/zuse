@@ -68,13 +68,17 @@ const setup = () => {
 			const fake = yield* (yield* SandboxProviders).get("fake");
 			return yield* makeSandboxProviders({
 				defaultProviderId: "boxd",
-				registrations: ["boxd", "e2b", "box"].map((providerId) => ({
+				registrations: ["boxd", "e2b", "box", "daytona"].map((providerId) => ({
 					adapter: {
 						...fake,
 						providerId,
 						withCredentials: (credentials) => ({
 							...fake,
 							providerId,
+							validateTemplate: () =>
+								credentials.templateId === "inaccessible"
+									? Effect.fail(new SandboxProviderError({ code: "not-found" }))
+									: Effect.void,
 							recoverByLabel: () =>
 								Redacted.value(credentials.apiKey) === "invalid"
 									? Effect.fail(new SandboxProviderError({ code: "rejected" }))
@@ -131,6 +135,34 @@ const build = (connectionId: string): CloudProjectBuildRecord => ({
 });
 
 describe("BYOK ownership and billing", () => {
+	test("does not replace an active key when the new template is inaccessible", async () => {
+		const { runtime } = setup();
+		try {
+			await runtime.runPromise(
+				saveProviderConnection(
+					"alice",
+					{ providerId: "e2b", apiKey: "valid" },
+					1,
+				),
+			);
+			await expect(
+				runtime.runPromise(
+					saveProviderConnection(
+						"alice",
+						{ providerId: "e2b", apiKey: "valid", templateId: "inaccessible" },
+						2,
+					),
+				),
+			).rejects.toMatchObject({ code: "cloud_provider_template_unavailable" });
+			expect(
+				(await runtime.runPromise(listProviderConnections("alice"))).filter(
+					(record) => record.active,
+				),
+			).toHaveLength(1);
+		} finally {
+			await runtime.dispose();
+		}
+	});
 	test("resolves placement from one account connection snapshot", async () => {
 		const { runtime, listCalls } = setup();
 		try {
@@ -160,6 +192,7 @@ describe("BYOK ownership and billing", () => {
 		"e2b",
 		"boxd",
 		"box",
+		"daytona",
 	] as const)("encrypts %s keys and grants free access only to their owner", async (providerId) => {
 		const { runtime, records } = setup();
 		try {
