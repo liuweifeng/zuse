@@ -92,7 +92,7 @@ try {
 		let state: PowerMonitorState;
 		try {
 			state = await Promise.race([
-				page.evaluate("window.zuse.power.getState()"),
+				page.evaluate<PowerMonitorState>("window.zuse.power.getState()"),
 				new Promise<never>((_, reject) => {
 					probeTimer = setTimeout(
 						() => reject(new Error("Renderer stopped responding")),

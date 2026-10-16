@@ -178,6 +178,8 @@ try {
 	const project = join(directory, "project");
 	await mkdir(project);
 	const folder = await first.call("workspace.add", { path: project });
+	assert(folder !== null && typeof folder === "object");
+	const expectedWorkspaces = [{ ...folder, kind: "project" }];
 	if (accountOutage !== undefined) {
 		const descriptor = await first.call("connect.describe", null);
 		assert(
@@ -195,7 +197,7 @@ try {
 	first.channel.close();
 	await first.channel.closed;
 	const second = await connect(initial);
-	assert.deepEqual(await second.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await second.call("workspace.list", {}), expectedWorkspaces);
 	assert.equal((await readEngineEndpoint(directory))?.pid, initial.pid);
 	console.log(
 		"PASS: renderer detach and reattach preserve the engine and its data",
@@ -212,7 +214,7 @@ try {
 		),
 	);
 	let third = await connect(recovered);
-	assert.deepEqual(await third.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await third.call("workspace.list", {}), expectedWorkspaces);
 	console.log(
 		"PASS: worker crash restarts the engine with durable data and a fresh capability",
 	);
@@ -406,7 +408,7 @@ try {
 	});
 	const idle = await waitReady();
 	const fourth = await connect(idle);
-	assert.deepEqual(await fourth.call("workspace.list", {}), [folder]);
+	assert.deepEqual(await fourth.call("workspace.list", {}), expectedWorkspaces);
 	assert.equal(
 		await requestIdleEngineShutdown(idle, { userData: directory }),
 		"stopped",
