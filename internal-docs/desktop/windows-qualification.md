@@ -23,6 +23,18 @@ default-route limit. The renderer build plugin compared native Windows paths wit
 Vite-normalized paths, preventing its existing schema test-data exclusion from
 matching. The Windows fix normalizes those paths and retains the original budget.
 
+The later [installer run](https://github.com/swarajbachu/zuse/actions/runs/38944633238)
+passed packaged native checks, then its first NSIS installation exited with
+`0xC0000005`. The pinned app-builder-lib template contains the known unsafe
+fixed-size shell-path read. `patches/app-builder-lib@25.1.8.patch` backports the
+[upstream bounded-copy fix](https://github.com/electron-userland/electron-builder/commit/a356198ec7c54c7795659342bff36d9a5162cd93).
+Remove that patch when upgrading to a version containing the fix. Windows CI
+retains bounded Application crash events to distinguish subsequent failures.
+
+Provider subprocesses use the shared `@zuse/utils/spawn-command` launcher, which
+uses cross-spawn on Windows for npm `.cmd` wrappers and native Node spawning on
+other systems. ACP shutdown uses the existing owned-process tree cleanup.
+
 ## Build and compatibility lane
 
 Use Node 24 and Bun 1.3.10 on native Windows x64, with Visual Studio C++ build tools

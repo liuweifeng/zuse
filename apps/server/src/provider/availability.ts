@@ -276,7 +276,9 @@ export const resolveCliPath = (
 			if (pinned !== null) return pinned;
 		}
 		const result = yield* runCapture(
-			Command.make("which", ["-a", cliBinary]),
+			process.platform === "win32"
+				? Command.make("where.exe", [cliBinary])
+				: Command.make("which", ["-a", cliBinary]),
 		).pipe(
 			Effect.timeoutOption(PROBE_TIMEOUT),
 			Effect.catch(() => Effect.succeedNone),
