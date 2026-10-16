@@ -649,3 +649,68 @@ it.each([
 		driver.stop();
 	}
 });
+
+it("resumes a complete active 10,000-message cache using only the event cursor", async () => {
+	const requests: unknown[] = [];
+	const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+	const messages = Array.from({ length: 10_000 }, (_, index) =>
+		Message.make({
+			id: MessageId.make(`large-${index}`),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: `message ${index}` },
+			createdAt: new Date(index),
+		}),
+	);
+	const driver = makeSessionTimelineResourceDriver({
+		reportFailure: () => {},
+		backgroundHistory: () => true,
+	});
+	const test = harness({
+		key,
+		client: {
+			"session.events": (input) => {
+				requests.push(input);
+				return Stream.fromQueue(frames);
+			},
+		},
+		data: SessionTimelineProjection.make({
+			...projection,
+			messages,
+			olderMessageSequence: null,
+		}),
+		cursor: { epoch: "large", version: 50_000 },
+	});
+	try {
+		driver.start(test.context);
+		await waitUntil(() => requests.length === 1);
+		expect(requests[0]).toMatchObject({
+			afterVersion: 50_000,
+			streamEpoch: "large",
+			hasProjection: true,
+			includeRuntime: true,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "event",
+			sessionId,
+			streamVersion: 50_001,
+			cursor: { epoch: "large", version: 50_001 },
+			eventId: "settled-while-disconnected",
+			event: { _tag: "TurnSettled", turnId, outcome: "completed" },
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 50_001,
+			cursor: { epoch: "large", version: 50_001 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		expect(test.view().data).toMatchObject({
+			status: "idle",
+			activeTurn: null,
+		});
+		expect(test.view().data?.messages).toHaveLength(10_000);
+	} finally {
+		driver.stop();
+	}
+});

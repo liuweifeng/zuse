@@ -54,6 +54,28 @@ const result = await build({
         changedBoundary: await fallback(ref, { ...cursor, version: 11 }, 'account-test', 4),
       };
     };
+    window.largeCacheProbe = async (seed) => {
+      const ref = { environmentId: 'large-cache', sessionId: 'large-session' };
+      const cursor = { epoch: 'large', version: 50000 };
+      const message = i => Message.make({ id: 'large-' + i, sessionId: ref.sessionId, role: 'user', content: { _tag: 'user', text: 'message ' + i }, createdAt: new Date(i) });
+      if (seed) {
+        const messages = Array.from({ length: 10000 }, (_, i) => message(i));
+        const projection = SessionTimelineProjection.make({ messages: messages.slice(9900), olderMessageSequence: 9900, status: 'running', activeTurn: null, turnCount: 0, queue: QueueState.make({ items: [], paused: false }), permissionMode: 'default', runtimeMode: 'full-access' });
+        rememberCloudTimelineHead(ref, projection, cursor, 'large-account');
+        await sessionTimelineCache.saveHistoryPage(ref, cursor, 9900, { messages: messages.slice(0, 9900), olderMessageSequence: null }, 'large-account');
+        await sessionTimelineCache.save(makeSessionTimelineCacheEntry({ ref, cursor, projection }), 'large-account');
+      } else {
+        const restored = await sessionTimelineCache.load(ref, 'large-account');
+        if (restored.projection.messages.length !== 10000) throw new Error('cached history missing');
+        await sessionTimelineCache.save(makeSessionTimelineCacheEntry({ ref, cursor: { ...cursor, version: 50001 }, projection: SessionTimelineProjection.make({ ...restored.projection, messages: [...restored.projection.messages, message(10000)] }) }), 'large-account');
+      }
+      const db = await new Promise((resolve, reject) => { const r = indexedDB.open('zuse-session-timelines'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      const rows = await new Promise((resolve, reject) => { const r = db.transaction('timelines').objectStore('timelines').getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      db.close();
+      const head = rows.find(row => row.ref.environmentId === ref.environmentId);
+      const restored = await sessionTimelineCache.load(ref, 'large-account');
+      return { persistedHead: head.projection.messages.length, restoredMessages: restored.projection.messages.length };
+    };
     window.coherenceProbe = async (complete) => {
       const ref = { environmentId: 'coherence-workspace', sessionId: 'coherence-' + complete };
       const cursor = { epoch: 'rollback-within-epoch', version: 13 };
@@ -122,6 +144,18 @@ try {
 		changedEnvironment: null,
 		changedBoundary: null,
 	};
+	assert.deepEqual(await page.evaluate(() => window.largeCacheProbe(true)), {
+		persistedHead: 100,
+		restoredMessages: 10000,
+	});
+	await page.reload();
+	await page.waitForFunction(
+		() => typeof window.largeCacheProbe === "function",
+	);
+	assert.deepEqual(await page.evaluate(() => window.largeCacheProbe(false)), {
+		persistedHead: 101,
+		restoredMessages: 10001,
+	});
 	assert.equal(await page.evaluate(() => window.readingProbe()), true);
 	assert.deepEqual(await page.evaluate(() => window.probe()), expected);
 	await page.reload();

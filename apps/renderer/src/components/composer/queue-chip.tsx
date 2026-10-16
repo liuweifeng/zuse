@@ -49,6 +49,7 @@ export function QueueChip({
 	index,
 	count,
 	running,
+	submitting = false,
 	dragging,
 	onMove,
 	onDragStart,
@@ -61,6 +62,7 @@ export function QueueChip({
 	index: number;
 	count: number;
 	running: boolean;
+	submitting?: boolean;
 	dragging: boolean;
 	onMove: (from: number, to: number) => void;
 	onDragStart: () => void;
@@ -70,7 +72,8 @@ export function QueueChip({
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
 	const ref = { environmentId, sessionId };
-	const [runningNow, setRunningNow] = useState(false);
+	const [localRunningNow, setRunningNow] = useState(false);
+	const runningNow = localRunningNow || submitting;
 	const text = previewText(item);
 	const subtitle = item.ready ? refSubtitle(item) : undefined;
 

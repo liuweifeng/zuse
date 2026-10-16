@@ -357,6 +357,20 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 			estimatedBytes: touched.estimatedBytes,
 		});
 		await transactionComplete(transaction);
+		// Restore the persisted head boundary before returning hydrated history.
+		// Otherwise the first delta after a renderer restart rewrites the entire
+		// transcript on every checkpoint instead of reusing its cached pages.
+		if (
+			!cloudHeads.has(storageKey) &&
+			decoded.projection.olderMessageSequence != null
+		) {
+			rememberCloudTimelineHead(
+				ref,
+				decoded.projection,
+				decoded.cursor,
+				namespace,
+			);
+		}
 		this.historySelections.delete(storageKey);
 		if (snapshot !== null)
 			this.rememberHistorySelection(
