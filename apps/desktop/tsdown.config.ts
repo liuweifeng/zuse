@@ -131,6 +131,9 @@ export default defineConfig(
 			outDir: process.env.ZUSE_DESKTOP_OUT_DIR?.trim() || "dist-electron",
 			outExtensions: () => ({ js: ".cjs" }),
 			sourcemap: true,
+			// Electron entrypoints are executables, not libraries. Avoid eight
+			// parallel declaration generators during development/watch builds.
+			dts: false,
 			clean: target.name === "main",
 			define: definitions,
 			deps: target.bridge ? bridgeDependencies : desktopDependencies,

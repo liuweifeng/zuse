@@ -602,6 +602,18 @@ const startAuthLoopback = async (): Promise<void> => {
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
+if (isDevelopment && process.send !== undefined) {
+	process.on("message", (message: unknown) => {
+		if (
+			typeof message === "object" &&
+			message !== null &&
+			"type" in message &&
+			message.type === "zuse:dev-shutdown"
+		)
+			app.quit();
+	});
+	process.once("disconnect", () => app.quit());
+}
 const remoteAccessPolicy = desktopRemoteAccessPolicy(isDevelopment);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";

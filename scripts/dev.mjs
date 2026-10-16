@@ -2,10 +2,10 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
 import deploymentProfiles from "../packages/contracts/src/deployment-profiles.json" with {
 	type: "json",
 };
+import { stopOwnedProcess } from "../packages/utils/src/owned-process.ts";
 
 import {
 	devInstanceDiagnostics,
@@ -59,11 +59,17 @@ const devStartedAt = Date.now();
 const children = [];
 let shuttingDown = false;
 
-function run(name, command, args, extraEnv = {}) {
+function run(name, command, args, extraEnv = {}, cooperative = false) {
 	const child = spawn(command, args, {
 		cwd: repoRoot,
-		stdio: "inherit",
+		stdio: cooperative ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
+		detached: !cooperative && process.platform !== "win32",
+		windowsHide: true,
 		env: { ...process.env, ...extraEnv, FORCE_COLOR: "1" },
+	});
+	child.once("error", (error) => {
+		console.error(`[${name}] failed to start ${command}: ${error.message}`);
+		void shutdown(1);
 	});
 	child.once("exit", (code, signal) => {
 		if (shuttingDown) return;
@@ -72,17 +78,43 @@ function run(name, command, args, extraEnv = {}) {
 		);
 		void shutdown(code ?? 1);
 	});
-	children.push({ name, child });
+	children.push({ name, child, cooperative });
 }
 
 async function shutdown(code) {
 	if (shuttingDown) return;
 	shuttingDown = true;
-	for (const { child } of children) {
-		if (child.exitCode === null) child.kill("SIGTERM");
-	}
+	const results = await Promise.allSettled(
+		children.map(async ({ child, cooperative }) => {
+			if (!cooperative) return stopOwnedProcess(child, { processGroup: true });
+			if (
+				child.exitCode !== null ||
+				child.signalCode !== null ||
+				child.pid === undefined
+			)
+				return;
+			await new Promise((resolveStop) => {
+				const timer = setTimeout(() => {
+					child.kill("SIGKILL");
+					resolveStop();
+				}, 8_000);
+				child.once("exit", () => {
+					clearTimeout(timer);
+					resolveStop();
+				});
+				if (child.connected)
+					child.send({ type: "zuse:dev-shutdown" }, () => {});
+				else child.kill("SIGTERM");
+			});
+		}),
+	);
+	for (const result of results)
+		if (result.status === "rejected") {
+			console.error("[dev] cleanup failed:", result.reason);
+			code = 1;
+		}
 	instance.releaseReservation?.();
-	setTimeout(() => process.exit(code), 500).unref();
+	process.exit(code);
 }
 
 const sharedEnv = {
@@ -117,11 +149,22 @@ run(
 	["run", "--filter", "desktop", "dev:bundle"],
 	sharedEnv,
 );
-run("desktop:electron", "bun", ["run", "--filter", "desktop", "dev:electron"], {
-	...sharedEnv,
-	VITE_DEV_SERVER_URL: diagnostics.rendererUrl,
-});
+run(
+	"desktop:electron",
+	process.execPath,
+	[resolve(repoRoot, "apps/desktop/scripts/dev-electron.mjs")],
+	{
+		...sharedEnv,
+		VITE_DEV_SERVER_URL: diagnostics.rendererUrl,
+	},
+	true,
+);
 
 process.once("SIGINT", () => void shutdown(130));
 process.once("SIGTERM", () => void shutdown(143));
 process.once("SIGHUP", () => void shutdown(129));
+
+process.on("message", (message) => {
+	if (message?.type === "zuse:dev-shutdown") void shutdown(0);
+});
+if (process.send) process.once("disconnect", () => void shutdown(0));

@@ -9,6 +9,7 @@ import {
 	type PowerBenchmarkRun,
 	type PowerBenchmarkWorkloads,
 	parseProcessTree,
+	parseWindowsProcessTree,
 	powermetricsReleaseBenchmarkArguments,
 	preparePowerBenchmarkScenario,
 	readPowerBenchmarkBaseline,
@@ -188,4 +189,29 @@ describe("power benchmark harness", () => {
 		expect(report.runs).toHaveLength(3);
 		expect(report.median.electronCpuPercent).toBe(2);
 	});
+});
+
+it("reads Windows byte counters without POSIX RSS conversion and rejects missing metrics", () => {
+	const rows = [
+		{
+			pid: 10,
+			parentPid: 1,
+			cpuPercent: 12.5,
+			residentMemoryBytes: 1048576,
+			command: "Zuse.exe",
+		},
+		{
+			pid: 11,
+			parentPid: 10,
+			cpuPercent: 2,
+			residentMemoryBytes: 4096,
+			command: "node.exe",
+		},
+	];
+	expect(parseWindowsProcessTree(JSON.stringify(rows))).toEqual(rows);
+	expect(
+		descendantProcessTree(parseWindowsProcessTree(JSON.stringify(rows)), 10),
+	).toHaveLength(2);
+	expect(() => parseWindowsProcessTree("{}")).toThrow();
+	expect(() => parseWindowsProcessTree('[{"pid":10}]')).toThrow();
 });

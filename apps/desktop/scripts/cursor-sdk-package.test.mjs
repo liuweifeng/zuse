@@ -208,3 +208,27 @@ for (const architecture of ["arm64", "x64"]) {
 		}
 	});
 }
+
+test("Windows stages executable-suffixed helpers from the packaged SDK", async () => {
+	const root = await mkdtemp(join(tmpdir(), "zuse Windows ü-"));
+	try {
+		const resources = join(root, "resources");
+		const source = join(
+			resources,
+			"app.asar.unpacked/node_modules/@cursor/sdk/node_modules/@cursor/sdk-win32-x64/bin",
+		);
+		await mkdir(source, { recursive: true });
+		for (const name of ["cursorsandbox.exe", "rg.exe"])
+			await writeFile(join(source, name), "fixture");
+		await stageCursorHelpers(root, resources, "win32", ["x64"]);
+		assert.equal(
+			await readFile(
+				join(root, "node_modules/@cursor/sdk-win32-x64/bin/rg.exe"),
+				"utf8",
+			),
+			"fixture",
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});

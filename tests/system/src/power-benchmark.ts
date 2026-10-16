@@ -133,15 +133,79 @@ export const descendantProcessTree = (
 	return processes.filter((process) => included.has(process.pid));
 };
 
+/** Windows reports resident bytes directly; perf counters report percent across all cores. */
+export const parseWindowsProcessTree = (
+	output: string,
+): ProcessTreeMetric[] => {
+	const values: unknown = JSON.parse(output.replace(/^\uFEFF/u, ""));
+	if (!Array.isArray(values))
+		throw new Error("Expected a Windows process snapshot array");
+	return values.map((value) => {
+		if (typeof value !== "object" || value === null)
+			throw new Error("Invalid process snapshot");
+		const row = value as Record<string, unknown>;
+		for (const field of [
+			"pid",
+			"parentPid",
+			"cpuPercent",
+			"residentMemoryBytes",
+		]) {
+			if (
+				typeof row[field] !== "number" ||
+				!Number.isFinite(row[field]) ||
+				row[field] < 0
+			)
+				throw new Error(`Invalid Windows process field: ${field}`);
+		}
+		if (typeof row.command !== "string")
+			throw new Error("Invalid Windows process name");
+		return {
+			pid: Number(row.pid),
+			parentPid: Number(row.parentPid),
+			cpuPercent: Number(row.cpuPercent),
+			residentMemoryBytes: Number(row.residentMemoryBytes),
+			command: row.command,
+		};
+	});
+};
+
+export const readProcessTreeSnapshot = async (): Promise<
+	ReadonlyArray<ProcessTreeMetric>
+> => {
+	if (process.platform === "win32") {
+		const { stdout } = await execFileAsync(
+			"powershell.exe",
+			[
+				"-NoProfile",
+				"-NonInteractive",
+				"-Command",
+				`
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+$cpu = @{}
+Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | ForEach-Object { $cpu[[int]$_.IDProcess] = [double]$_.PercentProcessorTime }
+$rows = @(Get-CimInstance Win32_Process | ForEach-Object {
+ [PSCustomObject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; cpuPercent = [double]$cpu[[int]$_.ProcessId]; residentMemoryBytes = [double]$_.WorkingSetSize; command = $_.Name }
+})
+ConvertTo-Json -InputObject $rows -Compress
+`,
+			],
+			{ timeout: 15_000, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+		);
+		return parseWindowsProcessTree(stdout);
+	}
+	const { stdout } = await execFileAsync(
+		"/bin/ps",
+		["-axo", "pid=,ppid=,%cpu=,rss=,comm="],
+		{ timeout: 5_000, maxBuffer: 4 * 1024 * 1024 },
+	);
+	return parseProcessTree(stdout);
+};
+
 export const readDescendantProcessTree = async (
 	rootPid: number,
 ): Promise<ReadonlyArray<ProcessTreeMetric>> => {
-	if (process.platform !== "darwin") return [];
-	const { stdout } = await execFileAsync("/bin/ps", [
-		"-axo",
-		"pid=,ppid=,%cpu=,rss=,comm=",
-	]);
-	return descendantProcessTree(parseProcessTree(stdout), rootPid);
+	return descendantProcessTree(await readProcessTreeSnapshot(), rootPid);
 };
 
 export const powermetricsReleaseBenchmarkArguments = (input: {

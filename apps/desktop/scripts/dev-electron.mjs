@@ -143,7 +143,7 @@ function startApp() {
 					process.env.VITE_ZUSE_API_URL?.trim() ||
 					deploymentProfiles.staging.apiUrl,
 			},
-			stdio: "inherit",
+			stdio: ["inherit", "inherit", "inherit", "ipc"],
 		},
 	);
 	currentApp = app;
@@ -180,7 +180,7 @@ async function stopApp() {
 			resolveStop();
 		};
 		app.once("exit", finish);
-		signalDevApp(app, "SIGTERM");
+		signalDevApp(app, "SIGTERM", { graceful: true });
 		setTimeout(() => {
 			if (settled) return;
 			signalDevApp(app, "SIGKILL");
@@ -219,15 +219,23 @@ async function shutdown(code) {
 	process.exit(code);
 }
 
-buildNativeHelpers();
-await waitForResources();
-const watcher = startWatcher();
-startApp();
+let watcher;
 
 const onSignal = (code) => () => {
-	watcher.close();
+	watcher?.close();
 	void shutdown(code);
 };
 process.once("SIGINT", onSignal(130));
 process.once("SIGTERM", onSignal(143));
 process.once("SIGHUP", onSignal(129));
+
+process.on("message", (message) => {
+	if (message?.type === "zuse:dev-shutdown") onSignal(0)();
+});
+if (process.send) process.once("disconnect", onSignal(0));
+buildNativeHelpers();
+await waitForResources();
+if (!shuttingDown) {
+	watcher = startWatcher();
+	startApp();
+}
