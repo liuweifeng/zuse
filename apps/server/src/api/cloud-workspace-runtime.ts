@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { watch } from "node:fs";
 import {
 	access,
 	mkdir,
@@ -366,7 +365,7 @@ const BootstrapResponse = Schema.Struct({
 	),
 	sealedTranscriptKey: Schema.String,
 	sealedProviderGrant: Schema.optional(Schema.String),
-	/** Launch agent's grant issued at enrollment; distinct from legacy env secrets. */
+
 	sealedLaunchGrant: Schema.optional(
 		Schema.Union([SealedProviderGrant, SealedCodexGrant]),
 	),
@@ -429,8 +428,7 @@ const installImageProviderSecrets = Effect.fn("installImageProviderSecrets")(
 				secret: entry.secret,
 			});
 		}
-		// The account image retains the source file. A chat fork removes its copy
-		// after importing it into the runtime's encrypted local credential store.
+
 		yield* Effect.promise(() => unlink(path).catch(() => undefined));
 	},
 );
@@ -645,8 +643,7 @@ export const makeCloudRuntimeCheckpointPublisher = Effect.fn(
 	const lock = yield* Semaphore.make(1);
 	let dirtyRevision = 1;
 	let acceptedVersion = -1;
-	// A restarted runtime may already own a long settled transcript. Publish its
-	// immutable older pages once even if no new turn event arrives after boot.
+
 	let historyRequested = true;
 	let historyVersion = -1;
 	const mark = (urgent = false) => {
@@ -818,9 +815,7 @@ export const makeCloudRuntimeSummaryPublisher = Effect.fn(
 				const snapshot = yield* input.read;
 				let nextRevision = acceptedRevision + 1;
 				let response = yield* input.write(summary(snapshot, nextRevision));
-				// A preserved process can reconnect after API already accepted a
-				// higher revision. Rebase once and apply the current snapshot instead
-				// of waiting for another user action to correct stale catalog metadata.
+
 				if (!response.applied && response.summaryRevision >= nextRevision) {
 					nextRevision = response.summaryRevision + 1;
 					response = yield* input.write(summary(snapshot, nextRevision));
@@ -939,7 +934,7 @@ export const startCloudCodexAuth = <E, R>(
 		"initialize" | "close" | "getTokens" | "onDeliveryFailure"
 	>,
 	onReady: Effect.Effect<unknown, E, R>,
-	/** Startup-only request identity; the first refresh must carry it, later ones never. */
+
 	startupRequestId?: string,
 ) =>
 	Effect.gen(function* () {
@@ -957,7 +952,7 @@ export const startCloudCodexAuth = <E, R>(
 		}).pipe(
 			measureCloudStage({ workspaceId }, "runtime.codex-auth"),
 			Effect.andThen(onReady),
-			// The resolver retains the precise reconnect/update status for agents.
+
 			Effect.catch(() => Effect.void),
 			Effect.forkScoped({ startImmediately: true }),
 		);
@@ -1004,7 +999,6 @@ export class ProviderReadySignal {
  * that id: the authority cache would answer with the same bad grant.
  */
 export const makeStartupLaunchGrant = (input: {
-	/** Persisted bootstrap responses may refer to an expired authority cache entry. */
 	readonly freshBootstrap: boolean;
 	readonly workspaceId: string;
 	readonly runtimeGeneration: number;
@@ -1049,7 +1043,7 @@ export const makeStartupLaunchGrant = (input: {
 			if (result.success !== false) outcome = "seeded";
 			return result.success !== false;
 		}),
-		/** Deterministic id for one startup attempt of the launch provider, or undefined. */
+
 		requestId: (providerId: CloudAuthProvider, thumbprint: Promise<string>) =>
 			Effect.promise(async () => {
 				if (
@@ -1126,8 +1120,7 @@ export const prepareSelectedAgentCredential = Effect.fn(
 		);
 		if (providerCredentialFailureIsTerminal(reason))
 			return yield* Effect.fail(result.failure);
-		// Local sign-in needs an accessible workspace; the provider resolver still
-		// checks access before starting an agent. There is no broker recovery signal.
+
 		if (
 			["authentication-required", "expired", "unavailable"].some(
 				(state) => reason === `${providerId}-snapshot-${state}`,
@@ -1208,8 +1201,6 @@ export const renewRuntimeCredential = Effect.fn("renewRuntimeCredential")(
 			input.state.gatewayCredential = undefined;
 			input.state.expiresAt = result.expiresAt;
 		}).pipe(
-			// Expiry and transport outages retain execution. Only a confirmed identity
-			// change or authoritative denial retires this owner.
 			Effect.retry({
 				schedule: cloudRuntimeRetrySchedule,
 				while: (error) => !runtimeAuthorityLost(error),
@@ -1239,11 +1230,6 @@ export const makeRuntimeCredentialRefresh = (input: {
 		};
 	});
 
-/**
- * Renew at half-life and keep a single request id across response-loss retries.
- * Sleep and access expiry retain the same runtime identity. Only an authoritative
- * denial or changed identity fence retires execution; network outages retry.
- */
 const superviseRuntimeCredential = (input: {
 	readonly state: RuntimeCredentialState;
 	readonly renew: Effect.Effect<void, CloudWorkspaceRuntimeError>;
@@ -1254,7 +1240,7 @@ const superviseRuntimeCredential = (input: {
 			const renewalAt =
 				nowMs + runtimeCredentialRenewalDelayMs(input.state.expiresAt, nowMs);
 			yield* runtimeNetworkSleep(Duration.millis(renewalAt - nowMs));
-			// A short wake only refreshes sockets. A still-valid, young bearer needs no network hop.
+
 			if ((yield* Clock.currentTimeMillis) < renewalAt) return;
 			const result = yield* input.renew.pipe(Effect.result);
 			if (result._tag === "Failure") {
@@ -1376,10 +1362,7 @@ const requestJson = <A, I>(input: {
 						};
 						if (typeof error.error === "string" && error.error.length <= 128)
 							reason = error.error;
-					} catch {
-						// The status still carries the durable classification when an older API
-						// does not return its typed JSON error body.
-					}
+					} catch {}
 					throw fail(reason, response.status);
 				}
 				try {
@@ -1412,7 +1395,7 @@ const RuntimeLeasePage = Schema.Struct({
 	leases: Schema.Array(RuntimeLease),
 	mailboxRevision: Schema.optional(Schema.Number),
 	waited: Schema.optional(Schema.Boolean),
-	// Optional for additive compatibility with the first v3-capable API build.
+
 	fenceRequired: Schema.optional(Schema.Boolean),
 });
 
@@ -1806,8 +1789,6 @@ const verifyAndBindCloudMailboxReceipt = Effect.fn(
 	if (receiptIsDurableAndBound(input.receipt, input.identity, input.payload))
 		return;
 
-	// Matching legacy v2 receipts predate the identity columns. Binding is a CAS:
-	// a concurrent incompatible claimant cannot overwrite any populated field.
 	yield* input.receipts.bindIdentity(input.identity);
 	const bound = yield* input.receipts.read(input.identity.commandId);
 	if (
@@ -1831,9 +1812,6 @@ const messageFailureCategory = (error: {
 const rejectionCategoryFromCause = (
 	cause: Cause.Cause<CloudMailboxApplyError>,
 ): CloudMailboxCommandRejectionCategory => {
-	// SubmitTurn rejects before committing when a previous turn remains active.
-	// The domain adapter promotes this typed rejection to a defect via orDie.
-	// Unlike an arbitrary apply failure, this is a known non-delivery outcome.
 	const defect = Cause.findDefect(cause);
 	if (
 		defect._tag === "Success" &&
@@ -1902,8 +1880,7 @@ export const applyCloudMailboxLease = Effect.fn(
 			return yield* Effect.fail(
 				rejectCloudMailboxCommand("command-schema-not-supported"),
 			);
-		// Eligibility is shared rollout policy; this guard is the runtime's
-		// executable handler dispatch and remains closed to newly registered kinds.
+
 		if (envelope.kind !== "messages.send")
 			return yield* Effect.fail(
 				rejectCloudMailboxCommand("command-kind-not-supported"),
@@ -1961,9 +1938,7 @@ export const applyCloudMailboxLease = Effect.fn(
 			return yield* Effect.fail(rejectCloudMailboxCommand(category));
 		}
 		const composer = payload.input;
-		// Prepare the terminal result before crossing the apply boundary. Once the
-		// domain receipt exists, a local encryption failure must not turn an applied
-		// provider workflow into a false `rejected` terminal outcome.
+
 		const encryptedResult = yield* Effect.tryPromise({
 			try: () =>
 				encryptCloudCommandBody({
@@ -1995,13 +1970,10 @@ export const applyCloudMailboxLease = Effect.fn(
 				payload,
 				receipts: input.receipts,
 			});
-			// The authoritative SQLite receipt proves this exact encrypted command
-			// already applied. Startup reactor recovery owns any downstream catch-up;
-			// do not re-enter MessageService or the provider from mailbox replay.
+
 			return encryptedResult;
 		}
-		// Receipt recovery above is not a new mutation. Only commands that have
-		// not committed must revalidate their original author's live membership.
+
 		if (input.authorizeActor !== undefined)
 			yield* input.authorizeActor(envelope.actor);
 		if ((yield* input.nowMs) >= input.lease.leaseDeadline)
@@ -2099,9 +2071,7 @@ export const classifyCloudMailboxAckFailure = (
 	)
 		return "retry";
 	const status = error.httpStatus;
-	// Each retry builds a new request from the mutable credential state, so a 401
-	// can be the response from the token that raced a successful renewal. The
-	// credential supervisor terminates the process if renewal itself is fenced.
+
 	if (
 		status === 401 ||
 		status === 408 ||
@@ -2167,10 +2137,7 @@ export const runCloudMailboxConsumerCycle = Effect.fn(
 				metadata,
 			);
 			input.state.pendingAcknowledgments.delete(acknowledgment.commandId);
-			// The mailbox reserves 409 for an impossible fingerprint/token
-			// invariant. Terminate the production runtime so the control plane can
-			// fence its generation instead of stranding the lane. The injected test
-			// hook returns normally, proving a permanent ACK never blocks polling.
+
 			if (result.failure.httpStatus === 409) yield* requestRuntimeFence;
 			return;
 		}
@@ -2189,9 +2156,7 @@ export const runCloudMailboxConsumerCycle = Effect.fn(
 			if (acknowledgment === null) {
 				if ((yield* Clock.currentTimeMillis) >= lease.leaseDeadline) {
 					input.state.pendingApplications.delete(lease.command.commandId);
-					// The DO will not re-lease an uncertain command until this runtime
-					// generation is provably fenced. Recycle now instead of leaving the
-					// session lane parked in lease-expired-awaiting-fence indefinitely.
+
 					yield* requestRuntimeFence;
 				}
 				return;
@@ -2209,10 +2174,6 @@ export const runCloudMailboxConsumerCycle = Effect.fn(
 
 	const leasePage = yield* input.lease;
 	if (leasePage.fenceRequired) {
-		// A process restart can forget the expired lease held by its previous
-		// incarnation while retaining the same control-plane generation. The
-		// mailbox refuses to replay until that generation is fenced; honor the
-		// explicit signal instead of silently polling an empty page forever.
 		yield* requestRuntimeFence;
 		return;
 	}
@@ -2456,7 +2417,8 @@ const writeCredentialsReady = Effect.tryPromise({
 	catch: () => fail("workspace_credentials_ready_failed"),
 });
 
-const waitForRepository = (
+/** Startup markers are durable state; they must not depend on inotify capacity. */
+export const waitForRepository = Effect.fn("waitForRepository")(function* (
 	onProgress: (
 		phase:
 			| "checking-repository"
@@ -2464,67 +2426,59 @@ const waitForRepository = (
 			| "fetching-repository"
 			| "preparing-credentials",
 	) => void,
-) =>
-	Effect.callback<void, CloudWorkspaceRuntimeError>((resume) => {
-		let settled = false;
-		let progress: string | undefined;
-		const finish = (
-			effect: Effect.Effect<void, CloudWorkspaceRuntimeError>,
-		) => {
-			if (settled) return;
-			settled = true;
-			watcher.close();
-			resume(effect);
-		};
-		const check = () => {
-			void readFile(
-				join(dirname(REPOSITORY_READY_MARKER), "repository-progress"),
-				"utf8",
-			).then(
-				(value) => {
-					const phase = value.trim();
-					if (settled || phase === progress) return;
+	readyMarker = REPOSITORY_READY_MARKER,
+) {
+	const directory = dirname(readyMarker);
+	const exists = async (path: string): Promise<boolean> => {
+		try {
+			await access(path);
+			return true;
+		} catch (cause) {
+			if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+				return false;
+			throw cause;
+		}
+	};
+	let progress: string | undefined;
+	while (true) {
+		const state = yield* Effect.tryPromise({
+			try: async () => {
+				if (await exists(join(directory, "failed"))) return { failed: true };
+				if (await exists(readyMarker)) return { ready: true };
+				const phase = await readFile(
+					join(directory, "repository-progress"),
+					"utf8",
+				).catch((cause: unknown) => {
 					if (
-						phase === "checking-repository" ||
-						phase === "switching-branch" ||
-						phase === "fetching-repository"
-					) {
-						progress = phase;
-						onProgress(phase);
-					}
-				},
-				() => undefined,
-			);
-			void access(join(dirname(REPOSITORY_READY_MARKER), "failed")).then(
-				() => finish(Effect.fail(fail("workspace_repository_ready_failed"))),
-				() =>
-					access(REPOSITORY_READY_MARKER).then(
-						() => finish(Effect.void),
-						() => undefined,
-					),
-			);
-		};
-		const watcher = watch(
-			dirname(REPOSITORY_READY_MARKER),
-			(event, filename) => {
-				if (
-					(event === "rename" || event === "change") &&
-					(filename === "repository-ready" ||
-						filename === "failed" ||
-						filename === "repository-progress")
-				)
-					check();
+						cause instanceof Error &&
+						"code" in cause &&
+						cause.code === "ENOENT"
+					)
+						return "";
+					throw cause;
+				});
+				return { phase: phase.trim() };
 			},
-		);
-		watcher.once("error", () =>
-			finish(Effect.fail(fail("workspace_repository_ready_failed"))),
-		);
-		check();
-		return Effect.sync(() => {
-			settled = true;
-			watcher.close();
+			catch: () => fail("workspace_repository_ready_failed"),
 		});
-	});
+		if (state.failed)
+			return yield* Effect.fail(fail("workspace_repository_ready_failed"));
+		if (state.ready) return;
+		const phase = state.phase;
+		if (
+			phase !== progress &&
+			(phase === "checking-repository" ||
+				phase === "switching-branch" ||
+				phase === "fetching-repository")
+		) {
+			progress = phase;
+			onProgress(phase);
+		}
+		// This loop exists only during preparation and is interrupted with the
+		// runtime scope. Sequential reads avoid overlapping filesystem probes.
+		yield* Effect.sleep("250 millis");
+	}
+});
 
 const recoverProviderAuthFailedSessions = Effect.fn(
 	"CloudWorkspaceRuntime.recoverProviderAuthFailedSessions",
@@ -2849,7 +2803,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						),
 					});
 					const ensureCredential = refresh.ensure;
-					// Recover a lost rotation response before any other authenticated request.
+
 					yield* ensureCredential;
 					const control = yield* Effect.serviceOption(RuntimeCloudControl);
 					if (control._tag === "Some") {
@@ -2975,8 +2929,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							state: runtimeCredential,
 							renew: refresh.renew,
 						}).pipe(Effect.forkScoped({ startImmediately: true }));
-						// Launch-agent credential evidence by auth mode; nothing to await
-						// for image secrets or agents without cloud-managed credentials.
+
 						const providerRecovery = new ProviderReadySignal();
 						const startupGrant = makeStartupLaunchGrant({
 							freshBootstrap: identity.bootstrap === null,
@@ -3088,7 +3041,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								},
 							});
 							brokerProviderAuth = cloudProviderAuth;
-							// Seed before any resolver or initializer can start a refresh.
+
 							yield* startupGrant.seed((sealed) =>
 								sealed instanceof SealedProviderGrant
 									? cloudProviderAuth.seed(sealed)
@@ -3190,8 +3143,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								},
 							});
 							codexAuth = cloudCodexAuth;
-							// Seeded before the single-flight initializer is forked; when nothing
-							// was seeded, that first refresh carries the startup request id.
+
 							yield* startupGrant.seed((sealed) =>
 								sealed instanceof SealedCodexGrant
 									? cloudCodexAuth.seed(sealed)
@@ -3251,7 +3203,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							providerId: CloudAuthProvider,
 						): Effect.Effect<void, CloudWorkspaceRuntimeError> => {
 							const codex = codexAuth;
-							// Single-flight: joins the startup initialization or serves its cache.
+
 							if (providerId === "codex" && codex !== null)
 								return Effect.tryPromise({
 									try: () => codex.initialize(),
@@ -3295,8 +3247,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								});
 							return Effect.void;
 						};
-						// Cold recovery has no new launch intent. The retained session still
-						// identifies the credential that must be usable before Git resumes.
+
 						const selectedAgent =
 							bootstrap.launchIntent?.agent ??
 							(yield* sessions
@@ -3314,8 +3265,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							prepare: prepareSelectedCredential,
 							recovery: providerRecovery,
 						}).pipe(
-							// A credential this runtime can never obtain is a launch failure,
-							// reported through the existing launch-failed path.
 							Effect.tapError((error) =>
 								postCurrentRuntimeReady(
 									"launch-failed",
@@ -3499,8 +3448,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							sessionId,
 							transcriptKey,
 							read: Effect.gen(function* () {
-								// Capture projection and cursor in the same database transaction, just
-								// like a first-open cloud subscriber. Never label N+1 data as version N.
 								const frames = yield* sessionDomain
 									.synchronizedEvents({
 										streamId: sessionId,
@@ -3726,8 +3673,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							),
 					});
 					const drainApiCommands = () => {
-						// Before the repository/launch handshake the initial chat may not
-						// exist yet; the idle-head check or settlement stream drains later.
 						if (!repositoryReady) return;
 						void runNetworkPromise(apiCommandPump.drain);
 					};
@@ -3832,16 +3777,11 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							}
 						});
 						socket.addEventListener("close", () => {
-							// Only the socket still owned by this connection may tear the
-							// route down. A delayed close from a replaced local socket must
-							// not terminate its successor.
 							if (localSockets.get(connectionId) !== socket) return;
 							localSockets.delete(connectionId);
 							releaseLocalCredential(connectionId);
 							pendingLocalFrames.delete(connectionId);
-							// The gateway deliberately has no replay buffer. Closing the
-							// disposable client makes its one supervisor reconnect and
-							// resume every retained resource from a durable cursor.
+
 							sendGateway({ type: "client.close", connectionId });
 						});
 					};
@@ -3965,8 +3905,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 													repositoryReady ? undefined : preparationPhase,
 												).pipe(Effect.ignore),
 											);
-										// A nudge sent while the gateway was down is lost; drain on every
-										// (re)connect so pending API commands never wait for the cron.
+
 										drainApiCommands();
 										socket.addEventListener("message", (event) => {
 											if (
@@ -3982,8 +3921,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 												const pending = pendingLocalFrames.get(
 													frame.connectionId,
 												);
-												// No frame buffer lives in the gateway. The runtime holds only
-												// the bounded localhost-open handoff for this connection.
+
 												if (local?.readyState === WebSocket.OPEN) {
 													local.send(frame.payload);
 												} else if (
@@ -3992,7 +3930,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 													pending !== undefined &&
 													bufferWorkspaceLocalFrame(pending, frame.payload)
 												) {
-													// The localhost socket will flush this frame in order on OPEN.
 												} else {
 													local?.close(1013, "local runtime synchronizing");
 													localSockets.delete(frame.connectionId);
@@ -4063,8 +4000,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							),
 						);
 
-					// Validate retained storage and create the durable shell before exposing
-					// the runtime. Provider execution remains gated on repository readiness.
 					const launchIntent = bootstrap.launchIntent;
 					const existingRuntimeChat = yield* chats
 						.getChat(ChatId.make(bootstrap.chatId))
@@ -4108,8 +4043,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						Effect.forkScoped({ startImmediately: true }),
 					);
 
-					// A prepared shell is readable immediately; prompts already persisted
-					// in it cannot execute until the shared preparation gate opens.
 					if (gatewayIsOpen())
 						yield* postCurrentRuntimeReady(
 							"runtime-connected",
@@ -4118,8 +4051,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							undefined,
 							preparationPhase,
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
-					// Credential adapters and Git identity do not gate connectivity. They
-					// finish before the shared provider-execution gate opens.
+
 					yield* prepareCredentials;
 					yield* waitForRepository((phase) => {
 						preparationPhase = phase;
@@ -4134,9 +4066,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						);
 					});
 					yield* executionPolicy.markReady;
-					// Record the local prerequisite first. If the gateway opens while the
-					// control-plane update is in flight, its callback publishes another
-					// ready revision after the socket is actually usable.
+
 					repositoryReady = true;
 					yield* postCurrentRuntimeReady("repository-ready").pipe(
 						Effect.retry(cloudRuntimeRetrySchedule),
@@ -4145,9 +4075,6 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						Effect.forkScoped({ startImmediately: true }),
 					);
 
-					// Transcript and summary maintenance are not prerequisites for a usable
-					// sandbox. Start them after the worktree is ready so they never extend
-					// workspace setup latency.
 					yield* checkpointPublisherFor(bootstrap.initialSessionId);
 					yield* runCloudApiTurnEventStream({
 						events: sessionDomain.events({
@@ -4256,9 +4183,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								),
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 					}
-					// The launch intent creates the deterministic chat/session shell. Only
-					// then may the mailbox lease the independently accepted first message;
-					// otherwise messages.send can race the session transaction by milliseconds.
+
 					cloudTimingEvent(
 						{
 							workspaceId: config.workspaceId,
@@ -4277,8 +4202,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 								},
 								"runtime.warm-readiness",
 							),
-							// A retained session must be acknowledged too: repository readiness
-							// alone deliberately leaves session recovery fenced in the API.
+
 							Effect.andThen(
 								summaryPublisher.publish("recovery").pipe(
 									measureCloudStage(
@@ -4312,9 +4236,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						messages,
 						sql,
 					}).pipe(Effect.forkScoped({ startImmediately: true }));
-					// A launch prompt is an active durable turn. Only perform the initial
-					// pending-command drain if the session is actually idle; otherwise the
-					// replay/tail above drains exactly once settlement is published.
+
 					const initialTimeline = yield* sessionDomain
 						.timelineSnapshot(SessionId.make(bootstrap.initialSessionId))
 						.pipe(

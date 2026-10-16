@@ -212,12 +212,6 @@ export const workspacePolicyForMode = (
 ): ChatWorkspacePolicy =>
 	mode === "worktree" ? { _tag: "fresh" } : { _tag: "main" };
 
-/**
- * Copy the per-session model options (reasoning/effort level + Claude fast
- * mode) that the draft composer wrote under the sentinel draft id over to the
- * real session id, so picks made on the landing carry into the first turn.
- * `ReasoningPicker`/`FastModeToggle` both key sessionStorage by sessionId.
- */
 const migrateModelOptions = (
 	environmentId: EnvironmentId,
 	fromId: string,
@@ -254,11 +248,6 @@ const migrateModelOptions = (
 	}
 };
 
-/**
- * The landing pickers only need group membership (which repos on which
- * computers), never the merged chat lists — so the builder gets an empty
- * chat map instead of subscribing this surface to every chat update.
- */
 const EMPTY_CHATS_BY_PROJECT: Readonly<Record<string, never>> = {};
 const CLOUD_WORKSPACE_BETA_AVAILABLE = cloudWorkspaceBetaAvailable();
 
@@ -354,29 +343,21 @@ function WorkspaceChatLanding({
 	const create = useChatsStore((s) => s.create);
 	const beginDraft = useSessionsStore((s) => s.beginDraft);
 	const clearDraft = useSessionsStore((s) => s.clearDraft);
-	// The synthetic draft session that drives the real ChatComposer below. Its
-	// model/runtime/permission/provider live here (routed by the sessions-store
-	// setters) and are read back at submit so the picks carry into create().
+
 	const draftSession = useSessionsStore((s) => s.draftSession);
 
 	const [submitError, setSubmitError] = useState<string | null>(null);
 	const [draftAttempt, setDraftAttempt] = useState(0);
-	// Local "submit in flight" flag. Covers the whole creation window —
-	// including the worktree-create step — so the bridge shows the moment the
-	// user hits send rather than after the worktree exists.
+
 	const [submitting, setSubmitting] = useState(false);
-	// Snapshot of the prompt the user just submitted. Drives the inline
-	// setup-card bridge so the form can be hidden during the RPC without the
-	// user losing visual continuity with what they sent (shown as queued).
+
 	const [pendingInput, setPendingInput] = useState<ComposerInput | null>(null);
 	const [pendingPrompt, setPendingPrompt] = useState<string | null>(null);
-	// The worktree resolved for this submit (null = main checkout). Lets the
-	// bridge card show the real worktree name/branch the instant it exists.
+
 	const [pendingWorktreeId, setPendingWorktreeId] = useState<WorktreeId | null>(
 		null,
 	);
-	// Renderer-owned cloud launch step. Sandbox boot phases in between come
-	// from the staged chat's live summary (`pendingCloudChatId`).
+
 	const [pendingCloudStep, setPendingCloudStep] =
 		useState<CloudLaunchStep | null>(null);
 	const [pendingCloudChatId, setPendingCloudChatId] = useState<ChatId | null>(
@@ -386,16 +367,7 @@ function WorkspaceChatLanding({
 		chatId: pendingCloudChatId,
 		sessionId: null,
 	});
-	// The provider chosen in the composer for this submit (may differ from the
-	// default — e.g. the user switched to Grok). Drives the bridge card's
-	// "Starting <provider>" label so it matches what's actually booting.
 
-	// The PR / branch / issue the user chose via "Create from…", if any. For a
-	// PR/branch on this computer we eagerly check out a worktree (or reuse an
-	// "In use" one) and pin `worktreeId`; the first send binds the chat to it.
-	// For a cloud target the raw selection maps to the sandbox's checkout ref
-	// instead. For an issue we stash its Markdown + prefill the composer with
-	// the title — no worktree.
 	const [createSource, setCreateSource] = useState<{
 		readonly kind: CreateFromSelection["kind"];
 		readonly selection: CreateFromSelection;
@@ -468,8 +440,6 @@ function WorkspaceChatLanding({
 			.finally(() => setRetryingEnvironmentId(null));
 	};
 
-	// One picker row per repo across machines. In hosted mode the catalog is
-	// empty, so groups degrade to exactly the active workspace's folders.
 	const projectGroups = useMemo(
 		() =>
 			buildLogicalProjectGroups({
@@ -508,9 +478,6 @@ function WorkspaceChatLanding({
 		[projectGroups, selectedFolderId, uiMessage],
 	);
 
-	// A project that exists ONLY on other computers, chosen from the project
-	// picker. Anchoring shows its composer WITHOUT switching the app there —
-	// the machine is decided per chat, at submit.
 	const [remoteAnchor, setRemoteAnchor] = useState<{
 		readonly groupKey: string;
 		readonly member: LogicalProjectMember;
@@ -576,8 +543,7 @@ function WorkspaceChatLanding({
 		: workspaceChoice?.key === workspaceChoiceKey
 			? workspaceChoice.mode
 			: configuredWorkspaceMode;
-	// Explicit "Run on" pick for the pending draft. Null = the group default
-	// (this desktop's member when present, else the first connected one).
+
 	const [targetOverride, setTargetOverride] = useState<NewChatTarget | null>(
 		null,
 	);
@@ -647,8 +613,7 @@ function WorkspaceChatLanding({
 			unsubscribe();
 		};
 	}, [cloudTarget, cloudAuthAttempt]);
-	// Why a cloud draft can't be sent yet. Without this the Send button is
-	// simply disabled with no explanation or way forward.
+
 	const cloudAuthBlocker =
 		!cloudTarget || draftSession === null
 			? null
@@ -860,14 +825,9 @@ function WorkspaceChatLanding({
 		resolvedTarget?.environmentId ?? getLocalEnvironmentId(),
 	);
 
-	// Spin up (or re-spin, on project switch) the draft session that backs the
-	// composer. Re-runs only when the project changes — model/provider/runtime
-	// edits the user makes inside the composer mutate the draft in place, so we
-	// must not clobber them on unrelated default-settings changes.
 	useLayoutEffect(() => {
 		let cancelled = false;
-		// A create-from source is scoped to the project it was picked in, and a
-		// "Run on" override to the draft it was picked for.
+
 		setCreateSource(null);
 		setTargetOverride(null);
 		setSelectedCloudProviderId(null);
@@ -922,10 +882,6 @@ function WorkspaceChatLanding({
 				? `What should we build in ${selectedFolder.name}?`
 				: "What should we build today?";
 
-	// Picking a group resolves to its preferred member: the active environment
-	// first, else the first connected computer. A remote-only group ANCHORS the
-	// composer to that project — it never switches the app; the machine is
-	// decided per chat, at submit.
 	const onPickGroup = (group: LogicalProjectGroup) => {
 		const member = preferredGroupMember(group);
 		if (member === null) return;
@@ -946,10 +902,6 @@ function WorkspaceChatLanding({
 		void addFolder();
 	};
 
-	// "Create from…" pick. PR/branch → check out a worktree now (or reuse the
-	// "In use" one) and remember its id; the first send binds the chat to it.
-	// Issue → fetch its Markdown, prefill the composer with the title, and hold
-	// the body to attach into the chat's `.context/files/` at submit.
 	const handleCreateFromSelect = async (
 		sel: CreateFromSelection,
 	): Promise<void> => {
@@ -981,7 +933,7 @@ function WorkspaceChatLanding({
 					label: `#${sel.number}`,
 					issue: { markdown: res.markdown, title: res.title || sel.title },
 				});
-				// Prefill the composer with an editable default the user can rewrite.
+
 				const insert = useComposerBridge.getState().insertText;
 				if (insert !== null) insert(res.title || sel.title);
 			} catch {
@@ -991,11 +943,10 @@ function WorkspaceChatLanding({
 			}
 			return;
 		}
-		// PR / branch: reuse an existing worktree when the row was "In use",
-		// otherwise check one out now against that ref.
+
 		const label =
 			sel.kind === "pr" ? `PR #${sel.number} · ${sel.headRefName}` : sel.branch;
-		// A cloud sandbox checks the ref out itself; never touch local worktrees.
+
 		if (selectedCloudProviderId !== null) {
 			setCreateSource({
 				kind: sel.kind,
@@ -1040,11 +991,6 @@ function WorkspaceChatLanding({
 		});
 	};
 
-	// Driven by the real ChatComposer (draft mode): it hands back the parsed
-	// input (file refs / attachments / skills / annotations intact) and whether
-	// goal mode was on. We create the worktree + chat with the draft's chosen
-	// provider/model/runtime/permission, carry the model options over, then send
-	// as soon as the provider is ready. Worktree setup continues independently.
 	const handleDraftSubmit = async (
 		input: ComposerInput,
 		opts: {
@@ -1114,7 +1060,7 @@ function WorkspaceChatLanding({
 				);
 				return;
 			}
-			// "Create from…" in the cloud picks the ref the sandbox checks out.
+
 			const launchSource = cloudLaunchRequestForSource(
 				createSource?.selection ?? null,
 				cloudProject.defaultBranch,
@@ -1184,9 +1130,7 @@ function WorkspaceChatLanding({
 					pendingContextFiles: opts.pendingContextFiles,
 					pendingAttachments: opts.pendingAttachments,
 				};
-				// Files have to be written into the sandbox itself, and goal mode
-				// is not a durable-mailbox payload: both need the runtime online
-				// before the first message can be sent.
+
 				const needsRuntime =
 					startupInputNeedsPreparation(startupOptions) || startupInput.asGoal;
 				const usesDurableInitialMessage =
@@ -1209,9 +1153,7 @@ function WorkspaceChatLanding({
 				staged = true;
 				setPendingCloudChatId(summary.chatId);
 				setPendingCloudStep("starting");
-				// Open the staged chat immediately: its header, transcript and
-				// mailbox queue carry the startup status while the gateway connects,
-				// so the user is never left on a bare landing for the whole boot.
+
 				if (ownsLanding()) {
 					useChatsStore.getState().select(summary.chatId);
 					opened = true;
@@ -1220,8 +1162,6 @@ function WorkspaceChatLanding({
 					await connectCloudWorkspaceForLaunch(summary);
 				assertRendererWorkspaceCurrent(workspace);
 				if (!usesDurableInitialMessage) {
-					// This control plane delivered the prompt with the launch intent,
-					// so there is no first message left for us to enrich.
 					if (needsRuntime) {
 						toastManager.add({
 							type: "error",
@@ -1270,8 +1210,7 @@ function WorkspaceChatLanding({
 					cause instanceof StartupInputError
 						? cause.message
 						: formatError(cause);
-				// Once the chat is selected the lander is gone: the open chat is the
-				// only surface left that can carry the failure.
+
 				if (opened) {
 					toastManager.add({
 						type: "error",
@@ -1333,7 +1272,7 @@ function WorkspaceChatLanding({
 					return;
 				}
 				submissionFolderId = folder.id;
-				// Keep the composer mounted until the real chat takes over.
+
 				if (
 					(targetOverride?.environmentId ?? activeEnvironmentId) ===
 					activeEnvironmentId
@@ -1369,10 +1308,6 @@ function WorkspaceChatLanding({
 				? { environmentId: target.environmentId, folderId: target.folderId }
 				: null;
 		if (remoteTarget !== null) {
-			// Create the chat ON the target computer first, then open it. The
-			// draft is consumed here, so nothing needs carrying across the
-			// activation — and with desktop-anchored badges the sidebar does not
-			// reorganize; the only visible effect is the chat opening.
 			if (
 				opts.pendingAttachments.length > 0 ||
 				opts.pendingContextFiles.length > 0 ||
@@ -1455,8 +1390,7 @@ function WorkspaceChatLanding({
 		setPendingPrompt(
 			input.text.trim().length > 0 ? input.text.trim() : "New chat",
 		);
-		// A "Create from…" PR/branch already checked out (or reused) a worktree —
-		// pin the chat to it. Otherwise honor the explicit composer workspace.
+
 		const workspacePolicy: ChatWorkspacePolicy =
 			createSource !== null && createSource.worktreeId !== null
 				? { _tag: "existing", worktreeId: createSource.worktreeId }
@@ -1495,9 +1429,7 @@ function WorkspaceChatLanding({
 			DRAFT_SESSION_ID,
 			sessionId,
 		);
-		// Everything the first message referenced — the "Create from…" issue body,
-		// pasted text, dropped files — is written into the chat's
-		// real cwd once it exists, so the agent reads it from its own workspace.
+
 		let finalInput = startupInput;
 		try {
 			finalInput = await finalizeStartupInputWhenReady(
@@ -1524,9 +1456,6 @@ function WorkspaceChatLanding({
 			releaseDraftAttachmentPreviews(opts.pendingAttachments);
 		}
 		if (startupNeedsPreparation && startupQueueId !== null) {
-			// Finalization is the release edge. If the provider became ready first,
-			// this update requests a drain; if the user deleted the item meanwhile,
-			// the server returns not-found and the item is never resurrected.
 			await updateQueuedMessage(
 				{ environmentId: EnvironmentId.make(activeEnvironmentId), sessionId },
 				startupQueueId,
@@ -1537,10 +1466,6 @@ function WorkspaceChatLanding({
 		useSessionsStore.getState().clearDraft(draftRevision);
 	};
 
-	// Bridge: covers the brief create() RPC window (worktree → chat) before the
-	// session exists and MainShell swaps us for the real ChatView + composer.
-	// Until the chat exists, the submitted prompt waits in the same queue tray
-	// the live chat uses, so it never jumps between transcript and queue.
 	const pendingCloudQueue =
 		submitting && pendingPrompt !== null && pendingCloudStep !== null ? (
 			<div>
@@ -1576,9 +1501,6 @@ function WorkspaceChatLanding({
 						pendingProjectSetup !== null ||
 						(cloudTarget && !cloudProviderIds.includes(draftSession.providerId))
 					}
-					// Keyed by the draft's anchor — NOT by the "Run on" target,
-					// so picking a computer never remounts the editor and the
-					// typed text stays exactly where it is.
 					key={
 						remoteAnchor !== null
 							? `remote:${remoteAnchor.member.environmentId}:${remoteAnchor.member.folderId}`
@@ -1667,8 +1589,6 @@ function WorkspaceChatLanding({
 											}
 											entries={catalogEntries}
 											onPickTarget={(target) => {
-												// A create-from pick is bound to the kind of
-												// target it was made for (cloud ref vs worktree).
 												if (selectedCloudProviderId !== null)
 													setCreateSource(null);
 												setSelectedCloudProviderId(null);
@@ -1727,7 +1647,7 @@ function WorkspaceChatLanding({
 											}}
 										/>
 									) : null}
-									{/* Imports register Personal projects; keep them out of organizations. */}
+
 									{!cloudOnlyHome && workspace.scope.kind === "personal" && (
 										<ImportChatMenu
 											threads={externalThreads}
@@ -1773,8 +1693,7 @@ function WorkspaceChatLanding({
 									{creatingSource && (
 										<Spinner className="size-3.5 text-muted-foreground" />
 									)}
-									{/* Create-from browses the ACTIVE environment's PRs and
-										    branches — hidden for a remote-anchored draft. */}
+
 									{!noProject && remoteAnchor === null && !cloudOnlyHome ? (
 										<CreateFromMenu
 											environmentId={EnvironmentId.make(activeEnvironmentId)}
@@ -1811,7 +1730,6 @@ function WorkspaceChatLanding({
 			</div>
 		);
 
-	// Show the submitted bubble before the cloud chat has an identity.
 	if (submitting && pendingPrompt !== null) {
 		const progress = chatLandingProgress({
 			cloudStep: pendingCloudStep,
@@ -1991,9 +1909,6 @@ function WorkspaceChatLanding({
 						</div>
 					)}
 
-					{/* The REAL ChatComposer in draft mode — one source of truth for file
-            tagging, model/thinking, fast mode, plan mode, runtime, etc. On
-            send it hands the parsed input back to `handleDraftSubmit`. */}
 					{composer}
 					{isHostedProduct() && selectedFolderId === null && (
 						<button

@@ -96,7 +96,7 @@ function bayer(x: number, y: number, size: number): number {
 	}
 	return (value + 0.5) / (size * size) - 0.5;
 }
-// Coordinate hashing keeps the texture stable across renders and exports.
+
 function grainNoise(x: number, y: number): number {
 	let hash = Math.imul(x, 374761393) ^ Math.imul(y, 668265263);
 	hash = Math.imul(hash ^ (hash >>> 13), 1274126177);
@@ -104,8 +104,6 @@ function grainNoise(x: number, y: number): number {
 }
 
 function organicGrain(x: number, y: number): number {
-	// A loose, smoothly varying density field breaks up the fine speckles into
-	// irregular patches without introducing tile boundaries or a repeating grid.
 	const cellX = Math.floor(x / 6);
 	const cellY = Math.floor(y / 6);
 	const dx = x / 6 - cellX;
@@ -127,8 +125,6 @@ function organicGrain(x: number, y: number): number {
 	);
 }
 
-// The highest thresholds trace both diagonals of each 6×6 cell. Lower
-// thresholds fill around those strokes as the image gets brighter.
 const CROSS_6 = [
 	24, 0, 12, 13, 1, 25, 2, 28, 14, 15, 29, 3, 16, 4, 32, 33, 5, 17, 18, 6, 34,
 	35, 7, 19, 8, 30, 20, 21, 31, 9, 26, 10, 22, 23, 11, 27,
@@ -141,7 +137,7 @@ function threshold(
 ): number {
 	if (algorithm === "cross-6") {
 		const rank = CROSS_6[(y % 6) * 6 + (x % 6)] ?? 0;
-		// Vary whole marks gently, never scatter the individual cross pixels.
+
 		const variation =
 			(grainNoise(Math.floor(x / 6), Math.floor(y / 6)) - 0.5) * 0.07;
 		return (rank + 0.5) / 36 - 0.5 + variation;
@@ -191,9 +187,7 @@ export function ditherPixels(
 					(options.algorithm === "floyd-steinberg"
 						? (errors[(row + x) * 3 + channel] ?? 0)
 						: options.algorithm === "grain" || options.algorithm === "cross-6"
-							? // Keep deep blacks and bright highlights clean; share the same
-								// texture across channels so neutral images stay neutral.
-								ordered *
+							? ordered *
 								Math.min(
 									1,
 									(original[channel] ?? 0) / 48,

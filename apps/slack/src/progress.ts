@@ -90,7 +90,7 @@ export const refreshStatus = async (
 		progress.threadTs,
 		progress.completed ? "" : phase,
 	);
-	// Completion may arrive while the Slack call is in flight. Do not revive its spinner.
+
 	if (!progress.completed && (await readProgress(env, key))?.completed)
 		await nativeStatus(env, progress.channel, progress.threadTs, "");
 	if (progress.completed && progress.workingReaction)
@@ -113,7 +113,7 @@ export const updateProgress = async (
 	if (!progress || progress.completed) return;
 	await refreshStatus(env, key, phase);
 	if ((await readProgress(env, key))?.completed) return;
-	// Remove loading cards written by older deployments; new tasks use reactions.
+
 	if (progress.statusTs) {
 		try {
 			await slackApi(env.SLACK_BOT_TOKEN, "chat.delete", {

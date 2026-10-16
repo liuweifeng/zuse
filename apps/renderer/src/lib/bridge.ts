@@ -538,7 +538,7 @@ export interface ZuseBridge {
 declare global {
 	interface Window {
 		zuse?: ZuseBridge;
-		/** Legacy alias exposed for compatibility with pre-Zuse dev helpers. */
+
 		memoize?: ZuseBridge;
 	}
 }

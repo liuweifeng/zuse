@@ -54,8 +54,6 @@ export const validSyncPath = (path: string): boolean =>
 				p !== SYNC_MARKER_FILE,
 		);
 
-// Runs in the authenticated sandbox, with only Python's standard library and Git.
-// Git selects files; no language/framework-specific exclusion list is involved.
 export const SNAPSHOT_SCRIPT = String.raw`
 import os, sys, json, stat, hashlib, subprocess, tempfile, time
 root = os.path.realpath(sys.argv[1])
@@ -181,8 +179,7 @@ export const localBaseline = async (
 	signal?: AbortSignal,
 ): Promise<SyncFile[]> => {
 	const result: SyncFile[] = [];
-	// Verify local bytes: manual edits and a process interrupted during publication
-	// must not cause the next remote scan to incorrectly omit a needed file.
+
 	for (const file of files) {
 		signal?.throwIfAborted();
 		try {
@@ -213,7 +210,7 @@ export const removeSyncSnapshot = async (
 ): Promise<void> => {
 	if (!root) return;
 	root = resolve(root);
-	// Check the root and all ancestors before reading ownership or walking files.
+
 	for (let path = root; ; path = dirname(path)) {
 		const info = await exists(path);
 		if (info && (!info.isDirectory() || info.isSymbolicLink()))
@@ -231,8 +228,6 @@ export const removeSyncSnapshot = async (
 	const removed = new Set<string>();
 	const directories = new Set<string>();
 	for (const file of manifest.files) {
-		// Verify immediately before unlinking, including parent symlinks. Edited
-		// files and paths replaced by directories or symlinks remain untouched.
 		if ((await localBaseline(root, [file])).length !== 1) continue;
 		await rm(join(root, file.path), { force: true });
 		removed.add(file.path);
@@ -243,8 +238,7 @@ export const removeSyncSnapshot = async (
 		)
 			directories.add(parent);
 	}
-	// Only visit ancestors of removed files, never traverse local-only trees
-	// such as node_modules. Non-empty directories are deliberately retained.
+
 	for (const path of [...directories].sort(
 		(a, b) => b.split("/").length - a.split("/").length,
 	)) {
@@ -256,8 +250,7 @@ export const removeSyncSnapshot = async (
 				throw cause;
 		});
 	}
-	// Keep ownership metadata alongside leftovers so the workspace can sync
-	// again without adopting an unrelated non-empty directory.
+
 	if (removed.size > 0)
 		await writeSyncManifest(root, {
 			...manifest,
@@ -335,9 +328,7 @@ export async function cachedBaseline(
 		try {
 			const file = validateFile(JSON.parse(line));
 			entries.set(file.path, file);
-		} catch {
-			/* A crash can truncate the last journal record. */
-		}
+		} catch {}
 	}
 	const verified: SyncFile[] = [];
 	for (const file of entries.values()) {
@@ -450,7 +441,6 @@ export async function downloadSnapshot(
 			throw new Error("Invalid snapshot archive descriptor.");
 		const read = input.readRemoteFile;
 		const chunks = async function* () {
-			// Two bounded reads overlap gateway latency without accumulating the archive.
 			const load = (path: string) =>
 				read(path, transferAbort.signal).then(
 					(bytes) => ({ ok: true as const, bytes }),
@@ -578,7 +568,7 @@ export async function downloadSnapshot(
 				`${JSON.stringify(file)}\n`,
 			);
 		}
-		// Drain to EOF so the subprocess can close, rejecting anything after done.
+
 		if (buffer.length > 0) throw new Error("Trailing snapshot data.");
 		for await (const extra of { [Symbol.asyncIterator]: () => iterator })
 			if (extra.length > 0) throw new Error("Trailing snapshot data.");
@@ -605,8 +595,6 @@ export async function downloadSnapshot(
 		}
 		return files;
 	} catch (cause) {
-		// Cancelling the producer can emit its own diagnostics. Capture the
-		// transfer failure before cleanup so those cannot replace its cause.
 		const transferFailure =
 			failure ?? (stderr.trim() ? new Error(stderr.trim()) : cause);
 		abort();
@@ -623,8 +611,6 @@ export const writeSyncManifest = async (
 	root: string,
 	manifest: SyncManifest,
 ): Promise<void> => {
-	// The marker is the only metadata kept in the checkout. Write elsewhere so
-	// watchers never observe chunked metadata writes either.
 	const temporary = `${root}.manifest-${process.pid}`;
 	try {
 		await writeFile(temporary, JSON.stringify(manifest));
@@ -716,7 +702,6 @@ export async function applySnapshot(
 		return;
 	const publish = await mkdtemp(`${root}.publish-`);
 	try {
-		// Prepare every replacement outside the watched tree before changing live files.
 		for (const file of changes) {
 			if (signal.aborted) throw new Error("Sync cancelled.");
 			const path = join(publish, file.path);
@@ -738,8 +723,7 @@ export async function applySnapshot(
 				).values(),
 			],
 		});
-		// Only completed, checksummed files reach the live tree. The pending ownership
-		// journal lets the next scan repair a process interrupted during this phase.
+
 		for (const path of removed.sort((a, b) => b.length - a.length)) {
 			if (signal.aborted) throw new Error("Sync cancelled.");
 			await rm(join(root, path), { force: true });

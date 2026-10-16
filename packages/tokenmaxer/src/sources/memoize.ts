@@ -54,7 +54,6 @@ export const defaultMemoizeDbPath = (): string | null => {
   return candidates.find((path) => existsSync(path)) ?? candidates[0] ?? null;
 };
 
-/** A `content_json.model` of "unknown"/empty should fall back to the session model. */
 const resolveModel = (contentModel: unknown, sessionModel: string | null): string | null => {
   if (typeof contentModel === "string") {
     const trimmed = contentModel.trim();
@@ -139,7 +138,7 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
             }),
           );
         } catch {
-          // Ignore malformed historical rows; one bad row should not poison the report.
+
         }
       }
       db.close();
@@ -150,10 +149,7 @@ export const readMemoizeUsage = (dbPath?: string | null): UsageSourceReadResult 
           detected: true,
           recordCount: records.length,
           paths: candidates,
-          // Zuse only records usage for its own native chat sessions. When you
-          // drive Claude Code / Codex (directly or via Zuse spawning the CLI),
-          // those tokens are logged by the CLIs and counted under their own
-          // sources — so a low/zero Zuse count is expected, not missing data.
+
           warning:
             records.length === 0
               ? "No Zuse-native sessions recorded usage. Claude Code / Codex tokens are counted under their own sources."

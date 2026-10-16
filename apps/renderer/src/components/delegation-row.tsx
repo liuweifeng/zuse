@@ -62,7 +62,6 @@ export interface DelegationInlineBody {
 	readonly environmentId: EnvironmentId | undefined;
 }
 
-/** Lime pulse while working; settled agents show their outcome. */
 function StatusGlyph({ status }: { readonly status: DelegationStatus }) {
 	if (status === "done") {
 		return (

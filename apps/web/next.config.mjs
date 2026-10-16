@@ -1,9 +1,8 @@
 import { createMDX } from "fumadocs-mdx/next";
 
-/** @type {import('next').NextConfig} */
 const nextConfig = {
 	transpilePackages: ["@zuse/i18n"],
-	// Only public ingest configuration is exposed; reuse the app project.
+
 	env: {
 		NEXT_PUBLIC_POSTHOG_KEY:
 			process.env.NEXT_PUBLIC_POSTHOG_KEY ||
@@ -20,9 +19,6 @@ const nextConfig = {
 	async headers() {
 		return [
 			{
-				// Published model catalog: installed apps poll this with ETags.
-				// Short browser TTL, one hour at the CDN, and a day of
-				// stale-while-revalidate so a deploy propagates without a stampede.
 				source: "/models/:path*",
 				headers: [
 					{

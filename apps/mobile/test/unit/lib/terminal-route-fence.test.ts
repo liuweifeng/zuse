@@ -150,8 +150,6 @@ describe("mobile terminal route fence", () => {
 		);
 		fence.commit(committed);
 
-		// Computing B models a speculative React render. Authority changes only
-		// if the layout phase commits that identity.
 		const speculative = terminalRouteIdentity(
 			"connection-b",
 			"session-b",

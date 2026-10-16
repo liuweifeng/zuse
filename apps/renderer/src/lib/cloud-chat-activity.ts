@@ -74,12 +74,6 @@ export const deriveCloudChatActivity = ({
 	const computeReady =
 		summary.state === "ready" && summary.runtimeState === "online";
 
-	// A live connected turn can arrive before the cloud lifecycle summary.
-	// It establishes current work immediately; retained turns remain usable only
-	// while the summary confirms compute is ready.
-	// A turn observed from this live runtime remains interruptible while its
-	// transport reconnects or history synchronizes. Disk/checkpoint state cannot
-	// establish liveness, and the durable compute lifecycle still wins above.
 	if (
 		(computeReady || timeline?.connection === "connected") &&
 		timeline?.origin === "runtime" &&
@@ -101,9 +95,6 @@ export const deriveCloudChatActivity = ({
 		}
 	}
 
-	// A paused durable workspace cannot still be executing. Cached session state
-	// may describe the turn that completed before the sandbox paused, so the
-	// durable compute lifecycle must win once there is no command waiting.
 	if (
 		!computeReady &&
 		connection !== "connected" &&
@@ -114,11 +105,8 @@ export const deriveCloudChatActivity = ({
 	)
 		return "resuming";
 
-	// A retained socket failure is expected while compute starts or wakes. Only
-	// surface transport/turn failures after the durable startup has finished.
 	if (connection === "failed" || runtime === "failed") return "failed";
 
-	// Cached turn state is not evidence that a disconnected runtime is working.
 	if (connection !== "connected")
 		return computeReady ? "attaching" : "resuming";
 	if (!computeReady) {

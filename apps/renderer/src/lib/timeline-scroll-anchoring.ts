@@ -15,8 +15,6 @@ export interface TimelineScrollableNodeState {
 	readonly clientHeight: number;
 }
 
-// Following resumes only at the true live edge. A wider "near end" band can
-// pull a reader back after a small intentional scroll.
 const LIVE_EDGE_TOLERANCE_PX = 2;
 
 export function resolveScrollableNodeIsAtEnd(

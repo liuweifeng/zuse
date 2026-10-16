@@ -69,14 +69,6 @@ const resolveFilePath = (
 	throw new Error(`Path escapes workspace: ${p}`);
 };
 
-/**
- * Classify an fs/* mutation (or read) into an FsOp for the shared policy,
- * then request permission (or auto-allow) before performing the operation.
- * Throws on Deny so the JSON-RPC reply to the agent becomes an error.
- *
- * When the permission callbacks are not yet wired by the driver (transitional
- * state), we fall back to auto-allow so existing ACP sessions keep working.
- */
 async function ensureFsPermission(
 	ctx: FsHandleContext,
 	op: FsOp,
@@ -86,7 +78,6 @@ async function ensureFsPermission(
 	const getRuntimeMode = ctx.getRuntimeMode;
 	const getPermissionMode = ctx.getPermissionMode;
 
-	// Transitional: no permission service wired yet → auto-allow everything.
 	if (!requestPermission || !getRuntimeMode) {
 		return;
 	}
@@ -103,8 +94,6 @@ async function ensureFsPermission(
 		throw new Error(`Filesystem ${op} blocked in plan mode: ${targetPath}`);
 	}
 
-	// Build the canonical FileWrite kind (we treat create/delete/move as
-	// "write" style mutations for the permission system in Phase 1).
 	const kind: PermissionKind = { _tag: "FileWrite", path: targetPath };
 
 	const decision = await requestPermission(kind, {
@@ -114,7 +103,6 @@ async function ensureFsPermission(
 	if (decision._tag === "Deny") {
 		throw new Error(`Permission denied for ${op} on ${targetPath}`);
 	}
-	// AllowOnce / AllowForSession / AlwaysAllow → proceed
 }
 
 const toBase64 = (buf: Buffer): string => buf.toString("base64");
@@ -129,15 +117,13 @@ async function handleReadTextFile(
 
 	const resolved = resolveFilePath(p, ctx, scope);
 	const abs = resolved.path;
-	// Sensitive reads still go through the gate (forcePrompt path).
+
 	if (!resolved.isScopedPlanFile) {
 		await ensureFsPermission(ctx, "read", abs);
 	}
 
 	const data = await fs.readFile(abs, "utf8");
 
-	// The Grok agent has been observed to fail deserializing { dataBase64 }.
-	// Return the content in multiple common shapes so at least one works.
 	return {
 		content: data,
 		text: data,
@@ -154,13 +140,11 @@ async function handleReadDirectory(
 	if (typeof p !== "string") throw new Error("fs/read_directory: missing path");
 
 	const abs = ensureUnderCwd(p, ctx.cwd);
-	// Directory listing is read-only; still let the policy run for future
-	// "read-sensitive-dir" rules if we ever add them.
+
 	await ensureFsPermission(ctx, "read", abs);
 
 	const entries = await fs.readdir(abs, { withFileTypes: true });
 
-	// Return in shapes that various ACP clients have been seen to accept
 	const list = entries.map((ent) => ({
 		name: ent.name,
 		isDirectory: ent.isDirectory(),
@@ -170,7 +154,7 @@ async function handleReadDirectory(
 
 	return {
 		entries: list,
-		children: list, // some agents look for this
+		children: list,
 	};
 }
 
@@ -186,7 +170,6 @@ async function handleWriteFile(
 	const resolved = resolveFilePath(p, ctx, scope);
 	const abs = resolved.path;
 
-	// Permission gate — may prompt the user and block until decision.
 	if (!resolved.isScopedPlanFile) {
 		await ensureFsPermission(ctx, "write", abs);
 	}
@@ -255,7 +238,7 @@ async function handleMoveFile(
 
 	const absSrc = ensureUnderCwd(src, ctx.cwd);
 	const absDst = ensureUnderCwd(dst, ctx.cwd);
-	// For move we gate on the destination (what is being "created" at the target).
+
 	await ensureFsPermission(ctx, "move", absDst);
 	await fs.rename(absSrc, absDst);
 	return {};

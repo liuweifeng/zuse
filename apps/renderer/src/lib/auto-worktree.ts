@@ -37,8 +37,6 @@ export async function resolveChatRuntimeMode(
 	projectId: FolderId,
 ): Promise<RuntimeMode> {
 	const [settings, repositorySettings] = await Promise.all([
-		// Global preferences belong to the settings surface the user configured,
-		// not the destination sandbox's image. Capture that owner before awaiting.
 		resolveEnvironmentSettings(EnvironmentId.make(getActiveEnvironment())),
 		repositorySettingsFor(environmentId, projectId),
 	]);

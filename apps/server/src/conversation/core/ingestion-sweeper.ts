@@ -72,9 +72,6 @@ export const sweepIngestionLeases = (
 							Effect.orDie,
 						);
 				}).pipe(
-					// A blocked or invalid session must not disable recovery for every chat.
-					// Uncommitted lease deletions roll back for retry; committed expiry
-					// already queued recovery durably. Neither path resends provider input.
 					Effect.timeout("5 seconds"),
 					Effect.catchCause(() =>
 						Effect.logWarning(

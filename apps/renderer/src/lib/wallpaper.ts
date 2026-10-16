@@ -41,7 +41,6 @@ const publish = (patch: Partial<WallpaperState>) => {
 	for (const listener of listeners) listener();
 };
 
-// A device-local image belongs in blob storage, not remote settings or localStorage.
 async function accessWallpaper(write?: {
 	value: SavedWallpaper | null;
 }): Promise<SavedWallpaper | null> {
@@ -123,8 +122,7 @@ async function load() {
 					...value,
 					opacity: Math.max(0, Math.min(MAX_WALLPAPER_OPACITY, value.opacity)),
 				};
-				// Display the last saved image until its replacement commits. Keep the
-				// original so future processing changes never dither an already-dithered copy.
+
 				apply(current);
 				if (current.processingVersion !== WALLPAPER_PROCESSING_VERSION) {
 					publish({ loaded: false });

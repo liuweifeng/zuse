@@ -1,9 +1,5 @@
 #!/usr/bin/env node
 
-/**
- * Idempotently provisions product analytics. This script requires an
- * operations-only personal API key; only public ingest keys ship in apps.
- */
 import {
 	analyticsDashboards,
 	layoutAnalyticsDashboard,

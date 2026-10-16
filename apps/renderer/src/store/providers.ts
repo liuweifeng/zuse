@@ -27,8 +27,6 @@ import { createAtomStore as create } from "../state/atom-store.ts";
 import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
 import { useModelCatalogStore } from "./model-catalog.ts";
 
-// Usage history is not needed for initial provider discovery. Load it only when
-// usage is displayed or an existing provider's credentials need invalidation.
 const usageLimits = createDeferredRuntime(() => import("./usage-limits.ts"));
 const invalidateUsage = async (providerId: ProviderId) => {
 	(await usageLimits.ready()).useUsageLimitsStore
@@ -36,9 +34,6 @@ const invalidateUsage = async (providerId: ProviderId) => {
 		.invalidate(providerId);
 };
 
-// Stable reference for the "no capabilities" case so the `capabilitiesFor`
-// selector doesn't return a fresh array each call (which would churn the
-// subscribers on every unrelated store update).
 const EMPTY_CAPABILITIES: ReadonlyArray<string> = [];
 
 export type ProviderUpdateState =
@@ -57,8 +52,6 @@ export const providerUpdateKey = (
 	providerId: ProviderId,
 ): string => `${environmentId}:${providerId}`;
 
-// Live update streams outlive the settings UI: navigating away (or collapsing
-// a provider row) must not cancel the install or lose its status.
 const providerUpdateOwners = new Map<string, StreamOperationOwner>();
 
 const availabilityRequests = new Map<string, symbol>();
@@ -118,11 +111,6 @@ const notifyProviderStatus = (
 	});
 };
 
-/**
- * Renderer-side cache of provider availability + the credentials sheet
- * controller. Replaces the per-session state that used to live in
- * `agents.ts` — sessions now flow through the messages store.
- */
 type ProvidersState = {
 	readonly availability: ReadonlyArray<AgentAvailability>;
 	readonly loading: boolean;
@@ -139,7 +127,7 @@ type ProvidersState = {
 		environmentId: EnvironmentId,
 		force?: boolean,
 	) => Promise<void>;
-	/** Run the provider's update command; a second call while running is a no-op. */
+
 	readonly cancelUpdate: (
 		environmentId: string,
 		providerId: ProviderId,
@@ -148,12 +136,7 @@ type ProvidersState = {
 		environmentId: string,
 		providerId: ProviderId,
 	) => Promise<void>;
-	/**
-	 * Version-gated features the installed CLI supports for `providerId` (the
-	 * `capabilities` list from the availability probe). `[]` when the provider
-	 * isn't probed yet or declares no gated features. Used to show/hide feature
-	 * controls (e.g. Codex goal/fast toggles) before a session exists.
-	 */
+
 	readonly capabilitiesFor: (
 		providerId: ProviderId,
 		environmentId?: EnvironmentId,
@@ -295,7 +278,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 						await invalidateUsage(provider.providerId);
 				}
 			}
-			// A newer discovery may finish while the optional usage chunk loads.
+
 			if (availabilityRequests.get(key) !== request) return;
 			const publishActive = environmentId === activeEnvironmentId();
 			set((state) => ({
@@ -425,7 +408,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 			if (environmentId === getLocalEnvironmentId())
 				await invalidateUsage(providerId);
 			await get().refresh();
-			// A new key can unlock a different live model list (Cursor).
+
 			void useModelCatalogStore.getState().refresh();
 			return result;
 		} catch (err) {
@@ -454,8 +437,6 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 	},
 }));
 
-// Settings and the web picker share one account status; a background update
-// immediately changes model visibility without another blocking probe.
 subscribeControlPlaneSessionCache((key) => {
 	if (key !== "cloud-workspace:auth" || !isHostedProduct()) return;
 	const auth = peekCloudAuth();

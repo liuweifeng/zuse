@@ -117,18 +117,21 @@ export const GitPrMonitorLive = Layer.effect(
 						const committed = state.commitPrRefresh(token, {
 							value: GitPrInfo.make({
 								...observed,
-								monitoringPaused: count >= 8,
+								monitoringPaused: false,
 							}),
 							nextPollAt:
 								Date.now() +
-								prMonitorDelay(observed, (visibility.get(identity) ?? 0) > 0),
+								Math.max(
+									prMonitorDelay(observed, (visibility.get(identity) ?? 0) > 0),
+									count >= 8 ? 5 * 60_000 : 0,
+								),
 						});
 						if (committed) {
 							failures.set(identity, count);
 							publishers.get(identity)?.();
 						}
 					}).pipe(
-						Effect.catch(() =>
+						Effect.catch((error) =>
 							Effect.sync(() => {
 								const count = (failures.get(identity) ?? 0) + 1;
 								const cached = state.getPrSnapshot(identity);
@@ -137,9 +140,14 @@ export const GitPrMonitorLive = Layer.effect(
 										...(cached?.value ?? emptyPrSnapshot(null)),
 										stale: true,
 										prCapability: "unknown",
-										monitoringPaused: count >= 8,
+										observationError:
+											"reason" in error
+												? String(error.reason)
+												: error.message ||
+													"Could not read the local checkout. Refresh to retry.",
+										monitoringPaused: false,
 									}),
-									nextPollAt: Date.now() + 60_000,
+									nextPollAt: Date.now() + (count >= 8 ? 5 * 60_000 : 60_000),
 								});
 								if (committed) {
 									failures.set(identity, count);
@@ -154,7 +162,7 @@ export const GitPrMonitorLive = Layer.effect(
 							}),
 						),
 					);
-					// Cached Effect shares completion without creating detached fibers.
+
 					return Effect.cached(program).pipe(
 						Effect.flatMap((shared) => {
 							sharedRefresh = shared;
@@ -197,9 +205,8 @@ export const GitPrMonitorLive = Layer.effect(
 							Effect.forever(
 								Effect.gen(function* () {
 									if (
-										(failures.get(identity) ?? 0) < 8 &&
 										(state.getPrSnapshot(identity)?.nextPollAt ?? 0) <=
-											Date.now()
+										Date.now()
 									) {
 										yield* refresh(folderId, worktreeId);
 									}
@@ -229,7 +236,7 @@ export const GitPrMonitorLive = Layer.effect(
 			snapshot: (folderId, worktreeId, branch, scopeKey) => {
 				const identity = scopedIdentity(folderId, worktreeId, scopeKey);
 				const cached = state.getPrSnapshot(identity);
-				// Bind an initial read failure to the first locally observed branch without losing the error.
+
 				if (
 					cached?.value.branch === null &&
 					branch !== null &&

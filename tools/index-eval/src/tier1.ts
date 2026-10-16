@@ -54,16 +54,10 @@ export const runTier1Task = async (
     }
     notes = top.file;
 
-    // The agent would now read the surrounding chunk. We look up *any*
-    // chunk whose symbol_id matches the hit. Mimic via listFileSymbols +
-    // the synthetic content for the top symbol — in the real flow the
-    // SDK tool returns the chunk content directly.
     const summary = await run(listFileSymbols(db, top.file, branch));
     const summaryJson = JSON.stringify(summary.slice(0, 5));
     inputChars += charsOf(summaryJson);
 
-    // Read a chunk if a usable id is available — fall through silently
-    // when the symbol has no matched chunk row (e.g. type aliases).
     const chunkId = (top as { chunkId?: number }).chunkId ?? -1;
     if (chunkId >= 0) {
       const chunk = await run(fetchChunk(db, chunkId, branch));

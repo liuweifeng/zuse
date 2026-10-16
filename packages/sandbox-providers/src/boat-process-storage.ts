@@ -16,8 +16,7 @@ export const boatProcessStorageScript = (): string =>
 		'    [ "$(readlink -f "$source")" = "$destination" ] || return 1',
 		'  elif [ -e "$source" ]; then',
 		'    [ -d "$source" ] || return 1',
-		// Moving data or lock paths under a live runtime would split ownership.
-		// Existing machines migrate on a cold recovery; aliases need no mutation.
+
 		'    if [ -n "$(ls -A "$source")" ]; then',
 		...boxProcessStoppedChecks(WORKSPACE_RUNTIME_PROCESS_SELECTOR),
 		"    fi",
@@ -28,12 +27,12 @@ export const boatProcessStorageScript = (): string =>
 		'      else rmdir "$source"; fi',
 		"    fi",
 		'    if [ -d "$source" ]; then',
-		// Cross-filesystem mv copies lock inodes; preserve both and fail instead.
+
 		'      [ "$(stat -c %d "$source")" = "$(stat -c %d /srv/zuse)" ] || { [ -z "$(ls -A "$source")" ] && rmdir "$source"; }',
 		'      if [ -d "$source" ]; then mv -T "$source" "$destination"; fi',
 		"    fi",
 		"  fi",
-		// Preserve an existing directory's ownership; only a fresh one needs setup.
+
 		'  if [ ! -d "$destination" ]; then install -d -m "$mode" -o "$owner" -g "$owner" "$destination"; fi',
 		'  if [ ! -L "$source" ]; then ln -s "$destination" "$source"; fi',
 		'  [ "$(readlink -f "$source")" = "$destination" ]',

@@ -76,7 +76,7 @@ export function EnvironmentPathBrowser({
 		setError(null);
 		onReadyChange?.(false);
 		void browse(value);
-		// The initial/default directory belongs to the selected environment.
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [environmentId, onReadyChange]);
 
@@ -84,8 +84,7 @@ export function EnvironmentPathBrowser({
 		if (value.trim().length === 0 || value === listing?.path) return;
 		const timer = window.setTimeout(() => void browse(value), 300);
 		return () => window.clearTimeout(timer);
-		// `listing.path` deliberately suppresses another request after browse
-		// normalizes `~` or a relative path.
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [value, listing?.path]);
 
@@ -94,8 +93,6 @@ export function EnvironmentPathBrowser({
 		void browse(value);
 	};
 	const changePath = (path: string): void => {
-		// Invalidate an in-flight browse immediately. Otherwise its normalized
-		// response can overwrite a newer path while the user is still typing it.
 		requestGeneration.current += 1;
 		onReadyChange?.(false);
 		onChange(path);

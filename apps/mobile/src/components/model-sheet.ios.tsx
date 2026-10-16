@@ -147,8 +147,6 @@ export function ModelSheet({
 								) : (
 									<Label
 										key={model.value}
-										// Same spacing as provider rows: SwiftUI's collapsed picker
-										// value ignores the icon's padding modifier.
 										title={`\u00a0\u00a0${model.label}`}
 										icon={
 											<Image

@@ -21,7 +21,7 @@ export function WorkingIndicator({
 	label = "Working",
 }: {
 	since: number;
-	/** e.g. "Codex is working" or "Waiting for Codex", like desktop. */
+
 	label?: string;
 }) {
 	const [now, setNow] = useState(() => Date.now());

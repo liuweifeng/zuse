@@ -105,10 +105,6 @@ export const codexReasoningEffort = (
 		return null;
 	}
 
-	// The server resolves the descriptor from the live catalog (curated seed
-	// merged with `model/list`), so its reasoning options are the
-	// authoritative per-model gate. Custom slugs carry no descriptor and keep
-	// the standard tiers.
 	if (descriptor === undefined) {
 		return value === "low" || value === "medium" || value === "high"
 			? value
@@ -354,11 +350,6 @@ const goalFromResponse = (value: unknown): CodexThreadGoal | null => {
 	return value as CodexThreadGoal;
 };
 
-/**
- * Whether a model advertises a "fast" service tier. Codex exposes speed tiers
- * via `serviceTiers` (current) and `additionalSpeedTiers` (deprecated); we
- * match either id/name containing "fast" so we stay robust to label changes.
- */
 const modelAdvertisesFastTier = (model: Model): boolean =>
 	[
 		...model.serviceTiers.flatMap((tier) => [tier.id, tier.name]),
@@ -368,13 +359,6 @@ const modelAdvertisesFastTier = (model: Model): boolean =>
 const CODEX_STARTUP_RPC_TIMEOUT_MS = 30_000;
 const CODEX_CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
 
-/**
- * Whether the model a session resolved to advertises a fast service tier,
- * from the live `model/list`. Returns `null` when the model isn't in the
- * catalog (unknown — caller should trust the pre-session FE gate rather than
- * block). The version floor + static model catalog gate the FE *control*; this
- * is the authoritative per-model confirmation enforced at turn time.
- */
 const probeModelFastTier = async (
 	app: CodexAppServerClient,
 	activeModel: string | null,
@@ -686,9 +670,7 @@ const createCodexRawProtocolLogger = (
 						payload,
 					})}\n`,
 				);
-			} catch {
-				// Diagnostics must never interfere with the provider session.
-			}
+			} catch {}
 		},
 	};
 };
@@ -733,9 +715,7 @@ const createCodexToolTranslationLogger = (
 						events,
 					})}\n`,
 				);
-			} catch {
-				// Best-effort debug log: never disrupt the agent loop.
-			}
+			} catch {}
 		},
 	};
 };
@@ -813,9 +793,7 @@ const createCodexStatusLogger = (
 						translated,
 					})}\n`,
 				);
-			} catch {
-				// Best-effort debug log: never disrupt the agent loop.
-			}
+			} catch {}
 		},
 	};
 };
@@ -939,9 +917,7 @@ export const translateCodexItem = (
 			];
 		case "webSearch":
 			if (phase !== "completed") return [];
-			// Use the Claude-canonical "WebSearch" tool name so the renderer's
-			// tool-row switch picks up the globe icon + result rendering.
-			// `query` is the canonical input key per the wire contract.
+
 			return [
 				{
 					_tag: "ToolUse",
@@ -1288,8 +1264,6 @@ export const translateCodexStatusNotification = (
 ): ReadonlyArray<AgentEvent> | null => {
 	switch (notification.method) {
 		case "error":
-			// Codex keeps the turn alive while retrying a disconnected stream.
-			// Emitting Error here would settle Zuse's turn and drop its later output.
 			if (
 				notification.params.threadId !== activeThreadId ||
 				notification.params.willRetry
@@ -1336,11 +1310,6 @@ const isMissingCodexRollout = (cause: unknown): boolean =>
 	cause.code === CODEX_INVALID_REQUEST_ERROR &&
 	/^no rollout found for thread id\b/i.test(cause.message);
 
-/**
- * Codex refuses to resume or fork a thread archived outside Zuse. Zuse owns
- * its own archive state, so a provider-side archive is not a reason to fail
- * the session.
- */
 const isArchivedCodexThread = (cause: unknown): boolean =>
 	cause instanceof CodexAppServerRequestError &&
 	cause.code === CODEX_INVALID_REQUEST_ERROR &&
@@ -1425,11 +1394,7 @@ export const startCodexSession = (
 			Queue.endUnsafe(events);
 		});
 		let pending: Promise<void> = Promise.resolve();
-		// Runtime fast-tier gate for the model this session resolved to, from the
-		// live `model/list` `serviceTiers`. `null` = unknown (probe not done /
-		// failed) → trust the FE gate; `true`/`false` = the model definitively
-		// does / does not advertise a fast tier. Only a definitive `false` blocks
-		// the `serviceTier: "fast"` request in `runTurn`.
+
 		let modelFastTier: boolean | null = null;
 		const latestContextTokensByThread = new Map<string, number>();
 		const pendingCompactionsByThread = new Map<string, CompactSnapshot>();
@@ -1544,9 +1509,7 @@ export const startCodexSession = (
 		startup.add(() => stdioMcpFallback.close());
 		const handleUnexpectedTermination = (error: Error): void => {
 			if (closed) return;
-			// Publish the concrete transport error before ending the stream. The shared
-			// turn protocol scopes it to the active durable turn and synthesizes its
-			// terminal; when idle, ending the stream still retires the dead handle.
+
 			emit({ _tag: "Error", message: error.message });
 			releasePendingQuestions("transport_lost");
 			closed = true;
@@ -1568,8 +1531,7 @@ export const startCodexSession = (
 					...input.executionEnv,
 				})
 			: { ...process.env, ...input.executionEnv };
-		// Agents get MCP only through the Zuse gateway; resolve which native
-		// Codex servers must be switched off before the app-server starts.
+
 		const nativeMcp = yield* Effect.promise(() =>
 			resolveCodexNativeMcpIsolation({
 				codexPath,
@@ -1641,7 +1603,6 @@ export const startCodexSession = (
 		const expectCodexMcpServer = async (
 			candidate: CodexAppServerClient,
 		): Promise<void> => {
-			// Loading required tools is startup work, not an optional capability probe.
 			const deadline = Date.now() + CODEX_STARTUP_RPC_TIMEOUT_MS;
 			const requestOptions = () => ({
 				timeoutMs: Math.max(1, deadline - Date.now()),
@@ -1662,8 +1623,7 @@ export const startCodexSession = (
 					}>;
 				}>(
 					"mcpServerStatus/list",
-					// Global discovery also waits for unrelated user/plugin servers.
-					// Only verify the app server whose readiness is required here.
+
 					{ detail: "toolsAndAuthOnly", serverName: "zuse" },
 					requestOptions(),
 				);
@@ -1766,7 +1726,7 @@ export const startCodexSession = (
 			serviceName: "zuse",
 			developerInstructions: input.workspaceInstructions ?? null,
 			experimentalRawEvents: true,
-			// Project-scoped native MCP servers resolve per thread cwd.
+
 			...(Object.keys(nativeMcp.threadConfig).length > 0
 				? { config: nativeMcp.threadConfig }
 				: {}),
@@ -1795,7 +1755,6 @@ export const startCodexSession = (
 			if (started.model !== undefined) activeModel = started.model;
 		};
 
-		/** `thread/resume`/`thread/fork`, unarchiving a Codex-archived thread once. */
 		const requestExistingThread = async (
 			method: "thread/resume" | "thread/fork",
 			threadId: string,
@@ -1826,9 +1785,6 @@ export const startCodexSession = (
 		let nativeResumeFallback = false;
 		const startOrResume = async (): Promise<void> => {
 			if (activeThreadId !== null && input.forkFromResume === true) {
-				// "Fork chat": branch the source thread into a NEW thread so the
-				// original transcript stays intact. The forked thread id becomes this
-				// session's durable cursor.
 				try {
 					const forked = await requestExistingThread(
 						"thread/fork",
@@ -1879,11 +1835,7 @@ export const startCodexSession = (
 			} catch (cause) {
 				console.warn("[codex] goal hydration failed", cause);
 			}
-			// Runtime fast-mode confirmation: the version floor (AgentAvailability
-			// `capabilities`) + the static model catalog decide whether the FE
-			// *shows* the fast toggle; the live `model/list` `serviceTiers` are the
-			// authoritative per-model gate enforced at turn time (see `runTurn`).
-			// Best-effort — a failure leaves `modelFastTier` null (trust the FE).
+
 			try {
 				modelFastTier = await probeModelFastTier(app, activeModel);
 			} catch (cause) {
@@ -1989,8 +1941,7 @@ export const startCodexSession = (
 			if (commandHandled) return;
 
 			emit({ _tag: "Status", status: "running" });
-			// Reasoning effort is part of native collaboration-mode settings because
-			// that payload takes precedence over the top-level turn fields.
+
 			const effort = codexReasoningEffort(
 				input.modelDescriptor,
 				input.modelOptions?.["reasoning"],
@@ -2003,12 +1954,7 @@ export const startCodexSession = (
 				effort,
 			});
 			const promptText = turnMode.promptText;
-			// Fast mode: the `fastMode` per-model boolean knob maps onto Codex's
-			// `serviceTier: "fast"` (the 1.5× speed tier). The FE only shows the
-			// toggle when the CLI version + static model catalog allow it; the live
-			// `model/list` `serviceTiers` are the authoritative per-model gate, so we
-			// drop the field (and tell the user) when the resolved model definitively
-			// lacks a fast tier. `modelFastTier === null` (unknown) trusts the FE.
+
 			const fastModeRequested = input.modelOptions?.["fastMode"] === "true";
 			const fastMode = fastModeRequested && modelFastTier !== false;
 			if (fastModeRequested && modelFastTier === false) {

@@ -29,7 +29,7 @@ const ConnectionRecordFields = {
 	serverPublicKey: Schema.optional(Schema.String),
 	transportCertificatePin: Schema.optional(Schema.String),
 	nearbyServiceName: Schema.optional(Schema.String),
-	/** Address the Mac was paired on, kept while a temporary proxy route is in use. */
+
 	pairedHost: Schema.optional(Schema.String),
 	pairedPort: Schema.optional(Schema.Number),
 	routeGeneration: Schema.optional(Schema.Number),
@@ -90,7 +90,7 @@ export const replaceDiscoveredRoute = (
 	},
 ): ConnectionRecord => ({
 	...record,
-	// The first non-proxy address is the paired one; never lose it to a proxy.
+
 	...(record.pairedHost === undefined && !isLoopbackHost(record.host)
 		? { pairedHost: record.host, pairedPort: record.port }
 		: {}),

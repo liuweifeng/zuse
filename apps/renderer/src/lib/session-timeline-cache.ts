@@ -244,9 +244,7 @@ const openDatabase = (): Promise<IDBDatabase> =>
 			if (!database.objectStoreNames.contains(CLOUD_CATALOG_STORE_NAME)) {
 				database.createObjectStore(CLOUD_CATALOG_STORE_NAME);
 			}
-			// Versions before 4 used an ambient active-environment value when
-			// reading/writing. Those keys cannot be migrated safely because a late
-			// async write may have been attributed to the wrong environment.
+
 			if (event.oldVersion > 0 && event.oldVersion < 4) {
 				for (const name of [
 					STORE_NAME,
@@ -386,16 +384,12 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 		if (existingRaw !== undefined) {
 			try {
 				const existing = decodeSessionTimelineCacheEntry(existingRaw);
-				// Delayed checkpoint writes are serialized by ClientBus, but a second
-				// app surface or old process can still race this IndexedDB record. Only
-				// an explicit epoch reset may move the durable cursor backwards.
+
 				if (!shouldPersistTimelineCheckpoint(existing, entry)) {
 					await transactionComplete(transaction);
 					return;
 				}
-			} catch {
-				// Replace malformed cache data with the current validated checkpoint.
-			}
+			} catch {}
 		}
 		const encoded = encodeSessionTimelineCacheEntry(entry);
 		const persisted = {

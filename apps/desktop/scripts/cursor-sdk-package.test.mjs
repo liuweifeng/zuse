@@ -9,10 +9,6 @@ import afterPack, { stageCursorHelpers } from "./cursor-sdk-package.mjs";
 
 const require = createRequire(import.meta.url);
 
-/**
- * Load the pinned SDK's real locator without credentials or a model request.
- * Fail on webpack layout changes so upgrades cannot silently invalidate this check.
- */
 async function sdkLocator(runtime) {
 	const source = await readFile(require.resolve("@cursor/sdk"), "utf8");
 	const key = "./src/agent/platform-package-locator.ts";
@@ -118,7 +114,7 @@ test("universal packaging stages both architectures only after merging", async (
 				},
 			},
 		};
-		// Temporary per-architecture hook must not require or stage helpers.
+
 		for (const arch of [Arch.arm64, Arch.x64]) {
 			await afterPack({
 				...context,

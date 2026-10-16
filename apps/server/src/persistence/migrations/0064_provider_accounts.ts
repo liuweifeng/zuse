@@ -14,7 +14,7 @@ export const Migration0064ProviderAccounts = Effect.gen(function* () {
   provider_id TEXT NOT NULL, account_id TEXT,
   PRIMARY KEY(session_id,provider_id)
  )`;
-	// Existing sessions belong to the native/default login, including dormant ones.
+
 	yield* sql`INSERT INTO session_provider_accounts(session_id,provider_id,account_id)
  SELECT id,provider_id,NULL FROM sessions WHERE provider_id IN ('claude','codex')`;
 });

@@ -65,9 +65,6 @@ export const persistChatStartupIntent = Effect.fn(
 	`.pipe(Effect.orDie);
 	if (operations[0]?.status === "succeeded") return false;
 
-	// The internal queue transaction boundary owns the SessionDomain append and
-	// projector transaction. Advancing the creation receipt inside its callback
-	// commits queue record, command receipt, and operation receipt together.
 	yield* queueTransaction.addQueuedMessageTransactionally(
 		chatStartupCommandId(intent.operationId),
 		intent.sessionId,

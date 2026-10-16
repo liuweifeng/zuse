@@ -20,12 +20,12 @@ afterEach(() => {
 const fixture = () => {
 	const root = mkdtempSync(join(tmpdir(), "zuse-fork-prepare-"));
 	roots.push(root);
-	// Embed the same shared resolver as the production API fork command.
+
 	const helper = readFileSync(
 		new URL("../../../cloud-sandboxes/workspace-runtime.sh", import.meta.url),
 		"utf8",
 	);
-	// Relocate every absolute sandbox path before executing the real script.
+
 	const script = (
 		helper +
 		"\n" +
@@ -48,7 +48,7 @@ const fixture = () => {
 	db.exec(
 		"PRAGMA journal_mode=WAL; CREATE TABLE sessions (id TEXT, chat_id TEXT); CREATE TABLE messages (id TEXT, session_id TEXT); INSERT INTO sessions VALUES ('session','chat'); INSERT INTO messages VALUES ('message','session');",
 	);
-	// Keep the connection open so WAL is required to read the captured rows.
+
 	const run = (message = "message", native = false) =>
 		execFileSync("bash", ["-c", script], {
 			env: {

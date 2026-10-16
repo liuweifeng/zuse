@@ -45,9 +45,7 @@ const read = (): StoredPreferences => {
 const write = (value: StoredPreferences): void => {
 	try {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-	} catch {
-		// The choices remain usable for this session when storage is unavailable.
-	}
+	} catch {}
 };
 
 export const newChatPreferences = {

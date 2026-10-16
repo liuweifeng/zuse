@@ -37,7 +37,7 @@ export const makeClaudeProcessOwner = () => {
 			options.signal.addEventListener("abort", abort, { once: true });
 			child.once("close", () => {
 				options.signal.removeEventListener("abort", abort);
-				// Retain the child until group cleanup also finishes after leader exit.
+
 				void stop(child).then(
 					() => children.delete(child),
 					() => {},

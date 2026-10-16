@@ -42,7 +42,5 @@ export const recordOperationMetrics = (input: {
 		if (input.outcome === "failure") {
 			Metric.withAttributes(failuresTotal, attributes).updateUnsafe(1, context);
 		}
-	} catch {
-		// Metric collection is observational and must remain failure-isolated.
-	}
+	} catch {}
 };

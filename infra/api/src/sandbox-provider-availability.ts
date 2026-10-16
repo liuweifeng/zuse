@@ -12,7 +12,6 @@ export const boxdBillingConfigured = (
 	);
 };
 
-// Boxd billing requires an explicit opt-in to completed USD provider estimates.
 export const supportsSandboxBilling = (
 	providerId: string,
 	billingEnforced: boolean,

@@ -71,7 +71,7 @@ export const makeApi = (
 		readonly slack?: SlackOptions;
 		readonly cloudAccountExecutor?: CloudAccountExecutor;
 		readonly scheduleWorkspaceStartup?: (workspaceId: string) => Promise<void>;
-		/** Retain the receiver's identity while disabled so pending deliveries retry. */
+
 		readonly slackPublicOrigin?: string;
 	},
 ): {
@@ -102,7 +102,7 @@ export const makeApi = (
 	readonly reconcileCloudWorkspaceStartup: (
 		workspaceId: string,
 	) => Promise<WorkspaceStartupOutcome>;
-	/** First startup step from the creating request; true when a step ran. */
+
 	readonly startCloudWorkspaceInline: (workspaceId: string) => Promise<boolean>;
 	readonly requestCloudMailboxWake: (
 		workspaceId: string,

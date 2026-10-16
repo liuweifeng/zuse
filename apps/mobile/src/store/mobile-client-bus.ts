@@ -153,8 +153,7 @@ export class MobileCommandOutbox implements CommandOutbox {
 				),
 			)
 			.then(() => undefined);
-		// A failed write rejects the initiating mutation, but must not poison all
-		// future snapshots. The next attempt persists the full in-memory state.
+
 		this.writeTail = attempt.catch(() => undefined);
 		return attempt;
 	}
@@ -768,8 +767,7 @@ export const retryMobileClientBusConnections = (connKey?: string): void => {
 	for (const [environmentId, binding] of bindings) {
 		if (connKey !== undefined && binding.connKey !== connKey) continue;
 		const snapshot = clientBus.connection(environmentId);
-		// The transport supervisor may have replaced a socket while iOS suspended
-		// JS. Retained resources must not keep its old client until a heartbeat fails.
+
 		clientBus.reportConnectionFault(
 			environmentId,
 			environmentFault("offline", "Connection resumed"),

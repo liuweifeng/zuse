@@ -64,11 +64,8 @@ export function initializeLocalization(): Promise<void> {
 	initial = (async () => {
 		const native = bridge();
 		if (native) {
-			// Subscribe first: a change arriving during get() wins via its revision.
 			native.onChange((next) => {
-				void accept(next).catch(() => {
-					/* The last successfully loaded UI stays usable. */
-				});
+				void accept(next).catch(() => {});
 			});
 			await accept(await native.get());
 		} else {
@@ -83,9 +80,7 @@ export function initializeLocalization(): Promise<void> {
 		if (latest) {
 			try {
 				await latest;
-			} catch {
-				/* Recover below if no locale activated. */
-			}
+			} catch {}
 		}
 		if (snapshot.revision >= 0) return;
 		requestedRevision = -1;

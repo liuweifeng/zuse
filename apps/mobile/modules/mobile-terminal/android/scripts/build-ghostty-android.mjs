@@ -184,7 +184,6 @@ function makeDeterministicSource() {
 	}
 }
 
-/** Extract the verified Zig distribution at one compiler-visible path. */
 function makeDeterministicZig() {
 	if (existsSync(deterministicPaths.zig)) {
 		throw new Error(
@@ -284,9 +283,7 @@ let previousManifest = null;
 if (existsSync(manifestPath)) {
 	try {
 		previousManifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	} catch {
-		// A partial or corrupt manifest is a cache miss, never trusted provenance.
-	}
+	} catch {}
 }
 const artifactPathForAbi = (abi) => `lib/${abi}/libghostty-vt.a`;
 const manifestMatchesRecipe = (manifest) =>

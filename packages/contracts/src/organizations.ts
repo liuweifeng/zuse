@@ -215,9 +215,8 @@ const BlockedMember = Schema.Struct({
 	displayName: Schema.String,
 });
 export const OrganizationDomainSettings = Schema.Struct({
-	/** Domains whose verified emails auto-join this organization. */
 	domains: Schema.Array(Schema.String),
-	/** The admin's own email domain, when it can still be added. */
+
 	suggestedDomain: Schema.NullOr(Schema.String),
 	blockedMembers: Schema.Array(BlockedMember),
 });

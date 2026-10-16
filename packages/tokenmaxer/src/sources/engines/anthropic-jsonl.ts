@@ -43,7 +43,6 @@ interface AnthropicLine {
 const num = (value: unknown): number =>
 	typeof value === "number" && Number.isFinite(value) ? value : 0;
 
-/** Project name = the path segment immediately after `projects/`. */
 const projectFromPath = (path: string, projectsDir: string): string => {
 	const segments = path.split(sep);
 	const index = segments.indexOf(projectsDir);
@@ -161,15 +160,12 @@ export const readAnthropicJsonl = async (input: {
 				},
 			);
 			for (const entry of entries) parsed.push(entry);
-		} catch {
-			// Ignore unreadable or truncated history files.
-		}
+		} catch {}
 	}
 
 	return { records: dedupe(parsed), files };
 };
 
-/** Keep one entry per uniqueHash (larger token total wins); null hashes kept. */
 const dedupe = (entries: ReadonlyArray<ParsedEntry>): UsageRecord[] => {
 	const byHash = new Map<string, ParsedEntry>();
 	const kept: UsageRecord[] = [];

@@ -82,9 +82,6 @@ try {
 		}
 	}
 } finally {
-	// The engine deliberately outlives the desktop shell. Stop this isolated
-	// test's owner before removing its profile and extracted executable; it can
-	// also retain the shell's debugger socket and keep Playwright alive.
 	const endpoint = await readEngineEndpoint(userData);
 	if (endpoint !== null)
 		assert.equal(

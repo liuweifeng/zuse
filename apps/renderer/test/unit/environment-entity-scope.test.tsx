@@ -11,7 +11,6 @@ vi.mock("../../src/store/environment-catalog.ts", () => ({
 	) => selector({ activeEnvironmentId: state.environmentId }),
 }));
 vi.mock("../../src/lib/environment-shell-client-bus.ts", async () => {
-	// Exercise the real workspace filter that the shell bus applies to reads.
 	const { scopeEnvironmentShell } = await import(
 		"../../src/lib/environment-shell-scope.ts"
 	);

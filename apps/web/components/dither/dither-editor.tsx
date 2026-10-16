@@ -104,7 +104,7 @@ export function DitherEditor() {
 		message: string;
 		kind: "upload" | "render" | "export";
 	} | null>(null);
-	// Render validity survives dismissing unrelated upload/export errors.
+
 	const [renderFailed, setRenderFailed] = useState(false);
 	const [loading, setLoading] = useState(false);
 	const [rendering, setRendering] = useState(false);

@@ -56,9 +56,7 @@ const closeSocket = (
 ): void => {
 	try {
 		socket.close(code, reason);
-	} catch {
-		// Closing a socket that raced with a disconnect is harmless.
-	}
+	} catch {}
 };
 
 const send = (
@@ -158,7 +156,7 @@ const attachment = (
 	)
 		return null;
 	const fence = { workspaceId, generation, gatewayEpoch };
-	// Attachments created before protocol negotiation was persisted are v2.
+
 	const negotiatedProtocol = protocol ?? WORKSPACE_GATEWAY_PROTOCOL;
 	if (candidate.role === "runtime")
 		return { role: "runtime", protocol: negotiatedProtocol, ...fence };
@@ -209,13 +207,8 @@ const newerFence = (left: GatewayFence, right: GatewayFence): boolean =>
 
 const detachSocket = (socket: CloudflareWebSocket): void => {
 	try {
-		// A replaced socket can remain visible to getWebSockets until its close
-		// callback. Clearing its recognized role fences it immediately and also
-		// makes that delayed callback a no-op after hibernation.
 		socket.serializeAttachment({ role: "detached" });
-	} catch {
-		// The peer may have disappeared between enumeration and detachment.
-	}
+	} catch {}
 };
 
 const websocketResponse = (
@@ -306,9 +299,6 @@ export class WorkspaceGateway {
 	}
 
 	async fetch(request: Request): Promise<Response> {
-		// API-internal nudge: tell the connected runtime that pending public-API
-		// commands are waiting. Only the worker can reach this DO, so the header
-		// check just routes; it is not an auth boundary.
 		if (
 			request.method === "POST" &&
 			request.headers.get("x-zuse-gateway-nudge") === "command"
@@ -390,7 +380,7 @@ export class WorkspaceGateway {
 					);
 					continue;
 				}
-				// Alarm dispatch can lag behind the persisted deadline.
+
 				if (
 					metadata.pendingUntil !== undefined &&
 					metadata.pendingUntil <= Date.now()
@@ -408,8 +398,7 @@ export class WorkspaceGateway {
 					metadata.wasReady === true
 				) {
 					this.available(socket, metadata);
-					// A reconnect needs a new RPC peer; delayed frames and close
-					// callbacks from this socket cannot target the replacement.
+
 					detachSocket(socket);
 					continue;
 				}

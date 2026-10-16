@@ -124,7 +124,7 @@ describe("pending cloud gateway transport", () => {
 				expect(native.sent).toEqual(["handshake"]);
 				native.availability("pending");
 				expect(native.readyState).toBe(2);
-				// Native close is asynchronous; no send defect or frame can escape meanwhile.
+
 				yield* write("racing-mutation").pipe(
 					Effect.forkScoped({ startImmediately: true }),
 				);

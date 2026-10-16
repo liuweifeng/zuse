@@ -107,7 +107,7 @@ it.each([
 		);
 	}
 	const html = renderToStaticMarkup(<Surface />);
-	// Sending to a paused workspace wakes it: one resume status, no agent wait.
+
 	expect(html).toContain("Resuming cloud workspace…");
 	expect(html).not.toContain("Waiting for agent");
 	expect(html).toContain("Wait for cloud");

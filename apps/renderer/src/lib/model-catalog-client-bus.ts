@@ -44,10 +44,7 @@ const makeDriver = (): ResourceDriver<
 			active = true;
 			const epoch = `model-catalog:${context.generation}:${crypto.randomUUID()}`;
 			let version = 0;
-			// A dropped stream on a still-connected environment would otherwise
-			// silence catalog updates until the next reconnect, so resubscribe
-			// with capped backoff. Each resubscription replays the current
-			// catalog, which the store ignores when unchanged.
+
 			const updates = context.client["model.catalog.stream"]({}).pipe(
 				Stream.retry(
 					Schedule.exponential("1 second").pipe(
@@ -73,9 +70,6 @@ const makeDriver = (): ResourceDriver<
 					});
 				}),
 			).pipe(
-				// Catalog updates are an enhancement over the one-shot
-				// `model.catalog` load. A defect must never be treated as a
-				// connection fault; the picker keeps the catalog it already has.
 				Effect.catchCause((cause) =>
 					Effect.sync(() => {
 						if (active && !Cause.hasInterruptsOnly(cause)) {

@@ -159,15 +159,11 @@ function MobileTerminalContent() {
 		makeTerminalCatalogRefreshQueue<TerminalCatalog>(),
 	).current;
 	const terminalResourceCleanupRef = useRef<(() => void) | null>(null);
-	// Authority changes only after React commits this route/selection. An aborted
-	// concurrent render must not revoke the still-mounted terminal's output sink.
+
 	useLayoutEffect(() => {
 		routeFenceRef.current.commit(routeIdentity);
 		feedChannelRef.current.commitSelection(activeId);
 		return () => {
-			// Stop the old resource driver before rejecting any feed it is awaiting.
-			// Its failure handler then sees a revoked lease and cannot mark the cached
-			// resource failed during the layout-to-passive cleanup window.
 			const cleanup = terminalResourceCleanupRef.current;
 			terminalResourceCleanupRef.current = null;
 			cleanup?.();
@@ -313,9 +309,7 @@ function MobileTerminalContent() {
 						await refreshTerminals(),
 						openToken,
 					);
-				} catch {
-					// Preserve the original open failure when catalog recovery is offline.
-				}
+				} catch {}
 				if (!routeFenceRef.current.isCurrent(routeIdentity)) return;
 				if (recovered !== undefined) {
 					pendingOpenTokenRef.current = null;
@@ -412,8 +406,6 @@ function MobileTerminalContent() {
 		};
 		const sink = {
 			reset: async () => {
-				// RIS clears parser, screen, cursor, and scrollback before bytes from
-				// the replacement process are accepted by the resource driver.
 				await publishFeed("\u001bc");
 			},
 			write: publishFeed,
@@ -580,9 +572,7 @@ function MobileTerminalContent() {
 								(terminal) =>
 									terminal.ptyId === activeId && terminal.label === nextLabel,
 							);
-						} catch {
-							// Keep the rename failure when catalog recovery is unavailable.
-						}
+						} catch {}
 						if (!routeFenceRef.current.isCurrent(identity) || recovered) return;
 						setError(connectionErrorMessage(cause));
 					});
@@ -629,9 +619,7 @@ function MobileTerminalContent() {
 						summary !== undefined &&
 						previousEpoch !== undefined &&
 						summary.processEpoch !== previousEpoch;
-				} catch {
-					// Keep the restart failure when catalog recovery is unavailable.
-				}
+				} catch {}
 				if (!routeFenceRef.current.isCurrent(identity)) return;
 				if (recovered) {
 					const ref = terminalRef.current;

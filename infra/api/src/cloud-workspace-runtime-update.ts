@@ -1,9 +1,6 @@
 import type { CloudAccountImageRuntime } from "@zuse/contracts";
 import type { CloudProjectBuildRecord } from "./cloud-workspace-store.ts";
 
-/** Startup validates the pinned installation; channel changes belong to explicit update operations. */
-// The gateway can carry old runtime RPCs without decoding them. This is independent
-// of the app/client minimum; old desktops must retain access to their runtimes.
 export const MIN_RETAINED_RUNTIME_WIRE_PROTOCOL = 5;
 
 export const WORKSPACE_RUNTIME_UPDATE_SCRIPT = `

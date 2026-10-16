@@ -1,7 +1,6 @@
 #!/bin/bash
 set -e
 
-# Recovery actions must not require package files or change launcher state.
 if [ "${1:-}" != "configure" ]; then
     exit 0
 fi
@@ -13,9 +12,7 @@ chown root:root '/opt/${sanitizedProductName}/chrome-sandbox'
 chmod 4755 '/opt/${sanitizedProductName}/chrome-sandbox'
 
 if type update-alternatives >/dev/null 2>&1; then
-    # Retire the old path on upgrade so an equal-priority alternative cannot
-    # leave the CLI pointing at the removed package files.
-    # A fresh install or repeat configuration has no legacy alternative.
+
     update-alternatives --remove '${executable}' '/opt/Zuse (Beta)/${executable}' || true
     if [ -L '/usr/bin/${executable}' ] && [ "$(readlink '/usr/bin/${executable}')" != '/etc/alternatives/${executable}' ]; then
         rm -f '/usr/bin/${executable}'

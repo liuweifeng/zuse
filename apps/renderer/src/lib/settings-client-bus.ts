@@ -172,9 +172,6 @@ type SettingsState = SettingsSlice & {
 
 const PROVIDERS = PROVIDER_IDS;
 
-// Seeds and alias resolution use the bundled snapshot: this module runs at
-// startup before the catalog store has answered, and the server already
-// canonicalizes slugs against the resolved catalog at session start.
 const seedModels = (): Record<ProviderId, string> =>
 	Object.fromEntries(
 		PROVIDERS.map((provider) => [
@@ -573,7 +570,6 @@ const financeOnlyWorkspace = () => {
 	);
 };
 
-/** Sparse overrides may carry `undefined` for open-ended ACP provider keys. */
 const definedEntries = <A>(
 	record: Partial<Record<string, A>> | undefined,
 ): Record<string, A> =>
@@ -583,8 +579,6 @@ const definedEntries = <A>(
 		),
 	);
 
-// Account settings are sparse persisted overrides. Fill newly added providers
-// from product defaults without discarding existing per-provider preferences.
 const withWorkspaceValues = (
 	base: Omit<
 		SettingsSlice,
@@ -630,8 +624,7 @@ const workspaceProjection = (device: SettingsSlice): SettingsSlice =>
 const scopedState = (runtime: SettingsState): SettingsState => {
 	if (!usesAccountWorkspaceSettings()) return runtime;
 	const workspace = useWorkspaceSettingsState.getState();
-	// Existing local work remains available during first migration or an API outage.
-	// Shared commands still await loadWorkspaceSettings before reading user intent.
+
 	if (nativePersonal() && workspace.data === null) return runtime;
 	const financeOnly = financeOnlyWorkspace();
 	return {

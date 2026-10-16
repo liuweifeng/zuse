@@ -4,9 +4,6 @@ import { join, resolve } from "node:path";
 import { chromium } from "@playwright/test";
 import { createServer } from "vite-plus";
 
-// Run with `bun run test:startup-browser`. This deliberately withholds HMR's
-// automatic reload: a slow/retrying document must not receive a second React
-// instance while its original React DOM root is still mounted.
 const cacheDir = await mkdtemp(join(tmpdir(), "zuse-react-probe-"));
 const root = resolve(import.meta.dirname, "../..");
 const errors = [];
@@ -25,7 +22,6 @@ const server = await createServer({
 		{
 			name: "startup-probe",
 			configResolved(config) {
-				// Emulate imports that source scanning cannot discover ahead of time.
 				config.optimizeDeps.entries = [];
 			},
 			configureServer(server) {
@@ -101,8 +97,7 @@ try {
 		await page
 			.getByText("layout ready", { exact: true })
 			.waitFor({ timeout: 15000 });
-		// Let both later import batches finish; checking first paint alone misses
-		// the invalidation that caused the next screen to crash.
+
 		await page.waitForTimeout(3000);
 		await page
 			.getByText("layout ready", { exact: true })

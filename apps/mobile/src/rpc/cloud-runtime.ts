@@ -127,8 +127,7 @@ export const connectCloudRuntime = (
 			);
 			assertUsable(row);
 		}
-		// Ready compute or an accepted wake consumes intent before ticket issuance.
-		// Lost resume responses keep the same idempotent command for retry.
+
 		acknowledgeCloudRuntimeWake(workspaceId, wakeIntent);
 		if (row.state === "failed")
 			throw new Error(

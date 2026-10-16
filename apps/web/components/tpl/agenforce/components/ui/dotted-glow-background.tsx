@@ -4,35 +4,35 @@ import { useEffect, useRef, useState } from "react";
 
 type DottedGlowBackgroundProps = {
 	className?: string;
-	/** distance between dot centers in pixels */
+
 	gap?: number;
-	/** base radius of each dot in CSS px */
+
 	radius?: number;
-	/** dot color (will pulse by alpha) */
+
 	color?: string;
-	/** optional dot color for dark mode */
+
 	darkColor?: string;
-	/** shadow/glow color for bright dots */
+
 	glowColor?: string;
-	/** optional glow color for dark mode */
+
 	darkGlowColor?: string;
-	/** optional CSS variable name for light dot color (e.g. --color-zinc-900) */
+
 	colorLightVar?: string;
-	/** optional CSS variable name for dark dot color (e.g. --color-zinc-100) */
+
 	colorDarkVar?: string;
-	/** optional CSS variable name for light glow color */
+
 	glowColorLightVar?: string;
-	/** optional CSS variable name for dark glow color */
+
 	glowColorDarkVar?: string;
-	/** global opacity for the whole layer */
+
 	opacity?: number;
-	/** background radial fade opacity (0 = transparent background) */
+
 	backgroundOpacity?: number;
-	/** minimum per-dot speed in rad/s */
+
 	speedMin?: number;
-	/** maximum per-dot speed in rad/s */
+
 	speedMax?: number;
-	/** global speed multiplier for all dots */
+
 	speedScale?: number;
 };
 
@@ -86,7 +86,6 @@ export function DottedGlowBackground({
 	const [resolvedColor, setResolvedColor] = useState<string>(color);
 	const [resolvedGlowColor, setResolvedGlowColor] = useState<string>(glowColor);
 
-	// Keep resolved colors in sync with theme changes and prop updates
 	useEffect(() => {
 		const container = containerRef.current ?? document.documentElement;
 
@@ -167,7 +166,6 @@ export function DottedGlowBackground({
 		ro.observe(container);
 		resize();
 
-		// Precompute dot metadata for a medium-sized grid and regenerate on resize
 		let dots: { x: number; y: number; phase: number; speed: number }[] = [];
 
 		const regenDots = () => {
@@ -179,12 +177,12 @@ export function DottedGlowBackground({
 			const max = Math.max(speedMin, speedMax);
 			for (let i = -1; i < cols; i++) {
 				for (let j = -1; j < rows; j++) {
-					const x = i * gap + (j % 2 === 0 ? 0 : gap * 0.5); // offset every other row
+					const x = i * gap + (j % 2 === 0 ? 0 : gap * 0.5);
 					const y = j * gap;
-					// Randomize phase and speed slightly per dot
+
 					const phase = Math.random() * Math.PI * 2;
 					const span = Math.max(max - min, 0);
-					const speed = min + Math.random() * span; // configurable rad/s
+					const speed = min + Math.random() * span;
 					dots.push({ x, y, phase, speed });
 				}
 			}
@@ -200,14 +198,13 @@ export function DottedGlowBackground({
 
 		const draw = (now: number) => {
 			if (stopped) return;
-			const _dt = (now - last) / 1000; // seconds
+			const _dt = (now - last) / 1000;
 			last = now;
 			const { width, height } = container.getBoundingClientRect();
 
 			ctx.clearRect(0, 0, el.width, el.height);
 			ctx.globalAlpha = opacity;
 
-			// optional subtle background fade for depth (defaults to 0 = transparent)
 			if (backgroundOpacity > 0) {
 				const grad = ctx.createRadialGradient(
 					width * 0.5,
@@ -226,21 +223,19 @@ export function DottedGlowBackground({
 				ctx.fillRect(0, 0, width, height);
 			}
 
-			// animate dots
 			ctx.save();
 			ctx.fillStyle = resolvedColor;
 
 			const time = (now / 1000) * Math.max(speedScale, 0);
 			for (let i = 0; i < dots.length; i++) {
 				const d = dots[i];
-				// Linear triangle wave 0..1..0 for linear glow/dim
-				const mod = (time * d.speed + d.phase) % 2;
-				const lin = mod < 1 ? mod : 2 - mod; // 0..1..0
-				const a = 0.25 + 0.55 * lin; // 0.25..0.8 linearly
 
-				// draw glow when bright
+				const mod = (time * d.speed + d.phase) % 2;
+				const lin = mod < 1 ? mod : 2 - mod;
+				const a = 0.25 + 0.55 * lin;
+
 				if (a > 0.6) {
-					const glow = (a - 0.6) / 0.4; // 0..1
+					const glow = (a - 0.6) / 0.4;
 					ctx.shadowColor = resolvedGlowColor;
 					ctx.shadowBlur = 6 * glow;
 				} else {

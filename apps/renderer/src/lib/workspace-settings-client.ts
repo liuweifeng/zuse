@@ -213,7 +213,7 @@ export const loadWorkspaceSettings = (
 						error.code !== "conflict"
 					)
 						throw error;
-					// Another device initialized this workspace. Adopt it; never overwrite it.
+
 					data = await Effect.runPromise(client["cloud.settings.get"]());
 				}
 			}

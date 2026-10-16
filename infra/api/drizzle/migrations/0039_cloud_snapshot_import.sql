@@ -1,4 +1,4 @@
--- Account-wide snapshot inspection precedes repository discovery.
+
 ALTER TABLE api_cloud_project_builds ALTER COLUMN project_id DROP NOT NULL;
 CREATE UNIQUE INDEX api_cloud_imported_builds_idempotency_idx
 ON api_cloud_project_builds (account_id, provider, idempotency_key)

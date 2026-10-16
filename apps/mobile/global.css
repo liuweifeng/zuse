@@ -1,9 +1,6 @@
 @import "tailwindcss";
 @import "uniwind";
 
-/* Uniwind compiles these variants into separate native token tables and swaps
-   them when the system appearance changes. Ordinary CSS media queries do not
-   provide that native runtime scoping. */
 @layer theme {
 	:root {
 		@variant light {

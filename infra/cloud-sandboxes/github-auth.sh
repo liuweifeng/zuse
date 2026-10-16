@@ -24,8 +24,7 @@ refresh_token() {
 		printf '%s\n' 'GitHub access is not ready in this cloud workspace.' >&2
 		return 1
 	}
-	# Called from an `if`, so Bash disables errexit throughout this function.
-	# Check every fallible operation explicitly before replacing cached access.
+
 	endpoint=$(jq -er '.credentialUrl | select(type == "string" and length > 0)' "$broker_config_file") || return 1
 	runtime_credential=$(<"$runtime_credential_file") || return 1
 	request_body='{}'
@@ -54,7 +53,7 @@ ensure_token() {
 	flock 9
 	cached_token_valid && return
 	if refresh_token; then return; fi
-	# A refresh outage must not discard a still-valid cached token.
+
 	if [[ -s "$token_file" && -s "$token_expiry_file" ]]; then
 		expires_at=$(<"$token_expiry_file")
 		if [[ "$expires_at" =~ ^[0-9]+$ ]] &&
@@ -71,8 +70,6 @@ read_token() {
 	cat "$token_file"
 }
 
-# The image shadows the packaged gh binary. Each invocation resolves a current
-# repository-scoped GitHub token, so shells never retain an expired credential.
 if [[ "$(basename "$0")" == "gh" || "${1:-}" == "gh" ]]; then
 	[[ "${1:-}" != "gh" ]] || shift
 	GH_TOKEN=$(read_token) || exit 1
@@ -83,8 +80,7 @@ fi
 case "${1:-}" in
 	install)
 		git config --global --replace-all credential.https://github.com.username x-access-token
-		# An empty helper resets inherited helpers before installing ours. Replace
-		# all saved entries so persisted homes and repeated starts repair cleanly.
+
 		git config --global --replace-all credential.https://github.com.helper ""
 		git config --global --add credential.https://github.com.helper \
 			"$auth_binary credential"

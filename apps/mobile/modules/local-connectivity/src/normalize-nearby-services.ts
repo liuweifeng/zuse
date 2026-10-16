@@ -39,8 +39,7 @@ export const normalizeNearbyServices = (
 		const interfaceName = optionalString(raw.interfaceName);
 		const service: NearbyService = {
 			id: raw.tlsCertificatePin,
-			// Browser generations and Bonjour "(2)" suffixes do not represent a
-			// network change. The path monitor invalidates real route changes.
+
 			routeId: stableRouteId(raw.tlsCertificatePin, interfaceName),
 			name: raw.name,
 			type: raw.type,

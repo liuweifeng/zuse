@@ -137,7 +137,6 @@ describe("orchestration MCP tools", () => {
 		expect(result.isError).toBeUndefined();
 		expect(result.content[0]?.text).toContain("m_ui");
 
-		// Display-only: emit_ui never prompts, even under a prompting mode.
 		let requested = 0;
 		await ensureOrchestrationPermission(
 			"emit_ui",

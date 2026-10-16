@@ -17,7 +17,6 @@ import {
 } from "./lib/use-relative-time.ts";
 import { cn } from "./lib/utils.ts";
 
-/** Fill color for each state's status dot. */
 const STATE_DOT: Record<NotchTrayItemState, string> = {
 	permission: "bg-warning",
 	question: "bg-info",
@@ -31,7 +30,6 @@ const STATE_DOT: Record<NotchTrayItemState, string> = {
 	checking: "bg-muted-foreground",
 };
 
-/** Colored halo ring, applied only to states that need the user. */
 const STATE_HALO: Record<NotchTrayItemState, string> = {
 	permission: "ring-2 ring-warning/35",
 	question: "ring-2 ring-info/35",
@@ -45,7 +43,6 @@ const STATE_HALO: Record<NotchTrayItemState, string> = {
 	checking: "",
 };
 
-/** States that block the user and deserve visual weight in the collapsed cap. */
 const NEEDS_YOU: ReadonlySet<NotchTrayItemState> = new Set<NotchTrayItemState>([
 	"permission",
 	"question",
@@ -54,7 +51,6 @@ const NEEDS_YOU: ReadonlySet<NotchTrayItemState> = new Set<NotchTrayItemState>([
 	"unavailable",
 ]);
 
-/** States that gently pulse to draw the eye. */
 const PULSES: ReadonlySet<NotchTrayItemState> = new Set<NotchTrayItemState>([
 	"permission",
 	"question",
@@ -149,7 +145,6 @@ function NotchTray() {
 					expanded ? "h-full" : "h-[66px]",
 				)}
 			>
-				{/* Cap: the strip below the physical notch. Always present (whisper). */}
 				<div className="flex h-[66px] items-end justify-center gap-[7px] px-4 pb-[13px]">
 					{compactDots.length === 0 ? (
 						<span className="mb-[3px] size-[3px] rounded-full bg-white/25" />
@@ -182,7 +177,6 @@ function NotchTray() {
 					)}
 				</div>
 
-				{/* Expanded list: dot + title + relative time, one line per agent. */}
 				{expanded && (
 					<div className="animate-in fade-in slide-in-from-top-1 flex flex-col gap-px border-t border-white/[0.06] px-1.5 pb-2 pt-1.5 duration-200">
 						{rows.length === 0 ? (

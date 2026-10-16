@@ -95,7 +95,7 @@ it("supersedes consumed and pending links during rollback and injects only retai
 						settledAt: 3,
 					},
 				});
-				// A result that arrived after this turn had already consumed its context stays pending.
+
 				yield* links.capture({
 					id: "pending-future",
 					kind: "merge_back",

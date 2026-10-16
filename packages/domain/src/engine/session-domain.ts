@@ -345,18 +345,11 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	}) =>
 		Stream.unwrap(
 			Effect.gen(function* () {
-				// Attach live delivery before observing the durable head. Events that
-				// commit during snapshot/replay are retained by this subscription.
 				yield* registerDurableSubscriber;
 				const durableSubscription = yield* PubSub.subscribe(durableEventHub);
-				// `durableEventHub` is process-local. Reconcile after subscribing so
-				// commits from another runtime that landed just before this attach are
-				// either in the durable prefix below or buffered by this subscription.
+
 				yield* reconcileDurableEvents();
-				// The advertised head and its materialized projection must come from
-				// one SQLite read snapshot. Otherwise a commit between the version read
-				// and projection read could put version N+1 data in a version N frame;
-				// the buffered N+1 event would then be applied twice by the client.
+
 				const { prefix, throughVersion, historyCursor } =
 					yield* sql.withTransaction(
 						Effect.gen(function* () {
@@ -429,9 +422,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 							return { prefix, throughVersion, historyCursor };
 						}),
 					);
-				// Emit the newest bounded projection immediately. Older immutable rows
-				// follow page-by-page so long local and cloud transcripts keep a fast
-				// first paint without coupling correctness to viewport scrolling.
+
 				const history =
 					historyCursor === null || historyMode === "background"
 						? Stream.empty
@@ -541,8 +532,6 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									case "SetModel":
 									case "SetWorktree":
 									case "UnarchiveSession": {
-										// A filesystem restore fences execution globally: distinct projects
-										// may refer to the same physical checkout through path aliases.
 										const restoring = yield* sql<{
 											pending: number;
 										}>`SELECT EXISTS(SELECT 1 FROM session_checkpoint_restores WHERE completed_at IS NULL) AS pending`;
@@ -587,8 +576,7 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									updated_at = excluded.updated_at
 							`;
 								}
-								// A new attempt owns the turn's provider send from now on; any earlier
-								// send still parked or pending would double-send.
+
 								let cancelled: ReadonlyArray<JobId> = [];
 								if (
 									input.command._tag === "ExpireAttempt" ||
@@ -620,12 +608,6 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 										})),
 									];
 								}
-
-								// Jobs are the durable side effects of these events. Inserting them
-
-								// here means a committed event can never lose its side effect and a
-
-								// side effect can never run for an event that did not commit.
 
 								const enqueued = yield* jobs.enqueue(
 									appended.flatMap(jobsForSessionEvent),

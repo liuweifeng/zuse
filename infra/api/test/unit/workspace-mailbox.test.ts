@@ -930,8 +930,7 @@ describe("workspace mailbox", () => {
 			action: "archive",
 			destructionFence: 1,
 		});
-		// A delayed duplicate lifecycle delivery must not cancel commands accepted
-		// after the workspace was unarchived at the same authoritative fence.
+
 		await call(mailbox, "/lifecycle", {
 			action: "archive",
 			destructionFence: 1,
@@ -985,8 +984,6 @@ describe("workspace mailbox", () => {
 			resultCiphertext: "result-ciphertext",
 		});
 
-		// The earlier lease alarm may remain, but once it fires the terminal
-		// retention deadline must be scheduled explicitly.
 		vi.advanceTimersByTime(31_000);
 		await harness.fireAlarm();
 		const retentionMs = 30 * 24 * 60 * 60_000;

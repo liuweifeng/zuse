@@ -85,17 +85,15 @@ export class ProjectScaffold extends Context.Service<
 export const deriveCloneTargetName = (url: string): string | null => {
 	const trimmed = url.trim();
 	if (trimmed.length === 0) return null;
-	// Strip query/fragment so they don't sneak into the folder name.
+
 	const noQuery = trimmed.split(/[?#]/)[0]!;
-	// ssh form `git@host:owner/repo.git` — split on the last colon, keep
-	// the path portion.
+
 	const afterColon = noQuery.includes("://")
 		? (noQuery.split("://", 2)[1] ?? "")
 		: noQuery.includes(":")
 			? noQuery.split(":").slice(1).join(":")
 			: noQuery;
-	// Drop the host component (first `/`-separated piece) when we still
-	// have one after the colon split.
+
 	const path = afterColon.replace(/^[^/]+\//, "");
 	const segments = path.split("/").filter((s) => s.length > 0);
 	const last = segments[segments.length - 1];

@@ -9,7 +9,7 @@ export const makeStripeBillingStorePg = (
 ): StripeBillingStore => {
 	const run = <A>(effect: Effect.Effect<A, unknown>) =>
 		Effect.runPromise(effect);
-	/** Reads the winning reservation after insert or compare-and-swap renewal. */
+
 	const readReservation = (accountId: string) =>
 		Effect.gen(function* () {
 			const rows = yield* sql<{

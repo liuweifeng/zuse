@@ -118,9 +118,7 @@ const readPersisted = async <A>(
 	} catch {
 		try {
 			await unlink(persist.path);
-		} catch {
-			// best-effort cleanup
-		}
+		} catch {}
 		return null;
 	}
 };
@@ -142,7 +140,6 @@ const writePersisted = async <A>(
 		await writeFile(tmp, payload, { mode: 0o600 });
 		await rename(tmp, persist.path);
 	} catch {
-		// Cache writes are best-effort; failure just means a cold start later.
 	} finally {
 		await unlink(tmp).catch(() => {});
 	}
@@ -167,7 +164,7 @@ export const makeSwrCache = <A, E>(
 		let invalidated = entry === null;
 		let generation = 0;
 		let disposed = false;
-		// Serialize best-effort disk work, outside refresh's critical path.
+
 		let persistence = Promise.resolve();
 		const persistLater = (next: SwrCacheEntry<A>, revision: number) => {
 			if (!persist) return;

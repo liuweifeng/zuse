@@ -7,7 +7,7 @@ import { glass, radii } from "~/theme";
 const styles = StyleSheet.create({
 	base: { borderRadius: radii.lg, borderCurve: "continuous" },
 	glass: { overflow: "hidden" },
-	// Mirrors `bg-card` + `border-border` for the pre-iOS-26 fallback.
+
 	fallback: { borderWidth: StyleSheet.hairlineWidth },
 });
 
@@ -23,7 +23,6 @@ export function GlassSurface({
 	tinted = false,
 	...rest
 }: ViewProps & {
-	/** Adds a soft background tint so text on busy content stays legible. */
 	tinted?: boolean;
 }) {
 	const { theme } = useUniwind();

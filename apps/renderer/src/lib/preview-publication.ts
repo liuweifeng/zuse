@@ -38,7 +38,6 @@ export const createPreviewPublication = (dependencies: {
 				}
 			}
 			if (errors.length > 0) {
-				// Keep the journal and visible pending state until the provider confirms.
 				retry = setTimeout(
 					() => {
 						void revoke().catch(() => {});
@@ -60,7 +59,6 @@ export const createPreviewPublication = (dependencies: {
 				dependencies.remember(port);
 				const url = await dependencies.publish(port);
 				if (!enabled()) {
-					// The queued disable operation will revoke even this late creation.
 					throw new Error("Preview publication was disabled.");
 				}
 				return url;

@@ -136,8 +136,6 @@ export function WorktreeSetupCard({
 			(creationPhase === "starting_agent" || creationPhase === "running"));
 	const externalResume = session !== null && session.providerThread !== null;
 
-	// This card owns workspace setup only. As soon as that work is done, the
-	// normal transcript activity row owns provider startup.
 	const visible = shouldShowSetupCard({
 		externalResume,
 		initialSession,
@@ -146,7 +144,7 @@ export function WorktreeSetupCard({
 		workspacePending: ctx.status === "worktree-pending",
 	});
 	if (providerOutputStarted) return null;
-	// Cloud lifecycle is shown once, in the composer connection tray.
+
 	if (cloudSummary !== null) return null;
 	if (!visible) return null;
 
@@ -304,7 +302,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const elapsed = Math.max(0, now - (data.startedAt ?? mountedAt));
 	const output = setupOutput.trim();
 	const outputRef = useRef<HTMLPreElement>(null);
-	// Follow the live log tail unless the user scrolled up to read it.
+
 	useLayoutEffect(() => {
 		const element = outputRef.current;
 		if (element === null) return;
@@ -316,7 +314,6 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	return (
 		<details
 			className="group/setup w-full px-4 py-1 text-[11px]"
-			// Failures need the log and the rerun action without an extra click.
 			open={failed || undefined}
 		>
 			<summary className="flex h-7 cursor-pointer list-none items-center gap-2 rounded-md text-muted-foreground outline-none select-none marker:content-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">

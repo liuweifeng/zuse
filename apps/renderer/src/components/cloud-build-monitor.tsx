@@ -30,7 +30,6 @@ export function CloudBuildMonitor() {
 				building = next.some((image) => image.state === "building");
 				wasBuilding = building;
 			} catch {
-				// Keep the last known build state and retry after network recovery.
 			} finally {
 				running = false;
 				if (!disposed)

@@ -31,7 +31,7 @@ vi.mock(
 		...(await importOriginal<
 			typeof import("../../src/lib/environment-shell-client-bus.ts")
 		>()),
-		// Selection persistence can be stalled for the entire interaction.
+
 		dispatchEnvironmentShellCommand: vi.fn(() => new Promise(() => {})),
 	}),
 );

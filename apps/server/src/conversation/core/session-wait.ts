@@ -163,7 +163,7 @@ export const makeSessionWaitOperations = (options: {
 				);
 				const attemptId = AttemptId.make(attemptIdFor(turnId, 1));
 				const deadline = Date.now() + boundedWaitTimeout(wait.timeoutMs);
-				// The service owns submission, so losing the waiting client cannot cancel admission or execution.
+
 				const submission = yield* options
 					.send({
 						...input,

@@ -137,7 +137,7 @@ export const sessionMessagesErrorAtom = Atom.family((key: string) =>
 
 type RetainedTimeline = Readonly<{
 	environmentId: EnvironmentId;
-	/** Cloud sends wait in the account mailbox until a runtime claims them. */
+
 	cloud: boolean;
 	key: ReturnType<typeof sessionTimelineKey>;
 	lease: ReturnType<ReturnType<typeof mobileClientBus>["retain"]>;
@@ -276,7 +276,7 @@ const publishTimeline = (liveKey: string, retained: RetainedTimeline): void => {
 		view.connection === "waking";
 	batchAtomUpdates(() => {
 		patchReconnecting(liveKey, reconnecting);
-		// A failed message send is marked on the message itself (Resend/Remove).
+
 		const failedOther = view.failedCommands.filter(
 			(command) => command.kind !== "messages.send",
 		);
@@ -435,8 +435,6 @@ export const flushMessages = async (
 	) {
 		return;
 	}
-	// Active timelines checkpoint continuously in the ClientBus persistence
-	// adapter; this compatibility action intentionally does not own another write.
 };
 
 export const deleteQueuedMessage = async (

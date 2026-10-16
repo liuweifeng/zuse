@@ -21,7 +21,7 @@ export const Migration0068AttemptHistory = Effect.gen(function* () {
 			UNIQUE (session_id, turn_id, ordinal)
 		)
 	`;
-	// Page lifecycle events globally. Even large transcripts do not enter memory.
+
 	let after = 0;
 	while (true) {
 		const rows = yield* sql<{

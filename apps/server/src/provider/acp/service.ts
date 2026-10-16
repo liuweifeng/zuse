@@ -46,7 +46,7 @@ const Stored = Schema.Array(StoredDefinition);
 const publicDefinition = (entry: StoredDefinition): AcpDefinition =>
 	Schema.decodeUnknownSync(AcpDefinition)(entry);
 const Secrets = Schema.Record(Schema.String, Schema.String);
-/** Only registry-hosted logos reach the renderer; other hosts are dropped. */
+
 const registryIcon = (agent: RegistryAgent): { icon?: string } => {
 	try {
 		const url = new URL(agent.icon ?? "");
@@ -113,7 +113,7 @@ export const probeAcp = async (
 	);
 	let authMethods: AcpProbe["authMethods"] = [];
 	let loadSession = false;
-	// A cancelled sign-in must release the agent and its OAuth callback port.
+
 	const abort = () => process.close();
 	signal?.addEventListener("abort", abort, { once: true });
 	try {
@@ -198,7 +198,7 @@ export const makeAcpAgentStore = (
 	} = {},
 ) => {
 	const registry = dependencies.catalog ?? readCatalog;
-	// Installs reuse the registry fetched when the catalog was opened.
+
 	let recentRegistry: { at: number; value: Registry } | undefined;
 	const catalog = async (directory: string, maxAgeMs = 0) => {
 		const result =
@@ -337,20 +337,18 @@ export const makeAcpAgentStore = (
 		});
 	const installations = (id: AcpProviderId) =>
 		join(directory, "installations", id);
-	/** Best effort: a leftover file must never fail the user's operation. */
+
 	const discard = async (operation: Promise<unknown>) => {
 		try {
 			await operation;
-		} catch {
-			/* Already gone, or still in use by a running session. */
-		}
+		} catch {}
 	};
-	/** Deletes an installation unless a remaining agent (e.g. a duplicate) runs from it. */
+
 	const removeUnusedInstallation = async (path: string) => {
 		const inUse = (await read()).some((entry) => isWithin(entry.command, path));
 		if (!inUse) await discard(rm(path, { recursive: true, force: true }));
 	};
-	/** Drops the secrets and files a replaced definition owned. */
+
 	const releaseReplaced = async (
 		old: StoredDefinition | undefined,
 		next: StoredDefinition,
@@ -376,7 +374,7 @@ export const makeAcpAgentStore = (
 			directory,
 			methodId,
 			onStderr,
-			// The first run of a package agent downloads it before starting.
+
 			snapshot.probe ? undefined : 180_000,
 			signal,
 		);
@@ -408,7 +406,7 @@ export const makeAcpAgentStore = (
 				const env = secret
 					? { ...Schema.decodeUnknownSync(Secrets)(JSON.parse(secret)) }
 					: {};
-				// A new account must never inherit a token or another profile's selectors.
+
 				if (provider) {
 					for (const key of [
 						...providerAccountUnsetEnv(provider),
@@ -485,9 +483,7 @@ export const makeAcpAgentStore = (
 							prepared.env = { ...prepared.env, ...env };
 						}
 					}
-					// Updates must prove the new version works before replacing the old
-					// one. New agents are saved immediately and tested afterwards, so a
-					// slow first download does not hold the dialog or the store lock.
+
 					const result = old
 						? await probe(
 								old.accountProvider
@@ -537,7 +533,6 @@ export const makeAcpAgentStore = (
 					await releaseReplaced(old, entry);
 					return publicDefinition(entry);
 				} catch (error) {
-					// A failed install or update keeps nothing but the previous version.
 					await discard(rm(destination, { recursive: true, force: true }));
 					throw error;
 				}

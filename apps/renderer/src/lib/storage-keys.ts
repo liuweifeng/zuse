@@ -12,9 +12,7 @@ export const readStorageWithLegacy = (
 		try {
 			storage.setItem(key, legacy);
 			storage.removeItem(legacyKey);
-		} catch {
-			// Storage migration is best-effort; the caller can still use the value.
-		}
+		} catch {}
 		return legacy;
 	}
 

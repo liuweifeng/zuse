@@ -46,7 +46,6 @@ const defaultRouteAssets = collectRouteAssets(
 	"src/application.tsx",
 );
 
-// Offline catalogs must be packaged, without pulling inactive languages into startup.
 const localizationRoot = resolve(
 	import.meta.dirname,
 	"../packages/i18n/locales",

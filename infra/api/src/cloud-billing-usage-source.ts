@@ -6,12 +6,6 @@ import type { ApiConfiguration } from "./config.ts";
 import type { ApiError } from "./errors.ts";
 import type { MachineStore } from "./machine-store.ts";
 
-// Per-provider billing usage ingestion seam. Each sandbox provider that bills
-// through the api registers one module: the webhook path
-// `/v1/cloud/billing/webhook/{provider}` dispatches to `ingestWebhook`, the
-// scheduled recovery pass calls `poll`, and polled payloads flow through
-// `ingestPolled`. This is the billing sibling of `SandboxProviderModule`.
-
 export type BillingUsageSourceEnvironment = object;
 
 export interface BillingUsageRecovery {
@@ -74,7 +68,7 @@ export const billingPollRequest = async (
 ): Promise<Response> => {
 	const response = await fetch(url, {
 		headers,
-		// Workers supports manual redirects; never forward provider credentials.
+
 		redirect: "manual",
 		signal: AbortSignal.timeout(30_000),
 	});

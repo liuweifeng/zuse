@@ -21,8 +21,7 @@ export const Migration0065ProviderThreadOwnership = Effect.gen(function* () {
 	for (const reference of references) {
 		const id = scopeProviderThreadId(reference.session_id, reference.thread_id);
 		if (id === reference.thread_id) continue;
-		// Copy before relinking. One historical row can be referenced by multiple
-		// sessions; deleting it inside this loop would discard the other owners.
+
 		yield* sql`
 			INSERT INTO session_provider_threads
 				(id, session_id, provider, native_thread_id, native_head_id, status,
@@ -32,8 +31,7 @@ export const Migration0065ProviderThreadOwnership = Effect.gen(function* () {
 			FROM session_provider_threads WHERE id = ${reference.thread_id}
 			ON CONFLICT(id) DO NOTHING
 		`;
-		// Prefer the owner's recorded native head over a shared projection that
-		// may have been overwritten by a fork before this migration.
+
 		const snapshots = yield* sql<{ readonly snapshot: string }>`
 			SELECT json_extract(payload_json, '$.providerThread') AS snapshot
 			FROM events WHERE stream_kind = 'session' AND stream_id = ${reference.session_id}

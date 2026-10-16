@@ -6,7 +6,6 @@ import { blog } from "@/lib/source";
 import { websiteAlternates } from "@/lib/website-localization";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-	// Only articles with an editorial modification date report lastModified.
 	return [
 		...websiteLocales.map((locale) => ({
 			url: new URL(websitePath(locale), siteConfig.url).toString(),

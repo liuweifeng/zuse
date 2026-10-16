@@ -8,8 +8,7 @@ import { IndexIoError } from "./errors.ts";
 const DEFAULT_IGNORES = [
   ".git",
   "node_modules",
-  // The code-index sqlite lives at <root>/.zuse/index.sqlite; skip the
-  // dir so we never try to index our own database file.
+
   ".zuse",
   "dist",
   "build",
@@ -23,7 +22,7 @@ const DEFAULT_IGNORES = [
   ".DS_Store",
 ];
 
-const MAX_BYTES = 1_500_000; // 1.5MB cap — bigger files get skipped (binary, lockfiles, etc.)
+const MAX_BYTES = 1_500_000;
 
 const isProbablyBinary = (bytes: Buffer): boolean => {
   const sample = bytes.subarray(0, Math.min(bytes.length, 4096));
@@ -39,13 +38,13 @@ const readGitignore = async (root: string): Promise<Ignore> => {
     const txt = await fs.readFile(join(root, ".gitignore"), "utf8");
     ig.add(txt);
   } catch {
-    // no .gitignore — defaults are enough
+
   }
   try {
     const txt = await fs.readFile(join(root, ".zuse-ignore"), "utf8");
     ig.add(txt);
   } catch {
-    // optional override file
+
   }
   return ig;
 };

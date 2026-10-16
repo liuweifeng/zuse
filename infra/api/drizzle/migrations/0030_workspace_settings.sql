@@ -1,4 +1,4 @@
--- Preserve settings already created by earlier staging branch builds.
+
 CREATE TABLE IF NOT EXISTS "api_workspace_settings" (
   "owner_id" text PRIMARY KEY NOT NULL,
   "revision" integer NOT NULL,

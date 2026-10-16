@@ -28,8 +28,6 @@ afterEach(() => {
 	vi.unstubAllGlobals();
 });
 
-// A new worktree chat writes its first message's files while the worktree is
-// still being created; the server answers "not found" until it exists.
 it("keeps startup workspace probes off a provisional chat's timeline", async () => {
 	const environmentId = EnvironmentId.make(getActiveEnvironment());
 	const sessionId = SessionId.make("startup-upload-provisional");

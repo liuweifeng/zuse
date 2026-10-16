@@ -105,7 +105,7 @@ it("keeps placement visible while refreshing stale display data in the backgroun
 	const placement = await loadCloudWorkspacePlacement();
 	expect(placement.subscribed).toBe(true);
 	expect(placement.images).toEqual([image]);
-	// Display data stays visible; subscription eligibility is revalidated.
+
 	expect(await loadCloudImage("box")).toEqual(image);
 	expect((await loadCloudEntitlements()).entitlements[0]?.status).toBe(
 		"active",

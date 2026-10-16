@@ -145,8 +145,7 @@ export class EnvironmentRuntime<Client> {
 			this.inFlight = null;
 			this.clearRetry();
 			this.achieved = "cache-only";
-			// Keep an in-flight resolver fenced until the online edge recomputes the
-			// retained demand. Its eventual client is disposed by the epoch check.
+
 			this.desired = "cache-only";
 			this.closeCurrent();
 			if (superseded !== null) {
@@ -225,17 +224,14 @@ export class EnvironmentRuntime<Client> {
 			this.emit({ phase: "dormant", error: null });
 			return Promise.resolve(null);
 		}
-		// Removing or weakening a retainer must not bypass the supervisor's
-		// scheduled backoff and manufacture a competing reconnect. A stronger
-		// activation is an explicit user demand and may retry immediately.
+
 		if (
 			this.retryCancel !== null &&
 			activationRank(this.desired) <= activationRank(previousDesired)
 		) {
 			return Promise.resolve(this.current?.client ?? null);
 		}
-		// An escalated activation is an explicit user demand: it starts a fresh
-		// retry episode with visible progress instead of a quiet background one.
+
 		if (activationRank(this.desired) > activationRank(previousDesired)) {
 			this.retryAttempt = 0;
 		}
@@ -246,9 +242,6 @@ export class EnvironmentRuntime<Client> {
 			return Promise.reject(new Error("offline"));
 		}
 		if (this.current !== null) {
-			// A responsive runtime connection proves the environment is already
-			// awake. Escalating a retained surface from connect to wake must not
-			// tear down that connection and manufacture a new generation.
 			this.achieved = strongestActivation(this.achieved, this.desired);
 			return Promise.resolve(this.current.client);
 		}
@@ -270,10 +263,7 @@ export class EnvironmentRuntime<Client> {
 		if (this.disposed || expectedGeneration !== this.state.generation) {
 			return false;
 		}
-		// One physical socket backs several resource streams. Its close can be
-		// reported by each driver in the same generation; the first report already
-		// owns disposal and retry, so later reports must not overwrite the stable
-		// reconnecting state with a false terminal failure.
+
 		if (
 			this.current === null &&
 			this.retryCancel !== null &&
@@ -337,8 +327,7 @@ export class EnvironmentRuntime<Client> {
 							},
 						};
 			const connectionEpoch = this.connectionEpoch;
-			// Automatic retries remain in one reconnecting state. The surface moves
-			// again only on success, terminal exhaustion, or an explicit retry.
+
 			const quietRetry =
 				this.retryAttempt > 0 &&
 				(this.state.phase === "reconnecting" || this.state.phase === "offline");
@@ -406,8 +395,7 @@ export class EnvironmentRuntime<Client> {
 				throw new Error(outcome.fault.message);
 			}
 			this.current = outcome.resolved;
-			// Attachment satisfies retained live demand once compute intent was
-			// acknowledged. A wake arriving during passive connect still runs first.
+
 			this.achieved = this.wakeCommandId === null ? this.desired : requested;
 			if (activationRank(this.achieved) < activationRank(this.desired)) {
 				continue;
@@ -450,12 +438,7 @@ export class EnvironmentRuntime<Client> {
 		) {
 			return false;
 		}
-		// For bounded environments, a failure that survives the whole backoff
-		// ladder is not transient — keep the terminal failed state instead of
-		// retrying forever. Compute wake has its own acknowledged intent. A user retry, a
-		// stronger activation, or the platform online edge starts a fresh episode.
-		// Offline stays unbounded: it emits no oscillating phases and clears on
-		// the online edge anyway.
+
 		const ladderExhausted =
 			this.retryAttempt >= EnvironmentRuntime.RETRY_DELAYS_MS.length;
 		const unbounded =

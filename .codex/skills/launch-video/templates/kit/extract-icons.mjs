@@ -1,7 +1,3 @@
-// Writes compositions/kit/icons.js from the Zuse app's real icon sources, so film UI matches the app.
-// Usage (from the Zuse repo root): bun <skill>/templates/kit/extract-icons.mjs > <project>/compositions/kit/icons.js
-// Add names to HUGEICONS as a film needs them; lucide icons are inlined below because the app
-// imports them from lucide-react (stroke 2), not from @zuse/icons.
 import { resolve } from "node:path";
 
 const repo = process.cwd();

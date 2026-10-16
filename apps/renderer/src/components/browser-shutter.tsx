@@ -9,8 +9,6 @@
  * dim instead of a white flash + scale for users who opt out of motion.
  */
 export function BrowserShutter({ nonce }: { nonce: number }) {
-	// nonce === 0 is the initial mount — nothing has been captured yet, so
-	// render nothing (avoids a stray flash on first paint).
 	if (nonce === 0) return null;
 	return (
 		<>

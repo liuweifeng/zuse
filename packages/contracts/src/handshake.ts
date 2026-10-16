@@ -1,8 +1,6 @@
 import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 
-// Version 7 replaces legacy session cursors and timeline turns with provider
-// threads and attempts. Versions 5/6 cannot decode these required structures.
 export const WIRE_PROTOCOL_VERSION = 7 as const;
 export const MIN_SUPPORTED_WIRE_PROTOCOL_VERSION = 7 as const;
 

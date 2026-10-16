@@ -33,8 +33,6 @@ const transform = async (
 	bytes: Uint8Array,
 	stream: CompressionStream | DecompressionStream,
 ): Promise<Uint8Array> => {
-	// Consume output while writing input: browser transform streams apply
-	// backpressure and can block write/close until a reader starts draining.
 	const source = new Blob([ownedBuffer(bytes)]).stream();
 	return new Uint8Array(
 		await new Response(source.pipeThrough(stream)).arrayBuffer(),
@@ -112,9 +110,7 @@ export const decryptCloudTranscript = async (input: {
 		key,
 		ownedBuffer(base64UrlToBytes(envelope.ciphertext)),
 	);
-	// Hermes provides WebCrypto through the native adapter, but does not expose
-	// browser compression streams. Keep wire-format compatibility without
-	// requiring a live runtime merely to read an encrypted checkpoint.
+
 	return typeof DecompressionStream === "undefined"
 		? (await import("fflate")).gunzipSync(new Uint8Array(compressed))
 		: transform(new Uint8Array(compressed), new DecompressionStream("gzip"));

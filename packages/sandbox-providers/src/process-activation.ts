@@ -4,7 +4,6 @@ export const processShellQuote = (value: string): string =>
 	`'${value.replaceAll("'", `'\\''`)}'`;
 
 export const rootProcessCommand = (script: string): string => {
-	// Encoded scripts keep cleanup markers out of their parent's argv.
 	const encoded = btoa(
 		Array.from(new TextEncoder().encode(script), (byte) =>
 			String.fromCharCode(byte),
@@ -58,13 +57,11 @@ export const processActivationGuard = (
 					...observeSameOperation,
 					"  fi",
 					"fi",
-					// Persist intent before touching the previous process. Interrupted
-					// activation is resumable; delayed workers remain fenced out.
+
 					'temporary="$activation_dir/owner.next.$$"',
 					"trap 'rm -f \"$temporary\"' EXIT",
 					'printf "%s %s\\n" "$generation" "$operation" > "$temporary"',
-					// fsync this record and its rename, not every dirty file in a
-					// freshly restored filesystem (sync -f invokes syncfs).
+
 					'sync -- "$temporary"',
 					'mv -f "$temporary" "$journal"',
 					'sync -- "$activation_dir" /var/lib/zuse-process-activations /var/lib',

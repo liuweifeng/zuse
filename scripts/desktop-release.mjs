@@ -255,16 +255,13 @@ export function publishRelease(directory, metadata, github = gh) {
 	const assets = verifyReleaseAssets(directory, metadata);
 	const notesFile = join(directory, "release-notes.md");
 	writeFileSync(notesFile, validateNotes(metadata.notes));
-	// Create a draft only after all platform artifacts pass validation. Failed
-	// uploads stay invisible to updaters; retrying never publishes half a build.
+
 	let existing;
 	try {
 		existing = JSON.parse(
 			github("release", "view", metadata.tag, "--json", "isDraft"),
 		);
-	} catch {
-		/* first attempt */
-	}
+	} catch {}
 	if (existing && !existing.isDraft)
 		throw new Error("Refusing to overwrite a published release");
 	if (!existing)

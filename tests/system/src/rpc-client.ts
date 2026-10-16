@@ -69,10 +69,7 @@ export const connectDroppableSystemRpc = async (
 		...session,
 		pauseIncoming: () => {
 			if (socket === undefined) throw new Error("WebSocket was not acquired.");
-			// This connection is intentionally discarded after the tested write.
-			// Remove the Effect socket's message listener as well as pausing the
-			// underlying stream so an already-buffered RPC acknowledgement cannot
-			// race through while the test is waiting for server-side evidence.
+
 			socket.removeAllListeners("message");
 			socket.pause();
 		},

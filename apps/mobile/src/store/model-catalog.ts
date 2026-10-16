@@ -12,13 +12,6 @@ import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
 
-/**
- * Per-connection resolved model catalog (curated seed merged with the
- * desktop's live provider inventories). Three instant tiers: the bundled
- * snapshot compiled into the app, the last server answer on disk, then the
- * `model.catalog` RPC. An old desktop without the RPC keeps the bundled
- * snapshot, so pickers always have something to show.
- */
 const BUNDLED = bundledResolvedModelCatalog();
 const DEFAULT_MAX_AGE_MS = 2 * 60 * 1000;
 

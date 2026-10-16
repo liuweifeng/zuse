@@ -368,7 +368,7 @@ describe("question attachment authority", () => {
 				expect(authority.attach({ sessionId, itemId }, questions)).toBe(
 					"attached",
 				);
-				// Cancellation must complete without releasing the old provider operation.
+
 				yield* Deferred.await(cancelled);
 				expect(Exit.isFailure(yield* Fiber.await(first))).toBe(true);
 				yield* Deferred.succeed(release, undefined);

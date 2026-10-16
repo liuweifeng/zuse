@@ -36,7 +36,7 @@ describe("anthropic-jsonl engine", () => {
 					usage: { input_tokens: 10, output_tokens: 5 },
 				},
 			},
-			// Duplicate hash, larger total → should win.
+
 			{
 				timestamp: "2026-06-20T10:00:00.000Z",
 				requestId: "req-1",
@@ -46,7 +46,7 @@ describe("anthropic-jsonl engine", () => {
 					usage: { input_tokens: 100, output_tokens: 50 },
 				},
 			},
-			// No message id → always kept.
+
 			{
 				timestamp: "2026-06-20T10:01:00.000Z",
 				message: {
@@ -152,7 +152,7 @@ describe("codex-jsonl engine", () => {
 				type: "turn_context",
 				payload: { model: "gpt-5.3-codex" },
 			},
-			// First event: only cumulative total → delta = full total.
+
 			{
 				timestamp: "2026-06-20T10:00:01.000Z",
 				type: "event_msg",
@@ -168,7 +168,7 @@ describe("codex-jsonl engine", () => {
 					},
 				},
 			},
-			// Second event: cumulative grew → delta should be the difference.
+
 			{
 				timestamp: "2026-06-20T10:00:02.000Z",
 				type: "event_msg",
@@ -193,11 +193,11 @@ describe("codex-jsonl engine", () => {
 		});
 
 		expect(records).toHaveLength(2);
-		// Input is stored exclusive of cache: first delta input 1000 - cached 100 = 900.
+
 		expect(records[0]?.inputTokens).toBe(900);
 		expect(records[0]?.cacheReadTokens).toBe(100);
 		expect(records[0]?.model).toBe("gpt-5.3-codex");
-		// Second delta: input 600, cached 200 → exclusive 400, output 250.
+
 		expect(records[1]?.inputTokens).toBe(400);
 		expect(records[1]?.cacheReadTokens).toBe(200);
 		expect(records[1]?.outputTokens).toBe(250);

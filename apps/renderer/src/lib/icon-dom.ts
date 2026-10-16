@@ -12,8 +12,7 @@ export const svgFromHugeicon = (icon: IconSvgElement): SVGSVGElement => {
 		const el = document.createElementNS(SVG_NS, tag);
 		for (const [key, value] of Object.entries(attrs)) {
 			if (key === "key") continue;
-			// Icon data uses React camelCase props (strokeWidth, strokeLinecap);
-			// raw DOM needs the kebab-case SVG attribute names.
+
 			const attr = key.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`);
 			el.setAttribute(attr, String(value));
 		}

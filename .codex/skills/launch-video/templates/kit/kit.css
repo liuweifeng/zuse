@@ -1,9 +1,4 @@
-/* Zuse × boxd film kit — shared tokens + pixel-exact Zuse UI components.
-   App values come from apps/renderer/src/styles.css and packages/ui/src/app-palette.css (dark theme).
-   UI is authored at native app pixels (12px text); the film's camera zooms in on it. */
-
 :root {
-	/* film */
 	--canvas: #f4f1eb;
 	--ink: #0e0f11;
 	--text: #0e0f11;
@@ -16,7 +11,7 @@
 	--boxd-line: #27272a;
 	--boxd-zinc: #a1a1aa;
 	--rose: #e05a6d;
-	/* app (dark) */
+
 	--z-bg: #0b0c0b;
 	--z-fg: #e8e9e7;
 	--z-card: #121413;
@@ -55,9 +50,6 @@
 		ui-sans-serif, system-ui, -apple-system, "Segoe UI", Inter, sans-serif;
 }
 
-/* Fonts: @font-face lives in index.html (asset paths must be project-root relative). */
-
-/* ---------- film atoms ---------- */
 .zk-canvas {
 	position: absolute;
 	inset: 0;
@@ -115,7 +107,7 @@
 	align-items: center;
 	justify-content: center;
 }
-/* text rising out of a mask line */
+
 .zk-mask {
 	display: inline-block;
 	overflow: hidden;
@@ -126,7 +118,7 @@
 .zk-rise {
 	display: inline-block;
 }
-/* boxd-owned shapes render their notched outline into an <svg class="zk-shape"> */
+
 .zk-shape {
 	position: absolute;
 	left: 0;
@@ -150,7 +142,7 @@
 	display: inline-block;
 	flex: none;
 }
-/* cursor (macOS arrow) */
+
 .zk-cursor {
 	position: absolute;
 	left: 0;
@@ -184,7 +176,6 @@
 	border-color: var(--z-fg);
 }
 
-/* ---------- icons ---------- */
 .zi {
 	display: inline-flex;
 	flex: none;
@@ -200,7 +191,7 @@
 .zi.hg svg circle,
 .zi.hg svg rect {
 	stroke-width: 1;
-} /* app forces stroke 1 on hugeicons */
+}
 .zi.lu svg {
 	stroke-width: 2;
 }
@@ -208,7 +199,6 @@
 	transform: scale(1.15);
 }
 
-/* ---------- Zuse app UI (dark) ---------- */
 .z-app {
 	font-family: var(--z-sans);
 	font-size: 14px;
@@ -241,7 +231,6 @@
 	padding: 0 12px;
 }
 
-/* settings */
 .z-settings-header {
 	height: 36px;
 	border-bottom: 1px solid var(--z-border);
@@ -472,7 +461,6 @@
 	flex: none;
 }
 
-/* composer */
 .z-composer {
 	padding: 8px 12px 12px;
 	width: 768px;
@@ -643,7 +631,6 @@
 	text-align: center;
 }
 
-/* menus (glass popups) */
 .z-menu {
 	position: absolute;
 	width: 256px;
@@ -731,7 +718,6 @@
 	box-shadow: 0 0 4px hsl(83 100% 50% / 0.28);
 }
 
-/* tray pill above the composer (paused / resuming) */
 .z-tray {
 	min-height: 32px;
 	padding: 4px 12px;
@@ -749,7 +735,6 @@
 	color: var(--z-muted-fg);
 }
 
-/* browser pane */
 .z-tabs {
 	height: 32px;
 	padding: 0 8px;

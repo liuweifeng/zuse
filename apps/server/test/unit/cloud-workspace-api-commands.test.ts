@@ -106,8 +106,7 @@ describe("cloud api command pump", () => {
 					fetchCommands: Effect.succeed({
 						commands: [command("legacy-receipt", "already accepted")],
 					}),
-					// A pre-upgrade runtime accepted this command under a random turn
-					// before losing its ACK. Domain replay returns that durable identity.
+
 					deliver: () => Effect.succeed("turn-old-runtime-random"),
 					ack: (_messageId, turnId, commandTurnId) =>
 						Ref.update(acked, (items) => [...items, { turnId, commandTurnId }]),
@@ -180,13 +179,12 @@ describe("cloud api command pump", () => {
 					startImmediately: true,
 				});
 				yield* Deferred.await(emptyFetchSelected);
-				// The new command commits after the first fetch chose an empty page,
-				// and its gateway notification arrives before that response returns.
+
 				yield* Ref.set(pending, [command("m1", "arrived during empty fetch")]);
 				for (let i = 0; i < 5; i += 1) yield* pump.drain;
 				yield* Deferred.succeed(releaseEmptyResponse, undefined);
 				yield* Fiber.join(emptyFetch);
-				// No active turn exists, so settlement cannot rescue a discarded nudge.
+
 				expect(yield* Ref.get(delivered)).toEqual(["m1"]);
 				expect(yield* Ref.get(pending)).toEqual([]);
 				expect(yield* Ref.get(fetches)).toBe(2);
@@ -222,8 +220,7 @@ describe("cloud api command pump", () => {
 					startImmediately: true,
 				});
 				yield* Deferred.await(entered);
-				// Gateway reconnects and nudges may race. They must not queue another
-				// delivery behind the in-flight one and start it in the same turn.
+
 				yield* pump.drain;
 				yield* Deferred.succeed(release, undefined);
 				yield* Fiber.join(first);
@@ -391,8 +388,6 @@ describe("cloud api turn event replay", () => {
 					onSettled: () => Ref.update(drains, (count) => count + 1),
 				});
 
-				// A fresh runtime starts at sequence zero. Api-side turn idempotency
-				// makes replaying the same durable history safe after another restart.
 				yield* replay;
 				yield* replay;
 

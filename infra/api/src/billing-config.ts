@@ -89,8 +89,6 @@ const polarConfig = (
 	};
 };
 
-/** Store injection is supplied by the Worker SQL layer. Config-only callers
- * can inspect registration without opening a database connection. */
 const unavailableStore: StripeBillingStore = {
 	claimCustomerRecoveries: async () => {
 		throw new Error("stripe_store_unavailable");
@@ -177,8 +175,7 @@ export const resolveBillingRuntime = (
 		(stripeConfigured ? "stripe" : config ? "polar" : "manual");
 	if (!adapters.some((adapter) => adapter.providerId === defaultProviderId))
 		throw new Error("configured_default_billing_provider_unavailable");
-	// Missing overage configuration must never silently sell a cloud plan
-	// whose usage cannot be invoiced.
+
 	const canCheckout =
 		defaultProviderId !== "manual" &&
 		!(

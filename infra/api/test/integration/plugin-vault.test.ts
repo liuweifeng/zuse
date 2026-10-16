@@ -33,7 +33,7 @@ let tokenExpiresIn = 3600;
 let failTokenExchange = false;
 let refreshes = 0;
 let registration: Record<string, unknown> | undefined;
-/** Catalog entries without an auth hint, so connecting probes them. */
+
 const probed = PLUGIN_CATALOG.filter(
 	(p) => !p.auth && /^https:\/\/[^/]+\/mcp$/.test(p.endpoint),
 );
@@ -53,7 +53,7 @@ const PROBED = {
 	missing: probedPlugin(3),
 	down: probedPlugin(4),
 };
-/** Fixture behavior per upstream host; unlisted hosts are public MCP servers. */
+
 const modes = new Map<
 	string,
 	"oauth" | "no-registration" | "missing" | "down" | "key"
@@ -251,7 +251,7 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 				})
 			).body,
 		).toEqual([]);
-		// Turning a connection off hides its tools without dropping credentials.
+
 		const connectionId = connected.body.connectionId;
 		expect(
 			(
@@ -267,7 +267,7 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 		).toEqual([]);
 		expect((await a.request(undefined, { action: "list" })).body).toEqual([]);
 		await a.request({ action: "setEnabled", connectionId, enabled: true });
-		// The plugin id matches every tool, whatever the tool is called.
+
 		expect(
 			(await a.request(undefined, { action: "search", query: "cloudflare" }))
 				.body,
@@ -629,7 +629,7 @@ test("keeps legacy builds and references working after a restart", async () => {
 			requestId: crypto.randomUUID(),
 		});
 		expect(connected.body.state).toBe("connected");
-		// Build IDs from before lazy registration remain valid.
+
 		expect(await storageText(a)).toContain(
 			await legacyBuild({
 				protocol: 1,
@@ -715,7 +715,7 @@ test("probes unhinted entries and registers them lazily after a restart", async 
 				})
 			).status,
 		).toBe(200);
-		// Auth is persisted with the connection; restarts never re-probe.
+
 		expect(probes).toBe(before + 1);
 		await mf.dispose();
 		instances.delete(mf);
@@ -789,7 +789,7 @@ test("returns OAuth tickets to the desktop loopback or the hosted app", async ()
 	expect(location.searchParams.get("plugin")).toBe("Linear");
 	expect(location.searchParams.get("plugin_tenant")).toBe("personal:alice");
 	const ticket = location.searchParams.get("plugin_ticket");
-	// Completing without a click stays bound to the subject that started it.
+
 	const bob = await client(mf, "personal:alice", "bob");
 	expect((await bob.request({ action: "complete", ticket })).status).toBe(400);
 	expect((await a.request({ action: "complete", ticket })).body.state).toBe(
@@ -869,7 +869,7 @@ test("organization connections are shared with organization machines and members
 		action: "search",
 		query: "Cloudflare",
 	});
-	// Discovery matches the catalog service name even when the account label differs.
+
 	const byName = await machine.request(undefined, {
 		action: "search",
 		query: "cloudflaredocs",
@@ -947,7 +947,7 @@ test("adds, invokes and removes a public custom server, also after a restart", a
 			catalog: { id: string; custom: boolean; url: string | null }[];
 			connections: { pluginId: string; label: string }[];
 		};
-		// Custom servers come first; their query string never reaches clients.
+
 		expect(snapshot.catalog[0]).toMatchObject({
 			id: pluginId,
 			name: "Team tools",
@@ -1010,7 +1010,7 @@ test("custom servers check API keys before saving and send them on every call", 
 			state: "failed",
 			error: "plugin_credentials_rejected",
 		});
-		// A failed add keeps nothing, so the user can fix and retry.
+
 		const empty = (await a.request({ action: "list" })).body as {
 			catalog: { custom: boolean }[];
 			connections: unknown[];
@@ -1043,7 +1043,7 @@ test("custom servers check API keys before saving and send them on every call", 
 			).status,
 		).toBe(200);
 		expect(calls).toBe(before + 1);
-		// Another account of the same server needs its own key.
+
 		const missing = await a.request({
 			action: "connect",
 			pluginId,
@@ -1064,7 +1064,7 @@ test("custom servers check API keys before saving and send them on every call", 
 		expect(second.body).toMatchObject({ state: "connected" });
 		await mf.dispose();
 		instances.delete(mf);
-		// Saved keys and the server definition survive a restart.
+
 		const restarted = await client(create(directory));
 		expect(
 			(

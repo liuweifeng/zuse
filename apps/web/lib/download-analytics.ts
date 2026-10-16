@@ -1,4 +1,3 @@
-// A redirect proves an installer was offered, not that its transfer completed.
 export function downloadAnalyticsIdentity(
 	request: Request,
 	key: string,
@@ -66,7 +65,5 @@ export async function captureDownloadResolution({
 			}),
 			signal: AbortSignal.timeout(2_000),
 		});
-	} catch {
-		// Analytics delivery cannot change the download response.
-	}
+	} catch {}
 }

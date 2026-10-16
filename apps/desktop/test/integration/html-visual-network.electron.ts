@@ -95,7 +95,7 @@ async function run() {
 		await win.webContents.executeJavaScript(
 			`document.querySelector('iframe').contentWindow.postMessage('navigate','*')`,
 		);
-		// Trigger navigation inside the sandbox, with CDP rather than a privileged parent bridge.
+
 		const frame = win.webContents.mainFrame.frames[0];
 		assert(frame);
 		await frame

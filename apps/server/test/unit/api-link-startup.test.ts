@@ -17,7 +17,6 @@ import {
 } from "../../src/lan-auth/services/lan-auth-service.ts";
 import { TelemetryStore } from "../../src/observability/telemetry-store.ts";
 
-// Fail on any unexpected dependency access, rather than silently accepting a new boot side effect.
 const dependency = <T extends object>(methods: Partial<T>): T =>
 	new Proxy(methods, {
 		get(target, key) {

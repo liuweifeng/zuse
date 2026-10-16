@@ -162,9 +162,9 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 				readFileSync(join(directory, `${file.url}.blockmap`), "utf8"),
 				`blockmap-${file.url.split(".").at(-1)}`,
 			);
-		// Preparation remains safe when publication is retried after an upload failure.
+
 		prepareReleaseAssets(directory, metadata);
-		// An interruption after moving the archive must not publish its old-named blockmap.
+
 		renameSync(
 			join(directory, `${zip.url}.blockmap`),
 			join(directory, `${zip.local}.blockmap`),

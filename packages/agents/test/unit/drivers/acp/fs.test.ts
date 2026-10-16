@@ -23,7 +23,6 @@ describe("isUnderCwd", () => {
 	});
 
 	it("rejects sibling directories with a shared prefix", () => {
-		// `/work/repo-evil` shares the `/work/repo` string prefix but is NOT under cwd.
 		expect(isUnderCwd("/work/repo-evil/file", cwd)).toBe(false);
 	});
 
@@ -32,7 +31,6 @@ describe("isUnderCwd", () => {
 	});
 
 	it("resolves relative paths against process cwd before comparing", () => {
-		// A traversal that normalizes back under cwd is accepted.
 		expect(isUnderCwd("/work/repo/src/../src/a.ts", cwd)).toBe(true);
 	});
 });

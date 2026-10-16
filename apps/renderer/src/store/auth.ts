@@ -17,11 +17,6 @@ import {
 } from "../lib/storage-keys.ts";
 import { createAtomStore as create } from "../state/atom-store.ts";
 
-/**
- * Auth actions and renderer-only display-name preference. Canonical server auth
- * state and its stream lifecycle live in the environment-auth ClientBus cell.
- */
-
 const DISPLAY_NAME_KEY = "zuse.auth.displayName";
 const LEGACY_DISPLAY_NAME_KEYS = ["memoize.auth.displayName"] as const;
 
@@ -58,9 +53,7 @@ const writeDisplayName = (value: string): void => {
 				LEGACY_DISPLAY_NAME_KEYS,
 			);
 		} else window.localStorage.setItem(DISPLAY_NAME_KEY, value);
-	} catch {
-		// Private mode / disabled storage — the alias simply does not persist.
-	}
+	} catch {}
 };
 
 const SIGNED_OUT = { _tag: "SignedOut" } as const;
@@ -83,7 +76,7 @@ const authFailureMessage = (err: unknown): string =>
 type AuthStore = {
 	readonly signingIn: boolean;
 	readonly error: string | null;
-	/** Local cosmetic name override (empty = use the WorkOS profile name). */
+
 	readonly displayName: string;
 	readonly signIn: () => Promise<void>;
 	readonly signOut: () => Promise<void>;
@@ -134,9 +127,6 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 					: null,
 			);
 			if (receipt.result._tag === "SignedIn") {
-				// Auth faults park cloud runtimes and their durable command outboxes.
-				// A successful sign-in is the shared recovery edge regardless of which
-				// UI initiated it (banner, sidebar, onboarding, or settings).
 				bus.retryRetainedConnections();
 			}
 			set({ signingIn: false, error: null });
@@ -172,8 +162,7 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
 			});
 		} catch (cause) {
 			if (rendererAccountSnapshot() !== transition) return;
-			// A lost response does not prove logout failed on the server. Reopen
-			// the canonical auth stream instead of restoring a stale account.
+
 			set({ error: authFailureMessage(cause) });
 			bus.restart(key);
 		}

@@ -16,8 +16,6 @@ import {
 import { layer as configurationLayer } from "../../src/config.ts";
 import { ApiStoreMemory } from "../../src/store.ts";
 
-// Real browser POST headers, with GitHub stubbed at the network boundary.
-// Run: bun infra/api/test/integration/github-authorization.browser.ts
 const keys = generateKeyPairSync("ed25519");
 const appKey = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const nativeFetch = globalThis.fetch;

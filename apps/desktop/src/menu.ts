@@ -64,11 +64,6 @@ const GITHUB_REPO_URL = "https://github.com/swarajbachu/zuse";
 const GITHUB_RELEASES_URL = `${GITHUB_REPO_URL}/releases`;
 const GITHUB_ISSUE_NEW_URL = `${GITHUB_REPO_URL}/issues/new?template=bug_report.yml`;
 
-/**
- * Shape of the "Check for Updates…" menu entry, derived from the current
- * updater status. Label + enabled + click target all flip together so the
- * menu is a complete fallback path even when the in-app toast is missing.
- */
 function buildUpdateMenuItem(status: UpdateStatus): MenuItemConstructorOptions {
 	switch (status.kind) {
 		case "checking":
@@ -166,7 +161,6 @@ export function installAppMenu(
 		win.webContents.send("menu:close-tab");
 	};
 
-	/** undefined when unbound, so Electron drops the accelerator entirely. */
 	const accelOrUndefined = (cmd: MenuCommand): string | undefined =>
 		accelerators[cmd] ?? undefined;
 
@@ -187,9 +181,6 @@ export function installAppMenu(
 			},
 			{ type: "separator" },
 			{
-				// Closes the active CHAT tab, not the OS window. The renderer owns
-				// the close-tab logic (it knows which tab is active); we just hand
-				// the signal across IPC.
 				label: uiMessage("desktop:close_tab"),
 				accelerator: accelOrUndefined("close-tab"),
 				click: sendCloseTab,
@@ -356,9 +347,7 @@ export function installAppMenu(
 		editMenu,
 		viewMenu,
 		windowMenu,
-		// On Windows/Linux the macOS app menu doesn't exist, so surface the
-		// update item at the top of Help instead. (Help is the conventional
-		// fallback location for "Check for Updates" on those platforms.)
+
 		...(isMac
 			? [helpMenu]
 			: ([

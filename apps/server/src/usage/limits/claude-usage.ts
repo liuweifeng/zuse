@@ -51,8 +51,7 @@ export const parseClaudeUsagePayload = (
 	for (const [key, raw] of Object.entries(payload)) {
 		if (raw === null || typeof raw !== "object" || Array.isArray(raw)) continue;
 		const item = raw as ClaudeWindow;
-		// Prefixes also identify metadata such as seven_day_breakdown. A real
-		// allowance must carry a finite usage percentage; zero is valid.
+
 		const usedPercent = normalizePercent(item.utilization);
 		if (usedPercent === null) continue;
 		if (key === "five_hour")

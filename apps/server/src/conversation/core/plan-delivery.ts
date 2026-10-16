@@ -65,7 +65,6 @@ export const makePlanDelivery = (
 			if (persisted.changed) yield* options.ndjsonAppend(sessionId, persisted);
 		});
 	const recover = Effect.gen(function* () {
-		// Interrupted sends cannot authorize a replacement process, even for an identical answer.
 		yield* sql`UPDATE plan_response_deliveries SET status='uncertain',updated_at=${Date.now()} WHERE status='delivering'`.pipe(
 			Effect.orDie,
 		);

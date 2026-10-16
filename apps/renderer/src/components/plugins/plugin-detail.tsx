@@ -51,7 +51,6 @@ export const subtitleOf = (plugin: PluginDefinition) => {
 	}
 };
 
-/** How a custom server signs in, as shown in its details. */
 function authLabel(m: Translate, plugin: PluginDefinition) {
 	const auth = customServerAuthOf(plugin);
 	return auth === "auto"
@@ -108,7 +107,6 @@ export function PluginDetail({
 		plugin.name,
 	);
 
-	/** Key-authenticated servers ask for the key inline; everything else connects right away. */
 	const startConnect = () => {
 		if (busy) return;
 		if (needsKey) setAskingKey(true);
@@ -164,7 +162,6 @@ export function PluginDetail({
 						className="size-12 rounded-[14px] text-lg"
 					/>
 					<div className="flex flex-col gap-0.5">
-						{/* Actions sit on the title's line; the subtitle runs under both. */}
 						<div className="flex min-h-7 items-center justify-between gap-3">
 							<h1 className="flex min-w-0 items-center gap-2 text-lg font-semibold leading-7 tracking-[-0.01em] text-foreground">
 								<span className="truncate">{plugin.name}</span>
@@ -457,7 +454,6 @@ function DetailSection({
 
 const AVATAR = "grid size-6 shrink-0 place-items-center rounded-full";
 
-/** The round "+" leading the add-account row, sized like an avatar. */
 function AddGlyph() {
 	return (
 		<span
@@ -472,7 +468,6 @@ function AddGlyph() {
 	);
 }
 
-/** Initials on a hue derived from the account name: stable and distinguishable. */
 function AccountAvatar({
 	label,
 	dimmed,
@@ -503,7 +498,6 @@ function AccountAvatar({
 	);
 }
 
-/** One connected account: avatar, name, state, and its own actions menu. */
 function AccountRow({
 	connection,
 	name,

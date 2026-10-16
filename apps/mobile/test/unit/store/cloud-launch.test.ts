@@ -96,7 +96,7 @@ describe("mobile initial cloud launch intent", () => {
 			result: new Promise(() => undefined),
 		});
 		state.optimistic.mockReset();
-		// Returns while the sandbox still boots; the prompt is shown at once.
+
 		expect(await launchMobileCloudChat(input)).toEqual({
 			connectionKey: "cloud:workspace-1",
 			sessionId: "session-1",
@@ -108,7 +108,7 @@ describe("mobile initial cloud launch intent", () => {
 				content: expect.objectContaining({ text: "Fix the tests" }),
 			}),
 		);
-		// The recoverable draft is cleared only after durable acceptance.
+
 		expect(state.clear).not.toHaveBeenCalled();
 		accepted();
 		await vi.waitFor(() => expect(state.clear).toHaveBeenCalledTimes(1));

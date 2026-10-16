@@ -144,9 +144,6 @@ export function ComposerChipOverlay({
 			);
 		};
 
-		// Open on click. We don't suppress propagation so CodeMirror still
-		// routes the click as needed; openFileInTab just switches the main
-		// tab to "file" and the right pane reads the new state.
 		const onClick = (e: MouseEvent) => {
 			const chip = findFileChip(e.target);
 			if (chip === null) return;
@@ -156,11 +153,7 @@ export function ComposerChipOverlay({
 			if (entryKind === "directory") return;
 			e.preventDefault();
 			e.stopPropagation();
-			// The chip's dataset.relPath is already project-root-relative — that's
-			// the shape `fs.readFile` expects. Passing absPath would round-trip
-			// through `resolveInsideFolder` and reject with FsPathOutsideError
-			// when the workspace happens to live under a different root than the
-			// composer suggested.
+
 			openFileInTab({
 				kind: "text",
 				folderId: projectId,

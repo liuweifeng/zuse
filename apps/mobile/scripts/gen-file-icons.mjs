@@ -1,7 +1,3 @@
-// Codegen: turn the structured file tree's built-in SVG sprite into a small
-// React Native lookup. Mobile and desktop then resolve the same file name to
-// the same glyph without shipping a second icon package in the app bundle.
-
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

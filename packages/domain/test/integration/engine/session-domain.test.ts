@@ -1422,8 +1422,6 @@ describe("SessionDomain", () => {
 			await runtimeBeforeDisconnect.dispose();
 		}
 
-		// No client or old process is attached now. A fresh runtime continues the
-		// provider turn from the shared SQLite log and durably checkpoints output.
 		const runtimeWhileClientGone = makeDomainRuntime(filename, "background");
 		try {
 			await runtimeWhileClientGone.runPromise(

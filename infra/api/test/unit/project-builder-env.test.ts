@@ -16,8 +16,6 @@ const builder = readFileSync(
 	"utf8",
 );
 
-// Run the production cleanup and finalization against a real Git checkout.
-// Redirect every absolute build path into the disposable fixture.
 test.each([
 	false,
 	true,

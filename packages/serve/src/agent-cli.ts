@@ -252,9 +252,7 @@ const localCliAccess = async (
 				typeof parsed.token === "string"
 			)
 				return parsed as LocalCliAccess;
-		} catch {
-			// Continue to the next repository ancestor.
-		}
+		} catch {}
 	}
 	return null;
 };
@@ -362,9 +360,7 @@ const socketOpenFailure = async (
 				"The Zuse RPC credentials were rejected. Restart Zuse Serve to refresh local CLI access, or pass a current --token.",
 			);
 		}
-	} catch {
-		// Older or unavailable servers may not answer the RPC route over plain HTTP.
-	}
+	} catch {}
 	const diagnosticUrl = new URL(rpcUrl);
 	diagnosticUrl.pathname = "/auth/cli-session";
 	diagnosticUrl.search = "";
@@ -383,9 +379,7 @@ const socketOpenFailure = async (
 				"The Zuse RPC credentials were rejected. Restart Zuse Serve to refresh local CLI access, or pass a current --token.",
 			);
 		}
-	} catch {
-		// A failed diagnostic probe confirms that the selected server is unreachable.
-	}
+	} catch {}
 	return new CliError(
 		"server_unavailable",
 		"The Zuse RPC server is unavailable at the selected endpoint. Start or restart Zuse Serve, or pass a reachable --ws-url.",
@@ -1164,8 +1158,7 @@ const execute = async (
 			const availability = await rpc(
 				client["provider.availability"]({ refresh: bool(args, "refresh") }),
 			);
-			// Prefer the desktop's resolved catalog (remote + live inventories);
-			// an older server without the RPC falls back to the bundled snapshot.
+
 			const catalog = await rpc(client["model.catalog"]({})).catch(() => null);
 			return {
 				providers: catalogProviderIds(BUNDLED_MODEL_CATALOG).map(

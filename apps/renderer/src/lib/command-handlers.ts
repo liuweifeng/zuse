@@ -32,20 +32,12 @@ import { useSettingsStore } from "./settings-client-bus.ts";
 import { switchToEnvironment } from "./switch-environment.ts";
 import { activeChatId, orderedChatTabs } from "./tab-order";
 
-/* ────────────────────────── Navigation helpers ──────────────────────────
- * Read state via `.getState()` (no subscription) and fire the same store
- * actions the mouse path uses. Tab ordering is shared with the tab strip via
- * `lib/tab-order.ts` so keyboard and click land on the same tab.
- */
-
-/** Sessions belonging to the currently-selected project. */
 function currentProjectSessions(): ReadonlyArray<Session> {
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
 	if (projectId === null) return [];
 	return activeSessionsByProject()[projectId] ?? [];
 }
 
-/** The chat whose sessions fill the tab strip right now. */
 function currentChatId(): ChatId | null {
 	return activeChatId(
 		currentProjectSessions(),
@@ -67,7 +59,6 @@ function currentChatRef(): ChatRef | null {
 			};
 }
 
-/** Move the active tab by `delta` within the active chat, wrapping around. */
 function stepTab(delta: 1 | -1): void {
 	const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
 	if (tabs.length === 0) return;
@@ -79,21 +70,18 @@ function stepTab(delta: 1 | -1): void {
 	if (target !== undefined) useSessionsStore.getState().select(target.id);
 }
 
-/** Select the 1-based Nth tab; no-op if it doesn't exist. */
 function selectTabAt(oneBased: number): void {
 	const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
 	const target = tabs[oneBased - 1];
 	if (target !== undefined) useSessionsStore.getState().select(target.id);
 }
 
-/** Select the last tab in the active chat. */
 function selectLastTab(): void {
 	const tabs = orderedChatTabs(currentProjectSessions(), currentChatId());
 	const target = tabs[tabs.length - 1];
 	if (target !== undefined) useSessionsStore.getState().select(target.id);
 }
 
-/** Open a fresh session in the active chat — the tab-strip "+" button, by key. */
 async function newTabInActiveChat(): Promise<void> {
 	const chatId = currentChatId();
 	if (chatId === null) return;
@@ -136,7 +124,6 @@ async function newTabInActiveChat(): Promise<void> {
 	});
 }
 
-/** Move the selected chat by `delta` within the project, wrapping around. */
 function stepChat(delta: 1 | -1): void {
 	const projectId = useWorkspaceStore.getState().selectedFolderId;
 	if (projectId === null) return;
@@ -152,8 +139,6 @@ function stepChat(delta: 1 | -1): void {
 	if (target !== undefined) chats.select(target.id);
 }
 
-/** Move the active right-pane panel by `delta`, wrapping around; opens the
- *  right sidebar first if it's collapsed. */
 function stepPanel(delta: 1 | -1): void {
 	const ui = useUiStore.getState();
 	const ref = currentChatRef();
@@ -172,21 +157,6 @@ function stepPanel(delta: 1 | -1): void {
 	if (target !== undefined) ui.setActiveRightPanel(ref, target.id);
 }
 
-/**
- * One handler per `Command`. Composer / editor commands are no-ops here —
- * they're owned by the matching CodeMirror keymaps (composer-keymap.ts,
- * setup.ts) which build themselves from the live keybindings store. Having
- * them in the registry anyway keeps the dispatcher exhaustive and lets the
- * settings UI render them in the same table as menu commands.
- *
- * Each handler is invoked from either:
- *   - the document-level keybinding dispatcher (`useKeybindingDispatch`)
- *   - the native menu IPC handler (`useMenuShortcuts`)
- *
- * Both call `dispatchCommand` which is the single fan-in point. Stores are
- * referenced via `.getState()` so the registry doesn't subscribe to
- * anything — it just fires effects.
- */
 const HANDLERS: Record<Command, () => void> = {
 	"search-files": () => useUiStore.getState().setFileSearchOpen(true),
 	"new-chat-without-project": () => {
@@ -229,12 +199,7 @@ const HANDLERS: Record<Command, () => void> = {
 		const ui = useUiStore.getState();
 		ui.setView(ui.view === "settings" ? "chat" : "settings");
 	},
-	"close-tab": () => {
-		// Owned by `app.tsx` directly — kept here for completeness so the
-		// settings UI lists Close Tab in the same table as the others. The
-		// native menu's Cmd+W still uses its dedicated IPC signal, and the
-		// document dispatcher doesn't fire this scope.
-	},
+	"close-tab": () => {},
 	"toggle-left-sidebar": () => {
 		const ui = useUiStore.getState();
 		ui.setLeftSidebarOpen(!ui.leftSidebarOpen);
@@ -250,8 +215,6 @@ const HANDLERS: Record<Command, () => void> = {
 		);
 	},
 	"toggle-terminal": () => {
-		// Open the sidebar (if closed) and reveal a terminal panel — focus an
-		// existing one or add a fresh terminal tab.
 		const ref = currentChatRef();
 		if (ref !== null) useUiStore.getState().revealPanelForChat(ref, "terminal");
 	},

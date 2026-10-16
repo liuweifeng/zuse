@@ -114,9 +114,7 @@ function Watch({ watch }: { watch: PrWatch }) {
 			.catch((cause) => {
 				try {
 					pause(formatError(cause));
-				} catch {
-					/* Storage failure is reported below. */
-				}
+				} catch {}
 				toastManager.add({
 					type: "error",
 					title: "CI watcher paused",

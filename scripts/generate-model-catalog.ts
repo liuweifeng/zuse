@@ -1,19 +1,5 @@
 #!/usr/bin/env tsx
-/**
- * Publish the curated model catalog.
- *
- * Encodes `BUNDLED_MODEL_CATALOG` (packages/contracts/src/model-catalog/
- * bundled.ts) to `apps/web/public/models/v1.json`, which the marketing site
- * serves at https://zuse.sh/models/v1.json. Installed apps fetch that file,
- * so a catalog change ships on merge — no desktop release.
- *
- *   bun run catalog:generate   # write the file
- *   bun run catalog:check      # CI: fail if the committed file is stale
- *
- * The `revision` guard refuses to publish changed content under an
- * unchanged revision: clients keep whichever of remote/bundled carries the
- * higher revision, so an unbumped edit would never reach them.
- */
+
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

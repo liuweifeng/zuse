@@ -34,8 +34,6 @@ export const Migration0066JobAttemptOwnership = Effect.gen(function* () {
 			attempt === undefined ||
 			(attempt.type === "AttemptStarted" && attempt.attempt_id === null)
 		) {
-			// A missing causal history cannot safely authorize provider work. Surface a
-			// durable failure for explicit recovery instead of assigning today's owner.
 			yield* sql`UPDATE jobs SET status = 'failed', lease_owner = NULL, lease_expires_at = NULL,
     last_error = 'Cannot recover the owning attempt from this provider job history.',
     completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP)

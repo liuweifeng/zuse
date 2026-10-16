@@ -71,7 +71,7 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 			});
 			return path;
 		});
-		/** The chat's bound account (null = default login); undefined before its first turn. */
+
 		const bound = Effect.fn("ProviderAccounts.bound")(function* (
 			provider: NativeAccountProvider,
 			sessionId: string,
@@ -148,18 +148,12 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 			) {
 				yield* requireAvailable();
 				yield* find(provider, id);
-				// Keep account homes and affinity tombstones: active processes and resumed
-				// transcripts must never be reassigned to a different login.
+
 				yield* sql`DELETE FROM provider_accounts WHERE id=${id} AND provider_id=${provider}`.pipe(
 					Effect.mapError(failed),
 				);
 			}),
-			/**
-			 * Rebind a chat to another account. The caller must have stopped the
-			 * chat's provider process. The native transcript is copied first so a
-			 * failure leaves the chat on its working account; a chat whose history
-			 * cannot be found is not moved, because it would silently lose context.
-			 */
+
 			switchSession: Effect.fn("ProviderAccounts.switchSession")(function* (
 				provider: NativeAccountProvider,
 				sessionId: string,
@@ -174,7 +168,6 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 						? defaultProviderAccountHome(provider)
 						: yield* home(provider, id);
 				if (cursor !== null) {
-					// Removed accounts keep their homes, so their chats can still move away.
 					const source =
 						current === null || current === undefined
 							? defaultProviderAccountHome(provider)
@@ -223,8 +216,7 @@ export const makeProviderAccounts = Effect.fn("ProviderAccounts.make")(
 								account_id: string | null;
 							}>`SELECT account_id FROM session_provider_accounts WHERE session_id=${sessionId} AND provider_id=${provider}`;
 							if (binding[0]) return binding[0].account_id;
-							// Native forks inherit their source account. Legacy resumes stay on the
-							// default login rather than picking today's preferred account.
+
 							const source = resuming
 								? yield* sql<{
 										account_id: string | null;

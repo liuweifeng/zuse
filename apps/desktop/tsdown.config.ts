@@ -37,7 +37,7 @@ const profile =
 	environment === "production"
 		? deploymentProfiles.production
 		: deploymentProfiles.staging;
-// Only this allowlist is compiled into the application. Secrets in .env stay out.
+
 const publicValues: Record<string, string> = {
 	NODE_ENV: environment,
 	WORKOS_CLIENT_ID:
@@ -68,7 +68,7 @@ const desktopDependencies: UserConfig["deps"] = {
 		"@zuse/ssh",
 		"fix-path",
 	],
-	// Electron and native loaders must resolve their installed runtime packages.
+
 	neverBundle: [
 		"playwright",
 		"playwright-core",
@@ -92,7 +92,6 @@ const bridgeDependencies: UserConfig["deps"] = {
 	],
 };
 
-// These filenames are the runtime entry points used by Electron and our child launchers.
 const targets = [
 	{ name: "main", source: "src/main.ts", bridge: false },
 	{ name: "engine-main", source: "src/engine-main.ts", bridge: false },

@@ -2,8 +2,6 @@ import type { MemoizeRpcs, WorkspaceGatewayFrame } from "@zuse/contracts";
 import { Schema } from "effect";
 import { type Rpc, type RpcGroup, RpcSerialization } from "effect/unstable/rpc";
 
-// Only explicit workspace actions extend the idle deadline. New read/poll/stream
-// RPCs must be passive by default. Agent work has its own session keepalive.
 const activityRequests: ReadonlySet<string> = new Set([
 	"messages.send",
 	"messages.interrupt",
@@ -56,8 +54,6 @@ const activityRequests: ReadonlySet<string> = new Set([
 	"worktree.remove",
 ] satisfies ReadonlyArray<Rpc.Tag<RpcGroup.Rpcs<MemoizeRpcs>>>);
 
-// Match Effect's encoded request envelope, without duplicating each RPC's
-// payload validation. Unknown accepts undefined, so check payload presence too.
 const isRequestEnvelope = Schema.is(
 	Schema.Struct({
 		_tag: Schema.Literal("Request"),
@@ -84,7 +80,6 @@ export const makeCloudWorkspaceRpcActivity = (publish: () => void) => {
 	return (
 		frame: Pick<WorkspaceGatewayFrame, "direction" | "payload">,
 	): void => {
-		// Never parse responses: subscriptions and heartbeats can run forever.
 		if (frame.direction !== "client") return;
 		let messages: ReadonlyArray<unknown>;
 		try {
@@ -94,7 +89,6 @@ export const makeCloudWorkspaceRpcActivity = (publish: () => void) => {
 					: new Uint8Array(frame.payload),
 			);
 		} catch {
-			// The RPC server owns protocol validation; observation is best effort.
 			return;
 		}
 		if (messages.some(isActivityRequest)) publish();

@@ -41,7 +41,7 @@ const fixture = () => {
 		`#!/bin/bash\nif [[ "$3" == ls-remote ]]; then if [[ -n "$TEST_GIT_ERROR" ]]; then echo "$TEST_GIT_ERROR" >&2; exit 1; fi; exit 0; fi\nexec '${realGit}' "$@"\n`,
 		{ mode: 0o700 },
 	);
-	// Login CLIs are stubbed so inspection never reaches the network.
+
 	writeFileSync(
 		join(bin, "gh"),
 		`#!/bin/bash\nif [[ -n "$TEST_LOGGED_OUT" ]]; then echo "HTTP 401: Requires authentication" >&2; exit 1; fi\necho octo-cat\n`,

@@ -143,7 +143,7 @@ it.each([
 	});
 	expect(activity).toBe(status === "booting" ? "starting-agent" : "running");
 	expect(cloudChatShowsWorking(activity)).toBe(true);
-	// Cached turns cannot establish current work; explicit pause/failure still wins.
+
 	for (const origin of ["checkpoint", "cache"] as const)
 		expect(
 			cloudChatShowsWorking(
@@ -779,7 +779,6 @@ it("keeps the selected summary stable when binding its runtime project", () => {
 	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
 });
 
-// Ownership must be known before the first gateway ticket has arrived.
 it("recognizes a cataloged organization environment before the first connection", async () => {
 	const { environmentBelongsToWorkspace, getCloudWorkspaceScope } =
 		await import("../../src/lib/rpc-client.ts");

@@ -22,7 +22,6 @@ afterEach(() => {
 });
 
 test("signs HMAC where quick-crypto's subtle.sign rejects it", async () => {
-	// react-native-quick-crypto 0.7: HMAC keys import, but sign() throws.
 	const subtle = {
 		importKey: async (
 			_format: string,

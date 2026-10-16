@@ -54,9 +54,6 @@ parse_repository_record() {
 	workspace_path="${fields[5]}"
 }
 
-# This runs only in the disposable image-build sandbox, never the auth authority.
-# Freeze inherited auth trees before killing them so queued flock initializers
-# cannot start new children while their predecessors are being removed.
 quiesce_auth_processes() {
 	node - "$1" "$2" <<'JS'
 const { readdirSync, readFileSync, statSync } = require('node:fs');
@@ -185,8 +182,6 @@ main() {
 		touch "$workspace_path"
 	done <"$manifest"
 
-# One account image must contain every selected repository. Never silently
-# evict a checkout; fail the explicit image build and let the UI explain why.
 	phase=validating-image-size
 	cache_limit="${ZUSE_REPOSITORY_CACHE_MAX_BYTES:-8589934592}"
 	cache_size="$(du -sk "$cache_root" | awk '{print $1 * 1024}')"
@@ -194,22 +189,16 @@ main() {
 	find "$cache_root" -mindepth 2 -maxdepth 2 -type d -printf '%P\t%k\n' \
 		| sort >"$status_dir/cache-manifest.tsv"
 
-# Repository-controlled setup must never run while the account Git credential
-# exists. The token is used only by Git for the trusted github.com clone above.
 	phase=cleaning-credentials
 	rm -f /run/zuse-secrets/github-installation-*
 	unset GIT_ASKPASS ZUSE_GIT_TOKEN_FILE
 
-# GitHub and runtime identity are never baked in. Broker-capable images retain
-# provider configuration, skills, and MCP settings, while reusable agent login
-# state remains solely in the account authority.
 	phase=sanitizing-snapshot
 	rm -f /var/lib/zuse/user-data/cloud-runtime-identity.json \
 		/home/zuse/.zuse-data/cloud-runtime-identity.json
 	rm -rf /home/zuse/.config/gh /home/zuse/.zuse-data /home/zuse/.cache/zuse \
 		/tmp/zuse-* 2>/dev/null || true
-# E2B may preserve the runtime secrets mount itself. An empty mount is safe to
-# snapshot; any file below it is not.
+
 	if [[ -d /run/zuse-secrets ]] && find /run/zuse-secrets -type f -print -quit | grep -q .; then
 		mark_failed 73
 	fi
@@ -235,8 +224,7 @@ main() {
 	while IFS= read -r repository_record; do
 		parse_repository_record "$repository_record" || mark_failed 64
 		source_commit="$(git -C "$workspace_path" rev-parse "origin/$default_branch")"
-		# Repository files are user-selected source, not build-injected credentials.
-		# Preserve tracked configuration, including .env files, and Git history.
+
 		git -C "$workspace_path" config --unset-all http.https://github.com/.extraheader 2>/dev/null || true
 		printf '%s\t%s\t%s\t%s\n' "$cache_id" "$default_branch" "$source_commit" "$workspace_path" >>"$commit_manifest"
 	done <"$manifest"
@@ -278,8 +266,7 @@ main() {
     ...(providerAuthDeliveryVersion === undefined ? {} : { providerAuthDeliveryVersion }),
   }), { mode: 0o600 });
 ' "$commit_manifest" /var/lib/zuse/account-image/manifest.json
-# Authority bookkeeping is not runtime authentication. Native provider homes
-# and the one-shot image secret store above are the only state promoted.
+
 	rm -rf /home/zuse/.zuse/cloud-auth
 	sha256sum "$manifest" | cut -d' ' -f1 >"$status_dir/source-commit"
 	printf '%s\n' "${ZUSE_TEMPLATE_VERSION:?}" >"$status_dir/template-version"

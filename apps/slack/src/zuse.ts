@@ -1,5 +1,3 @@
-// Account-scoped operations injected by the API. No loopback HTTP or API keys.
-
 import type { MessageSource } from "@zuse/contracts";
 
 export interface ZuseClientConfig {
@@ -66,9 +64,7 @@ export class ZuseApiError extends Error {
 					"code" in body ? body.code : "error" in body ? body.error : undefined,
 				);
 			}
-		} catch {
-			/* Never log raw response bodies. */
-		}
+		} catch {}
 	}
 
 	get retryable(): boolean {

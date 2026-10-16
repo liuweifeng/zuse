@@ -78,7 +78,7 @@ export class WorkspaceStartupTask {
 		};
 		await this.state.storage.transaction(async (storage) => {
 			await storage.put("pending", pending);
-			// Persist work and its alarm together before acknowledging the caller.
+
 			const alarm = await storage.getAlarm();
 			if (alarm === null || alarm > Date.now())
 				await storage.setAlarm(Date.now());
@@ -105,15 +105,13 @@ export class WorkspaceStartupTask {
 						queueDelayMs: Math.max(0, Date.now() - pending.scheduledAtMs),
 					}),
 		});
-		// Await the entire operation in the alarm, never in HTTP waitUntil.
-		// Automatic retries are bounded. Renew the alarm before they run out.
+
 		let outcome: WorkspaceStartupOutcome;
 		try {
 			outcome = await this.reconcile(pending.workspaceId);
 		} catch (error) {
 			if ((alarmInfo?.retryCount ?? 0) < 5) throw error;
 			await this.state.storage.transaction(async (storage) => {
-				// Keep a newer request's earlier alarm rather than delaying it.
 				if ((await storage.getAlarm()) === null)
 					await storage.setAlarm(Date.now() + 30_000);
 			});
@@ -125,13 +123,11 @@ export class WorkspaceStartupTask {
 				if (outcome.kind === "complete") {
 					await storage.delete("pending");
 				} else if (outcome.dueAtMs !== undefined) {
-					// A lease collision or stale due timestamp must not create an alarm spin.
 					const dueAtMs = Math.max(Date.now() + 100, outcome.dueAtMs);
 					const alarm = await storage.getAlarm();
 					if (alarm === null || alarm > dueAtMs)
 						await storage.setAlarm(dueAtMs);
 				}
-				// Event-blocked work retains its pointer; its named wake source schedules it.
 			} else if (current && (await storage.getAlarm()) === null) {
 				await storage.setAlarm(Date.now());
 			}

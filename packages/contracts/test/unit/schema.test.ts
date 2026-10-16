@@ -25,13 +25,6 @@ import {
 	Worktree,
 } from "../../src/index.ts";
 
-/**
- * These guard the renderer↔server wire contract: every payload that crosses
- * the RPC boundary is encoded to plain JSON on one side and decoded on the
- * other. A round-trip (decode∘encode) that isn't the identity, or a schema
- * that silently accepts malformed input, is a contract break.
- */
-
 const roundTrip = <A, I>(schema: Schema.Codec<A, I>, encoded: I): void => {
 	const decoded = Schema.decodeUnknownSync(schema)(encoded);
 	const reEncoded = Schema.encodeSync(schema)(decoded);
@@ -198,7 +191,7 @@ describe("AgentEvent round-trips", () => {
 				itemId: "i",
 				output: "o",
 			}),
-		).toThrow(); // isError missing
+		).toThrow();
 	});
 
 	it("rejects an invalid enum literal", () => {

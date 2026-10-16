@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import { FileSearchDialog } from "../../src/components/file-search.tsx";
 import type { CommandPaletteGroup } from "../../src/components/ui/command-palette.tsx";
 
-// Render the actual result icons without the modal's browser-only portal.
 vi.mock("../../src/components/ui/command-palette.tsx", () => ({
 	CommandPaletteDialog: ({
 		groups,

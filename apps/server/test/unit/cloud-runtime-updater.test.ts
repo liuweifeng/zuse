@@ -151,8 +151,7 @@ const transactionFixture = async () => {
 	const address = server.address();
 	if (address === null || typeof address === "string")
 		throw new Error("test server did not bind");
-	// Redirect artifact transport and optionally kill at the real symlink boundary.
-	// Child processes verify signatures, bytes and durable transitions themselves.
+
 	const fetchShim = join(directory, "fetch-shim.mjs");
 	await writeFile(
 		fetchShim,
@@ -636,7 +635,7 @@ describe("durable runtime transactions", () => {
 					),
 				),
 			).toMatchObject({ wireProtocolVersion: 7 });
-			// A retry of this build keeps the same durable transaction.
+
 			await fixture.invoke("", {
 				...install,
 				ZUSE_RUNTIME_UPDATE_TRANSACTION_ID: "new-image-build",

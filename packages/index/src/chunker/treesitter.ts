@@ -8,12 +8,6 @@ import {
   type SymbolKind,
 } from "../types.ts";
 
-/**
- * Lazy grammar loader. We don't import the grammar packages at module load
- * because each one pulls a native .node binding — for a workspace that
- * never has any TSX files we'd still pay the dlopen. `getParser` caches
- * a `Parser` per language after the first hit.
- */
 const parsers = new Map<LanguageId, Parser>();
 
 const loadParser = (lang: LanguageId): Parser | null => {
@@ -49,7 +43,7 @@ const loadParser = (lang: LanguageId): Parser | null => {
 };
 
 interface CollectedSymbol extends ParsedSymbol {
-  /** index into `symbols` once flattened */
+
   readonly _id: number;
   readonly _parentId: number | null;
 }
@@ -324,8 +318,6 @@ export const treesitterChunker = (
     visitTopLevel(child);
   }
 
-  // Flatten internal records into the public ParsedSymbol shape — parentIndex
-  // already matches the index in the `symbols` array because we appended in order.
   const finalSymbols: ParsedSymbol[] = symbols.map((s) => ({
     name: s.name,
     kind: s.kind,

@@ -91,7 +91,7 @@ describe("integration page", () => {
 		);
 		expect(page).not.toContain("evil.example");
 		expect(page).toContain('aria-label="Approve on GitHub: acme"');
-		// Returning from GitHub resumes at the row's same-origin URL.
+
 		expect(page).toContain('data-resume="/callback?state=resume"');
 		expect(page.match(/<script/gu)).toHaveLength(3);
 		const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/gu)].map(

@@ -107,8 +107,6 @@ type CloudChatsState = {
 	readonly archive: (summary: CloudChatSummary) => Promise<void>;
 };
 
-// Permission denial ends this workspace's feed without treating the account
-// credential as expired. Retrying cannot restore membership or billing access.
 const catalogAccessDenied = (cause: unknown): boolean => {
 	const kind = cloudFailurePresentation({ cause })?.kind;
 	return kind === "sign-in-required" || kind === "cloud-access-required";
@@ -217,11 +215,6 @@ const trackCloudAttachment = (
 	return tracked;
 };
 
-/**
- * Cloud wakeup is an environment capability. Register it when catalog metadata
- * arrives so every ClientBus resource shares one attachment path instead of
- * teaching feature stores how to resume a workspace.
- */
 const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 	const account = rendererAccountSnapshot();
 	const previous = registeredCloudEnvironments.get(summary.workspaceId);
@@ -251,9 +244,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 				control["cloud.transcript.get"]({
 					workspaceId: summary.workspaceId,
 					sessionId: ref.sessionId,
-					// A local IndexedDB entry is only a rendering accelerator. API's
-					// encrypted checkpoint is authoritative, so initial hydration requests
-					// the full checkpoint even when the cache claims the same cursor.
+
 					cursor:
 						current.origin === "cache"
 							? undefined
@@ -358,8 +349,7 @@ const registerCloudEnvironmentResolver = (summary: CloudChatSummary): void => {
 			if (rootPrepared) return;
 			const folders = await Effect.runPromise(client["workspace.list"]({}));
 			assertRendererAccountCurrent(account);
-			// The cloud runtime registers the selected checkout before API marks the
-			// sandbox repository-ready. Never manufacture a second, placeholder root.
+
 			rootPrepared = folders.length > 0;
 		},
 		"cloud-workspace",
@@ -389,7 +379,6 @@ const refreshSummaryFromWorkspace = (
 	updatedAt: workspace.updatedAt,
 });
 
-/** Resolve account-owned projects even before a runtime mapping exists. */
 const projectForSummary = (summary: CloudChatSummary): FolderId | null =>
 	isHostedProduct()
 		? hostedProjectFolderId(summary.projectId)
@@ -474,9 +463,7 @@ export const stageCloudChat = (
 						],
 		},
 	}));
-	// Compatibility only: an API that did not acknowledge mailbox-v1 still owns
-	// the prompt in its encrypted launch intent. The stable ID is replaced by the
-	// authoritative launch message rather than producing a duplicate.
+
 	if (legacyFirstMessage !== undefined) {
 		addOptimisticSessionMessage(
 			{
@@ -515,8 +502,7 @@ export const openCloudChat = (
 		if (projectId === undefined) {
 			registerCloudChat(summary);
 			registerCloudEnvironmentResolver(summary);
-			// A fresh browser has no local checkout. Keep the real runtime identity
-			// unbound until its shell arrives rather than inventing a local folder.
+
 			useWorkspaceStore.setState({ selectedFolderId: null });
 		} else stageCloudChat(summary, projectId);
 		const activeSessionId = cloudSummaryActiveSessionId(summary);
@@ -525,8 +511,7 @@ export const openCloudChat = (
 				environmentId: EnvironmentId.make(summary.workspaceId),
 				sessionId: activeSessionId,
 			});
-		// Catalog selection must not depend on a paused runtime shell. Select the
-		// durable ids now so the qualified timeline cache can hydrate immediately.
+
 		useUiStore.getState().setActiveMainTab("chat");
 		useChatsStore.setState((state) => ({
 			selectedChatId: summary.chatId,
@@ -549,8 +534,6 @@ export const openCloudChat = (
 		) {
 			void useWorkspaceStore.getState().select(projectId);
 		}
-		// The retained timeline hydrates cache first. EnvironmentRuntime then
-		// prepares the gateway and attaches in one ordered background operation.
 	});
 	const tracked = operation.finally(() => {
 		if (opening.get(summary.workspaceId)?.promise === tracked)
@@ -574,8 +557,7 @@ export const ensureCloudWorkspaceAttached = (
 	wakeIntent?: EnvironmentWakeIntent,
 ): Promise<void> => {
 	const account = rendererAccountSnapshot();
-	// A live, account-owned runtime already authorizes each command. Reuse it
-	// instead of minting another gateway ticket for every tab or action.
+
 	const registered = registeredCloudEnvironments.get(summary.workspaceId);
 	if (
 		registered !== undefined &&
@@ -596,9 +578,7 @@ export const ensureCloudWorkspaceAttached = (
 			}
 			return existing.promise;
 		}
-		// A live command can arrive while a passive transcript attachment is still
-		// resolving. Wake is a stronger side effect: never let it inherit the
-		// passive request's failure (for example when API has just paused compute).
+
 		const escalated = existing.promise
 			.catch(() => undefined)
 			.then(() => attachCloudWorkspace(summary, "wake", account, wakeIntent));
@@ -659,8 +639,7 @@ const attachCloudWorkspace = async (
 	publish(workspace);
 	const startupError = cloudWorkspaceStartupError(workspace);
 	if (startupError !== null) throw startupError;
-	// Organization gateways require an enrolled runtime's authorization capabilities.
-	// A missing report during provisioning is not evidence of an old runtime.
+
 	if (
 		summary.workspaceScope?.kind === "organization" &&
 		!isCloudWorkspaceAttachable(workspace) &&
@@ -685,8 +664,7 @@ const attachCloudWorkspace = async (
 				: "Cloud workspace is not currently available for passive attachment.",
 		);
 	}
-	// Socket loss only invalidates an attachment ticket. Runtime replacement is
-	// owned by the lifecycle reconciler, never inferred from gateway failures.
+
 	const connectionForWorkspace = () => {
 		assertRendererAccountCurrent(account);
 		return Effect.runPromise(
@@ -698,8 +676,6 @@ const attachCloudWorkspace = async (
 		connection.protocol !== WORKSPACE_GATEWAY_PENDING_PROTOCOL &&
 		!isCloudWorkspaceAttachable(workspace)
 	) {
-		// Previous APIs cannot admit pending attachments. Keep this negotiated
-		// bridge only until that deployed protocol has been retired.
 		workspace = await waitForCloudWorkspaceReady(
 			control["cloud.workspaces.watch"]({
 				workspaceId: summary.workspaceId,
@@ -717,9 +693,6 @@ const attachCloudWorkspace = async (
 	);
 };
 
-// A cold machine must provision, bootstrap, and advertise its gateway before the
-// ordinary RPC handshake can start. Terminal connection failures still end this
-// wait immediately; one bounded budget covers the whole launch, without resets.
 const CLOUD_LAUNCH_GATEWAY_TIMEOUT_MS = 5 * 60_000;
 
 /** A launch ticket is not a connected runtime. Keep one shared connection lease
@@ -892,9 +865,7 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 								...refreshSummaryFromWorkspace(cached, archived),
 								archivedAt: intent.requestedAt,
 							});
-						} catch {
-							// The persisted intent remains hidden and retries on the next hydrate.
-						}
+						} catch {}
 					}
 				})().catch(() => undefined);
 				set({ loading: false });
@@ -949,11 +920,6 @@ export const useCloudChatsStore = create<CloudChatsState>((set) => ({
 				rendererWorkspaceSnapshot() === selectedWorkspace
 			)
 				set({ error: formatError(cause) });
-			// A response can be lost after API durably accepts the command. Keep
-			// the persisted intent as the authoritative optimistic fence and retry
-			// it during catalog hydration instead of flashing the row back into the
-			// active list. Reconciliation clears it only after API publishes the
-			// archived lifecycle state.
 		}
 	},
 }));

@@ -121,7 +121,7 @@ const fixture = async (
 				await new Promise((resolve) => setTimeout(resolve, 150));
 			} catch {}
 		}
-		// An abrupt-supervisor test deliberately leaves this fixture-only child.
+
 		try {
 			process.kill(
 				Number(await readFile(join(directory, "escaped"), "utf8")),
@@ -199,7 +199,7 @@ describe("envd guest process ownership", () => {
 				f.launch({ generation: 2, operationId: "replacement" }),
 			).rejects.toBeDefined();
 			expect(await f.starts()).toBe(1);
-			// A stale receipt from another operation cannot establish retirement.
+
 			await writeFile(
 				join(journal, "retired"),
 				`${identity.replace("abrupt", "other")}\n`,

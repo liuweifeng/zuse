@@ -238,9 +238,7 @@ export function CloudAccountAccess({
 							try {
 								await copyText(event.code);
 								copied = true;
-							} catch {
-								// The code stays visible for manual copying.
-							}
+							} catch {}
 						}
 						setProgress({
 							providerId,

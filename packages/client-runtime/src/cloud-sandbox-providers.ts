@@ -80,7 +80,7 @@ export type CloudSandboxSetup =
 export const cloudSandboxSetup = (input: {
 	readonly image: CloudAccountImage | undefined;
 	readonly subscribed: boolean;
-	/** `null` when the repository is not connected to Cloud Workspaces. */
+
 	readonly projectId: string | null;
 	readonly placementFailed?: boolean;
 }): CloudSandboxSetup =>

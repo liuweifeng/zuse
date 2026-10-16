@@ -11,7 +11,6 @@ import {
 } from "./renderer-workspace.ts";
 import { getActiveEnvironment } from "./rpc-client.ts";
 
-// Navigation only. Entity caches, subscriptions, and agents retain their existing owners.
 const capture = () => {
 	const ui = useUiStore.getState();
 	const chats = useChatsStore.getState();
@@ -44,7 +43,6 @@ type Navigation = ReturnType<typeof capture>;
 
 const restore = (navigation?: Navigation) =>
 	batchAtomUpdates(() => {
-		// Clear overlays and errors, not durable work. Revisions must never move backwards.
 		useUiStore.setState({
 			...(navigation?.ui ?? {
 				view: "chat",
@@ -104,7 +102,7 @@ export const startWorkspaceNavigation = (): (() => void) => {
 			return;
 		}
 		if (workspace.key === next.key) return;
-		// A blank loading surface is not a replacement for the saved navigation.
+
 		if (
 			pending?.key !== workspace.key ||
 			pending.revision !== useChatsStore.getState().landingRevision ||
@@ -141,7 +139,6 @@ export const startWorkspaceNavigation = (): (() => void) => {
 				isCurrent,
 			})
 			.then(() => {
-				// Activation itself selects the folder, so only the epoch/revision remain a fence here.
 				if (
 					!stopped &&
 					rendererWorkspaceSnapshot() === next &&

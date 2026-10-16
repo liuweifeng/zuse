@@ -24,8 +24,7 @@ export const readUsageSources = async (
   if (selected.has("zuse") || selected.has("memoize")) {
     results.push(readMemoizeUsage(options.zuseDbPath ?? options.memoizeDbPath));
   }
-  // Read external sources sequentially so each one's file scan yields to the
-  // event loop in turn rather than flooding it; keeps the host responsive.
+
   for (const sourceId of EXTERNAL_SOURCE_IDS) {
     if (!selected.has(sourceId)) continue;
     results.push(await readExternalSource(sourceId, options));

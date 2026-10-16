@@ -944,7 +944,6 @@ describe("ConversationEventRuntime", () => {
 			AgentTurnId.make("turn_application"),
 		);
 
-		// The application turn settles on its own terminal, not the provider's.
 		expect(outcome).toEqual({
 			started: ["turn_provider"],
 			persisted: ["turn_application"],

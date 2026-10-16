@@ -16,7 +16,7 @@ describe("CloudWorkspaceAuth", () => {
 		expect(markup).toContain("Cursor");
 		expect(markup).toContain("Grok");
 		expect(markup).toContain("Connect");
-		// The explanation lives in the header's help tooltip, not inline.
+
 		expect(markup).not.toContain("Connect each agent once");
 		expect(markup).toContain('aria-label="Zuse agent accounts"');
 		expect(markup).not.toContain("E2B");

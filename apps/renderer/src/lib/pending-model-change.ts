@@ -66,8 +66,6 @@ export function createPendingModelChanges(options: {
 			await options.apply(entry.ref, selection);
 			if (entry.selection === selection) clear(key, entry);
 		} catch (error) {
-			// Only a definite rejection for active work is safe to defer again. Other
-			// failures may have ambiguous delivery and must never be silently replayed.
 			if (isBusyModelChange(error)) {
 				entry.blockedCursor = cursor;
 			} else if (error instanceof RuntimeUpdatePendingError) {

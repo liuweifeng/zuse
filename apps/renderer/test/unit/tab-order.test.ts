@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 
 import { activeChatId, orderedChatTabs } from "../../src/lib/tab-order.ts";
 
-// Minimal session shape — only the fields the ordering logic reads.
 const session = (
 	id: string,
 	chatId: string,

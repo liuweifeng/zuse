@@ -112,8 +112,6 @@ const invalidateCloudWorkspaceTicket = (workspaceId: string): void => {
 	if (registration !== undefined) registration.connection = null;
 };
 
-// Tickets last roughly a minute. Keep only a short safety margin so one live
-// activation can reuse its freshly issued ticket without minting a second one.
 const CLOUD_TICKET_REUSE_WINDOW_MS = 10_000;
 
 export const canReuseCloudWorkspaceTicket = (
@@ -141,9 +139,7 @@ function resolveWebSocketUrl(): string {
 
 const browserWebSocketOptions = () => ({
 	wsUrl: resolveWebSocketUrl(),
-	// Browser sessions authenticate the HTTP request with their cookie, then use
-	// a fresh, single-use ticket for every WebSocket attempt. Refreshing here also
-	// prevents reconnects from reusing a consumed ticket after the socket closes.
+
 	refreshWsUrl: requestBrowserWebSocketUrl,
 });
 
@@ -227,8 +223,6 @@ const assertConnectionAccount = (options: RendererConnectionOptions): void => {
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 export const CLOUD_WEBSOCKET_OPEN_TIMEOUT = "15 seconds" as const;
 
-// Cloud gateway opening includes the remote TLS/upgrade round trip. Keep
-// local failures fast without rejecting healthy, slower cloud connections.
 export const rendererWebSocketOpenTimeout = (key: string) =>
 	key.startsWith("workspace:")
 		? CLOUD_WEBSOCKET_OPEN_TIMEOUT
@@ -236,9 +230,6 @@ export const rendererWebSocketOpenTimeout = (key: string) =>
 
 const CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS = 6;
 
-// Retrying a cloud workspace can wake a billable machine, so its background
-// retries stop after a short ladder. A self-hosted computer that sleeps or
-// drops off the network must reconnect on its own when it comes back.
 export const rendererMaxAutomaticAttempts = (
 	options: Pick<RendererConnectionOptions, "key">,
 ): number =>
@@ -381,9 +372,6 @@ const supervisor = createConnectionSupervisor<
 				);
 			});
 		} catch (cause) {
-			// An HTTP rejection happens before WebSocket `close`, so the callback
-			// above never gets a chance to invalidate its one-time credential.
-			// Never let the supervisor retry the same rejected cloud ticket.
 			if (options.key.startsWith("workspace:")) {
 				const workspaceId = options.key.slice("workspace:".length);
 				invalidateCloudWorkspaceTicket(workspaceId);
@@ -527,9 +515,6 @@ export const acquireRendererRpcSession = async (
 			);
 		})
 		.catch((cause) => {
-			// HTTP 401/403 rejects the upgrade before `close` is observable. Clear
-			// the cached ticket here so EnvironmentRuntime's next acquisition mints
-			// a new credential instead of looping on the rejected one.
 			if (active && prepared.key.startsWith("workspace:")) {
 				hooks.invalidateCloudTicket(prepared.key.slice("workspace:".length));
 			}
@@ -725,16 +710,11 @@ export const registerCloudWorkspace = (
 		)
 			registration.connection = initial;
 	}
-	// Repeated live actions update the reusable ticket source but never replace
-	// a connected or in-flight client. Only a terminal supervisor failure gets a
-	// deliberate fresh-ticket retry.
+
 	if (
 		existingEntry !== undefined &&
 		shouldRestartCloudWorkspaceConnection(existingEntry.snapshot().status)
 	) {
-		// `initial` was minted by the live action that reached this retry path.
-		// Keep it so retryNow consumes that ticket instead of immediately minting
-		// a second one. Genuine socket closes invalidate the ticket in onClose.
 		existingEntry.retryNow();
 	}
 };

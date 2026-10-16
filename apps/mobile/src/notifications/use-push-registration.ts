@@ -20,7 +20,6 @@ export function usePushRegistration(): void {
 				if (active && permission.status === "granted")
 					await registerCurrentDeviceForPush(account);
 			} catch {
-				/* The shared registration path records the failure; manual retry stays available. */
 			} finally {
 				pending = false;
 			}

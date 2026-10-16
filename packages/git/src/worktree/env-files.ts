@@ -2,10 +2,6 @@ import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as Path from "node:path";
 
-/**
- * Directories that never hold app env files and/or are huge — pruned from the
- * recursive walk so it stays fast even on large monorepos.
- */
 const PRUNED_DIRS = new Set<string>([
 	"node_modules",
 	".git",
@@ -20,11 +16,6 @@ const PRUNED_DIRS = new Set<string>([
 	".zuse",
 ]);
 
-/**
- * Template/sample env files that carry no secrets and are meant to be committed.
- * They're tracked (so already materialized in the worktree checkout) and pointless
- * to link — excluding them keeps the setup output clean.
- */
 const TEMPLATE_SUFFIXES = [
 	".example",
 	".sample",
@@ -32,7 +23,6 @@ const TEMPLATE_SUFFIXES = [
 	".dist",
 ] as const;
 
-/** Safety backstop against pathological trees; real env files sit 1-3 levels deep. */
 const MAX_DEPTH = 6;
 
 const toPosix = (value: string): string => value.split(Path.sep).join("/");
@@ -114,13 +104,12 @@ export const linkEnvFiles = async (
 			if (entry.isDirectory()) {
 				if (depth >= MAX_DEPTH) continue;
 				if (PRUNED_DIRS.has(entry.name)) continue;
-				// Stay inside this repo: skip submodules / nested repos / stray worktrees.
+
 				if (fsSync.existsSync(Path.join(repoPath, rel, ".git"))) continue;
 				await walk(rel, depth + 1);
 				continue;
 			}
 
-			// Link regular files and symlinked files only (matches node_modules guard).
 			if (!entry.isFile() && !entry.isSymbolicLink()) continue;
 			if (!isEnvFileName(entry.name)) continue;
 
@@ -164,9 +153,7 @@ export const linkIncludedFiles = async (
 		try {
 			const stat = await fs.lstat(abs);
 			if (stat.isFile() || stat.isSymbolicLink()) maybeAdd(rel);
-		} catch {
-			// Missing exact includes are ignored; they may be optional per machine.
-		}
+		} catch {}
 	}
 
 	if (globs.length > 0) {

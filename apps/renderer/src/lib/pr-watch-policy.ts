@@ -1,8 +1,6 @@
 import type { GitPrDetails } from "@zuse/contracts";
 import { checkKind } from "./pr-checks.ts";
 
-// Includes the head and run identity so new commits and reruns can be repaired,
-// while repeated polls of an unchanged failure do not produce extra messages.
 export function prFailureKey(details: GitPrDetails): string | null {
 	if (
 		details.state !== "open" ||

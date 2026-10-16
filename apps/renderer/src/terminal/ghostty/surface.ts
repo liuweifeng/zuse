@@ -166,10 +166,7 @@ export class GhosttySurface {
 			this.schedulePaint();
 			return emulator;
 		});
-		// Readiness is surfaced explicitly through `ready()`. Keep one permanent
-		// rejection observer as well so disposal or a caller that never reaches the
-		// PTY boundary cannot turn an initialization failure into an unhandled
-		// process-level rejection.
+
 		void this.emulatorPromise.catch(() => undefined);
 	}
 
@@ -197,8 +194,7 @@ export class GhosttySurface {
 		this.writeChain = this.writeChain.then(async () => {
 			const emulator = await this.emulatorPromise;
 			emulator.write(data);
-			// A program may enable mode 1004 while the textarea is already focused.
-			// Re-check after every feed; the emulator deduplicates unchanged reports.
+
 			this.emitData(emulator.encodeFocus(this.terminalHasFocus()));
 			this.schedulePaint();
 		});
@@ -334,8 +330,6 @@ export class GhosttySurface {
 			this.emitFocus(false);
 		});
 		this.host.addEventListener("pointerdown", (event) => {
-			// Keep the hidden keyboard input focused. Otherwise the browser's
-			// subsequent mousedown focuses the canvas and typing stops working.
 			event.preventDefault();
 			this.focus();
 			if (this.emulator === null) return;
@@ -489,8 +483,6 @@ export class GhosttySurface {
 				event.stopPropagation();
 				this.suppressedKeyUps.add(event.code || event.key);
 				if (clipboardShortcut === "paste") {
-					// Leave the browser default enabled: it dispatches the trusted paste
-					// event below without requiring clipboard-read permission.
 					return;
 				}
 				if (clipboardShortcut === "select-all") {
@@ -747,8 +739,7 @@ export class GhosttySurface {
 	private drawRow(frame: TerminalFrame, row: number): void {
 		const line = frame.lines[row];
 		if (line === undefined) return;
-		// Clear the entire dirty row, including the margin beyond the last cell.
-		// Fallback emoji can be wider than their terminal cell allocation.
+
 		const rowY = PADDING_Y + row * this.cellHeight;
 		this.context.fillStyle = cssRgb(frame.background);
 		this.context.fillRect(0, rowY, this.host.clientWidth, this.cellHeight);

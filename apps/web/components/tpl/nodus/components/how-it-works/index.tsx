@@ -73,7 +73,7 @@ export const HowItWorks = () => {
 				<SectionHeading className="mt-4">
 					{t("showcase:multiple_tabs_shared_context")}
 				</SectionHeading>
-				{/* Desktop Tabs */}
+
 				<div className="border-divide divide-divide mt-16 hidden w-full grid-cols-2 divide-x border-t lg:grid">
 					<div className="divide-divide divide-y">
 						{tabs.map((tab) => (
@@ -121,7 +121,7 @@ export const HowItWorks = () => {
 						</AnimatePresence>
 					</div>
 				</div>
-				{/* Mobile Tabs */}
+
 				<div className="divide-divide border-divide mt-16 flex w-full flex-col divide-y overflow-hidden border-t lg:hidden">
 					{tabs.map((tab) => (
 						<div

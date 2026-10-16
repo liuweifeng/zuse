@@ -47,8 +47,7 @@ export const RpcAuthorizationLive = Layer.effect(
 						rpc._tag,
 						payload,
 					).pipe(Effect.provideService(SqlClient.SqlClient, sql));
-				// Native IPC and explicit pairing retain host authority. Account sessions
-				// may reach only their own host; shared-host access is a separate feature.
+
 				if (Option.isNone(identity) || identity.value.kind !== "account")
 					return yield* request;
 				const account = identity.value;
@@ -65,7 +64,7 @@ export const RpcAuthorizationLive = Layer.effect(
 						return yield* new RpcAccessDeniedError({ code: "access-denied" });
 				});
 				yield* authorize;
-				// Long-lived streams lose access after logout, host-account changes or expiry.
+
 				return yield* Effect.raceFirst(
 					request,
 					Effect.forever(

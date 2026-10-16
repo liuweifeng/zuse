@@ -18,7 +18,6 @@ export function ComposerSendButton({
 	onPress,
 	round = false,
 }: {
-	/** Collapsed capsule: a circle so it sits inside the pill's curve. */
 	round?: boolean;
 	showInterrupt?: boolean;
 	online: boolean;

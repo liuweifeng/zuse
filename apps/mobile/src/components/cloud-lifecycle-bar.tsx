@@ -20,7 +20,6 @@ const elapsedLabel = (ms: number): string => {
 	return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
 };
 
-/** Seconds since the workspace entered its current lifecycle stage. */
 const useElapsed = (key: string | null): number => {
 	const [startedAt, setStartedAt] = useState(() => Date.now());
 	const [now, setNow] = useState(() => Date.now());
@@ -46,7 +45,7 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 	const [error, setError] = useState<string | null>(null);
 	const lifecycle = cloudLifecycle(summary);
 	const waiting = lifecycle === "starting" || lifecycle === "resuming";
-	// A visible clock tells a slow boot apart from a hang.
+
 	const elapsed = useElapsed(
 		waiting ? `${lifecycle}:${summary?.startupPhase ?? ""}` : null,
 	);
@@ -83,7 +82,6 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 		<View
 			role="status"
 			aria-live="polite"
-			// Same inset as the collapsed composer capsule beneath it.
 			className="mx-6 mb-2 min-h-9 flex-row items-center gap-2 rounded-full bg-card-elevated px-3"
 		>
 			{waiting || busy ? (

@@ -37,9 +37,7 @@ export const hostedAuthState = (): AuthState => {
 					}),
 				};
 		}
-	} catch {
-		/* Invalid cached profiles are never replaced with host account data. */
-	}
+	} catch {}
 	authRaw = raw;
 	authState = next;
 	return authState;

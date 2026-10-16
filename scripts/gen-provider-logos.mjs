@@ -1,15 +1,9 @@
-// One-off generator: rasterizes the provider brand SVGs to template PNGs
-// (@1x/2x/3x) for the iOS asset catalog. Xcode's built-in SVG importer mangles
-// paths with even-odd holes and arcs (codex/cursor/opencode/gemini), so we
-// render with a real SVG engine (sharp/resvg) — matching how they look on
-// desktop — and ship rasters instead. Template rendering (set in Contents.json)
-// tints them, so the fill colour here only needs to be opaque.
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 const ROOT = join(dirname(new URL(import.meta.url).pathname), "..");
-// sharp is a dep of apps/desktop; resolve it from there (workspace hoisting).
+
 const sharp = createRequire(join(ROOT, "apps/desktop/package.json"))("sharp");
 
 const OUT = join(
@@ -17,8 +11,6 @@ const OUT = join(
 	"apps/mobile/ios/ZuseMobile/Images.xcassets/ProviderLogos",
 );
 
-// Exact markup from apps/renderer/src/components/icons + provider-icons.tsx,
-// so the raster matches the known-good desktop rendering (fill-rule and all).
 const svg = (viewBox, inner) =>
 	`<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" fill="#ffffff">${inner}</svg>`;
 
@@ -57,7 +49,6 @@ const LOGOS = {
 	),
 };
 
-// Canonical point size for the menu glyph; @1x/2x/3x rasters keep it crisp.
 const SCALES = [
 	{ suffix: "@1x", px: 24 },
 	{ suffix: "@2x", px: 48 },

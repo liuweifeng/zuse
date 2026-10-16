@@ -154,8 +154,6 @@ export function ProviderErrorTray({
 				<>
 					{notice.kind === "usage-limit" &&
 					isNativeAccountProvider(providerId) ? (
-						// Retrying on the same account would hit the limit again, so it
-						// is only offered when there is no other account to switch to.
 						<SwitchAccountAction
 							sessionRef={ref}
 							environmentId={environmentId}
@@ -187,7 +185,6 @@ export function ProviderErrorTray({
 					<button
 						type="button"
 						onClick={source.dismiss}
-						// Match the h-7 text actions beside it.
 						className={cn(trayPillActionClass, "size-7")}
 						aria-label={uiMessage("chat:message_row_dismiss_error")}
 						title={uiMessage("chat:message_row_dismiss")}
@@ -222,7 +219,7 @@ function ProviderErrorActions({
 	environmentId,
 }: {
 	notice: ProviderErrorNotice;
-	/** The usage-limit retry is owned by `SwitchAccountAction`. */
+
 	switchesAccounts: boolean;
 	onRetry: () => void;
 	onKeepGoing: () => void;

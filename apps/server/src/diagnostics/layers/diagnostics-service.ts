@@ -356,9 +356,7 @@ const readPerformanceHistory = (
 					parseErrors += 1;
 				}
 			}
-		} catch {
-			// Missing resource history is normal.
-		}
+		} catch {}
 	}
 	return {
 		entries,

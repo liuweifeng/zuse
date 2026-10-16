@@ -121,8 +121,6 @@ export class ProviderCheckpointBatcher {
 		}
 
 		if (isTextCheckpoint(event)) {
-			// Preserve a partial checkpoint before final promotion. This is the last
-			// recovery point if the process fails between the two durable commands.
 			const key = checkpointKey(event);
 			this.#flushPending();
 			this.#emittedBytes.delete(key);
@@ -130,8 +128,6 @@ export class ProviderCheckpointBatcher {
 			return;
 		}
 
-		// Tool/lifecycle events are ordering boundaries: do not allow a timer to
-		// publish earlier text after a later event.
 		this.#flushPending();
 		this.#emit(event);
 	}

@@ -770,9 +770,6 @@ describe("question recovery through production RPC", () => {
 			const replayed = await waitForPendingQuestion(session.client, sessionId);
 			expect(replayed.id).toBe(beforeRestart.id);
 
-			// Commit durable intent, then fail the post-provider durable receipt.
-			// The fake provider deliberately retains the same blocking callback so a
-			// replacement process can reattach it after the server is killed.
 			const faultDatabase = new DatabaseSync(
 				join(server.userData, "zuse.sqlite"),
 			);

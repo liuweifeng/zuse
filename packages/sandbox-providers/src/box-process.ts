@@ -43,7 +43,7 @@ export const boxForkRuntimeResetCommand = (
 			"umask 077",
 			'exec 8>"$preparation/lock"',
 			"flock -x 8",
-			// This marker is child-ID-specific; a cloned parent's marker never matches.
+
 			'test ! -f "$preparation/complete" || exit 0',
 			"install -d -m 0700 -o root -g root /var/lib/zuse-process-activations",
 			`units=(${boxShellQuote(boxProcessUnit(user, selector.tag))})`,
@@ -75,11 +75,9 @@ export const boxForkRuntimeResetCommand = (
 				`pkill -KILL -f -- ${boxShellQuote(pattern)} || [ "$?" = 1 ]`,
 				`if pgrep -f -- ${boxShellQuote(pattern)} >/dev/null; then exit 1; else [ "$?" = 1 ]; fi`,
 			]),
-			// A stopped service is not enough if an unaccounted process still owns a
-			// database writer. Inspect descriptor flags, never database contents.
+
 			runtimeDatabaseWriterCheck(),
-			// The updater may be a separately dispatched process. Never clear its
-			// transaction unless its existing lock is available as well.
+
 			"if [ -d /var/lib/zuse/runtime-update ]; then",
 			"  exec 7>/var/lib/zuse/runtime-update/transaction.json.lock",
 			"  flock -xn 7",
@@ -191,8 +189,7 @@ export const boxSystemdProcessCommand = (
 					`sudo -n -E -H -u ${boxShellQuote(user)} bash -c ${boxShellQuote(boxProcessCleanupScript(selector))}`,
 					...boxProcessStoppedChecks(selector),
 				]),
-		// systemd does not inherit the provider command's account environment.
-		// Forward it explicitly, then restore the target user's login identity.
+
 		"environment=()",
 		'while IFS= read -r -d "" entry; do case "$entry" in HOME=*|USER=*|LOGNAME=*|SHELL=*|PWD=*|OLDPWD=*|SUDO_*=*|_=*) continue ;; esac; environment+=("--setenv=$entry"); done < <(env -0)',
 		`target_home=$(getent passwd ${boxShellQuote(user)} | cut -d: -f6)`,

@@ -207,8 +207,7 @@ it.each([
 			state: "completed",
 			stdout: "local-output",
 		});
-		// Even if sign-in has already returned by the time the callback runs, the
-		// intervening sign-out must revoke persistent grants.
+
 		await Effect.runPromise(
 			PubSub.publish(accountChanges, { _tag: "SignedOut" }),
 		);

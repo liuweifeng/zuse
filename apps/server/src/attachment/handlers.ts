@@ -18,8 +18,6 @@ const UploadChunk = MemoizeRpcs.toLayerHandler(
 		const service = yield* AttachmentService;
 		return (input: AttachmentUploadChunk) =>
 			Effect.gen(function* () {
-				// Finish a bounded disk operation before observing RPC cancellation, so
-				// the staging entry cannot race a reconnect or layer shutdown.
 				const bytes = yield* Effect.tryPromise({
 					try: () => uploads.accept(input),
 					catch: (cause) =>

@@ -98,8 +98,7 @@ describe("durable chat startup intent", () => {
 					});
 				}),
 			);
-			// Model an RPC response disappearing after both durable commits. The same
-			// operation is replayed on reconnect and must observe the receipt only.
+
 			const retriedAccepted = await run(
 				Effect.gen(function* () {
 					const queue = yield* QueueTransactionService;
@@ -151,10 +150,6 @@ describe("durable chat startup intent", () => {
 			expect(evidence.events[0]?.count).toBe(1);
 			expect(evidence.receipts).toEqual([{ stream_id: sessionId }]);
 			expect(evidence.operation).toEqual([{ status: "succeeded" }]);
-
-			// The runnable bit was part of the atomic acceptance above. The handler's
-			// post-commit wake uses the same stable command id, while runtime recovery
-			// scans every ready row after a process restart.
 		} finally {
 			await runtime.dispose();
 			rmSync(directory, { recursive: true, force: true });

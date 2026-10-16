@@ -32,9 +32,7 @@ const writeLayout = (layout: SidebarProjectLayout): void => {
 	if (typeof window === "undefined") return;
 	try {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
-	} catch {
-		// cache is best-effort
-	}
+	} catch {}
 };
 
 type State = {

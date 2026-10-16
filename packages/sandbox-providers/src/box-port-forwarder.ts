@@ -1,8 +1,3 @@
-// Executed by the Box command channel. Hosted ports target a VM interface,
-// while workspace runtimes intentionally bind loopback. Repeated resolution
-// keeps existing listeners and starts only missing interface forwarders.
-// Preview leases require a live loopback server and release their interface
-// listeners shortly after it exits; the runtime bridge stays persistent.
 export const BOX_PORT_FORWARDER = `
 const net = require('node:net');
 const os = require('node:os');

@@ -47,7 +47,7 @@ export const createSessionAttemptHistory = (
 				);
 				for (const row of page.items) items.set(row.id, row);
 				const cursor = page.nextCursor;
-				// A malformed server cursor must not create an endless 'more' loop.
+
 				const advances =
 					before === undefined ||
 					cursor === null ||
@@ -86,7 +86,7 @@ export const createSessionAttemptHistory = (
 			(snapshot.nextCursor === null
 				? Promise.resolve()
 				: load(snapshot.nextCursor)),
-		/** Invalidates late responses without retaining a component or transport. */
+
 		cancel: () => {
 			generation++;
 			pending = null;

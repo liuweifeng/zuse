@@ -73,7 +73,6 @@ const registerResult = async (
 	const catalog = useEnvironmentCatalogStore.getState();
 	overlayEnvironmentShell(EnvironmentIdSchema.make(environmentId), (shell) => {
 		if (shell.folders.some((existing) => existing.id === folder.id))
-			// A moved project keeps its id; adopt its new owner immediately.
 			return {
 				...shell,
 				folders: shell.folders.map((existing) =>

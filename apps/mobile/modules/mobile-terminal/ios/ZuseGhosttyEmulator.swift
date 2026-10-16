@@ -95,74 +95,72 @@ enum ZuseTerminalKeyboard {
     }
   }
 
-  /// USB HID usage to the stable GhosttyKey raw value. Keeping this pure makes
-  /// the hardware-key contract testable without a UIKit event synthesizer.
   static func ghosttyKeyCode(forHIDUsage usage: Int) -> Int {
     switch usage {
-    case 0x04...0x1D: return 20 + usage - 0x04 // A...Z
-    case 0x1E...0x26: return 7 + usage - 0x1E // 1...9
-    case 0x27: return 6 // 0
-    case 0x28: return 58 // Enter
-    case 0x29: return 120 // Escape
-    case 0x2A: return 53 // Backspace
-    case 0x2B: return 64 // Tab
-    case 0x2C: return 63 // Space
-    case 0x2D: return 46 // Minus
-    case 0x2E: return 16 // Equal
-    case 0x2F: return 3 // BracketLeft
-    case 0x30: return 4 // BracketRight
-    case 0x31: return 2 // Backslash
-    case 0x32: return 17 // IntlBackslash
-    case 0x33: return 49 // Semicolon
-    case 0x34: return 48 // Quote
-    case 0x35: return 1 // Backquote
-    case 0x36: return 5 // Comma
-    case 0x37: return 47 // Period
-    case 0x38: return 50 // Slash
-    case 0x39: return 54 // CapsLock
+    case 0x04...0x1D: return 20 + usage - 0x04
+    case 0x1E...0x26: return 7 + usage - 0x1E
+    case 0x27: return 6
+    case 0x28: return 58
+    case 0x29: return 120
+    case 0x2A: return 53
+    case 0x2B: return 64
+    case 0x2C: return 63
+    case 0x2D: return 46
+    case 0x2E: return 16
+    case 0x2F: return 3
+    case 0x30: return 4
+    case 0x31: return 2
+    case 0x32: return 17
+    case 0x33: return 49
+    case 0x34: return 48
+    case 0x35: return 1
+    case 0x36: return 5
+    case 0x37: return 47
+    case 0x38: return 50
+    case 0x39: return 54
     case 0x3A...0x52:
       switch usage {
-      case 0x3A...0x45: return 121 + usage - 0x3A // F1...F12
-      case 0x46: return 148 // PrintScreen
-      case 0x47: return 149 // ScrollLock
-      case 0x48: return 150 // Pause
-      case 0x49: return 72 // Insert
-      case 0x4A: return 71 // Home
-      case 0x4B: return 74 // PageUp
-      case 0x4C: return 68 // Delete
-      case 0x4D: return 69 // End
-      case 0x4E: return 73 // PageDown
-      case 0x4F: return 77 // ArrowRight
-      case 0x50: return 76 // ArrowLeft
-      case 0x51: return 75 // ArrowDown
-      case 0x52: return 78 // ArrowUp
+      case 0x3A...0x45: return 121 + usage - 0x3A
+      case 0x46: return 148
+      case 0x47: return 149
+      case 0x48: return 150
+      case 0x49: return 72
+      case 0x4A: return 71
+      case 0x4B: return 74
+      case 0x4C: return 68
+      case 0x4D: return 69
+      case 0x4E: return 73
+      case 0x4F: return 77
+      case 0x50: return 76
+      case 0x51: return 75
+      case 0x52: return 78
       default: return 0
       }
-    case 0x53: return 79 // NumLock
-    case 0x54: return 96 // NumpadDivide
-    case 0x55: return 104 // NumpadMultiply
-    case 0x56: return 107 // NumpadSubtract
-    case 0x57: return 90 // NumpadAdd
-    case 0x58: return 97 // NumpadEnter
+    case 0x53: return 79
+    case 0x54: return 96
+    case 0x55: return 104
+    case 0x56: return 107
+    case 0x57: return 90
+    case 0x58: return 97
     case 0x59...0x61:
-      // HID is 1...9 then 0, while Ghostty's numpad digits are contiguous.
+
       return usage == 0x62 ? 80 : 81 + usage - 0x59
-    case 0x62: return 80 // Numpad0
-    case 0x63: return 95 // NumpadDecimal
-    case 0x64: return 17 // IntlBackslash
-    case 0x65: return 55 // ContextMenu
-    case 0x75: return 70 // Help
-    case 0x7F: return 170 // AudioVolumeMute
-    case 0x80: return 171 // AudioVolumeUp
-    case 0x81: return 169 // AudioVolumeDown
-    case 0xE0: return 56 // ControlLeft
-    case 0xE1: return 61 // ShiftLeft
-    case 0xE2: return 51 // AltLeft
-    case 0xE3: return 59 // MetaLeft
-    case 0xE4: return 57 // ControlRight
-    case 0xE5: return 62 // ShiftRight
-    case 0xE6: return 52 // AltRight
-    case 0xE7: return 60 // MetaRight
+    case 0x62: return 80
+    case 0x63: return 95
+    case 0x64: return 17
+    case 0x65: return 55
+    case 0x75: return 70
+    case 0x7F: return 170
+    case 0x80: return 171
+    case 0x81: return 169
+    case 0xE0: return 56
+    case 0xE1: return 61
+    case 0xE2: return 51
+    case 0xE3: return 59
+    case 0xE4: return 57
+    case 0xE5: return 62
+    case 0xE6: return 52
+    case 0xE7: return 60
     default: return 0
     }
   }

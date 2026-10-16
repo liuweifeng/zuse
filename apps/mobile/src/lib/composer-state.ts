@@ -85,8 +85,7 @@ export const nextModelChangeActions = (
 ): ModelChangeAction[] => {
   const actions: ModelChangeAction[] = [];
   if (next.providerId !== session.providerId) {
-    // Provider swap only on a fresh chat; otherwise ignore it (and the model
-    // that came with it — it belongs to the other provider).
+
     if (fresh) {
       actions.push({
         type: "setProvider",

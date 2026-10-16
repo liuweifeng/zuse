@@ -5,8 +5,6 @@ import { openExternal } from "./platform-capabilities.ts";
 import { refreshProviderMetadata } from "./refresh-provider-metadata.ts";
 import { runtimeOperationClient } from "./runtime-operation-client.ts";
 
-// Attempts belong to the account/computer pair. Closing Settings or hiding the
-// experimental controls only releases a view, never the authorization stream.
 const owners = new Map<
 	string,
 	{

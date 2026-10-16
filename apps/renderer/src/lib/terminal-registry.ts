@@ -652,9 +652,6 @@ export function attach(
 		existing.lastHostHeight = 0;
 		scheduleFit(existing);
 		if (opts.initialInput !== undefined && opts.initialInput.length > 0) {
-			// React may remount while the cloud PTY write is still awaiting its
-			// acknowledgement. The retained terminal owns that trigger until it is
-			// acknowledged, so the remount only replaces the completion callback.
 			existing.pendingInitialInput = retainPendingInitialInput(
 				existing.pendingInitialInput,
 				opts.initialInput,
@@ -824,9 +821,7 @@ export function dispose(
 	const live = registry.get(terminalRuntimeKey(environmentId, instanceId));
 	if (live !== undefined) return releaseLive(live, true);
 	if (fallback.serverPtyId === undefined) return Promise.resolve();
-	// Catalog-restored terminals may be explicitly closed before their surface is
-	// mounted. The server identity is enough to close that owned process without
-	// manufacturing a Ghostty renderer just to tear it down.
+
 	return dispatchTerminalClose(
 		{ environmentId, terminalId: fallback.serverPtyId },
 		fallback.ownerId,

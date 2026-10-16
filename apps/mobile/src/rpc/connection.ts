@@ -53,8 +53,6 @@ const makeClientSession = (options: PreparedOptions) => {
 		hasToken: options.token !== undefined && options.token !== null,
 	});
 	const protocolLayer = wsClientProtocolLayer(options, {
-		// Managed environments can cold-start behind the tunnel. The native
-		// default of ten seconds was too aggressive on physical devices.
 		openTimeout: "25 seconds",
 		makeWebSocket: makeMobileWebSocket,
 		protocols: options.cloudProtocols,

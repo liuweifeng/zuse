@@ -30,7 +30,7 @@ import type { SqlSessionQueryError } from "./sql-session-queries.js";
 import { makeSqlSessionQueries } from "./sql-session-queries.js";
 
 const LATEST_TIMELINE_MESSAGE_LIMIT = 100;
-/** Leaves headroom for the RPC frame, cursor, and codec overhead under 1 MiB. */
+
 const MAX_TIMELINE_SNAPSHOT_PROJECTION_BYTES = 900 * 1024;
 
 interface TimelineHeadRow {
@@ -288,7 +288,6 @@ export const readSessionTimelineSnapshot = Effect.fn(
 	`;
 	const head = headRows[0];
 	if (head === undefined) {
-		// Reuse the query service's typed not-found boundary.
 		yield* queries.get(sessionId);
 		return yield* Effect.die("Session query existed without a timeline head");
 	}

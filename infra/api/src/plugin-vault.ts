@@ -46,28 +46,27 @@ interface Attempt extends PluginAttempt {
 	readonly returnTo?: PluginReturnTo;
 	readonly stateToken?: string;
 	readonly ticket?: string;
-	/** Provider callback query, replayed verbatim to Executor on completion. */
+
 	readonly query?: string;
-	/** Pre-`query` attempts only. */
+
 	readonly code?: string;
 	readonly issuer?: string;
 }
-/** A remote MCP server the tenant added by URL. Sealed: URLs can carry tokens. */
+
 interface CustomServer {
 	readonly id: string;
 	readonly name: string;
 	readonly endpoint: string;
-	/** Set for servers that authenticate with a key in this header. */
+
 	readonly header?: string;
 	readonly createdAt: number;
 }
-/** Catalog entries and custom servers, as the vault connects them. */
+
 interface VaultPlugin extends EnginePlugin {
-	/** Fixed auth; otherwise probed when connecting. */
 	readonly auth?: EngineAuth;
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-/** RFC 9110 token; transport headers stay owned by the MCP client. */
+
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,64}$/;
 const RESERVED_HEADERS = new Set([
 	"accept",
@@ -82,7 +81,7 @@ const RESERVED_HEADERS = new Set([
 const MAX_SERVERS = 25;
 const validKey = (value: string) =>
 	value.length > 0 && value.length <= 4096 && !/[\r\n\0]/.test(value);
-/** References written before lazy registration lack `plugin` and `auth`. */
+
 type StoredRef = Omit<EngineConnection, "plugin" | "auth"> &
 	Partial<Pick<EngineConnection, "plugin" | "auth">>;
 const ENGINE_ERRORS: Record<PluginEngineErrorCode, PluginErrorCode> = {
@@ -90,8 +89,7 @@ const ENGINE_ERRORS: Record<PluginEngineErrorCode, PluginErrorCode> = {
 	auth_unsupported: "plugin_auth_unsupported",
 	unreachable: "plugin_unreachable",
 };
-/** Loaded on first use: evaluating the engine at module load exceeds the
- * Worker startup CPU limit. Engine errors only exist once it has loaded. */
+
 let engineModule: typeof import("@zuse/executor-v2") | undefined;
 const loadEngineModule = async () => {
 	engineModule ??= await import("@zuse/executor-v2");
@@ -120,7 +118,7 @@ const isHttpsOrigin = (value: string | undefined) =>
 	value !== undefined &&
 	URL.canParse(value) &&
 	new URL(value).protocol === "https:";
-/** Executor failures carry a tag and reason; never their message or cause. */
+
 const failureKind = (error: unknown): Record<string, string> => {
 	if (typeof error !== "object" || error === null) return { tag: "unknown" };
 	const value = error as {
@@ -136,13 +134,13 @@ const failureKind = (error: unknown): Record<string, string> => {
 		tag: typeof tag === "string" ? tag : "unknown",
 		...(typeof reason === "string" ? { reason } : {}),
 		...(typeof value.code === "string" ? { code: value.code } : {}),
-		// Untagged errors are Zuse's own (egress policy, missing state); safe to log.
+
 		...(tag === undefined && typeof value.message === "string"
 			? { message: value.message.slice(0, 160) }
 			: {}),
 	};
 };
-/** Rejected before anything is stored. */
+
 const rejected = (
 	id: string,
 	pluginId: string,
@@ -157,7 +155,7 @@ const rejected = (
 	error,
 	pluginId,
 });
-/** Display data only: the query string may carry credentials. */
+
 const publicServer = (server: CustomServer): PluginDefinition => {
 	const url = new URL(server.endpoint);
 	return {
@@ -189,7 +187,7 @@ export class PluginVault {
 			const version = await ctx.storage.get("schema-version");
 			if (version !== undefined && version !== 2)
 				throw new Error("Plugin storage requires an explicit v1 migration");
-			// OAuth callbacks are built from this origin; providers require HTTPS.
+
 			if (!env.PLUGIN_ENCRYPTION_KEY || !isHttpsOrigin(env.API_PUBLIC_ORIGIN))
 				throw new Error("Plugins are not configured");
 			for (const key of (
@@ -236,7 +234,7 @@ export class PluginVault {
 		const ref = await this.ctx.storage.get<StoredRef>(this.refKey(subject, id));
 		if (!ref || (ref.plugin !== undefined && ref.plugin !== pluginId))
 			throw new Error("Connection unavailable");
-		// Legacy references predate probing; their catalog entries carry fixed auth.
+
 		const auth = ref.auth ?? findCatalogPlugin(pluginId)?.auth;
 		if (!auth) throw new Error("Connection unavailable");
 		return { ...ref, plugin: pluginId, auth };
@@ -361,7 +359,7 @@ export class PluginVault {
 		}
 		if (input.action === "removeServer") {
 			if (!this.servers.has(input.pluginId)) throw new Error("Unknown server");
-			// Every tenant row, whoever connected it: the server is the tenant's.
+
 			const rows = await this.ctx.storage.list<PluginConnection>({
 				prefix: "connection:",
 			});
@@ -421,7 +419,7 @@ export class PluginVault {
 				...(input.returnTo ? { returnTo: input.returnTo } : {}),
 				...(key ? { apiKey: key.value } : {}),
 			});
-			// Nothing was connected: keep no server, so the user can fix and retry.
+
 			if (attempt.state === "failed") {
 				await this.ctx.storage.delete(`server:${id}`);
 				this.servers.delete(id);
@@ -455,7 +453,7 @@ export class PluginVault {
 			a.ticket !== input.ticket
 		)
 			throw new Error("Invalid confirmation");
-		// Consume before exchanging. Never retry a code or an ambiguous token exchange.
+
 		await this.ctx.storage.delete(`ticket:${a.ticket}`);
 		try {
 			const callback = new URL(
@@ -476,7 +474,6 @@ export class PluginVault {
 			await this.finish(a);
 			return publicAttempt({ ...a, state: "connected" });
 		} catch (error) {
-			// Provider responses stay private; the failure kind is enough to diagnose.
 			console.warn(
 				JSON.stringify({
 					event: "plugin_sign_in_failed",
@@ -542,9 +539,8 @@ export class PluginVault {
 			createdAt: Date.now(),
 		});
 		try {
-			// The resolved auth is persisted in the reference for later restarts.
 			const auth = plugin.auth ?? (await probePluginAuth(plugin.endpoint));
-			// Check a key against the server before saving it.
+
 			if (auth === "header")
 				await probePluginKey(
 					plugin.endpoint,
@@ -707,7 +703,6 @@ export class PluginVault {
 		const ticketKey = `ticket:${ticket}`;
 		await this.commit(
 			{
-				// Executor validates the full response, including duplicate or extra parameters.
 				[attemptKey]: await this.seal(attemptKey, {
 					...a,
 					query: url.search.slice(1),
@@ -755,7 +750,6 @@ export class PluginVault {
 		identity: PluginIdentity,
 		input: PluginToolRequest,
 	) {
-		// A removed custom server's rows are gone too; never resolve one anyway.
 		const connected = (await this.connections(identity)).filter(
 			({ row }) =>
 				row.state === "connected" &&
@@ -783,7 +777,7 @@ export class PluginVault {
 					this.owner({ ...identity, subject }),
 					await this.ref(subject, row.id, row.pluginId),
 				);
-				// Match the plugin's id and name too, so "linear" finds every Linear tool.
+
 				const catalog = this.plugin(row.pluginId);
 				const plugin = `${row.pluginId} ${catalog?.name ?? ""} ${row.label}`;
 				const serviceNames = plugin.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -826,7 +820,6 @@ export class PluginVault {
 		return task;
 	}
 	private async sweep() {
-		// Tokens and callbacks are short-lived; retained terminal attempts support retries.
 		const entries = await this.ctx.storage.list<string>({ prefix: "attempt:" });
 		for (const key of entries.keys()) {
 			const a = await this.read<Attempt>(key);

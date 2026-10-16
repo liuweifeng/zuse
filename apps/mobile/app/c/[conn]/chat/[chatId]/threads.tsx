@@ -67,9 +67,7 @@ export default function ThreadsScreen() {
 	const bundles = useAtomValue(connectionBundlesAtom(connKey));
 	const statuses = useAtomValue(statusBySessionAtom);
 	const pendingBySession = useAtomValue(pendingBySessionAtom);
-	// Plain derivation: connKey flows into module-level atom actions, which the
-	// React Compiler treats as possibly mutating — manual memoization on it
-	// cannot be preserved, so let the compiler memoize.
+
 	const options = optionsForConnection(connKey, connections);
 	const chat = useMemo(
 		() =>

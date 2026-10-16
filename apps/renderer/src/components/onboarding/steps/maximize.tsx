@@ -14,12 +14,6 @@ import { dispatchEnvironmentShellCommand } from "../../../lib/environment-shell-
 import { useEnvironmentCatalogStore } from "../../../store/environment-catalog.ts";
 import { StepHeader } from "./shared.tsx";
 
-/**
- * Monthly reference for the "token maxer" onboarding story. We do not know the
- * user's exact plan yet, so this mirrors the board's default stack: Claude Max
- * plus ChatGPT Pro. `apiValue` is API-equivalent monthly value heavy users can
- * pull from those flat fees as of mid-2026, illustrative and not guaranteed.
- */
 const MONTHLY_STACK = {
 	subscriptionCost: "$400",
 	apiValue: "$11,500 to $15,000",

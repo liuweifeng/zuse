@@ -80,9 +80,7 @@ export const controlApiErrorCode = (
 	if (code === "invalid_machine_state" || code === "machine_not_recoverable") {
 		return "invalid-state";
 	}
-	// An expired or rejected credential must surface as an auth fault, not a
-	// generic failure — clients stop retrying and prompt for sign-in instead
-	// of looping a reconnect that can never succeed.
+
 	if (status === 403) return "access-denied";
 	if (status === 401) {
 		return "not-allowed";

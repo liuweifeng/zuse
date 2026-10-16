@@ -4,20 +4,6 @@ import { useUiStore } from "../store/ui.ts";
 import { ProjectsSidebar } from "./projects-sidebar.tsx";
 import { TopBarLeft } from "./top-bar.tsx";
 
-/**
- * macOS Dock-style auto-reveal for the left sidebar. Two pieces:
- *
- *   - `<SidebarPeekTrigger />`: a thin invisible strip pinned to the left
- *     edge of the window. Only mounted when the docked panel is collapsed.
- *     Hovering it flips `leftSidebarPeek` → true.
- *
- *   - `<SidebarPeekOverlay />`: the floating sidebar itself. Position-fixed
- *     above the main content (does NOT shift the chat), slides in from the
- *     left, and auto-hides ~250ms after the cursor leaves it. Re-uses the
- *     same `<TopBarLeft />` + `<ProjectsSidebar />` as the docked panel so
- *     behavior and state stay in lockstep.
- */
-
 const TRIGGER_WIDTH_PX = 4;
 const OVERLAY_WIDTH_PX = 280;
 const CLOSE_DELAY_MS = 250;
@@ -44,9 +30,6 @@ export function SidebarPeekOverlay() {
 	const setPeek = useUiStore((s) => s.setLeftSidebarPeek);
 	const closeTimer = useRef<number | null>(null);
 
-	// Clear any pending close timer if the docked panel opens (keyboard
-	// shortcut, header button) — the overlay would otherwise try to flip
-	// peek=false after the panel was already opened.
 	useEffect(() => {
 		if (docked && closeTimer.current !== null) {
 			window.clearTimeout(closeTimer.current);

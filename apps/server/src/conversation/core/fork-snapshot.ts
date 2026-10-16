@@ -46,8 +46,7 @@ export const readForkSnapshot = (
 			.get(sessionId, chatId);
 		if (row === undefined)
 			throw new Error("Machine fork source session is missing");
-		// Retained machine snapshots can predate the engine migration. Normalize
-		// their native handle in memory; the retained database remains read-only.
+
 		const normalized: Record<string, unknown> =
 			!hasThreads &&
 			typeof row.cursor === "string" &&

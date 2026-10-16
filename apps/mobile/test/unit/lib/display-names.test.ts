@@ -13,13 +13,12 @@ describe("mobile display names", () => {
 	});
 
 	test("passes through human machine names from the server", () => {
-		// macOS computer name (scutil --get ComputerName)
 		expect(visibleConnectionLabel("Whizzy's MacBook Pro")).toBe(
 			"Whizzy's MacBook Pro",
 		);
-		// hostname fallback with .local already stripped server-side
+
 		expect(visibleConnectionLabel("whizzy-mbp")).toBe("whizzy-mbp");
-		// username fallback
+
 		expect(visibleConnectionLabel("whizzy")).toBe("whizzy");
 	});
 

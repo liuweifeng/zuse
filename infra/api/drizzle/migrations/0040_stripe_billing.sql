@@ -1,5 +1,5 @@
--- Existing periods and queued charges retain their Polar ownership. A checkout
--- default change must never reroute historical invoice usage.
+
+
 ALTER TABLE api_cloud_billing_periods ADD COLUMN billing_provider text NOT NULL DEFAULT 'polar';
 UPDATE api_cloud_billing_periods SET billing_provider='manual' WHERE status='manual';
 ALTER TABLE api_cloud_billing_outbox ADD COLUMN occurred_at bigint;

@@ -140,7 +140,6 @@ export class HarnessEngine {
 		await this.persist();
 	}
 	private persist(): Promise<void> {
-		// Capture now, before asynchronous storage or another child's mutation.
 		const snapshot = structuredClone(this.state);
 		this.writes = this.writes.then(() => this.host.save(snapshot));
 		return this.writes;
@@ -174,7 +173,7 @@ export class HarnessEngine {
 					...(images.length ? { images } : {}),
 				});
 			await this.persist();
-			// Restore the graph only on explicit Continue/send, never on startup.
+
 			for (const child of this.state.agents)
 				if (child.parentId && child.status === "interrupted")
 					this.startBackground(child);
@@ -275,7 +274,6 @@ export class HarnessEngine {
 		let previousFailure = "";
 		let repeatedFailures = 0;
 		while (!signal.aborted) {
-			// Recovery executes only calls whose intent has not yet been recorded.
 			while (agent.pendingCalls.length) {
 				signal.throwIfAborted();
 				const call = agent.pendingCalls[0];
@@ -296,7 +294,7 @@ export class HarnessEngine {
 					this.state.tools[key] = { status: "started", signature };
 					await this.persist();
 					this.host.notify({ type: "tool-start", agentId: agent.id, call });
-					// Aborting a side effect retains its uncertain receipt, even if the host throws.
+
 					try {
 						output = await this.execute(
 							agent,
@@ -504,7 +502,6 @@ export class HarnessEngine {
 				})),
 			);
 		if (name === "wait_agent") {
-			// Never wait on an ancestor, which may itself be waiting on this child.
 			const descendants = this.state.agents.filter((candidate) =>
 				this.isDescendant(candidate, agent.id),
 			);
@@ -537,7 +534,7 @@ export class HarnessEngine {
 					agent.readOnly ||
 					this.mode === "plan" ||
 					Reflect.get(args, "readOnly") === true,
-				// Copy the array, share immutable committed messages. Exclude the open call exchange.
+
 				history:
 					Reflect.get(args, "inherit") === false
 						? agent.history.filter((m) => m.role === "system")
@@ -596,8 +593,7 @@ export class HarnessEngine {
 		const target = Math.min(budget * 0.5, limits.compactAt * 0.6);
 		let covered = compactionBoundary(agent.history);
 		const previous = agent.checkpoint?.covered ?? 0;
-		// Retain recent complete exchanges when they fit. Large recent tool
-		// results can instead be covered by the summary; never split a call/result pair.
+
 		const candidates = agent.history.flatMap((message, index) =>
 			message.role === "user" || message.role === "assistant" ? [index] : [],
 		);
@@ -638,8 +634,7 @@ export class HarnessEngine {
 				this.model,
 			);
 			let summaryBudget = Math.floor(target - retained);
-			// Pinned instructions/attachments can make the 50% target impossible.
-			// Still summarize when they leave safe room below the compaction trigger.
+
 			if (summaryBudget < 128)
 				summaryBudget = Math.floor(
 					Math.min(budget * 0.75, limits.compactAt * 0.9) - retained,
@@ -681,8 +676,7 @@ export class HarnessEngine {
 				if (!best || after < best.after) best = { summary: result.text, after };
 				if (after <= target) break;
 			}
-			// 50% is the target, not a hard failure threshold. Allow useful
-			// reductions with headroom below the next compaction trigger.
+
 			if (!best || best.after >= limits.compactAt || best.after >= before)
 				throw new HarnessPaused(
 					"Compaction could not fit the context after two attempts. Your history is preserved. Continue to retry, or start a focused follow-up with smaller inputs.",

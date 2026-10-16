@@ -64,7 +64,7 @@ export const runnerEnv = (
 		setStatus: (channel, threadTs, status) =>
 			setThreadStatus(env, installation, channel, threadTs, status),
 		NAMESPACE: namespace,
-		// Reconnecting another account must not reuse the previous connection's imports.
+
 		THREADS: {
 			get: (key) => state.get(`${zuse.webhookId}:${key}`),
 			put: (key, value, options) =>
@@ -125,11 +125,9 @@ export const uploadSlackFiles = async (
 	files: ReadonlyArray<SlackFile>,
 	idempotencyPrefix: string,
 ): Promise<ReadonlyArray<string>> => {
-	// Prefer the newest files when a long thread exceeds the API batch limit.
 	const selected = files.slice(-SLACK_MESSAGE_MAX_FILES);
 	const assetIds: string[] = [];
-	// Buffer one file at a time; eight simultaneous 20 MiB downloads exceed
-	// the Worker's memory budget before their upload copies are allocated.
+
 	for (const file of selected) {
 		const bytes = await downloadSlackFile({
 			botToken: env.SLACK_BOT_TOKEN,
@@ -184,7 +182,7 @@ export const runAutomation = async (
 	const config = zuseConfig(env);
 	const threadKey = `${env.NAMESPACE}:slack-thread:${input.channel}:${input.threadTs}`;
 	if ((await env.THREADS.get(`imported:${threadKey}`)) !== null) return;
-	// Keep context stable across retries, even if new replies arrive meanwhile.
+
 	const cached = await env.THREADS.get(`context:${threadKey}`);
 	const thread: Awaited<ReturnType<typeof readSlackThread>> =
 		cached === null
@@ -285,8 +283,7 @@ export const handleZuseWebhook = async (
 	const dedupeKey = `event:${event.eventId}`;
 	if ((await env.THREADS.get(dedupeKey)) !== null) return new Response("ok");
 	const mapping = await env.THREADS.get(`workspace:${event.workspaceId}`);
-	// The mapping is committed before submitting the initial turn.
-	// Account-wide webhooks also contain workspaces not created by this app.
+
 	if (mapping === null) return new Response("ok");
 	let parsedMapping: { readonly channel?: string; readonly threadTs?: string };
 	try {
@@ -309,7 +306,7 @@ export const handleZuseWebhook = async (
 		);
 		if (turnKey) {
 			const messageId = await env.THREADS.get(`submitted:${turnKey}`);
-			// Completion can race the submission response; ask the durable outbox to retry.
+
 			if (!messageId)
 				return new Response("submission pending", { status: 503 });
 			const { turnId, turnFailure } = await readTurn(
@@ -339,8 +336,7 @@ export const handleZuseWebhook = async (
 				text: `${text}\n\n${workspaceLink(env, event.workspaceId)}`,
 				idempotencyKey: `${env.NAMESPACE}:turn:${event.eventId}`,
 			});
-		// Mark delivered only after Slack accepted the post. A Slack or KV failure
-		// returns non-2xx so Zuse's durable webhook dispatcher retries the event.
+
 		await env.THREADS.put(dedupeKey, "1", {
 			expirationTtl: EVENT_DEDUPE_TTL_SECONDS,
 		});

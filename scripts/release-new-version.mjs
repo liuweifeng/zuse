@@ -253,8 +253,7 @@ run("git", ["pull", "--ff-only", "origin", "main"]);
 const desktopPkg = JSON.parse(
 	readFileSync(join(root, "apps/desktop/package.json"), "utf8"),
 );
-// Manual promotions set the packaged version without modifying main. GitHub's
-// current Stable release is therefore the baseline for notes and version bumps.
+
 const currentVersion = execFileSync(
 	"gh",
 	["release", "view", "--json", "tagName", "--jq", ".tagName"],

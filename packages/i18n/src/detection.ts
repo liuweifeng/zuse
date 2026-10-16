@@ -1,6 +1,5 @@
 import { type Locale, type WebsiteLocale, websiteLocales } from "./registry.ts";
 
-/** Country is a last-resort hint, never an override for a language preference. */
 const countryLanguages: Readonly<Record<string, WebsiteLocale>> = {
 	FR: "fr",
 	MC: "fr",

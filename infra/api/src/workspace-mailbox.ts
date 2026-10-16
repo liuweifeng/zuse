@@ -136,9 +136,7 @@ export class WorkspaceMailbox {
 			"DELETE FROM mailbox_changes WHERE revision <= ?",
 			revision - CHANGE_HISTORY_LIMIT,
 		);
-		// Change history is bounded, while command tombstones live for the
-		// workspace lifetime. Preserve the latest command revision separately so
-		// targeted status recovery remains useful after a watch cursor reset.
+
 		this.setMeta(`command-revision:${commandId}`, revision);
 		for (const wake of this.waiters) wake();
 		this.waiters.clear();
@@ -240,10 +238,6 @@ export class WorkspaceMailbox {
 				typeof row.runtime_generation === "number" &&
 				typeof row.storage_incarnation_id === "string";
 			if (canStillReceiveOriginalReceipt) {
-				// Destruction prevents any replay, but it does not erase knowledge held
-				// by the runtime that already owned this exact lease. Keep the original
-				// token only through its existing deadline so a durable receipt can
-				// settle the outcome without weakening terminal-state immutability.
 				this.sql.exec(
 					`UPDATE mailbox_commands SET category = ?, updated_at = ?
 					 WHERE command_id = ? AND state = 'leased'`,
@@ -429,8 +423,6 @@ export class WorkspaceMailbox {
 	}
 
 	private async reserve(envelope: CloudCommandEnvelope): Promise<Response> {
-		// Arm first: a DO eviction between SQLite commit and alarm scheduling must
-		// not leave an abandoned reservation consuming capacity forever.
 		await this.schedule(Date.now() + RESERVATION_TTL_MS);
 		const response = this.state.storage.transactionSync(() =>
 			this.reserveUnsafe(envelope),
@@ -519,9 +511,7 @@ export class WorkspaceMailbox {
 				workspaceSequence: current.workspaceSequence,
 				revision: current.revision,
 				acceptedAt,
-				// Enqueue acknowledges durable acceptance even when this is a retry
-				// after the command already reached a terminal state. The client checks
-				// status before watching, so no terminal revision can be missed.
+
 				state: acceptanceState,
 			},
 			202,
@@ -533,8 +523,6 @@ export class WorkspaceMailbox {
 		blockedUntil?: string,
 		delivery?: MailboxWakeDelivery,
 	): Promise<Response> {
-		// Arm before SQLite acceptance. A process death after the transaction
-		// cannot strand an accepted command before its dispatch is delivered.
 		if (delivery !== undefined) await this.schedule(Date.now() + 1);
 		const response = this.state.storage.transactionSync(() =>
 			this.commitUnsafe(commandId, blockedUntil, delivery),
@@ -751,10 +739,6 @@ export class WorkspaceMailbox {
 			knownDestructionFence !== null &&
 			input.destructionFence < knownDestructionFence
 		) {
-			// A runtime authenticated against an older lifecycle view must not see
-			// work from the new incarnation. An empty successful poll lets that old
-			// consumer stop cleanly once its credential is fenced without spinning
-			// on a permanent request failure.
 			return json({
 				leases: [],
 				fenced: true,
@@ -790,9 +774,7 @@ export class WorkspaceMailbox {
 			"INSERT INTO mailbox_meta(key,value) VALUES ('storage-incarnation', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
 			input.storageIncarnationId,
 		);
-		// A newer control-plane runtime generation fences every credential from
-		// the prior generation. With the same SQLite incarnation it is therefore
-		// safe to re-lease: the runtime receipt prevents a duplicate apply.
+
 		const fenced = this.rows(
 			`SELECT command_id FROM mailbox_commands
 			 WHERE state = 'lease-expired-awaiting-fence' AND storage_incarnation_id = ?
@@ -893,9 +875,7 @@ export class WorkspaceMailbox {
 
 	private acknowledgeUnsafe(ack: RuntimeAcknowledgment): Response {
 		const now = Date.now();
-		// Enforce the bounded destructive-lifecycle grace window even when an ACK
-		// races the alarm. Ordinary expired leases remain receipt-eligible until
-		// their runtime generation is fenced; lifecycle-fenced leases do not.
+
 		this.expireLeasesUnsafe(now);
 		if (
 			(ack.resultIv?.length ?? 0) + (ack.resultCiphertext?.length ?? 0) >
@@ -916,8 +896,6 @@ export class WorkspaceMailbox {
 				row.state !== "lease-expired-awaiting-fence") ||
 			row.lease_token !== ack.leaseToken
 		)
-			// This is a permanent receipt outcome, not a retryable transport error.
-			// A newer fenced lease (or lifecycle transition) now owns the command.
 			return json({
 				acknowledged: false,
 				code: "stale-runtime-lease",
@@ -979,9 +957,6 @@ export class WorkspaceMailbox {
 					everLeased: `workspace-${action}d-after-lease`,
 				});
 			} else {
-				// Compatibility for a control plane deployed before lifecycle fences
-				// were forwarded. It is intentionally conservative: no accepted work
-				// may remain replayable after a destructive lifecycle request.
 				const nonterminal = this.rows(
 					`SELECT command_id, ever_leased, state, lease_token, lease_deadline,
 						runtime_generation, storage_incarnation_id
@@ -1010,11 +985,7 @@ export class WorkspaceMailbox {
 					?.value ?? 0,
 			);
 			const resetRequired = oldest > 0 && afterRevision < oldest - 1;
-			// A reset is a handshake, not a partial workspace snapshot. There can be
-			// 256 pending commands but a page holds only 100, so returning an arbitrary
-			// subset and advancing to `current` would silently lose pending IDs. The
-			// caller recovers its own durable pending IDs through /status, then resumes
-			// from nextRevision.
+
 			if (resetRequired)
 				return {
 					changes: [],
@@ -1032,8 +1003,7 @@ export class WorkspaceMailbox {
 				changes: ids
 					.map((row) => this.status(String(row.command_id)))
 					.filter(Boolean),
-				// Advance only through the last command represented in this page. A
-				// second page therefore cannot be skipped when >100 commands changed.
+
 				nextRevision:
 					lastRevision === undefined || lastRevision === null
 						? current
@@ -1149,9 +1119,7 @@ export class WorkspaceMailbox {
 				await this.dispatchWake({ workspaceId, accountId });
 				this.state.storage.transactionSync(() => {
 					this.setMeta("wake-delivered-revision", revision);
-					// A notification may have arrived before control-plane wake
-					// intent committed. Publish a new cursor after that durable
-					// dispatch, so an idle waiter cannot sleep past the intent.
+
 					this.next("revision");
 					for (const wake of this.waiters) wake();
 					this.waiters.clear();

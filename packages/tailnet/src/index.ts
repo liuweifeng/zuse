@@ -86,9 +86,7 @@ export const extractTailnetApprovalUrl = (value: string): string | null => {
 			) {
 				return url.toString();
 			}
-		} catch {
-			// Ignore malformed command output and continue looking for a valid URL.
-		}
+		} catch {}
 	}
 	return null;
 };
@@ -242,9 +240,7 @@ export const runTailnetCommand = (
 		const emit = (event: TailnetDiagnosticEvent): void => {
 			try {
 				diagnostic(event);
-			} catch {
-				// Diagnostics must never affect network setup.
-			}
+			} catch {}
 		};
 		emit({
 			event: "start",
@@ -444,7 +440,6 @@ const probeRequest = async (
 			? { kind: "json", value: value as Record<string, unknown> }
 			: { kind: "other" };
 	} catch (cause) {
-		// A parse failure on a 200 means "answered, but not as expected".
 		if (cause instanceof SyntaxError) return { kind: "other" };
 		return { kind: "unreachable" };
 	} finally {
@@ -466,7 +461,7 @@ export const probeZuseLoopback: ZuseIdentityProbe = async (port) => {
 	) {
 		return "zuse";
 	}
-	// Older zuse serve daemons may predate /pair/identity.
+
 	const session = await probeRequest(port, "/auth/session", { method: "GET" });
 	if (session.kind === "unreachable") return "unreachable";
 	if (
@@ -534,9 +529,7 @@ export const resolveServeOwnership = async (input: {
 	const target = targets[0];
 	if (target === undefined) return { kind: "unrecognized" };
 	if (target.port === input.requestedPort) return { kind: "active" };
-	// The marker wins even when something else now listens on the old port:
-	// that squatter is exactly why the api port drifted, and the serve route
-	// still belongs to Zuse until Zuse repoints or releases it.
+
 	if (target.port === input.markerPort) {
 		return { kind: "repair", previousPort: target.port };
 	}
@@ -673,8 +666,6 @@ export const inspectTailnetShare = async (
 			});
 		case "active":
 			if (options.ownershipDir !== undefined && markerPort !== port) {
-				// Existing routes predate the marker; record ownership now so the
-				// next port drift repairs silently instead of reporting a conflict.
 				await writeServeOwnershipMarker(options.ownershipDir, port).catch(
 					() => undefined,
 				);
@@ -689,8 +680,6 @@ export const inspectTailnetShare = async (
 				conflict: null,
 			});
 		case "repair":
-			// Zuse owns the route but the local port drifted; enabling again (or
-			// repairTailnetShare at startup) repoints it.
 			return TailnetShareState.make({
 				...base,
 				availability: "available",
@@ -800,8 +789,6 @@ export const setTailnetShareEnabled = async (
 		}
 	}
 	if (input.enabled) {
-		// Covers both an active route on this port and a live zuse serve daemon;
-		// neither should be replaced, and the daemon route stays untouched.
 		if (before.enabled) return before;
 		if (before.availability === "conflict") return before;
 	}

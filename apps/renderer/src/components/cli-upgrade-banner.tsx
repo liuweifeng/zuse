@@ -15,8 +15,6 @@ import { Button } from "~/components/ui/button";
 import { openExternal } from "~/lib/platform-capabilities";
 import { useProvidersStore } from "../store/providers.ts";
 
-// Per-provider docs URL surfaced as "Upgrade guide" — opens in the user's
-// system browser via the Electron bridge.
 const UPGRADE_DOCS_URL: Record<ProviderId, string> = {
 	claude: "https://docs.claude.com/en/docs/claude-code/setup",
 	codex: "https://github.com/openai/codex#installation",
@@ -69,11 +67,7 @@ export function CliUpgradeBanner({
 			await navigator.clipboard.writeText(command);
 			setCopied(true);
 			setTimeout(() => setCopied(false), 1500);
-		} catch {
-			// Clipboard can fail under strict CSP — the user still sees the
-			// command in the box and can select it by hand. Silent fail is
-			// friendlier than a toast about a permission edge case.
-		}
+		} catch {}
 	};
 
 	const onOpenDocs = () => {

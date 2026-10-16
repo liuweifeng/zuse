@@ -26,9 +26,6 @@ import { Effect } from "effect";
 export const Migration0012ChatIdNotNull = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
 
-  // Heal: propagate each session's top-level ancestor's chat_id down its
-  // parent chain. Sessions whose ancestor chain reaches a top-level row are
-  // covered here.
   yield* sql`
     WITH RECURSIVE ancestor(id, chat_id) AS (
       SELECT id, chat_id FROM sessions WHERE parent_session_id IS NULL
@@ -45,9 +42,6 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
       AND id IN (SELECT id FROM ancestor)
   `;
 
-  // Orphan heal: anything still NULL is a session whose parent chain never
-  // resolves to a top-level row. Mint a chat per orphan (mirroring 0011's
-  // seed shape) and point the session at it.
   yield* sql`
     INSERT INTO chats (
       id, project_id, worktree_id, title, active_session_id,
@@ -74,8 +68,6 @@ export const Migration0012ChatIdNotNull = Effect.gen(function* () {
     WHERE chat_id IS NULL
   `;
 
-  // Rebuild `sessions` to enforce `chat_id NOT NULL`. SQLite's table-rebuild
-  // idiom: create the replacement, copy rows, drop the original, rename.
   yield* sql`
     CREATE TABLE sessions_new (
       id TEXT PRIMARY KEY,

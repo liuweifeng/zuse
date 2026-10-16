@@ -43,8 +43,6 @@ export function parsePrAvatars(output: string): PrAvatars {
 				);
 			}
 		}
-	} catch {
-		/* Optional artwork must not hide PR feedback or checks. */
-	}
+	} catch {}
 	return result;
 }

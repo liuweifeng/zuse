@@ -6,7 +6,7 @@ describe("OpenCode MCP isolation plugin", () => {
 		const url = await opencodeMcpIsolationPluginUrl();
 		expect(await opencodeMcpIsolationPluginUrl()).toBe(url);
 		const module = (await import(url)) as Record<string, unknown>;
-		// OpenCode's legacy loader requires every export to be a plugin fn.
+
 		expect(Object.values(module).every((v) => typeof v === "function")).toBe(
 			true,
 		);

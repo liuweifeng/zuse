@@ -46,40 +46,23 @@ JS
   sed -e "s|/home/zuse/.ssh|$ZUSE_SSH_DIRECTORY|g" -e "s/^AllowUsers zuse$/AllowUsers $(id -un)/" /usr/local/share/zuse/sshd_config >"$ZUSE_SSH_DIRECTORY/sshd_config"
   chmod 600 "$ZUSE_SSH_DIRECTORY/sshd_config"
 else
-# Runtime and GitHub identity must never survive a fork. Provider-owned agent
-# authentication intentionally belongs to the private account image.
+
 rm -rf /home/zuse/.config/gh
 mkdir -p "$ZUSE_USER_DATA"
 chown zuse:zuse "$ZUSE_USER_DATA"
 chmod 700 "$ZUSE_USER_DATA"
 
-# GitHub access inside a cloud workspace is the Zuse GitHub App installation
-# token, minted per call by `zuse-github-auth`: `gh` is a shim that resolves a
-# fresh token and execs the real binary, and the same script backs git's
-# credential helper. Nothing here ever runs `gh auth login`, and no credential
-# is retained in a shell.
-#
-# This is repaired on every start rather than trusted from the image. A sandbox
-# built before the shim shipped carries stock `gh`, which answers every push
-# with the unactionable "run gh auth login"; a persisted home can shadow the
-# image's global git config; and PATH is not guaranteed to resolve
-# /usr/local/bin first. The API ships the current script with the project
-# build, so prefer that copy over whatever the base image happens to hold.
 github_auth=/var/lib/zuse/project-build/github-auth.sh
 [[ -r "$github_auth" ]] || github_auth=/usr/local/bin/zuse-github-auth
 if [[ -r "$github_auth" ]]; then
-  # Provider file delivery deliberately uses mode 0600. Make the delivered
-  # helper runnable before linking gh; do not select an obsolete image helper
-  # just because that older file already has its executable bit set.
+
   [[ -x "$github_auth" ]] || chmod u+x "$github_auth"
   export ZUSE_GITHUB_AUTH_BIN="$github_auth"
   mkdir -p /home/zuse/.local/bin
   ln -sf "$github_auth" /home/zuse/.local/bin/gh
-  # The runtime inherits this, and agent drivers pass their environment
-  # through, so every agent-run `gh` resolves the shim.
+
   export PATH="/home/zuse/.local/bin:$PATH"
-  # A terminal opened over the SSH bridge starts from the shell profile
-  # instead, and neither Debian rc file puts ~/.local/bin ahead of stock gh.
+
   for rc in /home/zuse/.profile /home/zuse/.bashrc; do
     grep -qs 'zuse-github-auth shim' "$rc" ||
       printf '\n# zuse-github-auth shim: GitHub App credentials, never gh auth login.\nPATH="$HOME/.local/bin:$PATH"\n' >>"$rc"
@@ -91,8 +74,6 @@ else
     'zuse-github-auth is missing from this sandbox, so GitHub access is unavailable. Rebuild the project image to ship it; gh auth login is never the fix.' >&2
 fi
 
-# The SSH host identity is per-workspace: never inherit it (or authorized
-# keys) from the snapshot this sandbox was forked from.
 mkdir -p /home/zuse/.ssh
 chmod 700 /home/zuse/.ssh
 rm -f /home/zuse/.ssh/host_ed25519_key /home/zuse/.ssh/host_ed25519_key.pub \
@@ -101,8 +82,6 @@ ssh-keygen -q -t ed25519 -N "" -f /home/zuse/.ssh/host_ed25519_key
 
 fi
 
-# Start the real runtime once: it creates a fresh identity, enrolls, installs credentials,
-# and then remains available for the desktop connection.
 export ZUSE_RUNTIME_KIND=cloud-workspace
 export ZUSE_CLOUD_WORKSPACE_ID
 export ZUSE_HOST=127.0.0.1
@@ -111,8 +90,7 @@ export ZUSE_AUTH_POLICY=protected
 export ZUSE_ENABLE_PAIRING=0
 export ZUSE_MACHINE_RUNTIME_ROLE=cloud-environment
 export ZUSE_SERVER_READY_STDOUT=1
-# The lifetime-lock helper selected the existing canonical storage before any
-# runtime or enrollment work. Keep that path through exec.
+
 credentials_event="$status_dir/credentials-ready-event"
 rm -f "$credentials_event"
 mkfifo -m 600 "$credentials_event"
@@ -127,9 +105,6 @@ runtime_pid=$!
 (IFS= read -r _ <"$credentials_event") &
 credentials_wait_pid=$!
 
-# The runtime signals credentials-ready only once the launch agent's
-# credential evidence is settled. Repository preparation starts after that,
-# so the visible preparation phases follow the real order.
 phase=preparing-credentials
 set +e
 wait -n "$runtime_pid" "$credentials_wait_pid"
@@ -141,7 +116,6 @@ fi
 [[ ! -f "$status_dir/failed" ]]
 rm -f "$credentials_event"
 
-# Both initial startup and interrupted-startup recovery use the same safe setup.
 phase=syncing-repository
 bash "$repository_script" >>"$status_dir/runtime.log" 2>&1 &
 repository_pid=$!

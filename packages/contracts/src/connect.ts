@@ -28,21 +28,6 @@ export const isEnvironmentPresenceFresh = (
 	lastHeartbeat !== undefined &&
 	now - lastHeartbeat <= ENVIRONMENT_PRESENCE_STALE_MS;
 
-// ---------------------------------------------------------------------------
-// Environment abstraction
-// ---------------------------------------------------------------------------
-//
-// An *environment* is a host running `@zusehq/server`. The same headless server
-// binary runs on the laptop, on an SSH dev-box, or on a cloud container — only
-// `providerKind` and the endpoint differ. Clients (desktop renderer, mobile,
-// browser) pick an environment without caring where it physically runs, which
-// is the seam that lets cloud-hosted worktrees drop in later with no client or
-// server-core refactor.
-//
-// These types + RPC definitions lock that contract now. The local-pairing and
-// cloud-link handlers (and registration into the RPC group) land with the
-// auth/pairing and api PRs; until then these are exported definitions only.
-
 /**
  * Where an environment physically runs.
  * - `desktop`: on the user's machine (IPC in-process, or WS + tunnel for reach)
@@ -183,18 +168,10 @@ export class EnvironmentDescriptor extends Schema.Class<EnvironmentDescriptor>(
 	lastHeartbeat: Schema.optional(Schema.Number),
 }) {}
 
-// ---------------------------------------------------------------------------
-// Errors
-// ---------------------------------------------------------------------------
-
 export class ConnectAuthError extends Schema.TaggedErrorClass<ConnectAuthError>()(
 	"ConnectAuthError",
 	{ reason: Schema.String },
 ) {}
-
-// ---------------------------------------------------------------------------
-// Connect / link RPC definitions (not yet registered in the RPC group)
-// ---------------------------------------------------------------------------
 
 /**
  * Describe this environment to a client that has already authenticated to it
@@ -237,15 +214,6 @@ export const ConnectApiConfigRpc = Rpc.make("connect.apiConfig", {
 	success: Schema.Void,
 	error: ConnectAuthError,
 });
-
-// ---------------------------------------------------------------------------
-// API link orchestration (renderer ↔ server)
-// ---------------------------------------------------------------------------
-//
-// The desktop self-registers with the api: because it is already
-// WorkOS-signed-in and holds its Ed25519 identity, the server runs the whole
-// link flow (challenge → sign → submit → persist → heartbeat). The renderer's
-// "Devices" pane drives it with these RPCs.
 
 /** Whether this environment is linked to a api, plus how to describe it. */
 export class ApiLinkStatus extends Schema.Class<ApiLinkStatus>("ApiLinkStatus")(

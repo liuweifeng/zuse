@@ -5,7 +5,7 @@ import {
 } from "@zuse/contracts";
 import { Context, Effect, Layer } from "effect";
 import { RpcClient, RpcGroup } from "effect/unstable/rpc";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { cloudFailurePresentation } from "../../src/cloud-failure-presentation.ts";
 import {
@@ -233,4 +233,74 @@ describe("retained cloud handshake negotiation", () => {
 		expect(sent).toEqual([{ protocolVersion: 7 }]);
 		expect(releases).toBe(1);
 	});
+});
+
+test("times out a silent runtime handshake and releases its transport", async () => {
+	vi.useFakeTimers();
+	let releases = 0;
+	let requests = 0;
+	let finishHandshake = () => {};
+	let requestSent = () => {};
+	const sent = new Promise<void>((resolve) => {
+		requestSent = resolve;
+	});
+	const protocol = Layer.effect(
+		RpcClient.Protocol,
+		Effect.gen(function* () {
+			yield* Effect.addFinalizer(() =>
+				Effect.sync(() => {
+					releases++;
+				}),
+			);
+			return yield* RpcClient.Protocol.make((write) =>
+				Effect.succeed({
+					supportsAck: false,
+					supportsTransferables: false,
+					send: (clientId, request) =>
+						Effect.gen(function* () {
+							if (request._tag !== "Request") return;
+							requests++;
+							finishHandshake = () => {
+								void Effect.runPromise(
+									write(clientId, {
+										_tag: "Exit",
+										requestId: request.id,
+										exit: { _tag: "Success", value: { protocolVersion: 7 } },
+									}),
+								);
+							};
+							requestSent();
+						}),
+				}),
+			);
+		}),
+	);
+	let failure: unknown;
+	const pending = makeRpcClientSession(
+		protocol,
+		RpcGroup.make(ConnectHandshakeRpc),
+		{
+			protocolVersion: 7,
+			allowLegacyCloud: true,
+			perform: (client, hello) => client["connect.handshake"](hello),
+		},
+	).then(
+		async (session) => {
+			await session.dispose();
+		},
+		(cause) => {
+			failure = cause;
+		},
+	);
+	try {
+		await sent;
+		await vi.advanceTimersByTimeAsync(30_001);
+		expect(failure).toMatchObject({ _tag: "TimeoutError" });
+		expect(requests).toBe(1);
+		expect(releases).toBe(1);
+	} finally {
+		finishHandshake();
+		await pending;
+		vi.useRealTimers();
+	}
 });

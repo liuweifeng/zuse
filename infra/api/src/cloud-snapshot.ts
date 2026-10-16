@@ -269,7 +269,7 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 					network: { kind: "open" },
 					onTimeout: "terminate",
 				}));
-			// Record allocation before launching commands; retries recover this same machine.
+
 			build = { ...build, providerSandboxId: sandbox.providerSandboxId };
 			yield* store.saveBuild({
 				...build,
@@ -413,7 +413,7 @@ export const reconcileSnapshotImport = Effect.fn("reconcileSnapshotImport")(
 				...repository,
 			});
 		}
-		// Keep a completed inspection until cleanup succeeds; never touch the source snapshot.
+
 		yield* cleanup();
 		yield* store.saveBuild({
 			...build,

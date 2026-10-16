@@ -83,7 +83,7 @@ export const AccountIdentityLive: Layer.Layer<
 								},
 							},
 						);
-						// A missing identity means a previous deletion already completed.
+
 						if (!response.ok && response.status !== 404) {
 							throw new Error(`identity_delete_${response.status}`);
 						}

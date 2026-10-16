@@ -193,9 +193,6 @@ export class TranscriptScrollCoordinator {
 			this.enqueue({ kind: "end", animated: false, priority: 1 });
 			return;
 		}
-		// While a new turn is anchored, new response content is allowed to grow
-		// below the viewport. Moving to reveal its end would move the prompt away
-		// from the reading position the user explicitly established.
 	}
 
 	readerTookControl(intent: "interaction" | "scroll" = "interaction"): void {
@@ -313,9 +310,7 @@ export class TranscriptScrollCoordinator {
 							this.update({ mode: "following", isAtEnd: true });
 						}
 					})
-					.catch(() => {
-						// Keep the navigation affordance visible so the reader can retry.
-					});
+					.catch(() => {});
 				return;
 			case "turn":
 				void Promise.resolve(

@@ -1,13 +1,3 @@
-/**
- * Page the billing provider redirects to after checkout. It renders in the
- * customer's browser straight off the worker, so it must be entirely
- * self-contained: no scripts, no network fonts, no external assets. The markup
- * is a hand-port of the product's Receipt Printer surface to plain HTML + CSS.
- *
- * Everything interpolated here is either a constant or a value validated by the
- * caller against the offer catalog / the billing provider — and escaped.
- */
-
 import { clampedText, escapeHtml } from "@zuse/utils/browser-page";
 
 export type CheckoutCompleteStatus = "paid" | "pending" | "failed";
@@ -25,7 +15,6 @@ export interface CheckoutCompletePageInput {
 	readonly purchasedAtMs?: number;
 }
 
-/** Product names and order references come from the billing provider. */
 const MAX_TEXT_LENGTH = 60;
 
 const pad = (value: number): string => String(value).padStart(2, "0");
@@ -35,7 +24,6 @@ const formatDate = (nowMs: number): string => {
 	return `${now.getUTCFullYear()}.${pad(now.getUTCMonth() + 1)}.${pad(now.getUTCDate())} ${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())} UTC`;
 };
 
-/** Minor units → display amount. Zero-decimal currencies are not in use here. */
 const formatAmount = (amount: {
 	readonly cents: number;
 	readonly currency: string;

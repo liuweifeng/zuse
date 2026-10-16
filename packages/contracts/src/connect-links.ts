@@ -33,7 +33,6 @@ export type ConnectLinkParseResult =
 
 const PAIRING_SCHEMES = new Set(["zuse:", "memoize:"]);
 
-/** Hosted tunnel domains that indicate the link apis through Zuse. */
 const API_HOST_SUFFIXES = [".trycloudflare.com", ".stuff.md"] as const;
 
 const RFC1918_PATTERN =
@@ -59,7 +58,7 @@ export const isPrivateOrLocalHost = (hostname: string): boolean => {
 	}
 	if (host.endsWith(".local")) return true;
 	if (RFC1918_PATTERN.test(host)) return true;
-	// IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
+
 	if (/^f[cd][0-9a-f]{2}:/u.test(host) || host.startsWith("fe80:")) {
 		return true;
 	}
@@ -171,10 +170,6 @@ export const parseConnectLink = (value: string): ConnectLinkParseResult => {
 	}
 	return parsedLink(endpoint, code);
 };
-
-// ---------------------------------------------------------------------------
-// Pairing codes
-// ---------------------------------------------------------------------------
 
 /**
  * Alphabet for short human-typable pairing codes: uppercase without the

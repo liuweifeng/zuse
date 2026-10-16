@@ -50,7 +50,6 @@ import {
 
 type ProviderId = CloudProviderConnectionInput["providerId"];
 
-/** boxd first, matching the recommended order used by image providers. */
 const PROVIDER_IDS: readonly ProviderId[] = ["boxd", "e2b", "box", "daytona"];
 
 const isProviderId = (value: unknown): value is ProviderId =>
@@ -301,8 +300,7 @@ export function CloudProviderConnectForm({
 			setTemplateId("");
 			setOrganization("");
 			setAdvancedOpen(false);
-			// The key is already persisted. A refresh must not extend saving or
-			// turn a successful mutation into a rejected-key error.
+
 			void onChanged().catch(() => {
 				setError(
 					uiMessage(

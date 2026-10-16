@@ -61,9 +61,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 			...command,
 			turnId: command.turnId ?? cloudRuntimeCommandTurnId(command.messageId),
 		};
-		// MessageService currently turns domain conflicts into defects. Capture the
-		// complete exit so a busy session leaves the oldest command pending instead
-		// of killing the runtime pump or letting a later command overtake it.
+
 		const delivered = yield* Effect.exit(input.deliver(normalizedCommand));
 		if (delivered._tag === "Failure") {
 			yield* Effect.logWarning("cloud api command delivery failed", {
@@ -100,9 +98,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 		while (true) {
 			const beforeFetch = nudgeRevision;
 			const outcome = yield* runDrain;
-			// An empty response may have been selected before a concurrent command
-			// committed. Retain that command's nudge while the fetch is in flight.
-			// A delivered or blocked turn must still wait for its settlement signal.
+
 			if (outcome.kind !== "empty" || beforeFetch === nudgeRevision)
 				return { ...outcome, nudgeRevision: beforeFetch };
 		}
@@ -111,8 +107,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 		nudgeRevision += 1;
 		while (true) {
 			const result = yield* lock.withPermitsIfAvailable(1)(runNotifiedDrain);
-			// Check again after releasing the permit: a notification can arrive
-			// between the last empty-page check and the permit finalizer.
+
 			if (
 				Option.isNone(result) ||
 				result.value.kind !== "empty" ||
@@ -126,9 +121,7 @@ export const makeCloudApiCommandPump = Effect.fn(
 			.withPermits(1)(
 				Effect.gen(function* () {
 					const acknowledged = yield* runNotifiedDrain;
-					// If the turn event raced an earlier lost ACK, the first pass only
-					// repairs that same settled row. The permit remains held while one
-					// more pass advances to the next FIFO command.
+
 					if (
 						acknowledged.kind === "delivered" &&
 						acknowledged.turnId === settledTurnId

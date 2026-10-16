@@ -91,7 +91,7 @@ export const listenLocalEngine = async (options: {
 							shutdownRequested = true;
 							options.shutdown?.();
 						};
-						// Flush the decision before scope shutdown destroys transports.
+
 						timer = setTimeout(finish, 1_000);
 						socket.once("finish", finish);
 						if (socket.destroyed) finish();

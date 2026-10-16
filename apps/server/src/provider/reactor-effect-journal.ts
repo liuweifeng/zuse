@@ -40,10 +40,6 @@ export const makeReactorEffectJournal = (sql: SqlClient.SqlClient) => {
 			return terminal(yield* state(effectId));
 		}),
 
-		/**
-		 * Atomically crosses the no-automatic-replay boundary. `already-started`
-		 * means a previous process may have delivered the external effect.
-		 */
 		begin: Effect.fn("ReactorEffectJournal.begin")(function* (
 			effectId: string,
 		): Effect.fn.Return<ReactorEffectBegin> {
@@ -75,12 +71,6 @@ export const makeReactorEffectJournal = (sql: SqlClient.SqlClient) => {
 				`;
 			}).pipe(Effect.orDie),
 
-		/**
-		 * Releases a start fence only when the caller has positive evidence that
-		 * the external operation was not delivered. This is intentionally narrower
-		 * than a generic retry/reset API: an interrupted or uncertain send must keep
-		 * its `started` row and recover as `outcome-unknown`.
-		 */
 		releaseUndelivered: (effectId: string): Effect.Effect<void> =>
 			sql`
 				DELETE FROM reactor_effect_receipts

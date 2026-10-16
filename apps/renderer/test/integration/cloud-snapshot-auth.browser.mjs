@@ -139,7 +139,7 @@ try {
 			path: resolve(root, "../../.context/snapshot-auth-primary.png"),
 			fullPage: true,
 		});
-		// Source choice is inline. Cancelling a draft never changes the snapshot.
+
 		await source.focus();
 		await source.press("Enter");
 		await page

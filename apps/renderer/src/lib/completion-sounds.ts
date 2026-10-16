@@ -114,9 +114,7 @@ export const playCompletionSound = async (
 		}
 		tone(ctx, now, 587.33, 0.18, 0.055);
 		tone(ctx, now + 0.12, 783.99, 0.28, 0.046);
-	} catch {
-		// Audio can be blocked until a user gesture; completion sounds are best-effort.
-	}
+	} catch {}
 };
 
 export const prepareCompletionSound = async (): Promise<void> => {
@@ -124,9 +122,7 @@ export const prepareCompletionSound = async (): Promise<void> => {
 		const ctx = getAudioContext();
 		if (ctx === null) return;
 		if (ctx.state === "suspended") await ctx.resume();
-	} catch {
-		// Best-effort unlock; preview/completion playback will retry later.
-	}
+	} catch {}
 };
 
 export const noteSessionRuntimeCompletion = (): void => {

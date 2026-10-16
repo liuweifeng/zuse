@@ -38,15 +38,6 @@ const fileSize = (path: string): Effect.Effect<number> =>
 		Effect.orElseSucceed(() => 0),
 	);
 
-/**
- * Count `projects` rows via a read-only `node:sqlite` probe. `null` means
- * "could not read the file as sqlite" — callers fall back to a size
- * heuristic. The require is lazy because this module is also loaded under
- * Bun (tests), which has no `node:sqlite`; there the probe fails cleanly to
- * the heuristic, matching how the previous native probe behaved when its
- * binding could not load. (The old `/usr/bin/sqlite3` CLI fallback
- * existed only for native-ABI failures, which a builtin cannot have.)
- */
 const projectCount = (path: string): Effect.Effect<number | null> =>
 	Effect.try(() => {
 		const { DatabaseSync } = require("node:sqlite") as typeof NodeSqlite;
@@ -130,15 +121,6 @@ const newestNonEmptyLegacyDb = (
 		return Option.fromNullishOr(nonEmpty[0]?.path);
 	});
 
-/**
- * Create a standalone, transactionally consistent snapshot of a legacy SQLite
- * database. Never copy the main file directly: in WAL mode committed rows may
- * still live in the `-wal` sidecar, and a raw file copy silently drops them.
- * `VACUUM INTO` reads the database through SQLite so the snapshot includes the
- * WAL. The temporary output is exclusively created with private permissions,
- * then renamed into place only after completion so interruption cannot publish
- * a partial database or expose migrated data through a permissive umask.
- */
 const snapshotSqlite = async (
 	source: string,
 	destination: string,

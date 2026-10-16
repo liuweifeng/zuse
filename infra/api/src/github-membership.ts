@@ -109,7 +109,7 @@ export const githubMemberEligible = Effect.fn("githubMemberEligible")(
 					for (const row of rows) result.add(row.id);
 					if (rows.length < 100) {
 						local.values.set(key, { members: result, expires: now + 60_000 });
-						// Persist the complete roster so sign-in matching is a lookup.
+
 						yield* store.githubJoining.replaceRoster(
 							policy.installationId,
 							result,
@@ -153,7 +153,7 @@ export const requireGithubEnrollment = Effect.fn("requireGithubEnrollment")(
 			);
 			if (latest?.revision !== policy.revision)
 				return yield* forbidden("organization_access_denied");
-			// Deactivation is idempotent. A failed provider write cannot grant access.
+
 			yield* requestWorkos(
 				`/user_management/organization_memberships/${encodeURIComponent(memberId)}/deactivate`,
 				WorkosMember,
@@ -162,8 +162,7 @@ export const requireGithubEnrollment = Effect.fn("requireGithubEnrollment")(
 			);
 			return yield* forbidden("organization_access_denied");
 		}
-		// Re-read durable state after network I/O so concurrent removal/invalidation
-		// cannot authorize using an obsolete successful check.
+
 		const current = yield* store.githubJoining.getEnrollment(
 			organizationId,
 			accountId,
@@ -235,8 +234,7 @@ export const refreshGithubRosters = Effect.fn("refreshGithubRosters")(
 			installationId,
 		})) {
 			if (!policy.enabled) continue;
-			// An unavailable installation keeps its last roster; access is still
-			// checked live on every join and request.
+
 			yield* githubMemberEligible(policy, -1).pipe(
 				Effect.catch(() => Effect.void),
 			);

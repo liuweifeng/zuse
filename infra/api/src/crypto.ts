@@ -451,7 +451,7 @@ export const verifyWorkspaceClientTicket = (input: {
 		)(verified.payload).pipe(
 			Effect.mapError(() => unauthorized("workspace_ticket_binding_mismatch")),
 		);
-		// Only legacy Personal tickets may omit actor/permission claims.
+
 		if (
 			input.expectedAccountId.startsWith("organization:") &&
 			(payload.actorId === undefined || payload.permission === undefined)

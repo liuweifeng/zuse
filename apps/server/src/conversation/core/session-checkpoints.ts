@@ -35,7 +35,6 @@ export const makeSessionCheckpoints = (
 		outcome?: "completed" | "interrupted" | "error",
 	) =>
 		Effect.gen(function* () {
-			// A retry is another attempt of the same counted turn, not a new baseline.
 			const id =
 				phase === "baseline"
 					? `checkpoint:${session.id}:${turnId}:baseline`

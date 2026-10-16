@@ -135,9 +135,11 @@ describe("chat landing progress", () => {
 			'launch.initialMessageDelivery === "mailbox-v1"',
 		);
 		expect(chatLandingSource).toContain("await sendSessionMessage(");
-		expect(cloudChatsSource).toContain("Compatibility only:");
-		// The staged chat opens before the gateway connects, so the live chat
-		// surface (not a bare landing) carries the startup status.
+		expect(cloudChatsSource).toContain("if (legacyFirstMessage !== undefined)");
+		expect(cloudChatsSource).toMatch(
+			/MessageId\.make\(`launch:\$\{accepted\.workspaceId\}:message`\)/,
+		);
+
 		const staged = chatLandingSource.indexOf("stageCloudChat(\n");
 		const opened = chatLandingSource.indexOf(
 			"useChatsStore.getState().select(summary.chatId)",
@@ -183,7 +185,7 @@ describe("chat landing progress", () => {
 		expect(html.match(/role="status"/g)).toHaveLength(1);
 		expect(html).toContain("design.png");
 		expect(html).not.toContain("Waiting for agent");
-		// The landing never renders the prompt as a transcript bubble.
+
 		expect(chatLandingSource).not.toContain("ChatStartupView");
 		expect(chatLandingSource).toContain("pendingCloudQueue ??");
 	});
@@ -204,8 +206,7 @@ describe("chat landing progress", () => {
 	test("owns lifecycle polling behind the control-plane stream", () => {
 		expect(cloudChatsSource).toContain('control["cloud.workspaces.watch"]');
 		expect(cloudChatsSource).not.toContain("while (");
-		// Deferred transcript pagination may schedule a task, but workspace
-		// lifecycle progress itself must remain stream-driven rather than polling.
+
 		expect(cloudChatsSource).not.toContain("completeOlderSessionMessages(ref)");
 	});
 

@@ -261,7 +261,6 @@ describe("switching a chat's account", () => {
 						(yield* accounts.list("claude", "chat")).sessionAccountId,
 					).toBe(work.id);
 
-					// The chat continued on Work; switching back must carry that forward.
 					yield* Effect.promise(() =>
 						writeFile(workTranscript, "default history\nwork turn\n"),
 					);

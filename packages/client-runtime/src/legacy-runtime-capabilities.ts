@@ -24,7 +24,6 @@ const engineOnlyMethods = new Set([
 	"session.sendAndWait",
 ]);
 
-// Methods added after the final protocol-5 contract (a80cb4bdf^).
 const postProtocolFiveMethods = new Set([
 	"attachments.uploadChunk",
 	"cloud.image.delete",

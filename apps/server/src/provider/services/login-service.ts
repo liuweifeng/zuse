@@ -9,19 +9,11 @@ import {
 } from "@zuse/contracts";
 import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 
-// Each provider's interactive login command prints an OAuth URL to stdout (or
-// to stderr inside its TUI frame) and waits for the user to complete the flow
-// in their browser. Fixed-host providers use an allow-list pattern. Grok may
-// use an arbitrary enterprise IdP, so its candidates are scheme/host validated
-// instead.
 type LoginUrlPolicy = (url: URL) => boolean;
 
 const hasDomain = (hostname: string, domain: string): boolean =>
 	hostname === domain || hostname.endsWith(`.${domain}`);
 
-// `claude auth login` runs an OAuth 2.0 + PKCE flow against claude.ai with a
-// localhost callback server, so it auto-completes once the browser approves —
-// no code paste-back. The authorize URL lives on claude.ai / anthropic.com.
 const CLAUDE_URL_POLICY: LoginUrlPolicy = ({ hostname }) =>
 	hasDomain(hostname, "claude.ai") || hasDomain(hostname, "anthropic.com");
 const ESC = "\u001B";
@@ -43,7 +35,6 @@ interface LoginSpawnSpec {
 	readonly urlPolicy?: LoginUrlPolicy;
 }
 
-// Kiro login opens AWS Builder ID / IAM Identity Center / social IdP flows.
 const KIRO_URL_POLICY: LoginUrlPolicy = ({ hostname }) =>
 	hasDomain(hostname, "amazon.com") ||
 	hasDomain(hostname, "amazonaws.com") ||
@@ -64,22 +55,20 @@ const LOGIN_SPECS: Partial<Record<ProviderId, LoginSpawnSpec>> = {
 	claude: {
 		providerId: "claude",
 		command: "claude",
-		// `--claudeai` selects the Claude subscription OAuth (vs `--console` API
-		// billing), matching the default the interactive `/login` menu offers.
+
 		args: ["auth", "login", "--claudeai"],
 		urlPolicy: CLAUDE_URL_POLICY,
 	},
 	grok: {
 		providerId: "grok",
 		command: "grok",
-		// Use the short-code browser approval flow. External providers still run
-		// first, and enterprise OIDC falls back to its supported loopback flow.
+
 		args: ["login", "--device-auth"],
 	},
 	kiro: {
 		providerId: "kiro",
 		command: "kiro-cli",
-		// Device flow is more reliable when Zuse can't handle browser redirects.
+
 		args: ["login", "--use-device-flow"],
 		urlPolicy: KIRO_URL_POLICY,
 	},
@@ -235,8 +224,6 @@ const spawnLoginProcess = (
 	Effect.gen(function* () {
 		const events = yield* Queue.make<LoginEvent, Cause.Done>();
 
-		// Spawn into the user's home dir — login doesn't touch the project tree
-		// and we don't want a project-local stale state to interfere.
 		let child: ChildProcessWithoutNullStreams;
 		try {
 			child = spawn(spec.command, [...spec.args], {
@@ -318,16 +305,12 @@ const spawnLoginProcess = (
 				if (exited) return;
 				try {
 					child.kill("SIGTERM");
-				} catch {
-					/* ignore */
-				}
+				} catch {}
 				setTimeout(() => {
 					if (!exited) {
 						try {
 							child.kill("SIGKILL");
-						} catch {
-							/* ignore */
-						}
+						} catch {}
 					}
 				}, 1_000);
 			}),

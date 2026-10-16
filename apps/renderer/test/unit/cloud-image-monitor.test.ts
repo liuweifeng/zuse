@@ -129,7 +129,7 @@ it("discovers a newly added provider and marks its missing image for rebuilding"
 			?.state,
 	).toBe("not-built");
 	expect(loadCloudProviders).toHaveBeenLastCalledWith(true);
-	// Another provider's image is ready, so leaving Settings is not blocked.
+
 	const confirm = vi.fn(() => false);
 	vi.stubGlobal("window", { confirm });
 	try {

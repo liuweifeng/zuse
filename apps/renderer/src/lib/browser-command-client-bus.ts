@@ -68,10 +68,7 @@ const respondUnavailable = async (
 			environmentId,
 			BrowserCommandResult.make({ id: request.id, ok: false, error }),
 		);
-	} catch {
-		// The server applies its bounded command timeout when a response cannot
-		// reach the request's original runtime generation.
-	}
+	} catch {}
 };
 
 const makeDriver = (): ResourceDriver<

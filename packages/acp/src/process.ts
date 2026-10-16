@@ -12,7 +12,6 @@ export interface AcpLaunch {
 	readonly mcpEnabled?: boolean;
 }
 
-/** Bounds a stderr line when an agent never writes a newline. */
 const MAX_STDERR_LINE = 16_384;
 
 /**
@@ -58,9 +57,7 @@ export const launchAcpProcess = (
 				if (process.platform !== "win32" && child.pid)
 					process.kill(-child.pid, value);
 				else child.kill(value);
-			} catch {
-				/* Already exited. */
-			}
+			} catch {}
 		};
 		signal("SIGTERM");
 		const timer = setTimeout(() => {

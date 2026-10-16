@@ -87,7 +87,7 @@ export default function WorkspaceReviewScreen() {
 	const detail = selectSessionChat(bundles, normalizedSessionId);
 	const folderId = detail?.project.id as FolderId | undefined;
 	const worktreeId = detail?.session.worktreeId ?? null;
-	// Plain derivation — see the React Compiler note in threads.tsx.
+
 	const connection = optionsForConnection(connKey, connections);
 	const messages = useAtomValue(
 		sessionMessagesAtom(connectionSessionKey(connKey, normalizedSessionId)),

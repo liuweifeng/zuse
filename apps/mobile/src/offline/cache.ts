@@ -326,8 +326,7 @@ export const readClientCommandOutbox = () =>
 							? [
 									{
 										command,
-										// Never drop opaque cloud identity on recovery. The shared transport
-										// validates the envelope before either replaying or reading a receipt.
+
 										...(Reflect.get(entry, "encryptedEnvelope") === undefined
 											? {}
 											: {
@@ -399,9 +398,6 @@ export const writeClientCommandOutbox = (
 	snapshot: ClientCommandOutboxSnapshot,
 ) =>
 	ensureDir(ROOT).pipe(
-		// Expo's iOS writeAsStringAsync uses Data.write(.atomic). moveAsync first
-		// deletes its destination, so a separate temporary/move would lose that
-		// native atomic-replacement guarantee on app termination.
 		Effect.andThen(writeJson(clientCommandOutboxPath(), snapshot)),
 	);
 

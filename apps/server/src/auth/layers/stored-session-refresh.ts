@@ -46,8 +46,6 @@ export const refreshStoredSession = (
 				return yield* Effect.fail(refreshed.failure);
 			}
 
-			// A cooperating process may have persisted the rotated winner while this
-			// request was in flight (WorkOS replays within its grace period).
 			const winner = yield* store.read();
 			if (winner !== null && winner.refreshToken !== attemptedRefreshToken) {
 				return winner;

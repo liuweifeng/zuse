@@ -1,6 +1,5 @@
 import { defineConfig } from "drizzle-kit";
 
-/** PlanetScale URLs use `sslrootcert=system` (psql-only); strip it for node pg. */
 const databaseUrl = (): string => {
 	const raw = process.env.DATABASE_URL;
 	if (raw === undefined || raw === "") {

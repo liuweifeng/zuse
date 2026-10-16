@@ -103,7 +103,7 @@ const reconcileReadyTarget = Effect.fn("reconcileReadyTarget")(function* (
 			statusCode: "provider-provisioning",
 			updatedAtMs: nowMs,
 		};
-		// Persist the hash before the plaintext token is sent to provider bootstrap.
+
 		const tokenSaved = yield* store.compareAndSetMachine(
 			tokenReady,
 			machine.revision,
@@ -632,7 +632,7 @@ export const reconcileMachines = Effect.fn("reconcileMachines")(
 			nowMs,
 			owner: input.owner,
 			leaseDurationMs: config.reconcileLeaseMs,
-			// Claim one row so its lease never waits behind another provider call.
+
 			limit: 1,
 		});
 		return yield* reconcileClaimed(claimed, input.owner, nowMs);

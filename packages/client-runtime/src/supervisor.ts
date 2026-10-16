@@ -293,7 +293,7 @@ class SupervisorEntryImpl<Options, Client>
 		this.clearRetry();
 		this.inFlight = null;
 		this.commandDispatcher.failPending(new Error("connection removed"));
-		// Retire the entry before asynchronous shutdown so a new scope can reconnect.
+
 		this.onRemove();
 		await this.closeCurrent();
 		this.listeners.clear();
@@ -311,7 +311,6 @@ class SupervisorEntryImpl<Options, Client>
 			: (limit ?? Number.POSITIVE_INFINITY);
 	}
 
-	/** Platform connectivity only gates transports that cross the network. */
 	private isOnline(): boolean {
 		return !this.needsNetwork() || this.deps.isOnline();
 	}

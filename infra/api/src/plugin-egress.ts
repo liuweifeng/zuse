@@ -57,10 +57,6 @@ export const pluginFetch: typeof fetch = async (input, init) => {
 
 const PROBE_PROTOCOL = "2025-06-18";
 
-/**
- * One MCP `initialize`, with optional credentials. Tools are never listed or
- * called. Returns the response status; failures to answer are unreachable.
- */
 async function probeInitialize(
 	endpoint: string,
 	request: typeof fetch,
@@ -92,7 +88,6 @@ async function probeInitialize(
 	}
 	await response.body?.cancel().catch(() => undefined);
 	if (response.ok) {
-		// A server may allocate a session for this check; release it.
 		const session = response.headers.get("mcp-session-id");
 		if (session)
 			await request(endpoint, {

@@ -49,12 +49,10 @@ type TerminalOwnerCatalog = Readonly<{
 	environmentId: EnvironmentId;
 	ownerId: PtyOwnerId;
 	liveLimit: number | null;
-	/** Server-authoritative live processes at the last catalog revision. */
+
 	runningPtyIds: ReadonlySet<PtyId>;
 }>;
 
-// Catalog confirmation normally prunes these immediately. The cap protects a
-// long-running renderer when owners are archived and never queried again.
 const MAX_EXPLICIT_CLOSE_TOMBSTONES = 2_048;
 const explicitlyClosedServerPtys = new Map<string, ExplicitCloseTombstone>();
 const serverPtyKey = (
@@ -79,7 +77,7 @@ const markExplicitlyClosed = (instance: TerminalInstance): void => {
 		tombstone.ownerId,
 		tombstone.ptyId,
 	);
-	// Refresh insertion order so the fallback bound evicts the oldest closure.
+
 	explicitlyClosedServerPtys.delete(key);
 	explicitlyClosedServerPtys.set(key, tombstone);
 	while (explicitlyClosedServerPtys.size > MAX_EXPLICIT_CLOSE_TOMBSTONES) {
@@ -147,24 +145,14 @@ export type TerminalPlacement = "right" | "bottom";
 type TerminalsState = {
 	readonly byKey: Readonly<Record<string, ReadonlyArray<TerminalInstance>>>;
 	readonly ownerCatalogsByKey: Readonly<Record<string, TerminalOwnerCatalog>>;
-	/**
-	 * Resolve a 0-based slot index to a terminal instance for `key`, appending
-	 * fresh instances until the list is long enough. Used by the right-dock
-	 * terminal tabs, which carry a workspace-relative `slot` rather than a
-	 * pinned instance id (see `ui.ts` PanelInstance). Returns the instance at
-	 * `slot`.
-	 */
+
 	readonly ensureSlot: (
 		ref: ChatRef,
 		slot: number,
 		cwd: string,
 		placement?: TerminalPlacement,
 	) => TerminalInstance;
-	/**
-	 * Append a command-bound terminal instance and return its 0-based LIST
-	 * INDEX (not its id), so the caller can pin a right-dock terminal panel to
-	 * exactly that slot (see `lib/run-terminal.ts`).
-	 */
+
 	readonly add: (
 		ref: ChatRef,
 		environmentId: EnvironmentId,
@@ -203,11 +191,7 @@ type TerminalsState = {
 		placement: TerminalPlacement,
 		status: TerminalRuntimeStatus,
 	) => void;
-	/**
-	 * Dispose every terminal owned by a chat (closing each backing PTY) and drop
-	 * the chat's list. Called when a chat is archived or deleted so its shells
-	 * don't leak.
-	 */
+
 	readonly disposeChat: (ref: ChatRef) => void;
 };
 
@@ -273,8 +257,7 @@ const newId = (): PtyId =>
 
 const nextTitle = (existing: ReadonlyArray<TerminalInstance>): string => {
 	if (existing.length === 0) return "zsh";
-	// "zsh", "zsh 2", "zsh 3" — skip numbers already in use so closing the
-	// middle one and adding again reuses the gap rather than racing past it.
+
 	const used = new Set(existing.map((t) => t.title));
 	for (let n = 2; n < 1000; n++) {
 		const candidate = `zsh ${n}`;
@@ -337,8 +320,7 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 			const list = state.byKey[key] ?? [];
 			const idx = list.findIndex((t) => t.id === id);
 			if (idx === -1) return state;
-			// Component unmount no longer kills the PTY (it only detaches), so an
-			// explicit close has to tear the backing shell down here.
+
 			const instance = list[idx];
 			if (instance === undefined) return state;
 			markExplicitlyClosed(instance);
@@ -516,8 +498,6 @@ export const useTerminalsStore = create<TerminalsState>((set) => ({
 				: { byKey: { ...state.byKey, [key]: next } };
 		}),
 	disposeChat: (ref) => {
-		// Owners are deterministic, so cleanup does not depend on a mounted view,
-		// a hydrated catalog, or even a surviving cloud directory entry.
 		closeOwnedTerminalsForChat(ref);
 		set((state) => {
 			const keys = [
@@ -584,8 +564,6 @@ export const terminalOwnerOccupancy = (
 			terminal.runtimeStatus !== undefined ||
 			terminal.status === "running"
 		) {
-			// Connecting, reconnecting, and failed are conservative: until an exit
-			// event or catalog proves otherwise, the server may still own the slot.
 			runningPtyIds.add(terminal.serverPtyId);
 		}
 	}

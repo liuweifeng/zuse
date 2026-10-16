@@ -43,7 +43,7 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 		environment.providerKind !== "desktop"
 	)
 		return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
-	// Only managed, server-provisioned tunnel origins may receive API-signed requests.
+
 	if (!environment.tunnelHostname || environment.tunnelStatus !== "ready")
 		return yield* Effect.fail(
 			serviceUnavailable("device_bridge_desktop_offline"),
@@ -90,8 +90,7 @@ export const forwardDeviceBridge = Effect.fn("forwardDeviceBridge")(function* (
 					signal: AbortSignal.timeout(8000),
 				},
 			);
-			// Workers supports only follow/manual. Never forward the scoped bridge
-			// credential through a redirect or return a redirect for clients to follow.
+
 			if (response.status >= 300 && response.status < 400)
 				throw new Error("Device bridge endpoint redirected");
 			return new Response(await response.text(), {

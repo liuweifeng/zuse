@@ -31,9 +31,7 @@ const readLaptopPreference = (): HostedLaptopPreference => {
 	let stored: string | null = null;
 	try {
 		stored = localStorage.getItem(preferenceKey());
-	} catch {
-		/* Storage can be unavailable. */
-	}
+	} catch {}
 	return resolveHostedLaptopPreference(window.location.pathname, stored);
 };
 

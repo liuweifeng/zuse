@@ -4,12 +4,6 @@ import * as ExpoCrypto from "expo-crypto";
 import * as SecureStore from "expo-secure-store";
 import { calculateJwkThumbprint, type JWK } from "jose";
 
-/**
- * Device DPoP key (RFC 9449). A per-install ES256 keypair proves possession of
- * the key on every api call; the api binds minted access tokens to its
- * thumbprint. Requires WebCrypto — provided by react-native-quick-crypto's
- * `install()` in polyfills.ts (Expo Go won't have it; use a dev client).
- */
 const PRIVATE_KEY = "zuse.mobile.dpop.private.v1";
 const PUBLIC_KEY = "zuse.mobile.dpop.public.v1";
 
@@ -209,7 +203,6 @@ const normalizeUrl = (value: string): string => {
 };
 
 const cryptoRandomId = (): string => {
-	// crypto.randomUUID is available once react-native-quick-crypto is installed.
 	const maybe = (globalThis.crypto as { randomUUID?: () => string } | undefined)
 		?.randomUUID;
 	if (typeof maybe === "function") return maybe.call(globalThis.crypto);

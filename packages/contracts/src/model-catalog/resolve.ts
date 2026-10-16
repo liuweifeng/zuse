@@ -92,7 +92,7 @@ const isRetired = (providerId: ProviderId, id: string): boolean => {
 	const set = RETIRED_MODEL_IDS_BY_PROVIDER[providerId];
 	if (set === undefined) return false;
 	if (set.has(id)) return true;
-	// OpenCode ids are `<provider>/<model>`; retire on the model half too.
+
 	const slash = id.indexOf("/");
 	return slash >= 0 && set.has(id.slice(slash + 1));
 };
@@ -111,11 +111,6 @@ const oneMillionContext = (meta: ModelLiveMeta | undefined): boolean =>
 	typeof meta?.contextWindowTokens === "number" &&
 	meta.contextWindowTokens >= 1_000_000;
 
-/**
- * Descriptors for a model the curated catalog doesn't know, derived from
- * what the provider reported. Keeps the composer usable for brand-new
- * models on day one.
- */
 const liveOnlyDescriptors = (
 	providerId: ProviderId,
 	meta: ModelLiveMeta | undefined,
@@ -155,10 +150,6 @@ const liveOnlyDescriptors = (
 	return out;
 };
 
-/**
- * Overlay live facts onto a curated entry's descriptors: Codex reasoning
- * tiers and fast tier, OpenCode variants, and the 1M context pill.
- */
 const mergeDescriptors = (
 	providerId: ProviderId,
 	curated: ReadonlyArray<OptionDescriptor> | undefined,
@@ -176,7 +167,6 @@ const mergeDescriptors = (
 			existing?.defaultId,
 		);
 		if (live !== undefined) {
-			// Keep curated labels for tiers we already know.
 			const labels = new Map(existing?.options.map((o) => [o.id, o.label]));
 			out = [
 				...withoutDescriptor(out, "reasoning"),
@@ -214,7 +204,6 @@ const mergeDescriptors = (
 	return out.length === 0 && curated === undefined ? undefined : out;
 };
 
-/** Kiro's live inventory owns the badge column: credit multipliers only. */
 const liveBadge = (
 	providerId: ProviderId,
 	curated: string | undefined,

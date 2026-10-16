@@ -41,12 +41,12 @@ type State = {
 	readonly loadedEnvironmentId: string | null;
 	readonly loading: boolean;
 	readonly error: string | null;
-	/** Load once from the server during this renderer lifetime. */
+
 	readonly ensureLoaded: () => Promise<void>;
-	/** Force the server to re-fetch the remote document and live listings. */
+
 	readonly refresh: () => Promise<void>;
 	readonly refreshFor: (environmentId: EnvironmentId) => Promise<void>;
-	/** Apply a catalog pushed by the server's `model.catalog.stream`. */
+
 	readonly receive: (
 		environmentId: EnvironmentId,
 		catalog: ResolvedModelCatalog,
@@ -84,9 +84,7 @@ const readStorage = (): {
 	} catch {
 		try {
 			window.localStorage.removeItem(STORAGE_KEY);
-		} catch {
-			// best-effort
-		}
+		} catch {}
 		return null;
 	}
 };
@@ -101,9 +99,7 @@ const writeStorage = (catalog: ResolvedModelCatalog): void => {
 				catalog: Schema.encodeSync(ResolvedModelCatalogSchema)(catalog),
 			}),
 		);
-	} catch {
-		// cache is best-effort
-	}
+	} catch {}
 };
 
 const dropLegacyInventoryCaches = (): void => {
@@ -112,9 +108,7 @@ const dropLegacyInventoryCaches = (): void => {
 		removeStorageKeys(window.localStorage, LEGACY_INVENTORY_KEYS[0], [
 			...LEGACY_INVENTORY_KEYS.slice(1),
 		]);
-	} catch {
-		// best-effort
-	}
+	} catch {}
 };
 
 const fetchCatalog = async (
@@ -139,10 +133,7 @@ const sameCatalog = (
 ): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 const pendingLoads = new Map<string, Promise<void>>();
-/**
- * Bumped for every pushed catalog. A pulled answer that started before a push
- * is older than what the stream already delivered, so it must not win.
- */
+
 let pushSequence = 0;
 
 const initial = (() => {
@@ -154,10 +145,6 @@ const initial = (() => {
 })();
 
 export const useModelCatalogStore = create<State>((set, get) => {
-	/**
-	 * Single entry point for a server answer, whether pulled by `load` or
-	 * pushed by the stream. Answers for an inactive environment are dropped.
-	 */
 	const applyServerCatalog = (
 		environmentId: EnvironmentId,
 		next: ResolvedModelCatalog,
@@ -207,8 +194,6 @@ export const useModelCatalogStore = create<State>((set, get) => {
 				}
 				applyServerCatalog(environmentId, next, { loading: false });
 			} catch (err) {
-				// Old server without the RPC, or a transport blip: keep showing
-				// whatever we have (bundled or the last good answer).
 				if (environmentId === activeEnvironmentId()) {
 					set({
 						loading: false,

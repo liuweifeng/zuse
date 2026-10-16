@@ -147,9 +147,7 @@ export const resolveServeStaticDir = (
 			"@zusehq/server/package.json",
 		);
 		candidates.push(join(dirname(packageJson), "dist", "client"));
-	} catch {
-		// Not installed as a package (monorepo dev) — file candidates cover it.
-	}
+	} catch {}
 	return candidates.find((candidate) =>
 		existsSync(join(candidate, "index.html")),
 	);
@@ -174,9 +172,7 @@ export const foregroundServeOptions = (
 	policy: command.sshManaged ? "local" : "protected",
 	pairing: !command.sshManaged && env.ZUSE_ENABLE_PAIRING !== "0",
 	pairingPublicBaseUrl: tailnetOrigin,
-	// Tailscale Serve terminates HTTPS and forwards the original host/protocol.
-	// Trust those headers only after this process has successfully claimed the
-	// Tailnet route and supplied its public origin.
+
 	trustProxy: tailnetOrigin !== undefined,
 	apiEnabled: !command.sshManaged && command.noAccount !== true,
 });
@@ -187,19 +183,11 @@ export const isManagedServeService = (env: NodeJS.ProcessEnv): boolean =>
 	env.XPC_SERVICE_NAME?.startsWith("sh.zuse.") === true;
 
 const TAILNET_RECOVERY_CHECK_MS = 30_000;
-/**
- * Restarting picks up the tailnet route safely, but would interrupt running
- * agents. Shortly after boot nothing is running yet, so restart automatically
- * only within this window and otherwise ask for a restart.
- */
+
 const TAILNET_RECOVERY_RESTART_WINDOW_MS = 10 * 60_000;
-/** Non-zero exit (EX_TEMPFAIL) so launchd and systemd restart the service. */
+
 const TAILNET_RECOVERY_EXIT_CODE = 75;
-/**
- * Written just before a recovery restart. If the restarted service still
- * cannot share over Tailscale, it must not restart again: one restart per
- * failure episode, so a share that keeps failing never becomes a restart loop.
- */
+
 const TAILNET_RECOVERY_MARKER = "tailnet-recovery-restart";
 
 /** What to do once Tailscale looks ready after a failed boot-time share. */
@@ -214,7 +202,6 @@ export const tailnetRecoveryAction = (input: {
 		? "restart"
 		: "notify";
 
-/** Read and clear the recovery-restart marker left by the previous process. */
 const takeTailnetRecoveryMarker = async (dataDir: string): Promise<boolean> => {
 	const path = join(dataDir, TAILNET_RECOVERY_MARKER);
 	const present = existsSync(path);
@@ -222,11 +209,6 @@ const takeTailnetRecoveryMarker = async (dataDir: string): Promise<boolean> => {
 	return present;
 };
 
-/**
- * Poll until Tailscale is ready after a failed boot-time share. The route is
- * not claimed here: a Tailscale-fronted request must only reach a server that
- * booted with proxy trust, so a managed service restarts into it instead.
- */
 const watchForTailnetRecovery = (input: {
 	readonly port: number;
 	readonly dataDir: string;
@@ -444,10 +426,6 @@ const installedAgents = async (): Promise<ReadonlyArray<string>> => {
 	return results.filter((value) => value !== null);
 };
 
-/**
- * Ask the running daemon for its version. The invoking CLI can be a different
- * install than the service, so status must never report its own version.
- */
 const runningDaemonVersion = async (
 	env: NodeJS.ProcessEnv,
 	portOverride?: number,
@@ -505,7 +483,7 @@ const printStatus = async (
 				? "stopped"
 				: "missing",
 		tunnel: api?.tunnelHostname === undefined ? "unavailable" : "configured",
-		// Older daemons don't report a version; fall back to the installed one.
+
 		runtimeVersion: daemonVersion ?? activeRuntime?.version ?? "0.0.0",
 		agents,
 		reachable,
@@ -530,7 +508,6 @@ const printStatus = async (
 	console.log(`Open       ${serveAppUrl(api)}`);
 };
 
-/** Stable per-computer hosted URL once linked; the hosted root otherwise. */
 const serveAppUrl = (api: LocalApiConfig | null): string =>
 	api === null
 		? HOSTED_APP_URL
@@ -549,11 +526,6 @@ const waitForReachability = async (
 	return false;
 };
 
-/**
- * The daemon links to the api shortly after boot; wait briefly for the
- * persisted api config so the start summary can print real URLs. Returns
- * whatever is on disk when the wait expires.
- */
 const waitForApiConfig = async (
 	dataDir: string,
 	timeoutMs: number,
@@ -683,9 +655,7 @@ export const runServePackageCli = async (
 	env.ZUSE_API_URL = env.ZUSE_API_URL ?? DEFAULT_API_URL;
 	const dataDir = resolveServeDataDir(env, command.dataDir);
 	env.ZUSE_USER_DATA = dataDir;
-	// `start` installs from its own flags; every other action (notably
-	// `update`) reuses the persisted flags so a re-install cannot silently
-	// revert the binding or access choices the service was started with.
+
 	const settings: ServeSettings =
 		command.action === "start"
 			? {
@@ -718,9 +688,6 @@ export const runServePackageCli = async (
 			...options,
 		});
 		if (state.enabled && state.managedBy === "zuse-serve") {
-			// The route points at another live Zuse server (usually the desktop
-			// app). Leave it alone; its auth and data belong to that instance, so
-			// this daemon must not advertise the tailnet origin as its own.
 			console.warn(
 				"Tailscale Serve is routed to another Zuse instance on this machine; leaving it in place.",
 			);
@@ -765,9 +732,7 @@ export const runServePackageCli = async (
 			})
 		)
 			env.ZUSE_SERVE_AUTO_LINK = "1";
-		// Tailscale often starts after this service at login. Never let it take
-		// the account tunnel and local access down with it: start without the
-		// tailnet address and pick it up once Tailscale is ready.
+
 		const restartedForRecovery = await takeTailnetRecoveryMarker(dataDir);
 		const tailnetOrigin = await enableTailnet().catch((cause: unknown) => {
 			console.warn(

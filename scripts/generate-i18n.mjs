@@ -77,7 +77,6 @@ for (const locale of locales) {
 lines.push("};");
 writeFileSync(`${root}/src/generated/desktop.ts`, `${lines.join("\n")}\n`);
 
-// Keep type-independent English fallbacks adjacent to the features that use them.
 mkdirSync(`${root}/src/generated/english`, { recursive: true });
 for (const namespace of namespaces) {
 	writeFileSync(
@@ -101,7 +100,6 @@ writeFileSync(
 	`${JSON.stringify(review, null, 2)}\n`,
 );
 
-// Regenerate translator references from the current desktop source tree.
 const repository = resolve(root, "../..");
 const references = {};
 function scan(directory) {
@@ -143,7 +141,7 @@ writeFileSync(
 	`${root}/context/desktop.json`,
 	`${JSON.stringify(context, null, "\t")}\n`,
 );
-// Website resources and review history are independent from the desktop.
+
 const websiteNamespaces = readdirSync(`${root}/locales/en/website`)
 	.filter((file) => file.endsWith(".json"))
 	.map((file) => file.slice(0, -5))

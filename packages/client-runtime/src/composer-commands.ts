@@ -23,12 +23,6 @@ export interface ParsedBuiltin {
 	readonly args: string;
 }
 
-/**
- * The full list. Client-handled entries (`/clear`, `/new`, `/model`, `/mode`,
- * `/help`) wire up to renderer-side actions. Forward entries surface the
- * provider's CLI commands so users see `/compact`, `/init`, etc. in the same
- * popover; selecting them sends the literal token to the provider as user text.
- */
 const COMMANDS: readonly BuiltinCommand[] = [
 	{
 		name: "compact",
@@ -36,7 +30,7 @@ const COMMANDS: readonly BuiltinCommand[] = [
 		kind: "forward",
 		appliesTo: "pi",
 	},
-	// Client-handled.
+
 	{
 		name: "clear",
 		description: "Clear the composer and the per-session queue.",
@@ -93,7 +87,6 @@ const COMMANDS: readonly BuiltinCommand[] = [
 		appliesTo: null,
 	},
 
-	// Claude Code provider commands. Forwarded as user text.
 	{
 		name: "compact",
 		description: "Summarize and compact the conversation history.",
@@ -203,8 +196,6 @@ const COMMANDS: readonly BuiltinCommand[] = [
 		appliesTo: "claude",
 	},
 
-	// Codex provider commands. These are intercepted by the Codex app-server
-	// driver; they must remain plain text, not skill chips.
 	{
 		name: "resume",
 		description: "Resume a previous Codex thread.",

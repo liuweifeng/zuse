@@ -23,7 +23,6 @@ import { Effect, Fiber, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
-// The shared control client answers `config/read` for native MCP isolation.
 let nativeConfigLayers: unknown[] = [];
 vi.mock("../../../src/drivers/codex-control-client.ts", () => ({
 	withCodexControlClient: async (

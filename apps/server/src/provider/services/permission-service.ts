@@ -16,23 +16,6 @@ import type { InputRequestOwner } from "@zuse/domain/agent-engine/input-owner";
 import { Context, type Effect, type Stream } from "effect";
 
 /**
- * Bridge between provider drivers (which call `request` from inside their
- * SDK permission callback) and the renderer (which subscribes to `requests`,
- * shows a toast, then calls `decide`).
- *
- * `request` blocks the driver until a decision is made or the session
- * tears down. `decide` resolves whichever deferred is keyed by `requestId`.
- * `listPending` lets a freshly-mounted UI hydrate without waiting for the
- * next stream message.
- *
- * "Allow for session" is enforced inside `request` itself: before publishing
- * a new `PermissionRequest` we look up `permission_decisions` for an
- * existing `AllowForSession` row matching `(sessionId, kindTag, kindKey)`,
- * and short-circuit with an `AllowOnce` decision when one exists. This
- * mirrors the SDK's own session-scoped suppression and keeps the prompt
- * stream quiet for repeat tool calls within a session.
- */
-/**
  * Options for `request`. `projectId` is required so folder-scoped
  * `AlwaysAllow` rows can short-circuit a re-prompt across sessions in the
  * same project. `forcePrompt` skips the existing-decision lookup entirely —

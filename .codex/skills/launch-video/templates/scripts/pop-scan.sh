@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# Scan a rendered film for single-frame pops: frames whose mean luma change is large.
-# Intended punches (a flood, a camera snap on the drop) show up too — every other hit is a seam bug.
-# Usage: pop-scan.sh renders/film.mp4 [threshold=25] [fps=60]
+
 set -euo pipefail
 video=$1; threshold=${2:-25}; fps=${3:-60}
 tmp=$(mktemp)

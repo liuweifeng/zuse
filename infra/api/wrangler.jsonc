@@ -1,7 +1,4 @@
 {
-	// Cloudflare Worker deploy config for the api control plane.
-	// This configuration is staging-only. Production uses the separately guarded
-	// wrangler.production.jsonc configuration.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "zuse-relay-staging",
 	"main": "src/worker.ts",
@@ -9,9 +6,7 @@
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"observability": { "enabled": true },
-	// The staging Hyperdrive Postgres origin is in AWS Seoul (ap-northeast-2). Cloud workspace startup
-	// performs ordered writes, so run API beside Hyperdrive's origin pool
-	// instead of paying a cross-Pacific round trip for every query.
+
 	"placement": { "region": "aws:ap-northeast-2" },
 	"rules": [
 		{
@@ -53,13 +48,11 @@
 		]
 	},
 	"vars": {
-		// Keep account execution near the staging database in Seoul.
 		"CLOUD_AUTH_EXECUTOR_LOCATION_HINT": "apac-ne",
-		// Staging test rollout; production remains disabled pending multi-user verification.
+
 		"ORGANIZATION_WORKSPACES_ENABLED": "true",
 		"PLUGIN_APP_ORIGIN": "https://code-staging.zuse.sh",
-		// Enable only after migration 0022, Slack/WorkOS setup, and queue provisioning.
-		// Queue bindings are documented in internal-docs/cloud/slack-app-operations.md.
+
 		"SLACK_ENABLED": "true",
 		"SLACK_APP_ID": "A0C28PUEJNL",
 		"SLACK_CLIENT_ID": "12048365003570.12076810494768",
@@ -69,8 +62,7 @@
 		"CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED": "true",
-		// Preserve existing runtime and broker credentials until the coordinated
-		// issuer cutover in internal-docs/cloud/api-domain-cutover.md is complete.
+
 		"API_ISSUER": "https://api-staging.stuff.md",
 		"API_PUBLIC_ORIGIN": "https://api-staging.zuse.sh",
 		"WORKOS_ISSUER": "https://api.workos.com",
@@ -90,8 +82,7 @@
 		"MACHINE_ALPHA_ALLOWLIST": "user_01KW7R9WGJFFSKDNESE7RN00N1,user_01M0HA239JJ7P73AA1X5M8KDHF",
 		"MACHINE_MANUAL_ENTITLEMENTS": "true",
 		"MACHINE_LIVE_CHECKOUT_ENABLED": "true",
-		// Staging is allowlisted and uses sandbox billing, but exercises the real
-		// payment-to-provisioning path end to end.
+
 		"MACHINE_PROVIDER": "hetzner",
 		"HETZNER_ADAPTER_ENABLED": "true",
 		"HETZNER_API_BASE_URL": "https://api.hetzner.cloud/v1",
@@ -116,7 +107,7 @@
 		"BOAT_TEMPLATE_VERSION": "8",
 		"BOAT_MACHINE_TYPE": "small",
 		"SANDBOX_DEFAULT_PROVIDER_ID": "box",
-		// Verified Boxd template; install BOXD_API_KEY before deploying staging.
+
 		"BOXD_ADAPTER_ENABLED": "true",
 		"CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED": "true",
 		"BOXD_BILLING_ENABLED": "true",
@@ -136,7 +127,6 @@
 		"CLOUD_WORKSPACE_IDLE_TIMEOUT_MS": "600000",
 		"CLOUD_REPOSITORY_CACHE_MAX_BYTES": "8589934592",
 
-		// Keep legacy checkout until Stripe prices, taxes and migration are verified.
 		"BILLING_DEFAULT_PROVIDER": "polar",
 		"STRIPE_ENVIRONMENT": "sandbox",
 		"STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1": "",

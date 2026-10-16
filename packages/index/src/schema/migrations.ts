@@ -8,11 +8,6 @@ interface Migration {
   readonly up: (db: IndexDb) => void;
 }
 
-/**
- * Numbered SQL migrations for the per-workspace index DB. Never edit a
- * shipped migration — supersede it with a new id. The migrator records
- * applied ids in `index_migrations`.
- */
 const migrations: ReadonlyArray<Migration> = [
   {
     id: "0001_initial",
@@ -78,11 +73,7 @@ const migrations: ReadonlyArray<Migration> = [
   {
     id: "0002_fts5",
     up: (db) => {
-      // FTS5 virtual table for BM25 over chunk content. Contentless via
-      // `content='chunks'` so the FTS index doesn't double-store the body.
-      // Trigram tokenizer handles code identifiers and underscored snake
-      // case well — empirically beats the default unicode61 tokenizer on
-      // queries like `setManifestBulk` or `IndexServiceLive`.
+
       db.exec(`
         CREATE VIRTUAL TABLE chunks_fts USING fts5(
           content,
@@ -109,11 +100,7 @@ const migrations: ReadonlyArray<Migration> = [
   {
     id: "0003_embeddings",
     up: (db) => {
-      // sqlite-vec virtual table — created only if the host process has
-      // loaded the extension. We attempt creation inside a savepoint and
-      // roll back on failure so the migration row still marks 0003 as
-      // applied (the absence of the table is the signal for graceful
-      // fallback later).
+
       try {
         db.exec(`
           CREATE VIRTUAL TABLE chunk_vec USING vec0(
@@ -122,12 +109,9 @@ const migrations: ReadonlyArray<Migration> = [
           );
         `);
       } catch {
-        // sqlite-vec not loaded in this process. The retrieval layer
-        // detects this by probing for the table on first use and
-        // skips the vector tier — BM25 + symbol lookup still work.
+
       }
-      // Always create the queue regardless of vector availability —
-      // chunks accumulate until vec is loaded later.
+
       db.exec(`
         CREATE TABLE embed_queue (
           chunk_id INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,

@@ -85,8 +85,6 @@ export function OpencodeProviderManager({
 }: {
 	readonly channel?: "opencode" | "opencode2";
 } = {}) {
-	// The server's live listing carries the raw inventory the provider
-	// manager needs (connected + available providers, agents).
 	const listing = useModelCatalogStore((s) => s.catalog.providers[channel]);
 	const invLoading = useModelCatalogStore((s) => s.loading);
 	const catalogError = useModelCatalogStore((s) => s.error);
@@ -133,19 +131,8 @@ export function OpencodeProviderManager({
 	);
 }
 
-/* ─────────────────────────────── Logo ────────────────────────────────── */
-
 const LOGO_BASE = "https://models.dev/logos";
 
-/**
- * Provider mark. models.dev serves a (usually monochrome black) SVG per
- * catalog provider id. Rendering it as an `<img>` leaves it black — invisible
- * on a dark card. Instead we paint the SVG as a CSS **mask** over a
- * `currentColor` fill, so the glyph adapts to the theme (near-white on dark,
- * near-black on light). A hidden preload verifies the URL first; on 404 /
- * offline / custom providers we fall back to a monogram so every row has a
- * consistent glyph.
- */
 function ProviderLogo({
 	id,
 	name,
@@ -206,8 +193,6 @@ function ProviderLogo({
 		</span>
 	);
 }
-
-/* ────────────────────────────── Providers ────────────────────────────── */
 
 function ProvidersSection({
 	providers,
@@ -351,7 +336,6 @@ function ProvidersSection({
 	);
 }
 
-/** A compact connected-provider row (logo · name · models · remove). */
 function ConnectedProviderRow({
 	provider,
 	onChanged,
@@ -439,9 +423,6 @@ function ConnectedProviderRow({
 	);
 }
 
-/* ───────────────────────── Provider browser ──────────────────────────── */
-
-// Surfaced first (before "View all") — the providers most people reach for.
 const POPULAR_IDS = [
 	"opencode",
 	"openai",
@@ -470,8 +451,7 @@ function ProviderBrowserDialog({
 
 	const [query, setQuery] = useState("");
 	const [showAll, setShowAll] = useState(false);
-	// Single-open accordion — opening one provider collapses the others so the
-	// list never turns into a wall of open key fields.
+
 	const [openId, setOpenId] = useState<string | null>(null);
 
 	const q = query.trim().toLowerCase();
@@ -582,7 +562,6 @@ function ProviderBrowserDialog({
 	);
 }
 
-/** One row in the browser: logo + name, expands into the key form. */
 function ProviderBrowserRow({
 	provider,
 	open,
@@ -602,8 +581,6 @@ function ProviderBrowserRow({
 		const next = !open;
 		onOpenChange(next);
 		if (next) {
-			// Expanding a row near the bottom of the scroll area would otherwise
-			// open its key field off-screen — pull it into view.
 			requestAnimationFrame(() =>
 				ref.current?.scrollIntoView({ block: "nearest" }),
 			);
@@ -718,7 +695,7 @@ function ConnectKeyForm({
 			});
 			setValue("");
 			onChanged();
-			// Collapse the row — the refreshed inventory now shows it Connected.
+
 			onSaved?.();
 		} catch (err) {
 			setStatus(err instanceof Error ? err.message : String(err));
@@ -811,8 +788,6 @@ function ConnectKeyForm({
 	);
 }
 
-/* ─────────────────────────── Custom provider ─────────────────────────── */
-
 const slugify = (name: string): string =>
 	name
 		.toLowerCase()
@@ -820,9 +795,6 @@ const slugify = (name: string): string =>
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "");
 
-// The AI-SDK package opencode loads for a custom endpoint. "OpenAI-compatible"
-// covers virtually every self-hosted / proxy / gateway (they all speak the
-// OpenAI API); the rest are for endpoints that mimic a specific vendor's shape.
 const CUSTOM_NPM_OTHER = "__other__";
 const PROVIDER_TYPES: { value: string; label: string }[] = [
 	{
@@ -1138,8 +1110,6 @@ function Field({
 	);
 }
 
-/* ───────────────────────────── Models ────────────────────────────────── */
-
 function ModelsSection({
 	connected,
 }: {
@@ -1309,8 +1279,6 @@ function ModelFilterDialog({
 		</Dialog>
 	);
 }
-
-/* ──────────────────────────── Advanced ───────────────────────────────── */
 
 function AdvancedSection({
 	connected,

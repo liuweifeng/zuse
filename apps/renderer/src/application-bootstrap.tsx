@@ -92,8 +92,6 @@ export function ApplicationBootstrap() {
 					error={error}
 					loading={!applicationReady}
 					onDone={() => setAnimationDone(true)}
-					// A failed ESM import is cached by the document. Retrying in the same
-					// React root can also mix optimizer generations after a dev restart.
 					onRetry={retry}
 					phase={error === null ? "initial-loading" : "error"}
 				/>

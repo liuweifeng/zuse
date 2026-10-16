@@ -66,7 +66,6 @@ function fixture() {
 			listener();
 		},
 		work(active: boolean, queued = false) {
-			// Only the presence of the canonical turn/queue matters to configuration.
 			view = {
 				...view,
 				cursor: { epoch: "one", version: (view.cursor?.version ?? 0) + 1 },

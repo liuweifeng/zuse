@@ -27,6 +27,6 @@ export function useStreamingText(text: string, enabled: boolean): string {
 			if (frame !== undefined) cancelAnimationFrame(frame);
 		};
 	}, [text, enabled, reduce]);
-	// Completion and reduced motion flush without waiting for an effect/frame.
+
 	return !enabled || reduce ? text : visible;
 }

@@ -51,7 +51,6 @@ export function channelProvider(
 						? preview
 						: stable;
 				} catch (error) {
-					// A fresh rollout may not have published any Preview builds yet.
 					if (
 						typeof error === "object" &&
 						error !== null &&

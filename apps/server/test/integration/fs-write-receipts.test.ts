@@ -304,7 +304,7 @@ describe("filesystem service", () => {
 				};
 				check();
 			});
-			// Write faster than the frame window for several windows; activity must not starve.
+
 			for (let index = 0; index < 30; index++) {
 				await nodeFs.writeFile(
 					nodePath.join(root, "changing.txt"),
@@ -633,7 +633,7 @@ describe("deferred directories", () => {
 			await write(".venv/lib/site.py", "changed");
 			await write("src/app.ts", "changed");
 			await waitFor(() => changed.includes("src/app.ts"), "source change");
-			// A directory created after the watcher attached is watched too.
+
 			await write("src/feature/new.ts");
 			await waitFor(
 				() => changed.includes("src/feature/new.ts"),

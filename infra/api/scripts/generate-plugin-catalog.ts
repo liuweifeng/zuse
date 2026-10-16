@@ -1,12 +1,3 @@
-/**
- * Regenerates the server-owned managed plugin catalog from the public
- * integrations.sh feed that Executor's catalog uses.
- *
- *   bun scripts/generate-plugin-catalog.ts [--input feed.json]
- *
- * Run from infra/api. Review the diff: renaming or re-pointing an existing id
- * changes its build ID, so existing connections to it need reconnection.
- */
 import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -41,10 +32,6 @@ export interface GeneratedPlugin {
 	readonly popularity: number;
 }
 
-/**
- * Ids, names, auth and scopes of these entries are part of existing
- * connections' build sources. Keep them byte-for-byte stable.
- */
 const LEGACY: readonly Omit<GeneratedPlugin, "featured" | "popularity">[] = [
 	{
 		id: "linear",
@@ -68,9 +55,6 @@ const LEGACY: readonly Omit<GeneratedPlugin, "featured" | "popularity">[] = [
 	},
 ];
 
-/** Hand-picked, well-known entries shown first, in this order. Keep only
- * providers whose feed entry advertises OAuth or no auth; GitHub and Stripe
- * need pre-registered clients. */
 const FEATURED = [
 	"linear",
 	"notion",
@@ -90,7 +74,6 @@ const FEATURED = [
 	"intercom",
 ];
 
-/** Executor's provider query defaults; the original URL stays the OAuth discovery URL. */
 const QUERY_DEFAULTS = [
 	{ host: "mcp.posthog.com", name: "mode", value: "tools" },
 	{ host: "mcp.cloudflare.com", name: "codemode", value: "false" },
@@ -107,11 +90,6 @@ const rank = (entry: FeedEntry) =>
 const discoveredOnly = (entry: FeedEntry) =>
 	(entry.feeds ?? []).every((feed) => feed === "discovered");
 
-/**
- * Discovered servers are named by their domain. Prefer the product name their
- * description opens with ("Better Stack is…" for betterstack.com), else a
- * readable form of the domain.
- */
 const PREFIX_LABELS = new Set(["api", "mcp", "app", "www", "docs"]);
 export const productName = (entry: FeedEntry): string => {
 	const parts = (entry.domain ?? "").toLowerCase().split(".");
@@ -135,7 +113,6 @@ export const productName = (entry: FeedEntry): string => {
 		.join(" ");
 };
 
-/** Google Cloud API endpoints need a pre-registered Google OAuth client. */
 const needsRegisteredClient = (entry: FeedEntry) =>
 	(entry.domain ?? "").endsWith("googleapis.com");
 
@@ -155,7 +132,6 @@ const slug = (value: string) =>
 		.replace(/[^a-z0-9]+/g, "-")
 		.replace(/^-+|-+$/g, "");
 
-/** `mcp/atlassian` → `atlassian`; `curated/linear-app-mcp` (linear.app) → `linear`. */
 const baseId = (entry: FeedEntry) => {
 	let id = slug(entry.id.replace(/^[^/]+\//, "")).replace(/-mcp$/, "");
 	const domain = entry.domain?.toLowerCase() ?? "";
@@ -182,7 +158,6 @@ const usableUrl = (href: string | undefined): string | undefined => {
 	return url.href;
 };
 
-/** Prefers the feed id; collisions get the endpoint host label, then a counter. */
 const uniqueId = (entry: FeedEntry, endpoint: string, used: Set<string>) => {
 	const base = baseId(entry);
 	let id = base;
@@ -196,7 +171,7 @@ const uniqueId = (entry: FeedEntry, endpoint: string, used: Set<string>) => {
 };
 
 type Draft = Omit<GeneratedPlugin, "featured">;
-/** Fixed key order keeps regenerated diffs readable. */
+
 const ordered = (plugin: Draft, featured: boolean): GeneratedPlugin => ({
 	id: plugin.id,
 	name: plugin.name,

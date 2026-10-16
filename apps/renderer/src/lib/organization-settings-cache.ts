@@ -10,10 +10,6 @@ import {
 } from "./control-plane-client.ts";
 import { runOrganizations } from "./organization-client.ts";
 
-/**
- * Members settings open from the last known snapshot (memory, then storage)
- * and revalidate in the background, so reopening them never blocks on the API.
- */
 const keys = {
 	details: (organizationId: string) =>
 		`organizations:details:${organizationId}`,

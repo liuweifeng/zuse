@@ -10,9 +10,7 @@ import { SqlClient } from "effect/unstable/sql";
 export const Migration0071SessionInputs = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
 	yield* createSessionInputProjection(sql);
-	// Use committed message rows, including imported history without message events.
-	// Page by the primary key: imported sequences may be null or repeated.
-	// Resolution tombstones make input order irrelevant.
+
 	let afterMessageId = "";
 	while (true) {
 		const rows = yield* sql<{

@@ -22,12 +22,12 @@ export type ChatSharingDefaults = typeof ChatSharingDefaults.Type;
 
 export const ChatSharingPolicy = Schema.Struct({
 	...ChatSharingDefaults.fields,
-	/** Independent of lifecycle/activity writes; legacy policies start at zero. */
+
 	revision: Schema.optional(
 		Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0)),
 	),
 	creatorSubject: Schema.NonEmptyString,
-	/** Membership identity prevents removed/rejoined users inheriting old grants. */
+
 	creatorMembershipId: Schema.NonEmptyString,
 	grants: Schema.Array(
 		Schema.Struct({

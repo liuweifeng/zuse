@@ -79,8 +79,7 @@ export class CloudRuntimeWake {
 				...(init.signal ? [init.signal] : []),
 			]),
 		};
-		// Node's dispatcher extension is absent from the DOM RequestInit used by
-		// consumers without Bun types. Keep the extension on the actual request.
+
 		Object.assign(options, { dispatcher: this.agent });
 		return fetch(url, options);
 	}

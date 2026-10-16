@@ -22,7 +22,7 @@ export function useChartDimensions<T extends HTMLElement>() {
 			const height = Math.max(0, el.clientHeight);
 			setSize((prev) =>
 				prev.width === width && prev.height === height
-					? prev // guard against repeat fires
+					? prev
 					: { width, height },
 			);
 		};

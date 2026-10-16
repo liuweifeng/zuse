@@ -63,7 +63,7 @@ test("cancels a pending installer download when its owner closes", async () => {
 			);
 		}) as typeof fetch,
 	});
-	// Attach immediately so the abort rejection is never unhandled.
+
 	const result = download.catch((cause) => cause);
 	try {
 		await pending;

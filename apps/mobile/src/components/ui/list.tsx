@@ -14,15 +14,11 @@ import { lightTap } from "~/lib/haptics";
 import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
 
-// iOS "grouped inset" list — the Settings.app idiom. A rounded, hairline-bordered
-// container holds a run of rows separated by left-inset hairlines. Corners use
-// `borderCurve: "continuous"` for the Apple squircle rather than a circular arc.
 const CONTINUOUS = { borderCurve: "continuous" } as const;
 
 type ListSectionProps = ViewProps & {
-	/** Small uppercase caption above the group (iOS section header). */
 	header?: string;
-	/** Muted explanatory caption below the group (iOS section footer). */
+
 	footer?: string;
 };
 
@@ -61,23 +57,23 @@ export function ListSection({
 type ListRowProps = Omit<PressableProps, "children"> & {
 	title: string;
 	subtitle?: string;
-	/** Leading icon rendered inside a rounded tile. */
+
 	icon?: LucideIcon;
-	/** Native filled symbol. Prefer this for standard iOS actions. */
+
 	symbol?: SFSymbol;
 	iconColor?: string;
-	/** `brand` = tinted tile + contrasting glyph; `neutral` = adaptive muted tile. */
+
 	iconTone?: "brand" | "neutral";
-	/** Custom leading node (e.g. a presence dot); overrides `icon`. */
+
 	leading?: React.ReactNode;
-	/** Trailing muted value text (iOS detail value). */
+
 	value?: string;
-	/** Custom trailing node rendered before the chevron. */
+
 	trailing?: React.ReactNode;
-	/** Force the disclosure chevron on/off (defaults to on when pressable). */
+
 	chevron?: boolean;
 	destructive?: boolean;
-	/** Stable semantic identifier; never derived from visible row text. */
+
 	analyticsId?: string;
 };
 

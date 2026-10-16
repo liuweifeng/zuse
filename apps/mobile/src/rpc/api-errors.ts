@@ -10,9 +10,7 @@ export const normalizeApiError = (
 		if (typeof body.error === "string" && body.error.length > 0) {
 			return `${fallback}:${body.error}`;
 		}
-	} catch {
-		// Fall through to text cleanup.
-	}
+	} catch {}
 	if (isTransientApiStatus(status)) {
 		return fallback;
 	}

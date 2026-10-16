@@ -25,8 +25,7 @@ export class PromptCache {
 			const cached = this.cache.get(key);
 			if (cached !== undefined) return sum + Number(cached);
 			let imageTokens = 0;
-			// Encoded image bytes are not text tokens. Keep a conservative per-image
-			// reserve until provider/model-specific vision budgeting is available.
+
 			const estimated =
 				message.role === "tool"
 					? {

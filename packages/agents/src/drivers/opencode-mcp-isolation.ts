@@ -5,16 +5,6 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { APP_MCP_SERVER_NAME } from "../mcp-gateway/index.ts";
 
-/**
- * OpenCode plugin whose `config` hook drops every MCP server except the Zuse
- * gateway. OpenCode deep-merges every config layer (global, project,
- * `OPENCODE_CONFIG_CONTENT`, org/managed), so a layer cannot remove another
- * layer's `mcp` entries; plugins, however, receive the merged config before
- * MCP state is built and may mutate it ("Plugin can mutate config so it has
- * to be initialized before anything else" — opencode `project/bootstrap.ts`).
- * Plugin lists from all layers are unioned, so user plugins keep loading.
- * Uses the documented function-export plugin shape.
- */
 const ISOLATION_PLUGIN_SOURCE = `export const ZuseMcpIsolation = async () => ({
 	config: async (config) => {
 		const servers = config.mcp;

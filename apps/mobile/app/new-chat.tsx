@@ -133,7 +133,7 @@ export default function NewChatScreen() {
 	} = useLocalSearchParams<{
 		conn?: string;
 		chatId?: string;
-		/** Start in Cloud mode; empty selects the account's default sandbox. */
+
 		sandbox?: string;
 		cloudProjectId?: string;
 		draft?: string;
@@ -145,8 +145,7 @@ export default function NewChatScreen() {
 	const inheritedModel = useRef(false);
 	const submitGateRef = useRef(false);
 	const [text, setText] = useState(requestedDraft ?? initialDraft.text);
-	// `null` runs on a computer; otherwise the chosen cloud sandbox provider
-	// ("" until the provider list loads and the account default applies).
+
 	const [cloudSandbox, setCloudSandbox] = useState<string | null>(
 		sandbox ?? null,
 	);
@@ -170,11 +169,7 @@ export default function NewChatScreen() {
 		Folder["id"] | null
 	>(null);
 	const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
-	// The work-mode kind is tracked separately from `source`: a kind can have no
-	// sub-options (e.g. no worktrees yet), and `source` falls back to MAIN in
-	// that case — so keying the work-mode selector off `source.kind` would make
-	// it snap back to "Work locally". `sourceKind` is the source of truth for
-	// which work mode is selected.
+
 	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
 	const initialModel = defaultModelForProvider(activeModelCatalog(), "codex");
 	const [modelMode, setModelMode] = useState<ModelModeValue>({
@@ -250,8 +245,7 @@ export default function NewChatScreen() {
 			const options = optionsForConnection(connection.key, connections);
 			if (options === null) continue;
 			void hydrateSessions(connection.key, options);
-			// Adopt the machine's computed name here too, so the machine row shows
-			// the nice label even if the inbox hasn't refreshed it yet.
+
 			void refreshConnectionLabel(connection.key, options);
 		}
 	}, [connections]);
@@ -387,11 +381,6 @@ export default function NewChatScreen() {
 		});
 	}, [threadContext?.activeThread]);
 
-	// Codex is the hardcoded default provider; if the selected machine doesn't
-	// have it installed, derive a fallback to the first available provider so the
-	// menu and the create payload start on something the server can actually run.
-	// Derived (not stored) to avoid a setState-in-effect cascade — the user's own
-	// picks always come from the filtered menu, so they pass through unchanged.
 	const effectiveModelMode = useMemo<ModelModeValue>(() => {
 		if (
 			availableProviders === null ||
@@ -452,7 +441,6 @@ export default function NewChatScreen() {
 		projectChoices.find((item) => item.project.id === effectiveProjectId)
 			?.project;
 
-	// Selector-stack derived values (machine → project → work-mode → branch).
 	const machineOptions = connections.map((connection) => ({
 		key: connection.key,
 		label: connection.label,
@@ -465,8 +453,7 @@ export default function NewChatScreen() {
 			setSourceKind("main");
 		},
 	}));
-	// Account computers that aren't connected yet, and cloud sandboxes, so a new
-	// chat can start anywhere the desktop "Run on" menu offers.
+
 	const accountEnvironments = useAtomValue(environmentsAtom);
 	const cloudCatalog = useAtomValue(cloudCatalogAtom);
 	const [connectingEnvironment, setConnectingEnvironment] = useState(false);
@@ -503,8 +490,7 @@ export default function NewChatScreen() {
 					.finally(() => setConnectingEnvironment(false));
 			},
 		}));
-	// Cloud runs in this same screen. Repositories come from the account, and
-	// the sandbox defaults to one whose image is ready for the repository.
+
 	const cloudProject =
 		cloudCatalog.projects.find(
 			(project) => project.projectId === cloudProjectId,
@@ -531,7 +517,7 @@ export default function NewChatScreen() {
 		cloudSandboxId,
 		cloudProject?.projectId ?? null,
 	);
-	// Only block on known readiness; without provider data the server decides.
+
 	const cloudBlocked =
 		cloudCatalog.providers.length > 0 && cloudStatus.setup !== "ready";
 	const [rebuildingImage, setRebuildingImage] = useState(false);
@@ -553,8 +539,7 @@ export default function NewChatScreen() {
 			setRebuildingImage(false);
 		}
 	};
-	// Signed in, Cloud is always offered: per provider once the list loads,
-	// otherwise one entry using the account's default sandbox.
+
 	const cloudOptions =
 		account === null
 			? []
@@ -679,9 +664,6 @@ export default function NewChatScreen() {
 			effectiveProjectId !== null &&
 			text.trim().length > 0 &&
 			!submitting &&
-			// For a non-"main" work mode, require a concrete sub-option (a real
-			// worktree/branch/PR) — otherwise `source` is still the MAIN fallback and
-			// we'd silently create a main-checkout chat.
 			(threadMode || sourceKind === "main" || source.kind === sourceKind) &&
 			(!threadMode || threadContext !== null);
 
@@ -707,8 +689,7 @@ export default function NewChatScreen() {
 				runtimeMode: effectiveModelMode.runtimeMode,
 				text,
 			});
-			// Let the keyboard finish closing first; a chat screen that mounts
-			// mid-close never hears it and keeps its composer lifted.
+
 			await KeyboardController.dismiss();
 			router.replace({
 				pathname: "/c/[conn]/session/[sessionId]",
@@ -969,8 +950,6 @@ export default function NewChatScreen() {
 												variant="ghost"
 												disabled={rebuildingImage}
 												onPress={() =>
-													// Broken auth needs reconnecting before a rebuild;
-													// an update would keep the broken credentials.
 													cloudStatus.setup === "rebuild-authentication"
 														? router.push("/cloud-auth")
 														: void rebuildCloudImage()

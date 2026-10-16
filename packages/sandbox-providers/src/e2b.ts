@@ -55,10 +55,9 @@ export interface E2bSandboxConfig {
 	readonly templateId: string;
 	readonly templateVersion?: string;
 	readonly apiBaseUrl?: string;
-	// Fallback for composing per-port hosts when the API omits `domain`.
+
 	readonly sandboxDomain?: string;
-	// Compute dimensions of the sandboxes this template provisions; used for
-	// billing reservations and the advertised offer.
+
 	readonly resources?: SandboxProviderResources;
 }
 
@@ -93,9 +92,6 @@ const reportRequestFailure = (input: {
 	});
 };
 
-// updateNetwork replaces the whole egress config on the provider side, so
-// every policy maps to one complete body — never an incremental "clear then
-// add" sequence (ADR 0033 quarantine caveat).
 const e2bRestrictedNetwork = (
 	network: Extract<SandboxNetworkPolicy, { readonly kind: "restricted" }>,
 ): {
@@ -103,10 +99,7 @@ const e2bRestrictedNetwork = (
 	readonly denyOut: string[];
 } => ({
 	allowOut: network.allowOut,
-	// The current E2B network API rejects the IPv6 catch-all even though it
-	// accepts the equivalent IPv4 CIDR. E2B documents `allow_internet_access:
-	// false` as equivalent to denying 0.0.0.0/0, so the IPv4 rule is the
-	// provider-compatible universal deny used by restricted policies.
+
 	denyOut: network.denyOut.filter((entry) => entry !== "::/0"),
 });
 
@@ -238,8 +231,7 @@ export const e2bControlConnectionsFor = (
 export const makeE2bSandboxProvider = (
 	config: E2bSandboxConfig,
 	http: E2bHttpClient = defaultHttpClient,
-	// A custom transport keeps a private cache so tests and alternative
-	// transports never share credentials with the live isolate cache.
+
 	controlConnections: E2bControlConnectionCache = http === defaultHttpClient
 		? e2bControlConnectionsFor(config)
 		: boundedCache(E2B_CONTROL_CONNECTION_LIMIT),
@@ -465,13 +457,6 @@ export const makeE2bSandboxProvider = (
 			: { Authorization: `Basic ${btoa(`${user}:`)}` }),
 	});
 
-	/**
-	 * Every authenticated guest request goes through here. A cached control
-	 * credential may have been rotated by an external pause or resume; an
-	 * authentication rejection clears it, refetches sandbox detail, and retries
-	 * exactly once. Transport failures and any other status are returned as is,
-	 * because the guest may already have acted on the request.
-	 */
 	const guestFetch = Effect.fn("E2bSandboxProvider.guestFetch")(function* (
 		providerSandboxId: string,
 		send: (connection: {
@@ -503,9 +488,6 @@ export const makeE2bSandboxProvider = (
 			input: SandboxProcessInput,
 			waitForExit = false,
 		) {
-			// A bounded authority request may stop waiting before the guest exits.
-			// Close its HTTP stream on interruption as well as normal completion;
-			// the remote operation retains its own idempotency and process lifetime.
 			const controller = yield* Effect.acquireRelease(
 				Effect.sync(() => new AbortController()),
 				(controller) => Effect.sync(() => controller.abort()),
@@ -715,7 +697,7 @@ export const makeE2bSandboxProvider = (
 				return yield* providerError("rejected");
 			const query = new URLSearchParams({ path });
 			if (user !== undefined) query.set("username", user);
-			// Built per attempt: a form body cannot be sent twice.
+
 			const form = () => {
 				const data = new FormData();
 				data.append(
@@ -776,7 +758,7 @@ export const makeE2bSandboxProvider = (
 		preservesProcessesOnResume: true,
 		supportsFencedProcessReplacement: true,
 		resources,
-		// The template pins one compute profile; sizeId inputs are ignored.
+
 		sizes: [{ sizeId: "standard", displayName: "Standard", ...resources }],
 		resolveEndpoint: (providerSandboxId, port) =>
 			sandboxDetail(providerSandboxId).pipe(
@@ -832,7 +814,7 @@ export const makeE2bSandboxProvider = (
 				"POST",
 				`/sandboxes/${encodeURIComponent(providerSandboxId)}/pause`,
 				{ memory: true },
-				// 409 means the sandbox is already paused.
+
 				[409],
 			).pipe(
 				Effect.tap(() =>
@@ -841,8 +823,6 @@ export const makeE2bSandboxProvider = (
 			),
 		resume: Effect.fn("E2bSandboxProvider.resume")(
 			function* (providerSandboxId, timeoutSeconds, onTimeout) {
-				// envd access tokens are scoped to one running allocation. A memory
-				// pause preserves the filesystem, not the old control credential.
 				controlConnections.delete(providerSandboxId);
 				yield* requestVoid(
 					"POST",
@@ -889,7 +869,7 @@ export const makeE2bSandboxProvider = (
 					Effect.sync(() => controlConnections.delete(providerSandboxId)),
 				),
 			),
-		// Snapshots are stored as templates on the provider side.
+
 		deleteSnapshot: (snapshotId) =>
 			requestVoid(
 				"DELETE",

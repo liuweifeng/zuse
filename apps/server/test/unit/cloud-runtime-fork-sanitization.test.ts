@@ -71,7 +71,7 @@ it.each([
 			),
 			"utf8",
 		);
-		// Redirect every absolute mutation into the fixture; execute the shared resolver and real script.
+
 		const script = `${helper}
 ${original}`
 			.replaceAll("/var/lib/zuse", root)
@@ -116,7 +116,7 @@ ${original}`
 			return;
 		}
 		run();
-		run(); // Interrupted/repeated preparation does not move or reset the preserved DB.
+		run();
 		const source = join(root, "fork-source", "child-1", "user-data");
 		for (const location of [source, childData]) {
 			await expect(

@@ -31,8 +31,6 @@ export const BUNDLED_MODEL_CATALOG = {
 	revision: 2026092901,
 	generatedAt: "2026-09-29T00:00:00.000Z",
 	providers: {
-		// Claude Code. Effort tiers and per-model knobs match the published
-		// Claude Agent SDK contract.
 		claude: {
 			models: [
 				claudeCodeModel("claude-sonnet-5-5", "Sonnet 5.5", {
@@ -61,9 +59,7 @@ export const BUNDLED_MODEL_CATALOG = {
 					],
 				}),
 			],
-			// Short / vendor-formatted slugs and pre-pricing-reset names route to
-			// the canonical slugs above, so a user typing `opus` or `sonnet-4.6`
-			// resolves to the current model id.
+
 			aliases: {
 				fable: "claude-fable-5-1",
 				"fable-5.1": "claude-fable-5-1",
@@ -122,20 +118,14 @@ export const BUNDLED_MODEL_CATALOG = {
 				codexReasoningModel("gpt-5.6-terra", "GPT-5.6 Terra"),
 				codexReasoningModel("gpt-5.6-luna", "GPT-5.6 Luna"),
 			],
-			// Current Codex CLI rejects `gpt-5-codex` / `gpt-5` on ChatGPT accounts;
-			// persisted settings and in-flight resumes are rewritten through here
-			// so existing sessions don't crash.
+
 			aliases: {
 				"gpt-6": "gpt-6-astra",
 				"gpt-5-codex": "gpt-5.5",
 				"gpt-5": "gpt-5.5",
 			},
 		},
-		// Seed list — Grok CLI's `-m` flag accepts any model id it knows, so a
-		// custom slug typed by the user still works; this list is just what the
-		// picker shows by default. `grok-build` unlocks with a paid Grok
-		// entitlement. Passing a slug the account can't access yields a clean
-		// 403 surfaced through grok's streaming-json `type: "error"` envelope.
+
 		grok: {
 			models: [
 				{
@@ -171,9 +161,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				"grok-build-latest": "grok-4.7",
 			},
 		},
-		// Gemini CLI accepts any model slug it knows via the ACP `_meta.model`
-		// hint. Gemini's ACP server does not expose a runtime reasoning-effort
-		// knob, so no reasoning descriptor is declared.
+
 		gemini: {
 			models: [
 				{
@@ -205,9 +193,7 @@ export const BUNDLED_MODEL_CATALOG = {
 			],
 			aliases: {},
 		},
-		// Kiro CLI (`kiro-cli acp`) speaks standard ACP. Model ids match
-		// `kiro-cli chat --list-models --format json` (dotted versions). The
-		// live inventory is authoritative; this seed supplies curated labels.
+
 		kiro: {
 			models: [
 				{ id: "auto", label: "Auto", supportsPlanMode: true },
@@ -270,7 +256,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				},
 				{ id: "gpt-5.6-luna", label: "GPT-5.6 Luna", supportsPlanMode: true },
 			],
-			// Common shorthand / hyphen-vs-dotted variants users may persist.
+
 			aliases: {
 				"claude-sonnet-5-5": "claude-sonnet-5.5",
 				"claude-opus-5-5": "claude-opus-5.5",
@@ -283,9 +269,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				"claude-haiku-4-5": "claude-haiku-4.5",
 			},
 		},
-		// The bundled Cursor SDK exposes a broad model catalog. This curated
-		// shortlist is only the picker seed, not a whitelist. The `default` slug
-		// maps to the SDK's current recommended composer model.
+
 		cursor: {
 			models: [
 				{ id: "default", label: "Auto", supportsPlanMode: true },
@@ -363,10 +347,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				},
 				{ id: "grok-4.6", label: "Grok 4.6", supportsPlanMode: true },
 			],
-			// Cursor retired the old `gpt-5` / `sonnet-4*` / `opus-4.x` slugs.
-			// Existing user settings persisted by earlier builds get re-aliased to
-			// current catalogue entries so re-opening the app doesn't send the
-			// agent a slug it'll silently ignore.
+
 			aliases: {
 				"gpt-5": "composer-2",
 				"sonnet-4": "claude-sonnet-4-6",
@@ -390,11 +371,7 @@ export const BUNDLED_MODEL_CATALOG = {
 				auto: "default",
 			},
 		},
-		// OpenCode is a meta-provider: it spawns a local `opencode serve` and
-		// forwards prompts to whichever underlying provider the user has
-		// authenticated locally. Model ids carry a `<providerID>/<modelID>` slug
-		// so the driver can split them on the slash. The live inventory is
-		// authoritative; this seed supplies curated labels and badges.
+
 		opencode: {
 			models: [
 				{
@@ -509,9 +486,7 @@ export const BUNDLED_MODEL_CATALOG = {
 			],
 			aliases: {},
 		},
-		// OpenCode 2 (`opencode2`) is a separate binary and HTTP API from
-		// OpenCode 1. Same meta-provider shape: live inventory is
-		// authoritative; this seed supplies curated labels until it loads.
+
 		opencode2: {
 			models: [
 				{
@@ -594,20 +569,10 @@ export const BUNDLED_MODEL_CATALOG = {
 			aliases: {},
 		},
 	},
-	// 2026-05 Anthropic pricing reset — every Opus tier landed at the same
-	// $5/$25 per-million numbers. `fastMode` doubles those for ~2.5x
-	// throughput; the renderer's cost footer applies the multiplier. 1M
-	// context window: no per-token premium. Retired ids stay so historical
-	// sessions still price. Fable 5.1 assumes Fable 5 pricing until Anthropic
-	// publishes a separate rate.
+
 	pricing: {
-		// Official launch pricing, verified 2026-09-29:
-		// https://developers.openai.com/api/docs/models/gpt-6.1-sol
 		"gpt-6.1-sol": { input: 2, output: 10, cacheRead: 0.1, cacheCreate: 2.5 },
-		// Official launch pricing, verified 2026-09-22:
-		// https://developers.openai.com/api/docs/models/gpt-6-sol
-		// https://developers.openai.com/api/docs/models/gpt-6-luna
-		// https://platform.claude.com/docs/en/models/opus-5-5/overview
+
 		"gpt-6-sol": { input: 2, output: 10, cacheRead: 0.2, cacheCreate: 2.5 },
 		"gpt-6-luna": {
 			input: 0.1,
@@ -679,8 +644,6 @@ export const BUNDLED_MODEL_CATALOG = {
 	},
 } as const satisfies ModelCatalog;
 
-// Re-exported so callers that only need the descriptor helpers for
-// authoring custom entries don't have to reach into `authoring.ts`.
 export {
 	booleanDescriptor,
 	claudeContextWindowDescriptor,

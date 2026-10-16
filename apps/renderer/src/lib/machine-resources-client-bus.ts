@@ -53,11 +53,6 @@ const makeDriver = (): ResourceDriver<MemoizeClient, MachineResourcesData> => {
 						});
 					}),
 			).pipe(
-				// Stats are cosmetic. A runtime that predates this RPC (or a stream
-				// dropped by a pausing workspace) must never be treated as a
-				// connection fault — tearing down the shared environment connection
-				// here would put pause/resume into a reconnect loop. Fail quietly;
-				// the rows simply stay hidden until a capable runtime reconnects.
 				Effect.catchCause((cause) =>
 					Effect.sync(() => {
 						if (active && !Cause.hasInterruptsOnly(cause)) {

@@ -324,7 +324,7 @@ describe("JobWorker", () => {
 				});
 				yield* ledger.enqueue([sendJob("job-1", "session-1")]);
 				yield* worker.drain;
-				// Force the retry to become available and drain again.
+
 				const sql = yield* SqlClient.SqlClient;
 				yield* sql`UPDATE jobs SET available_at = '2000-01-01T00:00:00.000Z'`;
 				const failures = yield* worker.drain;
@@ -418,7 +418,7 @@ describe("JobWorker", () => {
 				yield* ledger.enqueue([sendJob("job-1", "session-1")]);
 				const first = yield* worker.drain;
 				const parked = yield* ledger.get(JobId.make("job-1"));
-				// Background loops skip waiting jobs even once they are old enough.
+
 				const background = yield* ledger.claimNext({
 					workerId: "loop",
 					leaseMs: 1000,

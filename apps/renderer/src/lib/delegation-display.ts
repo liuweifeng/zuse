@@ -119,7 +119,6 @@ const INVISIBLE_TAGS = new Set<Message["content"]["_tag"]>([
 	"subagent_progress",
 ]);
 
-/** Rows that render nothing, so they never split a fleet of delegations. */
 const isInvisibleMessage = (message: Message): boolean =>
 	INVISIBLE_TAGS.has(message.content._tag) ||
 	(message.content._tag === "assistant" &&
@@ -442,8 +441,7 @@ export const spawnDelegationView = (
 	const session = context.session;
 	const chatId = target?.chatId ?? context.fallbackChatId ?? null;
 	const busy = session !== null && isSessionRuntimeBusy(session.runtime);
-	// The tool result can land before the session reaches the shell; until
-	// it does, the outcome is unknown, so the spawn keeps working.
+
 	const status: DelegationStatus =
 		member.result === null || session === null || busy
 			? "working"

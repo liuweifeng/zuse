@@ -1,8 +1,3 @@
-/**
- * Opt-in live benchmark. Creates a disposable Box and boots the published Zuse
- * server without account linking. This measures server health, not chat recovery.
- * Run with Bun; see internal-docs/cloud/box-resume-benchmark.md.
- */
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";

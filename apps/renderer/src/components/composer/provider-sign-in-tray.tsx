@@ -64,8 +64,6 @@ export function ProviderSignInTray({
 		environmentId,
 		sessionId,
 		onSuccess: () => {
-			// Re-probe first so the credential write has landed, then reopen the
-			// provider and release a fresh chat's queued first message.
 			void (async () => {
 				await refreshProviders(environmentId);
 				const resumed = await resumeAfterProviderLogin({

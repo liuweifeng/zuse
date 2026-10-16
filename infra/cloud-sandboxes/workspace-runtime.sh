@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Shared by initial bootstrap and resume. Keep the lock descriptor open across
-# exec so only one process can enter runtime storage and enrollment at a time.
+
 workspace_runtime_timing() {
   printf '[cloud-timing] workspaceId=%s generation=%s stage=%s atMs=%s\n' \
     "${ZUSE_CLOUD_WORKSPACE_ID:-unknown}" "${ZUSE_RUNTIME_GENERATION:-unknown}" \
@@ -26,7 +25,7 @@ workspace_runtime_launch_failed() {
   if [[ "$code" != 0 ]]; then
     printf '%s\n' "$phase" >"$runtime_attempt_dir/failure-phase"
     printf '%s\n' "$code" >"$runtime_attempt_dir/exit-code"
-    # A rejected contender must not poison the live owner's readiness markers.
+
     if [[ "${workspace_runtime_lock_acquired:-0}" == 1 ]]; then
       printf '%s\n' "$phase" >"$status_dir/failure-phase"
       touch "$status_dir/failed"
@@ -36,8 +35,7 @@ workspace_runtime_launch_failed() {
 
 resolve_workspace_runtime_data() {
   phase=resolving-runtime-data
-  # Aliases may point to the same persisted database. Distinct databases are
-  # ambiguous; never choose a new path or delete an older workspace to launch.
+
   local selected="" candidate database identity selected_identity=""
   for candidate in "${ZUSE_USER_DATA:-/var/lib/zuse/user-data}" \
     /home/zuse/.zuse-data /srv/zuse/home/.zuse-data; do
@@ -59,8 +57,7 @@ resolve_workspace_runtime_data() {
     selected="${ZUSE_USER_DATA:-/var/lib/zuse/user-data}"
   fi
   export ZUSE_USER_DATA
-  # Canonicalize without initializing storage; fork quarantine uses the same
-  # selection before moving its source, while new workspaces may not exist yet.
+
   ZUSE_USER_DATA=$(readlink -m "$selected") || return 74
 }
 
@@ -73,8 +70,7 @@ acquire_workspace_runtime_lock() {
   fi
   phase=acquiring-runtime-lock
   mkdir -p "$ZUSE_USER_DATA"
-  # Compile bytecode is reusable across fresh processes; workspace keys are not.
-  # Current images prewarm this cache. Older/native images use private storage.
+
   if [[ -d /opt/zuse/node-compile-cache && -w /opt/zuse/node-compile-cache ]]; then
     export NODE_COMPILE_CACHE=/opt/zuse/node-compile-cache
   else
@@ -82,8 +78,7 @@ acquire_workspace_runtime_lock() {
   fi
   local lock_file="$ZUSE_USER_DATA/.workspace-runtime.lock"
   local inherited="${ZUSE_WORKSPACE_RUNTIME_LOCK_FD:-}"
-  # The initial wrapper execs bootstrap with its lock already held. Validate the
-  # inherited descriptor and reacquire on that same open file description.
+
   if [[ "$inherited" =~ ^[0-9]+$ ]] &&
     [[ "$(readlink -f "/proc/$$/fd/$inherited")" == "$(readlink -f "$lock_file")" ]]; then
     flock --nonblock "$inherited" || return 75

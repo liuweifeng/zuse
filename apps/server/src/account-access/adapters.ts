@@ -76,12 +76,6 @@ const ansiSequenceAt = (raw: string, cursor: number): string | null => {
 	return match === null ? null : `${ESCAPE_CHARACTER}${match[0]}`;
 };
 
-/**
- * Claude renders setup tokens through Ink, so a token may contain terminal
- * line wraps and SGR sequences in the PTY stream. A match is complete only
- * once the color reset or Claude's following safety copy arrives. Treating a
- * chunk boundary as the end would seal a truncated credential.
- */
 const findClaudeSetupToken = (
 	raw: string,
 	fromIndex = 0,
@@ -255,8 +249,7 @@ export const redactAccountAccessOutput = (raw: string): string => {
 			cursor = start + "[credential redacted]".length;
 			continue;
 		}
-		// Even an incomplete PTY chunk is secret-bearing. Redact the partial
-		// suffix rather than allowing it into diagnostics while awaiting more data.
+
 		let end = start + CLAUDE_SETUP_TOKEN_PREFIX.length;
 		while (end < result.length) {
 			const character = result[end];

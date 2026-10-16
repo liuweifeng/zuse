@@ -236,13 +236,9 @@ export type CloudWorkspaceRouteContext =
 	| WorkosVerifier
 	| CloudBillingStore;
 
-// The RPC socket may reconnect without another user action. A signed ticket is
-// reusable during this short lease; expiry affects only new connections.
 const WORKSPACE_CLIENT_TICKET_TTL_MS = 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 15 * 60_000;
 
-// SSH bridge access: the hashed ticket is staged inside the sandbox (like the
-// runtime boot token) and verified by the runtime's /ssh WebSocket route.
 const WORKSPACE_SSH_TICKET_TTL_MS = 12 * 60 * 60_000;
 const escapeHtml = (value: string): string =>
 	value.replace(
@@ -260,8 +256,6 @@ const githubCallbackPage = (input: {
 	readonly title: string;
 	readonly message: string;
 }) =>
-	// These values currently originate from fixed copy and GitHub login names,
-	// but escaping here keeps this public callback safe if its copy evolves.
 	new Response(
 		`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.title)}</title><body style="margin:0;background:#111;color:#eee;font:14px system-ui;display:grid;min-height:100vh;place-items:center"><main style="max-width:420px;padding:24px"><h1 style="font-size:18px">${escapeHtml(input.title)}</h1><p style="color:#aaa;line-height:1.5">${escapeHtml(input.message)}</p></main></body></html>`,
 		{
@@ -631,7 +625,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const store = yield* CloudWorkspaceStore;
 	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
-	// Each provider owns its image; omitted selections retain the account default.
+
 	const provider = (yield* accountSandboxProviders(accountId)).find(
 		(candidate) =>
 			candidate.providerId ===
@@ -862,9 +856,7 @@ export const startupPhase = (workspace: CloudWorkspaceRecord) => {
 		return workspace.providerSandboxId === undefined
 			? ("allocating" as const)
 			: ("booting" as const);
-	// Warm resumes can reuse an already-acknowledged launch intent. In that case
-	// the runtime reports repository-ready, so there is no new agent-started
-	// timestamp even though the durable status is already authoritative.
+
 	if (
 		workspace.statusCode === "agent-running" ||
 		(workspace.statusCode === "ready" && workspace.runtimeState === "online")
@@ -1329,10 +1321,6 @@ export const codexGrantRuntimeBindingError = (
 	return null;
 };
 
-/** Bootstrap must answer promptly even when the account authority is slow or disconnected. */
-// A cold control connection can take more than 1.5 s even for a ready
-// authority. Allow that normal path to finish rather than paying its latency
-// again through the runtime's fallback request.
 export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 3_000;
 
 /**
@@ -1590,7 +1578,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	accountId: string,
 	body: Omit<CloudWorkspaceCreateRequest, "providerId"> & {
 		readonly providerId?: string;
-		/** Canonical public-API request fingerprint, absent for first-party calls. */
+
 		readonly publicApiRequestDigest?: string;
 		readonly githubBot?: boolean;
 	},
@@ -1745,10 +1733,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 			);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
-	// Workspace records cannot tell us which names were used by local chats,
-	// other accounts, or deleted GitHub branches with historical PRs. Scope
-	// generated names to the full workspace identity instead of reusing a bare
-	// mascot name. Explicit "Create from" branches retain their identity.
+
 	const branch =
 		body.branch ??
 		`${
@@ -2010,8 +1995,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				decodeURIComponent(controlMatch[1] ?? ""),
 				nowMs,
 			);
-			// A shared organization runtime cannot impersonate its creator. Actor-scoped
-			// delegation must precede enabling cross-workspace control there.
+
 			if (source.accountId.startsWith("organization:"))
 				return yield* forbidden("runtime_control_requires_personal_workspace");
 			if (source.state !== "ready")
@@ -2198,8 +2182,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				return yield* Effect.fail(
 					unauthorized("workspace_bootstrap_key_mismatch"),
 				);
-			// Derivation from the high-entropy one-shot token allows response-loss
-			// retries to recover the credential without storing it in plaintext.
+
 			const runtimeCredential = `workspace_runtime_${yield* sha256Hex(
 				`bootstrap-v1\n${token}\n${workspaceId}\n${generation}\n${epoch}\n${credentialKeyThumbprint}\n${signingKeyThumbprint}`,
 			)}`;
@@ -2297,7 +2280,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 							enrolled.receipt.runtimeCredentialExpiresAtMs -
 							RUNTIME_CREDENTIAL_TTL_MS,
 					}),
-					// Enrollment succeeded above; the launch agent's grant rides along.
+
 					issueBootstrapLaunchGrant({
 						codexServingEnabled:
 							apiConfiguration.cloudCodexAuthBrokerServingEnabled,
@@ -2331,10 +2314,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				providerSandboxId,
 				runtimeCredential,
 				runtimeGatewayCredential,
-				// Wire-v5 runtimes published before machine-owned sandbox auth require
-				// this field during bootstrap decoding. Credentials are no longer sent
-				// here, but retaining the empty additive field keeps retained sandboxes
-				// resumable while newer v5 runtimes use runtimeGatewayCredential.
+
 				cloudCredentials: [],
 				gatewayUrl: gatewayUrl(api.apiIssuer, workspaceId),
 				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
@@ -2426,8 +2406,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				});
 				verifiedSigningKeyThumbprint = registeredThumbprint;
 			}
-			// A deterministic value lets a retry recover the exact credential after
-			// response loss without storing plaintext at Api.
+
 			const runtimeCredential = `workspace_runtime_${yield* sha256Hex(
 				`${currentCredential}:${workspaceId}:${body.requestId}`,
 			)}`;
@@ -2728,8 +2707,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				runtimeBootstrapReceiptFromConfig(
 					workspace.requestConfig,
 				)?.capabilities?.includes(CLOUD_RUNTIME_API_ASSETS_CAPABILITY) === true;
-			// SessionDomain accepts one active turn at a time. Strict FIFO keeps a
-			// second durable command from colliding with the turn just started here.
+
 			const commands = yield* Effect.forEach(
 				pending === null ? [] : [pending],
 				(message) =>
@@ -2742,9 +2720,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 								message.sealedContent,
 							),
 						);
-						// Keep attachment commands pending until an upgraded runtime is active.
-						// Older runtimes ignore the optional wire field and would otherwise ACK
-						// the command after silently dropping its files.
+
 						if (
 							content.githubBot === true &&
 							!runtimeBootstrapReceiptFromConfig(
@@ -2818,7 +2794,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				body.settledAt > nowMs + 5 * 60_000
 			)
 				return yield* Effect.fail(badRequest("invalid_turn_event"));
-			// v1 of the public API follows the initial session only.
+
 			if (body.sessionId !== workspace.initialSessionId)
 				return json({ recorded: false });
 			const messageId = `msg_turn_${(
@@ -3142,9 +3118,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					leaseRequest.afterRevision < 0)
 			)
 				return yield* Effect.fail(badRequest("cloud_mailbox_revision_invalid"));
-			// Delete fences all new delivery, but an exact still-current runtime
-			// credential must retain the bounded ability to publish the durable receipt
-			// for a lease it already owns. The mailbox validates that original token.
+
 			const workspace =
 				action === "ack"
 					? yield* authenticateRuntime(request, workspaceId, nowMs)
@@ -3191,11 +3165,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				return yield* Effect.fail(
 					conflict("cloud_workspace_runtime_not_ready"),
 				);
-			// Do not cross into the Durable Object on an idle poll. If an enqueue
-			// races after the atomic store observation, that enqueue owns a newer wake
-			// revision and the consumer's next poll will drain it. This closes the
-			// inverse race where an unobserved command could be leased between the
-			// store check and the DO request.
+
 			if (
 				action === "lease" &&
 				billingCapacity === "available" &&
@@ -3588,7 +3558,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				const response = json(
 					{
 						...envelope,
-						// Overwrite caller claims, including removing them for legacy Personal.
+
 						actor:
 							access.membership === null
 								? undefined
@@ -4031,7 +4001,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				settings: {
 					source: "custom-snapshot",
 					snapshotVersion: source.version,
-					// Resolve names once; retries and launches retain this source generation.
+
 					snapshot: { ...body, snapshotId: source.snapshotId },
 					providerConnectionId: provider.connectionId,
 				},
@@ -4205,9 +4175,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				changes && rawCursor !== null ? Number(rawCursor) : undefined;
 			if (cursor !== undefined && (!Number.isSafeInteger(cursor) || cursor < 0))
 				return json({ error: "invalid-request" }, 400);
-			// Organization membership and grants can change independently of a client's
-			// cursor. A filtered replacement also removes revoked chats without exposing
-			// tombstone IDs for private chats this member has never seen.
+
 			const replacement = access.scope.kind === "organization";
 			const catalog = yield* store.readCloudCatalog(
 				ownerId,
@@ -4229,8 +4197,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					))
 				)
 					continue;
-				// An accepted deletion removes the chat immediately. Provider cleanup
-				// can retry or fail independently without resurrecting a clickable chat.
+
 				if (
 					workspace.state === "deleted" ||
 					workspace.desiredState === "deleted"
@@ -4424,7 +4391,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 			const { permission } = yield* cloudWorkspacePermission(access, workspace);
 			if (workspace.state === "failed" || workspace.state === "deleted")
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
-			// Reject before the WebSocket handshake, where browsers hide HTTP errors.
+
 			if (!workspaceRuntimeSupportsScope(workspace))
 				return yield* conflict("workspace_runtime_update_required");
 			const ticketRequest =
@@ -4571,10 +4538,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 						body.port === offer.port
 			)
 				return yield* Effect.fail(badRequest("invalid_preview_port"));
-			// The returned host is public-by-URL: anyone holding it reaches the
-			// port with no further auth. The high-entropy sandbox id is the trust
-			// model (like sharing a tunnel link). Pausing does not revoke a route:
-			// providers such as boxd can wake the machine on inbound traffic.
+
 			const provider = yield* resolveResourceProvider(workspace).pipe(
 				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
 			);
@@ -4707,8 +4671,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
 					: yield* decodeBody(CloudWorkspaceActionRequest, request);
-			// Client socket loss and bearer expiry cannot establish execution loss.
-			// Recovery follows stored lifecycle failure or an authoritative mailbox fence.
+
 			const recoverRuntime =
 				action === "resume" &&
 				workspace.providerSandboxId !== undefined &&
@@ -4831,7 +4794,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 			};
 			const received: CloudWorkspaceRecord = {
 				...updated,
-				// An explicit retry starts a new bounded episode on the same disk.
+
 				...((action === "resume" ||
 					action === "restart" ||
 					action === "update") &&

@@ -61,16 +61,6 @@ const coordinator = new UpdateChannelCoordinator(
 let initialization = Promise.resolve();
 let downloadToken: CancellationToken | null = null;
 
-// electron-updater talks to the GitHub Releases feed configured in
-// apps/desktop/electron-builder.base.yml (`publish.provider: github`). It reads
-// `latest-mac.yml` from the latest *published* release (drafts are invisible
-// to unauthenticated readers — see release flow note in electron-builder.base.yml),
-// compares versions, and downloads the platform update archive. We drive the lifecycle manually
-// so the renderer can show download progress + a "Restart now" button instead
-// of relying on the system notification center.
-//
-// Re-poll every six hours so a long-running session picks up a release
-// pushed mid-week without requiring a manual restart-to-check.
 type UpdaterWindow = Pick<BrowserWindow, "isDestroyed"> & {
 	webContents: Pick<BrowserWindow["webContents"], "send" | "on">;
 };
@@ -83,8 +73,6 @@ const UPDATE_POLL_MS = 6 * 60 * 60 * 1000;
 // the toast and menu would otherwise sit forever showing the last percent.
 const DOWNLOAD_STALL_MS = 60_000;
 
-// Local ZIP staging may take time to unpack and validate. Surface a recovery
-// message if Squirrel never responds instead of silently waiting forever.
 const NATIVE_STAGING_TIMEOUT_MS = 3 * 60_000;
 
 let lastStatus: UpdateStatus = { kind: "idle" };
@@ -93,9 +81,6 @@ let activeUpdateCheck: "automatic" | "manual" | null = null;
 let updateCheckInFlight: Promise<void> | null = null;
 let automaticCheckRetryTimer: NodeJS.Timeout | null = null;
 
-// Set for the brief window between "the app is quitting to install an update"
-// and process exit. The desktop quit handler uses this to avoid starting a
-// second installation while the native updater owns shutdown.
 let installingUpdate = false;
 let preparingEngine = false;
 let enginePreparationFailure: { readonly error: unknown } | null = null;
@@ -112,8 +97,6 @@ export function setEngineUpdateLifecycle(
 	engineUpdateLifecycle = lifecycle;
 }
 
-// Native checks cannot be cancelled. Keep ownership of the feed through a
-// timeout and, once staged, until restart: Squirrel cannot replace that bundle.
 let nativeStage: {
 	kind: "pending" | "timed-out" | "ready";
 	version: string;
@@ -243,7 +226,6 @@ export async function installUpdate(quitIfBusy = false): Promise<void> {
 let installExitTimer: NodeJS.Timeout | null = null;
 let nativeStagingTimer: NodeJS.Timeout | null = null;
 
-/** Report a slow native operation without pretending the operation was cancelled. */
 function nativeStagingTimedOut(): void {
 	clearNativeStagingTimer();
 	if (nativeStage?.kind !== "pending") return;
@@ -266,18 +248,14 @@ function nativeStagingUnavailable(): void {
 	failUpdateInstall(new Error("The native updater found no update to stage"));
 }
 
-/** Remove the staging deadline before handing off or releasing an attempt. */
 function clearNativeStagingTimer(): void {
 	if (nativeStagingTimer !== null) clearTimeout(nativeStagingTimer);
 	nativeStagingTimer = null;
 }
 
-/** Bound shutdown only after the installer has arranged the native quit. */
 function armInstallExitWatchdog(): void {
 	if (installExitTimer !== null || !installingUpdate) return;
-	// Only force exit once the native updater has started quitting. Starting
-	// this timer at the button click can kill Squirrel's staging server before
-	// it has prepared an installation or arranged the relaunch.
+
 	installExitTimer = setTimeout(() => {
 		console.warn(
 			"[zuse:updater] shutdown stalled after installer handoff — forcing exit",
@@ -287,7 +265,6 @@ function armInstallExitWatchdog(): void {
 	installExitTimer.unref();
 }
 
-/** Finish native staging and transfer responsibility to the quit watchdog. */
 function quitAfterNativeStaging(): void {
 	clearNativeStagingTimer();
 	nativeUpdater.removeListener(
@@ -298,8 +275,6 @@ function quitAfterNativeStaging(): void {
 	const timedOut = nativeStage.kind === "timed-out";
 	nativeStage.kind = "ready";
 	if (timedOut) {
-		// The old restart request expired. Make this exact staged version ready
-		// for an explicit restart instead of quitting unexpectedly much later.
 		emit({ kind: "ready", version: nativeStage.version });
 		return;
 	}
@@ -310,15 +285,12 @@ function quitAfterNativeStaging(): void {
 	}
 }
 
-/** Release timers and callbacks so an unsuccessful install can be retried. */
 function readEnginePreparationFailure(): { readonly error: unknown } | null {
 	return enginePreparationFailure;
 }
 
 function failUpdateInstall(error: unknown): void {
 	if (preparingEngine) {
-		// A background updater error cannot release the attachment barrier while
-		// engine shutdown is still in flight, or a reconnect could create a new owner.
 		enginePreparationFailure = { error };
 		return;
 	}
@@ -350,9 +322,7 @@ function failUpdateInstall(error: unknown): void {
 const statusListeners = new Set<(status: UpdateStatus) => void>();
 
 let stallTimer: NodeJS.Timeout | null = null;
-// We auto-retry the *first* stall in a session to absorb transient network
-// flakes (laptop lid, hotel wifi), then surface the error so we don't loop
-// forever on a permanent failure.
+
 let stallRetried = false;
 
 function clearStallTimer(): void {
@@ -368,8 +338,7 @@ function armStallTimer(): void {
 		stallTimer = null;
 		if (lastStatus.kind !== "downloading" && lastStatus.kind !== "available")
 			return;
-		// Cancel the actual transfer before retrying; reusing downloadUpdate while
-		// its promise is pending only returns the same stalled operation.
+
 		downloadToken?.cancel();
 	}, DOWNLOAD_STALL_MS);
 }
@@ -406,11 +375,6 @@ function scheduleAutomaticCheckRetry(
 	automaticCheckRetryTimer.unref();
 }
 
-/**
- * Own every update check so transient failures from background polling can be
- * retried without leaking electron-updater's raw HTTP response into the UI.
- * Manual checks skip the backoff and surface a concise retryable error.
- */
 function runUpdateCheck(
 	kind: "automatic" | "manual",
 	attempt = 0,
@@ -495,8 +459,6 @@ export function onStatusChange(
 }
 
 function attachRenderer(window: UpdaterWindow): void {
-	// Always re-broadcast the most recent status to a (re)attached window so a
-	// dev hot-reload or future window-recreate doesn't lose state.
 	const sendToRenderer = (status: UpdateStatus) => {
 		if (window.isDestroyed()) return;
 		window.webContents.send(UPDATE_STATUS_CHANNEL, status);
@@ -518,11 +480,6 @@ export function startAutoUpdater(window: UpdaterWindow): void {
 		debug: () => {},
 	} as unknown as typeof autoUpdater.logger;
 
-	// Download in the background the moment an update is detected — the user
-	// shouldn't have to click "Update now". The restart toast only appears once
-	// the download finishes (`update-downloaded` → `ready`). If they ignore the
-	// "Restart" button we still install on next quit so the update isn't
-	// stranded forever.
 	autoUpdater.autoDownload = false;
 	// Squirrel.Mac cannot supersede an update it has already staged during the
 	// current process. Keep downloads in electron-updater's replaceable cache
@@ -577,9 +534,7 @@ export function startAutoUpdater(window: UpdaterWindow): void {
 			failUpdateInstall(err);
 			return;
 		}
-		// checkForUpdates emits this event before rejecting its promise. The
-		// owned check path above decides whether to retry or surface the failure,
-		// avoiding duplicate/raw error toasts.
+
 		if (activeUpdateCheck !== null) return;
 		emit({
 			kind: "error",
@@ -595,8 +550,6 @@ export function startAutoUpdater(window: UpdaterWindow): void {
 		await runUpdateCheck("manual");
 	});
 	ipcMain.handle(UPDATE_INSTALL_CHANNEL, () => {
-		// Routes through `installUpdate` so the `installingUpdate` guard is set
-		// before shutdown begins — otherwise the before-quit agent guard blocks it.
 		installUpdate();
 	});
 
@@ -633,14 +586,12 @@ export function triggerUpdateInstall(): void {
  * Call from `main.ts` only when `isDevelopment`. No-op in packaged builds.
  */
 export function registerUpdaterDemo(window: UpdaterWindow): void {
-	// Plumb the renderer so demo-pushed statuses reach the banner.
 	attachRenderer(window);
 	initialization = initializeChannels(false);
 	registerChannelHandlers();
 	ipcMain.handle("zuse:update-demo-set", (_event, status: UpdateStatus) => {
 		if (window.isDestroyed()) return;
-		// Push through `emit` so the menu listener and any other subscribers
-		// see demo events the same way they'd see real ones.
+
 		emit(status);
 	});
 }
@@ -648,7 +599,7 @@ export function registerUpdaterDemo(window: UpdaterWindow): void {
 function configureChannel(): void {
 	autoUpdater.channel = coordinator.channel === "stable" ? "latest" : "preview";
 	autoUpdater.allowPrerelease = coordinator.channel === "preview";
-	// Only opting out of an installed Preview authorizes a downgrade.
+
 	autoUpdater.allowDowngrade =
 		coordinator.channel === "stable" &&
 		downgradeFrom === app.getVersion() &&

@@ -34,7 +34,6 @@ import { SettingsGroup } from "../ui/settings-panel.tsx";
 import { Spinner } from "../ui/spinner.tsx";
 import { DeviceLoginSteps } from "./connection-login-steps.tsx";
 
-// Provider product names are not translated.
 const connectionNames = { chatgpt: "ChatGPT", supergrok: "SuperGrok" };
 
 function ConnectionRow({

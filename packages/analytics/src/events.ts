@@ -278,9 +278,6 @@ export const sanitizeAnalyticsProperties = (
 	return output;
 };
 
-// Allowlists come from the bundled snapshot: telemetry must never leak a
-// user-typed custom slug, and live-only ids are reported as `custom` until
-// they land in the curated catalog.
 const knownModelIds = new Map<ProviderId, ReadonlySet<string>>(
 	PROVIDER_IDS.map((provider) => [
 		provider,

@@ -9,9 +9,6 @@ import type {
 	SandboxProviderAdapter,
 } from "../../src/index.ts";
 
-// Opt-in live contract: disposable provider compute only, no account/runtime
-// enrollment or customer data. Boxd uses a stock image when the configured
-// Zuse template is unavailable; this does not certify product startup latency.
 const enabled = process.env.ZUSE_LIVE_PROCESS_OWNERSHIP === "1";
 const run = <A>(effect: Effect.Effect<A, unknown>) => Effect.runPromise(effect);
 
@@ -64,8 +61,6 @@ const ownershipContract = async (
 	expect(await read("starts")).toBe("started");
 	expect(await observe()).toBe("active");
 
-	// Repeated wake checks on memory-preserving providers; Boat must preserve
-	// files and admit an authorized cold replacement instead of inventing a PID.
 	for (let attempt = 0; attempt < (warm ? 3 : 1); attempt++) {
 		await run(adapter.pause(id));
 		const start = performance.now();

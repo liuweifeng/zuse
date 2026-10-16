@@ -40,7 +40,6 @@ const buildStatus = (
       : null),
 });
 
-// ── Claude Code ──────────────────────────────────────────────────────────────
 const claudeRoots = (): string[] => {
   const env = process.env.CLAUDE_CONFIG_DIR?.trim();
   const candidates =
@@ -66,7 +65,6 @@ const readClaude = async (): Promise<UsageSourceReadResult> => {
   return { status: buildStatus("claude", true, records, files), records };
 };
 
-// ── Codex ────────────────────────────────────────────────────────────────────
 const readCodex = async (): Promise<UsageSourceReadResult> => {
   const homes = normalizePathList(process.env.CODEX_HOME, [join(homedir(), ".codex")]);
   const sessionsDirs = homes.map((home) => join(home, "sessions")).filter(isDirectory);
@@ -81,7 +79,6 @@ const readCodex = async (): Promise<UsageSourceReadResult> => {
   return { status: buildStatus("codex", true, records, files), records };
 };
 
-// ── OpenCode (storage/message/**/*.json + opencode.db) ───────────────────────
 interface OpenCodeMessage {
   id?: string;
   sessionID?: string;
@@ -152,12 +149,12 @@ const readOpenCode = async (): Promise<UsageSourceReadResult> => {
               records.push(record);
             }
           } catch {
-            // skip malformed row
+
           }
         }
         db.close();
       } catch {
-        // DB unreadable; fall through to JSON files
+
       }
     }
     const files = collectFiles(join(root, "storage", "message"), ".json");
@@ -174,14 +171,13 @@ const readOpenCode = async (): Promise<UsageSourceReadResult> => {
           records.push(record);
         }
       } catch {
-        // skip malformed file
+
       }
     }
   }
   return { status: buildStatus("opencode", true, records, paths), records };
 };
 
-// ── Amp (threads/**/*.json) ──────────────────────────────────────────────────
 interface AmpThread {
   id?: string;
   messages?: Array<{ role?: string; messageId?: number; usage?: { cacheCreationInputTokens?: number; cacheReadInputTokens?: number } }>;
@@ -233,7 +229,6 @@ const readAmp = async (): Promise<UsageSourceReadResult> => {
   return { status: buildStatus("amp", true, records, files), records };
 };
 
-// ── pi-agent (sessions/**/*.jsonl) ───────────────────────────────────────────
 const readPi = async (): Promise<UsageSourceReadResult> => {
   const envDir = process.env.PI_AGENT_DIR?.trim();
   const roots = existingDirectories(
@@ -307,12 +302,6 @@ const readPi = async (): Promise<UsageSourceReadResult> => {
   return { status: buildStatus("pi", true, records, files), records };
 };
 
-// ── Grok ─────────────────────────────────────────────────────────────────────
-// Grok ("grok build") does not log per-turn input/output token counts. The only
-// usage signal it persists is an aggregate `tokens_used` on `subagent_finished`
-// events inside each session's `updates.jsonl`. We surface those as best-effort
-// total-token rows (no input/output split, so the aggregate is recorded as input
-// and cost is left unknown — `grok-build` is an agent name, not a priced model).
 interface GrokSummary {
   info?: { cwd?: string };
   current_model_id?: string;
@@ -336,7 +325,7 @@ const readGrok = async (): Promise<UsageSourceReadResult> => {
     try {
       summary = JSON.parse(readFileSync(join(dir, "summary.json"), "utf8")) as GrokSummary;
     } catch {
-      // No summary — fall back to the URL-encoded cwd in the session path.
+
     }
     const cwd = summary.info?.cwd ?? decodeGrokCwd(dir);
     const model = str(summary.current_model_id) ?? "grok-build";
@@ -386,7 +375,6 @@ const readGrok = async (): Promise<UsageSourceReadResult> => {
   return { status: buildStatus("grok", true, records, files, warning), records };
 };
 
-/** Grok session dirs are named after the URL-encoded cwd, e.g. `%2FUsers%2F…`. */
 const decodeGrokCwd = (dir: string): string | null => {
   const encoded = dir.split("/").find((segment) => segment.includes("%2F"));
   if (encoded === undefined) return null;

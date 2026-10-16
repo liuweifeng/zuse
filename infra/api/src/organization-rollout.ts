@@ -15,8 +15,6 @@ const Flags = Schema.Struct({
 	),
 });
 
-// Worker-local, bounded and scoped to the deployment configuration. Coalesce
-// concurrent evaluations; never keep a stale approval when the provider fails.
 const caches = new WeakMap<
 	ApiConfig,
 	Map<

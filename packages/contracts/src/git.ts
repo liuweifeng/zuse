@@ -95,10 +95,7 @@ export const GitLogRpc = Rpc.make("git.log", {
 export const GitStatusRpc = Rpc.make("git.status", {
 	payload: Schema.Struct({
 		folderId: FolderId,
-		/**
-		 * When set, run `git status` inside the worktree path so the branch +
-		 * dirty/ahead counts reflect the worktree, not the main checkout.
-		 */
+
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: GitStatusSummary,
@@ -323,11 +320,7 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 export const GitPrStateRpc = Rpc.make("git.prState", {
 	payload: Schema.Struct({
 		folderId: FolderId,
-		/**
-		 * When set, resolves the GitHub repository from the worktree's path so the result
-		 * reflects the worktree's branch — each worktree has its own branch,
-		 * each branch has its own PR (or none).
-		 */
+
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: GitPrInfo,
@@ -754,13 +747,7 @@ export const GitCommitRpc = Rpc.make("git.commit", {
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		message: Schema.String,
-		/**
-		 * Explicit set of paths to commit. When provided (and non-empty), only
-		 * these paths are staged + committed (`git add -- <paths>` then
-		 * `git commit -m … -- <paths>`), so the Changes tab can let the user pick
-		 * which files go into the commit. Omitted/empty falls back to the legacy
-		 * "commit everything" behaviour (`git add -A`).
-		 */
+
 		paths: Schema.optional(Schema.Array(Schema.String)),
 	}),
 	success: Schema.Struct({ sha: Schema.String }),
@@ -906,10 +893,6 @@ export const GitMarkReadyRpc = Rpc.make("git.markReady", {
 	error: GitErrors,
 });
 
-// Initialize a git repository in a project folder that doesn't have one yet.
-// Surfaced from the Changes tab's "not a Git repository" empty state. Always
-// runs against the folder root (a worktree can't exist without a repo), so no
-// `worktreeId` here.
 export const GitInitRpc = Rpc.make("git.init", {
 	payload: Schema.Struct({
 		folderId: FolderId,

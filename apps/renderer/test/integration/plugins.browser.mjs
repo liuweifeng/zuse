@@ -180,14 +180,13 @@ try {
 	page.on("pageerror", (error) => errors.push(error.message));
 	const requestedModules = [];
 	page.on("request", (request) => requestedModules.push(request.url()));
-	// Ordinary startup captures callback events without loading redemption code.
+
 	await page.goto("http://127.0.0.1:15834/__plugins");
 	await page.getByRole("heading", { name: "Featured" }).waitFor();
 	assert(
 		!requestedModules.some((url) => url.includes("plugin-return-redemption")),
 	);
-	// A failed lazy chunk never consumes the hosted ticket. Reload can recover
-	// from the retained return even though its query parameters were removed.
+
 	const failedReturn = await browser.newPage();
 	await failedReturn.route("**/plugin-return-redemption.ts*", (route) =>
 		route.abort("failed"),
@@ -214,7 +213,7 @@ try {
 		null,
 	);
 	await failedReturn.close();
-	// A browser return redeems itself: no confirmation dialog.
+
 	await page.goto(
 		"http://127.0.0.1:15834/__plugins?plugin_ticket=fixture&plugin_tenant=personal%3Afixture&plugin=Linear",
 	);
@@ -236,7 +235,6 @@ try {
 		0,
 	);
 
-	// No-auth plugins connect in place.
 	await page
 		.getByRole("textbox", { name: "Search plugins" })
 		.fill("Cloudflare");
@@ -253,7 +251,7 @@ try {
 		.click();
 	await page.getByRole("heading", { name: "Information" }).waitFor();
 	await shot("plugins-detail-connected");
-	// No names to type: another account gets the next free default.
+
 	await expect(
 		page.getByRole("textbox", { name: "Connection name" }),
 	).toHaveCount(0);
@@ -266,11 +264,11 @@ try {
 		.getByRole("button", { name: "Actions for Cloudflare Docs 2", exact: true })
 		.waitFor();
 	await shot("plugins-multiple-accounts");
-	// Each account has its own actions; disconnecting one leaves the other.
+
 	await page
 		.getByRole("button", { name: "Actions for Cloudflare Docs 2", exact: true })
 		.click();
-	await page.waitForTimeout(250); // let the menu finish opening
+	await page.waitForTimeout(250);
 	await shot("plugins-account-menu");
 	await page.getByRole("menuitem", { name: "Disconnect" }).click();
 	await expect(
@@ -284,7 +282,7 @@ try {
 		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
 		.click();
 	await page.getByRole("menuitem", { name: "Disconnect" }).click();
-	// With no accounts, the header offers one Connect; the account takes the plugin's name.
+
 	await page.getByRole("button", { name: "Connect", exact: true }).waitFor();
 	await shot("plugins-connect-first");
 	await page.getByRole("button", { name: "Connect", exact: true }).click();
@@ -299,7 +297,6 @@ try {
 	await page.getByRole("button", { name: "Plugins", exact: true }).click();
 	await page.getByRole("textbox", { name: "Search plugins" }).fill("");
 
-	// OAuth plugins hand off to the browser and show one clear pending state.
 	await page
 		.getByRole("button", { name: "Connect Notion", exact: true })
 		.first()
@@ -324,7 +321,6 @@ try {
 		.first()
 		.waitFor();
 
-	// Custom MCP servers: one shared dialog, specific errors, detail and removal.
 	const dialog = page.getByRole("dialog", { name: "Add MCP server" });
 	const openAddServer = async () => {
 		await page
@@ -365,7 +361,6 @@ try {
 	await page.getByRole("button", { name: "Plugins", exact: true }).click();
 	await page.getByRole("heading", { name: "Custom servers" }).waitFor();
 
-	// A server that needs a key explains how to fix it; nothing is kept.
 	await openAddServer();
 	await dialog.getByRole("textbox", { name: "Name" }).fill("Acme");
 	await dialog
@@ -393,7 +388,7 @@ try {
 		value: "Bearer good",
 	});
 	await page.locator("dd").getByText("Bearer token", { exact: true }).waitFor();
-	// Another account on a key-authenticated server asks for its own key inline.
+
 	await page
 		.getByRole("button", { name: "Connect another account", exact: true })
 		.click();
@@ -411,7 +406,7 @@ try {
 		await page.evaluate(() => window.lastConnect.apiKey),
 		"Bearer k2",
 	);
-	// On/off lives in each account's menu.
+
 	await page
 		.getByRole("button", { name: "Actions for Acme", exact: true })
 		.click();
@@ -424,7 +419,7 @@ try {
 		() => window.copiedText === "https://needs-key.acme.dev/mcp",
 	);
 	await page.getByRole("button", { name: "More actions", exact: true }).click();
-	await page.waitForTimeout(250); // let the menu finish opening
+	await page.waitForTimeout(250);
 	await shot("plugins-detail-menu");
 	await page.getByRole("menuitem", { name: "Remove server" }).click();
 	await page.getByRole("alertdialog").getByText("Remove Acme?").waitFor();
@@ -439,7 +434,6 @@ try {
 		page.getByRole("button", { name: "Connect Acme", exact: true }),
 	).toHaveCount(0);
 
-	// Servers that use sign-in reuse the pending browser flow.
 	await openAddServer();
 	await dialog.getByRole("textbox", { name: "Name" }).fill("Wiki");
 	await dialog
@@ -466,7 +460,7 @@ try {
 		.getByRole("button", { name: "Manage Linear", exact: true })
 		.waitFor();
 	await shot("plugins-connected");
-	// Workspace switching isolates Personal connections and scopes new connections.
+
 	await page.evaluate(() =>
 		window.selectPluginWorkspace({
 			kind: "organization",
@@ -533,7 +527,7 @@ try {
 		.first()
 		.click();
 	await page.evaluate(() => window.setPluginReadOnly());
-	// Members see accounts and the switch state, without management controls.
+
 	await page
 		.getByText("Only organization admins can change plugins in this workspace.")
 		.waitFor();
@@ -554,7 +548,7 @@ try {
 		.hover();
 	await page.getByText("Only organization admins can add servers.").waitFor();
 	await shot("plugins-member-read-only");
-	// Settings → Plugins: manage what agents can use.
+
 	const settings = await browser.newPage({
 		viewport: { width: 1000, height: 760 },
 		deviceScaleFactor: 2,
@@ -584,7 +578,7 @@ try {
 			.getAttribute("aria-checked"),
 		"true",
 	);
-	// Native MCP inventory is gone: custom servers are plugins.
+
 	await expect(settings.getByRole("tab")).toHaveCount(2);
 	await settings
 		.getByRole("switch", { name: "Acme Tools", exact: true })
@@ -614,7 +608,6 @@ try {
 	if (shots)
 		await settings.screenshot({ path: `${shots}/settings-skills.png` });
 
-	// Composer: the workspace's plugins with quick switches.
 	const composer = await browser.newPage({
 		viewport: { width: 760, height: 560 },
 		deviceScaleFactor: 2,

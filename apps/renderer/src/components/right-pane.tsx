@@ -121,10 +121,6 @@ export const logicalRightPaneProject = (
 ): Folder | null =>
 	folders.find((folder) => folder.id === selectedFolderId) ?? executionFolder;
 
-/**
- * Metadata for each addable panel kind: launcher/tab label, icon, and the
- * keyboard shortcut to surface (only Terminal has one today).
- */
 const PANEL_META: Record<
 	PanelKind,
 	{
@@ -194,7 +190,6 @@ const LIVE_PANEL_KINDS = new Set<PanelKind>([
 	"browser",
 ]);
 
-/** Primary surfaces shown in the empty launcher and standard add menu. */
 const PRIMARY_PANEL_ORDER: ReadonlyArray<PanelKind> = [
 	"files",
 	"pr",
@@ -215,10 +210,6 @@ const latestAssistantText = (
 	return null;
 };
 
-/**
- * Kinds the user can still add: every kind, minus singletons that are
- * already open. Terminal is always offered (multi-instance).
- */
 function addableKinds(
 	panels: ReadonlyArray<PanelInstance>,
 ): ReadonlyArray<PanelKind> {
@@ -340,8 +331,7 @@ export function RightPane({
 	const status = workspaceView.data?.status ?? null;
 	const pr = workspaceView.data?.pr ?? null;
 	const details = prDetailsView.data?.details ?? null;
-	// Dock layout + terminals are scoped to the selected sidebar chat, so each
-	// chat keeps its own open tabs and running shells.
+
 	const chatId = useChatsStore((s) => s.selectedChatId);
 	const catalogEnvironmentId = EnvironmentId.make(
 		useEnvironmentCatalogStore((state) => state.activeEnvironmentId),
@@ -382,9 +372,6 @@ export function RightPane({
 		} as const;
 		const includeOwnerEnvironment = activeContextStatus !== "cloud-unavailable";
 		void hydrateRightTerminalCatalog(catalogRef, localTerminalEnvironmentId, {
-			// A catalog read uses the normal environment connection path. While the
-			// cloud is unavailable, restore only the local synced-checkout PTYs and
-			// leave cloud attachment to the existing explicit wake flow.
 			includeOwnerEnvironment,
 			includeLocalEnvironment: !isHostedProduct(),
 		}).catch(() => undefined);
@@ -443,8 +430,7 @@ export function RightPane({
 			uiMessage,
 		],
 	);
-	// Terminal tab titles are sourced from the chat's terminal list (slot →
-	// instance) so multiple terminal tabs read "zsh", "zsh 2".
+
 	const termList = useTerminalsStore((s) =>
 		chatRef
 			? (s.byKey[terminalsKey(chatRef)] ?? EMPTY_TERMINALS)
@@ -707,15 +693,8 @@ export function RightPane({
 					kind !== "changes"),
 		);
 
-	// Glide dock tabs when panels are opened or closed. Declared with the other
-	// hooks (above the `selected === null` early return) to satisfy hook rules.
 	const dockTabsRef = useAutoAnimate<HTMLDivElement>();
 
-	// Defensive: if the stored active id ever points at a closed panel, fall
-	// back to the first one so exactly one panel body is visible.
-	// A plan panel belongs to the selected session's final output. Keep its
-	// persisted layout slot, but do not expose an empty tab while another
-	// session in the same chat has no proposed plan.
 	const visiblePanels = panels.filter(
 		(panel) =>
 			canUseChatPanel(panel.kind, readOnly, scratch) &&
@@ -731,10 +710,6 @@ export function RightPane({
 			? activeId
 			: (visiblePanels[0]?.id ?? null);
 
-	// Closing a terminal tab also drops (and kills) its backing PTY instance
-	// for the chat (the store action is layout-only — it can't know the chat
-	// key). `closePanel` then re-indexes remaining terminal slots, so panels
-	// and instances stay aligned.
 	const handleClose = (panel: PanelInstance) => {
 		if (panel.kind === "terminal" && chatRef !== null) {
 			const key = terminalsKey(chatRef);
@@ -921,7 +896,7 @@ export function RightPane({
 						projectTerminalDisabledReason={projectTerminalDisabledReason}
 					/>
 				) : null}
-				{/* Non-browser panels: mount on add, kept mounted while open. */}
+
 				{ctx.status === "worktree-pending" && visiblePanels.length > 0 ? (
 					<div
 						className="flex min-h-0 flex-1 items-center justify-center px-4 text-xs text-muted-foreground"
@@ -963,9 +938,7 @@ export function RightPane({
 								/>
 							</div>
 						))}
-				{/* One host owns the command stream and keeps a webview mounted for
-            every chat with a Browser panel. Only the selected chat is visible;
-            background chats retain history and receive only their commands. */}
+
 				{browserAvailable && ctx.status !== "cloud-unavailable" ? (
 					<Suspense
 						fallback={<div className="min-h-0 flex-1" aria-busy="true" />}
@@ -1094,8 +1067,6 @@ function PanelBody({
 		case "plan":
 			return <PlanPane markdown={planMarkdown} />;
 		case "browser":
-			// Browser is rendered once, always-mounted, by RightPane (so the agent
-			// command stream survives close/collapse) — never via this map.
 			return null;
 		case "subagents":
 			return <SubagentsPane chatRef={chatRef} sessionId={sessionId} />;
@@ -1111,11 +1082,6 @@ function PlanPane({ markdown }: { readonly markdown: string | null }) {
 	);
 }
 
-/**
- * Empty-state launcher: a vertically-centered list of every addable panel as
- * a large row (icon + label + shortcut). Shown when the sidebar is open but
- * no panels have been added yet.
- */
 function PanelLauncher({
 	actions,
 	addable,
@@ -1167,7 +1133,6 @@ function PanelLauncher({
 	);
 }
 
-/** Trailing "+" in the tab strip. Lists the kinds the user can still add. */
 function AddPanelMenu({
 	addable,
 	onAdd,

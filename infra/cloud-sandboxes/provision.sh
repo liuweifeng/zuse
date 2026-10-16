@@ -1,20 +1,5 @@
 #!/usr/bin/env bash
-# Shared sandbox provisioning steps. The E2B Dockerfile and the Box template
-# publisher (box-publish.sh) share runtime/layout stages. Boat supplies its own
-# Claude/Codex agents; Grok is installed through the shared pinned stage.
-#
-# Usage: provision.sh <stage> [...]
-#   packages  install the apt toolchain
-#   globals   install runtime tools and pinned agents (E2B)
-#   runtime-tools  install Bun/Corepack without touching provider agents
-#   grok      install the pinned broker-compatible Grok CLI
-#   runtime   install the zuse server/serve tarballs from $ZUSE_PROVISION_DIR
-#   layout    create the zuse user, install scripts, and lay out directories
-#
-# $ZUSE_PROVISION_DIR must contain (for runtime/layout):
-#   artifacts/zusehq-server.tgz  artifacts/zusehq-serve.tgz
-#   artifacts/runtime-updater.mjs  project-builder.sh  workspace-bootstrap.sh
-#   git-askpass.sh  github-auth.sh  repository-script.ts  sshd_config
+
 set -euo pipefail
 
 provision_dir="${ZUSE_PROVISION_DIR:-/tmp/zuse-provision}"
@@ -72,7 +57,7 @@ stage_runtime() {
 	npm install --global --prefix /usr/local "$provision_dir/artifacts/zusehq-server.tgz"
 	mkdir -p /usr/local/lib/zuse-serve
 	tar -xzf "$provision_dir/artifacts/zusehq-serve.tgz" --strip-components=2 -C /usr/local/lib/zuse-serve package/dist
-	# The serve bundle resolves runtime dependencies from the server package.
+
 	ln -sfn /usr/local/lib/node_modules/@zusehq/server/node_modules /usr/local/lib/zuse-serve/node_modules
 	ln -sf /usr/local/lib/zuse-serve/bin.mjs /usr/local/bin/zuse
 	chmod 0755 /usr/local/lib/zuse-serve/bin.mjs
@@ -87,8 +72,6 @@ stage_layout() {
 	install -d -m 0700 -o zuse -g zuse /run/zuse-secrets
 	chmod 700 /home/zuse/.ssh
 
-	# Single-connection sshd config used by the runtime's WebSocket SSH bridge
-	# (`sshd -i`, spawned per connection as user zuse — no listening daemon).
 	install -m 0600 -o zuse -g zuse "$provision_dir/sshd_config" /home/zuse/.ssh/sshd_config
 	install -D -m 0600 -o root -g root "$provision_dir/sshd_config" /usr/local/share/zuse/sshd_config
 

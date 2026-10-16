@@ -251,9 +251,7 @@ bool zuse_ghostty_focus_controller_observe_vt_input(
   for (size_t index = 0; index < input_length; index++) {
     const uint8_t byte = input[index];
     if (controller->previous_was_escape && byte == 'c') {
-      // RIS creates a new terminal-mode epoch. A focus report delivered to the
-      // previous process cannot satisfy the replacement process, even when its
-      // replay re-enables focus reporting in this same input batch.
+
       controller->has_reported_focus = false;
       controller->reported_focus = false;
       observed_reset = true;
