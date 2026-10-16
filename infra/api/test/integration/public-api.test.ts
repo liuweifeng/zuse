@@ -2028,6 +2028,7 @@ describe("public API (/v1/api)", () => {
 			identity: {
 				clientId: "client_test",
 				exchange: async () => ({ accountId: ACCOUNT }),
+				organizations: async () => [],
 			},
 			cloud: (accountId) => ({
 				request: async (path, init) =>

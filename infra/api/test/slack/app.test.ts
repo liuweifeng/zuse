@@ -37,6 +37,7 @@ const setup = async (teamId = "T1", connected = true) => {
 		store: new InstallationStore(db.binding, testCipher),
 		identity: {
 			clientId: "client_workos",
+			organizations: vi.fn(async () => []),
 
 			exchange: vi.fn(
 				async (): ReturnType<AppEnv["identity"]["exchange"]> => ({
@@ -2993,10 +2994,10 @@ describe("customer installation and account connection", () => {
 		);
 		vi.mocked(app.env.identity.exchange).mockResolvedValue({
 			accountId: "user_new",
-			...(personal
-				? {}
-				: { organization: { id: "org_team", name: "Team & Co" } }),
 		});
+		vi.mocked(app.env.identity.organizations).mockResolvedValue(
+			personal ? [] : [{ id: "org_team", name: "Team & Co" }],
+		);
 		const cloud = vi.spyOn(app.env, "cloud");
 		const pendingRequest = withRequest
 			? {
@@ -3036,14 +3037,40 @@ describe("customer installation and account connection", () => {
 		);
 		return { app, cloud, callback };
 	};
-	it("uses the WorkOS organization without showing a second chooser", async () => {
+	const workspaceRequest = async (
+		response: Response,
+		workspace = "org_team",
+	) => {
+		const html = await response.text();
+		const csrf = /name="csrf" value="([^"]+)"/u.exec(html)?.[1] ?? "";
+		const cookie =
+			response.headers
+				.getSetCookie()
+				.find((value) => value.startsWith("__Host-zuse-slack-workspace="))
+				?.split(";")[0] ?? "";
+		return new Request("https://app.test/slack/account/workspace", {
+			method: "POST",
+			headers: { origin: "https://app.test", cookie },
+			body: new URLSearchParams({ csrf, workspace }),
+		});
+	};
+	it("requires an explicit workspace choice when WorkOS skips organization selection", async () => {
 		const { app, cloud, callback } = await connectWithWorkosOrganization();
 		const response = await app.fetch(callback.clone());
 		expect(response.status).toBe(200);
 		const html = await response.text();
 		expect(html).toContain("Team &amp; Co");
-		expect(html).not.toContain("Choose your organization");
-		expect(html).not.toContain("/slack/account/organization");
+		expect(html).toContain("Choose your workspace");
+		expect(html).toContain("Personal");
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toBeNull();
+		expect(cloud).not.toHaveBeenCalled();
+		const choice = await workspaceRequest(
+			new Response(html, { headers: response.headers }),
+		);
+		expect((await app.fetch(choice.clone())).status).toBe(200);
+		expect((await app.fetch(choice)).status).toBe(401);
 		const profile = await app.store.member(app.installation, "U1");
 		expect(profile.connection).toMatchObject({
 			accountId: "user_new",
@@ -3068,9 +3095,10 @@ describe("customer installation and account connection", () => {
 		).toBe(true);
 		expect((await app.fetch(callback)).status).toBe(400);
 	});
-	it("preserves a saved Slack request through WorkOS organization selection", async () => {
+	it("preserves a saved Slack request through workspace selection", async () => {
 		const { app, callback } = await connectWithWorkosOrganization(true);
-		expect((await app.fetch(callback)).status).toBe(200);
+		const choice = await workspaceRequest(await app.fetch(callback));
+		expect((await app.fetch(choice)).status).toBe(200);
 		expect(app.jobs).toContainEqual(
 			expect.objectContaining({
 				kind: "connected",
@@ -3096,6 +3124,50 @@ describe("customer installation and account connection", () => {
 		).toBeUndefined();
 		expect(cloud).toHaveBeenCalledWith("user_new", undefined);
 	});
+
+	it("allows Personal even when organizations are available", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(
+			await app.fetch(callback),
+			"personal",
+		);
+		expect((await app.fetch(choice)).status).toBe(200);
+		expect(cloud).toHaveBeenCalledWith("user_new", undefined);
+	});
+	it("rechecks organization access before connecting", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(await app.fetch(callback));
+		vi.mocked(app.env.identity.organizations).mockResolvedValue([]);
+		expect((await app.fetch(choice)).status).toBe(403);
+		expect(cloud).not.toHaveBeenCalled();
+	});
+	it("rejects forged workspace choices and cross-site submissions", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const response = await app.fetch(callback);
+		const choice = await workspaceRequest(response.clone(), "org_unrelated");
+		expect((await app.fetch(choice)).status).toBe(403);
+		const crossSite = await workspaceRequest(response.clone());
+		crossSite.headers.set("origin", "https://unrelated.test");
+		expect((await app.fetch(crossSite)).status).toBe(403);
+		const invalidCsrf = await workspaceRequest(response.clone());
+		const badCsrf = new Request(invalidCsrf, {
+			body: new URLSearchParams({ workspace: "personal", csrf: "invalid" }),
+		});
+		expect((await app.fetch(badCsrf)).status).toBe(403);
+		expect(cloud).not.toHaveBeenCalled();
+	});
+	it("expires workspace selections after ten minutes", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(await app.fetch(callback));
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now + 600_001);
+		try {
+			expect((await app.fetch(choice)).status).toBe(401);
+		} finally {
+			clock.mockRestore();
+		}
+		expect(cloud).not.toHaveBeenCalled();
+	});
 	it("does not overwrite a connection changed during authentication", async () => {
 		const { app, cloud, callback } = await connectWithWorkosOrganization();
 		vi.mocked(app.env.identity.exchange).mockImplementationOnce(async () => {
@@ -3106,7 +3178,6 @@ describe("customer installation and account connection", () => {
 			});
 			return {
 				accountId: "user_new",
-				organization: { id: "org_team", name: "Team" },
 			};
 		});
 		expect((await app.fetch(callback)).status).toBe(409);

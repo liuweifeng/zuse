@@ -23,8 +23,10 @@ export interface AppEnv {
 			verifier: string,
 		): Promise<{
 			accountId: string;
-			organization?: { id: string; name: string };
 		}>;
+		organizations(
+			accountId: string,
+		): Promise<ReadonlyArray<{ id: string; name: string }>>;
 	};
 	readonly JOBS: {
 		send(job: AppJob, options?: { delaySeconds: number }): Promise<void>;
