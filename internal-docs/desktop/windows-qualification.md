@@ -4,6 +4,45 @@ Windows support is under qualification. A successful hosted CI job is not eviden
 that the installed application is reliable on a 4 GB laptop. Windows artifacts are
 not included in the public release publisher or update feeds yet.
 
+## Passing compatibility candidate
+
+[Windows CI run 38954164943](https://github.com/swarajbachu/zuse/actions/runs/38954164943)
+passed at `17eef7b3` on 2026-10-16. The runner reported Windows build
+`10.0.26100`, approximately 16 GB RAM, and four logical processors.
+
+It passed dependency installation/native rebuilding, Biome, desktop/system types,
+focused regressions, two `bun dev` launches with cleanup, packaging, and native
+SQLite, Credential Manager, SDK, tree-sitter, and PowerShell PTY checks. The
+installer completed under a path with spaces and Unicode, followed by ten cold
+launches, same-version reinstall, ten existing-profile launches, saved-channel
+preservation, protocol registration, and uninstall. The repeated launch test
+exposed an updater IPC startup race; handlers now register before renderer
+navigation instead of waiting for engine startup.
+
+Engine tests also passed detach/reattach, worker crash with durable data recovery,
+linked-account HTTP outage, active-provider update refusal, interrupted provider
+tool cleanup without command replay, supervisor shutdown, authenticated idle
+shutdown, and rejection of mismatched engine builds before modifying data.
+No matching Application crash events were recorded.
+
+| Installed startup samples | Minimum | Median | Maximum |
+| --- | ---: | ---: | ---: |
+| First install: readiness (10 launches) | 5.19 s | 5.42 s | 7.48 s |
+| Reinstalled: readiness (10 launches) | 5.20 s | 5.57 s | 5.80 s |
+| First install: summed working set | 890 MiB | 908 MiB | 923 MiB |
+| Reinstalled: summed working set | 892 MiB | 912 MiB | 919 MiB |
+
+Memory is a process-tree snapshot at readiness, not peak, steady idle, or active
+agent memory. Working sets can double-count shared pages. These measurements do
+not establish constrained-device budgets or a memory-growth trend.
+
+The [unsigned internal installer](https://github.com/swarajbachu/zuse/actions/runs/38954164943/artifacts/12070258733)
+and diagnostic reports are retained for seven days. This is an internal test
+candidate at the repository version, not a signed/public Preview release. The
+Preview pipeline supplies release metadata when producing a release candidate.
+Signing, the constrained one-hour soak, real deep-link delivery, cross-version
+updates, and the remaining manual/provider scenarios below remain release gates.
+
 ## Initial Windows evidence
 
 The [2026-10-16 compatibility run](https://github.com/swarajbachu/zuse/actions/runs/38936057456)
