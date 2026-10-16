@@ -15,6 +15,8 @@ export const clientCommandTargetId = (
 	command: Pick<ClientCommand, "kind" | "payload">,
 ): string | null => {
 	switch (command.kind) {
+		case "messages.queue.runNext":
+			return stringField(command.payload, "queueId");
 		case "session.answerQuestion":
 		case "session.cancelQuestion":
 			return stringField(command.payload, "itemId");

@@ -179,7 +179,6 @@ export function retainSessionHistory<Client>(options: {
 		// The timeline owns whether history exists and when it is safe to read.
 		// Legacy runtimes finish their synchronization barrier before paging.
 		const eligible =
-			view.origin !== "cache" &&
 			view.data?.olderMessageSequence != null &&
 			(view.sync === "live" || view.connection === "dormant");
 		const scope = eligible

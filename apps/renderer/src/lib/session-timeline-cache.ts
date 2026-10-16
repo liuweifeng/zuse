@@ -357,6 +357,20 @@ class IndexedDbSessionTimelineCache implements SessionTimelineCache {
 			estimatedBytes: touched.estimatedBytes,
 		});
 		await transactionComplete(transaction);
+		// Restore the persisted head boundary before returning hydrated history.
+		// Otherwise the first delta after a renderer restart rewrites the entire
+		// transcript on every checkpoint instead of reusing its cached pages.
+		if (
+			!cloudHeads.has(storageKey) &&
+			decoded.projection.olderMessageSequence != null
+		) {
+			rememberCloudTimelineHead(
+				ref,
+				decoded.projection,
+				decoded.cursor,
+				namespace,
+			);
+		}
 		this.historySelections.delete(storageKey);
 		if (snapshot !== null)
 			this.rememberHistorySelection(
@@ -556,6 +570,26 @@ class IndexedDbTimelineReadingPositionStore
 	implements TimelineReadingPositionStore
 {
 	private database: Promise<IDBDatabase> | null = null;
+	private positions = new Map<string, TimelineReadingPosition | null>();
+
+	peek(
+		ref: SessionRef,
+		namespace?: string,
+	): TimelineReadingPosition | null | undefined {
+		return this.positions.get(environmentSessionCacheKey(ref, namespace));
+	}
+
+	private remember(
+		key: string,
+		position: TimelineReadingPosition | null,
+	): void {
+		this.positions.delete(key);
+		this.positions.set(key, position);
+		if (this.positions.size > DEFAULT_MAX_READING_POSITIONS) {
+			const oldest = this.positions.keys().next().value;
+			if (oldest !== undefined) this.positions.delete(oldest);
+		}
+	}
 
 	private db(): Promise<IDBDatabase> {
 		this.database ??= openDatabase();
@@ -577,7 +611,11 @@ class IndexedDbTimelineReadingPositionStore
 		const decoded = decodeTimelineReadingPosition(raw);
 		if (raw !== undefined && decoded === null) store.delete(storageKey);
 		await transactionComplete(transaction);
-		return decoded === null ? null : { ...decoded, sessionId: ref.sessionId };
+		const position =
+			decoded === null ? null : { ...decoded, sessionId: ref.sessionId };
+		// A save may have happened while IndexedDB was being read.
+		if (!this.positions.has(storageKey)) this.remember(storageKey, position);
+		return this.positions.get(storageKey) ?? null;
 	}
 
 	async save(
@@ -586,24 +624,32 @@ class IndexedDbTimelineReadingPositionStore
 		namespace?: string,
 	): Promise<void> {
 		const storageKey = environmentSessionCacheKey(ref, namespace);
-		const database = await this.db();
-		const transaction = database.transaction(
-			READING_POSITION_STORE_NAME,
-			"readwrite",
-		);
-		const store = transaction.objectStore(READING_POSITION_STORE_NAME);
-		store.put(
-			encodeTimelineReadingPosition({ ...position, sessionId: storageKey }),
-		);
-		const values = await requestResult(store.getAll());
-		for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
-			store.delete(sessionId);
+		this.remember(storageKey, position);
+		try {
+			const database = await this.db();
+			const transaction = database.transaction(
+				READING_POSITION_STORE_NAME,
+				"readwrite",
+			);
+			const store = transaction.objectStore(READING_POSITION_STORE_NAME);
+			store.put(
+				encodeTimelineReadingPosition({ ...position, sessionId: storageKey }),
+			);
+			const values = await requestResult(store.getAll());
+			for (const sessionId of resolveReadingPositionKeysToPrune(values)) {
+				store.delete(sessionId);
+			}
+			await transactionComplete(transaction);
+		} catch (error) {
+			if (this.positions.get(storageKey) === position)
+				this.positions.delete(storageKey);
+			throw error;
 		}
-		await transactionComplete(transaction);
 	}
 
 	async remove(ref: SessionRef, namespace?: string): Promise<void> {
 		const storageKey = environmentSessionCacheKey(ref, namespace);
+		this.remember(storageKey, null);
 		const database = await this.db();
 		const transaction = database.transaction(
 			READING_POSITION_STORE_NAME,

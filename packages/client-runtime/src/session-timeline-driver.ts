@@ -103,7 +103,10 @@ export const makeSessionTimelineResourceDriver = <
 			let showingProgressiveSnapshot = false;
 			const backgroundHistory = options.backgroundHistory?.(ref) === true;
 			let backgroundHistoryAccepted = false;
+			// Cloud streams include fresh runtime observations; an active cached turn
+			// does not require replacing an otherwise complete transcript snapshot.
 			const cachedTurnMayBeStale =
+				!backgroundHistory &&
 				state.projection !== null &&
 				(state.projection.activeTurn !== null ||
 					state.projection.status === "running" ||

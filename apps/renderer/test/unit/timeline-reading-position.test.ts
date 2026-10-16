@@ -5,6 +5,7 @@ import { deriveChatTimelineRows } from "../../src/lib/chat-timeline-rows.ts";
 import {
 	decodeTimelineReadingPosition,
 	encodeTimelineReadingPosition,
+	isTimelineReadingPositionReady,
 	resolveInitialTimelineTarget,
 	resolveReadingPositionTarget,
 	resolveTimelineReadingPosition,
@@ -149,4 +150,43 @@ describe("timeline reading position", () => {
 			}),
 		).toBe(null);
 	});
+});
+
+it("waits for a saved turn before initializing a partial transcript", () => {
+	const position = {
+		schemaVersion: 1 as const,
+		sessionId,
+		userTurnMessageId: "u1",
+		viewportOffset: -12,
+		updatedAt: 42,
+	};
+	const partial = rows().slice(2);
+	expect(
+		isTimelineReadingPositionReady({
+			rows: partial,
+			position,
+			historyComplete: false,
+		}),
+	).toBe(false);
+	expect(
+		isTimelineReadingPositionReady({
+			rows: rows(),
+			position,
+			historyComplete: false,
+		}),
+	).toBe(true);
+	expect(
+		isTimelineReadingPositionReady({
+			rows: partial,
+			position,
+			historyComplete: true,
+		}),
+	).toBe(true);
+	expect(
+		isTimelineReadingPositionReady({
+			rows: partial,
+			position: null,
+			historyComplete: false,
+		}),
+	).toBe(true);
 });

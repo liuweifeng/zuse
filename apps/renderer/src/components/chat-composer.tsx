@@ -378,6 +378,7 @@ export function ChatComposer({
 		const queueId = queueSessionMessage(goalRef, input, {
 			...options,
 			persist: false,
+			ready: false,
 		});
 		return persistQueuedMessage(goalRef, queueId, input, options);
 	};

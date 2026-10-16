@@ -3,7 +3,10 @@ import {
 	resourceRefKey,
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
-import type { SyncPhase } from "@zuse/client-runtime/resource-state";
+import type {
+	ResourceView,
+	SyncPhase,
+} from "@zuse/client-runtime/resource-state";
 import {
 	type AgentErrorKind,
 	CommandId,
@@ -687,6 +690,19 @@ export const takeQueuedMessageForEdit = async (
 	}
 };
 
+/** Keeps queue controls locked while delivery is pending or scheduled for retry. */
+export const queuedMessageRunPending = (
+	view: Pick<ResourceView<unknown>, "pendingCommands" | "failedCommands">,
+	queueId: string,
+): boolean => {
+	const matches = (command: { kind: string; targetId: string | null }) =>
+		command.kind === "messages.queue.runNext" && command.targetId === queueId;
+	return (
+		view.pendingCommands.some(matches) ||
+		view.failedCommands.some((command) => command.retryable && matches(command))
+	);
+};
+
 export const runQueuedMessageNext = async (
 	ref: SessionRef,
 	queueId: string,
@@ -696,9 +712,8 @@ export const runQueuedMessageNext = async (
 		(candidate) => candidate.id === queueId,
 	);
 	if (item === undefined) return;
-	updateQueue(ref, (items) =>
-		items.filter((candidate) => candidate.id !== queueId),
-	);
+	const view = getRendererClientBus().snapshot(sessionTimelineResourceKey(ref));
+	if (queuedMessageRunPending(view, queueId)) return;
 	const commandId = CommandId.make(
 		`queue-run-next:${ref.sessionId}:${queueId}:${crypto.randomUUID()}`,
 	);
@@ -708,6 +723,9 @@ export const runQueuedMessageNext = async (
 			sessionId: ref.sessionId,
 			queueId,
 		});
+		updateQueue(ref, (items) =>
+			items.filter((candidate) => candidate.id !== queueId),
+		);
 	} catch (cause) {
 		if (retryableFailure(ref, commandId)) return;
 		restoreQueuedItem(ref, item);

@@ -19,6 +19,7 @@ import {
 	queueHoldReason,
 } from "../../lib/queue-recovery.ts";
 import {
+	queuedMessageRunPending,
 	reorderSessionQueue,
 	resumeSessionQueue,
 } from "../../lib/session-actions.ts";
@@ -149,6 +150,7 @@ export function QueueTray({
 					index={index}
 					count={items.length}
 					running={running}
+					submitting={queuedMessageRunPending(timeline.view, item.id)}
 					dragging={dragIndex === index}
 					onMove={move}
 					onDragStart={() => setDragIndex(index)}

@@ -9,13 +9,16 @@ import {
 } from "@zuse/contracts";
 import { afterEach, expect, it, vi } from "vitest";
 
-const cache = vi.hoisted(() => ({ loadHistoryPage: vi.fn() }));
+const cache = vi.hoisted(() => ({
+	loadHistoryPage: vi.fn(),
+	load: vi.fn(async (): Promise<unknown> => null),
+}));
 vi.mock("../../src/lib/session-timeline-cache.ts", async (original) => ({
 	...(await original<
 		typeof import("../../src/lib/session-timeline-cache.ts")
 	>()),
 	sessionTimelineCache: {
-		load: async () => null,
+		load: cache.load,
 		save: async () => {},
 		prune: async () => {},
 		loadHistoryPage: cache.loadHistoryPage,
@@ -108,6 +111,65 @@ it.each([
 				getRendererClientBus().snapshot(retained.key).data?.messages,
 			).toEqual([older]);
 		}
+	} finally {
+		retained.lease.release();
+	}
+});
+
+it("keeps cached older messages visible after validating the same cloud checkpoint", async () => {
+	observeRendererAccount("refresh-account");
+	const ref = {
+		environmentId: EnvironmentId.make("refresh-workspace"),
+		sessionId: SessionId.make("refresh-session"),
+	};
+	registerEnvironmentActivationForTest(
+		ref.environmentId,
+		async () => {},
+		undefined,
+		"cloud-workspace",
+	);
+	const messages = ["old", "recent"].map((id) =>
+		Message.make({
+			id: MessageId.make(id),
+			sessionId: ref.sessionId,
+			role: "user",
+			content: { _tag: "user", text: id },
+			createdAt: new Date(0),
+		}),
+	);
+	const projection = SessionTimelineProjection.make({
+		messages,
+		olderMessageSequence: null,
+		status: "idle",
+		activeTurn: null,
+		turnCount: 0,
+		queue: QueueState.make({ items: [], paused: false }),
+		permissionMode: "default",
+		runtimeMode: "full-access",
+	});
+	const cursor = { epoch: "same", version: 5 };
+	cache.load.mockResolvedValue({ projection, cursor, savedAt: Date.now() });
+	const synchronize = vi.fn(async () => ({
+		data: SessionTimelineProjection.make({
+			...projection,
+			messages: messages.slice(1),
+			olderMessageSequence: 1,
+		}),
+		cursor,
+	}));
+	registerSessionTimelineCheckpointSynchronizer(ref.environmentId, synchronize);
+	const retained = retainSessionTimeline(ref, "sync");
+	try {
+		await vi.waitFor(() => expect(synchronize).toHaveBeenCalled());
+		await vi.waitFor(() =>
+			expect(getRendererClientBus().snapshot(retained.key).sync).toBe("cached"),
+		);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.messages,
+		).toEqual(messages);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.olderMessageSequence,
+		).toBeNull();
 	} finally {
 		retained.lease.release();
 	}

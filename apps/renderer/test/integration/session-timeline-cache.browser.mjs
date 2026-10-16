@@ -7,9 +7,55 @@ import { build } from "esbuild";
 const result = await build({
 	stdin: {
 		contents: `
-    import { sessionTimelineCache, rememberCloudTimelineHead } from './apps/renderer/src/lib/session-timeline-cache.ts';
+    import { sessionTimelineCache, rememberCloudTimelineHead, timelineReadingPositionStore } from './apps/renderer/src/lib/session-timeline-cache.ts';
     import { makeSessionTimelineCacheEntry } from './packages/client-runtime/src/session-timeline-cache.ts';
     import { SessionTimelineProjection, Message, QueueState } from '@zuse/contracts';
+    window.readingProbe = async () => {
+      const ref = { environmentId: 'reading-workspace', sessionId: 'reading-session' };
+      const position = { schemaVersion: 1, sessionId: ref.sessionId, userTurnMessageId: 'old-turn', viewportOffset: -50, updatedAt: 1 };
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== undefined) throw new Error('unexpected warm position');
+      await timelineReadingPositionStore.load(ref, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== null) throw new Error('empty position not remembered');
+      const saving = timelineReadingPositionStore.save(ref, position, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a')?.userTurnMessageId !== 'old-turn') throw new Error('warm position unavailable during save');
+      await saving;
+      if (timelineReadingPositionStore.peek(ref, 'account-b') !== undefined) throw new Error('position leaked across accounts');
+      await timelineReadingPositionStore.remove(ref, 'account-a');
+      if (timelineReadingPositionStore.peek(ref, 'account-a') !== null) throw new Error('removed position remains cached');
+      return true;
+    };
+    window.failedReadingSaveProbe = async () => {
+      const ref = { environmentId: 'failed-position', sessionId: 'failed-position' };
+      const original = { schemaVersion: 1, sessionId: ref.sessionId, userTurnMessageId: 'persisted', viewportOffset: -5, updatedAt: 1 };
+      await timelineReadingPositionStore.save(ref, original);
+      const put = IDBObjectStore.prototype.put;
+      const failed = { ...original, userTurnMessageId: 'failed', updatedAt: 2 };
+      try {
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'reading-positions') throw new DOMException('Injected failure', 'QuotaExceededError');
+          return put.apply(this, args);
+        };
+        await timelineReadingPositionStore.save(ref, failed).then(() => { throw new Error('expected failure'); }, () => {});
+        if (timelineReadingPositionStore.peek(ref) !== undefined) throw new Error('failed save remains cached');
+      } finally { IDBObjectStore.prototype.put = put; }
+      if ((await timelineReadingPositionStore.load(ref))?.userTurnMessageId !== 'persisted') throw new Error('persisted position not recovered');
+      let newerSave;
+      const newer = { ...original, userTurnMessageId: 'newer', updatedAt: 3 };
+      try {
+        IDBObjectStore.prototype.put = function(...args) {
+          if (this.name === 'reading-positions') {
+            IDBObjectStore.prototype.put = put;
+            newerSave = timelineReadingPositionStore.save(ref, newer);
+            throw new DOMException('Injected failure', 'QuotaExceededError');
+          }
+          return put.apply(this, args);
+        };
+        await timelineReadingPositionStore.save(ref, failed).catch(() => {});
+        await newerSave;
+        if (timelineReadingPositionStore.peek(ref)?.userTurnMessageId !== 'newer') throw new Error('failed save invalidated newer position');
+      } finally { IDBObjectStore.prototype.put = put; }
+      return true;
+    };
     window.probe = async (seed = true) => {
       const ref = { environmentId: 'workspace-cache-repro', sessionId: 'session-cache-repro' };
       const cursor = { epoch: 'same-runtime', version: 10 };
@@ -39,6 +85,28 @@ const result = await build({
         changedEnvironment: await fallback({ ...ref, environmentId: 'another-workspace' }, { ...cursor, version: 11 }),
         changedBoundary: await fallback(ref, { ...cursor, version: 11 }, 'account-test', 4),
       };
+    };
+    window.largeCacheProbe = async (seed) => {
+      const ref = { environmentId: 'large-cache', sessionId: 'large-session' };
+      const cursor = { epoch: 'large', version: 50000 };
+      const message = i => Message.make({ id: 'large-' + i, sessionId: ref.sessionId, role: 'user', content: { _tag: 'user', text: 'message ' + i }, createdAt: new Date(i) });
+      if (seed) {
+        const messages = Array.from({ length: 10000 }, (_, i) => message(i));
+        const projection = SessionTimelineProjection.make({ messages: messages.slice(9900), olderMessageSequence: 9900, status: 'running', activeTurn: null, turnCount: 0, queue: QueueState.make({ items: [], paused: false }), permissionMode: 'default', runtimeMode: 'full-access' });
+        rememberCloudTimelineHead(ref, projection, cursor, 'large-account');
+        await sessionTimelineCache.saveHistoryPage(ref, cursor, 9900, { messages: messages.slice(0, 9900), olderMessageSequence: null }, 'large-account');
+        await sessionTimelineCache.save(makeSessionTimelineCacheEntry({ ref, cursor, projection }), 'large-account');
+      } else {
+        const restored = await sessionTimelineCache.load(ref, 'large-account');
+        if (restored.projection.messages.length !== 10000) throw new Error('cached history missing');
+        await sessionTimelineCache.save(makeSessionTimelineCacheEntry({ ref, cursor: { ...cursor, version: 50001 }, projection: SessionTimelineProjection.make({ ...restored.projection, messages: [...restored.projection.messages, message(10000)] }) }), 'large-account');
+      }
+      const db = await new Promise((resolve, reject) => { const r = indexedDB.open('zuse-session-timelines'); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      const rows = await new Promise((resolve, reject) => { const r = db.transaction('timelines').objectStore('timelines').getAll(); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+      db.close();
+      const head = rows.find(row => row.ref.environmentId === ref.environmentId);
+      const restored = await sessionTimelineCache.load(ref, 'large-account');
+      return { persistedHead: head.projection.messages.length, restoredMessages: restored.projection.messages.length };
     };
     window.coherenceProbe = async (complete) => {
       const ref = { environmentId: 'coherence-workspace', sessionId: 'coherence-' + complete };
@@ -108,6 +176,23 @@ try {
 		changedEnvironment: null,
 		changedBoundary: null,
 	};
+	assert.deepEqual(await page.evaluate(() => window.largeCacheProbe(true)), {
+		persistedHead: 100,
+		restoredMessages: 10000,
+	});
+	await page.reload();
+	await page.waitForFunction(
+		() => typeof window.largeCacheProbe === "function",
+	);
+	assert.deepEqual(await page.evaluate(() => window.largeCacheProbe(false)), {
+		persistedHead: 101,
+		restoredMessages: 10001,
+	});
+	assert.equal(
+		await page.evaluate(() => window.failedReadingSaveProbe()),
+		true,
+	);
+	assert.equal(await page.evaluate(() => window.readingProbe()), true);
 	assert.deepEqual(await page.evaluate(() => window.probe()), expected);
 	await page.reload();
 	await page.waitForFunction(() => typeof window.probe === "function");
