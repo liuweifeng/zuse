@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
+import { defineConfig, normalizePath, searchForWorkspaceRoot } from "vite-plus";
 
 import { gitRevisionRecovery } from "./vite-git-recovery.ts";
 import { rendererProxy } from "./vite-proxy.ts";
@@ -28,9 +28,11 @@ const iconAliases =
 const desktopPackage = require("../desktop/package.json") as {
 	version: string;
 };
-const effectSchemaPath = require.resolve("effect/Schema");
-const fastCheckProductionStub = fileURLToPath(
-	new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
+const effectSchemaPath = normalizePath(require.resolve("effect/Schema"));
+const fastCheckProductionStub = normalizePath(
+	fileURLToPath(
+		new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
+	),
 );
 const fontPkgPath = require.resolve("@fontsource-variable/geist/package.json");
 
@@ -57,7 +59,8 @@ export default defineConfig({
 			resolveId(source, importer) {
 				if (
 					source === "./testing/FastCheck.js" &&
-					importer?.split("?", 1)[0] === effectSchemaPath
+					importer !== undefined &&
+					normalizePath(importer.split("?", 1)[0]) === effectSchemaPath
 				) {
 					return fastCheckProductionStub;
 				}

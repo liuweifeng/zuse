@@ -5,11 +5,14 @@ on:
     branches-ignore: [main]
     paths:
       - '.github/workflows/windows-tests.yml'
+      - '.gitattributes'
       - 'apps/desktop/**'
+      - 'apps/renderer/vite.config.ts'
       - 'scripts/dev*.mjs'
       - 'scripts/dist-windows.mjs'
       - 'tests/system/**'
       - 'package.json'
+      - 'bun.lock'
   workflow_dispatch:
   workflow_call:
     inputs:
