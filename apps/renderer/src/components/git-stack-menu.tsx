@@ -1,8 +1,4 @@
-import {
-	gitStackKey,
-	readGitStack,
-	useGitStackStore,
-} from "../store/git-stack.ts";
+import { readGitStack, useGitStack } from "../store/git-stack.ts";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -21,7 +17,7 @@ import {
 	GitPullRequestIcon,
 	Layers01Icon,
 } from "@zuse/icons/solid-rounded";
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { formatError } from "../lib/format-error.ts";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import {
@@ -42,17 +38,17 @@ export function GitStackMenu({
 	className,
 	branch,
 	variant = "summary",
+	trigger,
 }: {
 	executionRef: ExecutionRef;
 	className?: string;
 	branch: string | null;
 	variant?: "summary" | "submenu";
+	/** Replaces the default "GitHub stack" row, e.g. with a section header. */
+	trigger?: ReactNode;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects", "chat"]);
-	const stackKey = gitStackKey(executionRef, branch ?? "");
-	const stack = useGitStackStore(
-		(state) => state.entries[stackKey]?.result ?? null,
-	);
+	const stack = useGitStack(executionRef, branch);
 	const [error, setError] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [refreshing, setRefreshing] = useState(false);
@@ -61,21 +57,6 @@ export function GitStackMenu({
 		() => ({ environmentId, folderId, worktreeId, rootPath }),
 		[environmentId, folderId, worktreeId, rootPath],
 	);
-	useEffect(() => {
-		if (!branch) return;
-		let cancelled = false;
-		let timer: ReturnType<typeof setTimeout> | undefined;
-		const discover = () => {
-			void readGitStack(stableRef, branch).catch(() => {
-				if (!cancelled) timer = setTimeout(discover, 30_000);
-			});
-		};
-		discover();
-		return () => {
-			cancelled = true;
-			clearTimeout(timer);
-		};
-	}, [stableRef, branch]);
 
 	const command = async (action: GitStackAction) => {
 		if (busy) return;
@@ -290,11 +271,15 @@ export function GitStackMenu({
 			}}
 		>
 			<MenuTrigger className={className}>
-				{label}
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
-					className="size-3 shrink-0 text-muted-foreground"
-				/>
+				{trigger ?? (
+					<>
+						{label}
+						<HugeiconsIcon
+							icon={ArrowDown01Icon}
+							className="size-3 shrink-0 text-muted-foreground"
+						/>
+					</>
+				)}
 			</MenuTrigger>
 			<MenuPopup
 				side="left"

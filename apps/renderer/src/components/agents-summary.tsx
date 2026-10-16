@@ -1,14 +1,40 @@
 import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/common";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
-import type { Session } from "@zuse/contracts";
+import type { ProviderId, Session } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
-import { ChevronDown, CornerUpLeft } from "lucide-react";
+import { AiNetworkIcon } from "@zuse/icons/solid-rounded";
+import { CornerUpLeft } from "lucide-react";
 import { useState } from "react";
+import {
+	type DelegationStatus,
+	subagentDelegationView,
+} from "../lib/delegation-display.ts";
 import type { DetachedSubagentGroup } from "../lib/group-messages.ts";
 import { openSession } from "../lib/session-navigation.ts";
+import { cn } from "../lib/utils.ts";
 import { useUiStore } from "../store/ui.ts";
+import { summaryMetaClass, summaryRowClass } from "./cloud-workspace-info.tsx";
+import {
+	DelegationElapsed,
+	StatusGlyph,
+	useDelegationStatusLabel,
+} from "./delegation-row.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { SubagentAvatar } from "./subagent-identity.tsx";
+import { SummarySection } from "./summary-section.tsx";
+
+/** Settled agents shown before the rest fold behind "Show more". */
+const SETTLED_PREVIEW = 3;
+
+interface AgentEntry {
+	readonly id: string;
+	readonly title: string;
+	readonly providerId: ProviderId;
+	readonly status: DelegationStatus;
+	readonly startedAt: number | null;
+	readonly completedAt: number | null;
+	readonly open: () => void;
+}
 
 export function AgentsSummary({
 	chatRef,
@@ -21,8 +47,10 @@ export function AgentsSummary({
 	readonly sessions: ReadonlyArray<Session>;
 	readonly nativeAgents: ReadonlyArray<DetachedSubagentGroup>;
 }) {
-	const { message } = useMessages(["chat"]);
+	const { message } = useMessages(["chat", "common"]);
+	const statusLabel = useDelegationStatusLabel();
 	const [navigationFailed, setNavigationFailed] = useState(false);
+	const [showAllSettled, setShowAllSettled] = useState(false);
 	const revealSubagent = useUiStore((state) => state.revealSubagent);
 	const children = sessions.filter(
 		(candidate) => candidate.parentSessionId === session.id,
@@ -43,108 +71,129 @@ export function AgentsSummary({
 			setNavigationFailed(true);
 		}
 	};
-	const entries = [
+	const entries: ReadonlyArray<AgentEntry> = [
 		...children.map((child) => ({
 			id: `session:${child.id}`,
 			title: child.title,
-			active: child.status === "running" || child.status === "booting",
-			status:
-				child.status === "booting"
-					? message("chat:delegation_row_starting")
-					: child.status === "running"
-						? message("chat:delegation_status_running")
-						: child.status === "error"
-							? message("chat:delegation_status_failed")
-							: message("chat:delegation_status_done"),
-			icon: (
-				<ProviderIcon
-					providerId={child.providerId}
-					className="size-3.5 shrink-0"
-				/>
-			),
+			providerId: child.providerId,
+			status: sessionDelegationStatus(child.status),
+			startedAt: null,
+			completedAt: null,
 			open: () => void navigate(child.id),
 		})),
-		...nativeAgents.map((child) => ({
-			id: `native:${child.childSessionId}`,
-			title: child.agentName,
-			active: child.summary === null,
-			status:
-				child.summary === null
-					? message("chat:delegation_status_running")
-					: child.summary.isError
-						? message("chat:delegation_status_failed")
-						: message("chat:delegation_status_done"),
-			icon: <SubagentAvatar name={child.agentName} size="sm" />,
-			open: () => revealSubagent(chatRef, child.childSessionId),
-		})),
+		...nativeAgents.map((child) => {
+			const view = subagentDelegationView(child, {
+				providerId: null,
+				parentLive: true,
+				canReveal: true,
+			});
+			return {
+				id: `native:${child.childSessionId}`,
+				title: view.title,
+				// Native subagents run inside the parent's provider.
+				providerId: session.providerId,
+				status: view.status,
+				startedAt: view.startedAt,
+				completedAt: view.completedAt,
+				open: () => revealSubagent(chatRef, child.childSessionId),
+			};
+		}),
 	];
 	if (entries.length === 0 && !session.parentSessionId) return null;
-	const active = entries.filter((entry) => entry.active);
-	const previous = entries.filter((entry) => !entry.active);
-	const row = (entry: (typeof entries)[number]) => (
+	const active = entries.filter((entry) => entry.status === "working");
+	const settled = entries.filter((entry) => entry.status !== "working");
+	const visibleSettled = showAllSettled
+		? settled
+		: settled.slice(0, SETTLED_PREVIEW);
+	const hiddenSettled = settled.length - visibleSettled.length;
+	const row = (entry: AgentEntry) => (
 		<button
 			key={entry.id}
 			type="button"
 			onClick={entry.open}
 			title={entry.title}
-			className="flex h-7 w-full items-center gap-2 rounded px-1.5 text-left text-xs hover:bg-muted/60 focus-visible:outline focus-visible:outline-1"
+			aria-description={statusLabel(entry.status)}
+			className={cn(
+				summaryRowClass,
+				"hover:bg-muted/60",
+				entry.status !== "working" && "text-muted-foreground",
+			)}
 		>
-			{entry.icon}
-			<span className="min-w-0 flex-1 truncate">{entry.title}</span>
-			<span className="shrink-0 text-[10px] text-muted-foreground">
-				{entry.status}
+			<span className="grid size-4 shrink-0 place-items-center">
+				<ProviderIcon providerId={entry.providerId} className="size-3.5" />
+			</span>
+			<span className="min-w-0 flex-1 truncate group-hover:text-foreground">
+				{entry.title}
+			</span>
+			<span className={summaryMetaClass}>
+				<DelegationElapsed timing={entry} />
+				<span className="grid size-3 place-items-center">
+					<StatusGlyph status={entry.status} />
+				</span>
 			</span>
 		</button>
 	);
 	return (
-		<section
-			aria-label={message("chat:agents_summary_title")}
-			className="mx-2 mt-2 border-t border-border/60 pb-1 pt-2"
-		>
-			<h3 className="mb-1 flex items-center gap-2 px-1 text-xs font-medium">
-				{message("chat:agents_summary_title")}
-				{active.length > 0 ? (
-					<span className="font-normal text-muted-foreground">
-						{message("chat:agents_summary_running", {
+		<SummarySection
+			icon={AiNetworkIcon}
+			label={message("chat:agents_summary_title")}
+			meta={
+				active.length > 0
+					? message("chat:agents_summary_running", {
 							count: String(active.length),
-						})}
-					</span>
-				) : null}
-			</h3>
+						})
+					: null
+			}
+		>
 			{session.parentSessionId ? (
 				<button
 					type="button"
 					onClick={() => {
 						if (session.parentSessionId) void navigate(session.parentSessionId);
 					}}
-					className="mb-1 flex h-7 w-full items-center gap-2 rounded px-1.5 text-left text-xs hover:bg-muted/60 focus-visible:outline focus-visible:outline-1"
+					className={`${summaryRowClass} hover:bg-muted/60`}
 				>
-					<CornerUpLeft className="size-3.5 shrink-0 text-muted-foreground" />
-					<span className="shrink-0 text-muted-foreground">
-						{message("chat:agents_summary_parent")}
+					<span className="grid size-4 shrink-0 place-items-center">
+						<CornerUpLeft className="size-3.5 text-muted-foreground" />
 					</span>
-					<span className="truncate">
+					<span className="min-w-0 flex-1 truncate">
 						{parent?.title ?? message("chat:agents_summary_parent_chat")}
+					</span>
+					<span className={summaryMetaClass}>
+						{message("chat:agents_summary_parent")}
 					</span>
 				</button>
 			) : null}
 			{active.map(row)}
-			{previous.length > 0 ? (
-				<details className="group">
-					<summary className="flex h-7 cursor-pointer list-none items-center gap-1 px-1 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
-						{message("chat:agents_summary_previous", {
-							count: String(previous.length),
-						})}
-						<ChevronDown className="ml-auto size-3 transition-transform group-open:rotate-180" />
-					</summary>
-					{previous.map(row)}
-				</details>
+			{visibleSettled.map(row)}
+			{hiddenSettled > 0 ? (
+				<button
+					type="button"
+					onClick={() => setShowAllSettled(true)}
+					className={`${summaryRowClass} ps-[34px] text-[11px] text-muted-foreground hover:text-foreground`}
+				>
+					{message("common:show_more_count", {
+						count: String(hiddenSettled),
+					})}
+				</button>
 			) : null}
 			{navigationFailed ? (
-				<p role="status" className="px-1 pt-1 text-xs text-muted-foreground">
+				<p
+					role="status"
+					className="px-2.5 py-1 ps-[34px] text-[11px] text-muted-foreground"
+				>
 					{message("chat:agents_summary_unavailable")}
 				</p>
 			) : null}
-		</section>
+		</SummarySection>
 	);
 }
+
+const sessionDelegationStatus = (
+	status: Session["status"],
+): DelegationStatus =>
+	status === "running" || status === "booting"
+		? "working"
+		: status === "error"
+			? "failed"
+			: "done";

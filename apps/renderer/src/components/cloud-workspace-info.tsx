@@ -74,6 +74,10 @@ import { toastManager } from "./ui/toast.tsx";
 export const summaryRowClass =
 	"group flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
 
+/** Trailing status text on a summary row (counts, states, elapsed time). */
+export const summaryMetaClass =
+	"flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground";
+
 const workspaceMenuRowClass = `flex w-full min-w-0 items-center ${compactMenuItemClass}`;
 
 const formatGigabytes = (bytes: number): string =>
@@ -598,14 +602,11 @@ export function CloudWorkspaceInfo({
 				<MenuTrigger
 					className={`${summaryRowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 				>
-					<HugeiconsIcon
-						icon={CloudIcon}
-						className="size-4 shrink-0 text-muted-foreground"
-					/>
+					<DitherCloudIcon className="text-muted-foreground" />
 					<span className="min-w-0 flex-1 truncate">
 						{cloudProviderLabel(summary.providerId)}
 					</span>
-					<span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+					<span className={summaryMetaClass}>
 						{workspaceStateLabel(summary)}
 						<span
 							className={`size-1.5 rounded-full ${workspaceStateDotClass(summary)}`}

@@ -1,4 +1,5 @@
 {
+	"show_more_count": "{{count}} weitere anzeigen",
 	"device_preferences_save_failed": "Die Geräteeinstellungen konnten nicht gespeichert werden. Deine bisherigen Einstellungen bleiben unverändert.",
 	"workspace_settings_load_failed": "Die Arbeitsbereichseinstellungen konnten nicht geladen werden. Versuche es erneut.",
 	"workspace_settings_save_failed": "Die Arbeitsbereichseinstellungen konnten nicht gespeichert werden. Aktualisiere sie, bevor du es erneut versuchst.",
