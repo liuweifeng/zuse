@@ -11,7 +11,7 @@ if (!installer) throw new Error("Expected a Windows NSIS installer path");
 const root = await mkdtemp(join(tmpdir(), "zuse installer ü-"));
 const install = join(root, "Zuse App");
 const executable = join(install, "Zuse.exe");
-const uninstaller = join(install, "Uninstall Zuse (Beta).exe");
+const uninstaller = join(install, "Uninstall Zuse.exe");
 const userData = join(root, "profile");
 const run = (file: string, args: string[], verbatim = false) => {
 	const result = spawnSync(file, args, {
@@ -26,7 +26,7 @@ const run = (file: string, args: string[], verbatim = false) => {
 try {
 	// NSIS requires /D to be the last argument and consumes the remaining text,
 	// including spaces. It must not receive Node's additional argument quotes.
-	run(resolve(installer), ["/S", `/D=${install}`], true);
+	run(resolve(installer), ["/S", "/currentuser", `/D=${install}`], true);
 	assert.ok(existsSync(executable), "Installer did not produce Zuse.exe");
 	assert.ok(
 		existsSync(uninstaller),
@@ -40,7 +40,7 @@ try {
 	]);
 
 	// Reinstallation must succeed with the existing installation registered.
-	run(resolve(installer), ["/S", `/D=${install}`], true);
+	run(resolve(installer), ["/S", "/currentuser", `/D=${install}`], true);
 	assert.ok(existsSync(executable));
 	execFileSync(
 		process.execPath,
@@ -62,9 +62,14 @@ try {
 		},
 	);
 	const registration = execFileSync(
-		"reg.exe",
-		["query", "HKCU\\Software\\Classes\\zuse\\shell\\open\\command", "/ve"],
-		{ encoding: "utf8" },
+		"powershell.exe",
+		[
+			"-NoProfile",
+			"-NonInteractive",
+			"-Command",
+			"[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); (Get-Item 'Registry::HKEY_CURRENT_USER\\Software\\Classes\\zuse\\shell\\open\\command').GetValue('')",
+		],
+		{ encoding: "utf8", timeout: 15_000, windowsHide: true },
 	);
 	assert.ok(
 		registration.toLowerCase().includes(executable.toLowerCase()),

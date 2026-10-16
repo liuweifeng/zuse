@@ -84,6 +84,7 @@ jobs:
         with:
           name: windows-diagnostics-${{ github.run_id }}
           path: .context/windows/
+          include-hidden-files: true
           retention-days: 7
           if-no-files-found: warn
       - name: Upload internal candidate (not a public release)

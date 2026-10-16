@@ -18,10 +18,9 @@ import {
 	readProcessTreeSnapshot,
 } from "../src/power-benchmark.ts";
 
-assert.equal(
-	process.platform,
-	"win32",
-	"Run this reproduction on native Windows",
+assert.ok(
+	["win32", "linux"].includes(process.platform),
+	"Run on Windows or Linux for development-runner parity checks",
 );
 const output = resolve(".context/windows/dev");
 await mkdir(output, { recursive: true });
@@ -139,6 +138,7 @@ for (let run = 0; run < 2; run++) {
 					readyMs,
 					exitCode: child.exitCode,
 					signal: child.signalCode,
+					platform: process.platform,
 					os: release(),
 					cpuCount: cpus().length,
 					totalMemoryBytes: totalmem(),
