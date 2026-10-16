@@ -162,6 +162,10 @@ export const makeRpcClientSession = <
 							return attempt(cause.expectedVersion);
 						return Effect.fail(cause);
 					}),
+					// Opening a gateway socket does not establish a working runtime.
+					// Bound the full negotiation so a silent peer releases the scoped
+					// transport and returns control to the connection supervisor.
+					Effect.timeout("30 seconds"),
 				);
 				Object.defineProperty(client, clientProtocolVersion, {
 					value: welcome.protocolVersion,

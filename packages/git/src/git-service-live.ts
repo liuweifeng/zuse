@@ -518,12 +518,24 @@ export const GitServiceLive = Layer.effect(
 						],
 						{
 							cwd,
-							env: yield* githubExecutionEnvironment.pipe(
-								Effect.mapError(
-									(error) =>
-										new GitCommandError({ folderId, reason: error.message }),
-								),
-							),
+							// Repository metadata never needs the native authentication helper.
+							// API reads carry their actor scope independently; network Git
+							// commands still require the scoped credential environment.
+							env:
+								args[0] === "rev-parse" ||
+								args[0] === "config" ||
+								(args[0] === "remote" &&
+									(args.length === 1 || args[1] === "get-url"))
+									? undefined
+									: yield* githubExecutionEnvironment.pipe(
+											Effect.mapError(
+												(error) =>
+													new GitCommandError({
+														folderId,
+														reason: error.message,
+													}),
+											),
+										),
 							extendEnv: true,
 						},
 					);

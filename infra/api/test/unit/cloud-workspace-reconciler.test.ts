@@ -790,7 +790,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result?.runtimeCredentialHash).toBeUndefined();
 	});
 
-	test("an online runtime still preparing is never timed out; it follows the idle policy", async () => {
+	test("a preparing runtime with a valid credential follows the idle policy and rechecks expiry", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -837,9 +837,47 @@ describe("cloud workspace reconciler", () => {
 			runtimeCredentialHash: "live-runtime",
 		});
 		expect(result.preparing?.nextActionAtMs).toBeGreaterThan(Date.now());
+		expect(result.preparing?.nextActionAtMs).toBe(
+			result.preparing?.requestConfig.runtimeCredentialExpiresAtMs,
+		);
 		expect(result.idle).toMatchObject({
 			state: "paused",
 			statusCode: "paused",
+		});
+	});
+
+	test("expires stale online startup evidence without replacing retained data", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const now = Date.now();
+				const workspace = yield* seedWorkspace({
+					workspaceId: "preparing-expired",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "preparing-credentials",
+					runtimeState: "online",
+					lastActivityAtMs: now,
+					requestConfig: {
+						startupTimings: { enrolledAt: now - 60_000 },
+						runtimeCredentialExpiresAtMs: now - 1,
+						sessionHeadVersion: 1,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					before: workspace,
+					after: yield* store.getWorkspace(workspace.workspaceId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.after).toMatchObject({
+			state: "failed",
+			runtimeState: "offline",
+			statusCode: "runtime-connection-timeout",
+			providerSandboxId: result.before.providerSandboxId,
+			chatId: result.before.chatId,
+			initialSessionId: result.before.initialSessionId,
 		});
 	});
 

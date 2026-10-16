@@ -552,8 +552,17 @@ const workspaceStartupDeadlineMs = (
 					: RUNTIME_CONNECTION_TIMEOUT_MS);
 };
 
-const workspacePreparingOnline = (workspace: CloudWorkspaceRecord): boolean =>
-	workspace.state === "setup" && workspace.runtimeState === "online";
+const workspacePreparingOnline = (
+	workspace: CloudWorkspaceRecord,
+	nowMs: number,
+): boolean => {
+	const expiresAt = workspace.requestConfig.runtimeCredentialExpiresAtMs;
+	return (
+		workspace.state === "setup" &&
+		workspace.runtimeState === "online" &&
+		(typeof expiresAt !== "number" || expiresAt > nowMs)
+	);
+};
 
 const workspaceStartupTimedOut = (
 	workspace: CloudWorkspaceRecord,
@@ -563,7 +572,7 @@ const workspaceStartupTimedOut = (
 		(workspace.state === "queued" ||
 			workspace.state === "provisioning" ||
 			workspace.state === "setup") &&
-		!workspacePreparingOnline(workspace) &&
+		!workspacePreparingOnline(workspace, nowMs) &&
 		nowMs >= workspaceStartupDeadlineMs(workspace)
 	);
 };
@@ -3301,7 +3310,8 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 				return;
 			}
 
-			if (workspacePreparingOnline(workspace)) {
+			if (workspacePreparingOnline(workspace, nowMs)) {
+				const expiresAt = workspace.requestConfig.runtimeCredentialExpiresAtMs;
 				const idleAtMs =
 					workspace.lastActivityAtMs + apiConfig.cloudWorkspaceIdleTimeoutMs;
 				if (nowMs >= idleAtMs)
@@ -3314,7 +3324,12 @@ ${WORKSPACE_FORK_PREPARE_SOURCE}`,
 					);
 				yield* saveWorkspace({
 					...workspace,
-					nextActionAtMs: idleAtMs,
+					// Recheck liveness even when client activity keeps the workspace
+					// awake. An expired runtime must not stay "online" indefinitely.
+					nextActionAtMs:
+						typeof expiresAt === "number"
+							? Math.min(idleAtMs, expiresAt)
+							: idleAtMs,
 					updatedAtMs: nowMs,
 				});
 				return;
