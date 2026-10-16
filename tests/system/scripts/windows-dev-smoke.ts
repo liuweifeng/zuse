@@ -51,7 +51,7 @@ for (let run = 0; run < 2; run++) {
 		freeMemoryBytes: number;
 		processes: readonly ProcessTreeMetric[];
 	}[] = [];
-	const observed = new Set<number>();
+	const observed = new Map<number, number | undefined>();
 	let readyMs: number | undefined;
 	let success = false;
 	const cleanupErrors: string[] = [];
@@ -72,7 +72,7 @@ for (let run = 0; run < 2; run++) {
 				await readProcessTreeSnapshot(),
 				child.pid ?? -1,
 			);
-			for (const item of processes) observed.add(item.pid);
+			for (const item of processes) observed.set(item.pid, item.startedAtMs);
 			samples.push({
 				elapsedMs: Date.now() - startedAt,
 				freeMemoryBytes: freemem(),
@@ -136,8 +136,9 @@ for (let run = 0; run < 2; run++) {
 		} catch (error) {
 			cleanupErrors.push(String(error));
 		}
-		const survivors = (await readProcessTreeSnapshot()).filter((item) =>
-			observed.has(item.pid),
+		const survivors = (await readProcessTreeSnapshot()).filter(
+			(item) =>
+				observed.has(item.pid) && observed.get(item.pid) === item.startedAtMs,
 		);
 		await writeFile(
 			resolve(output, `run-${run}.log`),

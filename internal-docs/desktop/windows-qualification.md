@@ -14,6 +14,9 @@ both runs exited with code 0 and no observed surviving processes. Sampled summed
 development process working sets peaked at 3,693 and 3,760 MiB. These sums can
 double-count shared pages; they describe development tooling, not installed-app
 memory or a 4 GB qualification. The laptop's original crash remains unconfirmed.
+Later testing exposed stale Windows parent PIDs being attributed to newly created
+processes. The collector now records creation times and rejects those relationships;
+retain the initial totals as provisional evidence, not qualification baselines.
 
 That run then stopped at the renderer bundle budget: 554.7 KiB versus the 501 KiB
 default-route limit. The renderer build plugin compared native Windows paths with

@@ -13,6 +13,7 @@ const install = join(root, "Zuse App");
 const executable = join(install, "Zuse.exe");
 const uninstaller = join(install, "Uninstall Zuse.exe");
 const userData = join(root, "profile");
+let profileValidated = false;
 const run = (file: string, args: string[], verbatim = false) => {
 	const result = spawnSync(file, args, {
 		stdio: "inherit",
@@ -61,6 +62,7 @@ try {
 			},
 		},
 	);
+	profileValidated = true;
 	const registration = execFileSync(
 		"powershell.exe",
 		[
@@ -82,7 +84,11 @@ try {
 		false,
 		"Uninstaller left the application executable behind",
 	);
-	if (existsSync(join(userData, "update-channel.json"))) {
+	if (profileValidated) {
+		assert.ok(
+			existsSync(join(userData, "update-channel.json")),
+			"Uninstaller removed the persisted user preferences",
+		);
 		assert.equal(
 			JSON.parse(await readFile(join(userData, "update-channel.json"), "utf8"))
 				.channel,

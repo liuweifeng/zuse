@@ -24,6 +24,7 @@ export type PowerBenchmarkScenario = (typeof POWER_BENCHMARK_SCENARIOS)[number];
 export interface ProcessTreeMetric {
 	readonly pid: number;
 	readonly parentPid: number;
+	readonly startedAtMs?: number;
 	readonly cpuPercent: number;
 	readonly residentMemoryBytes: number;
 	readonly command: string;
@@ -118,6 +119,8 @@ export const descendantProcessTree = (
 	processes: ReadonlyArray<ProcessTreeMetric>,
 	rootPid: number,
 ): ReadonlyArray<ProcessTreeMetric> => {
+	const byPid = new Map(processes.map((process) => [process.pid, process]));
+	if (!byPid.has(rootPid)) return [];
 	const included = new Set([rootPid]);
 	let changed = true;
 	while (changed) {
@@ -126,6 +129,15 @@ export const descendantProcessTree = (
 			if (!included.has(process.parentPid) || included.has(process.pid)) {
 				continue;
 			}
+			// Windows preserves an exited parent's PID. It can later identify a
+			// completely unrelated process, so ancestry must also respect creation time.
+			const parent = byPid.get(process.parentPid);
+			if (
+				parent?.startedAtMs !== undefined &&
+				process.startedAtMs !== undefined &&
+				process.startedAtMs < parent.startedAtMs
+			)
+				continue;
 			included.add(process.pid);
 			changed = true;
 		}
@@ -149,6 +161,7 @@ export const parseWindowsProcessTree = (
 			"parentPid",
 			"cpuPercent",
 			"residentMemoryBytes",
+			"startedAtMs",
 		]) {
 			if (
 				typeof row[field] !== "number" ||
@@ -162,6 +175,7 @@ export const parseWindowsProcessTree = (
 		return {
 			pid: Number(row.pid),
 			parentPid: Number(row.parentPid),
+			startedAtMs: Number(row.startedAtMs),
 			cpuPercent: Number(row.cpuPercent),
 			residentMemoryBytes: Number(row.residentMemoryBytes),
 			command: row.command,
@@ -185,7 +199,8 @@ $ErrorActionPreference = 'Stop'
 $cpu = @{}
 Get-CimInstance Win32_PerfFormattedData_PerfProc_Process | ForEach-Object { $cpu[[int]$_.IDProcess] = [double]$_.PercentProcessorTime }
 $rows = @(Get-CimInstance Win32_Process | ForEach-Object {
- [PSCustomObject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; cpuPercent = [double]$cpu[[int]$_.ProcessId]; residentMemoryBytes = [double]$_.WorkingSetSize; command = $_.Name }
+ $started = if ($null -ne $_.CreationDate) { ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() } else { 0 }
+ [PSCustomObject]@{ pid = [int]$_.ProcessId; parentPid = [int]$_.ParentProcessId; startedAtMs = $started; cpuPercent = [double]$cpu[[int]$_.ProcessId]; residentMemoryBytes = [double]$_.WorkingSetSize; command = $_.Name }
 })
 ConvertTo-Json -InputObject $rows -Compress
 `,

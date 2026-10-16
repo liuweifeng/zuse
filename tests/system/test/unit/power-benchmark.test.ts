@@ -39,6 +39,23 @@ const run = (
 });
 
 describe("power benchmark harness", () => {
+	it("excludes older processes whose exited parent's PID was reused", () => {
+		const rows = [
+			{ pid: 7600, parentPid: 1, startedAtMs: 1000 },
+			{ pid: 7612, parentPid: 7600, startedAtMs: 100 },
+			{ pid: 7660, parentPid: 7612, startedAtMs: 200 },
+			{ pid: 8000, parentPid: 7600, startedAtMs: 1100 },
+		].map((row) => ({
+			...row,
+			cpuPercent: 0,
+			residentMemoryBytes: 1,
+			command: "fixture",
+		}));
+		expect(descendantProcessTree(rows, 7600).map((row) => row.pid)).toEqual([
+			7600, 8000,
+		]);
+	});
+
 	it("includes every descendant process without unrelated siblings", () => {
 		const parsed = parseProcessTree(`
   10   1  1.5  100 root
@@ -196,6 +213,7 @@ it("reads Windows byte counters without POSIX RSS conversion and rejects missing
 		{
 			pid: 10,
 			parentPid: 1,
+			startedAtMs: 1000,
 			cpuPercent: 12.5,
 			residentMemoryBytes: 1048576,
 			command: "Zuse.exe",
@@ -203,6 +221,7 @@ it("reads Windows byte counters without POSIX RSS conversion and rejects missing
 		{
 			pid: 11,
 			parentPid: 10,
+			startedAtMs: 1100,
 			cpuPercent: 2,
 			residentMemoryBytes: 4096,
 			command: "node.exe",
