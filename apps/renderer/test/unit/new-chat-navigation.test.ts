@@ -1,5 +1,6 @@
 import {
 	ChatId,
+	CloudChatSummary,
 	CloudProject,
 	Folder,
 	FolderId,
@@ -7,6 +8,7 @@ import {
 } from "@zuse/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mergeCloudProjectFolders } from "../../src/lib/cloud-project-folders.ts";
+import { useCloudChatCatalogStore } from "../../src/lib/cloud-workspace-catalog.ts";
 import {
 	captureNewChatLanding,
 	openNewChatLanding,
@@ -19,8 +21,13 @@ import {
 } from "../../src/lib/project-groups.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 import { selectRendererWorkspace } from "../../src/lib/renderer-workspace.ts";
+import { getLocalEnvironmentId } from "../../src/lib/rpc-client.ts";
+import { switchToEnvironment } from "../../src/lib/switch-environment.ts";
 import { useChatsStore } from "../../src/store/chats.ts";
-import { projectEnvironmentShell } from "../../src/store/environment-catalog.ts";
+import {
+	projectEnvironmentShell,
+	useEnvironmentCatalogStore,
+} from "../../src/store/environment-catalog.ts";
 import { useSessionsStore } from "../../src/store/sessions.ts";
 import { useUiStore } from "../../src/store/ui.ts";
 import { useWorkspaceStore } from "../../src/store/workspace.ts";
@@ -35,6 +42,13 @@ vi.mock(
 		dispatchEnvironmentShellCommand: vi.fn(() => new Promise(() => {})),
 	}),
 );
+
+vi.mock("../../src/lib/switch-environment.ts", () => ({
+	switchToEnvironment: vi.fn(async () => ({
+		switched: true,
+		selectedFolderId: FolderId.make("first"),
+	})),
+}));
 
 const first = FolderId.make("first");
 const second = FolderId.make("second");
@@ -201,6 +215,68 @@ describe("New Chat navigation", () => {
 		);
 		dispatchCommand("new-chat");
 		expect(useUiStore.getState().view).toBe("chat");
+	});
+	it("returns to this computer when New Chat is pressed inside a cloud chat without a local project", async () => {
+		vi.stubGlobal("document", { body: { dataset: {} } });
+		const cloudChat = ChatId.make("cloud-chat");
+		useCloudChatCatalogStore.setState({
+			summaries: [
+				CloudChatSummary.make({
+					workspaceId: "cloud-workspace",
+					projectId: "api-project",
+					repositoryIdentity: "github.com/zuse/remote-only",
+					repositoryDisplayName: "remote-only",
+					chatId: cloudChat,
+					initialSessionId: SessionId.make("cloud-session"),
+					title: "Cloud thread",
+					branch: "ponyta",
+					providerId: "boxd",
+					agent: "codex",
+					model: "gpt-6-astra",
+					state: "ready",
+					desiredState: "ready",
+					runtimeState: "online",
+					statusCode: "ready",
+					startupPhase: "running",
+					revision: 1,
+					summaryRevision: 1,
+					sessionHeadVersion: 1,
+					unread: false,
+					lastMessageAt: 1,
+					createdAt: 1,
+					updatedAt: 1,
+				}),
+			],
+			localProjectByEnvironment: {},
+		});
+		const previousEnvironment =
+			useEnvironmentCatalogStore.getState().activeEnvironmentId;
+		useEnvironmentCatalogStore.setState({
+			activeEnvironmentId: "cloud-workspace",
+		});
+		useWorkspaceStore.setState({ selectedFolderId: FolderId.make("cloud") });
+		useChatsStore.setState({ selectedChatId: cloudChat });
+		try {
+			const { dispatchCommand } = await import(
+				"../../src/lib/command-handlers.ts"
+			);
+			dispatchCommand("new-chat");
+			await vi.waitFor(() =>
+				expect(useChatsStore.getState().selectedChatId).toBeNull(),
+			);
+			expect(switchToEnvironment).toHaveBeenCalledWith({
+				environmentId: getLocalEnvironmentId(),
+				folderId: undefined,
+			});
+			expect(useWorkspaceStore.getState().selectedFolderId).toBe(first);
+		} finally {
+			useEnvironmentCatalogStore.setState({
+				activeEnvironmentId: previousEnvironment,
+			});
+			useCloudChatCatalogStore.setState(
+				useCloudChatCatalogStore.getInitialState(),
+			);
+		}
 	});
 	it("opens the landing from settings even before cloud repositories have loaded", () => {
 		useWorkspaceStore.setState({ selectedFolderId: null });

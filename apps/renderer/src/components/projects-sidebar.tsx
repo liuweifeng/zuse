@@ -615,7 +615,13 @@ export function ProjectsSidebar() {
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
+				<span>
+					{uiMessage(
+						threadListSidebar
+							? "projects:projects_sidebar_threads"
+							: "projects:projects_sidebar_projects",
+					)}
+				</span>
 				<div className="flex items-center">
 					{threadListSidebar ? null : (
 						<NewProjectGroupButton
@@ -636,297 +642,275 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{!threadListSidebar && scratchEntries.length > 0 ? (
-					<>
-						<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
-							{uiMessage("projects:no_project")}
-						</li>
-						<ThreadListSection
-							entries={scratchEntries}
-							origins={{}}
-							loading={loading}
-						/>
-					</>
-				) : null}
-				{threadListSidebar
-					? null
-					: ungroupedCloudChats.map((summary) => (
-							<CloudChatRow key={summary.workspaceId} summary={summary} />
-						))}
 				{threadListSidebar ? (
-					<>
-						{folders
-							.filter((folder) => folder.kind !== "scratch")
-							.map((folder) => {
-								const origin = origins[folder.id];
-								const name = origin?.repo ?? folder.name;
-								const avatarUrl = avatarUrlFor(origin ?? null);
-								return (
-									<li key={folder.id}>
-										<button
-											type="button"
-											aria-pressed={selectedFolderId === folder.id}
-											title={folder.path}
-											onClick={() => {
-												if (isHostedProduct()) selectHostedCloudHome(folder.id);
-												else openNewChatLanding(folder.id);
-											}}
-											className={cn(
-												"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-												selectedFolderId === folder.id &&
-													"bg-sidebar-accent/40",
-											)}
-										>
-											<Avatar className="size-5 rounded">
-												{avatarUrl !== null && (
-													<AvatarImage src={avatarUrl} alt="" />
-												)}
-												<AvatarFallback className="rounded text-[10px]">
-													{initialsOf(origin?.owner ?? folder.name)}
-												</AvatarFallback>
-											</Avatar>
-											<span className="truncate">{name}</span>
-										</button>
-									</li>
-								);
-							})}
-						<li className="px-2 pb-1 pt-3 text-[12px] text-muted-foreground">
-							{uiMessage("projects:projects_sidebar_threads")}
-						</li>
-						<ThreadListSection
-							entries={threadListEntries}
-							origins={origins}
-							loading={loading}
-						/>
-					</>
-				) : desktopCatalogEnabled ? (
-					<>
-						{catalogViewState === "loading" ? (
-							<li
-								className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
-								aria-busy="true"
-							>
-								<Spinner className="size-3.5" />
-								{uiMessage("projects:projects_sidebar_loading_projects")}
-							</li>
-						) : null}
-						{catalogViewState === "unavailable" ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								<p role="alert">
-									{uiMessage(
-										"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
-									)}
-								</p>
-								<p className="mt-1 text-[12px]">{catalogInitializationError}</p>
-								<button
-									type="button"
-									className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
-									onClick={() => {
-										void initializeEnvironmentCatalog().catch(() => undefined);
-									}}
-								>
-									{uiMessage("common:retry")}
-								</button>
-							</li>
-						) : null}
-						{catalogViewState === "empty" ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
-								/>
-							</li>
-						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const logical = logicalGroups.find(
-											(group) => group.key === key,
-										);
-										if (logical === undefined) return null;
-										return (
-											<SidebarLogicalRow
-												key={key}
-												group={logical}
-												folders={folders}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(key)}
-												dragProps={organize.projectDragProps(
-													key,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onToggleKey={onToggleKey}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const logical = logicalGroups.find(
-										(group) => group.key === node.key,
-									);
-									if (logical === undefined) return null;
-									return (
-										<SidebarLogicalRow
-											key={node.key}
-											group={logical}
-											folders={folders}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(node.key)}
-											dragProps={organize.projectDragProps(node.key, null)}
-											onToggleExpanded={onToggleExpanded}
-											onToggleKey={onToggleKey}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
-										/>
-									);
-								})()
-							),
-						)}
-					</>
+					<ThreadListSection
+						entries={threadListEntries}
+						origins={origins}
+						loading={loading}
+					/>
 				) : (
 					<>
-						{folders.every((folder) => folder.kind === "scratch") &&
-						ungroupedCloudChats.length === 0 &&
-						!loading ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
+						{scratchEntries.length > 0 ? (
+							<>
+								<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
+									{uiMessage("projects:no_project")}
+								</li>
+								<ThreadListSection
+									entries={scratchEntries}
+									origins={{}}
+									loading={loading}
 								/>
-							</li>
+							</>
 						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const folder = folders.find((entry) => entry.id === key);
-										if (folder === undefined) return null;
-										return (
-											<SidebarFolderRow
-												key={folder.id}
-												folder={folder}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(folder.id)}
-												dragProps={organize.projectDragProps(
-													folder.id,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const folder = folders.find((entry) => entry.id === node.key);
-									if (folder === undefined) return null;
-									return (
-										<SidebarFolderRow
-											key={folder.id}
-											folder={folder}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(folder.id)}
-											dragProps={organize.projectDragProps(folder.id, null)}
-											onToggleExpanded={onToggleExpanded}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
+						{ungroupedCloudChats.map((summary) => (
+							<CloudChatRow key={summary.workspaceId} summary={summary} />
+						))}
+						{desktopCatalogEnabled ? (
+							<>
+								{catalogViewState === "loading" ? (
+									<li
+										className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
+										aria-busy="true"
+									>
+										<Spinner className="size-3.5" />
+										{uiMessage("projects:projects_sidebar_loading_projects")}
+									</li>
+								) : null}
+								{catalogViewState === "unavailable" ? (
+									<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
+										<p role="alert">
+											{uiMessage(
+												"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
+											)}
+										</p>
+										<p className="mt-1 text-[12px]">
+											{catalogInitializationError}
+										</p>
+										<button
+											type="button"
+											className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
+											onClick={() => {
+												void initializeEnvironmentCatalog().catch(
+													() => undefined,
+												);
+											}}
+										>
+											{uiMessage("common:retry")}
+										</button>
+									</li>
+								) : null}
+								{catalogViewState === "empty" ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
 										/>
-									);
-								})()
-							),
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const logical = logicalGroups.find(
+													(group) => group.key === key,
+												);
+												if (logical === undefined) return null;
+												return (
+													<SidebarLogicalRow
+														key={key}
+														group={logical}
+														folders={folders}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(key)}
+														dragProps={organize.projectDragProps(
+															key,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onToggleKey={onToggleKey}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const logical = logicalGroups.find(
+												(group) => group.key === node.key,
+											);
+											if (logical === undefined) return null;
+											return (
+												<SidebarLogicalRow
+													key={node.key}
+													group={logical}
+													folders={folders}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(node.key)}
+													dragProps={organize.projectDragProps(node.key, null)}
+													onToggleExpanded={onToggleExpanded}
+													onToggleKey={onToggleKey}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
+						) : (
+							<>
+								{folders.every((folder) => folder.kind === "scratch") &&
+								ungroupedCloudChats.length === 0 &&
+								!loading ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
+										/>
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const folder = folders.find(
+													(entry) => entry.id === key,
+												);
+												if (folder === undefined) return null;
+												return (
+													<SidebarFolderRow
+														key={folder.id}
+														folder={folder}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(folder.id)}
+														dragProps={organize.projectDragProps(
+															folder.id,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const folder = folders.find(
+												(entry) => entry.id === node.key,
+											);
+											if (folder === undefined) return null;
+											return (
+												<SidebarFolderRow
+													key={folder.id}
+													folder={folder}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(folder.id)}
+													dragProps={organize.projectDragProps(folder.id, null)}
+													onToggleExpanded={onToggleExpanded}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
 						)}
 					</>
 				)}
