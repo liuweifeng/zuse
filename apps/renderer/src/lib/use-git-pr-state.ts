@@ -37,7 +37,8 @@ export function useGitPrState(
 	);
 	const pr = gitView.data?.pr ?? null;
 	const details = prDetailsView.data?.details ?? null;
-	const branch = gitView.data?.status?.branch ?? null;
+	const branch =
+		gitView.data?.githubTarget?.branch ?? gitView.data?.status?.branch ?? null;
 	const state = useMemo(
 		() => resolveGitPrState(pr, details, branch),
 		[pr, details, branch],

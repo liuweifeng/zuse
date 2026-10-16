@@ -6,6 +6,7 @@ import {
 	type GitReviewPatch,
 	WorktreeId,
 } from "@zuse/contracts";
+import { emptyDetails, emptyPr } from "@zuse/git/github-observations";
 import { Effect, PubSub, Queue, Stream } from "effect";
 import {
 	RpcClientDefect,
@@ -22,6 +23,7 @@ import {
 	resetGitWorkspaceClientBusForTest,
 	retainGitWorkspace,
 } from "../../src/lib/git-workspace-client-bus.ts";
+import * as rpcClient from "../../src/lib/rpc-client.ts";
 import {
 	getRendererClientBus,
 	resetSessionTimelineClientBusForTest,
@@ -51,6 +53,66 @@ describe("renderer Git workspace ClientBus adapter", () => {
 		vi.restoreAllMocks();
 		resetGitWorkspaceClientBusForTest();
 		resetSessionTimelineClientBusForTest();
+	});
+
+	it.each([
+		false,
+		true,
+	])("legacy PR fallback with cloud workspace = %s", async (cloud) => {
+		vi.spyOn(rpcClient, "isCloudWorkspaceEnvironment").mockReturnValue(cloud);
+		const state = {
+			...emptyPr("feature"),
+			state: "open",
+			number: 1,
+			url: "https://github.com/acme/app/pull/1",
+		};
+		const details = {
+			...emptyDetails,
+			state: "open",
+			number: 1,
+			title: "Legacy desktop PR",
+		};
+		const refreshState = vi.fn(() => Effect.succeed(state));
+		const readDetails = vi.fn(() => Effect.succeed(details));
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"git.workspaceChanges": () =>
+						Stream.concat(Stream.succeed({ revision: 0 }), Stream.never),
+					"git.workspaceSnapshot": () =>
+						Effect.succeed({
+							status: { branch: "feature", ahead: 0, behind: 0, dirtyFiles: 0 },
+							changes: [],
+							reviewSummary: null,
+							pr: state,
+							diffStat: { additions: 0, deletions: 0 },
+							projectionVersion: 1,
+							localFingerprint: "legacy",
+							observedAt: new Date(),
+						}),
+					"git.prState": refreshState,
+					"git.prDetails": readDetails,
+				}) as never,
+		);
+		const retained = retainGitWorkspace(ref);
+		try {
+			await waitUntil(
+				() => getRendererClientBus().snapshot(retained.key).sync === "live",
+			);
+			await refreshGitPrDetails(ref);
+			expect(refreshState).toHaveBeenCalledTimes(cloud ? 0 : 1);
+			expect(readDetails).toHaveBeenCalledTimes(cloud ? 0 : 1);
+			if (cloud)
+				expect(
+					getRendererClientBus().snapshot(retained.key).data?.prDetails,
+				).toBeNull();
+			else
+				expect(
+					getRendererClientBus().snapshot(retained.key).data?.prDetails,
+				).toMatchObject({ title: "Legacy desktop PR" });
+		} finally {
+			retained.lease.release();
+		}
 	});
 
 	it("shares one invalidation stream and canonical snapshot across consumers", async () => {

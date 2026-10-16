@@ -70,6 +70,8 @@ import {
 	DeviceBridgeResult,
 	EntitlementList,
 	type EnvironmentId,
+	GitHubObservation,
+	type GitHubObserveRequest,
 	type MachineCreateRequest,
 	type MachineDestroyRequest,
 	MachineErrorCode,
@@ -163,6 +165,9 @@ export interface MachineControlServiceShape {
 	readonly disconnectCloudAuth: (
 		providerId: CloudAuthProvider,
 	) => Effect.Effect<CloudAuthProviderStatus, MachineControlError>;
+	readonly observeGithub: (
+		input: GitHubObserveRequest,
+	) => Effect.Effect<GitHubObservation, MachineControlError>;
 	readonly cloudGithubStatus: () => Effect.Effect<
 		CloudGithubStatus,
 		MachineControlError
@@ -616,6 +621,8 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudAuthProviderStatus,
 					"DELETE",
 				),
+			observeGithub: (input) =>
+				request(ApiPaths.cloudGithubObserve, GitHubObservation, "POST", input),
 			cloudGithubStatus: () => request(ApiPaths.cloudGithub, CloudGithubStatus),
 			installCloudGithub: () =>
 				request(

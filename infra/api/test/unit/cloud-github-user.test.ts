@@ -1,5 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
-import { Layer, ManagedRuntime, Redacted } from "effect";
+import { GitHubObservation } from "@zuse/contracts";
+import { Layer, ManagedRuntime, Redacted, Schema } from "effect";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { openApiString, sealApiString } from "../../src/api-sealing.ts";
 import {
@@ -487,6 +488,102 @@ test("organization members retain separate user tokens while sharing installatio
 				),
 			),
 		).rejects.toBeDefined();
+	} finally {
+		await runtime.dispose();
+	}
+});
+
+test("account GitHub observations work without a runtime and recheck installation access before cache reuse", async () => {
+	const { observeGithub } = await import("../../src/github-observations.ts");
+	const { pr } = await import(
+		"../../../../packages/git/test/github-fixture.ts"
+	);
+	const runtime = runtimeForTest();
+	const fetcher = vi.fn(async (url: string, init: RequestInit) => {
+		expect(url).toBe("https://api.github.com/graphql");
+		expect(new Headers(init.headers).get("authorization")).toBe(
+			"Bearer account-user-token",
+		);
+		const { query } = JSON.parse(String(init.body));
+		return Response.json({
+			data: Object.fromEntries(
+				[...query.matchAll(/(p\d+):/g)].map((match) => [
+					match[1],
+					{ pullRequest: pr() },
+				]),
+			),
+		});
+	});
+	vi.stubGlobal("fetch", fetcher);
+	try {
+		const store = await runtime.runPromise(CloudWorkspaceStore);
+		await runtime.runPromise(
+			store.saveGithubUser({
+				accountId: "independent-user",
+				login: "alice",
+				name: "Alice",
+				email: "alice@example.com",
+				sealedCredentials: await runtime.runPromise(
+					sealApiString(
+						"github-user\nindependent-user",
+						JSON.stringify({
+							accessToken: "account-user-token",
+							expiresAtMs: Date.now() + 3_600_000,
+						}),
+					),
+				),
+			}),
+		);
+		await runtime.runPromise(
+			store.saveGithubInstallation({
+				accountId: "organization",
+				installationId: 9901,
+				githubAccountId: 100,
+				accountLogin: "acme",
+				accountType: "Organization",
+				repositorySelection: "selected",
+				allowedRepositories: ["acme/app"],
+				suspended: false,
+				createdAtMs: 0,
+				updatedAtMs: 0,
+			}),
+		);
+		const input = {
+			target: {
+				host: "github.com",
+				owner: "acme",
+				repo: "app",
+				branch: "feature",
+				number: 1,
+			},
+		};
+		const first = await runtime.runPromise(
+			observeGithub("independent-user", "organization", input),
+		);
+		expect(first.pr).toMatchObject({ state: "open", stale: false });
+		const calls = fetcher.mock.calls.length;
+		await runtime.runPromise(
+			observeGithub("independent-user", "organization", input),
+		);
+		expect(fetcher).toHaveBeenCalledTimes(calls);
+		const other = await runtime.runPromise(
+			observeGithub("different-user", "organization", input),
+		);
+		expect(() => Schema.encodeSync(GitHubObservation)(other)).not.toThrow();
+		expect(other.pr).toMatchObject({
+			state: "none",
+			prCapability: "authentication",
+		});
+		await runtime.runPromise(
+			store.removeGithubInstallation("organization", 9901),
+		);
+		const revoked = await runtime.runPromise(
+			observeGithub("independent-user", "organization", input),
+		);
+		expect(() => Schema.encodeSync(GitHubObservation)(revoked)).not.toThrow();
+		expect(revoked.pr.state).toBe("none");
+		expect(revoked.pr.stale).toBe(true);
+		expect(fetcher).toHaveBeenCalledTimes(calls);
 	} finally {
 		await runtime.dispose();
 	}

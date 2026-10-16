@@ -10,6 +10,7 @@ import type {
 	GitFailingChecksArtifact,
 	GitFolderNotFoundError,
 	GitHubStarError,
+	GitHubTarget,
 	GitIssueSummary,
 	GitMergeMethod,
 	GitNotARepoError,
@@ -40,6 +41,10 @@ type GitFailure =
 type GitResetFailure = GitFailure | GitStalePreviewError | GitConfirmationError;
 
 export interface GitServiceShape {
+	readonly githubContext: (
+		folderId: FolderId,
+		worktreeId?: WorktreeId | null,
+	) => Effect.Effect<GitHubTarget | null, GitFailure>;
 	/**
 	 * Cheap repository capability probe for workflows that can degrade to a
 	 * plain project directory. A missing Git repository resolves to `false`;

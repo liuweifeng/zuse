@@ -111,6 +111,10 @@ const CloudAuthDisconnect = MemoizeRpcs.toLayerHandler(
 	({ providerId }) =>
 		withCloudControl((service) => service.disconnectCloudAuth(providerId)),
 );
+const CloudGithubObserve = MemoizeRpcs.toLayerHandler(
+	"cloud.github.observe",
+	(input) => withCloudControl((service) => service.observeGithub(input)),
+);
 const CloudGithubStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.github.status",
 	() => withCloudControl((service) => service.cloudGithubStatus()),
@@ -512,6 +516,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudAuthLoginCancel,
 	CloudAuthDisconnect,
 	CloudGithubStatus,
+	CloudGithubObserve,
 	CloudGithubInstall,
 	CloudGithubDisconnect,
 	CloudBillingSummaryHandler,

@@ -120,7 +120,9 @@ export const desktopGitHubCredential: GitHubCredentialResolver = async (
 	const publicHost = host === "github.com" || host.endsWith(".ghe.com");
 	const token = publicHost
 		? process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-		: process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN;
+		: process.env.GH_HOST?.toLowerCase() === host.toLowerCase()
+			? process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN
+			: undefined;
 	if (token) return { token };
 	try {
 		const result = await execute("gh", ["auth", "token", "--hostname", host], {

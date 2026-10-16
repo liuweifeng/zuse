@@ -17,6 +17,11 @@ vi.mock("../../../src/rpc/terminal-actions", () => ({
 	mobileTerminalOpenOwnership: {},
 }));
 
+// Command tests do not use account-backed GitHub reads or native authentication.
+vi.mock("../../../src/rpc/github", () => ({
+	loadGithubObservation: vi.fn(),
+}));
+
 import { makeTextInput, queueMessage } from "../../../src/rpc/actions";
 
 it("marks ordinary auto-queue admission while leaving explicit queue opt-in unchanged", async () => {

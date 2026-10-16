@@ -368,6 +368,22 @@ export class GitHubPullRequests {
 						pr.headRepositoryOwner?.login.toLowerCase() ===
 							headOwner.toLowerCase(),
 				);
+				const open = nodes.filter((pr) => pr.state === "OPEN");
+				const candidates = open.length ? open : nodes;
+				if (
+					!headOwner &&
+					new Set(
+						candidates.flatMap((pr) =>
+							pr.headRepositoryOwner
+								? [pr.headRepositoryOwner.login.toLowerCase()]
+								: [],
+						),
+					).size > 1
+				)
+					throw new GitHubFailure(
+						"unknown",
+						"This branch matches multiple forks. Connect the checkout to identify its pull request.",
+					);
 				const number =
 					(nodes.find((pr) => pr.state === "OPEN") ?? nodes[0])?.number ?? null;
 				if (number === null && result.pullRequests.pageInfo.hasNextPage)

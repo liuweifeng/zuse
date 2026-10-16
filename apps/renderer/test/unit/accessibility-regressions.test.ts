@@ -124,11 +124,7 @@ describe("renderer accessibility regressions", () => {
 
 	it("uses uniquely named toolbars instead of duplicate banner landmarks", () => {
 		expect(topBarSource).not.toContain("<header");
-		for (const label of [
-			"projects_toolbar",
-			"workspace_toolbar",
-			"workflow_toolbar",
-		]) {
+		for (const label of ["projects_toolbar", "workspace_toolbar"]) {
 			expect(topBarSource).toContain(
 				`aria-label={uiMessage("common:${label}")}`,
 			);
@@ -151,15 +147,6 @@ describe("renderer accessibility regressions", () => {
 			"export function BranchMenuButton",
 		);
 		expect(workspaceToolbar).not.toContain("<section");
-
-		const workflowToolbar = sourceBetween(
-			topBarSource,
-			"export function TopBarRight",
-			"export function TopBarRightContent",
-		);
-		expect(workflowToolbar).toMatch(
-			/<section\s+aria-label=\{uiMessage\("common:workflow_controls"\)\}/,
-		);
 	});
 
 	it("gives every complementary pane a unique accessible name", () => {

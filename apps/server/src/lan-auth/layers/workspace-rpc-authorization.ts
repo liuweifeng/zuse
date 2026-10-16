@@ -128,6 +128,7 @@ register("file", false, [
 	"git.branches",
 	"git.userName",
 	"git.origin",
+	"git.githubContext",
 	"git.workspaceChanges",
 	"git.changes",
 	"git.workspaceSnapshot",

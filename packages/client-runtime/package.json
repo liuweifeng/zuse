@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./github-observer": "./src/github-observer.ts",
 		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./native-subagent-fork": "./src/native-subagent-fork.ts",
 		"./session-attempt-history": "./src/session-attempt-history.ts",
@@ -75,6 +76,7 @@
 		"@zuse/cloud-commands": "*",
 		"@noble/hashes": "^1.8.0",
 		"@zuse/contracts": "*",
+		"@zuse/git": "*",
 		"@zuse/domain": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:"

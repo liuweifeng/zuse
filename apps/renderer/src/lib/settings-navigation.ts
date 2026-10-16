@@ -15,7 +15,6 @@ import {
 	Settings01Icon,
 	SmartPhone01Icon,
 	TaskDone01Icon,
-	TestTubeIcon,
 	UserGroupIcon,
 } from "@zuse/icons/solid-rounded";
 import type { SettingsSection } from "../store/ui.ts";
@@ -117,15 +116,6 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		Icon: DocumentAttachmentIcon,
 		section: { kind: "diagnostics" },
 	},
-
-	{
-		id: "developer",
-		get label() {
-			return uiMessage("settings:settings_navigation_developer");
-		},
-		Icon: TestTubeIcon,
-		section: { kind: "developer" },
-	},
 ];
 
 const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
@@ -194,8 +184,4 @@ export const ORGANIZATION_NAVIGATION: ReadonlyArray<SettingsNavigationItem> = [
 ];
 
 export const SETTINGS_NAVIGATION: ReadonlyArray<SettingsNavigationItem> =
-	TOP_RAIL.filter(
-		(item) =>
-			(item.id !== "developer" || import.meta.env.DEV) &&
-			(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
-	);
+	TOP_RAIL.filter((item) => item.id !== "machines" || CLOUD_MACHINES_AVAILABLE);

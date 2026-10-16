@@ -96,7 +96,6 @@ import { ProviderSettingsRow } from "./provider-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 import { AccountGithubConnection } from "./settings/account-github.tsx";
 import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
-import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
 import { HostedDevicesPane } from "./settings/hosted-devices-pane.tsx";
@@ -466,13 +465,7 @@ function SectionTitle({
 				subtitle: uiMessage("settings:settings_page_experimental_description"),
 			};
 		}
-		if (section.kind === "developer") {
-			return {
-				title: uiMessage("settings:settings_page_developer"),
-				subtitle:
-					"Accent palette + workflow chip/button states (dev builds only).",
-			};
-		}
+
 		if (section.kind === "organizations")
 			return {
 				title: uiMessage(
@@ -554,7 +547,6 @@ function Pane({ section }: { section: SettingsSection }) {
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
 	if (section.kind === "experimental") return <ExperimentalPane />;
-	if (section.kind === "developer") return <DeveloperPane />;
 	return <RepositorySettings projectId={section.projectId} />;
 }
 
