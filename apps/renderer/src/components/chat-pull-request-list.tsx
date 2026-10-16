@@ -10,23 +10,48 @@ import { PrStateIcon } from "./branch-icon.tsx";
 /**
  * A chat's linked pull requests as one chain: state glyphs joined by a thin
  * rail, `#N`, and the title. The chat's own PR is the bright row. Rows open
- * the PR on GitHub.
+ * the PR on GitHub unless the list is display-only (e.g. inside a tooltip).
  */
 export function ChatPullRequestList({
 	pullRequests,
 	limit = Number.POSITIVE_INFINITY,
 	density = "summary",
+	interactive = true,
 }: {
 	readonly pullRequests: ReadonlyArray<ChatPullRequest>;
 	/** Rows shown before the rest fold behind "Show N more". */
 	readonly limit?: number;
 	readonly density?: "summary" | "compact";
+	readonly interactive?: boolean;
 }) {
 	const { message } = useMessages(["projects", "common"]);
 	const [expanded, setExpanded] = useState(false);
 	const visible = expanded ? pullRequests : pullRequests.slice(0, limit);
-	const hidden = pullRequests.length - visible.length;
+	const hidden = interactive ? pullRequests.length - visible.length : 0;
 	const compact = density === "compact";
+	const rowClass = cn(
+		"flex w-full min-w-0 items-center gap-2 rounded-md pe-2 text-left text-xs outline-none",
+		compact ? "h-6 ps-1" : "h-7 ps-2.5",
+	);
+	const row = (pr: ChatPullRequest) => (
+		<>
+			<span className="grid size-4 shrink-0 place-items-center">
+				<PrStateIcon pr={pr} className="size-3.5" />
+			</span>
+			<span
+				className={cn(
+					"min-w-0 flex-1 truncate",
+					pr.isCurrent ? "text-foreground" : "text-muted-foreground",
+				)}
+			>
+				{pr.title ??
+					message("projects:github_pr_number", { number: pr.number })}
+			</span>
+			<span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/70">
+				#{pr.number}
+			</span>
+		</>
+	);
 	return (
 		<ul className="flex flex-col">
 			{visible.map((pr, index) => (
@@ -40,34 +65,24 @@ export function ChatPullRequestList({
 							)}
 						/>
 					) : null}
-					<button
-						type="button"
-						disabled={pr.url === null}
-						onClick={() => {
-							if (pr.url !== null) void openHttpLink(pr.url);
-						}}
-						title={pr.title ?? undefined}
-						className={cn(
-							"flex w-full min-w-0 items-center gap-2 rounded-md pe-2 text-left text-xs outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default disabled:hover:bg-transparent",
-							compact ? "h-6 ps-1" : "h-7 ps-2.5",
-						)}
-					>
-						<span className="grid size-4 shrink-0 place-items-center">
-							<PrStateIcon pr={pr} className="size-3.5" />
-						</span>
-						<span
+					{interactive ? (
+						<button
+							type="button"
+							disabled={pr.url === null}
+							onClick={() => {
+								if (pr.url !== null) void openHttpLink(pr.url);
+							}}
+							title={pr.title ?? undefined}
 							className={cn(
-								"min-w-0 flex-1 truncate",
-								pr.isCurrent ? "text-foreground" : "text-muted-foreground",
+								rowClass,
+								"hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-default disabled:hover:bg-transparent",
 							)}
 						>
-							{pr.title ??
-								message("projects:github_pr_number", { number: pr.number })}
-						</span>
-						<span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground/70">
-							#{pr.number}
-						</span>
-					</button>
+							{row(pr)}
+						</button>
+					) : (
+						<div className={rowClass}>{row(pr)}</div>
+					)}
 				</li>
 			))}
 			{hidden > 0 ? (

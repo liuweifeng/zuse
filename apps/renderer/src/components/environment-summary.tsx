@@ -473,7 +473,10 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			)}
-			{executionRef !== null && linkedPullRequests.length > 1 ? (
+			{executionRef !== null &&
+			stack?.branches.some(
+				(item) => item.isCurrent && item.name === status?.branch,
+			) ? (
 				<SummarySection
 					icon={Layers01Icon}
 					label={uiMessage("chat:environment_summary_stack")}
@@ -481,7 +484,9 @@ export function EnvironmentSummary() {
 						count: linkedPullRequests.length,
 					})}
 				>
-					<ChatPullRequestList pullRequests={linkedPullRequests} limit={5} />
+					{linkedPullRequests.length > 1 ? (
+						<ChatPullRequestList pullRequests={linkedPullRequests} limit={5} />
+					) : null}
 					<GitStackMenu
 						branch={status?.branch ?? null}
 						key={`${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}:${status?.branch}`}

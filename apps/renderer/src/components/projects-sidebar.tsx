@@ -158,7 +158,7 @@ import {
 } from "../lib/rpc-client.ts";
 import { useSessionGoalResource } from "../lib/session-goal-client-bus.ts";
 import {
-	GOAL_STATUS_LABEL,
+	GOAL_STATUS_MESSAGE,
 	isGoalInProgress,
 } from "../lib/session-goal-presentation.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
@@ -189,7 +189,11 @@ import {
 	environmentCatalogViewState,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
-import { gitStackKey, useGitStackStore } from "../store/git-stack.ts";
+import {
+	gitStackKey,
+	readGitStack,
+	useGitStackStore,
+} from "../store/git-stack.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { subscribeSessionTerminals } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -1887,7 +1891,7 @@ function SidebarChatHoverCard({
 					<GoalGlyph goal={goal} />
 					<div className="min-w-0 flex-1">
 						<div className="text-[11px] text-muted-foreground tabular-nums">
-							{GOAL_STATUS_LABEL[goal.status]} ·{" "}
+							{uiMessage(GOAL_STATUS_MESSAGE[goal.status])} ·{" "}
 							{formatElapsed(goal.timeUsedSeconds * 1000)}
 						</div>
 						<p className="line-clamp-2 text-foreground/80">{goal.objective}</p>
@@ -1920,6 +1924,7 @@ function SidebarChatHoverCard({
 						pullRequests={pullRequests}
 						limit={6}
 						density="compact"
+						interactive={false}
 					/>
 				</div>
 			) : null}
@@ -1935,7 +1940,7 @@ function GoalGlyph({ goal }: { readonly goal: ThreadGoal }) {
 	return (
 		<HugeiconsIcon
 			icon={DashboardSpeedIcon}
-			aria-label={GOAL_STATUS_LABEL[goal.status]}
+			aria-label={uiMessage(GOAL_STATUS_MESSAGE[goal.status])}
 			className="size-3.5 shrink-0 text-muted-foreground"
 		/>
 	);
@@ -3226,21 +3231,29 @@ function ChatRow({
 	const goal = useSessionGoalResource(goalRef, "cache-only").data?.goal ?? null;
 	const activeGoal = isGoalInProgress(goal) ? goal : null;
 	const stackBranch = gitView.data?.status?.branch ?? prInfo?.branch ?? null;
-	const stack = useGitStackStore((state) =>
-		stackBranch === null || worktreePath === null
-			? null
-			: (state.entries[
-					gitStackKey(
-						{
-							environmentId: EnvironmentId.make(activeEnvironmentId),
-							folderId: chat.projectId,
-							worktreeId: chat.worktreeId,
-							rootPath: worktreePath,
-						},
-						stackBranch,
-					)
-				]?.result ?? null),
+	const stackRef = useMemo(
+		() =>
+			worktreePath === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						folderId: chat.projectId,
+						worktreeId: chat.worktreeId,
+						rootPath: worktreePath,
+					},
+		[activeEnvironmentId, chat.projectId, chat.worktreeId, worktreePath],
 	);
+	// Rows only read cached stacks; the hover card asks for this one chat's
+	// stack so long sidebars never fan out `gh stack` calls.
+	const stack = useGitStackStore((state) =>
+		stackBranch === null || stackRef === null
+			? null
+			: (state.entries[gitStackKey(stackRef, stackBranch)]?.result ?? null),
+	);
+	const discoverStack = (open: boolean) => {
+		if (!open || stackBranch === null || stackRef === null) return;
+		void readGitStack(stackRef, stackBranch).catch(() => undefined);
+	};
 	const pullRequests = useMemo(
 		() => chatPullRequests({ pr: prInfo, title: null, stack }),
 		[prInfo, stack],
@@ -3352,7 +3365,7 @@ function ChatRow({
 				</Suspense>
 			) : null}
 			<li>
-				<Tooltip>
+				<Tooltip onOpenChange={discoverStack}>
 					<TooltipTrigger
 						render={
 							<div

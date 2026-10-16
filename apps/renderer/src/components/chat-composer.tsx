@@ -3,7 +3,7 @@ import { composerSendBlocked } from "@zuse/client-runtime/plan-interactions";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
-import { GOAL_STATUS_LABEL } from "../lib/session-goal-presentation.ts";
+import { GOAL_STATUS_MESSAGE } from "../lib/session-goal-presentation.ts";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
 import "@zuse/i18n/english/common";
@@ -2165,7 +2165,7 @@ function GoalBanner({
 			<TrayPill
 				flush
 				icon={<HugeiconsIcon icon={DashboardSpeedIcon} className="size-3.5" />}
-				title={GOAL_STATUS_LABEL[goal.status]}
+				title={uiMessage(GOAL_STATUS_MESSAGE[goal.status])}
 				subtitle={objective}
 				actions={
 					<>

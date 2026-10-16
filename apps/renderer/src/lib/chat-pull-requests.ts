@@ -44,9 +44,14 @@ export const chatPullRequests = (input: {
 	const layers = (stack?.branches ?? [])
 		.slice()
 		.reverse()
-		.flatMap((branch) => {
+		.flatMap((branch): ReadonlyArray<ChatPullRequest> => {
 			const layer = branch.pr;
-			if (layer === undefined) return [];
+			// The checkout's own PR can be known before the stack reports it;
+			// it still belongs at its branch's place in the chain.
+			if (layer === undefined)
+				return branch.isCurrent && current !== null
+					? [{ ...current, isCurrent: true }]
+					: [];
 			const live =
 				current !== null && layer.number === current.number ? current : null;
 			return [
@@ -64,10 +69,7 @@ export const chatPullRequests = (input: {
 				},
 			];
 		});
-	if (layers.length > 0) {
-		if (current === null || layers.some((l) => l.number === current.number))
-			return layers;
-		return [{ ...current, isCurrent: true }, ...layers];
-	}
-	return current === null ? [] : [{ ...current, isCurrent: true }];
+	if (current === null || layers.some((l) => l.number === current.number))
+		return layers;
+	return [{ ...current, isCurrent: true }, ...layers];
 };
