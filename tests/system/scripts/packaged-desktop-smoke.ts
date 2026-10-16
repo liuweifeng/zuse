@@ -101,7 +101,14 @@ try {
 				);
 			}
 			if (windows) {
-				const endpoint = await readEngineEndpoint(userData);
+				// Renderer and engine initialize concurrently. Do not use updater IPC
+				// registration as an accidental engine-readiness barrier.
+				const deadline = Date.now() + 30_000;
+				let endpoint = await readEngineEndpoint(userData);
+				while (endpoint === null && Date.now() < deadline) {
+					await new Promise((resolve) => setTimeout(resolve, 100));
+					endpoint = await readEngineEndpoint(userData);
+				}
 				assert.notEqual(
 					endpoint,
 					null,

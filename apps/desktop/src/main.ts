@@ -2003,6 +2003,11 @@ async function createMainWindow() {
 	installEngineServerBridge(mainWindow.webContents, desktopEngine);
 	attachDesktopHost();
 
+	// The renderer can request its update channel as soon as navigation starts.
+	// Register these handlers before loading it, independently of engine readiness.
+	if (isDevelopment) registerUpdaterDemo(mainWindow);
+	else startAutoUpdater(mainWindow);
+
 	if (isDevelopment) {
 		void mainWindow.loadURL(DEV_SERVER_URL);
 		// Keep DevTools opt-in via the View menu. Opening docked DevTools during
@@ -3687,13 +3692,6 @@ void app.whenReady().then(async () => {
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 	await mainWindowReady;
-	if (mainWindow !== null) {
-		if (isDevelopment) {
-			registerUpdaterDemo(mainWindow);
-		} else {
-			startAutoUpdater(mainWindow);
-		}
-	}
 
 	app.on("activate", () => {
 		void localeController
