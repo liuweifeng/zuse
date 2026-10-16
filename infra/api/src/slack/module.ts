@@ -4,7 +4,10 @@ import worker from "@zuse/slack/worker";
 import { Effect, Option } from "effect";
 import { ApiConfiguration } from "../config.ts";
 import type { ApiContext } from "../handler.ts";
-import { getOrganizationName } from "../organizations.ts";
+import {
+	getOrganizationName,
+	listAccessibleOrganizations,
+} from "../organizations.ts";
 import { routeAccountWorkspaceRequest } from "../public-api-routes.ts";
 import { expectedWorkosClientId, WorkosVerifier } from "../workos.ts";
 import { resolveWorkspaceActorAccess } from "../workspace-authorization.ts";
@@ -80,6 +83,20 @@ export const makeSlackModule = (options: SlackOptions) =>
 							};
 						}),
 					),
+				organizations: (accountId) =>
+					config.organizationWorkspacesEnabled
+						? run(
+								listAccessibleOrganizations(accountId).pipe(
+									Effect.map((organizations) =>
+										organizations.filter(
+											(organization) =>
+												organization.role === "admin" ||
+												organization.role === "member",
+										),
+									),
+								),
+							)
+						: Promise.resolve([]),
 			},
 			cloud: (accountId, organizationId) => ({
 				request: async (path, init) => {
