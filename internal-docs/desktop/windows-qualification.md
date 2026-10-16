@@ -28,7 +28,10 @@ passed packaged native checks, then its first NSIS installation exited with
 `0xC0000005`. The pinned app-builder-lib template contains the known unsafe
 fixed-size shell-path read. `patches/app-builder-lib@25.1.8.patch` backports the
 [upstream bounded-copy fix](https://github.com/electron-userland/electron-builder/commit/a356198ec7c54c7795659342bff36d9a5162cd93).
-Remove that patch when upgrading to a version containing the fix. Windows CI
+The next run completed installation without the crash but exposed the legacy
+`/D=` parser truncating paths at spaces. The patch also backports the upstream
+`GetDParameter` parser from that same pinned template. Remove it when upgrading
+to a version containing both fixes. Windows CI
 retains bounded Application crash events to distinguish subsequent failures.
 
 Provider subprocesses use the shared `@zuse/utils/spawn-command` launcher, which

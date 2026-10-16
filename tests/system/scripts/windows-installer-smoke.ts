@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -11,7 +11,7 @@ if (!installer) throw new Error("Expected a Windows NSIS installer path");
 const root = await mkdtemp(join(tmpdir(), "zuse installer ü-"));
 const install = join(root, "Zuse App");
 const executable = join(install, "Zuse.exe");
-const uninstaller = join(install, "Uninstall Zuse.exe");
+let uninstaller: string | undefined;
 const userData = join(root, "profile");
 let profileValidated = false;
 const run = (file: string, args: string[], verbatim = false) => {
@@ -29,10 +29,13 @@ try {
 	// including spaces. It must not receive Node's additional argument quotes.
 	run(resolve(installer), ["/S", "/currentuser", `/D=${install}`], true);
 	assert.ok(existsSync(executable), "Installer did not produce Zuse.exe");
-	assert.ok(
-		existsSync(uninstaller),
-		"Installer did not produce an uninstaller",
+	const uninstallers = (await readdir(install)).filter((name) =>
+		/^Uninstall .+\.exe$/i.test(name),
 	);
+	assert.equal(uninstallers.length, 1, "Expected one installed uninstaller");
+	const uninstallerName = uninstallers[0];
+	assert.ok(uninstallerName);
+	uninstaller = join(install, uninstallerName);
 	run(process.execPath, [
 		"--import",
 		"tsx",
@@ -78,7 +81,8 @@ try {
 		"zuse:// must target the installed executable",
 	);
 } finally {
-	if (existsSync(uninstaller)) run(uninstaller, ["/S", `_?=${install}`], true);
+	if (uninstaller && existsSync(uninstaller))
+		run(uninstaller, ["/S", `_?=${install}`], true);
 	assert.equal(
 		existsSync(executable),
 		false,
