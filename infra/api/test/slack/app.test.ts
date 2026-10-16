@@ -3054,6 +3054,22 @@ describe("customer installation and account connection", () => {
 			body: new URLSearchParams({ csrf, workspace }),
 		});
 	};
+
+	it("keeps the WorkOS organization without showing another picker", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		vi.mocked(app.env.identity.exchange).mockResolvedValueOnce({
+			accountId: "user_new",
+			organization: { id: "org_team", name: "Team & Co" },
+		});
+		const response = await app.fetch(callback);
+		expect(response.status).toBe(200);
+		expect(await response.text()).not.toContain("Choose your workspace");
+		expect(app.env.identity.organizations).not.toHaveBeenCalled();
+		expect(cloud).toHaveBeenCalledWith("user_new", "org_team");
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toMatchObject({ organizationId: "org_team" });
+	});
 	it("requires an explicit workspace choice when WorkOS skips organization selection", async () => {
 		const { app, cloud, callback } = await connectWithWorkosOrganization();
 		const response = await app.fetch(callback.clone());

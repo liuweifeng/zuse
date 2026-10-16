@@ -11,9 +11,9 @@ If the installation page says Slack is not enabled, contact the Zuse operator.
 
 1. Visit `https://api.zuse.sh/slack/install` and authorize a Slack workspace.
 2. Return to Slack. Open **Zuse → Home** or mention Zuse, then click your private
-   **Connect Zuse account** button. Sign in, then choose Personal or an accessible organization on Zuse's workspace
-   selection page. The picker appears whenever you have accessible organizations,
-   even if WorkOS skips organization selection. Organization connections use that
+   **Connect Zuse account** button. Sign in with WorkOS. If WorkOS returns an organization, Slack uses that selection
+   without another picker. If WorkOS returns no organization and you have accessible
+   organizations, choose Personal or an organization on Zuse's workspace selection page. Organization connections use that
    organization’s repositories and cloud usage; membership is checked again when
    you confirm and for each request. Accounts without accessible organizations, or
    with organization workspaces disabled, connect to Personal. Disconnect and reconnect to change the organization.

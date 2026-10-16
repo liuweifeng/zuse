@@ -23,6 +23,7 @@ export interface AppEnv {
 			verifier: string,
 		): Promise<{
 			accountId: string;
+			organization?: { id: string; name: string };
 		}>;
 		organizations(
 			accountId: string,

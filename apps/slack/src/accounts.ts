@@ -560,8 +560,13 @@ export const accountRoutes = async (
 	const pending = JSON.parse(session.payload) as PendingSignIn & {
 		verifier: string;
 	};
-	const { accountId } = await env.identity.exchange(code, pending.verifier);
-	const organizations = await env.identity.organizations(accountId);
+	const { accountId, organization } = await env.identity.exchange(
+		code,
+		pending.verifier,
+	);
+	const organizations = organization
+		? []
+		: await env.identity.organizations(accountId);
 	const profile = await env.store.member(installation, session.owner_id);
 	if (profile.connection || profile.revision !== pending.revision)
 		return page(
@@ -584,6 +589,7 @@ export const accountRoutes = async (
 					session.owner_id,
 					accountId,
 					pending,
+					organization,
 				);
 
 	response.headers.append(

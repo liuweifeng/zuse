@@ -4,9 +4,13 @@ import worker from "@zuse/slack/worker";
 import { Effect, Option } from "effect";
 import { ApiConfiguration } from "../config.ts";
 import type { ApiContext } from "../handler.ts";
-import { listAccessibleOrganizations } from "../organizations.ts";
+import {
+	getOrganizationName,
+	listAccessibleOrganizations,
+} from "../organizations.ts";
 import { routeAccountWorkspaceRequest } from "../public-api-routes.ts";
 import { expectedWorkosClientId, WorkosVerifier } from "../workos.ts";
+import { resolveWorkspaceActorAccess } from "../workspace-authorization.ts";
 import { SlackPersistence } from "./persistence.ts";
 
 export interface SlackOptions {
@@ -60,7 +64,23 @@ export const makeSlackModule = (options: SlackOptions) =>
 								codeVerifier: verifier,
 							});
 							const principal = yield* identity.verify(tokens.access_token);
-							return { accountId: principal.accountId };
+							if (
+								principal.orgId === undefined ||
+								!config.organizationWorkspacesEnabled
+							)
+								return { accountId: principal.accountId };
+							yield* resolveWorkspaceActorAccess(
+								principal,
+								{ kind: "organization", organizationId: principal.orgId },
+								"content",
+							);
+							return {
+								accountId: principal.accountId,
+								organization: {
+									id: principal.orgId,
+									name: yield* getOrganizationName(principal.orgId),
+								},
+							};
 						}),
 					),
 				organizations: (accountId) =>
