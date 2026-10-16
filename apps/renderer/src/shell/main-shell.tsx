@@ -139,12 +139,6 @@ const TopBarMain = lazy(() =>
 	})),
 );
 
-const TopBarRight = lazy(() =>
-	import("../components/top-bar.tsx").then((module) => ({
-		default: module.TopBarRight,
-	})),
-);
-
 const FileSearch = lazy(() =>
 	import("../components/file-search.tsx").then((module) => ({
 		default: module.FileSearch,
@@ -911,9 +905,6 @@ export function MainShell() {
 						inert={fullWidthPage}
 					>
 						<div className="workspace-surface flex min-h-0 flex-1 flex-col">
-							<Suspense fallback={<TopBarFallback />}>
-								<TopBarRight />
-							</Suspense>
 							<div className="flex min-h-0 flex-1 flex-col">
 								{shouldMountRightPane(rightSidebarOpen && !fullWidthPage) ? (
 									<Suspense fallback={<SurfaceFallback />}>

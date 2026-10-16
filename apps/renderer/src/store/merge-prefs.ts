@@ -20,7 +20,7 @@ const setDeleteBranch = (deleteBranch: boolean): void => {
 };
 
 /**
- * Compatibility hook for the top-bar merge menu. Preferences now persist in
+ * Shared merge preferences for PR actions. Preferences persist in
  * `settings.json` through `useSettingsStore`.
  */
 export function useMergePrefs<T>(selector: (state: MergePrefsState) => T): T {
