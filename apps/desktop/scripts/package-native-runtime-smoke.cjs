@@ -68,23 +68,17 @@ try {
 }
 const keytar = requireFromPackage("keytar");
 assert.equal(typeof keytar.getPassword, "function");
-if (process.platform === "win32") {
+const credentialCheck = (async () => {
+	if (process.platform !== "win32") return;
 	const service = `zuse-package-smoke-${process.pid}-${Date.now()}`;
-	void (async () => {
-		try {
-			await keytar.setPassword(service, "fixture", "fixture-only");
-			assert.equal(
-				await keytar.getPassword(service, "fixture"),
-				"fixture-only",
-			);
-		} finally {
-			await keytar.deletePassword(service, "fixture");
-		}
-	})().catch((error) => {
-		console.error(error);
-		process.exitCode = 1;
-	});
-}
+	try {
+		await keytar.setPassword(service, "fixture", "fixture-only");
+		assert.equal(await keytar.getPassword(service, "fixture"), "fixture-only");
+	} finally {
+		await keytar.deletePassword(service, "fixture");
+	}
+	console.log("Packaged Windows credentials round-trip passed.");
+})();
 const pty = requireFromPackage("node-pty");
 const terminal = pty.spawn(
 	process.platform === "win32" ? "powershell.exe" : "/bin/sh",
@@ -110,13 +104,32 @@ terminal.onData((data) => {
 });
 
 const timeout = setTimeout(() => {
-	terminal.kill();
-	throw new Error(`Packaged node-pty smoke timed out; output: ${output}`);
-}, 5_000);
+	throw new Error(
+		`Packaged native runtime did not finish and release its resources: ${process.getActiveResourcesInfo().join(", ")}; PTY output: ${output}`,
+	);
+}, 20_000);
 
-terminal.onExit(({ exitCode }) => {
-	clearTimeout(timeout);
-	assert.equal(exitCode, 0);
-	assert.match(output, /zuse-pty-smoke/u);
-	console.log("Desktop packaged native runtime smoke passed.");
+const terminalCheck = new Promise((resolve, reject) => {
+	terminal.onExit(({ exitCode }) => {
+		try {
+			// A naturally exited Windows shell still owns node-pty's output worker.
+			if (process.platform === "win32") terminal.kill();
+			assert.equal(exitCode, 0);
+			assert.match(output, /zuse-pty-smoke/u);
+			resolve();
+		} catch (error) {
+			reject(error);
+		}
+	});
 });
+Promise.all([credentialCheck, terminalCheck])
+	.then(() => {
+		// Do not force exit: lingering native workers must fail this smoke check.
+		timeout.unref();
+		console.log("Desktop packaged native runtime smoke passed.");
+	})
+	.catch((error) => {
+		console.error(error);
+		process.exitCode = 1;
+		timeout.unref();
+	});
