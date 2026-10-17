@@ -9,9 +9,6 @@ import { lazy, Suspense, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { TooltipProvider } from "./components/ui/tooltip-provider.tsx";
 import { useAuth } from "./hooks/use-auth.ts";
-import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
-
-import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 
 import { AppearanceController } from "./lib/appearance.tsx";
 
@@ -45,6 +42,12 @@ import { useProvidersStore } from "./store/providers.ts";
 import { useUiStore } from "./store/ui.ts";
 
 import { useWorkspaceStore } from "./store/workspace.ts";
+
+const ApplicationShortcuts = lazy(() =>
+	import("./components/application-shortcuts.tsx").then((module) => ({
+		default: module.ApplicationShortcuts,
+	})),
+);
 
 const CloudBuildMonitor = lazy(() =>
 	import("./components/cloud-build-monitor.tsx").then((module) => ({
@@ -179,6 +182,9 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 	);
 	return (
 		<>
+			<Suspense fallback={null}>
+				<ApplicationShortcuts />
+			</Suspense>
 			{!isHostedProduct() && onboardingCompleted ? (
 				<ErrorBoundary fallback={null}>
 					<Suspense fallback={null}>
@@ -257,10 +263,6 @@ function ReadyApp({
 			stop?.();
 		};
 	}, []);
-
-	useMenuShortcuts();
-
-	useKeybindingDispatch();
 
 	useEffect(() => {
 		const timeout = window.setTimeout(() => void loadUsageDashboard(), 1_500);
