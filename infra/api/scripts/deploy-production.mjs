@@ -212,6 +212,14 @@ if (missingSecrets.length > 0) {
 	process.exit(1);
 }
 
+// Live allocation must pass before production bindings or code are changed.
+const smoke = spawnSync("bun", ["scripts/cloud-release-smoke.ts", configPath], {
+	stdio: "inherit",
+	timeout: 10 * 60 * 1000,
+});
+if (smoke.error !== undefined) throw smoke.error;
+if (smoke.status !== 0) process.exit(smoke.status ?? 1);
+
 const result = spawnSync(
 	"bunx",
 	["wrangler", "deploy", "--config", configPath],

@@ -7,6 +7,45 @@ Production remains fail-closed for billable operations until every immutable
 ID, secret, and smoke test below is complete. Local, SSH, pairing, and
 user-managed remote connections do not use Cloud billing.
 
+## Mandatory live base check
+
+Production API deployment and production signed-runtime publication run
+`infra/api/scripts/cloud-release-smoke.ts` before publishing. The check uses
+`wrangler.production.jsonc` and the API's provider configuration modules. For
+each enabled managed provider it allocates a disposable machine from the
+configured template, executes Node and `zuse --help` as the runtime user, and
+removes the machine. Missing templates, allocation failures, failed runtime
+execution, and cleanup failures block publication. No customer machine, chat,
+credential, or snapshot is changed. Each allocation requests a five-minute
+termination timeout; both release entrypoints cap the check at ten minutes.
+
+For local API deployment, provide the production provider credentials as
+`BOAT_API_KEY` (legacy `BOX_API_KEY` is accepted), `BOXD_API_KEY`, `E2B_API_KEY`,
+and `DAYTONA_API_KEY` when managed Daytona is enabled. These must belong to the
+same provider accounts as the Worker secrets. Cloudflare cannot return stored
+secret values, so the check does not independently prove credential equality.
+Configuration variables from the production file override environment values.
+
+For GitHub runtime publication configure repository Actions secrets:
+
+- `ZUSE_PRODUCTION_BOAT_API_KEY`
+- `ZUSE_PRODUCTION_BOXD_API_KEY`
+- `ZUSE_PRODUCTION_E2B_API_KEY`
+- `ZUSE_PRODUCTION_DAYTONA_API_KEY` if managed Daytona is enabled
+
+Missing required credentials block the job. Staging and pull-request verification
+do not receive these production credentials or allocate production machines.
+Run the gate manually from `infra/api` with
+`bun scripts/cloud-release-smoke.ts wrangler.production.jsonc`.
+
+This gate verifies base availability and execution at release time, not the
+entire authenticated user flow. Signed candidate runtime verification remains
+in the runtime workflow. Account credential delivery, Git access, Slack submission,
+and existing-chat recovery still require their own regression and staging
+end-to-end checks. BYOK-only providers are outside this managed-account check.
+Deleting a referenced snapshot after a release can still cause an outage; retain
+all bases referenced by deployed environments.
+
 ## External resources
 
 1. In Polar production, create Cloud Workspace with a $40 monthly price. Create

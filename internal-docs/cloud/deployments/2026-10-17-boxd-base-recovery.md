@@ -38,3 +38,15 @@ for image preparation and does not add a lookup to workspace resume or fork.
 
 Verification: 126 Boxd adapter tests, the queued-build missing-template
 reconciler regression, package type checking, and applicable Biome checks.
+
+## Release gate follow-up
+
+The new live base gate passed against the checked-in production configuration
+using the available provider test credentials on October 17: Boat 10,912 ms,
+E2B 4,291 ms, Boxd 3,987 ms, each including runtime execution and cleanup.
+These are smoke-check durations, not full authenticated message startup times.
+Eight release-gate tests, API types and applicable Biome checks passed.
+GitHub Actions production provider secrets could not be inspected or configured:
+the available GitHub credential returns 403 for Actions secrets. The required
+secret names and verification limits are in the production runbook. The new
+gate is not yet active on the default branch.
