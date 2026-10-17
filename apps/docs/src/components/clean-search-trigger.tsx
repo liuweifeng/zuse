@@ -3,6 +3,7 @@
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 import type { FullSearchTriggerProps } from "fumadocs-ui/layouts/shared/slots/search-trigger";
 import { Search } from "lucide-react";
+import { Fragment } from "react";
 
 export function CleanSearchTrigger({
 	className,
@@ -23,8 +24,14 @@ export function CleanSearchTrigger({
 			onClick={() => setOpenSearch(true)}
 		>
 			<Search aria-hidden="true" />
-			<span>Search docs</span>
-			<kbd>{hotKey.map((key) => key.display)}</kbd>
+			<span>Search</span>
+			<kbd>
+				{hotKey.map((key) => (
+					<Fragment key={typeof key.key === "string" ? key.key : "modifier"}>
+						{key.display}
+					</Fragment>
+				))}
+			</kbd>
 		</button>
 	);
 }

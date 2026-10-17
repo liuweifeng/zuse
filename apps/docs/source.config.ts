@@ -4,6 +4,7 @@ import { z } from "zod";
 
 const documentationSchema = pageSchema.extend({
 	description: z.string(),
+	navTitle: z.string().optional(),
 	section: z.string(),
 	order: z.number().int().nonnegative(),
 	platforms: z.array(z.string()).default([]),

@@ -1,3 +1,11 @@
 {
-  "icon": "Settings2"
+	"title": "Reference",
+	"pages": [
+		"index",
+		"settings",
+		"keybindings",
+		"schemas",
+		"diagnostics",
+		"bundled-skill"
+	]
 }

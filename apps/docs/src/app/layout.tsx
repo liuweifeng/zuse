@@ -1,7 +1,6 @@
 import "@fontsource-variable/inter";
 import "@fontsource-variable/geist-mono";
 import "./globals.css";
-import "./brand.css";
 
 import { RootProvider } from "fumadocs-ui/provider/next";
 import type { Metadata, Viewport } from "next";
@@ -25,8 +24,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
 	colorScheme: "light dark",
 	themeColor: [
-		{ media: "(prefers-color-scheme: light)", color: "#fafafa" },
-		{ media: "(prefers-color-scheme: dark)", color: "#0f0f0f" },
+		{ media: "(prefers-color-scheme: light)", color: "#ececec" },
+		{ media: "(prefers-color-scheme: dark)", color: "#0d0d0d" },
 	],
 };
 

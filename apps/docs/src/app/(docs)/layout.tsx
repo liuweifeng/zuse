@@ -1,24 +1,22 @@
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { SearchTrigger } from "fumadocs-ui/layouts/shared/slots/search-trigger";
+import { ArrowUpRight, Download } from "lucide-react";
 import type { ReactNode } from "react";
 import { CleanSearchTrigger } from "@/components/clean-search-trigger";
-import { baseOptions } from "@/lib/layout.shared";
+import { baseOptions, DOWNLOAD_URL, PRODUCT_URL } from "@/lib/layout.shared";
 import { documentationTree } from "@/lib/source";
 
-export default async function DocumentationLayout({
+export default function DocumentationLayout({
 	children,
 }: {
 	children: ReactNode;
 }) {
-	const options = await baseOptions();
-
 	return (
 		<DocsLayout
 			tree={documentationTree}
-			{...options}
+			{...baseOptions()}
 			tabMode="auto"
-			tabs={{ transform: (option) => ({ ...option, icon: undefined }) }}
-			sidebar={{ collapsible: true }}
+			sidebar={{ collapsible: false, footer: <SidebarFooter /> }}
 			slots={{
 				searchTrigger: {
 					sm: SearchTrigger,
@@ -28,5 +26,20 @@ export default async function DocumentationLayout({
 		>
 			{children}
 		</DocsLayout>
+	);
+}
+
+function SidebarFooter() {
+	return (
+		<nav aria-label="Zuse" className="sidebar-footer-links">
+			<a href={DOWNLOAD_URL} target="_blank" rel="noreferrer noopener">
+				<Download aria-hidden="true" />
+				Download Zuse
+			</a>
+			<a href={PRODUCT_URL} target="_blank" rel="noreferrer noopener">
+				<ArrowUpRight aria-hidden="true" />
+				Open zuse.sh
+			</a>
+		</nav>
 	);
 }
