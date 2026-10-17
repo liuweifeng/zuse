@@ -49,6 +49,19 @@ export const cloudChatShowsWorking = (
 			pendingCommands.filter((command) => !isWaitingCloudSend(command)),
 		));
 
+/** Loading transport/compute is distinct from an agent executing a turn. */
+export const cloudChatShowsLoading = (
+	activity: CloudChatActivity,
+	connection: ConnectionPhase,
+	summary: CloudChatSummary,
+): boolean =>
+	(activity === "resuming" || activity === "attaching") &&
+	(cloudWorkspaceIsStarting(summary) ||
+		summary.state === "resuming" ||
+		connection === "waking" ||
+		connection === "connecting" ||
+		connection === "reconnecting");
+
 /**
  * The only cloud-chat activity projection used by renderer surfaces.
  *
