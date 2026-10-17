@@ -3972,3 +3972,56 @@ describe("ClientBus", () => {
 		await bus.dispose();
 	});
 });
+
+it("persists and steers queued feedback while a goal send is still pending", async () => {
+	const sendReply = deferred<void>();
+	const queueReply = deferred<void>();
+	const calls: string[] = [];
+	const bus = new ClientBus<Client>({
+		resolver: immediateResolver(),
+		persistence: new MemoryPersistence(),
+		commandExecutor: {
+			execute: async (_client, command) => {
+				calls.push(command.kind);
+				if (command.kind === "messages.send") await sendReply.promise;
+				if (command.kind === "messages.queue.add") await queueReply.promise;
+				return {
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				};
+			},
+		},
+	});
+	const command = (kind: string) => ({
+		kind,
+		commandId: CommandId.make(kind),
+		environmentId,
+		resource: timelineKey,
+		payload:
+			kind === "messages.send" ? { text: "finish the goal", asGoal: true } : {},
+		retry: "safe" as const,
+		createdAt: 1,
+	});
+	const send = bus.dispatch(command("messages.send"));
+	try {
+		await waitUntil(() => calls.length === 1);
+		const add = bus.dispatch(command("messages.queue.add"));
+		const steer = bus.dispatch(command("messages.queue.runNext"));
+		await waitUntil(() => calls.includes("messages.queue.add"));
+		expect(calls).toEqual(["messages.send", "messages.queue.add"]);
+		queueReply.resolve();
+		await waitUntil(() => calls.includes("messages.queue.runNext"));
+		await Promise.all([add, steer]);
+		expect(calls).toEqual([
+			"messages.send",
+			"messages.queue.add",
+			"messages.queue.runNext",
+		]);
+	} finally {
+		queueReply.resolve();
+		sendReply.resolve();
+		await send;
+		await bus.dispose();
+	}
+});
