@@ -938,11 +938,16 @@ export class ClientBus<Client> {
 			command.resource === null
 				? `environment:${command.environmentId}:command:${command.kind}`
 				: resourceKeyId(command.resource);
+		// Stop must reach the server even while a send, steer, or earlier stop is
+		// waiting for its receipt. expectedTurnId fences it to the intended turn.
 		const lane =
 			command.resource?.kind === "session-timeline" &&
 			command.kind.startsWith("messages.queue.")
 				? `${resourceLane}:queue`
-				: resourceLane;
+				: command.resource?.kind === "session-timeline" &&
+						command.kind === "messages.interrupt"
+					? `${resourceLane}:interrupt:${command.commandId}`
+					: resourceLane;
 		const waitForTurn = (
 			this.commandLanes.get(lane) ?? Promise.resolve()
 		).catch(() => undefined);
