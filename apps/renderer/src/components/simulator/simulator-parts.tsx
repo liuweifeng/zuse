@@ -1,11 +1,13 @@
+import "@zuse/i18n/english/simulators";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
 import type { SimulatorRequirement } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import { Cancel01Icon, Tick02Icon } from "@zuse/icons/solid-rounded";
 import { type ReactNode, useEffect } from "react";
 import type { useSimulatorActions } from "~/lib/simulator-client-bus.ts";
 import {
-	PLATFORM_LABELS,
-	REQUIREMENT_LABELS,
+	platformLabel,
+	requirementLabel,
 	requirementSections,
 	type SetupStep,
 	type SetupStepState,
@@ -113,6 +115,8 @@ export function RequirementRow({
 	fix?: RequirementFix;
 	className?: string;
 }) {
+	// Re-render when the interface language changes.
+	useMessages(["simulators"]);
 	const id = item.id;
 	const running = item.fix?.running === true;
 	const match = running ? item.detail.match(/(\d+(?:\.\d+)?)%/u) : null;
@@ -125,7 +129,7 @@ export function RequirementRow({
 			<div className="min-w-0 flex-1">
 				<div className="flex h-6 min-w-0 items-center justify-between gap-3">
 					<span className="shrink-0 text-foreground">
-						{REQUIREMENT_LABELS[id]}
+						{requirementLabel(id)}
 					</span>
 					{item.ok ? (
 						<span className="truncate text-[11px] text-muted-foreground">
@@ -167,10 +171,13 @@ export function RequirementRow({
 
 /** Shown while the host's read-only check runs. */
 export function RequirementsChecking({ className }: { className?: string }) {
+	const { message } = useMessages(["simulators"]);
 	return (
 		<div className={cn("flex h-8 items-center gap-2.5 text-xs", className)}>
 			<StepIcon state="active" />
-			<span className="text-muted-foreground">Checking this computer…</span>
+			<span className="text-muted-foreground">
+				{message("simulators:checking_computer")}
+			</span>
 		</div>
 	);
 }
@@ -183,6 +190,7 @@ export function RequirementSectionLabel({
 	platform: SimulatorRequirement["platform"];
 	className?: string;
 }) {
+	useMessages(["simulators"]);
 	return (
 		<p
 			className={cn(
@@ -190,7 +198,7 @@ export function RequirementSectionLabel({
 				className,
 			)}
 		>
-			{PLATFORM_LABELS[platform]}
+			{platformLabel(platform)}
 		</p>
 	);
 }

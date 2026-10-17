@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/simulators";
 import type { ResourceDriver } from "@zuse/client-runtime/client-bus";
 import type { ClientCommand } from "@zuse/client-runtime/client-persistence";
 import {
@@ -14,6 +15,7 @@ import {
 	type EnvironmentId,
 	type SimulatorState,
 } from "@zuse/contracts";
+import { message } from "@zuse/i18n";
 import { Cause, Effect, Fiber, Stream } from "effect";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { rightPaneKey, useUiStore } from "../store/ui.ts";
@@ -74,7 +76,7 @@ export function useSimulatorActions(environmentId: EnvironmentId) {
 					result: await simulatorCommand<T>(environmentId, kind, payload),
 				};
 			} catch (cause) {
-				setError(errorMessage(cause, "Device operation failed"));
+				setError(errorMessage(cause, message("simulators:operation_failed")));
 				return null;
 			} finally {
 				setPending((current) => (current === label ? null : current));
@@ -111,7 +113,10 @@ registerRendererResourceDriver("environment-simulators", (key) => {
 							if (isRpcClientTransportError(Cause.squash(cause)))
 								getRendererClientBus().reportConnectionFault(
 									key.ref.environmentId,
-									{ phase: "failed", message: "Device connection lost" },
+									{
+										phase: "failed",
+										message: message("simulators:connection_lost"),
+									},
 									context.generation,
 								);
 						}),
@@ -160,7 +165,7 @@ registerRendererResourceDriver("simulator-video", (key) => {
 							const error = Cause.squash(cause);
 							const reason = errorMessage(
 								error,
-								"Device stream disconnected. Retry to reconnect.",
+								message("simulators:stream_disconnected"),
 							);
 							context.emit({
 								data: { error: reason },

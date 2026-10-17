@@ -1,6 +1,8 @@
+import "@zuse/i18n/english/simulators";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { SimulatorState, SimulatorSummary } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import {
 	Refresh01Icon,
 	Settings01Icon,
@@ -38,6 +40,7 @@ export function SimulatorPicker({
 	/** The tab's simulator session ended elsewhere, e.g. an agent closed it. */
 	reopening: boolean;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(refTarget.environmentId);
 	const groups = groupSimulators(state.devices);
 	const open = async (device: SimulatorSummary) => {
@@ -55,14 +58,16 @@ export function SimulatorPicker({
 	return (
 		<div className="flex min-h-0 flex-1 flex-col">
 			<header className="flex h-9 shrink-0 items-center gap-1.5 pl-4 pr-2">
-				<span className={DOCK_LABEL_CLASS}>Devices</span>
+				<span className={DOCK_LABEL_CLASS}>
+					{message("simulators:devices")}
+				</span>
 				<span className="tabular-nums text-[11px] text-muted-foreground/70">
 					{state.devices.length || null}
 				</span>
 				<div className="ml-auto flex items-center">
 					<SimulatorIconAction
 						icon={Refresh01Icon}
-						label="Refresh"
+						label={message("simulators:refresh")}
 						spinning={actions.pending === "refresh"}
 						disabled={actions.pending !== null}
 						onClick={() =>
@@ -71,7 +76,7 @@ export function SimulatorPicker({
 					/>
 					<SimulatorIconAction
 						icon={Settings01Icon}
-						label="Simulator settings"
+						label={message("simulators:simulator_settings")}
 						onClick={openSimulatorSettings}
 					/>
 				</div>
@@ -79,7 +84,7 @@ export function SimulatorPicker({
 			<div className="min-h-0 flex-1 overflow-y-auto px-4 pb-3">
 				{reopening ? (
 					<p className={cn(DOCK_META_CLASS, "pb-2")}>
-						That device’s session ended. Choose one to reopen.
+						{message("simulators:session_ended")}
 					</p>
 				) : null}
 				{actions.error ? (
@@ -90,8 +95,8 @@ export function SimulatorPicker({
 				{groups.length === 0 ? (
 					<div className="flex flex-col items-center gap-2 py-8">
 						<CompactEmptyState
-							title="No simulators or emulators"
-							description="Add one in Xcode or Android Studio, then refresh."
+							title={message("simulators:empty_title")}
+							description={message("simulators:empty_description")}
 						/>
 					</div>
 				) : (
@@ -140,6 +145,7 @@ function SimulatorRow({
 	disabled: boolean;
 	onOpen: () => void;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const owner = state.sessions.find(
 		(session) => session.deviceId === device.id,
 	);
@@ -147,16 +153,18 @@ function SimulatorRow({
 	const trailing = pending ? (
 		<span className="flex items-center gap-1.5 text-muted-foreground">
 			<Spinner className="size-3" />
-			{device.booted ? "Opening" : "Starting"}
+			{message(device.booted ? "simulators:opening" : "simulators:starting")}
 		</span>
 	) : elsewhere ? (
-		<span className="text-muted-foreground/70">In another chat</span>
+		<span className="text-muted-foreground/70">
+			{message("simulators:in_another_chat")}
+		</span>
 	) : (
 		<>
 			{device.booted ? (
 				<span className="flex items-center gap-1.5 text-muted-foreground group-hover:hidden group-focus-visible:hidden">
 					<span className="size-1.5 rounded-full bg-success" />
-					Running
+					{message("simulators:running")}
 				</span>
 			) : null}
 			<span
@@ -167,7 +175,13 @@ function SimulatorRow({
 						: DOCK_HOVER_REVEAL_CLASS,
 				)}
 			>
-				{owner ? "Show" : device.booted ? "Open" : "Start"}
+				{message(
+					owner
+						? "simulators:show"
+						: device.booted
+							? "simulators:open"
+							: "simulators:start",
+				)}
 			</span>
 		</>
 	);
@@ -177,11 +191,7 @@ function SimulatorRow({
 				type="button"
 				disabled={disabled || elsewhere}
 				onClick={onOpen}
-				title={
-					elsewhere
-						? "Another chat is using this device. Close it there first."
-						: undefined
-				}
+				title={elsewhere ? message("simulators:in_use_elsewhere") : undefined}
 				className="group -mx-2 flex h-8 w-[calc(100%+1rem)] min-w-0 items-center gap-2.5 rounded-md px-2 text-left text-xs outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent"
 			>
 				<HugeiconsIcon
@@ -215,6 +225,7 @@ function AgentAccessFooter({
 	environmentState: SimulatorState;
 	refTarget: ChatRef;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(refTarget.environmentId);
 	const enable = () =>
 		void actions.run(
@@ -227,7 +238,7 @@ function AgentAccessFooter({
 		body = (
 			<>
 				<span className="min-w-0 flex-1 truncate">
-					Agents can’t use devices
+					{message("simulators:agents_off")}
 				</span>
 				<Button
 					size="xs"
@@ -235,7 +246,7 @@ function AgentAccessFooter({
 					loading={actions.pending === "agents"}
 					onClick={enable}
 				>
-					Allow
+					{message("simulators:allow")}
 				</Button>
 			</>
 		);
@@ -258,7 +269,7 @@ function AgentAccessFooter({
 					loading={actions.pending === "agents"}
 					onClick={enable}
 				>
-					Retry
+					{message("simulators:retry")}
 				</Button>
 			</>
 		);

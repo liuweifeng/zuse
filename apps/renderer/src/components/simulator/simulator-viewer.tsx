@@ -1,3 +1,4 @@
+import "@zuse/i18n/english/simulators";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -10,6 +11,8 @@ import type {
 	SimulatorState,
 	SimulatorSummary,
 } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages } from "@zuse/i18n/react";
 import {
 	ArrowLeft01Icon,
 	ArrowTurnBackwardIcon,
@@ -62,7 +65,7 @@ import {
 const PHONE_ASPECT = { width: 390, height: 844 };
 const MAX_PENDING_INPUT = 128;
 const errorText = (error: unknown) =>
-	errorMessage(error, "Simulator operation failed");
+	errorMessage(error, uiMessage("simulators:operation_failed"));
 
 export function SimulatorViewer({
 	refTarget,
@@ -79,6 +82,7 @@ export function SimulatorViewer({
 	state: SimulatorState;
 	active: boolean;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(refTarget.environmentId);
 	const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
 	const [format, setFormat] = useState<"avcc" | "mjpeg">(() =>
@@ -88,10 +92,7 @@ export function SimulatorViewer({
 	// iOS falls back to JPEG frames; Android has only H.264, so it reports instead.
 	const [decodeError, setDecodeError] = useState<string | null>(null);
 	const fallback = useCallback(() => {
-		if (android)
-			setDecodeError(
-				"This window couldn’t decode the emulator’s video. Reconnect to try again.",
-			);
+		if (android) setDecodeError(uiMessage("simulators:decode_failed"));
 		else setFormat("mjpeg");
 	}, [android]);
 	const ref = useMemo(
@@ -146,7 +147,7 @@ export function SimulatorViewer({
 			<header className="flex h-9 shrink-0 items-center gap-1 pl-1.5 pr-2">
 				<SimulatorIconAction
 					icon={ArrowLeft01Icon}
-					label="All devices"
+					label={message("simulators:all_devices")}
 					onClick={() => {
 						input.release();
 						useUiStore.getState().showDevicePicker(panelRef, panelId);
@@ -163,24 +164,26 @@ export function SimulatorViewer({
 				{android ? (
 					<SimulatorIconAction
 						icon={ArrowTurnBackwardIcon}
-						label="Back"
+						label={message("simulators:back")}
 						onClick={() => input.send({ _tag: "button", button: "back" })}
 					/>
 				) : null}
 				<SimulatorIconAction
 					icon={Home01Icon}
-					label="Home"
+					label={message("simulators:home")}
 					onClick={() => input.send({ _tag: "button", button: "home" })}
 				/>
 				<SimulatorIconAction
 					icon={DashboardSquare01Icon}
-					label={android ? "Recents" : "App switcher"}
+					label={message(
+						android ? "simulators:recents" : "simulators:app_switcher",
+					)}
 					onClick={() => input.send({ _tag: "button", button: "app_switcher" })}
 				/>
 				{android ? null : (
 					<SimulatorIconAction
 						icon={ScreenRotationIcon}
-						label="Rotate"
+						label={message("simulators:rotate")}
 						onClick={() =>
 							input.send({
 								_tag: "rotate",
@@ -192,7 +195,7 @@ export function SimulatorViewer({
 				)}
 				<SimulatorIconAction
 					icon={Camera01Icon}
-					label="Save screenshot"
+					label={message("simulators:save_screenshot")}
 					onClick={screenshot}
 				/>
 				<Menu>
@@ -201,7 +204,7 @@ export function SimulatorViewer({
 							DOCK_ICON_BUTTON_CLASS,
 							"data-[popup-open]:bg-muted/60",
 						)}
-						aria-label="More"
+						aria-label={message("simulators:more")}
 					>
 						<HugeiconsIcon icon={MoreHorizontalIcon} className="size-3.5" />
 					</MenuTrigger>
@@ -216,20 +219,24 @@ export function SimulatorViewer({
 								)
 							}
 						>
-							Let agents use devices
+							{message("simulators:agents_toggle")}
 						</MenuCheckboxItem>
 						<MenuItem onClick={openSimulatorSettings}>
 							<HugeiconsIcon icon={Settings01Icon} />
-							Simulator settings
+							{message("simulators:simulator_settings")}
 						</MenuItem>
 						<MenuSeparator />
 						<MenuItem onClick={() => close(false)}>
 							<HugeiconsIcon icon={Unlink01Icon} />
-							Disconnect from chat
+							{message("simulators:disconnect")}
 						</MenuItem>
 						<MenuItem variant="destructive" onClick={() => close(true)}>
 							<HugeiconsIcon icon={ShutDownIcon} />
-							{android ? "Shut down emulator" : "Shut down simulator"}
+							{message(
+								android
+									? "simulators:shut_down_emulator"
+									: "simulators:shut_down_simulator",
+							)}
 						</MenuItem>
 					</MenuPopup>
 				</Menu>
@@ -255,7 +262,9 @@ export function SimulatorViewer({
 					<canvas
 						ref={setCanvas}
 						tabIndex={0}
-						aria-label={`${device.name} screen. Click to touch; typing goes to the device.`}
+						aria-label={message("simulators:screen_label", {
+							name: device.name,
+						})}
 						className={cn(
 							"block size-full touch-none outline-none",
 							video.size === null && "invisible",
@@ -322,7 +331,7 @@ export function SimulatorViewer({
 									getRendererClientBus().restart(simulatorVideoKey(ref));
 								}}
 							>
-								Reconnect
+								{message("simulators:reconnect")}
 							</Button>
 						</div>
 					) : null}
@@ -413,7 +422,7 @@ function useSimulatorInput(
 			)
 				pending.current.push(input);
 			else {
-				onError("Input is backed up. Release the controls and try again.");
+				onError(uiMessage("simulators:input_backed_up"));
 				return;
 			}
 			if (sending.current) return;

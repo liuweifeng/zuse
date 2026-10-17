@@ -8,6 +8,7 @@ import { PluginsSettingsPane } from "./settings/plugins-settings-pane.tsx";
 import { WallpaperSettings } from "./settings/wallpaper-settings";
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -380,7 +381,11 @@ function SectionTitle({
 	section: SettingsSection;
 	folders: ReadonlyArray<Folder>;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"simulators",
+	]);
 	const workspace = useSyncExternalStore(
 		subscribeRendererWorkspace,
 		rendererWorkspaceSnapshot,
@@ -443,9 +448,8 @@ function SectionTitle({
 		}
 		if (section.kind === "simulator") {
 			return {
-				title: "Simulators",
-				subtitle:
-					"Run iOS simulators and Android emulators beside your chats, and choose whether agents can use them.",
+				title: uiMessage("simulators:settings_title"),
+				subtitle: uiMessage("simulators:settings_subtitle"),
 			};
 		}
 		if (section.kind === "pokedex") {

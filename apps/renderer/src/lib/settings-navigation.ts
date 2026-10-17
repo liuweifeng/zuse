@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import type { WorkspaceScope } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
@@ -87,7 +88,9 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 	},
 	{
 		id: "simulator",
-		label: "Simulators",
+		get label() {
+			return uiMessage("simulators:settings_title");
+		},
 		Icon: SmartPhone02Icon,
 		section: { kind: "simulator" },
 	},

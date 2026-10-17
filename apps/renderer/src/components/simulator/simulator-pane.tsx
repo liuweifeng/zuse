@@ -1,5 +1,7 @@
+import "@zuse/i18n/english/simulators";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, SimulatorState } from "@zuse/contracts";
+import { useMessages } from "@zuse/i18n/react";
 import { useEffect, useId, useRef, useState } from "react";
 import {
 	useSimulatorActions,
@@ -41,6 +43,7 @@ export function SimulatorPane({
 	deviceId?: string;
 	active: boolean;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const view = useSimulatorState(refTarget.environmentId);
 	const state = view.data;
 	const phase = simulatorPhase(state, view.sync);
@@ -54,8 +57,8 @@ export function SimulatorPane({
 		case "offline":
 			return (
 				<SimulatorStage
-					title="Can’t reach this environment"
-					description="Reconnect it to see its devices. Environments running an older Zuse server need an update."
+					title={message("simulators:offline_title")}
+					description={message("simulators:offline_description")}
 				/>
 			);
 	}
@@ -110,6 +113,7 @@ function SimulatorSetup({
 	environmentId: EnvironmentId;
 	state: SimulatorState;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(environmentId);
 	const [agents, setAgents] = useState(state.agentAccessEnabled);
 	const agentsSwitchId = useId();
@@ -123,10 +127,18 @@ function SimulatorSetup({
 	const fix = useRequirementFix(actions, state.requirements);
 	const checking = state.requirements.length === 0 && !actions.error;
 	const blocked = requirementsBlocked(state);
+	// iOS rows exist only on a Mac, so other hosts describe Android alone.
+	const ios =
+		state.requirements.length === 0 ||
+		state.requirements.some((item) => item.platform === "ios");
 	return (
 		<SimulatorStage
-			title="Simulators"
-			description={`Run ${devicePhrase(state)} beside the chat, and let agents check their own work.`}
+			title={message("simulators:setup_title")}
+			description={message(
+				ios
+					? "simulators:setup_description_both"
+					: "simulators:setup_description_android",
+			)}
 		>
 			<RequirementList requirements={state.requirements} fix={fix} />
 			<label
@@ -135,18 +147,17 @@ function SimulatorSetup({
 			>
 				<div className="min-w-0 flex-1">
 					<p className="text-xs font-medium text-foreground">
-						Let agents use devices
+						{message("simulators:agents_toggle")}
 					</p>
 					<p className="mt-0.5 text-[11px] leading-4 text-muted-foreground">
-						Agents can open apps, tap, type and take screenshots. You can change
-						this later.
+						{message("simulators:agents_toggle_description")}
 					</p>
 				</div>
 				<Switch
 					id={agentsSwitchId}
 					checked={agents}
 					onCheckedChange={setAgents}
-					aria-label="Let agents use devices"
+					aria-label={message("simulators:agents_toggle")}
 				/>
 			</label>
 			<div className="flex flex-col gap-2">
@@ -157,7 +168,7 @@ function SimulatorSetup({
 						loading={actions.pending === "check"}
 						onClick={() => void actions.run("simulators.refresh", {}, "check")}
 					>
-						Check again
+						{message("simulators:check_again")}
 					</Button>
 				) : (
 					<Button
@@ -176,13 +187,18 @@ function SimulatorSetup({
 							)
 						}
 					>
-						Turn on
+						{message("simulators:turn_on")}
 					</Button>
 				)}
 				<p className="text-center text-[11px] leading-4 text-muted-foreground">
 					{blocked
-						? "Zuse checks again when you come back."
-						: `Installs device hub ${state.tools.hub}${agents ? ` and agent tools ${state.tools.agent}` : ""} for Zuse. Your SDKs aren’t changed.`}
+						? message("simulators:recheck_on_return")
+						: agents
+							? message("simulators:installs_hub_and_agent", {
+									hub: state.tools.hub,
+									agent: state.tools.agent,
+								})
+							: message("simulators:installs_hub", { hub: state.tools.hub })}
 				</p>
 				{actions.error ? (
 					<SimulatorError>{actions.error}</SimulatorError>
@@ -201,6 +217,7 @@ function SimulatorPreparing({
 	state: SimulatorState;
 	active: boolean;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(environmentId);
 	// Helpers start lazily: an idle host starts when its pane is first shown.
 	useEffect(() => {
@@ -209,8 +226,8 @@ function SimulatorPreparing({
 	}, [active, state.status, actions.run]);
 	return (
 		<SimulatorStage
-			title="Setting up"
-			description="The first setup downloads the device hub and can take a minute."
+			title={message("simulators:preparing_title")}
+			description={message("simulators:preparing_description")}
 		>
 			<StepList steps={setupSteps(state)} />
 			<Button
@@ -222,7 +239,7 @@ function SimulatorPreparing({
 					void actions.run("simulators.configure", { enabled: false }, "cancel")
 				}
 			>
-				Cancel
+				{message("simulators:cancel")}
 			</Button>
 		</SimulatorStage>
 	);
@@ -235,12 +252,13 @@ function SimulatorFailed({
 	environmentId: EnvironmentId;
 	state: SimulatorState;
 }) {
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(environmentId);
 	const fix = useRequirementFix(actions, state.requirements);
 	const blocked = requirementsBlocked(state);
 	return (
 		<SimulatorStage
-			title="Devices couldn’t start"
+			title={message("simulators:failed_title")}
 			description={blocked ? undefined : state.detail}
 		>
 			{blocked ? (
@@ -252,7 +270,7 @@ function SimulatorFailed({
 					loading={actions.pending === "retry"}
 					onClick={() => void actions.run("simulators.refresh", {}, "retry")}
 				>
-					Try again
+					{message("simulators:try_again")}
 				</Button>
 				<Button
 					variant="ghost"
@@ -263,7 +281,7 @@ function SimulatorFailed({
 						void actions.run("simulators.configure", { enabled: false }, "off")
 					}
 				>
-					Turn off
+					{message("simulators:turn_off")}
 				</Button>
 				{actions.error && actions.error !== state.detail ? (
 					<SimulatorError>{actions.error}</SimulatorError>
@@ -272,10 +290,3 @@ function SimulatorFailed({
 		</SimulatorStage>
 	);
 }
-
-/** Names only the platforms this host can offer; iOS rows exist only on a Mac. */
-const devicePhrase = (state: SimulatorState) =>
-	state.requirements.length === 0 ||
-	state.requirements.some((item) => item.platform === "ios")
-		? "iOS simulators and Android emulators"
-		: "Android emulators";

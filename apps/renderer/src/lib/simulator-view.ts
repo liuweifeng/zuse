@@ -1,8 +1,10 @@
+import "@zuse/i18n/english/simulators";
 import type {
 	SimulatorRequirement,
 	SimulatorState,
 	SimulatorSummary,
 } from "@zuse/contracts";
+import { message } from "@zuse/i18n";
 
 /**
  * Presentation model shared by the dock pane and Settings so both describe
@@ -28,20 +30,33 @@ export function simulatorPhase(
 	return "preparing";
 }
 
-export const REQUIREMENT_LABELS: Record<SimulatorRequirement["id"], string> = {
-	xcode: "Xcode",
-	runtime: "iOS simulator runtime",
-	"android-sdk": "Android SDK",
-	"android-avd": "Android emulator",
-	node: "Node 22.12+ and npm",
-};
+/** Labels resolve at call time so they follow the current interface language. */
+export function requirementLabel(id: SimulatorRequirement["id"]): string {
+	switch (id) {
+		case "xcode":
+			return message("simulators:requirement_xcode");
+		case "runtime":
+			return message("simulators:requirement_runtime");
+		case "android-sdk":
+			return message("simulators:requirement_android_sdk");
+		case "android-avd":
+			return message("simulators:requirement_android_avd");
+		case "node":
+			return message("simulators:requirement_node");
+	}
+}
 
-export const PLATFORM_LABELS: Record<SimulatorRequirement["platform"], string> =
-	{
-		ios: "iOS",
-		android: "Android",
-		all: "Both",
-	};
+export function platformLabel(
+	platform: SimulatorRequirement["platform"],
+): string {
+	return message(
+		platform === "ios"
+			? "simulators:platform_ios"
+			: platform === "android"
+				? "simulators:platform_android"
+				: "simulators:platform_all",
+	);
+}
 
 /** Requirements in display order, grouped by the platform they serve. */
 export function requirementSections(
@@ -113,16 +128,21 @@ export function setupSteps(state: SimulatorState): ReadonlyArray<SetupStep> {
 							: "pending",
 	});
 	const steps = [
-		step(0, "Check device tools"),
-		step(1, `Install device hub ${state.tools.hub}`),
-		step(2, "Start device hub"),
-		step(3, "Find devices"),
+		step(0, message("simulators:step_check")),
+		step(
+			1,
+			message("simulators:step_install_hub", { version: state.tools.hub }),
+		),
+		step(2, message("simulators:step_start_hub")),
+		step(3, message("simulators:step_find")),
 	];
 	if (!state.agentAccessEnabled) return steps;
 	return [
 		...steps,
 		{
-			label: `Install agent tools ${state.tools.agent}`,
+			label: message("simulators:step_install_agent", {
+				version: state.tools.agent,
+			}),
 			state:
 				state.agentStatus === "ready"
 					? "done"
@@ -185,17 +205,21 @@ export function groupSimulators(
 export function simulatorSummary(state: SimulatorState): string {
 	switch (simulatorPhase(state, "live")) {
 		case "setup":
-			return "Off";
+			return message("simulators:status_off");
 		case "preparing":
 			return state.status === "idle"
-				? "On · starts when you open a device"
+				? message("simulators:summary_idle")
 				: state.detail;
 		case "failed":
 			return state.detail;
 		case "ready": {
 			const running = state.devices.filter((device) => device.booted).length;
-			const total = `${state.devices.length} ${state.devices.length === 1 ? "device" : "devices"}`;
-			return running ? `${total} · ${running} running` : total;
+			const devices = message("simulators:summary_devices", {
+				count: state.devices.length,
+			});
+			return running
+				? message("simulators:summary_running", { devices, count: running })
+				: devices;
 		}
 		default:
 			return "";

@@ -1,4 +1,7 @@
+import "@zuse/i18n/english/simulators";
 import { EnvironmentId, type SimulatorState } from "@zuse/contracts";
+import { message as uiMessage } from "@zuse/i18n";
+import { useMessages } from "@zuse/i18n/react";
 import { useEffect, useRef } from "react";
 import { getLocalEnvironmentId } from "~/lib/rpc-client.ts";
 import {
@@ -30,6 +33,7 @@ import { Switch } from "../ui/switch.tsx";
 export function SimulatorSettingsPane() {
 	const environmentId = EnvironmentId.make(getLocalEnvironmentId());
 	const view = useSimulatorState(environmentId);
+	const { message } = useMessages(["simulators"]);
 	const actions = useSimulatorActions(environmentId);
 	const state = view.data;
 	const fix = useRequirementFix(actions, state?.requirements ?? []);
@@ -41,13 +45,13 @@ export function SimulatorSettingsPane() {
 	}, [state, actions.run]);
 	if (!state)
 		return (
-			<SettingsGroup title="Simulators">
+			<SettingsGroup title={message("simulators:settings_title")}>
 				<SettingsNote>
 					{view.sync === "failed" ? (
-						"This computer’s simulator service is unavailable."
+						message("simulators:settings_unavailable")
 					) : (
 						<>
-							<Spinner className="size-3" /> Loading…
+							<Spinner className="size-3" /> {message("simulators:loading")}
 						</>
 					)}
 				</SettingsNote>
@@ -63,15 +67,15 @@ export function SimulatorSettingsPane() {
 	return (
 		<div className="flex flex-col gap-4">
 			<SettingsGroup
-				title="Simulators"
-				description="Preview apps on iOS simulators and Android emulators in a chat’s side panel. Devices run on this computer; each chat opens its own."
+				title={message("simulators:settings_title")}
+				description={message("simulators:settings_description")}
 			>
 				<SettingsRow
-					title="Simulators"
+					title={message("simulators:settings_title")}
 					description={simulatorSummary(state)}
 					action={
 						<Switch
-							aria-label="Simulators"
+							aria-label={message("simulators:settings_title")}
 							checked={state.enabled}
 							disabled={blocked || actions.pending !== null}
 							onCheckedChange={(enabled) => configure({ enabled }, "enabled")}
@@ -79,11 +83,11 @@ export function SimulatorSettingsPane() {
 					}
 				/>
 				<SettingsRow
-					title="Agent access"
-					description="Agents can open devices, tap, type and take screenshots to check their work. Turn off to keep controls manual."
+					title={message("simulators:agent_access")}
+					description={message("simulators:agent_access_description")}
 					action={
 						<Switch
-							aria-label="Agent access"
+							aria-label={message("simulators:agent_access")}
 							checked={state.agentAccessEnabled}
 							disabled={!state.enabled || actions.pending !== null}
 							onCheckedChange={(agentAccessEnabled) =>
@@ -107,8 +111,8 @@ export function SimulatorSettingsPane() {
 				) : null}
 			</SettingsGroup>
 			<SettingsGroup
-				title="Requirements"
-				description="Checked on this computer. Fixes run only when you choose them."
+				title={message("simulators:requirements")}
+				description={message("simulators:requirements_description")}
 				action={
 					<Button
 						size="sm"
@@ -116,24 +120,28 @@ export function SimulatorSettingsPane() {
 						loading={actions.pending === "check"}
 						onClick={() => void actions.run("simulators.refresh", {}, "check")}
 					>
-						Check again
+						{message("simulators:check_again")}
 					</Button>
 				}
 			>
 				<RequirementRows state={state} fix={fix} />
 			</SettingsGroup>
 			<SettingsGroup
-				title="Tools"
-				footer="Downloaded on first use at pinned versions into Zuse’s data folder, separately from your projects."
+				title={message("simulators:tools")}
+				footer={message("simulators:tools_footer")}
 			>
 				<SettingsRow
-					title="Device hub"
-					description={`expo-device-hub ${state.tools.hub} · streams iOS and Android screens and sends touch and keyboard input`}
+					title={message("simulators:device_hub")}
+					description={message("simulators:device_hub_description", {
+						version: state.tools.hub,
+					})}
 					action={<ToolStatus label={hubStatus(state)} />}
 				/>
 				<SettingsRow
-					title="Agent tools"
-					description={`agent-device ${state.tools.agent} · lets agents read and operate the app`}
+					title={message("simulators:agent_tools")}
+					description={message("simulators:agent_tools_description", {
+						version: state.tools.agent,
+					})}
 					action={<ToolStatus label={agentStatus(state)} />}
 				/>
 			</SettingsGroup>
@@ -170,32 +178,33 @@ function ToolStatus({ label }: { label: string }) {
 function hubStatus(state: SimulatorState) {
 	switch (state.status) {
 		case "disabled":
-			return "Off";
+			return uiMessage("simulators:status_off");
 		case "idle":
-			return "Starts on demand";
+			return uiMessage("simulators:status_on_demand");
 		case "checking":
-			return "Checking…";
+			return uiMessage("simulators:status_checking");
 		case "installing":
-			return "Installing…";
+			return uiMessage("simulators:status_installing");
 		case "starting":
-			return "Starting…";
+			return uiMessage("simulators:status_starting");
 		case "ready":
-			return "Running";
+			return uiMessage("simulators:status_running");
 		default:
-			return "Stopped";
+			return uiMessage("simulators:status_stopped");
 	}
 }
 
 function agentStatus(state: SimulatorState) {
-	if (!state.enabled || !state.agentAccessEnabled) return "Off";
+	if (!state.enabled || !state.agentAccessEnabled)
+		return uiMessage("simulators:status_off");
 	switch (state.agentStatus) {
 		case "installing":
-			return "Installing…";
+			return uiMessage("simulators:status_installing");
 		case "ready":
-			return "Ready";
+			return uiMessage("simulators:status_ready");
 		case "error":
-			return "Failed";
+			return uiMessage("simulators:status_failed");
 		default:
-			return "Installs on first use";
+			return uiMessage("simulators:status_first_use");
 	}
 }

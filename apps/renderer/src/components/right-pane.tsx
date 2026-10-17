@@ -3,6 +3,7 @@ import { useSimulatorReveal } from "../lib/simulator-client-bus.ts";
 import { SimulatorPane } from "./simulator/simulator-pane.tsx";
 import { WorkspacePanelTab } from "./workspace-panel-tab.tsx";
 import "@zuse/i18n/english/chat";
+import "@zuse/i18n/english/simulators";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ChatRef, ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
@@ -164,7 +165,12 @@ const PANEL_META: Record<
 		},
 		icon: CheckListIcon,
 	},
-	device: { label: "Simulator", icon: SmartPhone02Icon },
+	device: {
+		get label() {
+			return uiMessage("simulators:panel_label");
+		},
+		icon: SmartPhone02Icon,
+	},
 	browser: {
 		get label() {
 			return uiMessage("chat:right_pane_browser");
@@ -1096,8 +1102,10 @@ function PanelBody({
 				return (
 					<CompactEmptyState
 						className="m-auto"
-						title="Environment not connected"
-						description="Connect this chat’s environment to use its simulators."
+						title={uiMessage("simulators:environment_not_connected")}
+						description={uiMessage(
+							"simulators:environment_not_connected_description",
+						)}
 					/>
 				);
 			return chatRef === null ? null : (
