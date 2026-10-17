@@ -87,6 +87,10 @@ export default defineConfig({
 		// Keep browser dependencies explicit, including lazy/shared UI entrypoints.
 		noDiscovery: true,
 		holdUntilCrawlEnd: true,
+		// These are already ESM and expand into hundreds of language/diagram
+		// modules. Prebundling them can consume ~2 GB and prevent Vite from binding
+		// its port on a cold Windows cache. Let Vite load them lazily instead.
+		exclude: ["mermaid", "shiki"],
 		include: [
 			"react",
 			"react-dom",
@@ -134,7 +138,6 @@ export default defineConfig({
 			"fuzzysort",
 			"gradient-shimmer",
 			"lucide-react",
-			"mermaid",
 			"motion/react",
 			"posthog-js/dist/module.slim",
 			"qrcode.react",
@@ -143,7 +146,6 @@ export default defineConfig({
 			"rehype-raw",
 			"rehype-sanitize",
 			"remark-gfm",
-			"shiki",
 			"tailwind-merge",
 		],
 	},
