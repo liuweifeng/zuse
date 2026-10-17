@@ -19,7 +19,13 @@ Published the missing name `zuse-base-v20260927-1` as snapshot
 `snap_d90031c360194e10b8e5ebf29d9a518d`, version 1, and verified it reached ready.
 This restores the configured name; it is a replacement base, not a recovery of
 the original September bytes. Existing account images and workspaces are not
-modified by restoring this name.
+modified by restoring this name. The disposable recovery builder was deleted
+after the replacement snapshot reached ready.
+
+The original queued build recovered without resubmission: machine allocation
+was persisted at 06:08:32 UTC and repository preparation completed by 06:09:32
+UTC. The build successfully installed the production signed runtime before
+preparing the repositories.
 
 ## Preventing the silent queue loop
 
