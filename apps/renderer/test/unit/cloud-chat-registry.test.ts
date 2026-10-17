@@ -13,6 +13,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+	cloudChatShowsLoading,
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../../src/lib/cloud-chat-activity.ts";
@@ -87,6 +88,31 @@ const summary = (input: {
 		createdAt: 1,
 		updatedAt: input.updatedAt ?? input.revision,
 	});
+
+it("shows cloud startup and reconnect loading without animating idle or failed rows", () => {
+	const ready = summary({
+		workspaceId: "loading-workspace",
+		chatId: "loading-chat",
+		sessionId: "loading-session",
+		revision: 1,
+	});
+	const starting = CloudChatSummary.make({
+		...ready,
+		state: "setup",
+		runtimeState: "connecting",
+		startupPhase: "booting",
+	});
+	for (const connection of ["waking", "connecting", "reconnecting"] as const) {
+		expect(cloudChatShowsLoading("attaching", connection, ready)).toBe(true);
+	}
+	expect(cloudChatShowsLoading("resuming", "dormant", starting)).toBe(true);
+	for (const connection of ["dormant", "offline", "connected"] as const) {
+		expect(cloudChatShowsLoading("attaching", connection, ready)).toBe(false);
+	}
+	for (const activity of ["paused", "failed", "idle", "running"] as const) {
+		expect(cloudChatShowsLoading(activity, "connecting", starting)).toBe(false);
+	}
+});
 
 it.each([
 	"booting",

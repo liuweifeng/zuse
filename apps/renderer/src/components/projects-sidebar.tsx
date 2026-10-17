@@ -104,6 +104,7 @@ import {
 	chatPullRequests,
 } from "../lib/chat-pull-requests.ts";
 import {
+	cloudChatShowsLoading,
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
@@ -2709,15 +2710,21 @@ function CloudChatRow({
 		runtime: timeline.runtime,
 		timeline: timeline.view,
 	});
+	const loading = cloudChatShowsLoading(activity, shell.connection, summary);
 	const slack = summary.source === "slack";
 	const label = slack
 		? uiMessage("projects:projects_sidebar_started_from_slack")
 		: uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const attentionState = deriveChatAttentionState(
+	const liveAttention = useChatAttention(
+		{ id: summary.chatId },
+		summary.workspaceId,
+		false,
+	);
+	const summaryAttention = deriveChatAttentionState(
 		timeline.messages,
-		cloudChatShowsWorking(activity),
+		cloudChatShowsWorking(activity, timeline.view.pendingCommands),
 		filterActionableQuestionInteractions(
 			summary.initialSessionId,
 			timeline.presentation.interactions.map((item) => item.interaction),
@@ -2725,6 +2732,11 @@ function CloudChatRow({
 		),
 		timeline.presentation.health,
 	);
+
+	const attentionState = mergeChatAttentionStates([
+		liveAttention.attentionState,
+		summaryAttention,
+	]);
 
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
@@ -2789,7 +2801,12 @@ function CloudChatRow({
 									title={summary.title}
 									attentionState={attentionState}
 									creationPending={false}
-									statusLabel={chatAttentionLabel(attentionState)}
+									loading={loading}
+									statusLabel={
+										loading && attentionState === "idle"
+											? uiMessage("common:loading")
+											: chatAttentionLabel(attentionState)
+									}
 									prInfo={null}
 									stats={null}
 									projectName={projectName ?? summary.repositoryDisplayName}
@@ -2823,6 +2840,8 @@ function CloudChatRow({
 												state={attentionState}
 												selected={selected}
 											/>
+										) : loading ? (
+											<Spinner className="size-3.5" />
 										) : (
 											<BranchIcon state="default" selected={selected} />
 										)}
@@ -3527,6 +3546,7 @@ function ChatRow({
 }
 
 function ThreadListRowBody({
+	loading = false,
 	title,
 	attentionState,
 	creationPending,
@@ -3541,6 +3561,7 @@ function ThreadListRowBody({
 }: {
 	title: string;
 	attentionState: ChatAttentionState;
+	loading?: boolean;
 	creationPending: boolean;
 	statusLabel: string;
 	prInfo: GitPrInfo | null;
@@ -3551,7 +3572,10 @@ function ThreadListRowBody({
 	remoteIndicator: ReactNode;
 	action: ReactNode;
 }) {
-	const working = creationPending || attentionState === "running";
+	const working =
+		creationPending ||
+		attentionState === "running" ||
+		(loading && attentionState === "idle");
 	const prState = prStateLabelFor(prInfo);
 
 	return (

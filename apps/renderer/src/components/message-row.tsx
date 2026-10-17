@@ -83,7 +83,7 @@ import { useChatLookups } from "./chat-lookups.tsx";
 import { CopyButton } from "./copy-button.tsx";
 import { DelegationGroup } from "./delegation-group.tsx";
 import { AnnotationFileChip, FileChip } from "./file-chip.tsx";
-import { SlackIcon } from "./icons/slack-icon.tsx";
+import { MessageSourceHeader } from "./message-source-header.tsx";
 import { useProviderErrorCopy } from "./provider-error-copy.ts";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { SkillIcon } from "./skill-icon.tsx";
@@ -781,7 +781,7 @@ export function UserBubble({
 				goal ? (
 					<div data-chat-user-bubble className={userBubbleClass}>
 						{source !== undefined ? (
-							<MessageSourceHeader source={source} />
+							<MessageSourceHeader source={source} text={text} />
 						) : null}
 						{sources.map((source) => {
 							const session = Object.values(sessionsByProject)
@@ -850,30 +850,6 @@ export function UserBubble({
 					className="mt-1"
 				/>
 			</div>
-		</div>
-	);
-}
-
-/** "Ada Lovelace in #eng-alerts" attribution for a message sent from Slack. */
-function MessageSourceHeader({ source }: { source: MessageSource }) {
-	const { message: uiMessage } = useUiMessages(["chat"]);
-	const label =
-		source.author !== undefined && source.channel !== undefined
-			? uiMessage("chat:message_row_slack_author_in_channel", {
-					author: source.author,
-					channel: source.channel,
-				})
-			: source.author !== undefined
-				? uiMessage("chat:message_row_slack_author", { value: source.author })
-				: source.channel !== undefined
-					? uiMessage("chat:message_row_slack_channel", {
-							value: source.channel,
-						})
-					: uiMessage("chat:message_row_from_slack");
-	return (
-		<div className="mb-1.5 flex max-w-full items-center gap-1.5 text-[11px] text-user-bubble-foreground/65">
-			<SlackIcon className="size-3" />
-			<span className="truncate">{label}</span>
 		</div>
 	);
 }

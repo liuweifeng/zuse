@@ -2529,22 +2529,36 @@ const routeCloudWorkspaceRequestWithAccess = (
 			let useBot = false;
 			if (context.slackMessageId !== undefined) {
 				const message = yield* store.getApiMessage(context.slackMessageId);
-				if (
-					message === null ||
-					message.accountId !== workspace.accountId ||
-					message.workspaceId !== workspaceId
-				)
-					return yield* forbidden("github_execution_identity_invalid");
-				const content = decodeApiMessageContent(
-					yield* openApiMessageString(
-						workspace.accountId,
-						workspaceId,
-						message.messageId,
-						message.sealedContent,
-					),
-				);
-				if (content.githubBot !== true)
-					return yield* forbidden("github_execution_identity_invalid");
+				// Slack creates an idle workspace before submitting its first message.
+				// Its server-persisted launch identity authorizes repository setup even
+				// when no synthetic launch-message row exists. Arbitrary message IDs
+				// still require the normal account/workspace/content checks below.
+				const initialGithub = Schema.decodeUnknownOption(
+					CloudGithubCredentialRequest,
+				)(workspace.requestConfig.initialGithubContext);
+				const trustedSetup =
+					message === null &&
+					context.slackMessageId === `msg_launch_${workspaceId}` &&
+					Option.isSome(initialGithub) &&
+					initialGithub.value.slackMessageId === context.slackMessageId;
+				if (!trustedSetup) {
+					if (
+						message === null ||
+						message.accountId !== workspace.accountId ||
+						message.workspaceId !== workspaceId
+					)
+						return yield* forbidden("github_execution_identity_invalid");
+					const content = decodeApiMessageContent(
+						yield* openApiMessageString(
+							workspace.accountId,
+							workspaceId,
+							message.messageId,
+							message.sealedContent,
+						),
+					);
+					if (content.githubBot !== true)
+						return yield* forbidden("github_execution_identity_invalid");
+				}
 				useBot = true;
 			}
 			const actorId = context.actor?.subject ?? workspace.accountId;

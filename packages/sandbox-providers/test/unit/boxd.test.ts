@@ -720,6 +720,33 @@ describe("boxd sandbox provider", () => {
 		expect(client.store.has("vm_failed")).toBe(true);
 	});
 
+	test("rejects a missing base template before allocating a build machine", async () => {
+		const client = new FakeBoxd();
+		const provider = makeAdapter(client);
+		if (provider.validateTemplate === undefined)
+			throw new Error("missing template validation");
+		await expect(run(provider.validateTemplate())).rejects.toMatchObject({
+			code: "not-found",
+		});
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
+	test("accepts a ready base template and rejects an unfinished one", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "zuse-base-v1");
+		const snapshot = await client.snapshots.get("zuse-base-v1");
+		const provider = makeAdapter(client);
+		if (provider.validateTemplate === undefined)
+			throw new Error("missing template validation");
+		await expect(run(provider.validateTemplate())).rejects.toMatchObject({
+			code: "rejected",
+		});
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		await expect(run(provider.validateTemplate())).resolves.toBeUndefined();
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
 	test("does not mask a missing template snapshot as a name conflict", async () => {
 		const client = new FakeBoxd();
 		client.fail("machines.create", new NotFoundError("snapshot not found", 5));

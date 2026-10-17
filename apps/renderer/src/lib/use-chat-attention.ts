@@ -12,9 +12,9 @@ import {
 	executionAttentionState,
 	mergeChatAttentionStates,
 } from "./chat-attention-state.ts";
-import { useActiveEnvironmentEntities } from "./environment-entity-hooks.ts";
 import { useEnvironmentPermissions } from "./environment-permissions-client-bus.ts";
 import { useEnvironmentQuestionAttachments } from "./environment-question-attachments-client-bus.ts";
+import { useEnvironmentShellResource } from "./environment-shell-client-bus.ts";
 import { filterActionableQuestionInteractions } from "./question-actionability.ts";
 import { isSessionRuntimeBusy } from "./session-runtime-state.ts";
 import { useRendererSessionTimelines } from "./session-timeline-hooks.ts";
@@ -27,23 +27,27 @@ export type ChatAttention = {
 };
 
 /**
- * Live attention for one chat in the active environment, merged across every
+ * Live attention for one chat in its specified environment, merged across every
  * non-archived session (tab): running agents, open questions, unfinished
  * plans, and pending permission prompts. A pending chat creation counts as
  * running so the row lights up before the first session exists.
  */
 export function useChatAttention(
-	chat: Chat,
+	chat: Pick<Chat, "id">,
 	environmentId: string,
 	creationPending: boolean,
 ): ChatAttention {
-	const { sessionsByProject } = useActiveEnvironmentEntities();
+	const shell = useEnvironmentShellResource(
+		EnvironmentId.make(environmentId),
+		"cache-only",
+	);
+	const sessionsByProject = shell.data?.sessionsByProject;
 	const chatSessions = useMemo(
 		() =>
-			(sessionsByProject[chat.projectId] ?? []).filter(
-				(row) => row.chatId === chat.id && row.archivedAt === null,
-			),
-		[sessionsByProject, chat.projectId, chat.id],
+			Object.values(sessionsByProject ?? {})
+				.flat()
+				.filter((row) => row.chatId === chat.id && row.archivedAt === null),
+		[sessionsByProject, chat.id],
 	);
 	const sessionIds = useMemo(
 		() => chatSessions.map((session) => session.id),
@@ -95,7 +99,8 @@ export function useChatAttention(
 	const sessionIdSet = useMemo(() => new Set(sessionIds), [sessionIds]);
 
 	const permissionRequests =
-		useEnvironmentPermissions().data?.requestsById ?? {};
+		useEnvironmentPermissions(EnvironmentId.make(environmentId)).data
+			?.requestsById ?? {};
 	const permissionAttention = derivePermissionAttention(
 		Object.values(permissionRequests),
 		sessionIdSet,

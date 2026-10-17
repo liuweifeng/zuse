@@ -1967,6 +1967,57 @@ describe("cloud active work keepalive", () => {
 	});
 });
 
+it.each([
+	"sessions",
+	"inputs",
+	"publish",
+] as const)("keeps active work protected after a %s defect and stops on shutdown", async (stage) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const chatId = ChatId.make("keepalive-defect-chat");
+			let failed = false;
+			let published = 0;
+			const probe = (at: typeof stage) =>
+				Effect.suspend(() => {
+					if (stage === at && !failed) {
+						failed = true;
+						return Effect.die(new Error("transient read failure"));
+					}
+					return Effect.void;
+				});
+			const fiber = yield* Effect.forkScoped(
+				keepCloudRuntimeActive({
+					chatId,
+					sessions: probe("sessions").pipe(
+						Effect.as([
+							{
+								id: SessionId.make("keepalive-defect-session"),
+								chatId,
+								status: "running" as const,
+							},
+						]),
+					),
+					isWaitingForInput: () => probe("inputs").pipe(Effect.as(false)),
+					publish: probe("publish").pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								published++;
+							}),
+						),
+					),
+				}),
+			);
+			yield* TestClock.adjust("11 minutes");
+			expect(failed).toBe(true);
+			expect(published).toBeGreaterThan(20);
+			yield* Fiber.interrupt(fiber);
+			const stopped = published;
+			yield* TestClock.adjust("1 minute");
+			expect(published).toBe(stopped);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
 describe("cloud mailbox polling lifetime", () => {
 	it("preserves the runtime through ambiguous credential rejection without minting wake intent", async () => {
 		await Effect.runPromise(

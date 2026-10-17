@@ -868,12 +868,14 @@ export const keepCloudRuntimeActive = <E, R>(input: {
 				break;
 			}
 		}).pipe(
-			Effect.catch(() =>
-				Effect.sync(() => {
-					console.warn(
-						"[cloud-workspace-runtime] active work keepalive failed",
-					);
-				}),
+			Effect.catchCause((cause) =>
+				Cause.hasInterruptsOnly(cause)
+					? Effect.failCause(cause)
+					: Effect.sync(() => {
+							console.warn(
+								"[cloud-workspace-runtime] active work keepalive failed",
+							);
+						}),
 			),
 			Effect.andThen(Effect.sleep("30 seconds")),
 		),

@@ -1409,6 +1409,76 @@ describe("public API (/v1/api)", () => {
 		await runtime.dispose();
 	});
 
+	test("Slack repository setup authenticates before its first message exists", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const response = await runtime.runPromise(
+				routeAccountWorkspaceRequest(
+					new Request(`${ISSUER}/v1/api/workspaces`, {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							"idempotency-key": "slack-idle-setup",
+						},
+						body: JSON.stringify({ agent: "codex", model: "gpt-5" }),
+					}),
+					ACCOUNT,
+					{ githubBot: true },
+				),
+			);
+			if (!response) throw new Error("missing workspace response");
+			const {
+				workspace: { workspaceId },
+			} = await json<{ workspace: { workspaceId: string } }>(response, 201);
+			expect(
+				await runtime.runPromise(store.listApiMessages(workspaceId, 0, 20)),
+			).toEqual([]);
+			await stageRuntimeCredential(
+				runtime,
+				store,
+				workspaceId,
+				"setup-runtime",
+			);
+			const request = (slackMessageId: string) =>
+				serve(
+					runtime,
+					`/v1/cloud/workspaces/${workspaceId}/runtime/github-credential`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer setup-runtime",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ slackMessageId }),
+					},
+				);
+			// This fixture has no GitHub App; reaching that check proves the trusted
+			// startup identity passed authorization without fabricating a chat message.
+			expect(
+				await json(await request(`msg_launch_${workspaceId}`), 503),
+			).toMatchObject({ error: "github_app_not_configured" });
+			expect(
+				await json(await request("msg_launch_other-workspace"), 403),
+			).toMatchObject({ error: "github_execution_identity_invalid" });
+			const saved = await runtime.runPromise(store.getWorkspace(workspaceId));
+			if (!saved) throw new Error("missing workspace");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...saved,
+					requestConfig: { ...saved.requestConfig, initialGithubContext: {} },
+					revision: saved.revision + 1,
+				}),
+			);
+			expect(
+				await json(await request(`msg_launch_${workspaceId}`), 403),
+			).toMatchObject({ error: "github_execution_identity_invalid" });
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("creates an idle workspace and delivers sealed image attachments", async () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);

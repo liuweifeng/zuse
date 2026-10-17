@@ -2755,6 +2755,29 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			);
 		}
 
+		// A failed initial checkout can be retried after its source image was
+		// retired. Once enrolled, recover the existing guest with the same fenced
+		// restart used for resumes; its data does not belong to the image lifecycle.
+		if (
+			workspace.state === "queued" &&
+			workspace.desiredState === "ready" &&
+			workspace.providerSandboxId !== undefined &&
+			typeof workspace.requestConfig.runtimeGeneration === "number" &&
+			workspace.statusCode !== "resume-queued" &&
+			workspace.statusCode !== "resume-runtime-recovery-queued"
+		) {
+			const existing = yield* provider.inspect(workspace.providerSandboxId);
+			if (existing !== null)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+					existing.state === "running",
+				);
+		}
+
 		if (workspace.state === "queued") {
 			const machineFork = machineForkSource(workspace);
 			const [build, project] = yield* Effect.all(

@@ -1390,7 +1390,10 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("allocates only the requested replacement sandbox", async () => {
+	test.each([
+		"resume-queued",
+		"resume-runtime-recovery-queued",
+	])("allocates only the requested replacement sandbox (%s)", async (statusCode) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1399,8 +1402,11 @@ describe("cloud workspace reconciler", () => {
 					workspaceId: "workspace-incomplete-retry",
 					state: "queued",
 					desiredState: "ready",
-					statusCode: "resume-queued",
-					requestConfig: { startupTimings: { requestedAt: Date.now() } },
+					statusCode,
+					requestConfig: {
+						runtimeGeneration: 1,
+						startupTimings: { requestedAt: Date.now() },
+					},
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
@@ -2845,6 +2851,55 @@ describe("memory-aware runtime recovery", () => {
 		expect(result.workspace?.providerSandboxId).toBe("source-memory-check");
 		expect(result.after).toEqual(result.before);
 	});
+});
+
+test("retries an enrolled workspace on its existing machine without its old image", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "retry-existing",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provider-connection-unavailable",
+				requestConfig: { runtimeGeneration: 1 },
+			});
+			const providers = yield* SandboxProviders;
+			const replacement = {
+				...providers,
+				get: (id: string) =>
+					providers.get(id).pipe(
+						Effect.map((adapter) => ({
+							...adapter,
+							kill: () => Effect.die("must not delete the existing machine"),
+							fork: () => Effect.die("must not consume the deleted image"),
+							create: () => Effect.die("must not allocate a replacement"),
+						})),
+					),
+			};
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build)
+				yield* store.saveBuild({
+					...build,
+					snapshotId: undefined,
+					state: "failed",
+				});
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, replacement),
+			);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				calls: yield* Ref.get(control.startProcessCalls),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		providerSandboxId: "source-retry-existing",
+		state: "provisioning",
+		statusCode: "resume-runtime-restarting",
+	});
+	expect(result.calls).toHaveLength(1);
 });
 
 test("automatically restarts the retained runtime once memory pressure clears", async () => {
