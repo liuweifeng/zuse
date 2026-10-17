@@ -138,3 +138,40 @@ test("launcher can shut down while waiting for build artifacts", {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+test("launcher reports the exact resources that blocked startup", {
+	timeout: 10_000,
+	skip: process.platform === "darwin",
+}, async () => {
+	const { fork } = await import("node:child_process");
+	const { mkdtemp, rm } = await import("node:fs/promises");
+	const { tmpdir } = await import("node:os");
+	const { join } = await import("node:path");
+	const root = await mkdtemp(join(tmpdir(), "zuse timeout-"));
+	const launcher = fork(new URL("./dev-electron.mjs", import.meta.url), [], {
+		stdio: ["ignore", "ignore", "pipe", "ipc"],
+		env: {
+			...process.env,
+			ZUSE_DESKTOP_OUT_DIR: root,
+			ZUSE_DEV_STARTUP_TIMEOUT_MS: "250",
+			VITE_DEV_SERVER_URL: "http://127.0.0.1:1",
+		},
+	});
+	let stderr = "";
+	launcher.stderr.on("data", (chunk) => {
+		stderr += String(chunk);
+	});
+	try {
+		const [code] = await once(launcher, "exit");
+		assert.notEqual(code, 0);
+		assert.match(
+			stderr,
+			/renderer http:\/\/127\.0\.0\.1:1 is not accepting connections/,
+		);
+		assert.match(stderr, /artifact is missing: .*main\.cjs/);
+		assert.match(stderr, /artifact is missing: .*preload\.cjs/);
+	} finally {
+		if (launcher.exitCode === null) launcher.kill("SIGKILL");
+		await rm(root, { recursive: true, force: true });
+	}
+});

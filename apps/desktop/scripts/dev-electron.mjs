@@ -53,6 +53,13 @@ const configuredDevStartedAt = Number(process.env.ZUSE_DEV_STARTED_AT);
 const devStartedAt = Number.isFinite(configuredDevStartedAt)
 	? configuredDevStartedAt
 	: Date.now();
+const configuredStartupTimeoutMs = Number(
+	process.env.ZUSE_DEV_STARTUP_TIMEOUT_MS,
+);
+const startupTimeoutMs =
+	Number.isFinite(configuredStartupTimeoutMs) && configuredStartupTimeoutMs > 0
+		? configuredStartupTimeoutMs
+		: 300_000;
 
 const restartDebounceMs = 1_000;
 const forcedShutdownTimeoutMs = 5_000;
@@ -63,11 +70,12 @@ let currentApp = null;
 let restartQueue = Promise.resolve();
 const expectedExits = new WeakSet();
 
-async function fileIsCurrent(p) {
+async function inspectFile(p) {
 	try {
-		return (await stat(p)).mtimeMs >= devStartedAt;
+		const { mtimeMs } = await stat(p);
+		return { path: p, ready: mtimeMs >= devStartedAt, mtimeMs };
 	} catch {
-		return false;
+		return { path: p, ready: false, mtimeMs: null };
 	}
 }
 
@@ -90,17 +98,18 @@ function tcpReady(host, port, timeoutMs = 500) {
 }
 
 async function waitForResources({
-	timeoutMs = 120_000,
+	timeoutMs = startupTimeoutMs,
 	intervalMs = 100,
+	statusIntervalMs = 10_000,
 } = {}) {
 	console.log(
 		`[desktop:electron] waiting for ${devServerUrl} and current-run artifacts ${requiredFiles.join(", ")}`,
 	);
 	const startedAt = Date.now();
+	let nextStatusAt = startedAt + statusIntervalMs;
 	while (true) {
-		const filesReady = await Promise.all(
-			requiredFiles.map((path) => fileIsCurrent(path)),
-		).then((results) => results.every(Boolean));
+		const fileStates = await Promise.all(requiredFiles.map(inspectFile));
+		const filesReady = fileStates.every(({ ready }) => ready);
 		const portReady = await tcpReady(
 			devServer.hostname || "127.0.0.1",
 			devPort,
@@ -109,9 +118,27 @@ async function waitForResources({
 			console.log("[desktop:electron] resources ready");
 			return;
 		}
-		if (Date.now() - startedAt >= timeoutMs) {
+		const pending = [];
+		if (!portReady)
+			pending.push(`renderer ${devServerUrl} is not accepting connections`);
+		for (const state of fileStates) {
+			if (state.ready) continue;
+			pending.push(
+				state.mtimeMs === null
+					? `artifact is missing: ${state.path}`
+					: `artifact is stale: ${state.path} (modified ${new Date(state.mtimeMs).toISOString()})`,
+			);
+		}
+		const now = Date.now();
+		if (now >= nextStatusAt) {
+			console.log(
+				`[desktop:electron] still waiting after ${Math.round((now - startedAt) / 1_000)}s:\n- ${pending.join("\n- ")}`,
+			);
+			nextStatusAt = now + statusIntervalMs;
+		}
+		if (now - startedAt >= timeoutMs) {
 			throw new Error(
-				`Timed out waiting for dev resources (port ${devPort}, files ${requiredFiles.join(", ")})`,
+				`Timed out after ${Math.round(timeoutMs / 1_000)}s waiting for dev resources:\n- ${pending.join("\n- ")}`,
 			);
 		}
 		await delay(intervalMs);
