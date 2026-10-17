@@ -2717,7 +2717,12 @@ function CloudChatRow({
 		: uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const attentionState = deriveChatAttentionState(
+	const liveAttention = useChatAttention(
+		{ id: summary.chatId },
+		summary.workspaceId,
+		false,
+	);
+	const summaryAttention = deriveChatAttentionState(
 		timeline.messages,
 		cloudChatShowsWorking(activity, timeline.view.pendingCommands),
 		filterActionableQuestionInteractions(
@@ -2727,6 +2732,11 @@ function CloudChatRow({
 		),
 		timeline.presentation.health,
 	);
+
+	const attentionState = mergeChatAttentionStates([
+		liveAttention.attentionState,
+		summaryAttention,
+	]);
 
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
