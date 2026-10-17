@@ -16,6 +16,7 @@ import {
 } from "@zusehq/server/desktop-engine";
 import { _electron } from "playwright-core";
 import { closeElectronApplication } from "../src/electron-app.ts";
+import { waitForEngineEndpoint } from "../src/engine-readiness.ts";
 import {
 	descendantProcessTree,
 	readProcessTreeSnapshot,
@@ -101,19 +102,7 @@ try {
 				);
 			}
 			if (windows) {
-				// Renderer and engine initialize concurrently. Do not use updater IPC
-				// registration as an accidental engine-readiness barrier.
-				const deadline = Date.now() + 30_000;
-				let endpoint = await readEngineEndpoint(userData);
-				while (endpoint === null && Date.now() < deadline) {
-					await new Promise((resolve) => setTimeout(resolve, 100));
-					endpoint = await readEngineEndpoint(userData);
-				}
-				assert.notEqual(
-					endpoint,
-					null,
-					"Packaged engine must publish its endpoint",
-				);
+				const endpoint = await waitForEngineEndpoint(userData);
 				const snapshot = await readProcessTreeSnapshot();
 				const pids = new Set(
 					descendantProcessTree(snapshot, app.process().pid ?? -1).map(

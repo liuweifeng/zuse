@@ -1028,8 +1028,13 @@ const probeNamedClaudeAccount = (
 	home: string,
 ): Effect.Effect<AccountInfo, never, CommandExecutor.ChildProcessSpawner> =>
 	Effect.gen(function* () {
+		const invocation = cliInvocationCommand(cliPath, [
+			"auth",
+			"status",
+			"--json",
+		]);
 		const result = yield* runCapture(
-			Command.make(cliPath, ["auth", "status", "--json"], {
+			Command.make(invocation.command, invocation.args, {
 				env: isolatedProviderAccountEnv("claude", home, process.env),
 				extendEnv: false,
 			}),

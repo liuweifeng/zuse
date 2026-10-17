@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
+import { parseWindowsTcpListeners } from "../packages/utils/src/port-inspector.ts";
 
 const usage = `Usage:
   bun run kill-port -- <port>
@@ -38,20 +39,14 @@ console.log(output);
 
 const pids = [
 	...new Set(
-		output
-			.split(/\r?\n/)
-			.map((line) => line.trim().split(/\s+/))
-			.filter((parts) => {
-				if (process.platform !== "win32") return parts.length > 1;
-				if (!parts.some((part) => part.toUpperCase() === "LISTENING"))
-					return false;
-				const endpoint = parts[1] ?? "";
-				return endpoint.endsWith(`:${port}`);
-			})
-			.map((parts) =>
-				Number(process.platform === "win32" ? parts.at(-1) : parts[1]),
-			)
-			.filter((pid) => Number.isInteger(pid) && pid > 0),
+		process.platform === "win32"
+			? parseWindowsTcpListeners(output)
+					.filter((listener) => listener.port === port)
+					.map((listener) => listener.pid)
+			: output
+					.split(/\r?\n/)
+					.map((line) => Number(line.trim().split(/\s+/)[1]))
+					.filter((pid) => Number.isInteger(pid) && pid > 0),
 	),
 ];
 

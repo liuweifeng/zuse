@@ -218,6 +218,7 @@ jobs:
     needs: [resolve, verify]
     if: needs.resolve.outputs.channel == 'preview'
     uses: ./.github/workflows/windows-tests.yml
+    secrets: inherit
     with:
       ref: ${{ needs.resolve.outputs.sha }}
       release_metadata: true

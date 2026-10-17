@@ -106,3 +106,39 @@ describe("renderer host boundary", () => {
 		expect(violations).toEqual([]);
 	}, 15_000);
 });
+
+it.skipIf(process.platform !== "win32")(
+	"opens an editor cmd shim with literal Unicode and shell-sensitive paths",
+	async () => {
+		const { mkdtemp, writeFile, rm } = await import("node:fs/promises");
+		const { tmpdir } = await import("node:os");
+		const { openPathWithPortableTarget } = await import(
+			"../../src/host/open-targets.ts"
+		);
+		const root = await mkdtemp(Path.join(tmpdir(), "zuse editor ü-"));
+		const previousPath = process.env.PATH;
+		const resultFile = Path.join(root, "result.json");
+		try {
+			await writeFile(
+				Path.join(root, "code.cmd"),
+				`@echo off\r\n"${process.execPath}" "%~dp0probe.cjs" %*\r\n`,
+			);
+			await writeFile(
+				Path.join(root, "probe.cjs"),
+				`require('node:fs').writeFileSync(${JSON.stringify(resultFile)}, JSON.stringify(process.argv.slice(2)))`,
+			);
+			process.env.PATH = `${root}${Path.delimiter}${previousPath ?? ""}`;
+			const project = Path.join(root, "project ü & more");
+			expect(await openPathWithPortableTarget("win32", "vscode", project)).toBe(
+				"opened",
+			);
+			await expect
+				.poll(async () => JSON.parse(await readFile(resultFile, "utf8")))
+				.toEqual([project]);
+		} finally {
+			if (previousPath === undefined) delete process.env.PATH;
+			else process.env.PATH = previousPath;
+			await rm(root, { recursive: true, force: true });
+		}
+	},
+);

@@ -268,51 +268,51 @@ describe.skipIf(process.platform === "win32")("Grok CLI probe", () => {
 	});
 });
 
-describe.skipIf(process.platform === "win32")(
-	"named Claude account probe",
-	() => {
-		it.each([
-			["free", "Requires Claude Pro"],
-			["Pro", "Claude Pro Subscription"],
-			["MAX", "Claude Max Subscription"],
-			["unknown-tier", "Claude subscription"],
-			[undefined, "Claude subscription"],
-		])("preserves subscription gating for %s", async (subscriptionType, authLabel) => {
-			const directory = await mkdtemp(
-				join(tmpdir(), "zuse-claude-account-probe-"),
+describe("named Claude account probe", () => {
+	it.each([
+		["free", "Requires Claude Pro"],
+		["Pro", "Claude Pro Subscription"],
+		["MAX", "Claude Max Subscription"],
+		["unknown-tier", "Claude subscription"],
+		[undefined, "Claude subscription"],
+	])("preserves subscription gating for %s", async (subscriptionType, authLabel) => {
+		const directory = await mkdtemp(
+			join(tmpdir(), "zuse-claude-account-probe-"),
+		);
+		try {
+			const cli = join(
+				directory,
+				process.platform === "win32" ? "claude.cjs" : "claude",
 			);
-			try {
-				const cli = join(directory, "claude");
-				await writeFile(
-					join(directory, "status.json"),
-					JSON.stringify({
-						loggedIn: true,
-						email: "named@example.com",
-						subscriptionType,
-					}),
-				);
-				await writeFile(
-					cli,
-					`#!${process.execPath}\nimport {readFileSync} from 'node:fs';\nif (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);\nconsole.log(readFileSync(process.env.CLAUDE_CONFIG_DIR + '/status.json', 'utf8'));\n`,
-					{ mode: 0o755 },
-				);
-				const info = await Effect.runPromise(
-					probeNamedClaudeAccount(cli, directory).pipe(
-						Effect.provide(NodeServices.layer),
-					),
-				);
-				expect(info).toEqual({
-					authStatus: "authenticated",
-					authType: "oauth",
-					authEmail: "named@example.com",
-					authLabel,
-				});
-			} finally {
-				await rm(directory, { recursive: true, force: true });
-			}
-		});
-	},
-);
+			await writeFile(
+				join(directory, "status.json"),
+				JSON.stringify({
+					loggedIn: true,
+					email: "named@example.com",
+					subscriptionType,
+				}),
+			);
+			await writeFile(
+				cli,
+				`#!${process.execPath}\nconst {readFileSync} = require('node:fs');\nif (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);\nconsole.log(readFileSync(process.env.CLAUDE_CONFIG_DIR + '/status.json', 'utf8'));\n`,
+				{ mode: 0o755 },
+			);
+			const info = await Effect.runPromise(
+				probeNamedClaudeAccount(cli, directory).pipe(
+					Effect.provide(NodeServices.layer),
+				),
+			);
+			expect(info).toEqual({
+				authStatus: "authenticated",
+				authType: "oauth",
+				authEmail: "named@example.com",
+				authLabel,
+			});
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("parseClaudeCredentials — subscription gating", () => {
 	const blob = (subscriptionType?: string, email = "user@anthropic.com") =>

@@ -18,9 +18,11 @@ Unsigned Windows publication remains excluded from the public release pipeline.
 passed at `586c5a42` on 2026-10-17, including native runtime checks, two development
 launches, installation, twenty installed launches across reinstall, preference
 preservation, protocol registration, uninstall, and engine/provider recovery.
-The [current setup artifact](https://github.com/swarajbachu/zuse/actions/runs/39043451240/artifacts/12105491917)
-contains `Zuse-0.22.1-windows-x64-setup.exe`; extract the ZIP before running it.
-It is unsigned and retained for seven days. The laptop's installed-app test and
+The [current setup artifact](https://github.com/swarajbachu/zuse/actions/runs/39043451240)
+contains the `windows-candidate-<run-id>` artifact with
+`Zuse-0.22.1-windows-x64-setup.exe`; extract the ZIP before running it.
+It is unsigned and retained for seven days. Rerun the **Windows compatibility**
+workflow from the Actions tab when a fresh candidate is needed. The laptop's installed-app test and
 constrained-device qualification remain outstanding.
 
 On the hosted runner, median readiness was 6.02 s before reinstall and 6.01 s after
@@ -60,7 +62,7 @@ Memory is a process-tree snapshot at readiness, not peak, steady idle, or active
 agent memory. Working sets can double-count shared pages. These measurements do
 not establish constrained-device budgets or a memory-growth trend.
 
-The [unsigned internal installer](https://github.com/swarajbachu/zuse/actions/runs/38954164943/artifacts/12070258733)
+The [unsigned internal installer](https://github.com/swarajbachu/zuse/actions/runs/38954164943)
 and diagnostic reports are retained for seven days. This is an internal test
 candidate at the repository version, not a signed/public Preview release. The
 Preview pipeline supplies release metadata when producing a release candidate.

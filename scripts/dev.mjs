@@ -45,9 +45,9 @@ const portAvailable = (port, kind) =>
 
 const reusableDefaultEngine = async (initial, port, kind) => {
 	if (kind !== "websocket" || !initial.defaultProfile) return false;
-	const endpoint = await readEngineEndpoint(defaultUserData);
-	if (endpoint === null || endpoint.apiPort !== port) return false;
 	try {
+		const endpoint = await readEngineEndpoint(defaultUserData);
+		if (endpoint === null || endpoint.apiPort !== port) return false;
 		const channel = await connectLocalEngine(endpoint, {
 			receive: () => {},
 			signal: AbortSignal.timeout(2_000),

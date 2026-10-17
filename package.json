@@ -14,7 +14,7 @@
 		"icons:install-paid": "node scripts/install-paid-icons.mjs",
 		"icons:status": "node scripts/check-icons.mjs",
 		"postinstall": "node scripts/install-paid-icons.mjs",
-		"kill-port": "node scripts/kill-port.mjs",
+		"kill-port": "node --import tsx scripts/kill-port.mjs",
 		"lint": "biome check .",
 		"catalog:generate": "tsx scripts/generate-model-catalog.ts",
 		"catalog:check": "tsx scripts/generate-model-catalog.ts --check",

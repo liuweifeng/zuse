@@ -7,6 +7,7 @@ import {
 	type ProviderId,
 	type ProviderUpdateEvent,
 } from "@zuse/contracts";
+import { stopOwnedProcess } from "@zuse/utils/owned-process";
 import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
 import { type Cause, Effect, Queue, type Scope, Stream } from "effect";
 
@@ -26,7 +27,7 @@ const UPDATE_TIMEOUT_MS = 5 * 60_000;
  *
  * Cancellation mirrors `startProviderLogin`: wrapped in `Stream.unwrap`,
  * so unsubscribing (or an IPC drop) closes the scope and the finalizer kills
- * the child (SIGTERM → SIGKILL).
+ * the Windows process tree, or the POSIX child (SIGTERM → SIGKILL).
  */
 export const startProviderUpdate = (
 	providerId: ProviderId,
@@ -80,6 +81,7 @@ const spawnUpdate = (
 		child.stderr.setEncoding("utf-8");
 
 		let exited = false;
+		let timedOut = false;
 		let lastLine = "";
 
 		const handleLine = (raw: string): void => {
@@ -106,6 +108,18 @@ const spawnUpdate = (
 		};
 
 		const timer = setTimeout(() => {
+			timedOut = true;
+			if (process.platform === "win32") {
+				void stopOwnedProcess(child).then(
+					() => finish(false, "Update timed out after 5 minutes."),
+					(error) =>
+						finish(
+							false,
+							`Update timed out; process cleanup failed: ${String(error)}`,
+						),
+				);
+				return;
+			}
 			try {
 				child.kill("SIGTERM");
 			} catch {}
@@ -114,6 +128,7 @@ const spawnUpdate = (
 
 		child.once("exit", (code, signal) => {
 			clearTimeout(timer);
+			if (timedOut) return;
 			const ok = code === 0;
 			const reason = ok
 				? undefined
@@ -131,10 +146,14 @@ const spawnUpdate = (
 		});
 
 		yield* Effect.addFinalizer(() =>
-			Effect.sync(() => {
+			Effect.promise(async () => {
 				clearTimeout(timer);
 				rlOut.close();
 				rlErr.close();
+				if (process.platform === "win32") {
+					await stopOwnedProcess(child);
+					return;
+				}
 				if (exited) return;
 				try {
 					child.kill("SIGTERM");

@@ -7,6 +7,7 @@ import type { PowerMonitorState } from "@zuse/contracts";
 import { readEngineEndpoint } from "@zusehq/server/desktop-engine";
 import { _electron } from "playwright-core";
 import { closeElectronApplication } from "../src/electron-app.ts";
+import { waitForEngineEndpoint } from "../src/engine-readiness.ts";
 import {
 	descendantProcessTree,
 	readProcessTreeSnapshot,
@@ -80,7 +81,9 @@ try {
 	console.log(
 		"Exercise one real agent, terminal output, and a long conversation for one hour. Reports contain metrics only. Baseline runs do not qualify a release.",
 	);
-	while (Date.now() - startedAt < 60 * 60 * 1000) {
+	await waitForEngineEndpoint(resolve(profile));
+	const samplingStartedAt = Date.now();
+	while (Date.now() - samplingStartedAt < 60 * 60 * 1000) {
 		assert.equal(crashed, false, "Renderer crashed");
 		assert.equal(
 			app.process().exitCode,
