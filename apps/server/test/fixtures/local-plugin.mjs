@@ -1,4 +1,5 @@
 import { appendFile, readFile } from "node:fs/promises";
+import { setTimeout as delay } from "node:timers/promises";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -17,12 +18,15 @@ if ((await stallMode()) === "connect") {
 	await new Promise(() => {});
 }
 
+if ((await stallMode()) === "slow-connect") await delay(2500);
+
 const server = new Server(
 	{ name: "fixture", version: "1" },
 	{ capabilities: { tools: {} } },
 );
 server.setRequestHandler(ListToolsRequestSchema, async () => {
 	if ((await stallMode()) === "list") await new Promise(() => {});
+	if ((await stallMode()) === "slow-list") await delay(2500);
 	return {
 		tools: [
 			{
@@ -38,6 +42,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
 });
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
 	if (params.arguments.text === "crash") process.exit(1);
+	if (params.arguments.text === "slow") await delay(5000);
 	return {
 		content: [
 			{

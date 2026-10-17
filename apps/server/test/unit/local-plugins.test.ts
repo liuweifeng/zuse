@@ -8,7 +8,8 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	LocalPlugins,
 	withLocalPlugins,
@@ -18,6 +19,7 @@ const stores: LocalPlugins[] = [];
 const directories: string[] = [];
 afterEach(async () => {
 	await Promise.all(stores.splice(0).map((store) => store.close()));
+	vi.restoreAllMocks();
 	await Promise.all(
 		directories
 			.splice(0)
@@ -149,7 +151,7 @@ describe("local plugins", () => {
 	it.each([
 		"connect",
 		"list",
-	])("bounds the whole search and cleans up stalled %s clients before retrying", async (mode) => {
+	])("returns remote results promptly and cleans up stalled %s clients on the regular timeout", async (mode) => {
 		const { store, directory } = await setup();
 		const stall = join(directory, "stall");
 		const starts = join(directory, "starts");
@@ -172,6 +174,35 @@ describe("local plugins", () => {
 			stores.push(searching);
 		}
 		await writeFile(stall, mode);
+		// Keep the real stdio transport, shortening only the regular SDK timeout for this test.
+		if (mode === "connect") {
+			const connect = Client.prototype.connect;
+			vi.spyOn(Client.prototype, "connect").mockImplementation(function (
+				this: Client,
+				transport,
+				options,
+			) {
+				return connect.call(this, transport, {
+					...options,
+					timeout: 3000,
+					maxTotalTimeout: 3000,
+				});
+			});
+		} else {
+			const listTools = Client.prototype.listTools;
+			vi.spyOn(Client.prototype, "listTools").mockImplementation(function (
+				this: Client,
+				params,
+				options,
+			) {
+				return listTools.call(this, params, {
+					...options,
+					timeout: 3000,
+					maxTotalTimeout: 3000,
+				});
+			});
+		}
+
 		const client = withLocalPlugins(searching, {
 			request: async () => [{ address: "remote.tool" }],
 		});
@@ -198,6 +229,8 @@ describe("local plugins", () => {
 				.map(Number);
 			const stalled = mode === "connect" ? pids.slice(5) : pids.slice(0, 4);
 			expect(stalled).toHaveLength(4);
+			for (const pid of stalled)
+				expect(() => process.kill(pid, 0)).not.toThrow();
 			await expect
 				.poll(
 					() =>
@@ -233,4 +266,60 @@ describe("local plugins", () => {
 			}
 		}
 	}, 15000);
+	it.each([
+		"connect",
+		"list",
+	])("keeps slow %s work and concurrent calls alive after the search stops waiting", async (mode) => {
+		const { store, directory } = await setup();
+		const stall = join(directory, "slow");
+		const starts = join(directory, "slow-starts");
+		await writeFile(stall, "");
+		await writeFile(starts, "");
+		const added = await store.request({
+			...config,
+			env: {
+				...config.env,
+				LOCAL_PLUGIN_STALL_FILE: stall,
+				LOCAL_PLUGIN_START_LOG: starts,
+			},
+		});
+		if (added.kind !== "attempt") throw new Error("Expected attempt");
+		const address = `tools.${added.pluginId}.user.${added.connectionId}.echo`;
+		let searching = store;
+		if (mode === "connect") {
+			await store.close();
+			searching = new LocalPlugins(directory, "account-a");
+			stores.push(searching);
+		}
+		await writeFile(stall, `slow-${mode}`);
+		const client = withLocalPlugins(searching, {
+			request: async () => [{ address: "remote.tool" }],
+		});
+		const search = client.request({ action: "search", query: "" });
+		await expect
+			.poll(
+				async () => (await readFile(starts, "utf8")).trim().split("\n").length,
+			)
+			.toBe(mode === "connect" ? 2 : 1);
+		const call = searching
+			.tools({
+				action: "call",
+				address,
+				arguments: { text: mode === "connect" ? "hello" : "slow" },
+			})
+			.then(
+				(value) => ({ value }),
+				(error) => ({ error }),
+			);
+		expect(await search).toEqual([{ address: "remote.tool" }]);
+		expect(await call).toMatchObject({
+			value: {
+				content: [{ text: mode === "connect" ? "test:hello" : "test:slow" }],
+			},
+		});
+		expect(await client.request({ action: "search", query: "" })).toEqual([
+			{ address, description: "Echo fixture" },
+			{ address: "remote.tool" },
+		]);
+	}, 12000);
 });

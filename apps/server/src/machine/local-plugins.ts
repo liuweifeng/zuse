@@ -39,6 +39,7 @@ const prefix = (row: LocalServer) => `tools.${row.id}.user.${row.id}.`;
 const timeout = { timeout: 30_000, maxTotalTimeout: 30_000 };
 const SEARCH_TIMEOUT_MS = 2_000;
 const DISCOVERY_RETRY_MS = 10_000;
+const DISCOVERY_CACHE_MS = 30_000;
 interface DiscoveryBudget {
 	readonly signal: AbortSignal;
 }
@@ -46,13 +47,11 @@ interface LocalClient {
 	readonly client: Client;
 	readonly transport: StdioClientTransport;
 	ready: Promise<Client>;
+	discovery?: {
+		result: Promise<Awaited<ReturnType<typeof discoverTools>>>;
+		expiresAt: number;
+	};
 }
-
-/** Share one deadline across startup, cached connections, and every discovery page. */
-const requestOptions = (budget?: DiscoveryBudget) => {
-	budget?.signal.throwIfAborted();
-	return { ...timeout, signal: budget?.signal };
-};
 
 /** Bound waiting for an already-started connection without leaving an abort listener behind. */
 async function withinDeadline<A>(
@@ -72,13 +71,14 @@ async function withinDeadline<A>(
 	}
 }
 
-/** Discover a bounded number of tools, rejecting repeated cursors and expired searches. */
-async function discoverTools(client: Client, budget?: DiscoveryBudget) {
+/** Discovery has its own regular timeout, independent of any search waiting for it. */
+async function discoverTools(client: Client) {
+	const signal = AbortSignal.timeout(timeout.timeout);
 	const tools = [];
 	const seen = new Set<string>();
 	let cursor: string | undefined;
 	do {
-		const page = await client.listTools({ cursor }, requestOptions(budget));
+		const page = await client.listTools({ cursor }, { ...timeout, signal });
 		tools.push(...page.tools);
 		cursor = page.nextCursor;
 		if (cursor && seen.has(cursor))
@@ -140,7 +140,7 @@ export class LocalPlugins {
 	}
 	private async withClient<A>(
 		row: LocalServer,
-		run: (client: Client) => Promise<A>,
+		run: (client: Client, entry: LocalClient) => Promise<A>,
 		budget?: DiscoveryBudget,
 	): Promise<A> {
 		if (this.closed) throw new Error("Local plugins have shut down");
@@ -164,7 +164,7 @@ export class LocalPlugins {
 			};
 			client.onclose = forget;
 			created.ready = client
-				.connect(transport, requestOptions(budget))
+				.connect(transport, timeout)
 				.then(() => client)
 				.catch((error) => {
 					forget();
@@ -174,16 +174,34 @@ export class LocalPlugins {
 			this.clients.set(row.id, created);
 			entry = created;
 		}
-		try {
-			const client = budget
-				? await withinDeadline(entry.ready, budget.signal)
-				: await entry.ready;
-			return await run(client);
-		} catch (error) {
-			// Evict cached clients too; cleanup must not extend the discovery deadline.
-			if (budget) void this.disconnect(row.id, entry).catch(() => undefined);
-			throw error;
-		}
+		const activeEntry = entry;
+		const operation = entry.ready
+			.then((client) => run(client, activeEntry))
+			.catch((error) => {
+				// A true startup/discovery failure owns eviction, even after its search returned.
+				if (budget) {
+					this.failedUntil.set(row.id, Date.now() + DISCOVERY_RETRY_MS);
+					void this.disconnect(row.id, activeEntry).catch(() => undefined);
+				}
+				throw error;
+			});
+		return budget ? withinDeadline(operation, budget.signal) : operation;
+	}
+
+	/** Share pending discovery and briefly retain late results for subsequent searches. */
+	private discover(entry: LocalClient) {
+		if (entry.discovery && entry.discovery.expiresAt > Date.now())
+			return entry.discovery.result;
+		const discovery: NonNullable<LocalClient["discovery"]> = {
+			result: discoverTools(entry.client),
+			expiresAt: Infinity,
+		};
+		discovery.result = discovery.result.then((tools) => {
+			discovery.expiresAt = Date.now() + DISCOVERY_CACHE_MS;
+			return tools;
+		});
+		entry.discovery = discovery;
+		return discovery.result;
 	}
 
 	/** Saved connections are account-scoped metadata, not a live upstream health probe. */
@@ -315,8 +333,8 @@ export class LocalPlugins {
 						try {
 							return await this.withClient(
 								row,
-								async (client) => {
-									const tools = await discoverTools(client, budget);
+								async (_client, entry) => {
+									const tools = await this.discover(entry);
 									return tools
 										.filter((tool) =>
 											terms.every((term) =>
@@ -333,7 +351,6 @@ export class LocalPlugins {
 								budget,
 							);
 						} catch {
-							this.failedUntil.set(row.id, Date.now() + DISCOVERY_RETRY_MS);
 							return [];
 						}
 					}),
