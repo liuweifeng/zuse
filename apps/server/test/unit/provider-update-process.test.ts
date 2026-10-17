@@ -2,6 +2,21 @@ import { Effect, Stream } from "effect";
 import { expect, it, vi } from "vitest";
 import { startProviderUpdate } from "../../src/provider/services/update-service.ts";
 
+it.each([0, 7])("reports update output and exit code %s", async (code) => {
+	const events = await Effect.runPromise(
+		startProviderUpdate("claude", `echo update-ready && exit ${code}`).pipe(
+			Stream.runCollect,
+		),
+	);
+	expect(events[0]).toEqual({ _tag: "log", text: "update-ready" });
+	expect(events[1]).toMatchObject({ _tag: "done", ok: code === 0 });
+	if (code !== 0)
+		expect(events[1]).toHaveProperty(
+			"reason",
+			"Update failed (exit 7): update-ready",
+		);
+});
+
 it.skipIf(process.platform !== "win32").each(["cancellation", "timeout"])(
 	"update %s stops its descendant process",
 	async (mode) => {

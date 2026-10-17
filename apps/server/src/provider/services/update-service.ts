@@ -1,4 +1,8 @@
-import { type ChildProcessByStdio, spawn } from "node:child_process";
+import {
+	type ChildProcessByStdio,
+	type SpawnOptionsWithStdioTuple,
+	spawn,
+} from "node:child_process";
 import { homedir } from "node:os";
 import * as readline from "node:readline";
 import type { Readable } from "node:stream";
@@ -62,11 +66,18 @@ const spawnUpdate = (
 				command,
 				process.env,
 			);
-			child = spawn(shell.command, [...shell.args], {
+			const options: SpawnOptionsWithStdioTuple<"ignore", "pipe", "pipe"> = {
 				cwd: homedir(),
 				env: process.env,
 				stdio: ["ignore", "pipe", "pipe"],
-			});
+			};
+			// Node's shell mode applies CMD's outer quotes and verbatim argument
+			// handling together. Passing a script as a normal argv item corrupts
+			// embedded quotes (including executable paths containing spaces).
+			child =
+				process.platform === "win32"
+					? spawn(command, { ...options, shell: shell.command })
+					: spawn(shell.command, [...shell.args], options);
 		} catch (cause) {
 			yield* Queue.end(events);
 			return yield* Effect.fail(
