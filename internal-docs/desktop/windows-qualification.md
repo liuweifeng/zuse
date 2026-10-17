@@ -4,7 +4,31 @@ Windows support is under qualification. A successful hosted CI job is not eviden
 that the installed application is reliable on a 4 GB laptop. Windows artifacts are
 not included in the public release publisher or update feeds yet.
 
-## Passing compatibility candidate
+## Latest setup candidate
+
+The owner's `windows-support` branch at `a6d0f103` was tested with `bun dev`,
+not an installed EXE. Its duplicate `win`/`nsis` YAML sections prevented packaging
+in [run 39041498860](https://github.com/swarajbachu/zuse/actions/runs/39041498860).
+The integrated branch retains the project-loading, provider, and cold-start fixes,
+combines the installer sections, preserves native-file pruning and user data, and
+adds desktop/Start menu shortcuts. A config regression test covers this failure.
+Unsigned Windows publication remains excluded from the public release pipeline.
+
+[Run 39043451240](https://github.com/swarajbachu/zuse/actions/runs/39043451240)
+passed at `586c5a42` on 2026-10-17, including native runtime checks, two development
+launches, installation, twenty installed launches across reinstall, preference
+preservation, protocol registration, uninstall, and engine/provider recovery.
+The [current setup artifact](https://github.com/swarajbachu/zuse/actions/runs/39043451240/artifacts/12105491917)
+contains `Zuse-0.22.1-windows-x64-setup.exe`; extract the ZIP before running it.
+It is unsigned and retained for seven days. The laptop's installed-app test and
+constrained-device qualification remain outstanding.
+
+On the hosted runner, median readiness was 6.02 s before reinstall and 6.01 s after
+reinstall; median summed startup working sets were 894 MiB and 913 MiB respectively.
+No matching Application crash events were recorded. These are startup snapshots
+on the hosted runner, not a 4 GB soak or evidence of sustained memory behavior.
+
+## Earlier passing compatibility candidate
 
 [Windows CI run 38954164943](https://github.com/swarajbachu/zuse/actions/runs/38954164943)
 passed at `17eef7b3` on 2026-10-16. The runner reported Windows build
