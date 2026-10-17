@@ -22,6 +22,7 @@ import {
 	isModelVisible,
 	type ModelOption,
 	PROVIDER_LABELS,
+	resolveModelSlug,
 	type SelectOptionDescriptor,
 	selectableCatalogProviderIds,
 } from "@zuse/contracts";
@@ -139,14 +140,18 @@ export function ModelPicker(props: ModelPickerProps) {
 				]
 			: undefined,
 	);
+	const catalog = useModelCatalogStore((s) => s.catalog);
 	const providerId =
 		pendingSelection?.providerId ??
 		(isDefault ? defaultProviderId : props.providerId);
-	const currentModel =
+	const currentModel = resolveModelSlug(
+		catalog,
+		providerId,
 		pendingSelection?.model ??
-		(isDefault
-			? (defaultModelByProvider[providerId] ?? "default")
-			: props.currentModel);
+			(isDefault
+				? (defaultModelByProvider[providerId] ?? "default")
+				: props.currentModel),
+	);
 
 	const selectSessionModel = useSessionsStore((s) => s.selectModel);
 	const setDefaultProviderAndModel = useSettingsStore(
@@ -186,7 +191,6 @@ export function ModelPicker(props: ModelPickerProps) {
 				: refreshFor(providerEnvironmentId),
 		[providerEnvironmentId, refresh, refreshFor],
 	);
-	const catalog = useModelCatalogStore((s) => s.catalog);
 	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
 
 	useEffect(() => {
@@ -260,7 +264,13 @@ export function ModelPicker(props: ModelPickerProps) {
 					label: m.label,
 					...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
 				})),
-				...(customModelIdsByProvider[pid] ?? [])
+				...Array.from(
+					new Set(
+						(customModelIdsByProvider[pid] ?? []).map((id) =>
+							resolveModelSlug(catalog, pid, id),
+						),
+					),
+				)
 					.filter((modelId) => !existingIds.has(modelId))
 					.map((modelId) => ({ id: modelId, label: modelId })),
 			];
@@ -640,7 +650,11 @@ export function ModelPicker(props: ModelPickerProps) {
 															currentModelId={currentModel}
 															onSelect={handlePick}
 															defaultProviderId={defaultProviderId}
-															defaultModelByProvider={defaultModelByProvider}
+															defaultModelId={resolveModelSlug(
+																catalog,
+																m.providerId,
+																defaultModelByProvider[m.providerId] ?? "",
+															)}
 															onSetDefault={setDefaultProviderAndModel}
 															shortcut={shortcutFor(m.providerId, m.modelId)}
 														/>
@@ -678,7 +692,11 @@ export function ModelPicker(props: ModelPickerProps) {
 														currentModelId={currentModel}
 														onSelect={handlePick}
 														defaultProviderId={defaultProviderId}
-														defaultModelByProvider={defaultModelByProvider}
+														defaultModelId={resolveModelSlug(
+															catalog,
+															m.providerId,
+															defaultModelByProvider[m.providerId] ?? "",
+														)}
 														onSetDefault={setDefaultProviderAndModel}
 														shortcut={shortcutFor(m.providerId, m.modelId)}
 														showProvider={scope === "all"}
@@ -825,7 +843,7 @@ function ModelRow({
 	currentProviderId,
 	currentModelId,
 	defaultProviderId,
-	defaultModelByProvider,
+	defaultModelId,
 	onSelect,
 	onSetDefault,
 	dense = false,
@@ -836,7 +854,7 @@ function ModelRow({
 	currentProviderId: ProviderId;
 	currentModelId: string;
 	defaultProviderId: ProviderId;
-	defaultModelByProvider: Record<ProviderId, string>;
+	defaultModelId: string;
 	onSelect: (providerId: ProviderId, modelId: string) => void;
 	onSetDefault: (providerId: ProviderId, modelId: string) => void;
 	dense?: boolean;
@@ -848,8 +866,7 @@ function ModelRow({
 	const isActive =
 		entry.providerId === currentProviderId && entry.modelId === currentModelId;
 	const isDefault =
-		entry.providerId === defaultProviderId &&
-		defaultModelByProvider[entry.providerId] === entry.modelId;
+		entry.providerId === defaultProviderId && defaultModelId === entry.modelId;
 	const select = () => onSelect(entry.providerId, entry.modelId);
 	const onRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (event.key !== "Enter" && event.key !== " ") return;
