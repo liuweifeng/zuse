@@ -1,11 +1,17 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	connectLocalEngine,
+	readEngineEndpoint,
+} from "../apps/server/src/desktop-engine/index.ts";
 import deploymentProfiles from "../packages/contracts/src/deployment-profiles.json" with {
 	type: "json",
 };
 import { stopOwnedProcess } from "../packages/utils/src/owned-process.ts";
+import { resolveZuseDesktopUserData } from "../packages/utils/src/zuse-user-data.ts";
 
 import {
 	devInstanceDiagnostics,
@@ -16,7 +22,14 @@ import {
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, "..");
+const managedChildPath = resolve(scriptDir, "dev-child.mjs");
 const rendererHost = process.env.HOST?.trim() || "localhost";
+const defaultUserData = resolveZuseDesktopUserData({
+	platform: process.platform,
+	homeDir: homedir(),
+	env: process.env,
+	development: true,
+});
 
 const portAvailable = (port, kind) =>
 	new Promise((resolveAvailable) => {
@@ -29,6 +42,23 @@ const portAvailable = (port, kind) =>
 		server.once("listening", () => server.close(() => finish(true)));
 		server.listen(port, kind === "renderer" ? rendererHost : "127.0.0.1");
 	});
+
+const reusableDefaultEngine = async (initial, port, kind) => {
+	if (kind !== "websocket" || !initial.defaultProfile) return false;
+	const endpoint = await readEngineEndpoint(defaultUserData);
+	if (endpoint === null || endpoint.apiPort !== port) return false;
+	try {
+		const channel = await connectLocalEngine(endpoint, {
+			receive: () => {},
+			signal: AbortSignal.timeout(2_000),
+		});
+		channel.close();
+		await channel.closed;
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 let instance;
 try {
@@ -44,6 +74,7 @@ try {
 				portAvailable,
 				(rendererPort, websocketPort) =>
 					reserveDevPortPair(repoRoot, rendererPort, websocketPort),
+				(port, kind) => reusableDefaultEngine(initial, port, kind),
 			);
 } catch (error) {
 	console.error(error instanceof Error ? error.message : String(error));
@@ -59,11 +90,23 @@ const devStartedAt = Date.now();
 const children = [];
 let shuttingDown = false;
 
-function run(name, command, args, extraEnv = {}, cooperative = false) {
+function run(
+	name,
+	command,
+	args,
+	extraEnv = {},
+	cooperative = false,
+	isolated = false,
+) {
 	const child = spawn(command, args, {
 		cwd: repoRoot,
-		stdio: cooperative ? ["inherit", "inherit", "inherit", "ipc"] : "inherit",
-		detached: !cooperative && process.platform !== "win32",
+		stdio: cooperative
+			? [isolated ? "ignore" : "inherit", "inherit", "inherit", "ipc"]
+			: ["ignore", "inherit", "inherit"],
+		// Isolate non-cooperative watchers from Ctrl+C on Windows as well. This lets
+		// shutdown own their still-live wrapper PID and retire the complete tree;
+		// ignoring stdin also keeps the PTY's Ctrl+C byte from reaching them first.
+		detached: isolated || !cooperative,
 		windowsHide: true,
 		env: { ...process.env, ...extraEnv, FORCE_COLOR: "1" },
 	});
@@ -79,6 +122,17 @@ function run(name, command, args, extraEnv = {}, cooperative = false) {
 		void shutdown(code ?? 1);
 	});
 	children.push({ name, child, cooperative });
+}
+
+function runManaged(name, command, args, extraEnv = {}) {
+	run(
+		name,
+		process.execPath,
+		[managedChildPath, command, ...args],
+		extraEnv,
+		true,
+		true,
+	);
 }
 
 async function shutdown(code) {
@@ -137,13 +191,13 @@ const sharedEnv = {
 	ZUSE_DESKTOP_DIR: resolve(repoRoot, "apps", "desktop"),
 	ZUSE_RENDERER_DIST_DIR: resolve(repoRoot, "apps", "renderer", "dist"),
 };
-run("renderer", "bun", ["run", "--filter", "renderer", "dev"], {
+runManaged("renderer", "bun", ["run", "--filter", "renderer", "dev"], {
 	...sharedEnv,
 	PORT: String(instance.rendererPort),
 	HOST: rendererHost,
 	ZUSE_VITE_CACHE_DIR: instance.viteCacheDir,
 });
-run(
+runManaged(
 	"desktop:bundle",
 	"bun",
 	["run", "--filter", "desktop", "dev:bundle"],

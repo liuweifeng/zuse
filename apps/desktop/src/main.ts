@@ -128,6 +128,7 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { showOwnedOpenDialog } from "./owned-open-dialog.ts";
 import { desktopRemoteAccessPolicy } from "./remote-access-policy.ts";
 import {
 	createTitleBarOverlay,
@@ -1320,10 +1321,7 @@ ipcMain.handle(
 				"openDirectory" | "createDirectory"
 			>,
 		};
-		const selection =
-			mainWindow === null
-				? await dialog.showOpenDialog(options)
-				: await dialog.showOpenDialog(mainWindow, options);
+		const selection = await showOwnedOpenDialog(dialog, mainWindow, options);
 		const directory = selection.filePaths[0];
 		if (selection.canceled || directory === undefined) return null;
 		const timestamp = report.summary.startedAt
@@ -1837,7 +1835,7 @@ const attachDesktopHost = () => {
 		request: async (request, signal) => {
 			signal.throwIfAborted();
 			if (request.method === "pickFolder") {
-				const result = await dialog.showOpenDialog({
+				const result = await showOwnedOpenDialog(dialog, mainWindow, {
 					defaultPath: app.getPath("home"),
 					properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
 				});

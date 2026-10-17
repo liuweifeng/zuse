@@ -37,7 +37,7 @@ test("named instances produce deterministic isolated resources", () => {
 	assert.match(portablePath(first.userDataDir), /review\/user-data$/u);
 	assert.match(portablePath(first.packDir), /review\/dist-electron$/u);
 	assert.match(portablePath(first.cliAccessFile), /review\/cli-access\.json$/u);
-	assert.match(portablePath(first.viteCacheDir), /review\/vite-cache$/u);
+	assert.match(portablePath(first.viteCacheDir), /review\/vite-cache-v2$/u);
 	assert.equal(first.viteCacheDir, second.viteCacheDir);
 });
 
@@ -55,7 +55,7 @@ test("the first unnamed instance preserves the existing development profile", ()
 		portablePath(instance.cliAccessFile),
 		/default\/cli-access\.json$/u,
 	);
-	assert.match(portablePath(instance.viteCacheDir), /default\/vite-cache$/u);
+	assert.match(portablePath(instance.viteCacheDir), /default\/vite-cache-v2$/u);
 	assert.equal(
 		devInstanceDiagnostics(instance).dataDirectory,
 		"Electron default (existing Zuse Alpha (Dev) profile)",
@@ -109,7 +109,10 @@ test("scans paired ports forward and fails occupied explicit overrides", async (
 		portablePath(scanned.cliAccessFile),
 		/scan-p5735\/cli-access\.json$/u,
 	);
-	assert.match(portablePath(scanned.viteCacheDir), /scan-p5735\/vite-cache$/u);
+	assert.match(
+		portablePath(scanned.viteCacheDir),
+		/scan-p5735\/vite-cache-v2$/u,
+	);
 	assert.notEqual(scanned.viteCacheDir, initial.viteCacheDir);
 
 	const explicit = initialDevInstance({
@@ -136,7 +139,29 @@ test("automatic scans isolate the development profile after a port collision", a
 	assert.equal(scanned.instance, "port-5734");
 	assert.match(portablePath(scanned.userDataDir), /port-5734\/user-data$/u);
 	assert.match(portablePath(scanned.packDir), /port-5734\/dist-electron$/u);
-	assert.match(portablePath(scanned.viteCacheDir), /port-5734\/vite-cache$/u);
+	assert.match(
+		portablePath(scanned.viteCacheDir),
+		/port-5734\/vite-cache-v2$/u,
+	);
+});
+
+test("the default profile reuses its authenticated running engine", async () => {
+	const initial = initialDevInstance({
+		argv: [],
+		env: {},
+		repoRoot: "/workspace",
+	});
+	const selected = await withScannedPorts(
+		initial,
+		async (port) => port !== 8788,
+		async () => () => {},
+		async (port, kind) => kind === "websocket" && port === 8788,
+	);
+
+	assert.equal(selected.instance, "port-5733");
+	assert.equal(selected.rendererPort, 5733);
+	assert.equal(selected.websocketPort, 8788);
+	assert.equal(selected.userDataDir, undefined);
 });
 
 test("atomically reserves a pair and scans past a concurrent runner", async () => {
@@ -192,6 +217,6 @@ test("dry-run diagnostics contain every isolated resource", () => {
 	);
 	assert.match(
 		portablePath(diagnostics.viteCacheDirectory),
-		/\/workspace\/.zuse\/dev-instances\/diagnostic\/vite-cache$/u,
+		/\/workspace\/.zuse\/dev-instances\/diagnostic\/vite-cache-v2$/u,
 	);
 });
