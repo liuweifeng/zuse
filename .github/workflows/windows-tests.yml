@@ -88,9 +88,9 @@ jobs:
           exit $LASTEXITCODE
       - name: Development runner and packaging regression tests
         run: |
-          node --test scripts/dev-startup.test.mjs apps/desktop/scripts/dev-app-process.test.mjs apps/desktop/scripts/cursor-sdk-package.test.mjs
+          node --test scripts/dev-startup.test.mjs apps/desktop/scripts/dev-app-process.test.mjs apps/desktop/scripts/cursor-sdk-package.test.mjs apps/desktop/scripts/packaging-config.test.mjs
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bunx vitest run apps/desktop/test/unit/package-content.test.ts tests/system/test/unit/power-benchmark.test.ts packages/utils/test/unit/owned-process-retry.test.ts packages/utils/test/unit/spawn-command.test.ts apps/server/test/unit/node-pty-helper.test.ts
+          bunx vitest run apps/desktop/test/unit/package-content.test.ts tests/system/test/unit/power-benchmark.test.ts packages/utils/test/unit/owned-process-retry.test.ts packages/utils/test/unit/spawn-command.test.ts apps/server/test/unit/node-pty-helper.test.ts apps/desktop/test/unit/owned-open-dialog.test.ts packages/utils/test/unit/shell-command.test.ts apps/server/test/unit/availability.test.ts
           exit $LASTEXITCODE
       - name: Reproduce development startup and repeated shutdown
         run: node --import tsx tests/system/scripts/windows-dev-smoke.ts

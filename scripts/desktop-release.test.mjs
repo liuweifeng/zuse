@@ -93,7 +93,7 @@ test("publication requires both platforms and verifies manifest hashes", () => {
 	const metadata = releaseMetadata("0.22.0-preview.1");
 	try {
 		assert.throws(() => verifyReleaseAssets(directory, metadata), /Missing/);
-		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
 			const url = `Zuse-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, url), extension);
 			return {
@@ -108,13 +108,9 @@ test("publication requires both platforms and verifies manifest hashes", () => {
 		);
 		writeFileSync(
 			join(directory, "preview-linux.yml"),
-			stringify({ version: metadata.version, files: files.slice(2, 4) }),
+			stringify({ version: metadata.version, files: files.slice(2) }),
 		);
-		writeFileSync(
-			join(directory, "preview.yml"),
-			stringify({ version: metadata.version, files: files.slice(4) }),
-		);
-		assert.equal(verifyReleaseAssets(directory, metadata).length, 8);
+		assert.equal(verifyReleaseAssets(directory, metadata).length, 6);
 		writeFileSync(join(directory, files[1].url), "corrupted");
 		assert.throws(
 			() => verifyReleaseAssets(directory, metadata),
@@ -129,7 +125,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 	const directory = mkdtempSync(join(tmpdir(), "zuse-safe-artifact-names-"));
 	const metadata = releaseMetadata("0.22.0-preview.1");
 	try {
-		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
 			const local = `Zuse (Beta)-${metadata.version}.${extension}`;
 			const url = `desktop-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, local), extension);
@@ -144,7 +140,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 				local,
 			};
 		});
-		for (const [index, platform] of ["-mac", "-linux", ""].entries())
+		for (const [index, platform] of ["-mac", "-linux"].entries())
 			writeFileSync(
 				join(directory, `preview${platform}.yml`),
 				stringify({
@@ -160,7 +156,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 		);
 		writeFileSync(join(directory, zip.local), "zip");
 		prepareReleaseAssets(directory, metadata);
-		assert.equal(verifyReleaseAssets(directory, metadata).length, 13);
+		assert.equal(verifyReleaseAssets(directory, metadata).length, 10);
 		for (const file of files)
 			assert.equal(
 				readFileSync(join(directory, `${file.url}.blockmap`), "utf8"),
@@ -200,7 +196,7 @@ test("a failed upload leaves a draft and never publishes; a verified retry keeps
 		notes: "### Added\n\n- Choose Preview updates.",
 	};
 	try {
-		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
 			const url = `Zuse-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, url), extension);
 			return {
@@ -209,7 +205,7 @@ test("a failed upload leaves a draft and never publishes; a verified retry keeps
 				sha512: createHash("sha512").update(extension).digest("base64"),
 			};
 		});
-		const manifests = ["preview-mac.yml", "preview-linux.yml", "preview.yml"];
+		const manifests = ["preview-mac.yml", "preview-linux.yml"];
 		for (const [index, name] of manifests.entries())
 			writeFileSync(
 				join(directory, name),

@@ -1,6 +1,6 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, extname, isAbsolute, join } from "node:path";
+import { extname, isAbsolute, join, win32 } from "node:path";
 import type { PlanType } from "@zuse/agents/codex-generated/PlanType";
 import type { Account } from "@zuse/agents/codex-generated/v2/Account";
 import type { GetAccountResponse } from "@zuse/agents/codex-generated/v2/GetAccountResponse";
@@ -198,8 +198,8 @@ export const selectCliPathCandidate = (
 		);
 		if (native !== undefined) return native;
 		for (const candidate of candidates) {
-			const npmEntrypoint = join(
-				dirname(candidate),
+			const npmEntrypoint = win32.join(
+				win32.dirname(candidate),
 				"node_modules",
 				"@anthropic-ai",
 				"claude-code",

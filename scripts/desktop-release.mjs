@@ -70,8 +70,7 @@ function releaseManifestFiles(directory, metadata, platform) {
 		info.files.length === 0
 	)
 		throw new Error(`Invalid ${manifest}`);
-	const extension =
-		platform === "-mac" ? ".zip" : platform === "-linux" ? ".AppImage" : ".exe";
+	const extension = platform === "-mac" ? ".zip" : ".AppImage";
 	if (!info.files.some((file) => file.url.endsWith(extension)))
 		throw new Error(`${manifest} has no ${extension}`);
 	return info.files.map((file) => {
@@ -86,7 +85,7 @@ function releaseManifestFiles(directory, metadata, platform) {
 // display names on local macOS archives. Match content before adopting those
 // names; never infer an archive from its position or filename alone.
 export function prepareReleaseAssets(directory, metadata) {
-	for (const platform of ["-mac", "-linux", ""]) {
+	for (const platform of ["-mac", "-linux"]) {
 		for (const file of releaseManifestFiles(directory, metadata, platform)) {
 			const { name } = file;
 			const destination = join(directory, name);
@@ -124,7 +123,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		)
 			throw new Error(`Orphaned blockmap: ${name}`);
 	}
-	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb", ".exe"]) {
+	for (const suffix of [".dmg", ".zip", ".AppImage", ".deb"]) {
 		if (
 			!names.some(
 				(name) => name.endsWith(suffix) && name.includes(metadata.version),
@@ -132,7 +131,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		)
 			throw new Error(`Missing ${suffix} for ${metadata.version}`);
 	}
-	for (const platform of ["-mac", "-linux", ""]) {
+	for (const platform of ["-mac", "-linux"]) {
 		for (const file of releaseManifestFiles(directory, metadata, platform)) {
 			const { name } = file;
 			const path = join(directory, name);
@@ -141,7 +140,7 @@ export function verifyReleaseAssets(directory, metadata) {
 		}
 	}
 	return names.filter((name) =>
-		/\.(dmg|zip|AppImage|deb|exe|yml|blockmap)$/.test(name),
+		/\.(dmg|zip|AppImage|deb|yml|blockmap)$/.test(name),
 	);
 }
 

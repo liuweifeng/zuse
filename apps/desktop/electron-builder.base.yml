@@ -164,22 +164,6 @@ linux:
     StartupWMClass: zuse
     Terminal: false
 
-win:
-  target:
-    - target: nsis
-      arch: x64
-  icon: build/icon.png
-  executableName: Zuse
-  artifactName: Zuse-${version}-windows-${arch}-setup.${ext}
-
-nsis:
-  oneClick: false
-  perMachine: false
-  allowToChangeInstallationDirectory: true
-  createDesktopShortcut: always
-  createStartMenuShortcut: true
-  shortcutName: Zuse (Beta)
-
 deb:
   packageName: zuse
   afterInstall: build/linux/after-install.tpl
@@ -240,3 +224,6 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Zuse (Beta)

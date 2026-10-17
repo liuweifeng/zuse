@@ -128,8 +128,6 @@ jobs:
             platform: mac
           - os: ubuntu-24.04
             platform: linux
-          - os: windows-2025
-            platform: windows
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -151,8 +149,6 @@ jobs:
             ~/Library/Caches/electron-builder
             ~/.cache/electron
             ~/.cache/electron-builder
-            ~\AppData\Local\electron\Cache
-            ~\AppData\Local\electron-builder\Cache
           key: ${{ runner.os }}-electron-builder-${{ hashFiles('**/bun.lock') }}
       - run: bun install --frozen-lockfile "--cpu=*"
         env:
@@ -166,8 +162,7 @@ jobs:
       - run: bun run icons:status --expect=paid
       - name: Verify localization
         run: bun run check:i18n
-      - name: Build on macOS and Linux
-        if: matrix.platform != 'windows'
+      - name: Build
         env:
           NODE_OPTIONS: --max-old-space-size=6144
           WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
@@ -177,23 +172,6 @@ jobs:
         run: |
           test -n "$ZUSE_POSTHOG_KEY"
           test -n "$VITE_POSTHOG_KEY"
-          bun run build:desktop
-      - name: Build on Windows
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        env:
-          NODE_OPTIONS: --max-old-space-size=6144
-          WORKOS_CLIENT_ID: ${{ secrets.WORKOS_CLIENT_ID }}
-          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
-          ZUSE_POSTHOG_KEY: ${{ secrets.ZUSE_POSTHOG_KEY }}
-          VITE_POSTHOG_KEY: ${{ secrets.VITE_POSTHOG_KEY }}
-          NODE_ENV: production
-        run: |
-          foreach ($name in 'LINEAR_CLIENT_ID', 'ZUSE_POSTHOG_KEY', 'VITE_POSTHOG_KEY') {
-            if ([string]::IsNullOrWhiteSpace((Get-Item "Env:$name").Value)) {
-              throw "$name is required"
-            }
-          }
           bun run build:desktop
       - name: Package, sign, and notarize macOS
         if: matrix.platform == 'mac'
@@ -216,13 +194,6 @@ jobs:
         env:
           UPDATE_CHANNEL: ${{ needs.resolve.outputs.updateChannel }}
         run: bunx electron-builder --linux AppImage deb --x64 --publish never -c.publish.channel="$UPDATE_CHANNEL"
-      - name: Package Windows
-        if: matrix.platform == 'windows'
-        working-directory: apps/desktop
-        shell: pwsh
-        env:
-          UPDATE_CHANNEL: ${{ needs.resolve.outputs.updateChannel }}
-        run: bunx electron-builder --win nsis --x64 --publish never "-c.publish.channel=$env:UPDATE_CHANNEL"
       - name: Smoke test packaged Linux app
         if: matrix.platform == 'linux'
         env:
@@ -237,7 +208,6 @@ jobs:
             dist/*.zip
             dist/*.AppImage
             dist/*.deb
-            dist/*.exe
             dist/latest*.yml
             dist/preview*.yml
             dist/*.blockmap
@@ -278,11 +248,6 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-linux
-          path: release-assets
-          merge-multiple: true
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: desktop-windows
           path: release-assets
           merge-multiple: true
       - name: Verify all artifacts and publish atomically

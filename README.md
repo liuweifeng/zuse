@@ -2,15 +2,16 @@
 
 A chat-first desktop app for developers who work with AI coding agents. Wraps Claude Code, Codex, Grok, Gemini, Cursor, and OpenCode in a persistent, project-aware interface — structured chat history, rich composer, file viewer, integrated terminal, git worktrees, and session management, all stored locally.
 
-> Supports Windows x64, macOS, and x64 Linux. Requires at least one supported agent CLI installed.
+> Supports macOS and x64 Linux, with Windows x64 available as a test candidate. Requires at least one supported agent CLI installed.
 
 ---
 
 ## Install on Windows
 
-Download the latest `Zuse-*-windows-x64-setup.exe` from
-[GitHub Releases](https://github.com/swarajbachu/zuse/releases/latest) and run
-the installer. The per-user installer does not require administrator access
+Download the `windows-candidate-*` artifact from a successful
+[Windows compatibility run](https://github.com/swarajbachu/zuse/actions/workflows/windows-tests.yml),
+extract the ZIP, and run `Zuse-*-windows-x64-setup.exe`. These unsigned test
+installers are not yet public releases; artifacts expire after seven days. The per-user installer does not require administrator access
 and creates Start menu and desktop shortcuts.
 
 Before starting an agent session, install and authenticate at least one of the
@@ -142,7 +143,7 @@ Pi: install with `npm install -g --ignore-scripts @earendil-works/pi-coding-agen
 - Keychain-backed API keys (no plaintext storage)
 - Signed + notarized macOS universal `.dmg` (Apple Silicon + Intel)
 - Linux x64 `.AppImage` and Debian/Ubuntu `.deb`
-- Windows x64 NSIS installer with in-app auto-update
+- Windows x64 NSIS test installer (public release and update qualification pending)
 - In-app auto-update via GitHub Releases
 
 ---
@@ -229,10 +230,10 @@ bun run dist:linux:unsigned
 bun run dist:win:unsigned
 ```
 
-Requires: Bun 1.3.10 and Node.js ≥ 22.13. On Windows, run these commands from
-PowerShell; the bundled `node-pty` and `keytar` prebuilds support x64 Windows.
-The unsigned packaging command also works when Windows Developer Mode is off;
-release packaging retains normal executable metadata and signing support.
+Use Bun 1.3.10 and Node.js 24 for Windows builds. Run these commands from
+PowerShell with Python and Visual Studio C++ build tools installed: native
+`node-pty` and `keytar` bindings are rebuilt for Electron. See the
+[Windows qualification guide](internal-docs/desktop/windows-qualification.md).
 
 Changes to the macOS awake controller require the
 [physical MacBook release check](internal-docs/testing/mac-computer-awake.md), including
