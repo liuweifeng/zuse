@@ -12,6 +12,12 @@
 			"!!**/dist",
 			"!!**/dist-electron",
 			"!!**/node_modules",
+			"!!apps/android/**/build",
+			"!!apps/android/.gradle",
+			"!!apps/android/.kotlin",
+			"!!apps/android/app/src/main/assets/native/UIParser.js",
+			"!!apps/android/app/src/main/assets/native/Mermaid.js",
+			"!!apps/android/app/src/debug/assets/native/visual-preview.json",
 			"!!packages/executor-v2/vendor/runtime.mjs"
 		]
 	},

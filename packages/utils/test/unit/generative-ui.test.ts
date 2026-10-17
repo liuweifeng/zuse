@@ -270,3 +270,25 @@ views = Tabs([{label: "Before", content: Text("a")}, {label: "After", content: T
 		if (!result.ok) expect(result.error).toContain(reason);
 	});
 });
+
+// Native clients consume the same validated tree as the web renderer.
+describe("native render trees", () => {
+	it("returns structured components without interpreting arbitrary JavaScript", async () => {
+		const { parseGenerativeUiSpec } = await import(
+			"../../src/generative-ui.ts"
+		);
+		expect(
+			parseGenerativeUiSpec('root = Card([Text("Hello")], "Status")'),
+		).toMatchObject({
+			typeName: "Card",
+			props: {
+				title: "Status",
+				children: [{ typeName: "Text", props: { text: "Hello" } }],
+			},
+		});
+		expect(() =>
+			parseGenerativeUiSpec("root = Text(globalThis.secret)"),
+		).toThrow();
+		expect(() => parseGenerativeUiSpec('root = Text("truncated"')).toThrow();
+	});
+});

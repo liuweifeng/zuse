@@ -604,3 +604,12 @@ export const validateGenerativeUiSpec = (
 	}
 	return { ok: true };
 };
+
+/** Validated render tree for native clients sharing the component contract. */
+export const parseGenerativeUiSpec = (spec: string): ElementNode => {
+	const validation = validateGenerativeUiSpec(spec);
+	if (!validation.ok) throw new Error(validation.error);
+	const root = uiSpecParser.parse(spec).root;
+	if (!root) throw new Error("Spec has no root component.");
+	return root;
+};
