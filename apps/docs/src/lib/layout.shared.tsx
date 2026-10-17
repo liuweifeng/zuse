@@ -1,65 +1,75 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
-import { ArrowUpRight, Download } from "lucide-react";
 import Image from "next/image";
-import { getGitHubStars } from "@/lib/github";
 
 export const SITE_URL = "https://docs.zuse.sh";
 export const GITHUB_URL = "https://github.com/swarajbachu/zuse";
+export const PRODUCT_URL = "https://zuse.sh";
+export const DOWNLOAD_URL = "https://zuse.sh/download";
+const X_URL = "https://x.com/zuse_sh";
+const DISCORD_URL = "https://discord.gg/9E8Rhd3ke";
 
-export async function baseOptions(): Promise<BaseLayoutProps> {
-	const githubStars = await getGitHubStars();
-
+export function baseOptions(): BaseLayoutProps {
 	return {
 		nav: {
 			url: "/start",
 			title: (
-				<span className="flex items-center gap-2.5 font-medium">
+				<span className="docs-wordmark">
 					<Image
 						src="/app-icon.png"
-						width="28"
-						height="28"
+						width="22"
+						height="22"
 						alt=""
-						className="size-7 rounded-[7px]"
+						priority
+						className="size-[22px] rounded-[6px]"
 					/>
 					<span>Zuse</span>
-					<span className="text-fd-muted-foreground font-normal">Docs</span>
 				</span>
 			),
 			transparentMode: "none",
 		},
 		links: [
 			{
-				type: "main",
-				text: "Product",
-				url: "https://zuse.sh",
+				type: "icon",
+				label: "Zuse on X",
+				text: "X",
+				url: X_URL,
 				external: true,
-				icon: <ArrowUpRight />,
+				icon: <XIcon />,
 			},
 			{
-				type: "button",
-				text: "Download",
-				url: "https://zuse.sh/download",
+				type: "icon",
+				label: "Zuse Discord",
+				text: "Discord",
+				url: DISCORD_URL,
 				external: true,
-				icon: <Download />,
+				icon: <DiscordIcon />,
 			},
 			{
-				type: "button",
-				text: (
-					<span key="github-stars" className="flex w-full items-center gap-2">
-						<span>Star on GitHub</span>
-						{githubStars === null ? null : (
-							<span className="ms-auto rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums">
-								{githubStars.toLocaleString("en-US")}
-							</span>
-						)}
-					</span>
-				),
+				type: "icon",
+				label: "Zuse on GitHub",
+				text: "GitHub",
 				url: GITHUB_URL,
 				external: true,
-				icon: <GitHubIcon key="github-icon" />,
+				icon: <GitHubIcon />,
 			},
 		],
 	};
+}
+
+function XIcon() {
+	return (
+		<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+			<path d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.77L17.75 3Zm-1.08 16.18h1.7L7.4 4.73H5.58l11.09 14.45Z" />
+		</svg>
+	);
+}
+
+function DiscordIcon() {
+	return (
+		<svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor">
+			<path d="M19.6 5.3A17.6 17.6 0 0 0 15.3 4l-.55 1.1a16.3 16.3 0 0 0-5.5 0L8.7 4a17.5 17.5 0 0 0-4.36 1.33C1.6 9.43.85 13.43 1.22 17.37A17.7 17.7 0 0 0 6.57 20l1.15-1.85a11.4 11.4 0 0 1-1.8-.87l.44-.34a12.6 12.6 0 0 0 11.28 0l.44.34c-.57.34-1.18.63-1.8.87L17.43 20a17.6 17.6 0 0 0 5.35-2.63c.44-4.57-.75-8.53-3.18-12.07ZM8.52 14.95c-1.06 0-1.94-.98-1.94-2.18s.85-2.19 1.94-2.19c1.08 0 1.96.99 1.94 2.19 0 1.2-.86 2.18-1.94 2.18Zm6.96 0c-1.07 0-1.94-.98-1.94-2.18s.85-2.19 1.94-2.19c1.08 0 1.96.99 1.94 2.19 0 1.2-.86 2.18-1.94 2.18Z" />
+		</svg>
+	);
 }
 
 function GitHubIcon() {

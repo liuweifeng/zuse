@@ -27,6 +27,17 @@ bun run --cwd apps/docs dev
 
 The local site is available at `http://localhost:3002`.
 
+## Navigation and pages
+
+- Sections (the sidebar switcher) are assembled in `src/lib/source.ts`. Each
+  content folder becomes a labeled group; its `meta.json` `title` is the group
+  label and `pages` sets the order.
+- Every page sets an `icon` (a Lucide name, or `logo:<name>` for a provider mark
+  in `public/logos`) and may set a short `navTitle` for the sidebar.
+- Screenshots live in `public/screenshots` as WebP. Use `<Screenshot>` for a
+  framed image on brand artwork and `<FeatureGrid>`/`<Feature>` for linked
+  image cards.
+
 ## Vercel project settings
 
 Create a dedicated Vercel project for the docs site with these settings:

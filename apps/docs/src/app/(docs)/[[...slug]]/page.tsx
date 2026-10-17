@@ -8,7 +8,11 @@ import {
 } from "fumadocs-ui/layouts/docs/page";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { Prerequisites, RelatedPages } from "@/components/mdx-components";
+import {
+	type PageLink,
+	Prerequisites,
+	RelatedPages,
+} from "@/components/mdx-components";
 import { GITHUB_URL } from "@/lib/layout.shared";
 import { source } from "@/lib/source";
 import { getMDXComponents } from "@/mdx-components";
@@ -41,6 +45,13 @@ export default async function DocumentationPage({ params }: PageProps) {
 	if (!page) notFound();
 
 	const Body = page.data.body;
+	const toPageLink = (href: string): PageLink => {
+		const target = source.getPage(href.split("/").filter(Boolean));
+		return {
+			href,
+			title: target?.data.navTitle ?? target?.data.title ?? href,
+		};
+	};
 	const markdownUrl = `${page.url}.md`;
 	const githubUrl = `${GITHUB_URL}/blob/main/apps/docs/content/docs/${page.data.info.path}`;
 	const related = Array.from(
@@ -56,46 +67,35 @@ export default async function DocumentationPage({ params }: PageProps) {
 				)
 				.map((candidate) => candidate.url),
 		]),
-	).slice(0, 6);
+	)
+		.slice(0, 6)
+		.map(toPageLink);
+
+	const pageActions = (
+		<div className="page-actions">
+			<MarkdownCopyButton markdownUrl={markdownUrl} />
+			<ViewOptionsPopover markdownUrl={markdownUrl} githubUrl={githubUrl} />
+		</div>
+	);
 
 	return (
 		<main className="contents">
 			<DocsPage
 				toc={page.data.toc}
 				full={page.data.full}
-				tableOfContent={{
-					style: "clerk",
-					footer: (
-						<div className="mt-auto border-t pt-4 text-xs text-fd-muted-foreground">
-							Verified against <strong>{page.data.lastVerified}</strong>
-						</div>
-					),
-				}}
-				tableOfContentPopover={{ style: "clerk" }}
+				breadcrumb={{ enabled: false }}
+				tableOfContent={{ style: "clerk", footer: pageActions }}
+				tableOfContentPopover={{ style: "clerk", footer: pageActions }}
 			>
-				<header className="docs-masthead">
-					<p className="docs-kicker">Zuse / Documentation</p>
+				<header className="docs-header">
 					<DocsTitle>{page.data.title}</DocsTitle>
 					<DocsDescription className="docs-description">
 						{page.data.description}
 					</DocsDescription>
 				</header>
 
-				<div className="page-action-row">
-					<MarkdownCopyButton markdownUrl={markdownUrl} />
-					<ViewOptionsPopover markdownUrl={markdownUrl} githubUrl={githubUrl} />
-					<div className="page-badges">
-						{page.data.platforms.map((platform) => (
-							<span key={platform}>{platform}</span>
-						))}
-						{page.data.providers.map((provider) => (
-							<span key={provider}>{provider}</span>
-						))}
-					</div>
-				</div>
-
 				<DocsBody>
-					<Prerequisites links={page.data.prerequisites} />
+					<Prerequisites links={page.data.prerequisites.map(toPageLink)} />
 					<Body components={getMDXComponents()} />
 					<RelatedPages links={related} />
 				</DocsBody>

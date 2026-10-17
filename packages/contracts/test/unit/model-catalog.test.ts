@@ -269,6 +269,92 @@ describe("bundled model catalog", () => {
 });
 
 describe("resolveModelCatalog", () => {
+	it("merges Claude live aliases into canonical entries and names the automatic default", () => {
+		const resolved = resolveModelCatalog(catalog, {
+			claude: {
+				status: "ok",
+				authoritative: false,
+				fetchedAt: 1,
+				error: null,
+				models: [
+					{ id: "default", label: "Default (recommended)" },
+					{ id: "opus", label: "Opus 5.5", liveMeta: { fastTier: true } },
+					{ id: "sonnet", label: "Sonnet 5.5" },
+					{ id: "haiku", label: "Haiku 4.5" },
+					{ id: "claude-haiku-4-5", label: "Haiku 4.5" },
+					{ id: "future-model", label: "Future model" },
+				],
+			},
+		});
+		const models = resolved.providers.claude.models;
+		for (const label of ["Opus 5.5", "Sonnet 5.5", "Haiku 4.5"]) {
+			expect(models.filter((model) => model.label === label)).toHaveLength(1);
+		}
+		for (const alias of ["opus", "sonnet", "haiku"]) {
+			expect(models.map((model) => model.id)).not.toContain(alias);
+		}
+		expect(
+			findModelDescriptor(resolved, "claude", "claude-opus-5-5"),
+		).toMatchObject({
+			origin: "both",
+			badgeLabel: "New",
+			liveMeta: { fastTier: true },
+		});
+		expect(findModelDescriptor(resolved, "claude", "default")?.label).toBe(
+			"Claude Code default (automatic)",
+		);
+		expect(findModelDescriptor(resolved, "claude", "future-model")?.label).toBe(
+			"Future model",
+		);
+	});
+
+	it.each([
+		false,
+		true,
+	])("prefers canonical live metadata over alias metadata (reversed: %s)", (reversed) => {
+		const models = [
+			{
+				id: "haiku",
+				label: "Alias label",
+				isDefault: true,
+				liveMeta: { fastTier: true },
+			},
+			{
+				id: "claude-haiku-4-5",
+				label: "Haiku 4.5",
+				liveMeta: { fastTier: false },
+			},
+		];
+		if (reversed) models.reverse();
+		const resolved = resolveModelCatalog(
+			{
+				...catalog,
+				providers: {
+					claude: { ...catalog.providers.claude, models: [] },
+				},
+			},
+			{
+				claude: {
+					status: "ok",
+					authoritative: true,
+					fetchedAt: 1,
+					error: null,
+					models: [{ id: "fallback-model" }, ...models],
+				},
+			},
+		);
+		expect(resolved.providers.claude.models).toHaveLength(2);
+		expect(
+			findModelDescriptor(resolved, "claude", "claude-haiku-4-5"),
+		).toMatchObject({
+			id: "claude-haiku-4-5",
+			label: "Haiku 4.5",
+			available: true,
+			liveMeta: { fastTier: false },
+		});
+		expect(resolved.providers.claude.defaultModelId).toBe("claude-haiku-4-5");
+	});
+
 	it("returns the curated catalog untouched when no live listings exist", () => {
 		const resolved = bundledResolvedModelCatalog();
 		expect(resolved.source).toBe("bundled");

@@ -15,7 +15,7 @@ import {
 	staticContextWindowDescriptor,
 } from "./authoring.ts";
 import { BUNDLED_MODEL_CATALOG } from "./bundled.ts";
-import { humanizeModelId } from "./helpers.ts";
+import { humanizeModelId, resolveModelSlug } from "./helpers.ts";
 import type {
 	LiveListingStatus,
 	ModelLiveMeta,
@@ -237,11 +237,26 @@ const resolveProvider = (
 	curated: ModelCatalogProvider,
 	listing: LiveListing,
 ): ResolvedModelCatalogProvider => {
+	const catalogView = { providers: { [providerId]: curated }, pricing: {} };
 	const liveOk = listing.status === "ok";
 	const liveById = new Map<string, LiveModel>();
 	if (liveOk) {
 		for (const model of listing.models) {
-			if (!isRetired(providerId, model.id)) liveById.set(model.id, model);
+			const id = resolveModelSlug(catalogView, providerId, model.id);
+			if (isRetired(providerId, model.id) || isRetired(providerId, id))
+				continue;
+			// Prefer an explicit model over its shorthand, regardless of listing order.
+			if (!liveById.has(id) || model.id === id) {
+				liveById.set(id, {
+					...model,
+					id,
+					isDefault: model.isDefault || liveById.get(id)?.isDefault,
+				});
+			} else if (model.isDefault) {
+				const existing = liveById.get(id);
+				if (existing !== undefined)
+					liveById.set(id, { ...existing, isDefault: true });
+			}
 		}
 	}
 	const authoritative = liveOk && listing.authoritative;
@@ -272,7 +287,10 @@ const resolveProvider = (
 		const webSearch = providerDefaultWebSearch(providerId);
 		models.push({
 			id: live.id,
-			label: live.label ?? humanizeModelId(live.id),
+			label:
+				providerId === "claude" && live.id === "default"
+					? "Claude Code default (automatic)"
+					: (live.label ?? humanizeModelId(live.id)),
 			...(badgeLabel !== undefined ? { badgeLabel } : {}),
 			...(descriptors.length > 0 ? { optionDescriptors: descriptors } : {}),
 			supportsPlanMode: providerCapabilities(providerId).planMode,
@@ -285,7 +303,7 @@ const resolveProvider = (
 	const usable = (m: ResolvedModelOption) =>
 		m.available && m.defaultVisible !== false;
 	const liveDefaultId = liveOk
-		? listing.models.find((m) => m.isDefault === true)?.id
+		? [...liveById.values()].find((m) => m.isDefault === true)?.id
 		: undefined;
 	const defaultModelId =
 		models.find((m) => m.defaultModel === true && usable(m))?.id ??
