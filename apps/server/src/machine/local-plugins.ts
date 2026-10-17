@@ -37,12 +37,48 @@ interface LocalServer {
 }
 const prefix = (row: LocalServer) => `tools.${row.id}.user.${row.id}.`;
 const timeout = { timeout: 30_000, maxTotalTimeout: 30_000 };
-async function discoverTools(client: Client) {
+const SEARCH_TIMEOUT_MS = 2_000;
+const DISCOVERY_RETRY_MS = 10_000;
+interface DiscoveryBudget {
+	readonly signal: AbortSignal;
+}
+interface LocalClient {
+	readonly client: Client;
+	readonly transport: StdioClientTransport;
+	ready: Promise<Client>;
+}
+
+/** Share one deadline across startup, cached connections, and every discovery page. */
+const requestOptions = (budget?: DiscoveryBudget) => {
+	budget?.signal.throwIfAborted();
+	return { ...timeout, signal: budget?.signal };
+};
+
+/** Bound waiting for an already-started connection without leaving an abort listener behind. */
+async function withinDeadline<A>(
+	pending: Promise<A>,
+	signal: AbortSignal,
+): Promise<A> {
+	let onAbort = () => {};
+	const aborted = new Promise<never>((_, reject) => {
+		onAbort = () => reject(signal.reason);
+		if (signal.aborted) onAbort();
+		else signal.addEventListener("abort", onAbort, { once: true });
+	});
+	try {
+		return await Promise.race([pending, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
+/** Discover a bounded number of tools, rejecting repeated cursors and expired searches. */
+async function discoverTools(client: Client, budget?: DiscoveryBudget) {
 	const tools = [];
 	const seen = new Set<string>();
 	let cursor: string | undefined;
 	do {
-		const page = await client.listTools({ cursor }, timeout);
+		const page = await client.listTools({ cursor }, requestOptions(budget));
 		tools.push(...page.tools);
 		cursor = page.nextCursor;
 		if (cursor && seen.has(cursor))
@@ -56,16 +92,19 @@ async function discoverTools(client: Client) {
 export class LocalPlugins {
 	private queue: Promise<unknown> = Promise.resolve();
 	private closed = false;
-	private clients = new Map<string, Promise<Client>>();
-	private async disconnect(id: string) {
-		const pending = this.clients.get(id);
-		this.clients.delete(id);
-		if (pending)
-			await pending.then(
-				(client) => client.close(),
-				() => undefined,
-			);
+	private clients = new Map<string, LocalClient>();
+	private failedUntil = new Map<string, number>();
+	private async disconnect(id: string, entry = this.clients.get(id)) {
+		if (!entry) return;
+		if (this.clients.get(id) === entry) this.clients.delete(id);
+		try {
+			await entry.client.close();
+		} finally {
+			await entry.transport.close();
+		}
 	}
+
+	/** Stop all child processes and prevent this account store from launching more. */
 	async close() {
 		this.closed = true;
 		await Promise.all(
@@ -102,10 +141,12 @@ export class LocalPlugins {
 	private async withClient<A>(
 		row: LocalServer,
 		run: (client: Client) => Promise<A>,
+		budget?: DiscoveryBudget,
 	): Promise<A> {
 		if (this.closed) throw new Error("Local plugins have shut down");
-		let pending = this.clients.get(row.id);
-		if (!pending) {
+		budget?.signal.throwIfAborted();
+		let entry = this.clients.get(row.id);
+		if (!entry) {
 			const transport = new StdioClientTransport({
 				command: row.command,
 				args: row.args,
@@ -113,23 +154,39 @@ export class LocalPlugins {
 				stderr: "ignore",
 			});
 			const client = new Client({ name: "Zuse", version: "1.0.0" });
+			const created: LocalClient = {
+				client,
+				transport,
+				ready: Promise.resolve(client),
+			};
 			const forget = () => {
-				if (this.clients.get(row.id) === pending) this.clients.delete(row.id);
+				if (this.clients.get(row.id) === created) this.clients.delete(row.id);
 			};
 			client.onclose = forget;
-			pending = client
-				.connect(transport, timeout)
+			created.ready = client
+				.connect(transport, requestOptions(budget))
 				.then(() => client)
-				.catch(async (error) => {
+				.catch((error) => {
 					forget();
-					await transport.close();
+					void transport.close().catch(() => undefined);
 					throw error;
 				});
-			this.clients.set(row.id, pending);
+			this.clients.set(row.id, created);
+			entry = created;
 		}
-		return run(await pending);
+		try {
+			const client = budget
+				? await withinDeadline(entry.ready, budget.signal)
+				: await entry.ready;
+			return await run(client);
+		} catch (error) {
+			// Evict cached clients too; cleanup must not extend the discovery deadline.
+			if (budget) void this.disconnect(row.id, entry).catch(() => undefined);
+			throw error;
+		}
 	}
 
+	/** Saved connections are account-scoped metadata, not a live upstream health probe. */
 	async snapshot(): Promise<PluginSnapshot> {
 		const rows = await this.rows();
 		return {
@@ -157,6 +214,7 @@ export class LocalPlugins {
 			})),
 		};
 	}
+	/** Serialize mutations and verify new commands before saving them atomically. */
 	request(input: LocalPluginRequest): Promise<PluginResponse> {
 		const task = this.queue.then(async (): Promise<PluginResponse> => {
 			if (this.closed) throw new Error("Local plugins have shut down");
@@ -184,7 +242,7 @@ export class LocalPlugins {
 				};
 				// Verify initialization and discovery before keeping a command.
 				try {
-					await this.withClient(row, discoverTools);
+					await this.withClient(row, (client) => discoverTools(client));
 					await this.save([...rows, row]);
 				} catch (error) {
 					await this.disconnect(row.id);
@@ -210,6 +268,7 @@ export class LocalPlugins {
 							row.id === input.id ? { ...row, enabled: input.enabled } : row,
 						),
 			);
+			this.failedUntil.delete(input.id);
 			if (input.action === "remove" || !input.enabled)
 				await this.disconnect(input.id);
 			return { kind: "ok" };
@@ -217,9 +276,20 @@ export class LocalPlugins {
 		this.queue = task.catch(() => undefined);
 		return task;
 	}
+	/** Serve gateway operations; search has a shared deadline and a failure cooldown. */
 	async tools(input: PluginToolRequest): Promise<unknown> {
-		await this.queue;
-		const rows = (await this.rows()).filter((row) => row.enabled);
+		const budget =
+			input.action === "search"
+				? {
+						signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+					}
+				: undefined;
+		if (budget) await withinDeadline(this.queue, budget.signal);
+		else await this.queue;
+		const saved = budget
+			? await withinDeadline(this.rows(), budget.signal)
+			: await this.rows();
+		const rows = saved.filter((row) => row.enabled);
 		if (input.action === "list")
 			return rows.map((row) => ({
 				connectionId: row.id,
@@ -236,28 +306,34 @@ export class LocalPlugins {
 			// Bound process startup during discovery across many configured servers.
 			for (
 				let offset = 0;
-				offset < rows.length && result.length < 100;
+				offset < rows.length && result.length < 100 && !budget?.signal.aborted;
 				offset += 4
 			) {
 				const batch = await Promise.all(
 					rows.slice(offset, offset + 4).map(async (row) => {
+						if ((this.failedUntil.get(row.id) ?? 0) > Date.now()) return [];
 						try {
-							return await this.withClient(row, async (client) => {
-								const tools = await discoverTools(client);
-								return tools
-									.filter((tool) =>
-										terms.every((term) =>
-											`${row.name} ${tool.name} ${tool.description ?? ""}`
-												.toLowerCase()
-												.includes(term),
-										),
-									)
-									.map((tool) => ({
-										address: prefix(row) + tool.name,
-										description: tool.description,
-									}));
-							});
+							return await this.withClient(
+								row,
+								async (client) => {
+									const tools = await discoverTools(client, budget);
+									return tools
+										.filter((tool) =>
+											terms.every((term) =>
+												`${row.name} ${tool.name} ${tool.description ?? ""}`
+													.toLowerCase()
+													.includes(term),
+											),
+										)
+										.map((tool) => ({
+											address: prefix(row) + tool.name,
+											description: tool.description,
+										}));
+								},
+								budget,
+							);
 						} catch {
+							this.failedUntil.set(row.id, Date.now() + DISCOVERY_RETRY_MS);
 							return [];
 						}
 					}),

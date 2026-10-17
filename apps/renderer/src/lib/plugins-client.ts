@@ -14,6 +14,7 @@ import {
 } from "./control-plane-client.ts";
 import { getControlPlaneRpcClient } from "./rpc-client.ts";
 
+/** Route machine-owned connection changes locally and hosted changes to the account API. */
 export async function pluginRequest(input: PluginRequest) {
 	const scope = input.tenantId?.startsWith("organization:")
 		? {
@@ -50,6 +51,7 @@ export async function pluginRequest(input: PluginRequest) {
 	return Effect.runPromise(client["plugins.request"](input));
 }
 
+/** Manage local commands through the personal control-plane connection only. */
 export async function localPluginRequest(input: LocalPluginRequest) {
 	const client = await getControlPlaneRpcClient({ kind: "personal" });
 	return Effect.runPromise(client["plugins.local.request"](input));

@@ -10,7 +10,7 @@ Users can explicitly add local stdio commands in Plugins in their personal works
 
 The local-only `plugins.local.request` RPC requires a local connection identity, a signed-in account, a personal scope and a control-plane runtime. Adding a command verifies MCP initialization and tool discovery before saving it. Writes are serialized and replace the file atomically; malformed persisted files fail closed.
 
-Local and hosted tools share the existing session gateway, tool address shape and permission broker. No driver receives a native MCP configuration. Tool clients are lazy, shared per server, discarded on exit, and closed when disabled, removed or the owning service shuts down. Every plugin request revalidates account ownership. Cloud runtimes continue using their existing hosted plugin grants and cannot launch these commands.
+Local and hosted tools share the existing session gateway, tool address shape and permission broker. No driver receives a native MCP configuration. Tool clients are lazy, shared per server, discarded on exit, and closed when disabled, removed or the owning service shuts down. Local search shares a two-second deadline across connection startup and every discovery page. Failed discovery evicts the affected client and pauses automatic retries for ten seconds; toggling the connection clears the cooldown. Process cleanup runs without extending the search deadline. Every plugin request revalidates account ownership. Cloud runtimes continue using their existing hosted plugin grants and cannot launch these commands.
 
 ## Consequences
 

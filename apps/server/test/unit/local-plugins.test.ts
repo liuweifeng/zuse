@@ -1,4 +1,11 @@
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import {
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	stat,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -139,4 +146,91 @@ describe("local plugins", () => {
 		await store.close();
 		await expect(store.request(config)).rejects.toThrow("shut down");
 	});
+	it.each([
+		"connect",
+		"list",
+	])("bounds the whole search and cleans up stalled %s clients before retrying", async (mode) => {
+		const { store, directory } = await setup();
+		const stall = join(directory, "stall");
+		const starts = join(directory, "starts");
+		await writeFile(stall, "");
+		await writeFile(starts, "");
+		for (let index = 0; index < 5; index++)
+			await store.request({
+				...config,
+				name: `Server ${index}`,
+				env: {
+					...config.env,
+					LOCAL_PLUGIN_STALL_FILE: stall,
+					LOCAL_PLUGIN_START_LOG: starts,
+				},
+			});
+		let searching = store;
+		if (mode === "connect") {
+			await store.close();
+			searching = new LocalPlugins(directory, "account-a");
+			stores.push(searching);
+		}
+		await writeFile(stall, mode);
+		const client = withLocalPlugins(searching, {
+			request: async () => [{ address: "remote.tool" }],
+		});
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		try {
+			const result = await Promise.race([
+				client.request({ action: "search", query: "" }),
+				new Promise((_, reject) => {
+					timer = setTimeout(
+						() =>
+							reject(
+								new Error(
+									"Local discovery blocked remote results for over 3 seconds",
+								),
+							),
+						3000,
+					);
+				}),
+			]);
+			expect(result).toEqual([{ address: "remote.tool" }]);
+			const pids = (await readFile(starts, "utf8"))
+				.trim()
+				.split("\n")
+				.map(Number);
+			const stalled = mode === "connect" ? pids.slice(5) : pids.slice(0, 4);
+			expect(stalled).toHaveLength(4);
+			await expect
+				.poll(
+					() =>
+						stalled.every((pid) => {
+							try {
+								process.kill(pid, 0);
+								return false;
+							} catch {
+								return true;
+							}
+						}),
+					{ timeout: 5000 },
+				)
+				.toBe(true);
+			await writeFile(stall, "");
+			const next = await client.request({ action: "search", query: "" });
+			expect(next).toHaveLength(2); // The fifth server is healthy; failed servers are cooling down.
+			const count = (await readFile(starts, "utf8")).trim().split("\n").length;
+			expect(count).toBe(mode === "connect" ? 10 : 5);
+		} finally {
+			clearTimeout(timer);
+			// Also make the pre-fix regression release hung initialization immediately.
+			const pids = (await readFile(starts, "utf8"))
+				.trim()
+				.split("\n")
+				.map(Number);
+			for (const pid of pids) {
+				try {
+					process.kill(pid, "SIGTERM");
+				} catch {
+					/* Already closed. */
+				}
+			}
+		}
+	}, 15000);
 });
