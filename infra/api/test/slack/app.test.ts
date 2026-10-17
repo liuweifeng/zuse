@@ -2198,7 +2198,7 @@ describe("conversational Slack app", () => {
 		expect(consumed.ack).toHaveBeenCalledOnce();
 		expect(consumed.retry).not.toHaveBeenCalled();
 		const text = http.replies().at(-1)?.body.text;
-		expect(text).toContain("cloud image");
+		expect(text).toContain("Cloud setup is not ready");
 		expect(text).toContain("machine provider");
 		expect(text).not.toContain("reinstall");
 		expect(http.calls.some((call) => call.url.endsWith("/messages"))).toBe(

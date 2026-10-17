@@ -2762,7 +2762,9 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 			workspace.state === "queued" &&
 			workspace.desiredState === "ready" &&
 			workspace.providerSandboxId !== undefined &&
-			typeof workspace.requestConfig.runtimeGeneration === "number"
+			typeof workspace.requestConfig.runtimeGeneration === "number" &&
+			workspace.statusCode !== "resume-queued" &&
+			workspace.statusCode !== "resume-runtime-recovery-queued"
 		) {
 			const existing = yield* provider.inspect(workspace.providerSandboxId);
 			if (existing !== null)

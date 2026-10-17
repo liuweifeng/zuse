@@ -1390,7 +1390,10 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("allocates only the requested replacement sandbox", async () => {
+	test.each([
+		"resume-queued",
+		"resume-runtime-recovery-queued",
+	])("allocates only the requested replacement sandbox (%s)", async (statusCode) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1399,8 +1402,11 @@ describe("cloud workspace reconciler", () => {
 					workspaceId: "workspace-incomplete-retry",
 					state: "queued",
 					desiredState: "ready",
-					statusCode: "resume-queued",
-					requestConfig: { startupTimings: { requestedAt: Date.now() } },
+					statusCode,
+					requestConfig: {
+						runtimeGeneration: 1,
+						startupTimings: { requestedAt: Date.now() },
+					},
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
