@@ -14,6 +14,7 @@ import {
 	countRunningBackgroundAgents,
 	runningBackgroundAgents,
 } from "../../src/background-agent-presentation.ts";
+import { clientCommandTargetId } from "../../src/client-command-target.ts";
 import type { ResourceView } from "../../src/resource-state.ts";
 import {
 	deriveSessionPresentation,
@@ -457,4 +458,24 @@ it("shows the known provider failure without a recovery banner or spinner after 
 	expect(current.health).toBe("healthy");
 	expect(current.busy).toBe(false);
 	expect(current.turnInFlight).toBe(false);
+});
+
+it.each([
+	["turn-presentation", "stopping"],
+	["previous-goal-turn", "running"],
+])("scopes pending interruption of %s to that turn", (expectedTurnId, expectedRuntime) => {
+	const pending = {
+		commandId: CommandId.make("old-stop-awaiting-receipt"),
+		kind: "messages.interrupt",
+		targetId: clientCommandTargetId({
+			kind: "messages.interrupt",
+			payload: { expectedTurnId },
+		}),
+		submittedAt: 1,
+	};
+	const presentation = deriveSessionPresentation({
+		view: view(projection("running", true), { pendingCommands: [pending] }),
+	});
+	expect(presentation.runtime).toBe(expectedRuntime);
+	expect(pending.targetId).toBe(expectedTurnId);
 });
