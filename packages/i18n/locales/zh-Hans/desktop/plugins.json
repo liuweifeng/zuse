@@ -121,5 +121,12 @@
 	"plugins_connected_accounts": "已连接的账号",
 	"plugins_turn_off": "对智能体关闭",
 	"plugins_turn_on": "对智能体开启",
-	"plugins_connection_off": "已关闭 · 智能体无法使用此账号"
+	"plugins_connection_off": "已关闭 · 智能体无法使用此账号",
+	"plugins_transport": "连接类型",
+	"plugins_remote": "远程",
+	"plugins_local": "本地命令",
+	"plugins_local_config": "MCP 配置（JSON）",
+	"plugins_local_hint": "在此计算机的个人工作区中运行。粘贴一个 stdio 服务器配置，包含 command、args 和可选的 env。Paper 等桌面应用必须安装在此计算机上。",
+	"plugins_local_config_invalid": "请输入有效的 stdio MCP 配置，包含一个命令、args 数组和可选的 env 值。",
+	"plugins_local_connect_failed": "无法启动本地 MCP 服务器。请检查命令，并确认应用已安装且正在运行。"
 }

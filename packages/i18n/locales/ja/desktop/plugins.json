@@ -121,5 +121,12 @@
 	"plugins_connected_accounts": "接続済みアカウント",
 	"plugins_turn_off": "エージェントでの使用をオフ",
 	"plugins_turn_on": "エージェントでの使用をオン",
-	"plugins_connection_off": "オフ · エージェントはこのアカウントを使用できません"
+	"plugins_connection_off": "オフ · エージェントはこのアカウントを使用できません",
+	"plugins_transport": "接続の種類",
+	"plugins_remote": "リモート",
+	"plugins_local": "ローカルコマンド",
+	"plugins_local_config": "MCP 設定（JSON）",
+	"plugins_local_hint": "このコンピューターの個人ワークスペースで実行します。command、args、必要に応じて env を含む stdio サーバー設定を1つ貼り付けてください。Paper などのデスクトップアプリは、このコンピューターにインストールする必要があります。",
+	"plugins_local_config_invalid": "コマンド、args 配列、必要に応じて env の値を含む有効な stdio MCP 設定を入力してください。",
+	"plugins_local_connect_failed": "ローカル MCP サーバーを起動できませんでした。コマンドを確認し、アプリがインストールされて実行中であることを確認してください。"
 }

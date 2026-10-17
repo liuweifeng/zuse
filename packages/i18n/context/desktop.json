@@ -12996,7 +12996,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 88
+				"line": 90
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
@@ -13136,11 +13136,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 243
+				"line": 250
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 324
+				"line": 332
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13155,7 +13155,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 571
+				"line": 586
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13165,7 +13165,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 227
+				"line": 234
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13185,7 +13185,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 317
+				"line": 325
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
@@ -13227,7 +13227,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 230
+				"line": 271
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-page.tsx",
@@ -13319,7 +13319,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 342
+				"line": 350
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13329,7 +13329,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 360
+				"line": 375
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13339,7 +13339,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 378
+				"line": 393
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13349,7 +13349,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 388
+				"line": 403
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13359,7 +13359,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 390
+				"line": 405
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13374,7 +13374,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 532
+				"line": 547
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13384,7 +13384,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 396
+				"line": 411
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13560,7 +13560,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 335
+				"line": 343
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13580,11 +13580,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 132
+				"line": 134
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 253
+				"line": 294
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-popover.tsx",
@@ -13602,7 +13602,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 180
+				"line": 186
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13612,7 +13612,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 177
+				"line": 183
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13622,7 +13622,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 264
+				"line": 316
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13632,7 +13632,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 273
+				"line": 325
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13642,11 +13642,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 282
+				"line": 338
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 347
+				"line": 362
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13656,7 +13656,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 290
+				"line": 348
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13666,15 +13666,15 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 299
+				"line": 360
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 302
+				"line": 363
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 353
+				"line": 368
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13684,7 +13684,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 306
+				"line": 367
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
@@ -13698,7 +13698,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 307
+				"line": 370
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
@@ -13712,7 +13712,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 308
+				"line": 374
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13732,7 +13732,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 313
+				"line": 380
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13742,7 +13742,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 320
+				"line": 387
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13752,7 +13752,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 341
+				"line": 408
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13762,7 +13762,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 349
+				"line": 416
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13772,7 +13772,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 361
+				"line": 428
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13782,7 +13782,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 381
+				"line": 448
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13792,7 +13792,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 407
+				"line": 497
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13802,7 +13802,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 229
+				"line": 270
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13812,7 +13812,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 237
+				"line": 278
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13822,7 +13822,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
-				"line": 91
+				"line": 93
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13830,6 +13830,10 @@
 	"plugins:plugins_add_server_name_required": {
 		"source": "Enter a name for this server.",
 		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 203
+			},
 			{
 				"path": "apps/renderer/src/lib/plugin-servers.ts",
 				"line": 97
@@ -13980,7 +13984,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 302
+				"line": 310
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -13990,7 +13994,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 303
+				"line": 311
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14000,11 +14004,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 196
+				"line": 203
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 429
+				"line": 444
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14014,7 +14018,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 404
+				"line": 419
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14024,7 +14028,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 407
+				"line": 422
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14054,7 +14058,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 265
+				"line": 272
 			},
 			{
 				"path": "apps/renderer/src/components/plugins/plugins-popover.tsx",
@@ -14118,7 +14122,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 218
+				"line": 225
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14148,7 +14152,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 205
+				"line": 212
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14158,7 +14162,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 395
+				"line": 410
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14168,7 +14172,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 546
+				"line": 561
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14188,7 +14192,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 271
+				"line": 278
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14198,7 +14202,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 561
+				"line": 576
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14208,7 +14212,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 562
+				"line": 577
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -14218,7 +14222,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
-				"line": 535
+				"line": 550
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34861,5 +34865,91 @@
 			}
 		],
 		"context": "usage interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_transport": {
+		"source": "Connection type",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 305
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 192
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 355
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_remote": {
+		"source": "Remote",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 309
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_local": {
+		"source": "Local command",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 310
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 194
+			},
+			{
+				"path": "apps/renderer/src/components/plugins/plugin-detail.tsx",
+				"line": 357
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_local_config": {
+		"source": "MCP configuration (JSON)",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 456
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_local_hint": {
+		"source": "Runs on this computer in your personal workspace. Paste one stdio server configuration, including command, args, and optional env. Desktop apps such as Paper must be installed here.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 470
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_local_config_invalid": {
+		"source": "Enter a valid stdio MCP configuration with one command, an args array, and optional env values.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 210
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"plugins:plugins_local_connect_failed": {
+		"source": "Could not start the local MCP server. Check the command and confirm the app is installed and running.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/plugins/add-mcp-server-dialog.tsx",
+				"line": 226
+			}
+		],
+		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }

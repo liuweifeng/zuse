@@ -595,6 +595,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		current: null,
 	});
 	const MachineControlLayer = MachineControlServiceLive.pipe(
+		Layer.provide(AppPathsLayer),
 		Layer.provide(RuntimeCloudControlLayer),
 		Layer.provide(AuthLayer),
 		Layer.provide(MachineRuntimeRoleLayer),

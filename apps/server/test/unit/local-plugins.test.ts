@@ -1,0 +1,142 @@
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	LocalPlugins,
+	withLocalPlugins,
+} from "../../src/machine/local-plugins.ts";
+
+const stores: LocalPlugins[] = [];
+const directories: string[] = [];
+afterEach(async () => {
+	await Promise.all(stores.splice(0).map((store) => store.close()));
+	await Promise.all(
+		directories
+			.splice(0)
+			.map((path) => rm(path, { recursive: true, force: true })),
+	);
+});
+async function setup() {
+	const directory = await mkdtemp(join(tmpdir(), "zuse-local-plugins-"));
+	directories.push(directory);
+	const store = new LocalPlugins(directory, "account-a");
+	stores.push(store);
+	return { store, directory };
+}
+const config = {
+	action: "add",
+	name: "Paper fixture",
+	command: process.execPath,
+	args: [resolve(import.meta.dirname, "../fixtures/local-plugin.mjs")],
+	env: { LOCAL_PLUGIN_TEST: "test" },
+} as const;
+
+describe("local plugins", () => {
+	it("discovers and calls stdio tools, persists account-isolated config, and fences disabled/deleted tools", async () => {
+		const { store, directory } = await setup();
+		const added = await store.request(config);
+		if (added.kind !== "attempt") throw new Error("Expected attempt");
+		const address = `tools.${added.pluginId}.user.${added.connectionId}.echo`;
+		expect(
+			await store.tools({ action: "search", query: "paper echo" }),
+		).toEqual([{ address, description: "Echo fixture" }]);
+		expect(await store.tools({ action: "schema", address })).toMatchObject({
+			name: "echo",
+			inputSchema: { type: "object" },
+		});
+		expect(
+			await store.tools({
+				action: "call",
+				address,
+				arguments: { text: "hello" },
+			}),
+		).toMatchObject({ content: [{ type: "text", text: "test:hello" }] });
+		await expect(
+			store.tools({ action: "call", address, arguments: { text: "crash" } }),
+		).rejects.toThrow();
+		await expect(
+			store.tools({
+				action: "call",
+				address,
+				arguments: { text: "recovered" },
+			}),
+		).resolves.toMatchObject({ content: [{ text: "test:recovered" }] });
+		const resumed = new LocalPlugins(directory, "account-a");
+		stores.push(resumed);
+		expect((await resumed.snapshot()).catalog).toHaveLength(1);
+		await expect(
+			resumed.tools({
+				action: "call",
+				address,
+				arguments: { text: "restart" },
+			}),
+		).resolves.toMatchObject({ content: [{ text: "test:restart" }] });
+		expect(
+			(await new LocalPlugins(directory, "account-b").snapshot()).catalog,
+		).toHaveLength(0);
+		expect(
+			(await stat(join(directory, (await readdir(directory))[0] ?? "missing")))
+				.mode & 0o777,
+		).toBe(0o600);
+		await store.request({
+			action: "setEnabled",
+			id: added.connectionId,
+			enabled: false,
+		});
+		expect(await store.tools({ action: "search", query: "" })).toEqual([]);
+		await expect(
+			store.tools({ action: "call", address, arguments: {} }),
+		).rejects.toThrow("disabled");
+		await store.request({
+			action: "setEnabled",
+			id: added.connectionId,
+			enabled: true,
+		});
+		expect(
+			await store.tools({
+				action: "call",
+				address,
+				arguments: { text: "again" },
+			}),
+		).toMatchObject({ content: [{ text: "test:again" }] });
+		await store.request({ action: "remove", id: added.connectionId });
+		expect((await store.snapshot()).catalog).toHaveLength(0);
+	});
+	it("does not retain failed commands", async () => {
+		const { store } = await setup();
+		await expect(
+			store.request({ ...config, command: "/nonexistent/zuse-test" }),
+		).rejects.toThrow();
+		expect((await store.snapshot()).connections).toEqual([]);
+	});
+	it("combines discovery, preserves outage errors, and checks session ownership", async () => {
+		const { store } = await setup();
+		const client = withLocalPlugins(store, {
+			request: async () => [{ pluginId: "remote" }],
+		});
+		expect(await client.request({ action: "list" })).toEqual([
+			{ pluginId: "remote" },
+		]);
+		const offline = withLocalPlugins(store, {
+			request: async () => {
+				throw new Error("Remote offline");
+			},
+		});
+		await expect(offline.request({ action: "list" })).rejects.toThrow(
+			"Remote offline",
+		);
+		const revoked = withLocalPlugins(
+			store,
+			{ request: async () => [] },
+			async () => {
+				throw new Error("Account changed");
+			},
+		);
+		await expect(revoked.request({ action: "list" })).rejects.toThrow(
+			"Account changed",
+		);
+		await store.close();
+		await expect(store.request(config)).rejects.toThrow("shut down");
+	});
+});
