@@ -1128,6 +1128,14 @@ export const makeBoxdSandboxProvider = (
 						: "Large (4 vCPU / 16 GB)",
 			...BOXD_MACHINE_RESOURCES[sizeId],
 		})),
+		validateTemplate: () =>
+			snapshotReference(config.templateSnapshot).pipe(
+				Effect.flatMap((snapshot) =>
+					snapshot.status === "ready" && snapshot.version !== null
+						? Effect.void
+						: providerError("rejected"),
+				),
+			),
 		create: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
