@@ -54,6 +54,10 @@ const withHost = <A>(
 const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 	withControl((service) => service.offers()),
 );
+const LocalPlugins = MemoizeRpcs.toLayerHandler(
+	"plugins.local.request",
+	(input) => withCloudControl((service) => service.localPlugins(input)),
+);
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
@@ -507,6 +511,7 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 );
 export const MachineHandlersLayer = Layer.mergeAll(
 	Plugins,
+	LocalPlugins,
 	CloudDeviceBridge,
 	CloudAuthStatus,
 	CloudAuthProvision,

@@ -14,11 +14,13 @@ import {
 	type CustomServerAuth,
 	type CustomServerDraft,
 	type CustomServerField,
+	parseLocalServerConfig,
 	pluginConnectErrorKey,
 	pluginTenantOf,
 	validateCustomServer,
 } from "~/lib/plugin-servers.ts";
 import {
+	localPluginRequest,
 	notifyPluginsChanged,
 	pluginRequest,
 	pluginReturnTo,
@@ -158,6 +160,8 @@ export function AddMcpServerDialog({
 	const { message: m } = useMessages(["plugins", "common"]);
 	const id = useId();
 	const nameRef = useRef<HTMLInputElement>(null);
+	const [transport, setTransport] = useState<"remote" | "local">("remote");
+	const [config, setConfig] = useState('{"command":"","args":[]}');
 	const [draft, setDraft] = useState<CustomServerDraft>(EMPTY_DRAFT);
 	const [invalid, setInvalid] = useState<CustomServerField | null>(null);
 	const [error, setError] = useState<string | null>(null);
@@ -166,6 +170,8 @@ export function AddMcpServerDialog({
 	useEffect(() => {
 		if (!open) return;
 		setDraft(EMPTY_DRAFT);
+		setTransport("remote");
+		setConfig('{"command":"","args":[]}');
 		setInvalid(null);
 		setError(null);
 		requestAnimationFrame(() => nameRef.current?.focus());
@@ -188,6 +194,41 @@ export function AddMcpServerDialog({
 	const submit = async (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (submitting) return;
+		if (transport === "local") {
+			if (
+				!draft.name.trim() ||
+				draft.name.trim().length > CUSTOM_SERVER_NAME_LIMIT
+			) {
+				setInvalid("name");
+				setError(m("plugins:plugins_add_server_name_required"));
+				return;
+			}
+			let parsed: ReturnType<typeof parseLocalServerConfig>;
+			try {
+				parsed = parseLocalServerConfig(config);
+			} catch {
+				setError(m("plugins:plugins_local_config_invalid"));
+				return;
+			}
+			setSubmitting(true);
+			setError(null);
+			try {
+				const result = await localPluginRequest({
+					action: "add",
+					name: draft.name.trim(),
+					...parsed,
+				});
+				if (result.kind !== "attempt") throw new Error("Unexpected response");
+				notifyPluginsChanged(snapshot.tenantId);
+				onOpenChange(false);
+				onAdded(result, draft.name.trim());
+			} catch {
+				setError(m("plugins:plugins_local_connect_failed"));
+			} finally {
+				setSubmitting(false);
+			}
+			return;
+		}
 		const checked = validateCustomServer(draft);
 		if (!checked.ok) {
 			setInvalid(checked.field);
@@ -259,6 +300,17 @@ export function AddMcpServerDialog({
 					onSubmit={(event) => void submit(event)}
 				>
 					<DialogPanel className="flex flex-col gap-3 text-xs">
+						{!snapshot.tenantId.startsWith("organization:") && (
+							<SegmentedTabs<"remote" | "local">
+								ariaLabel={m("plugins:plugins_transport")}
+								value={transport}
+								onValueChange={setTransport}
+								options={[
+									{ value: "remote", label: m("plugins:plugins_remote") },
+									{ value: "local", label: m("plugins:plugins_local") },
+								]}
+							/>
+						)}
 						<Field
 							id={`${id}-name`}
 							label={m("plugins:plugins_add_server_name")}
@@ -279,107 +331,145 @@ export function AddMcpServerDialog({
 								{...field("name")}
 							/>
 						</Field>
-						<Field id={`${id}-url`} label={m("plugins:plugins_add_server_url")}>
-							<Input
-								id={`${id}-url`}
-								className="h-7"
-								type="url"
-								inputMode="url"
-								autoComplete="off"
-								spellCheck={false}
-								placeholder={m("plugins:plugins_add_server_url_placeholder")}
-								value={draft.url}
-								onChange={(event) => update({ url: event.currentTarget.value })}
-								disabled={submitting}
-								{...field("url")}
-							/>
-						</Field>
-						<div className="flex flex-col gap-1.5">
-							<span className="font-medium">
-								{m("plugins:plugins_add_server_auth")}
-							</span>
-							<SegmentedTabs<CustomServerAuth>
-								ariaLabel={m("plugins:plugins_add_server_auth")}
-								value={draft.auth}
-								onValueChange={(auth) => update({ auth })}
-								options={[
-									{ value: "auto", label: m("plugins:plugins_auth_auto") },
-									{ value: "bearer", label: m("plugins:plugins_auth_bearer") },
-									{ value: "header", label: m("plugins:plugins_auth_header") },
-								]}
-							/>
-							{draft.auth === "auto" && (
-								<p className="text-muted-foreground">
-									{m("plugins:plugins_add_server_auth_auto_hint")}
-								</p>
-							)}
-						</div>
-						{draft.auth === "bearer" && (
-							<Field
-								id={`${id}-token`}
-								label={m("plugins:plugins_add_server_token")}
-							>
-								<Input
-									id={`${id}-token`}
-									className="h-7 font-mono"
-									type="password"
-									autoComplete="off"
-									spellCheck={false}
-									value={draft.token}
-									onChange={(event) =>
-										update({ token: event.currentTarget.value })
-									}
-									disabled={submitting}
-									{...field("token")}
-								/>
-							</Field>
-						)}
-						{draft.auth === "header" && (
-							<div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
+						{transport === "remote" && (
+							<>
 								<Field
-									id={`${id}-header`}
-									label={m("plugins:plugins_add_server_header_name")}
+									id={`${id}-url`}
+									label={m("plugins:plugins_add_server_url")}
 								>
 									<Input
-										id={`${id}-header`}
-										className="h-7 font-mono"
+										id={`${id}-url`}
+										className="h-7"
+										type="url"
+										inputMode="url"
 										autoComplete="off"
 										spellCheck={false}
 										placeholder={m(
-											"plugins:plugins_add_server_header_name_placeholder",
+											"plugins:plugins_add_server_url_placeholder",
 										)}
-										value={draft.headerName}
+										value={draft.url}
 										onChange={(event) =>
-											update({ headerName: event.currentTarget.value })
+											update({ url: event.currentTarget.value })
 										}
 										disabled={submitting}
-										{...field("header")}
+										{...field("url")}
 									/>
 								</Field>
-								<Field
-									id={`${id}-value`}
-									label={m("plugins:plugins_add_server_header_value")}
-								>
-									<Input
-										id={`${id}-value`}
-										className="h-7 font-mono"
-										type="password"
-										autoComplete="off"
-										spellCheck={false}
-										value={draft.headerValue}
-										onChange={(event) =>
-											update({ headerValue: event.currentTarget.value })
-										}
-										disabled={submitting}
-										{...field("value")}
+								<div className="flex flex-col gap-1.5">
+									<span className="font-medium">
+										{m("plugins:plugins_add_server_auth")}
+									</span>
+									<SegmentedTabs<CustomServerAuth>
+										ariaLabel={m("plugins:plugins_add_server_auth")}
+										value={draft.auth}
+										onValueChange={(auth) => update({ auth })}
+										options={[
+											{ value: "auto", label: m("plugins:plugins_auth_auto") },
+											{
+												value: "bearer",
+												label: m("plugins:plugins_auth_bearer"),
+											},
+											{
+												value: "header",
+												label: m("plugins:plugins_auth_header"),
+											},
+										]}
 									/>
-								</Field>
-							</div>
+									{draft.auth === "auto" && (
+										<p className="text-muted-foreground">
+											{m("plugins:plugins_add_server_auth_auto_hint")}
+										</p>
+									)}
+								</div>
+								{draft.auth === "bearer" && (
+									<Field
+										id={`${id}-token`}
+										label={m("plugins:plugins_add_server_token")}
+									>
+										<Input
+											id={`${id}-token`}
+											className="h-7 font-mono"
+											type="password"
+											autoComplete="off"
+											spellCheck={false}
+											value={draft.token}
+											onChange={(event) =>
+												update({ token: event.currentTarget.value })
+											}
+											disabled={submitting}
+											{...field("token")}
+										/>
+									</Field>
+								)}
+								{draft.auth === "header" && (
+									<div className="grid grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-2">
+										<Field
+											id={`${id}-header`}
+											label={m("plugins:plugins_add_server_header_name")}
+										>
+											<Input
+												id={`${id}-header`}
+												className="h-7 font-mono"
+												autoComplete="off"
+												spellCheck={false}
+												placeholder={m(
+													"plugins:plugins_add_server_header_name_placeholder",
+												)}
+												value={draft.headerName}
+												onChange={(event) =>
+													update({ headerName: event.currentTarget.value })
+												}
+												disabled={submitting}
+												{...field("header")}
+											/>
+										</Field>
+										<Field
+											id={`${id}-value`}
+											label={m("plugins:plugins_add_server_header_value")}
+										>
+											<Input
+												id={`${id}-value`}
+												className="h-7 font-mono"
+												type="password"
+												autoComplete="off"
+												spellCheck={false}
+												value={draft.headerValue}
+												onChange={(event) =>
+													update({ headerValue: event.currentTarget.value })
+												}
+												disabled={submitting}
+												{...field("value")}
+											/>
+										</Field>
+									</div>
+								)}
+								{draft.auth !== "auto" && (
+									<p className="text-muted-foreground">
+										{m("plugins:plugins_add_server_key_hint")}
+									</p>
+								)}
+							</>
 						)}
-						{draft.auth !== "auto" && (
-							<p className="text-muted-foreground">
-								{m("plugins:plugins_add_server_key_hint")}
-							</p>
+						{transport === "local" && (
+							<Field
+								id={`${id}-config`}
+								label={m("plugins:plugins_local_config")}
+							>
+								<textarea
+									id={`${id}-config`}
+									className="min-h-28 w-full rounded-md bg-muted/40 p-2 font-mono text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									spellCheck={false}
+									value={config}
+									onChange={(event) => {
+										setConfig(event.currentTarget.value);
+										setError(null);
+									}}
+									disabled={submitting}
+								/>
+								<p className="text-muted-foreground">
+									{m("plugins:plugins_local_hint")}
+								</p>
+							</Field>
 						)}
 						{error !== null && (
 							<p

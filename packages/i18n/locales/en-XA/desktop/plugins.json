@@ -121,5 +121,12 @@
 	"plugins_connected_accounts": "⟦Côônnëëctëëd ààccôôüünts⟧",
 	"plugins_turn_off": "⟦Tüürn ôôff fôôr ààgëënts⟧",
 	"plugins_turn_on": "⟦Tüürn ôôn fôôr ààgëënts⟧",
-	"plugins_connection_off": "⟦ÔÔff · ààgëënts cààn't üüsëë thïïs ààccôôüünt⟧"
+	"plugins_connection_off": "⟦ÔÔff · ààgëënts cààn't üüsëë thïïs ààccôôüünt⟧",
+	"plugins_transport": "⟦Côônnëëctïïôôn typëë⟧",
+	"plugins_remote": "⟦Rëëmôôtëë⟧",
+	"plugins_local": "⟦Lôôcààl côômmàànd⟧",
+	"plugins_local_config": "⟦MCP côônfïïgüürààtïïôôn (JSÔÔN)⟧",
+	"plugins_local_hint": "⟦Rüüns ôôn thïïs côômpüütëër ïïn yôôüür pëërsôônààl wôôrkspààcëë. Pààstëë ôônëë stdïïôô sëërvëër côônfïïgüürààtïïôôn, ïïnclüüdïïng côômmàànd, ààrgs, àànd ôôptïïôônààl ëënv. Dëësktôôp ààpps süüch ààs Pààpëër müüst bëë ïïnstààllëëd hëërëë.⟧",
+	"plugins_local_config_invalid": "⟦ËËntëër àà vààlïïd stdïïôô MCP côônfïïgüürààtïïôôn wïïth ôônëë côômmàànd, ààn ààrgs ààrràày, àànd ôôptïïôônààl ëënv vààlüüëës.⟧",
+	"plugins_local_connect_failed": "⟦Côôüüld nôôt stààrt thëë lôôcààl MCP sëërvëër. Chëëck thëë côômmàànd àànd côônfïïrm thëë ààpp ïïs ïïnstààllëëd àànd rüünnïïng.⟧"
 }

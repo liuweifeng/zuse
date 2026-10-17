@@ -2,7 +2,7 @@
 title: Add an MCP server
 icon: Plug
 navTitle: "Add an MCP server"
-description: Add a remote MCP server in Plugins so every Zuse agent can use its tools through the Zuse gateway.
+description: Add a remote or local MCP server in Plugins so every Zuse agent can use its tools through the Zuse gateway.
 section: how-to
 order: 7
 platforms: [desktop]
@@ -25,7 +25,7 @@ Zuse does not read or pass through MCP servers configured in a provider's own fi
 ## Prerequisites
 
 - Sign in to Zuse. Plugins belong to your account or organization.
-- Have the server's remote HTTPS URL. Local `stdio` commands and private-network servers cannot be added.
+- Have the server's remote HTTPS URL, or a local `stdio` command configuration. Local commands must be installed on the computer running Zuse.
 - Know how the server authenticates: sign-in (OAuth), no authentication, or a key sent as a bearer token or in a custom request header.
 - Read the server's tool list and trust boundary before connecting it.
 
@@ -43,6 +43,30 @@ Zuse does not read or pass through MCP servers configured in a provider's own fi
 5. Choose **Add server**. If the connection fails, the dialog stays open with the error so you can fix the URL or key and try again.
 
 Popular services may already be in the plugin catalog. Prefer the catalog entry when one exists.
+
+## Add a local command
+
+In your personal workspace, choose **Add MCP server → Local command**, enter a name, and paste the server's MCP JSON. You can paste either one server object or a standard `mcpServers` object containing one server. Zuse checks that it starts before saving it.
+
+For example, Paper Desktop provides a configuration like:
+
+```json
+{
+  "mcpServers": {
+    "paper": {
+      "type": "stdio",
+      "command": "/Users/you/.paper/bin/paper",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Use the actual command path supplied by your installation. Optional `env` values must be strings. Zuse runs the command directly, without a shell; pass each argument as a separate array entry.
+
+Local configurations belong to your signed-in account on this computer. They are not shared with organization members or copied into cloud workspaces. Agents running on this computer use them through the same gateway and permission controls as remote plugins. Turn a connection off or remove it in Plugins to stop its server process.
+
+For Paper, keep Paper Desktop running with a file open when reading or changing a design. Paper documents local MCP transports; it does not document a hosted MCP endpoint. See [Paper's MCP guide](https://paper.design/docs/mcp).
 
 ## Verify the server
 

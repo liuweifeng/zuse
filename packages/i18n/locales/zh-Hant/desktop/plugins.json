@@ -121,5 +121,12 @@
 	"plugins_connected_accounts": "已連結的帳號",
 	"plugins_turn_off": "對代理程式關閉",
 	"plugins_turn_on": "對代理程式開啟",
-	"plugins_connection_off": "已關閉 · 代理程式無法使用此帳號"
+	"plugins_connection_off": "已關閉 · 代理程式無法使用此帳號",
+	"plugins_transport": "連線類型",
+	"plugins_remote": "遠端",
+	"plugins_local": "本機命令",
+	"plugins_local_config": "MCP 設定（JSON）",
+	"plugins_local_hint": "在此電腦的個人工作區中執行。貼上一個 stdio 伺服器設定，包含 command、args 和選用的 env。Paper 等桌面應用程式必須安裝在此電腦上。",
+	"plugins_local_config_invalid": "請輸入有效的 stdio MCP 設定，包含一個命令、args 陣列和選用的 env 值。",
+	"plugins_local_connect_failed": "無法啟動本機 MCP 伺服器。請檢查命令，並確認應用程式已安裝且正在執行。"
 }

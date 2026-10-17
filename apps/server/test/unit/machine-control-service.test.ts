@@ -8,6 +8,7 @@ import {
 } from "@zuse/contracts";
 import { Effect, Layer, Stream } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import { AppPaths } from "../../src/app-paths.ts";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
 import {
 	MachineControlError,
@@ -204,6 +205,9 @@ describe("cloud runtime control transport", () => {
 		const request = vi.fn(async () => Response.json({ workspaces: [] }));
 		const layer = MachineControlServiceLive.pipe(
 			Layer.provide(
+				Layer.succeed(AppPaths, { userData: "/tmp/zuse-machine-control-test" }),
+			),
+			Layer.provide(
 				Layer.mergeAll(
 					Layer.succeed(MachineRuntimeRole, "cloud-environment"),
 					Layer.succeed(RuntimeCloudControl, { current: { request } }),
@@ -235,6 +239,9 @@ describe("cloud runtime control transport", () => {
 
 describe("account-authenticated machine control", () => {
 	const layer = MachineControlServiceLive.pipe(
+		Layer.provide(
+			Layer.succeed(AppPaths, { userData: "/tmp/zuse-machine-control-test" }),
+		),
 		Layer.provide(
 			Layer.mergeAll(
 				Layer.succeed(MachineRuntimeRole, "control-plane"),

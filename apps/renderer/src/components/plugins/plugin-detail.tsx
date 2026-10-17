@@ -283,6 +283,7 @@ export function PluginDetail({
 								/>
 							))}
 							{canManage &&
+								!plugin.id.startsWith("local-") &&
 								(askingKey ? (
 									<form
 										className="flex items-center gap-2.5 py-2"
@@ -341,7 +342,14 @@ export function PluginDetail({
 			)}
 			<DetailSection title={m("plugins:plugins_information")}>
 				<dl className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-y-2">
-					{plugin.custom ? (
+					{plugin.id.startsWith("local-") ? (
+						<>
+							<dt className="text-muted-foreground">
+								{m("plugins:plugins_transport")}
+							</dt>
+							<dd>{m("plugins:plugins_local")}</dd>
+						</>
+					) : plugin.custom ? (
 						<>
 							<dt className="text-muted-foreground">
 								{m("plugins:plugins_add_server_url")}

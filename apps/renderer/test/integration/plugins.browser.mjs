@@ -124,6 +124,13 @@ export function usePluginSnapshot(account,tenantId){
  useEffect(()=>{if(account===null)return;setValue(snapshot(tenantId));const l=()=>setValue(snapshot(tenantId));listeners.add(l);return()=>listeners.delete(l);},[account,tenantId]);
  return {snapshot:account===null?null:value,failed:false,refresh};
 }
+export async function localPluginRequest(input){
+ window.lastLocalServer=input;
+ const id='local-fixture';
+ servers.unshift(server('personal:fixture',id,input.name,null,null));
+ connections.push({id,tenantId:'personal:fixture',pluginId:id,label:input.name,owner:'user',state:'connected',createdAt:Date.now(),enabled:true});
+ return {kind:'attempt',id,connectionId:id,pluginId:id,state:'connected',authorizationUrl:null,expiresAt:Date.now(),error:null};
+}
 export const pluginReturnTo=async()=>({kind:'desktop',port:8976});
 export async function pluginRequest(input){
  const attempt=(id,state,extra={})=>({kind:'attempt',id,connectionId:id,state,authorizationUrl:null,expiresAt:Date.now()+60000,error:null,pluginId:'',...extra});
@@ -329,6 +336,50 @@ try {
 			.click();
 		await dialog.getByText("Adding to your personal workspace.").waitFor();
 	};
+	await openAddServer();
+	await dialog.getByRole("tab", { name: "Local command" }).click();
+	await dialog.getByRole("textbox", { name: "Name" }).fill("Paper");
+	await dialog.getByRole("textbox", { name: "MCP configuration (JSON)" }).fill(
+		JSON.stringify({
+			mcpServers: {
+				paper: {
+					type: "stdio",
+					command: "/Users/me/.paper/bin/paper",
+					args: ["mcp"],
+				},
+			},
+		}),
+	);
+	await shot("plugins-add-local-server");
+	await dialog.getByRole("button", { name: "Add server" }).click();
+	await expect(dialog).toHaveCount(0);
+	assert.deepEqual(await page.evaluate(() => window.lastLocalServer), {
+		action: "add",
+		name: "Paper",
+		command: "/Users/me/.paper/bin/paper",
+		args: ["mcp"],
+		env: {},
+	});
+	await page
+		.getByRole("heading", { name: "Paper Custom", exact: true })
+		.waitFor();
+	await expect(
+		page.getByRole("button", { name: "Connect another", exact: true }),
+	).toHaveCount(0);
+	await page.getByRole("button", { name: "More actions", exact: true }).click();
+	await page.getByRole("menuitem", { name: "Remove server" }).click();
+	await page
+		.getByRole("alertdialog")
+		.getByRole("button", { name: "Remove server" })
+		.click();
+	await page.getByText("Paper removed", { exact: true }).waitFor();
+	assert.equal(
+		await page.evaluate(() => window.lastRemoveServer.pluginId),
+		"local-fixture",
+	);
+	await expect(
+		page.getByRole("button", { name: "Manage Paper", exact: true }),
+	).toHaveCount(0);
 	await openAddServer();
 	await dialog.getByRole("button", { name: "Add server" }).click();
 	await dialog.getByText("Enter a name for this server.").waitFor();
