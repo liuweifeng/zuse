@@ -166,7 +166,14 @@ export const makeCloudGitExecution = (input: {
 		| undefined;
 
 	return async (sessionId) => {
+		// The initial Slack conversation belongs to the GitHub App even when a
+		// member continues it from the UI. Other sessions retain their own actor.
+		const slackConversationId =
+			sessionId === input.initialSessionId
+				? input.initialContext?.slackMessageId
+				: undefined;
 		if (
+			slackConversationId === undefined &&
 			input.nativeRepositoryPath !== undefined &&
 			input.preferNativeGit !== false
 		) {
@@ -207,12 +214,14 @@ export const makeCloudGitExecution = (input: {
 				? undefined
 				: Schema.decodeUnknownSync(TurnIdentity)(row.input_json);
 		const context =
-			turn?.actor !== undefined || turn?.githubSlackMessageId !== undefined
-				? { actor: turn.actor, slackMessageId: turn.githubSlackMessageId }
-				: sessionId === input.initialSessionId &&
-						row?.turn_id === input.initialTurnId
-					? (input.initialContext ?? {})
-					: {};
+			slackConversationId !== undefined
+				? { actor: turn?.actor, slackMessageId: slackConversationId }
+				: turn?.actor !== undefined || turn?.githubSlackMessageId !== undefined
+					? { actor: turn.actor, slackMessageId: turn.githubSlackMessageId }
+					: sessionId === input.initialSessionId &&
+							row?.turn_id === input.initialTurnId
+						? (input.initialContext ?? {})
+						: {};
 		const key = createHash("sha256")
 			.update(JSON.stringify({ sessionId, context }))
 			.digest("hex");
