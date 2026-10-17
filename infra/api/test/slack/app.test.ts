@@ -263,6 +263,7 @@ describe("conversational Slack app", () => {
 			nativeStatus: "",
 			clearStatusFailures: 0,
 			workspaceError: "",
+			workspaceErrorStatus: 400,
 			messageError: "",
 			workspaceStatusCode: "",
 			state: "ready",
@@ -333,7 +334,7 @@ describe("conversational Slack app", () => {
 				if (url.endsWith("/v1/api/workspaces") && result.workspaceError)
 					return Response.json(
 						{ error: result.workspaceError },
-						{ status: 400 },
+						{ status: result.workspaceErrorStatus },
 					);
 				if (url.endsWith("/v1/api/workspaces"))
 					return Response.json({
@@ -2185,6 +2186,23 @@ describe("conversational Slack app", () => {
 		);
 		expect(JSON.stringify(http.calls.at(-1)?.body)).toContain(
 			"/slack/setup/login",
+		);
+	});
+	it("explains image readiness failures without blaming Slack permissions", async () => {
+		const app = await setup();
+		const http = mockServices();
+		http.result.workspaceError = "cloud_project_not_ready";
+		http.result.workspaceErrorStatus = 409;
+		await app.event(mention);
+		const consumed = await consumeNext(app);
+		expect(consumed.ack).toHaveBeenCalledOnce();
+		expect(consumed.retry).not.toHaveBeenCalled();
+		const text = http.replies().at(-1)?.body.text;
+		expect(text).toContain("cloud image");
+		expect(text).toContain("machine provider");
+		expect(text).not.toContain("reinstall");
+		expect(http.calls.some((call) => call.url.endsWith("/messages"))).toBe(
+			false,
 		);
 	});
 	it("reports permanent missing-scope failures immediately without retrying or starting an agent", async () => {

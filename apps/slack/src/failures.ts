@@ -23,6 +23,9 @@ export const reportJobFailure = async (
 					error.message.includes("agent_and_model_required")
 				? "Your Zuse account needs a cloud agent configured first. Open Zuse, start a cloud workspace and choose an agent and model, then send this request again. You do not need to enter internal IDs in Slack."
 				: "I couldn’t complete this request. Check your Zuse account, repository access, and Slack permissions in App Home. If permissions changed, reinstall Zuse to authorize them. Any already-submitted work may still finish in Zuse.";
+	if (error instanceof ZuseApiError && error.code === "cloud_project_not_ready")
+		failure =
+			"The selected repository does not have a ready cloud image for the selected machine provider. In Slack App Home, choose a machine provider with a ready image, or open this Zuse workspace’s Cloud Workspace settings and build an image that includes this repository. Then mention @Zuse again in this thread. This request has not started an agent.";
 	if (job.kind === "picker") {
 		await slackApi(installation.credentials.botToken, "views.update", {
 			view_id: job.viewId,
