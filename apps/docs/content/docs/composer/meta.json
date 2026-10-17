@@ -1,5 +1,5 @@
 {
-	"icon": "MessageSquareText",
+	"title": "Composer",
 	"pages": [
 		"index",
 		"modes-permissions",

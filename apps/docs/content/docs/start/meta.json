@@ -1,3 +1,4 @@
 {
-  "icon": "Rocket"
+	"title": "Get started",
+	"pages": ["index", "install", "first-chat"]
 }
