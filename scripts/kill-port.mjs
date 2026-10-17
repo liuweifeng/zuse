@@ -16,45 +16,65 @@ const force = args.includes("--force");
 const port = Number(portArg);
 
 if (!Number.isInteger(port) || port <= 0) {
-  console.error(usage);
-  process.exit(1);
+	console.error(usage);
+	process.exit(1);
 }
 
 let output = "";
 try {
-  output = execFileSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"], {
-    encoding: "utf8",
-  }).trim();
+	output = execFileSync(
+		process.platform === "win32" ? "netstat.exe" : "lsof",
+		process.platform === "win32"
+			? ["-ano", "-p", "tcp"]
+			: ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN"],
+		{ encoding: "utf8" },
+	).trim();
 } catch {
-  console.log(`No listener found on port ${port}.`);
-  process.exit(0);
+	console.log(`No listener found on port ${port}.`);
+	process.exit(0);
 }
 
 console.log(output);
 
 const pids = [
-  ...new Set(
-    output
-      .split("\n")
-      .slice(1)
-      .map((line) => Number(line.trim().split(/\s+/)[1]))
-      .filter((pid) => Number.isInteger(pid) && pid > 0),
-  ),
+	...new Set(
+		output
+			.split(/\r?\n/)
+			.map((line) => line.trim().split(/\s+/))
+			.filter((parts) => {
+				if (process.platform !== "win32") return parts.length > 1;
+				if (!parts.some((part) => part.toUpperCase() === "LISTENING"))
+					return false;
+				const endpoint = parts[1] ?? "";
+				return endpoint.endsWith(`:${port}`);
+			})
+			.map((parts) =>
+				Number(process.platform === "win32" ? parts.at(-1) : parts[1]),
+			)
+			.filter((pid) => Number.isInteger(pid) && pid > 0),
+	),
 ];
 
 if (pids.length === 0) {
-  console.log(`No killable listener found on port ${port}.`);
-  process.exit(0);
+	console.log(`No killable listener found on port ${port}.`);
+	process.exit(0);
 }
 
 if (!force) {
-  console.log(
-    `\nRun with --force to kill ${pids.length === 1 ? "PID" : "PIDs"} ${pids.join(", ")}.`,
-  );
-  process.exit(0);
+	console.log(
+		`\nRun with --force to kill ${pids.length === 1 ? "PID" : "PIDs"} ${pids.join(", ")}.`,
+	);
+	process.exit(0);
 }
 
 for (const pid of pids) {
-  process.kill(pid, "SIGTERM");
-  console.log(`Sent SIGTERM to PID ${pid}.`);
+	if (process.platform === "win32") {
+		execFileSync("taskkill.exe", ["/PID", String(pid), "/T", "/F"], {
+			stdio: "inherit",
+		});
+		console.log(`Stopped process tree ${pid}.`);
+	} else {
+		process.kill(pid, "SIGTERM");
+		console.log(`Sent SIGTERM to PID ${pid}.`);
+	}
 }

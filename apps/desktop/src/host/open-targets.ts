@@ -84,6 +84,30 @@ const windowsTargets: ReadonlyArray<PortableOpenTarget> = [
 		command: null,
 		args: () => [],
 	},
+	{
+		id: "cursor",
+		label: "Cursor",
+		command: "cursor",
+		args: (path) => [path],
+	},
+	{
+		id: "vscode",
+		label: "VS Code",
+		command: "code",
+		args: (path) => [path],
+	},
+	{
+		id: "windsurf",
+		label: "Windsurf",
+		command: "windsurf",
+		args: (path) => [path],
+	},
+	{
+		id: "terminal",
+		label: "Windows Terminal",
+		command: "wt",
+		args: (path) => ["-d", path],
+	},
 ];
 
 export const executableOnPath = async (command: string): Promise<boolean> => {

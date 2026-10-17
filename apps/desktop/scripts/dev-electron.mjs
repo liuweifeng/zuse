@@ -159,8 +159,11 @@ function startApp() {
 			`[desktop:electron] exited (code=${code ?? "null"} signal=${signal ?? "null"})`,
 		);
 		if (currentApp === app) currentApp = null;
-		const abnormal = signal !== null || code !== 0;
-		if (!shuttingDown && !expectedExits.has(app) && abnormal) {
+		if (!shuttingDown && !expectedExits.has(app)) {
+			// A rebuild goes through stopApp(), which marks the exit as expected and
+			// launches the replacement itself. Any other exit includes a user closing
+			// the window, so stop this watcher and let the root dev runner tear down the
+			// renderer, bundle watcher, embedded server, and setup children as well.
 			void shutdown(code ?? 1);
 		}
 	});
@@ -189,7 +192,7 @@ async function stopApp() {
 	});
 }
 
-function scheduleRestart() {
+function scheduleRestart(delayMs = restartDebounceMs) {
 	if (shuttingDown) return;
 	if (restartTimer) clearTimeout(restartTimer);
 	restartTimer = setTimeout(() => {
@@ -200,7 +203,7 @@ function scheduleRestart() {
 				await stopApp();
 				if (!shuttingDown) startApp();
 			});
-	}, restartDebounceMs);
+	}, delayMs);
 }
 
 function startWatcher() {

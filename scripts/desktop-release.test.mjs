@@ -93,7 +93,7 @@ test("publication requires both platforms and verifies manifest hashes", () => {
 	const metadata = releaseMetadata("0.22.0-preview.1");
 	try {
 		assert.throws(() => verifyReleaseAssets(directory, metadata), /Missing/);
-		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
 			const url = `Zuse-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, url), extension);
 			return {
@@ -108,9 +108,13 @@ test("publication requires both platforms and verifies manifest hashes", () => {
 		);
 		writeFileSync(
 			join(directory, "preview-linux.yml"),
-			stringify({ version: metadata.version, files: files.slice(2) }),
+			stringify({ version: metadata.version, files: files.slice(2, 4) }),
 		);
-		assert.equal(verifyReleaseAssets(directory, metadata).length, 6);
+		writeFileSync(
+			join(directory, "preview.yml"),
+			stringify({ version: metadata.version, files: files.slice(4) }),
+		);
+		assert.equal(verifyReleaseAssets(directory, metadata).length, 8);
 		writeFileSync(join(directory, files[1].url), "corrupted");
 		assert.throws(
 			() => verifyReleaseAssets(directory, metadata),
@@ -125,7 +129,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 	const directory = mkdtempSync(join(tmpdir(), "zuse-safe-artifact-names-"));
 	const metadata = releaseMetadata("0.22.0-preview.1");
 	try {
-		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
 			const local = `Zuse (Beta)-${metadata.version}.${extension}`;
 			const url = `desktop-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, local), extension);
@@ -140,7 +144,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 				local,
 			};
 		});
-		for (const [index, platform] of ["-mac", "-linux"].entries())
+		for (const [index, platform] of ["-mac", "-linux", ""].entries())
 			writeFileSync(
 				join(directory, `preview${platform}.yml`),
 				stringify({
@@ -156,7 +160,7 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 		);
 		writeFileSync(join(directory, zip.local), "zip");
 		prepareReleaseAssets(directory, metadata);
-		assert.equal(verifyReleaseAssets(directory, metadata).length, 10);
+		assert.equal(verifyReleaseAssets(directory, metadata).length, 13);
 		for (const file of files)
 			assert.equal(
 				readFileSync(join(directory, `${file.url}.blockmap`), "utf8"),
@@ -196,7 +200,7 @@ test("a failed upload leaves a draft and never publishes; a verified retry keeps
 		notes: "### Added\n\n- Choose Preview updates.",
 	};
 	try {
-		const files = ["dmg", "zip", "AppImage", "deb"].map((extension) => {
+		const files = ["dmg", "zip", "AppImage", "deb", "exe"].map((extension) => {
 			const url = `Zuse-${metadata.version}.${extension}`;
 			writeFileSync(join(directory, url), extension);
 			return {
@@ -205,7 +209,7 @@ test("a failed upload leaves a draft and never publishes; a verified retry keeps
 				sha512: createHash("sha512").update(extension).digest("base64"),
 			};
 		});
-		const manifests = ["preview-mac.yml", "preview-linux.yml"];
+		const manifests = ["preview-mac.yml", "preview-linux.yml", "preview.yml"];
 		for (const [index, name] of manifests.entries())
 			writeFileSync(
 				join(directory, name),
@@ -284,10 +288,10 @@ function withReleaseRepository(run) {
 		git("commit", "-m", "Later main change");
 		git("update-ref", "refs/remotes/origin/main", "HEAD");
 		mkdirSync(join(directory, "bin"));
+		const fakeGhSource = join(directory, "bin", "gh.mjs");
 		writeFileSync(
-			join(directory, "bin/gh"),
-			`#!${process.execPath}\nif(process.argv.includes('--slurp') && process.argv.includes('--jq')) process.exit(2);\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconst releases = process.argv.some(a=>a.endsWith('&page=1')) ? Array(100).fill(stable) : [{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}];\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : releases));\n`,
-			{ mode: 0o755 },
+			fakeGhSource,
+			`if(process.argv.includes('--slurp') && process.argv.includes('--jq')) process.exit(2);\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconst releases = process.argv.some(a=>a.endsWith('&page=1')) ? Array(100).fill(stable) : [{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}];\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : releases));\n`,
 		);
 		const resolveRelease = (overrides) => {
 			execFileSync(
@@ -301,7 +305,7 @@ function withReleaseRepository(run) {
 					stdio: "pipe",
 					env: {
 						...process.env,
-						PATH: `${join(directory, "bin")}:${process.env.PATH}`,
+						ZUSE_RELEASE_GH_SCRIPT: fakeGhSource,
 						GITHUB_EVENT_NAME: "workflow_dispatch",
 						GITHUB_REPOSITORY: "example/zuse",
 						RELEASE_CHANNEL: "preview",

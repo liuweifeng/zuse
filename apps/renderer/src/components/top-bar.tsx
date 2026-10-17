@@ -46,6 +46,7 @@ import {
 	Upload01Icon,
 	Wrench01Icon,
 } from "@zuse/icons/solid-rounded";
+import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
 import { ChevronDown, PanelBottom } from "lucide-react";
 import {
 	type CSSProperties,
@@ -77,7 +78,7 @@ import {
 	refreshGitWorkspace,
 	useGitWorkspaceResource,
 } from "../lib/git-workspace-client-bus.ts";
-import { isMacHost } from "../lib/host-platform.ts";
+import { hostDescriptor, isMacHost } from "../lib/host-platform.ts";
 import { rendererPlatformCapabilities } from "../lib/platform-capabilities.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import { sendSessionMessage } from "../lib/session-actions.ts";
@@ -1069,11 +1070,15 @@ function RunButton() {
 		if (chatId === null) return;
 		const run = await startRun(worktreeId);
 		if (run === null) return;
+		const shell = scriptCommandForPlatform(
+			hostDescriptor().platform,
+			run.script,
+		);
 		await openTerminalCommand({
 			chatRef: { environmentId: ctx.environmentId, chatId },
 			cwd: run.cwd,
 			title: uiMessage("chat:top_bar_run"),
-			command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
+			command: { cmd: shell.command, args: shell.args, env: run.env },
 		});
 	};
 

@@ -36,7 +36,8 @@
 		"./public-network-proxy": "./src/public-network-proxy.ts",
 		"./process-env": "./src/process-env.ts",
 		"./generative-ui": "./src/generative-ui.ts",
-		"./spawn-command": "./src/spawn-command.ts"
+		"./spawn-command": "./src/spawn-command.ts",
+		"./shell-command": "./src/shell-command.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",
