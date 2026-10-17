@@ -25,7 +25,8 @@ after the replacement snapshot reached ready.
 The original queued build recovered without resubmission: machine allocation
 was persisted at 06:08:32 UTC and repository preparation completed by 06:09:32
 UTC. The build successfully installed the production signed runtime before
-preparing the repositories.
+preparing the repositories. Snapshot publication completed and the build reached
+ready at 06:10:12 UTC; its build machine was released.
 
 ## Preventing the silent queue loop
 
