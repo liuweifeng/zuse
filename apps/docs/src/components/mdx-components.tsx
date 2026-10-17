@@ -1,3 +1,4 @@
+import Link from "fumadocs-core/link";
 import { Callout as FumadocsCallout } from "fumadocs-ui/components/callout";
 import { DynamicCodeBlock } from "fumadocs-ui/components/dynamic-codeblock";
 import {
@@ -8,13 +9,7 @@ import Image from "next/image";
 import type { ReactNode } from "react";
 import { FEATURES, SURFACES, type Surface } from "../data/features";
 
-const labelFromPath = (value: string) =>
-	value
-		.replace(/^\//u, "")
-		.split("/")
-		.at(-1)
-		?.replace(/-/gu, " ")
-		.replace(/\b\w/gu, (letter) => letter.toUpperCase()) ?? value;
+export type PageLink = { href: string; title: string };
 
 export function Callout({
 	title = "Good to know",
@@ -130,20 +125,73 @@ export function ProductFrame({
 	);
 }
 
+const ARTWORK = {
+	observatory: "/brand/observatory-dither.webp",
+	pegasus: "/brand/pegasus-dither.webp",
+	handoff: "/brand/handoff-dither.webp",
+} as const;
+
 export function Screenshot({
 	src,
 	alt,
+	title,
 	caption,
+	art = "observatory",
+	width = 2400,
+	height = 1500,
+	flush = false,
+	priority = false,
+	sizes = "(min-width: 1024px) 56rem, 100vw",
 }: {
 	src: string;
 	alt: string;
+	title?: string;
 	caption?: string;
+	art?: keyof typeof ARTWORK;
+	width?: number;
+	height?: number;
+	flush?: boolean;
+	priority?: boolean;
+	sizes?: string;
 }) {
 	return (
-		<figure className="docs-screenshot">
-			<Image src={src} alt={alt} width={1600} height={1000} />
-			{caption ? <figcaption>{caption}</figcaption> : null}
+		<figure className="docs-screenshot not-prose">
+			<div
+				className="docs-screenshot-stage"
+				data-flush={flush ? "" : undefined}
+				style={{ backgroundImage: `url(${ARTWORK[art]})` }}
+			>
+				<Image
+					src={src}
+					alt={alt}
+					width={width}
+					height={height}
+					priority={priority}
+					sizes={sizes}
+				/>
+			</div>
+			{title || caption ? (
+				<figcaption>
+					{title ? <strong>{title}</strong> : null}
+					{caption}
+				</figcaption>
+			) : null}
 		</figure>
+	);
+}
+
+export function FeatureGrid({ children }: { children: ReactNode }) {
+	return <div className="feature-grid not-prose">{children}</div>;
+}
+
+export function Feature({
+	href,
+	...screenshot
+}: Parameters<typeof Screenshot>[0] & { href: string }) {
+	return (
+		<Link href={href}>
+			<Screenshot sizes="(min-width: 768px) 28rem, 100vw" {...screenshot} />
+		</Link>
 	);
 }
 
@@ -255,15 +303,21 @@ export function ArchitectureDiagram({ children }: { children: ReactNode }) {
 	return <figure className="architecture-diagram">{children}</figure>;
 }
 
-export function Prerequisites({ links }: { links: ReadonlyArray<string> }) {
+function LinkPanel({
+	label,
+	links,
+}: {
+	label: string;
+	links: ReadonlyArray<PageLink>;
+}) {
 	if (links.length === 0) return null;
 	return (
 		<aside className="link-panel">
-			<span>Before you start</span>
+			<span>{label}</span>
 			<ul>
-				{links.map((href) => (
-					<li key={href}>
-						<a href={href}>{labelFromPath(href)}</a>
+				{links.map((link) => (
+					<li key={link.href}>
+						<Link href={link.href}>{link.title}</Link>
 					</li>
 				))}
 			</ul>
@@ -271,20 +325,12 @@ export function Prerequisites({ links }: { links: ReadonlyArray<string> }) {
 	);
 }
 
-export function RelatedPages({ links }: { links: ReadonlyArray<string> }) {
-	if (links.length === 0) return null;
-	return (
-		<aside className="link-panel">
-			<span>Related documentation</span>
-			<ul>
-				{links.map((href) => (
-					<li key={href}>
-						<a href={href}>{labelFromPath(href)}</a>
-					</li>
-				))}
-			</ul>
-		</aside>
-	);
+export function Prerequisites({ links }: { links: ReadonlyArray<PageLink> }) {
+	return <LinkPanel label="Before you start" links={links} />;
+}
+
+export function RelatedPages({ links }: { links: ReadonlyArray<PageLink> }) {
+	return <LinkPanel label="Related" links={links} />;
 }
 
 export function NextStep({ href, label }: { href: string; label: string }) {
@@ -303,6 +349,8 @@ export const mdxComponents = {
 	Step,
 	ProductFrame,
 	Screenshot,
+	FeatureGrid,
+	Feature,
 	Hotspot,
 	Command,
 	CommandTabs,
@@ -318,7 +366,5 @@ export const mdxComponents = {
 	SecurityNote,
 	Troubleshooting,
 	ArchitectureDiagram,
-	RelatedPages,
-	Prerequisites,
 	NextStep,
 };
