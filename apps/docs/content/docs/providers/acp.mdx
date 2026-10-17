@@ -2,44 +2,103 @@
 title: ACP agents
 icon: Plug
 navTitle: "ACP agents"
-description: Install agents from the ACP catalog or connect your own ACP command.
+description: Add Gemini CLI, GitHub Copilot, goose, and dozens more agents from the ACP catalog, or connect your own command.
 section: providers
-order: 32
+order: 40
+platforms: [desktop, browser, mobile]
+providers: []
+prerequisites: [/providers/setup]
+related: [/providers, /composer/modes-permissions, /reference/diagnostics]
+next: /composer
 lastVerified: latest
 ---
 
-Zuse can run agents that speak the Agent Client Protocol (ACP) over standard input and output. Each connected host has its own agents, installations, and credentials.
+The Agent Client Protocol (ACP) is an open standard for talking to coding agents over standard input and output. Any agent that speaks ACP can run in Zuse with the same timeline, tool rendering, permissions, worktrees, and review flow as the built-in providers.
+
+Zuse reads the public [ACP registry](https://agentclientprotocol.com/registry) to offer a catalog of agents. It also keeps a cached copy and a bundled snapshot, so the catalog still opens offline.
+
+## Popular agents
+
+These agents are in the catalog today. The registry is updated independently of Zuse, so versions and the full list can change.
+
+<Cards>
+	<Card icon={<AgentLogo id="gemini" />} title="Gemini CLI" description="Google's official CLI for Gemini. Runs with npx." />
+	<Card icon={<AgentLogo id="github-copilot-cli" />} title="GitHub Copilot" description="GitHub's coding agent CLI. Runs with npx." />
+	<Card icon={<AgentLogo id="claude-acp" />} title="Claude Agent" description="ACP adapter for Claude. Supports extra accounts." />
+	<Card icon={<AgentLogo id="codex-acp" />} title="Codex" description="ACP adapter for Codex. Supports extra accounts." />
+	<Card icon={<AgentLogo id="goose" />} title="goose" description="Open-source, extensible local agent. Native binary." />
+	<Card icon={<AgentLogo id="cline" />} title="Cline" description="Autonomous coding agent CLI. Runs with npx." />
+	<Card icon={<AgentLogo id="qwen-code" />} title="Qwen Code" description="Alibaba's Qwen coding assistant. Runs with npx." />
+	<Card icon={<AgentLogo id="kimi" />} title="Kimi CLI" description="Moonshot AI's coding assistant. Native binary." />
+	<Card icon={<AgentLogo id="junie" />} title="Junie" description="JetBrains' coding agent. Native binary." />
+	<Card icon={<AgentLogo id="mistral-vibe" />} title="Mistral Vibe" description="Mistral's open-source coding assistant. Native binary." />
+	<Card icon={<AgentLogo id="auggie" />} title="Auggie CLI" description="Augment Code's agent and context engine. Runs with npx." />
+	<Card icon={<AgentLogo id="kilo" />} title="Kilo" description="Open-source coding agent. Native binary or npx." />
+	<Card icon={<AgentLogo id="amp-acp" />} title="Amp" description="ACP wrapper for Amp. Needs the Amp CLI signed in." />
+	<Card icon={<AgentLogo id="opencode" />} title="OpenCode" description="OpenCode's ACP mode. Native binary." />
+	<Card icon={<AgentLogo id="grok-build" />} title="Grok Build" description="xAI's coding agent and CLI. Runs with npx." />
+	<Card icon={<AgentLogo id="pi-acp" />} title="pi ACP" description="ACP adapter for the Pi coding agent. Runs with npx." />
+</Cards>
+
+The catalog also includes community entries that Zuse adds itself. They're marked **Community**:
+
+| Agent | What it needs |
+| --- | --- |
+| Oh My Pi (OMP) | Node.js 20+ and the `omp` CLI. If `omp` isn't on the host's PATH, set `OMP_ACP_RUNTIME_COMMAND` to its absolute path. |
+| Hermes | Hermes installed on the host with its ACP extra, and a provider set with `hermes model`. |
+| OpenClaw | OpenClaw installed on the host and a running, configured Gateway. Tools and MCP run on the Gateway. |
 
 ## Add an agent
 
-Open **Settings → Providers**, then click **Add** in the **ACP agents** section. Search the catalog and click **Add**; hover an entry to open its source. Zuse selects a distribution for the host and checks the agent's connection. Package-based agents require Node.js/npm or uv on that host; missing prerequisites appear as an installation error.
+1. Open **Settings → Providers** and find **ACP agents**.
+2. Choose **Add**, then search the catalog. Hover an entry to open its source.
+3. Choose **Add** on the agent. Zuse picks a distribution for the host, installs it, and tests the connection.
+4. If the agent needs sign-in, choose **Sign in** and pick one of the methods it offers. Some open a terminal inside Zuse; others open a sign-in page in your browser.
 
-Installed versions stay pinned until you choose **Update** from the agent's **…** menu. A failed update keeps the previous configuration. The catalog remains available from its cached or bundled snapshot when the registry cannot be reached.
+The new agent appears in the model picker. Each host keeps its own agents, installations, and credentials.
+
+### How agents are installed
+
+| Distribution | What Zuse runs | Host requirement |
+| --- | --- | --- |
+| npx | The pinned npm package, with an isolated npm cache | Node.js and npm |
+| uvx | The pinned Python package, with an isolated uv cache | uv |
+| Binary | A verified download for your OS and CPU | None |
+
+An entry shows **Unavailable** when it has no distribution for the host. Installed versions stay pinned until you choose **Update** from the agent's **…** menu. A failed update keeps the previous version.
+
+## Gemini CLI
+
+Gemini is available only as an ACP agent. Search the catalog for **Gemini CLI** and add it; Zuse runs `@google/gemini-cli` in ACP mode through npx, so the host needs Node.js and npm. Sign in with one of the methods Gemini CLI offers.
+
+Chats you started with the earlier built-in Gemini integration keep their history and provider.
 
 ## Use your own command
 
-Choose **Use a custom command…** and enter a name, executable, and arguments. Arguments are separated by spaces and support shell-style quoting; for example, `--acp --model "my model"`.
+Choose **Use a custom command…** at the bottom of the catalog and fill in:
 
-Environment variables are entered as `KEY=value` pairs separated by spaces, such as `API_KEY=your-key`. Zuse keeps their values in the host's credential storage and displays only the saved variable names. Leave the field blank when editing to keep existing values, or click **Clear** to remove them. Commands are launched directly, without shell expansion.
+- **Name**: how the agent appears in Zuse.
+- **Executable**: the command to launch, such as `my-agent`.
+- **Arguments**: separated by spaces, with shell-style quoting, for example `--acp --model "my model"`.
+- **Environment**: `KEY=value` pairs separated by spaces, such as `API_KEY=your-key`. Names must start with a letter or underscore.
 
-Choose **Test connection** from the agent's **…** menu to check the protocol and discover available models, modes, and commands. If sign-in is required, click **Sign in** and choose an advertised authentication method. Some methods open an interactive terminal; others offer a sign-in link or open a browser on the agent's host. Remote agents whose authentication requires a local browser callback may need to be authenticated directly on that machine.
+Zuse launches the command directly, without shell expansion. Environment values go to the host's encrypted credential store, and Zuse shows only the saved variable names afterward. Leave the field blank when editing to keep existing values, or choose **Clear** to remove them.
 
-## Multiple configurations
+## Manage agents
 
-Use **Duplicate** from the **…** menu to create an independent named configuration with the same command and environment. Select each configuration separately in the model picker. You can edit or remove configurations, or turn them off with the switch, without deleting their conversation history.
+Each agent's **…** menu has:
 
-Settings changes apply when an agent process next starts. Running conversations retain their launch configuration. If an agent cannot resume a saved session, Zuse reports that limitation instead of silently replacing its history.
+- **Test connection**: checks the protocol and discovers models, modes, and commands.
+- **Edit**, **Duplicate**, and **Remove**.
+- **Add account** (Claude Agent and Codex): a separate configuration with its own sign-in.
+- **Update** (catalog agents): installs the latest catalog version.
 
-## Tools and capabilities
+Turn an agent off with its switch to hide it without deleting conversation history. Setting changes apply the next time the agent process starts; running conversations keep their launch configuration.
 
-Zuse uses ACP's structured tool information to display file reads, diffs, searches, terminal output, and permission requests. Unrecognized tools retain a generic card. Models and modes come from the agent; unsupported controls are hidden. Image attachments require the agent to advertise image support.
+## What works
 
-This integration supports ACP over stdio. It does not load arbitrary JavaScript adapter plugins or connect directly to network ACP endpoints.
+Zuse uses ACP's structured tool information to render file reads, diffs, searches, terminal output, and permission requests. Unrecognized tools keep a generic card. Models and modes come from the agent, and controls it doesn't support are hidden. Image attachments need the agent to advertise image support.
 
-## Amp and Oh My Pi
+Resuming a saved chat requires the agent to support loading sessions. If it doesn't, Zuse says so instead of silently replacing the history.
 
-Search **Amp** in the catalog to install its registry adapter. The Amp CLI must also be installed and authenticated on that host.
-
-Search **Oh My Pi** or **OMP** for the community `omp-acp` adapter. It requires Node.js 20+ and the `omp` CLI and reuses OMP's authentication. If `omp` is not on the host's PATH, set `OMP_ACP_RUNTIME_COMMAND` to its absolute path in the agent's environment. The catalog labels this entry **Community** and links to its [source and setup instructions](https://github.com/jiwangyihao/omp-acp).
-
-Gemini is available through the ACP agents catalog, rather than the built-in setup list. Existing Gemini conversations retain their provider identity.
+Zuse supports ACP over stdio. It doesn't load JavaScript adapter plugins or connect to network ACP endpoints.

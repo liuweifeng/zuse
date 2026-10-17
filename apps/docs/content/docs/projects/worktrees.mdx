@@ -56,7 +56,7 @@ For other large dependencies, use a package manager with a shared cache and keep
 When you create a chat in a new worktree, Zuse performs these steps:
 
 1. Resolves the starting revision. For a repository with `origin`, Zuse fetches the remote default branch so a new task does not silently start from a stale local branch. A local-only repository starts from its current `HEAD`.
-2. Creates a branch and checkout under `~/.zuse/<project-name>-<project-id>/<worktree-name>/`, unless `worktreeBaseDir` overrides the parent directory.
+2. Creates a branch and checkout under `~/.zuse/<project-name>-<short-project-id>/<worktree-name>/`, unless `worktreeBaseDir` overrides the parent directory.
 3. Links reusable local files and a compatible `node_modules` directory.
 4. Runs the configured setup script from the new checkout.
 5. Makes the configured run command available, and starts it after successful setup when `auto_run_after_setup` is enabled.
@@ -100,7 +100,9 @@ The source file remains in the main checkout, and the worktree receives a link a
 
 ## Branch and base behavior
 
-A normal new worktree gets its own branch. You can also start from an existing local branch, a remote branch, or a pull request when that source is available in the creation flow.
+A normal new worktree gets its own branch. You can also use **Create from…** on a new chat to start from an existing branch or a pull request. Branches already checked out in a Zuse worktree are marked **In use**, and Zuse reuses that worktree instead of creating a second checkout. Choosing a GitHub issue instead attaches the issue as a Markdown file and prefills the prompt.
+
+You can rename a branch that has not been published yet from the branch menu in the top bar with **Rename current branch…**.
 
 The selected base determines only the starting files and history. Zuse does not keep the worktree synchronized with that base afterward. Fetch, merge, or rebase as you normally would before review, especially for a long-running task.
 

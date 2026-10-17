@@ -1,11 +1,12 @@
 ---
-title: OpenCode
+title: OpenCode and OpenCode 2
 icon: logo:opencode
+navTitle: "OpenCode"
 description: Connect OpenCode providers and models and run them through Zuse's local integration.
 section: providers
 order: 37
 platforms: [desktop, browser, mobile]
-providers: [opencode]
+providers: [opencode, opencode2]
 prerequisites: [/start/install, /providers/setup]
 related: [/reference/settings, /composer/modes-permissions, /reference/diagnostics]
 next: /providers/kiro
@@ -49,3 +50,16 @@ If inventory or startup fails:
 3. Refresh the OpenCode inventory in **Settings → Providers**.
 4. Re-enable any provider or model hidden by Zuse settings.
 5. Create a fresh session after changing configuration.
+
+## OpenCode 2
+
+OpenCode 2 is a separate built-in provider with its own `opencode2` binary. Installing it doesn't replace `opencode`, and each has its own row in **Settings → Providers** and its own entries in the model picker.
+
+```bash
+curl -fsSL https://opencode.ai/v2/install | bash
+opencode2 auth login
+```
+
+You can also install it with `npm i -g @opencode/cli`. Zuse starts a private `opencode2 serve` process and uses the same provider and model manager as OpenCode. Update with `opencode2 upgrade`.
+
+Unlike OpenCode, OpenCode 2 sessions try to resume their provider conversation when the local server restarts. See the [OpenCode 2 documentation](https://opencode.ai/v2/docs) for its own configuration.

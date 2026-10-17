@@ -6,7 +6,7 @@ description: Recover missing local servers, failed page loads, stale agent targe
 section: workspace
 order: 68
 platforms: [desktop]
-providers: [claude, codex, grok, gemini]
+providers: [claude, codex, grok, kiro]
 prerequisites: [/workspace/browser]
 related: [/workspace/browser-debugging, /workspace/browser-evidence, /workspace/browser-sessions-privacy, /reference/diagnostics]
 next: /workspace/changes-pull-requests
@@ -40,6 +40,10 @@ A full-page screenshot may fall back to the visible viewport. An empty screensho
 Navigation and large rerenders invalidate earlier page targets. Ask the agent to inspect the current page again, then retry using the control's visible label or role. Confirm that the control is visible and enabled, and dismiss any dialog covering the page.
 
 If the agent says the browser belongs to another or unavailable task, switch to the intended task and reopen its Browser panel. Closing the panel removes the controller for that task.
+
+## The agent has no browser tools
+
+Browser control is available to Claude Code, Codex, Grok, Kiro CLI, and [ACP agents](/providers/acp) that accept Zuse's tool server. Cursor, OpenCode, and Pi sessions do not receive it. Start a new chat with a supported provider, or operate the Browser panel yourself.
 
 ## Console or network evidence is unavailable
 

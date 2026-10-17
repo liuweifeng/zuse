@@ -14,20 +14,46 @@ lastVerified: latest
 ---
 
 
-Open **Settings → Keyboard shortcuts** to change shortcuts. Overrides are stored in:
+Open **Settings → Keyboard shortcuts** to record a new shortcut, add another binding for a command, or reset a command to its default. The editor warns when two commands share a shortcut. Overrides are stored in:
 
 ```text
 ~/.zuse/keybindings.json
 ```
 
-The command set covers:
+The file holds only your overrides. Defaults are built into the app, so updates can change them without rewriting your file.
 
-- application actions such as new chat, open project, settings, and close tab;
-- sidebar, files panel, and terminal toggles;
-- next, previous, and numbered tab selection;
-- chat and panel navigation;
-- composer focus, submit, newline, force submit, and Plan mode;
-- editor save and annotation.
+## Default shortcuts
+
+`mod` is Command on macOS and Ctrl on other platforms.
+
+| Command ID | Action | Default |
+| --- | --- | --- |
+| `new-chat` | New chat | `mod+n` |
+| `new-chat-without-project` | New chat without a project | `mod+alt+n` |
+| `open-project` | Open project | `mod+o` |
+| `settings` | Open or close Settings | `mod+,` |
+| `close-tab` | Close tab | `mod+w` |
+| `toggle-left-sidebar` | Toggle projects panel | `mod+b` |
+| `toggle-right-sidebar` | Toggle files panel | `mod+alt+b` |
+| `toggle-terminal` | Toggle terminal | `mod+j` |
+| `focus-composer` | Focus composer | `mod+l` |
+| `search-files` | Search files | `mod+p` |
+| `open-chat-switcher` | Switch chat | `mod+k` |
+| `next-tab` / `prev-tab` | Next or previous tab | `mod+shift+]` / `mod+shift+[` |
+| `select-tab-1` … `select-tab-8` | Go to tab 1–8 | `mod+1` … `mod+8` |
+| `select-last-tab` | Go to last tab | `mod+9` |
+| `new-tab` | New tab | `mod+t` |
+| `next-chat` / `prev-chat` | Next or previous chat | `ctrl+tab` / `ctrl+shift+tab` |
+| `next-panel` / `prev-panel` | Next or previous right-pane panel | `mod+alt+]` / `mod+alt+[` |
+| `focus-next-pane` / `focus-prev-pane` | Move focus to the next or previous region | ``ctrl+` `` / ``ctrl+shift+` `` |
+| `composer.submit` | Submit message | `enter` |
+| `composer.newline` | Insert newline | `shift+enter` |
+| `composer.forceSubmit` | Submit even when a mention or skill popover is open | `mod+enter` |
+| `composer.togglePlanMode` | Toggle Plan mode | `shift+tab` |
+| `editor.save` | Save file | `mod+s` |
+| `editor.annotate` | Annotate selection | `mod+shift+a` |
+
+`composer.*` commands work only while the composer has focus, and `editor.*` commands work only in the file editor. All other commands are global. Shortcuts for new chat, open project, settings, close tab, the sidebar and terminal toggles, and focus composer also appear in the menu bar.
 
 ## File format
 
@@ -35,13 +61,17 @@ The command set covers:
 {
   "schemaVersion": 1,
   "rules": [
-    { "key": "mod+shift+p", "command": "open-chat-switcher" },
-    { "key": "mod+enter", "command": "composer.submit", "when": "composerFocus" }
+    { "key": "mod+shift+k", "command": "open-chat-switcher" },
+    { "key": "mod+alt+t", "command": "toggle-terminal" }
   ]
 }
 ```
 
-`mod` maps to Command on macOS. Optional `when` expressions make a shortcut context-specific. Keep the list below 256 rules and use only command identifiers accepted by the public schema.
+A rule for a command replaces that command's default shortcut. To bind several keys to one command, add one rule per key. When two rules use the same key, the later rule wins.
+
+Keys combine modifiers with one base key, joined by `+`. Modifiers are `mod`, `cmd` (or `meta`), `ctrl`, `alt` (or `option`), and `shift`. Use `cmd` or `ctrl` to target one physical modifier on every platform.
+
+Zuse reads at most 256 rules and skips rules with an unknown command. A rule whose key has no base key, such as `shift` alone, has no effect. Zuse applies saved edits while it is running. Leave out the optional `when` field. Zuse does not define any context names for it, so a global shortcut whose `when` names one never fires.
 
 For validation and completion, configure your editor with:
 
