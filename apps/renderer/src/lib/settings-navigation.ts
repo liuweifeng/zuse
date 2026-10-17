@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import type { WorkspaceScope } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
@@ -14,6 +15,7 @@ import {
 	PuzzleIcon,
 	Settings01Icon,
 	SmartPhone01Icon,
+	SmartPhone02Icon,
 	TaskDone01Icon,
 	UserGroupIcon,
 } from "@zuse/icons/solid-rounded";
@@ -85,6 +87,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "browser" },
 	},
 	{
+		id: "simulator",
+		get label() {
+			return uiMessage("simulators:settings_title");
+		},
+		Icon: SmartPhone02Icon,
+		section: { kind: "simulator" },
+	},
+	{
 		id: "pokedex",
 		get label() {
 			return uiMessage("settings:settings_navigation_pokedex");
@@ -131,7 +141,9 @@ export function settingsNavigationFor(
 ) {
 	if (scope?.kind === "organization") return ORGANIZATION_NAVIGATION;
 	return SETTINGS_NAVIGATION.filter(
-		(item) => desktop || item.section.kind !== "machines",
+		(item) =>
+			desktop ||
+			(item.section.kind !== "machines" && item.section.kind !== "simulator"),
 	);
 }
 

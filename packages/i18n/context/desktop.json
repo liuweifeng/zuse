@@ -34943,5 +34943,1061 @@
 			}
 		],
 		"context": "plugins interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:panel_label": {
+		"source": "Simulator",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/right-pane.tsx",
+				"line": 170
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:environment_not_connected": {
+		"source": "Environment not connected",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/right-pane.tsx",
+				"line": 1105
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:environment_not_connected_description": {
+		"source": "Connect this chat’s environment to use its simulators.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/right-pane.tsx",
+				"line": 1107
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:offline_title": {
+		"source": "Can’t reach this environment",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 60
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:offline_description": {
+		"source": "Reconnect it to see its devices. Environments running an older Zuse server need an update.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 61
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:setup_title": {
+		"source": "Simulators",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 136
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:setup_description_both": {
+		"source": "Run iOS simulators and Android emulators beside the chat, and let agents check their own work.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 139
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:setup_description_android": {
+		"source": "Run Android emulators beside the chat, and let agents check their own work.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 140
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agents_toggle": {
+		"source": "Let agents use devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 150
+			},
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 160
+			},
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 222
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agents_toggle_description": {
+		"source": "Agents can open apps, tap, type and take screenshots. You can change this later.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 153
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:check_again": {
+		"source": "Check again",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 123
+			},
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 171
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:turn_on": {
+		"source": "Turn on",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 190
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:recheck_on_return": {
+		"source": "Zuse checks again when you come back.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 195
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:installs_hub": {
+		"source": "Installs device hub {{hub}} for Zuse. Your SDKs aren’t changed.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 201
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:installs_hub_and_agent": {
+		"source": "Installs device hub {{hub}} and agent tools {{agent}} for Zuse. Your SDKs aren’t changed.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 197
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:preparing_title": {
+		"source": "Setting up",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 229
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:preparing_description": {
+		"source": "The first setup downloads the device hub and can take a minute.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 230
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:cancel": {
+		"source": "Cancel",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 242
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:failed_title": {
+		"source": "Devices couldn’t start",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 261
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:try_again": {
+		"source": "Try again",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 273
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:turn_off": {
+		"source": "Turn off",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-pane.tsx",
+				"line": 284
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:checking_computer": {
+		"source": "Checking this computer…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-parts.tsx",
+				"line": 179
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:devices": {
+		"source": "Devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 62
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:refresh": {
+		"source": "Refresh",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 70
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:simulator_settings": {
+		"source": "Simulator settings",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 79
+			},
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 226
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:session_ended": {
+		"source": "That device’s session ended. Choose one to reopen.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 87
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:empty_title": {
+		"source": "No simulators or emulators",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 98
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:empty_description": {
+		"source": "Add one in Xcode or Android Studio, then refresh.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 99
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:opening": {
+		"source": "Opening",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 156
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:starting": {
+		"source": "Starting",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 156
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:in_another_chat": {
+		"source": "In another chat",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 160
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:running": {
+		"source": "Running",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 167
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:show": {
+		"source": "Show",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 180
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:open": {
+		"source": "Open",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 182
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:start": {
+		"source": "Start",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 183
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:in_use_elsewhere": {
+		"source": "Another chat is using this device. Close it there first.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 194
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agents_off": {
+		"source": "Agents can’t use devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 241
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:allow": {
+		"source": "Allow",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 249
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:retry": {
+		"source": "Retry",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-picker.tsx",
+				"line": 272
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:all_devices": {
+		"source": "All devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 150
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:back": {
+		"source": "Back",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 167
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:home": {
+		"source": "Home",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 173
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:recents": {
+		"source": "Recents",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 179
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:app_switcher": {
+		"source": "App switcher",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 179
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:rotate": {
+		"source": "Rotate",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 186
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:save_screenshot": {
+		"source": "Save screenshot",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 198
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:more": {
+		"source": "More",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 207
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:disconnect": {
+		"source": "Disconnect from chat",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 231
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:shut_down_emulator": {
+		"source": "Shut down emulator",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 237
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:shut_down_simulator": {
+		"source": "Shut down simulator",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 238
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:screen_label": {
+		"source": "{{name}} screen. Click to touch; typing goes to the device.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 265
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:reconnect": {
+		"source": "Reconnect",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 334
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:decode_failed": {
+		"source": "This window couldn’t decode the emulator’s video. Reconnect to try again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 95
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:operation_failed": {
+		"source": "Device operation failed",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 68
+			},
+			{
+				"path": "apps/renderer/src/lib/simulator-client-bus.ts",
+				"line": 79
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:input_backed_up": {
+		"source": "Input is backed up. Release the controls and try again.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/simulator/simulator-viewer.tsx",
+				"line": 425
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:stream_disconnected": {
+		"source": "Device stream disconnected. Retry to reconnect.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-client-bus.ts",
+				"line": 168
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:connection_lost": {
+		"source": "Device connection lost",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-client-bus.ts",
+				"line": 118
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:settings_title": {
+		"source": "Simulators",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 48
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 70
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 74
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 78
+			},
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 451
+			},
+			{
+				"path": "apps/renderer/src/lib/settings-navigation.ts",
+				"line": 92
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:settings_subtitle": {
+		"source": "Run iOS simulators and Android emulators beside your chats, and choose whether agents can use them.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings-page.tsx",
+				"line": 452
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:settings_description": {
+		"source": "Preview apps on iOS simulators and Android emulators in a chat’s side panel. Devices run on this computer; each chat opens its own.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 71
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:settings_unavailable": {
+		"source": "This computer’s simulator service is unavailable.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 51
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:loading": {
+		"source": "Loading…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 54
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agent_access": {
+		"source": "Agent access",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 86
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 90
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agent_access_description": {
+		"source": "Agents can open devices, tap, type and take screenshots to check their work. Turn off to keep controls manual.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 87
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirements": {
+		"source": "Requirements",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 114
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirements_description": {
+		"source": "Checked on this computer. Fixes run only when you choose them.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 115
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:tools": {
+		"source": "Tools",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 130
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:tools_footer": {
+		"source": "Downloaded on first use at pinned versions into Zuse’s data folder, separately from your projects.",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 131
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:device_hub": {
+		"source": "Device hub",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 134
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:device_hub_description": {
+		"source": "expo-device-hub {{version}} · streams iOS and Android screens and sends touch and keyboard input",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 135
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agent_tools": {
+		"source": "Agent tools",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 141
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:agent_tools_description": {
+		"source": "agent-device {{version}} · lets agents read and operate the app",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 142
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_off": {
+		"source": "Off",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 181
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 199
+			},
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 208
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_on_demand": {
+		"source": "Starts on demand",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 183
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_checking": {
+		"source": "Checking…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 185
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_installing": {
+		"source": "Installing…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 187
+			},
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 202
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_starting": {
+		"source": "Starting…",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 189
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_running": {
+		"source": "Running",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 191
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_stopped": {
+		"source": "Stopped",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 193
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_ready": {
+		"source": "Ready",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 204
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_failed": {
+		"source": "Failed",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 206
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:status_first_use": {
+		"source": "Installs on first use",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/settings/simulator-settings-pane.tsx",
+				"line": 208
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_xcode": {
+		"source": "Xcode",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 37
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_runtime": {
+		"source": "iOS simulator runtime",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 39
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_android_sdk": {
+		"source": "Android SDK",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 41
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_android_avd": {
+		"source": "Android emulator",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 43
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_node": {
+		"source": "Node 22.12+ and npm",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 45
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:platform_ios": {
+		"source": "iOS",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 54
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:platform_android": {
+		"source": "Android",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 56
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:platform_all": {
+		"source": "Both",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 57
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:step_check": {
+		"source": "Check device tools",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 131
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:step_install_hub": {
+		"source": "Install device hub {{version}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 134
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:step_start_hub": {
+		"source": "Start device hub",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 136
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:step_find": {
+		"source": "Find devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 137
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:step_install_agent": {
+		"source": "Install agent tools {{version}}",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 143
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:summary_idle": {
+		"source": "On · starts when you open a device",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 211
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:summary_devices": {
+		"source": "{{count}} devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 217
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:summary_devices_one": {
+		"source": "{{count}} device",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 217
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:summary_devices_other": {
+		"source": "{{count}} devices",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 217
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:summary_running": {
+		"source": "{{devices}} · {{count}} running",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 221
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	}
 }
