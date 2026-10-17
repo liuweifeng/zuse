@@ -5,7 +5,9 @@
 		"local-browser",
 		"nearby-pairing",
 		"hosted-access",
-		"recovery",
-		"security"
+		"tailscale",
+		"other-computers",
+		"security",
+		"recovery"
 	]
 }

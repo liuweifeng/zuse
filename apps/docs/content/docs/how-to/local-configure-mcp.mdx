@@ -26,20 +26,21 @@ Zuse does not read or pass through MCP servers configured in a provider's own fi
 
 - Sign in to Zuse. Plugins belong to your account or organization.
 - Have the server's remote HTTPS URL. Local `stdio` commands and private-network servers cannot be added.
-- Know how the server authenticates: OAuth, no authentication, or an API key sent in a request header.
+- Know how the server authenticates: sign-in (OAuth), no authentication, or a key sent as a bearer token or in a custom request header.
 - Read the server's tool list and trust boundary before connecting it.
 
 ## 1. Add the server
 
-1. Open **Plugins** and choose **Add MCP server**.
-2. Enter a name and the server's HTTPS URL.
-3. Choose its authentication:
-   - **OAuth** or **no authentication**: Zuse detects which one the server uses when you connect.
-   - **API key**: enter the header name and key. Zuse checks the key once before saving it.
-4. Choose where it belongs:
-   - **Personal workspace**: only you can use it.
-   - **Organization workspace**: organization admins add and remove it; every member can use it.
-5. Connect the server. If the first connection fails, the server is not kept, so you can fix the URL or key and try again.
+1. Switch to the workspace the server belongs to. The dialog confirms the target:
+   - **Adding to your personal workspace.** Only you can use it.
+   - **Adding to the _name_ organization.** Only organization admins can add or remove it; every member can use it once it is connected.
+2. Open **Plugins** (in the sidebar or Settings) and choose **Add MCP server**.
+3. Enter a **Name** and the **Server URL**.
+4. Under **Authentication**, choose:
+   - **Sign in or none**: Zuse detects whether the server needs you to sign in or is open to everyone.
+   - **Bearer token**: enter the **Token**.
+   - **Custom header**: enter the **Header name** and **Value**.
+5. Choose **Add server**. If the connection fails, the dialog stays open with the error so you can fix the URL or key and try again.
 
 Popular services may already be in the plugin catalog. Prefer the catalog entry when one exists.
 
@@ -52,7 +53,8 @@ Popular services may already be in the plugin catalog. Prefer the catalog entry 
 ## Troubleshooting
 
 - **The URL is rejected:** the server must be reachable at a public HTTPS address.
-- **The key is rejected:** check the header name and key with the server's documentation, then add the server again.
+- **The key is rejected:** check the header name and key with the server's documentation, then try again.
+- **The server didn't offer sign-in:** it needs a key. Choose **Bearer token** or **Custom header**.
 - **The agent cannot see the tools:** confirm that the server is connected in **Plugins**, then start a new chat.
 - **A server you configured in a provider CLI is missing:** that is expected. Add it in **Plugins** instead.
 - **A tool request is denied:** plugin availability does not bypass [runtime modes and permissions](/composer/modes-permissions/).

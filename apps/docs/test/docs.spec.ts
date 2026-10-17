@@ -269,3 +269,29 @@ test("mobile navigation contains search", async ({ page, isMobile }) => {
 	await page.getByRole("button", { name: "Open Search" }).click();
 	await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
 });
+
+test("API reference renders generated endpoint pages", async ({ page }) => {
+	await page.goto("/api-reference/workspaces/create-workspace");
+	await expect(
+		page.getByRole("heading", { name: "Create workspace", level: 1 }),
+	).toBeVisible();
+	await expect(page.getByText("/v1/api/workspaces").first()).toBeVisible();
+	await expect(page.getByText("Idempotency-Key").first()).toBeVisible();
+});
+
+test("OpenAPI document and retired provider routes are served", async ({
+	request,
+}) => {
+	const document = await request.get("/openapi.json");
+	expect(document.ok()).toBeTruthy();
+	const spec = (await document.json()) as {
+		openapi: string;
+		paths: Record<string, unknown>;
+	};
+	expect(spec.openapi).toBe("3.1.0");
+	expect(Object.keys(spec.paths)).toContain("/v1/api/workspaces");
+
+	const gemini = await request.get("/providers/gemini", { maxRedirects: 0 });
+	expect(gemini.status()).toBe(308);
+	expect(gemini.headers().location).toBe("/providers/acp#gemini-cli");
+});

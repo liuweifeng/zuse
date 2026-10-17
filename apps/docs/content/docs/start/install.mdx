@@ -6,7 +6,7 @@ description: Install Zuse on macOS or x64 Linux and make a supported coding-agen
 section: start
 order: 2
 platforms: [desktop]
-providers: [claude, codex, grok, gemini, cursor, opencode, kiro]
+providers: [claude, codex, grok, cursor, opencode, kiro, pi]
 prerequisites: []
 related: [/start/first-chat, /providers, /reference/diagnostics]
 next: /start/first-chat
@@ -60,19 +60,23 @@ Mention Zuse again in the same thread to continue working in that workspace. Sta
 
 ## Connect a provider
 
-Zuse supports Claude Code, Codex, Grok, Gemini, Cursor, OpenCode, and Kiro. You need at least one provider's CLI installed and signed in.
+Zuse has built-in support for Claude Code, Codex, Grok, Cursor, OpenCode, Kiro, and Pi. Other agents, including Gemini CLI, run through [ACP](/providers/acp). You need at least one agent installed and signed in.
 
-During onboarding, Zuse shows the providers it detects. A provider may be:
+On a fresh installation, onboarding walks you through picking your default agent, adding your first project, choosing an appearance, and setting defaults for the model, permission mode, and whether each new chat gets its own worktree. It ends with an optional Zuse account sign-in; local agents work without one. You can replay onboarding from **Settings → General**.
 
-- **Ready** — installed, authenticated, and compatible.
-- **Needs attention** — usable, but an update or authentication check needs review.
-- **Unavailable** — missing, signed out, or below a required CLI version.
+The agent step shows each provider's current state, such as **CLI logged in**, **API key set**, **Not installed**, **Update required**, **Sign in required**, or **Subscription required**. Use **Recheck** after you fix something outside Zuse.
 
-Open **Settings → Providers** at any time to install, sign in, update, enable, or disable providers. Authentication is performed through each provider's supported flow. App-managed API keys are stored in macOS Keychain or Linux Secret Service, not in Zuse's settings JSON.
+Open **Settings → Providers** at any time to install, sign in, update, enable, or disable providers, and to choose which models appear in the picker. Authentication is performed through each provider's supported flow. App-managed API keys are encrypted with a key held by the macOS Keychain or Linux Secret Service, not stored in Zuse's settings JSON.
 
-## Open a repository
+## Add a project
 
-Choose **Open project…** and select a folder. Git repositories get the full worktree, Changes, branch, and pull-request workflow. A plain folder can still be used for agent sessions, files, and terminal work, and Zuse can offer to initialize Git when you need version control.
+Choose **New project** in the sidebar, the **+** next to **Projects**, or **File → Open Project…** (`⌘O`, or `Ctrl+O` on Linux). The **Add project** dialog offers three starting points:
+
+- **Existing folder** opens a project already on disk.
+- **Clone repository** clones from a Git URL or one of your recent GitHub repositories.
+- **Quick start** creates a new project from a template, optionally with a private GitHub repository.
+
+Git repositories get the full worktree, Changes, branch, and pull-request workflow. A plain folder can still be used for agent sessions, files, and terminal work, and Zuse offers **Initialize Git repository** when you need version control.
 
 ## If a provider is not ready
 

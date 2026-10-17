@@ -31,7 +31,7 @@ Use this guide for local browser, nearby iPhone, hosted browser, hosted mobile, 
 
    - **Connecting** or **Reconnecting** means the client is already retrying.
    - **Offline** means the app or network path is unavailable.
-   - **Connection error** means a retryable transport or authorization failure occurred.
+   - **Connection error** (iPhone) means a retryable transport or authorization failure occurred.
    - **Pair this browser** or **Browser authorization expired** means retry alone cannot repair the credential.
 
 2. Confirm the environment computer is awake, online, and running the desktop app or Serve.
@@ -53,11 +53,11 @@ Use this guide for local browser, nearby iPhone, hosted browser, hosted mobile, 
 
 6. Reauthorize only when the client reports missing, expired, revoked, or incompatible authorization.
 
-   - Browser: create a fresh web link under **Settings → Devices**.
+   - Browser: create a fresh link under **Settings → Remote access → Connect another device**.
    - Nearby iPhone: pair again and approve the matching safety phrase.
    - Hosted client: confirm both sides use the same account, then relink the environment if it was removed.
 
-7. If Zuse reports a version mismatch, update the environment before retrying the client.
+7. If Zuse reports **Zuse versions do not match**, update the environment before retrying the client.
 
 ## Verification
 
@@ -79,7 +79,7 @@ Generate another link. Pairing links cannot be extended or reused.
 
 ### The phone cannot discover the Mac
 
-Allow Local Network access in iPhone Settings, keep Zuse open on the Mac, and use **Scan QR instead** if discovery remains blocked.
+Allow Local Network access in iPhone Settings, keep Zuse open on the Mac, and use **Use QR Code** if discovery remains blocked.
 
 ### The hosted computer stays offline
 

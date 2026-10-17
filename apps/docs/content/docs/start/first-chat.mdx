@@ -6,7 +6,7 @@ description: Open a repository, choose an isolated environment, and take an agen
 section: start
 order: 3
 platforms: [desktop]
-providers: [claude, codex, grok, gemini, cursor, opencode, kiro]
+providers: [claude, codex, grok, cursor, opencode, kiro, pi]
 prerequisites: [/start/install]
 related: [/concepts/project-chat-session, /projects/worktrees, /composer/modes-permissions, /workspace/changes-pull-requests]
 next: /workspace/changes-pull-requests
@@ -18,17 +18,19 @@ A good first task is small enough to review but meaningful enough to touch the r
 
 ## 1. Open the project
 
-Choose **Open project…** and select the repository. Zuse adds it to the projects panel and reads its current Git state. Opening a project does not copy or move the repository.
+Choose **New project** in the sidebar, then **Existing folder**, and select the repository. Zuse adds it to the projects panel and reads its current Git state. Opening a project does not copy or move the repository. Zuse adds `.context` to the repository's `.gitignore`, because chat attachments are stored there, and creates a starter `.zuse/settings.toml` if the repository does not have one.
 
 ## 2. Start the chat
 
-Choose **New chat**. Before sending, select:
+Choose **New chat** (`⌘N`, or `Ctrl+N` on Linux). Before sending, select:
 
 - **Provider and model** — the coding agent that will handle the first session.
-- **Environment** — the main checkout or a new isolated Git worktree.
+- **Workspace** — **Worktree** for a fresh isolated branch, or **Local** to use the main checkout.
 - **Permission mode** — how often Zuse pauses for approval.
 
-For an implementation task, use a new worktree. It keeps the task on its own branch and leaves your main checkout available for other work. For a read-only explanation, the main checkout is usually enough.
+For an implementation task, use a worktree. It keeps the task on its own branch and leaves your main checkout available for other work. For a read-only explanation, the main checkout is usually enough.
+
+To continue existing work, use **Create from…** to start from a pull request, a branch, or a GitHub issue, or **Import chat** to continue a recent Claude Code or Codex conversation from this computer.
 
 ## 3. Give the agent a verifiable outcome
 
@@ -40,7 +42,7 @@ Find the cause, fix it without changing the surrounding layout, and run the focu
 Tell me which behavior you verified and call out any checks you could not run.
 ```
 
-Use `@` to attach a relevant file. You can also add images or PDFs when the task depends on visual or document context.
+Use `@` to attach a relevant file. You can also attach images, PDFs, or other files when the task depends on visual or document context.
 
 ## 4. Follow the work without micromanaging it
 
@@ -52,13 +54,13 @@ The timeline separates reasoning, tool calls, edits, questions, and errors. You 
 - stop a turn that is heading in the wrong direction;
 - open a changed file or terminal without leaving the chat.
 
-Switch to **Plan** before sending when you want exploration and a proposed implementation before any edits.
+Turn on Plan mode (`⇧Tab`) before sending when you want exploration and a proposed implementation before any edits.
 
 ## 5. Review the result
 
 Open **Changes** and read the diff. Select only the files that belong in the commit, run the relevant checks in **Terminal**, and send corrections in the same chat if needed.
 
-When the branch is ready, use the workflow actions to commit and push, create a pull request, follow checks, resolve failures, mark a draft ready, or merge. The available action changes with the actual Git and pull-request state.
+When the branch is ready, use the action in the top bar to commit and push, create a pull request, fix failing checks, resolve conflicts, mark a draft ready, or merge. The available action changes with the actual Git and pull-request state.
 
 ## What persists
 

@@ -22,6 +22,11 @@ const nextConfig = {
 				destination: "/start",
 				permanent: true,
 			},
+			{
+				source: "/providers/gemini",
+				destination: "/providers/acp#gemini-cli",
+				permanent: true,
+			},
 		];
 	},
 	async rewrites() {

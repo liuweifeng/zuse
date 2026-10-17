@@ -8,6 +8,7 @@ import {
 } from "fumadocs-ui/layouts/docs/page";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { APIPage } from "@/components/api-page";
 import {
 	type PageLink,
 	Prerequisites,
@@ -20,6 +21,10 @@ import { getMDXComponents } from "@/mdx-components";
 type PageProps = {
 	params: Promise<{ slug?: string[] }>;
 };
+
+type DocumentationPage = (typeof source)["$inferPage"];
+type ArticlePage = Extract<DocumentationPage, { type: "docs" }>;
+type EndpointPage = Extract<DocumentationPage, { type: "openapi" }>;
 
 export const dynamicParams = false;
 
@@ -40,18 +45,45 @@ export async function generateMetadata({
 	};
 }
 
-export default async function DocumentationPage({ params }: PageProps) {
+export default async function Page({ params }: PageProps) {
 	const page = source.getPage((await params).slug);
 	if (!page) notFound();
 
+	return (
+		<main className="contents">
+			{page.type === "openapi" ? (
+				<Endpoint page={page} />
+			) : (
+				<Article page={page} />
+			)}
+		</main>
+	);
+}
+
+function Endpoint({ page }: { page: EndpointPage }) {
+	return (
+		<DocsPage full breadcrumb={{ enabled: false }}>
+			<header className="docs-header">
+				<DocsTitle>{page.data.title}</DocsTitle>
+			</header>
+			<DocsBody className="api-reference-body">
+				<APIPage {...page.data.getOpenAPIPageProps()} />
+			</DocsBody>
+		</DocsPage>
+	);
+}
+
+function toPageLink(href: string): PageLink {
+	const target = source.getPage(href.split("/").filter(Boolean));
+	const title =
+		target?.type === "docs"
+			? (target.data.navTitle ?? target.data.title)
+			: target?.data.title;
+	return { href, title: title ?? href };
+}
+
+function Article({ page }: { page: ArticlePage }) {
 	const Body = page.data.body;
-	const toPageLink = (href: string): PageLink => {
-		const target = source.getPage(href.split("/").filter(Boolean));
-		return {
-			href,
-			title: target?.data.navTitle ?? target?.data.title ?? href,
-		};
-	};
 	const markdownUrl = `${page.url}.md`;
 	const githubUrl = `${GITHUB_URL}/blob/main/apps/docs/content/docs/${page.data.info.path}`;
 	const related = Array.from(
@@ -60,7 +92,8 @@ export default async function DocumentationPage({ params }: PageProps) {
 			...source
 				.getPages()
 				.filter(
-					(candidate) =>
+					(candidate): candidate is ArticlePage =>
+						candidate.type === "docs" &&
 						candidate.url !== page.url &&
 						(candidate.data.related.includes(page.url) ||
 							candidate.data.prerequisites.includes(page.url)),
@@ -79,27 +112,25 @@ export default async function DocumentationPage({ params }: PageProps) {
 	);
 
 	return (
-		<main className="contents">
-			<DocsPage
-				toc={page.data.toc}
-				full={page.data.full}
-				breadcrumb={{ enabled: false }}
-				tableOfContent={{ style: "clerk", footer: pageActions }}
-				tableOfContentPopover={{ style: "clerk", footer: pageActions }}
-			>
-				<header className="docs-header">
-					<DocsTitle>{page.data.title}</DocsTitle>
-					<DocsDescription className="docs-description">
-						{page.data.description}
-					</DocsDescription>
-				</header>
+		<DocsPage
+			toc={page.data.toc}
+			full={page.data.full}
+			breadcrumb={{ enabled: false }}
+			tableOfContent={{ style: "clerk", footer: pageActions }}
+			tableOfContentPopover={{ style: "clerk", footer: pageActions }}
+		>
+			<header className="docs-header">
+				<DocsTitle>{page.data.title}</DocsTitle>
+				<DocsDescription className="docs-description">
+					{page.data.description}
+				</DocsDescription>
+			</header>
 
-				<DocsBody>
-					<Prerequisites links={page.data.prerequisites.map(toPageLink)} />
-					<Body components={getMDXComponents()} />
-					<RelatedPages links={related} />
-				</DocsBody>
-			</DocsPage>
-		</main>
+			<DocsBody>
+				<Prerequisites links={page.data.prerequisites.map(toPageLink)} />
+				<Body components={getMDXComponents()} />
+				<RelatedPages links={related} />
+			</DocsBody>
+		</DocsPage>
 	);
 }

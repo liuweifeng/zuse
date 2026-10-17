@@ -14,17 +14,39 @@ lastVerified: latest
 ---
 
 
-The files panel shows the active environment's directory tree. Select a file to open it in the main area without losing the conversation tab.
+The **Files** panel shows the active environment's directory tree. Select a file to open it in the main area without losing the conversation tab. The tree marks Git changes, including deleted and renamed files, so repository state stays visible while browsing.
 
-## Supported views
+## Find and manage files
 
-The editor provides syntax-aware editing for common web and systems languages, including TypeScript, JavaScript, JSON, Markdown, HTML, CSS, Python, Rust, and Go. PNG, JPEG, GIF, WebP, and AVIF files open as image previews.
+Press `⌘P` or click **Search files** in the panel header to search the current project or worktree by name. The header also has **New File** and **New Folder**.
 
-Use a file's context menu to copy its path or open it in an external editor when available. The tree also marks Git changes so repository state stays visible while browsing.
+Right-click a file or folder for:
+
+- **Open in editor**
+- **Rename**, which edits the name in place
+- **Attach to chat**, which adds it to the composer
+- **Copy path**, which copies the absolute path
+- **Open in**, which lists the installed apps that can open it
+- **New File** and **New Folder**
+- **Delete**, which asks for confirmation; deletion cannot be undone
+
+## Views
+
+Switch between **Diff**, **Edit**, and **Preview** in the editor toolbar:
+
+- **Edit** is the syntax-highlighted editor.
+- **Diff** compares the working tree with `HEAD`.
+- **Preview** renders Markdown and HTML files. Markdown files open in Preview by default.
+
+PNG, JPEG, GIF, WebP, and AVIF files open as image previews. Binary files that cannot be previewed show their size instead.
 
 ## Save safely
 
-Press `⌘S` or use the save command. Zuse checks the file's modification time to avoid silently overwriting a newer external edit. When the file changed on disk, reload or reconcile it instead of forcing an outdated buffer over the new content.
+Press `⌘S` to save. A dot and **modified** mark unsaved changes, and unsaved drafts are kept when you switch to another file. Zuse checks the file's modification time to avoid silently overwriting a newer external edit. When the file changed on disk, the editor reports the conflict; choose **Reload** to discard your changes and load the new content, or keep editing.
+
+## Comment on code
+
+Select lines in **Edit** or **Diff** and click the gutter button to open a comment box. Describe the change, then press `Enter` or click **Save annotation** to attach the comment and its line range to the current chat, where it appears with the composer's annotations. Comments need an open chat session. See [Context and attachments](/composer/context-attachments).
 
 ## Add context to a prompt
 

@@ -12,6 +12,7 @@
 		"remote",
 		"mobile",
 		"serve",
-		"reference"
+		"reference",
+		"api-reference"
 	]
 }

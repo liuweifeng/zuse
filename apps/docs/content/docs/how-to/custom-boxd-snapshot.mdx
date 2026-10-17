@@ -15,7 +15,7 @@ Custom snapshots are available when enabled for your Zuse Cloud installation. A 
 
 ## Prepare the machine
 
-Use a Debian or Ubuntu Linux x86_64 Boxd machine with systemd and an existing non-root development user. Keep your repositories, dependencies, Git configuration, and agent installations on that machine. Install Claude Code or Codex using your usual process and sign in if you want workspaces to use those logins.
+Use a Debian or Ubuntu Linux x86_64 Boxd machine with systemd and an existing non-root development user. Keep your repositories, dependencies, Git configuration, and agent installations on that machine. Install Claude Code or Codex for that user using your usual process; the installer stops if neither is installed. Sign in if you want workspaces to use those logins.
 
 With Node.js 22.13 or newer available, run:
 
@@ -31,21 +31,19 @@ npx zusehq snapshot install --user developer
 
 The command downloads the official installer bundle, checks its file checksums, and runs setup, requesting sudo when needed. The runtime itself is verified by the signed runtime updater. Repository paths and GitHub credentials are configured later in the UI.
 
-If Node.js is unavailable, download the **snapshot installer** from **Cloud → Provider keys → Custom Boxd snapshot**, extract the archive, and run `bash install-snapshot.sh` (adding `--user developer` when running as root).
-
-The CLI command requires a package release containing snapshot installation and a published production installer bundle.
-
 The installer prints the username to enter in Zuse. It installs an isolated Zuse runtime and Node executable, SQLite support, and SSH dependencies. It does not replace your development Node installation, ask for repository paths, enroll a workspace, or start a persistent agent. It can be rerun for the same user. It refuses to initialize over an existing Zuse workspace database.
 
 Create a new Boxd snapshot after installation. Enter its **name or ID** in Zuse. Names are resolved to the snapshot ID and captured version when saved; later name changes do not retarget existing configurations. Avoid updating that snapshot in place: create a new snapshot and select it in Zuse. Zuse rejects a launch if Boxd restores a different version.
 
 ## Connect and discover repositories
 
-1. Sign in to Zuse and connect your Boxd API key in Cloud settings. You can do this during onboarding without subscribing.
-2. Enter the snapshot name or ID and the Linux user printed by the installer.
-3. Leave repository paths empty for automatic discovery, or add absolute paths to Git checkout roots. Paths containing spaces are supported.
-4. Choose **Use snapshot**. This starts a disposable machine on your Boxd account, inspects it, and removes the inspection machine. Zuse never deletes your source snapshot.
-5. Select a discovered repository and start a workspace. No Zuse account-image build is needed.
+1. Sign in to Zuse and open **Settings → Cloud workspaces · Public beta**. Under **Hosting**, connect your boxd API key with **Your cloud account → Connect**. You can do this during onboarding without subscribing.
+2. Choose **Set up** beside **Your custom snapshot**. The first step shows the install command with **Copy command**.
+3. Enter the **Snapshot** name or ID and the **Linux user** printed by the installer.
+4. Choose the **Agent login source** and **GitHub** source: **From snapshot** or **Connected through Zuse**.
+5. Leave **Repository paths: found automatically** as is for automatic discovery, or choose **Add repository path** and enter absolute paths to Git checkout roots. Paths containing spaces are supported.
+6. Choose **Save**. While it shows **Inspecting snapshot…**, Zuse starts a disposable machine on your boxd account, inspects it, and removes the inspection machine. Zuse never deletes your source snapshot.
+7. Select a discovered repository and start a workspace. No Zuse account-image build is needed.
 
 Automatic discovery searches the development home and common workspace directories, with depth, time, and repository limits. For other locations, add the exact path in the UI. If several checkouts use the same GitHub origin, enter the one you want. Repositories must have a GitHub `origin`, a captured commit, and permissions for the selected user.
 
@@ -57,7 +55,7 @@ Zuse requests non-isolated Boxd machines for custom snapshots, preserving Boxd�
 
 By default, workspaces use their existing Claude Code/Codex and Git credentials. A detected login means configuration was found; verified agent access requires a successful response. Git read access does not prove push permission. Network failures remain retryable.
 
-To use accounts connected through Zuse, choose **Use Zuse accounts instead** under **Agent sign-in** in Cloud settings. Connect Claude Code or Codex, then choose **Apply to new workspaces**. No Boxd snapshot rebuild is needed: Zuse supplies authentication when new workspaces start. Existing workspaces keep their current logins. The setting applies to both Claude Code and Codex; GitHub credentials have a separate source choice in the snapshot editor. Choose **Use snapshot logins** to return to logins copied from your source machine. To change those copied logins, sign in on the source machine, save a new Boxd snapshot, and update the snapshot in Zuse. Git fallback uses Zuse's existing authorization checks and process-specific configuration; it does not rewrite the checkout's remotes or native credential files.
+To use accounts connected through Zuse, connect Claude Code or Codex in Cloud settings, then under **Agent sign-in** set **Sign in with** to **Zuse accounts** and confirm **Switch**. No Boxd snapshot rebuild is needed: Zuse supplies authentication when new workspaces start. Existing workspaces keep their current logins. The setting applies to both Claude Code and Codex; GitHub credentials have a separate source choice in the snapshot editor. Set **Sign in with** back to **Snapshot logins** to return to logins copied from your source machine. To change those copied logins, sign in on the source machine, save a new Boxd snapshot, and update the snapshot in Zuse. Git fallback uses Zuse's existing authorization checks and process-specific configuration; it does not rewrite the checkout's remotes or native credential files.
 
 Copied OAuth logins can become invalid when several workspace copies refresh them concurrently. Sign in again inside the affected workspace, or choose Zuse-managed agent authentication and create a new workspace. Zuse does not synchronize copied native tokens between workspaces. Retry the failed turn after reconnecting; do not resend an already completed prompt.
 

@@ -2,6 +2,9 @@ import { readdir, readFile } from "node:fs/promises";
 import { extname, join, relative, sep } from "node:path";
 
 const root = new URL("../content/docs/", import.meta.url);
+const apiDocument = JSON.parse(
+	await readFile(new URL("../openapi/zuse-api.json", import.meta.url), "utf8"),
+);
 
 async function walk(directory) {
 	const entries = await readdir(directory, { withFileTypes: true });
@@ -29,6 +32,16 @@ const failures = [];
 if (routes.size !== files.length)
 	failures.push("Duplicate documentation routes detected");
 
+/** Endpoint pages generated from the OpenAPI document, grouped by tag. */
+const operations = [
+	...Object.values(apiDocument.paths),
+	...Object.values(apiDocument.webhooks ?? {}),
+].flatMap((item) => Object.values(item));
+for (const operation of operations) {
+	const tag = operation.tags[0].toLowerCase().replace(/\s+/gu, "-");
+	routes.set(`/api-reference/${tag}/${operation.operationId}`, "openapi");
+}
+
 for (const path of files) {
 	const source = await readFile(path, "utf8");
 	const frontmatter = source.match(/^---\n([\s\S]*?)\n---/u)?.[1] ?? "";
@@ -46,6 +59,13 @@ for (const path of files) {
 
 	if (/^# /mu.test(body))
 		failures.push(`${routeFor(path)} repeats its page title as a body H1`);
+}
+
+for (const [, link] of JSON.stringify(apiDocument).matchAll(
+	/\]\((\/[^)\s#]+)(?:#[^)]+)?\)/gu,
+)) {
+	if (!routes.has(link))
+		failures.push(`OpenAPI links to missing route ${link}`);
 }
 
 if (failures.length > 0) {
