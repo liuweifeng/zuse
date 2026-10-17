@@ -160,8 +160,11 @@ export async function installCmdlineTools(input: {
 		const file = createWriteStream(zip);
 		let received = 0;
 		let reported = -1;
+		const reader = response.body.getReader();
 		try {
-			for await (const chunk of response.body as AsyncIterable<Uint8Array>) {
+			while (true) {
+				const { value: chunk, done } = await reader.read();
+				if (done) break;
 				hash.update(chunk);
 				received += chunk.length;
 				if (!file.write(chunk))
@@ -175,6 +178,8 @@ export async function installCmdlineTools(input: {
 				}
 			}
 		} finally {
+			await reader.cancel().catch(() => {});
+			reader.releaseLock();
 			await new Promise<void>((resolve) => file.end(resolve));
 		}
 		if (hash.digest("hex") !== input.sha1)
