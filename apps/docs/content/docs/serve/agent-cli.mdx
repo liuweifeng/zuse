@@ -4,9 +4,9 @@ icon: Terminal
 navTitle: "Agent CLI"
 description: "Control Zuse chats and sessions from scripts with structured JSON output."
 section: "Serve CLI"
-order: 5
+order: 7
 platforms: [serve, desktop]
-providers: [claude, codex, grok, gemini, opencode]
+providers: [claude, codex, grok, opencode]
 prerequisites: [/serve, /concepts/project-chat-session]
 related: [/composer/orchestration, /composer/modes-permissions, /composer/context-attachments, /serve/command-reference]
 next: /composer/orchestration
@@ -33,7 +33,7 @@ zuse project list
 zuse model list
 ```
 
-`zuse commands` returns the supported command manifest. List projects and models before creating work so automation uses IDs and choices returned by the connected server.
+`zuse commands` returns the supported command manifest. List projects and models before creating work so automation uses IDs and choices returned by the connected server. `model list` reports each provider's availability and models; add `--refresh` to recheck provider availability.
 
 ## Cloud computers and previews
 
@@ -53,7 +53,7 @@ zuse session create --cloud-workspace <workspace-id> --chat <chat-id> \
   --provider <agent-id> --prompt "Review the current changes."
 ```
 
-`workspace create` provisions a separate cloud computer. `chat create` creates a
+`workspace create` provisions a separate cloud computer. It also accepts `--base-ref <branch>`, `--branch <name>`, `--size <id>`, `--runtime <mode>`, and `--prompt <text>`. `chat create` creates a
 chat/worktree on the selected computer; `session create` adds a conversation tab.
 Cloud project IDs come from `workspace projects`; local project IDs come from
 `project list`. `--sandbox-provider` chooses compute; `--provider` chooses the agent.
@@ -101,7 +101,9 @@ A failure writes a structured error and exits non-zero:
 {"schemaVersion":1,"ok":false,"error":{"code":"project_required","message":"--project is required when the project cannot be inferred uniquely.","details":{"candidates":[]}}}
 ```
 
-Exit code `2` means invalid input, `3` means authentication or connection authorization failed, and other failures exit `1`. Automation must check both the process exit code and the `ok` field. Receiving parseable JSON does not mean a mutation succeeded.
+Errors with code `invalid_input` exit `2`, `unauthorized` exits `3`, and every other error code, such as `project_required` or `confirmation_required`, exits `1`. Automation must check both the process exit code and the `ok` field. Receiving parseable JSON does not mean a mutation succeeded.
+
+Connection failures use `server_unavailable` when no server answers at the endpoint, `unauthorized` when the credential is rejected, and `update_required` when the CLI and server wire protocols differ. For `update_required`, update the CLI package and restart Zuse Serve.
 
 ## Chats and sessions
 
@@ -114,6 +116,8 @@ zuse session list --project <project-id> --chat <chat-id>
 zuse session get --project <project-id> --session <session-id>
 zuse session read --project <project-id> --session <session-id> --limit 20
 ```
+
+`chat list` and `session list` omit archived items unless you pass `--include-archived`. `session status` is an alias for `session get`.
 
 Create an isolated workspace and start its first session:
 
@@ -128,7 +132,7 @@ zuse chat create \
   --idempotency-key <unique-operation-id>
 ```
 
-Use `--workspace main` for the main checkout or pass an existing worktree ID. Create another provider conversation in the same chat with:
+`--workspace` defaults to `fresh`. Use `--workspace main` for the main checkout or pass an existing worktree ID. `--provider` defaults to `codex`, and `--model` defaults to that provider's default model. Use a `providerId` returned by `model list`; user-configured [ACP agents](/providers/acp/) are not accepted by `--provider`. New sessions start with permission `default` and runtime `approval-required` unless you pass `--permission` or `--runtime`. Create another provider conversation in the same chat with:
 
 ```bash
 zuse session create \
@@ -156,7 +160,7 @@ Provider switching is a distinct operation and requires a model from the new pro
 zuse session provider --project <project-id> --session <session-id> --provider claude --model <model-id>
 ```
 
-Provider switching is accepted only before the session has its first user message. A mid-conversation provider change would discard provider-native context, so create a fork with the new provider when you need to hand an active conversation to another provider.
+Model and provider changes require an idle session: finish or interrupt the active turn and clear queued messages first. In a conversation that already has messages, Zuse records the switch in the transcript and hands the conversation context to the new provider. To keep the original conversation unchanged, fork it with the new provider instead.
 
 ## Fork from any message
 
@@ -171,7 +175,7 @@ zuse session fork \
   --title "Alternative approach"
 ```
 
-Or create another chat and fresh isolated workspace, optionally selecting a different provider and model:
+`--destination` defaults to `tab`. Or create another chat and fresh isolated workspace, optionally selecting a different provider and model. `--provider` requires `--model`:
 
 ```bash
 zuse session fork \
@@ -219,7 +223,7 @@ zuse session send \
   --file test/parser.test.ts
 ```
 
-`--attach` uploads supported image files. `--file` accepts a project-relative file or directory and rejects paths outside the selected project.
+`--attach` uploads PNG, JPEG, GIF, WebP, or AVIF images. `--file` accepts a project-relative file or directory and rejects paths outside the selected project.
 
 ### Transcript and plan handoffs
 
@@ -323,7 +327,7 @@ zuse session send --input-json '{"project":"<project-id>","session":"<session-id
 zuse chat create --input-json @request.json
 ```
 
-Array values become repeated options, which is useful for `file` and `attach`. Read a long prompt from stdin with `--prompt-file -`:
+Use `--input-json -` to read the object from stdin. Array values become repeated options, which is useful for `file` and `attach`; `false` and `null` values are omitted. Read a long prompt from a file with `--prompt-file <path>`, or from stdin with `--prompt-file -`:
 
 ```bash
 printf '%s' "$(<prompt.md)" | zuse chat create --project <project-id> --prompt-file - --idempotency-key <unique-operation-id>
@@ -333,9 +337,9 @@ Use an idempotency key for creation commands whenever a transport failure might 
 
 ## Select a project and computer
 
-`--project` accepts a project ID, exact name, or path. Zuse infers it only when the current directory belongs to exactly one registered project; otherwise the error response includes candidates.
+`--project` accepts a project ID, exact name, or path. Without it, Zuse uses the only registered project, or the one project that contains the current directory; otherwise the `project_required` error includes candidates.
 
-The CLI targets the local Zuse RPC server by default. The installed desktop publishes its selected port and a dedicated credential to an owner-readable `cli-access.json` file in the Zuse user-data directory, which the CLI discovers automatically. When run from a repository using `bun dev`, the development desktop instead publishes an owner-readable, gitignored `.zuse/dev-instances/<instance>/cli-access.json` descriptor. Branch-local discovery supports concurrent development instances whose ports shifted away from `8788`. The CLI never prints either credential.
+The CLI targets the local Zuse RPC server by default. The installed desktop app and Zuse Serve publish their selected port and a dedicated credential to an owner-readable `cli-access.json` file in the Zuse user-data directory, which the CLI discovers automatically. When run from a repository using `bun dev`, the development desktop instead publishes an owner-readable, gitignored `.zuse/dev-instances/<instance>/cli-access.json` descriptor. Branch-local discovery supports concurrent development instances whose ports shifted away from `8788`. The CLI never prints either credential.
 
 Explicit `--ws-url`/`--token` options and `ZUSE_WS_URL`/`ZUSE_TOKEN` override development discovery. Outside a development checkout, the conventional installed-desktop endpoint remains the fallback.
 
@@ -349,6 +353,8 @@ zuse session list \
   --token <access-token> \
   --project <project-id>
 ```
+
+A computer other than `local` requires `--ws-url`; otherwise the command fails with `computer_unavailable`.
 
 `ZUSE_WS_URL`, `ZUSE_TOKEN`, `ZUSE_PORT`, `ZUSE_USER_DATA`, `ZUSE_CLI_ACCESS_FILE`, `ZUSE_USER_DATA_DIR`, `ZUSE_DEV_INSTANCE`, and `ZUSE_DEV_CLI_ACCESS_FILE` are available for controlled automation environments. Do not print tokens, embed them in prompts, or commit them to the repository. Prefer environment-based secret injection where shell-history exposure matters.
 
@@ -375,3 +381,31 @@ zuse plugins call --address <returned-address> --arguments-json '{"id":"TEAM-123
 ```
 
 Search directly by service and task; listing plugins first is optional. Use the returned schema to construct the call arguments (the example above is illustrative). Calls follow session approval and plan-mode rules. Connect or reauthenticate services in **Settings → Integrations**. An ordinary terminal outside an agent session has no plugin session credential; use the agent's plugin tools there instead.
+
+## Orchestration from an agent session
+
+Inside an active Zuse agent session with orchestration enabled, the CLI can call the session's orchestration tools. These commands use the session's own connection and permissions; outside a session they fail with `orchestration_session_required`, and they reject `--cloud-workspace`, `--computer`, `--ws-url`, and `--token`.
+
+```sh
+zuse orchestration list
+zuse orchestration call --tool orchestrator_capabilities
+zuse task delegate --task "Add parser tests." --request-id <stable-id> --provider codex --model <model-id>
+zuse task status --task-id <task-id>
+zuse task cancel --task-id <task-id>
+zuse schedule list
+zuse schedule create --arguments-json '<object>'
+```
+
+`orchestration list` returns the live tool schemas. Use `orchestration call --tool list_threads` for chats and child session tabs and `--tool list_models` for models. `task delegate` requires `--request-id`; keep it stable when retrying the same delegation. It also accepts `--role` and `--title`, and reads the task from `--prompt` or `--prompt-file` when `--task` is omitted. `schedule create`, `update`, `delete`, and `trigger` take their input through `--arguments-json`; use the schemas from `orchestration list`.
+
+## Secret requests
+
+When an agent asks for a secret, list and answer the request without placing the value in command arguments:
+
+```sh
+zuse secret list --session <session-id>
+zuse secret provide --session <session-id> --request <request-id> --value-file - < secret.txt
+zuse secret dismiss --session <session-id> --request <request-id>
+```
+
+`secret provide` reads the value only from stdin and accepts 1 to 65,536 characters; `--value` and `--arguments-json` are rejected. Add `--cloud-workspace <id>` to answer a request on another cloud computer.

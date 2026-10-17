@@ -180,6 +180,22 @@ export function Screenshot({
 	);
 }
 
+/** A built-in provider mark from `public/logos`. */
+export function ProviderLogo({ name }: { name: string }) {
+	return <img src={`/logos/${name}.svg`} alt="" data-logo-icon="" />;
+}
+
+/** A monochrome ACP registry mark from `public/logos/acp`, tinted like text. */
+export function AgentLogo({ id }: { id: string }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="agent-logo"
+			style={{ maskImage: `url(/logos/acp/${id}.svg)` }}
+		/>
+	);
+}
+
 export function FeatureGrid({ children }: { children: ReactNode }) {
 	return <div className="feature-grid not-prose">{children}</div>;
 }
@@ -350,6 +366,8 @@ export const mdxComponents = {
 	ProductFrame,
 	Screenshot,
 	FeatureGrid,
+	ProviderLogo,
+	AgentLogo,
 	Feature,
 	Hotspot,
 	Command,

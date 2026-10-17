@@ -20,8 +20,11 @@
 		"serve-operate-host",
 		"remote-recover-connection",
 		"---Cloud---",
+		"cloud-start-chat",
 		"choose-cloud-provider",
+		"cloud-share-chat",
 		"cloud-agent-local-commands",
-		"custom-boxd-snapshot"
+		"custom-boxd-snapshot",
+		"slack-start-task"
 	]
 }

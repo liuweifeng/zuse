@@ -2,7 +2,7 @@
 title: "Offline behavior and notifications"
 icon: Bell
 navTitle: "Offline and notifications"
-description: "Understand cached history, queued messages, reconnect behavior, and attention alerts on iPhone."
+description: "Understand cached history, offline messages, reconnect behavior, storage controls, and attention alerts on iPhone."
 section: "Mobile"
 order: 5
 platforms: [mobile]
@@ -20,16 +20,16 @@ Zuse treats a mobile network interruption as recoverable state. The app retains 
 
 - The most recent downloaded inbox and session list.
 - Cached conversation messages and timeline state.
-- Messages already placed in the per-session outbox.
+- Messages you composed while offline, saved per session.
 - Connection records needed to retry the environment.
 
 Live agent output, new project reads, file browsing, approvals, and execution require an online environment.
 
 ## Sending while offline
 
-When a session is offline, the composer can place a message in its outbox. The queue is durable on the phone and preserves order. After reconnection, Zuse submits each queued item to the server; it removes an item only after the server accepts it.
+When a session is offline, the composer saves your message on the phone instead of sending it. You can still edit or cancel it until the connection returns. After reconnection, Zuse hands each saved message to the app's durable send queue exactly once, in order, with a stable ID so a retry cannot create a duplicate.
 
-If sending fails again, the message stays visible with an error so you can retry. Avoid duplicating it manually unless you have confirmed the server did not accept the original.
+If delivery fails, the message is marked **Not delivered** with **Resend** and **Remove** actions. Avoid duplicating it manually unless you have confirmed the server did not accept the original.
 
 ## App backgrounding
 
@@ -37,19 +37,23 @@ When iOS backgrounds Zuse, the active transport is treated as offline. Cached sc
 
 ## Notifications
 
-Hosted remote access can notify the phone when an agent needs an approval or answer:
+Zuse can alert the phone when an agent needs your attention. Notifications require a signed-in account:
 
-1. Sign in under **Settings → Remote access**.
-2. Open **Settings → Notifications**.
-3. Choose **Enable notifications** and allow the iOS permission.
+1. Open **Settings**, choose **Sign in**, then **Sign in for remote access**.
+2. Return to **Settings** and turn on **Notifications**.
+3. Allow the iOS permission.
 
-If notifications are off, open iPhone Settings and allow notifications for Zuse. Notifications are an attention aid, not the source of truth; pending prompts also appear inside the relevant session.
+Opening a notification takes you to the inbox. To turn alerts off, or if you denied the permission earlier, change notifications for Zuse in iPhone Settings. Notifications are an attention aid, not the source of truth; pending prompts also appear inside the relevant session.
 
 ## Storage controls
 
+Open **Settings → Storage** to see how much space Zuse uses.
+
 **Clear downloaded data** removes cached projects, chats, and messages, then fetches them again as needed. It deliberately keeps connections and unsent messages.
 
-**Reset app** removes everything stored by Zuse on that phone, including the outbox. Your remote account and environment data remain unless you separately choose **Delete account**.
+**Clear media cache** removes fetched images and document previews. They download again when needed.
+
+**Reset app** removes account state, connections, cache, device keys, and unsent messages from that phone. Your remote account and environment data remain unless you separately choose **Delete account** under **Settings → Account**.
 
 <SecurityNote title="Lock-screen privacy">
 Use iOS notification-preview controls if approval or question text should not appear on the lock screen. Treat a remotely connected phone as an authenticated workspace client.

@@ -18,15 +18,17 @@ The in-app browser is a visible desktop workspace where you and an agent can ins
 
 This is not the same as the **browser client**. The in-app browser previews and operates a page beside a task. The browser client opens the Zuse interface from another device; see [Local browser access](/remote/local-browser).
 
-You can always operate the desktop Browser panel yourself. Built-in agent control is currently available to Claude Code, Codex, Grok, and Gemini sessions. Cursor and OpenCode sessions can still work with files and prompts, but they do not currently receive the integrated browser controls.
+You can always operate the desktop Browser panel yourself. Agent control is available to Claude Code, Codex, Grok, Kiro CLI, and [ACP agents](/providers/acp) that accept Zuse's tool server. Cursor, OpenCode, and Pi sessions can still work with files and prompts, but they do not receive the browser controls.
 
 ## Open a page
 
-1. Add **Browser** from the workspace panel menu.
-2. Choose a detected local server, or enter a URL in the address field.
+1. Choose **Browser** from **Add panel** (**+**) in the workspace pane.
+2. Choose a detected server from the list, or enter a URL in the address field. Click the server button in the toolbar to show the list again.
 3. Use the toolbar to move back or forward, stop a loading page, or reload it.
 
 Localhost addresses open over HTTP by default. Other addresses without a scheme open over HTTPS. When several servers are running, confirm the port before reviewing or annotating the page.
+
+In a cloud workspace, the list shows **Dev servers on this environment**. When public previews are available, the link button copies a public URL for a server; anyone with the link can access it. A server that listens only on `127.0.0.1` must be restarted with `--host 0.0.0.0` before it can be shared.
 
 You can also ask the agent in plain language, for example:
 

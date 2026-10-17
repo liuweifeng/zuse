@@ -1,8 +1,10 @@
 import { docs } from "collections/server";
 import type { Folder, Node, Root } from "fumadocs-core/page-tree";
 import { type LoaderPlugin, loader } from "fumadocs-core/source";
+import { openapiPlugin, openapiSource } from "fumadocs-openapi/server";
 import { icons } from "lucide-react";
 import { createElement, type ReactNode } from "react";
+import { openapi } from "@/lib/openapi";
 
 const LOGO_PREFIX = "logo:";
 
@@ -51,8 +53,14 @@ const navigationPlugin: LoaderPlugin = {
 
 export const source = loader({
 	baseUrl: "/",
-	source: docs.toFumadocsSource(),
-	plugins: [navigationPlugin],
+	source: {
+		docs: docs.toFumadocsSource(),
+		openapi: await openapiSource(openapi, {
+			baseDir: "api-reference",
+			groupBy: "tag",
+		}),
+	},
+	plugins: [openapiPlugin(), navigationPlugin],
 });
 
 function findSection(id: string): Folder {
@@ -89,15 +97,19 @@ function sectionTab(
 	};
 }
 
-/** How-to guides keep their own separators from `how-to/meta.json`. */
-function howToTab(): Folder {
-	const section = findSection("how-to");
+/** A section that keeps its own separators, such as how-to groups or API tags. */
+function standaloneTab(
+	id: string,
+	options: { name: string; description: string; icon: string },
+): Folder {
+	const section = findSection(id);
 	return {
 		...section,
-		$id: "tab:how-to",
+		$id: `tab:${id}`,
 		root: true,
-		description: "Step-by-step tasks",
-		icon: resolveIcon("ListChecks"),
+		name: options.name,
+		description: options.description,
+		icon: resolveIcon(options.icon),
 		index: undefined,
 		children: [...(section.index ? [section.index] : []), ...section.children],
 	};
@@ -137,15 +149,24 @@ export const documentationTree: Root = {
 			},
 			["remote", "mobile", "serve"],
 		),
-		howToTab(),
+		standaloneTab("how-to", {
+			name: "How-to guides",
+			description: "Step-by-step tasks",
+			icon: "ListChecks",
+		}),
 		sectionTab(
 			"reference",
 			{
 				name: "Reference",
 				description: "Settings, keys, and schemas",
-				icon: "BookMarked",
+				icon: "BookBookmark",
 			},
 			["reference"],
 		),
+		standaloneTab("api-reference", {
+			name: "API reference",
+			description: "Endpoints and webhooks",
+			icon: "Code",
+		}),
 	],
 };

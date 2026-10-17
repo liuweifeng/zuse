@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
+@import "fumadocs-openapi/css/preset.css";
 
 /*
  * Shell: the sidebar sits on a neutral surface and the page reads from an
@@ -456,6 +457,28 @@ button:has(> svg.lucide-chevrons-up-down) p:first-child {
 	max-width: 56rem;
 }
 
+#nd-page:has(.api-reference-body) {
+	max-width: 76rem;
+}
+
+/* Endpoint method badges in the sidebar, set before the label. */
+#nd-sidebar [data-radix-scroll-area-viewport] a > span.font-mono,
+#nd-sidebar-mobile a > span.font-mono {
+	order: -1;
+	display: inline-grid;
+	min-width: 2.5rem;
+	height: 1.125rem;
+	padding-inline: 0.25rem;
+	flex: none;
+	place-items: center;
+	margin-inline: 0;
+	border-radius: 0.25rem;
+	background: color-mix(in srgb, currentColor 12%, transparent);
+	font-size: 0.625rem;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+}
+
 .docs-header {
 	margin-bottom: 0.5rem;
 }
@@ -679,6 +702,21 @@ button:has(> svg.lucide-chevrons-up-down) p:first-child {
 	#nd-page .prose .cards-4 {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
+}
+
+#nd-page .prose [data-card="true"] img[data-logo-icon],
+.agent-logo {
+	display: block;
+	width: 1rem;
+	height: 1rem;
+	margin: 0;
+}
+
+.agent-logo {
+	background: currentColor;
+	mask-position: center;
+	mask-repeat: no-repeat;
+	mask-size: contain;
 }
 
 /* Screenshots sit on brand artwork, like a print on a mat. */

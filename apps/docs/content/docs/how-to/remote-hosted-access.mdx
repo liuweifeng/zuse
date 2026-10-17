@@ -29,13 +29,13 @@ Use this guide for the desktop app or an already-running Serve environment. Host
 
 ### Link a desktop environment
 
-1. On the environment Mac, open **Settings → Devices**.
+1. On the environment Mac, open **Settings → Remote access**.
 
-2. Under **Remote access**, enter an optional, recognizable computer name.
+2. Under **Connections**, choose **Set up** beside **Zuse Serve**.
 
-3. Choose **Set up remote access** and finish sign-in.
+3. Confirm **Set up Zuse Serve** and finish sign-in if prompted. Zuse Serve uses an encrypted outbound connection; no router ports are opened.
 
-4. Wait until the card reports that the computer is ready.
+4. Wait until the **Zuse Serve** row shows **Available anywhere** with your account.
 
 For a headless Mac or Linux computer, run `npx @zusehq/serve` and complete the printed device authorization instead. See [operate a Serve host](/how-to/serve-operate-host/).
 
@@ -90,4 +90,4 @@ Unlink an unused environment, then retry.
 
 Update the desktop app or Serve runtime on the environment before reconnecting.
 
-To remove hosted access from a desktop environment, choose **Turn off remote access**. On Serve, run `zuse serve logout`; it revokes the registration, stops the service, and preserves workspaces.
+To remove hosted access from a desktop environment, choose **Turn off** beside **Zuse Serve**, then confirm **Turn off Zuse Serve**. On Serve, run `zuse serve logout`; it revokes the registration, stops the service, and preserves workspaces.

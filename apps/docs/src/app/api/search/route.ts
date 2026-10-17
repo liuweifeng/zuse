@@ -11,7 +11,7 @@ export const { GET } = createFromSource(source, {
 
 		return {
 			id: page.url,
-			title: page.data.title,
+			title: page.data.title ?? page.url,
 			url: page.url,
 			structuredData: {
 				headings: structuredData.headings,
