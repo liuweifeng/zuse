@@ -2847,6 +2847,55 @@ describe("memory-aware runtime recovery", () => {
 	});
 });
 
+test("retries an enrolled workspace on its existing machine without its old image", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "retry-existing",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provider-connection-unavailable",
+				requestConfig: { runtimeGeneration: 1 },
+			});
+			const providers = yield* SandboxProviders;
+			const replacement = {
+				...providers,
+				get: (id: string) =>
+					providers.get(id).pipe(
+						Effect.map((adapter) => ({
+							...adapter,
+							kill: () => Effect.die("must not delete the existing machine"),
+							fork: () => Effect.die("must not consume the deleted image"),
+							create: () => Effect.die("must not allocate a replacement"),
+						})),
+					),
+			};
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build)
+				yield* store.saveBuild({
+					...build,
+					snapshotId: undefined,
+					state: "failed",
+				});
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, replacement),
+			);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				calls: yield* Ref.get(control.startProcessCalls),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		providerSandboxId: "source-retry-existing",
+		state: "provisioning",
+		statusCode: "resume-runtime-restarting",
+	});
+	expect(result.calls).toHaveLength(1);
+});
+
 test("automatically restarts the retained runtime once memory pressure clears", async () => {
 	const result = await Effect.runPromise(
 		Effect.gen(function* () {
