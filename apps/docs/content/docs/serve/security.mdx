@@ -1,5 +1,7 @@
 ---
 title: "Secure a Serve host"
+icon: ShieldCheck
+navTitle: "Security"
 description: "Operate Zuse Serve with protected local binding, least privilege, controlled account access, and safe updates."
 section: "Serve CLI"
 order: 5
@@ -18,11 +20,13 @@ Serve is a remote control plane for a real developer environment. Anyone who can
 
 Run Serve as an unprivileged user with access only to the repositories and tools it needs. Do not run it as root. Keep production secrets and unrelated personal data out of that account's readable paths.
 
-The durable service is user-scoped: a LaunchAgent on macOS or a systemd user service on Linux. Its definition and managed files are created with restricted permissions where supported.
+The durable service is user-scoped: a LaunchAgent on macOS or a systemd user service on Linux. Its definition and managed files are created with restricted permissions where supported. The Linux unit also sets `NoNewPrivileges=true`, `PrivateTmp=true`, and `ProtectSystem=strict`, with write access granted to the data directory.
 
 ## Keep the server protected
 
-Serve binds the application server to loopback and starts it with protected authentication. Hosted connectivity is established through Zuse's account-linked access path. Do not expose the local port directly to the public internet or replace the supported path with an unauthenticated reverse proxy.
+By default, Serve binds the application server to loopback and starts it with protected authentication. Hosted connectivity is established through Zuse's account-linked access path, and `--tailscale` adds a private tailnet route. Do not expose the local port directly to the public internet or replace the supported path with an unauthenticated reverse proxy.
+
+`--lan` and `--host` listen beyond loopback. Authentication remains required, but local-network traffic uses plaintext HTTP, so use them only on networks you trust. `--ssh-managed` stays on loopback without protected authentication and relies on the SSH tunnel for access control.
 
 ## Protect the data directory
 

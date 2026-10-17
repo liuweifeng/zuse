@@ -18,6 +18,7 @@ import { captureAnalytics } from "./analytics";
 import { resolveChatRuntimeMode } from "./auto-worktree.ts";
 import {
 	cloudSummaryForChat,
+	cloudSummaryForEnvironment,
 	localProjectForCloudChat,
 } from "./cloud-workspace-catalog.ts";
 import {
@@ -172,25 +173,25 @@ const HANDLERS: Record<Command, () => void> = {
 		const selectedChatId = useChatsStore.getState().selectedChatId;
 		const cloudProjectId =
 			selectedChatId === null ? null : localProjectForCloudChat(selectedChatId);
-		if (cloudProjectId !== null) {
-			if (
-				useEnvironmentCatalogStore.getState().activeEnvironmentId ===
-				getLocalEnvironmentId()
-			) {
-				openNewChatLanding(cloudProjectId);
-				return;
-			}
-			void switchToEnvironment({
-				environmentId: getLocalEnvironmentId(),
-				folderId: cloudProjectId,
-			}).then((result) => {
-				if (result.switched && result.selectedFolderId !== null)
-					openNewChatLanding(result.selectedFolderId);
-			});
+		const { activeEnvironmentId } = useEnvironmentCatalogStore.getState();
+		// A cloud chat without a local project opens in its own transient
+		// environment; new chats always start back on this computer.
+		const leaveEnvironment =
+			activeEnvironmentId !== getLocalEnvironmentId() &&
+			(cloudProjectId !== null ||
+				cloudSummaryForEnvironment(activeEnvironmentId) !== null);
+		if (!leaveEnvironment) {
+			openNewChatLanding(
+				cloudProjectId ?? useWorkspaceStore.getState().selectedFolderId,
+			);
 			return;
 		}
-		const projectId = useWorkspaceStore.getState().selectedFolderId;
-		openNewChatLanding(projectId);
+		void switchToEnvironment({
+			environmentId: getLocalEnvironmentId(),
+			folderId: cloudProjectId ?? undefined,
+		}).then((result) => {
+			if (result.switched) openNewChatLanding(result.selectedFolderId);
+		});
 	},
 	"open-project": () => {
 		openProjectSetupDialog();

@@ -11,14 +11,22 @@ const { deleteAsync, readDirectoryAsync, getInfoAsync } = vi.hoisted(() => ({
 	readDirectoryAsync: vi.fn(async (path: string) => {
 		if (path === "file:///documents/zuse-cache") return ["computer"];
 		if (path.endsWith("/messages")) return ["message.json"];
+		if (path.endsWith("/github")) return ["checkout.json"];
 		return [];
 	}),
 	getInfoAsync: vi.fn(async (path: string) => {
-		if (path === "file:///documents/zuse-cache" || path.endsWith("/messages")) {
+		if (
+			path === "file:///documents/zuse-cache" ||
+			path.endsWith("/messages") ||
+			path.endsWith("/github")
+		) {
 			return { exists: true, isDirectory: true };
 		}
 		if (path.endsWith("sessions.json")) {
 			return { exists: true, isDirectory: false, size: 20 };
+		}
+		if (path.endsWith("checkout.json")) {
+			return { exists: true, isDirectory: false, size: 10 };
 		}
 		if (path.endsWith("message.json")) {
 			return { exists: true, isDirectory: false, size: 30 };
@@ -44,8 +52,8 @@ describe("mobile downloaded storage", () => {
 		getInfoAsync.mockClear();
 	});
 
-	test("counts sessions and messages without counting the outbox", async () => {
-		await expect(downloadedCacheSize()).resolves.toBe(50);
+	test("counts sessions, messages, and GitHub identity without counting the outbox", async () => {
+		await expect(downloadedCacheSize()).resolves.toBe(60);
 		expect(getInfoAsync).not.toHaveBeenCalledWith(
 			expect.stringContaining("/outbox"),
 		);
@@ -57,6 +65,7 @@ describe("mobile downloaded storage", () => {
 		expect(paths).toEqual([
 			"file:///documents/zuse-cache/computer/sessions.json",
 			"file:///documents/zuse-cache/computer/messages",
+			"file:///documents/zuse-cache/computer/github",
 		]);
 		expect(paths.join(" ")).not.toContain("outbox");
 	});

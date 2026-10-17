@@ -1390,7 +1390,10 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("allocates only the requested replacement sandbox", async () => {
+	test.each([
+		"resume-queued",
+		"resume-runtime-recovery-queued",
+	])("allocates only the requested replacement sandbox (%s)", async (statusCode) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1399,8 +1402,11 @@ describe("cloud workspace reconciler", () => {
 					workspaceId: "workspace-incomplete-retry",
 					state: "queued",
 					desiredState: "ready",
-					statusCode: "resume-queued",
-					requestConfig: { startupTimings: { requestedAt: Date.now() } },
+					statusCode,
+					requestConfig: {
+						runtimeGeneration: 1,
+						startupTimings: { requestedAt: Date.now() },
+					},
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
@@ -2847,6 +2853,55 @@ describe("memory-aware runtime recovery", () => {
 	});
 });
 
+test("retries an enrolled workspace on its existing machine without its old image", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "retry-existing",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provider-connection-unavailable",
+				requestConfig: { runtimeGeneration: 1 },
+			});
+			const providers = yield* SandboxProviders;
+			const replacement = {
+				...providers,
+				get: (id: string) =>
+					providers.get(id).pipe(
+						Effect.map((adapter) => ({
+							...adapter,
+							kill: () => Effect.die("must not delete the existing machine"),
+							fork: () => Effect.die("must not consume the deleted image"),
+							create: () => Effect.die("must not allocate a replacement"),
+						})),
+					),
+			};
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build)
+				yield* store.saveBuild({
+					...build,
+					snapshotId: undefined,
+					state: "failed",
+				});
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, replacement),
+			);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				calls: yield* Ref.get(control.startProcessCalls),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		providerSandboxId: "source-retry-existing",
+		state: "provisioning",
+		statusCode: "resume-runtime-restarting",
+	});
+	expect(result.calls).toHaveLength(1);
+});
+
 test("automatically restarts the retained runtime once memory pressure clears", async () => {
 	const result = await Effect.runPromise(
 		Effect.gen(function* () {
@@ -3038,6 +3093,80 @@ test.each([
 			if (completion !== null)
 				expect(result?.lastErrorCode).toBe("project-updating-runtime-failed");
 			expect(snapshots).toBe(0);
+		}).pipe(Effect.provide(testLayer)),
+	);
+});
+
+test.each([
+	{
+		metadata: JSON.stringify({
+			schemaVersion: 1,
+			appVersion: "0.24.0-preview.9",
+			runtimeVersion: "runtime-9",
+			wireProtocolVersion: 7,
+		}),
+		runtime: { appVersion: "0.24.0-preview.9", wireProtocolVersion: 7 },
+	},
+	{ metadata: null, runtime: undefined },
+])("a published image records the runtime release it installed ($runtime)", async ({
+	metadata,
+	runtime,
+}) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: `image-runtime-${runtime === undefined ? "unknown" : "known"}`,
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...build,
+				state: "building",
+				snapshotId: undefined,
+				providerSandboxId: workspace.providerSandboxId,
+				createdAtMs: Date.now(),
+				nextActionAtMs: 0,
+			});
+			const files: Record<string, string> = {
+				[`/var/lib/zuse/project-build/completed-${build.buildId}`]: "0",
+				"/var/lib/zuse/project-build/source-commit": "a".repeat(40),
+				"/var/lib/zuse/project-build/template-version": build.templateVersion,
+				"/var/lib/zuse/project-build/configuration-digest":
+					build.configurationDigest,
+				...(metadata === null
+					? {}
+					: { "/opt/zuse/current/runtime-metadata.json": metadata }),
+			};
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(build.provider);
+			yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...provider,
+							pathExists: (_id, path) =>
+								Effect.succeed(path === "/var/lib/zuse/project-build/ready"),
+							readTextFile: (_id, path) =>
+								path in files
+									? Effect.succeed(files[path] as string)
+									: path.endsWith(".log")
+										? Effect.succeed("")
+										: Effect.fail(
+												new SandboxProviderError({ code: "not-found" }),
+											),
+						}),
+				}),
+			);
+			const promoted = yield* store.getBuild(build.buildId);
+			expect(promoted?.lastErrorCode).toBeUndefined();
+			expect(promoted?.state).toBe("ready");
+			expect(promoted?.settings?.runtime).toEqual(runtime);
 		}).pipe(Effect.provide(testLayer)),
 	);
 });

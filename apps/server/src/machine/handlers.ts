@@ -54,6 +54,10 @@ const withHost = <A>(
 const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 	withControl((service) => service.offers()),
 );
+const LocalPlugins = MemoizeRpcs.toLayerHandler(
+	"plugins.local.request",
+	(input) => withCloudControl((service) => service.localPlugins(input)),
+);
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
@@ -110,6 +114,10 @@ const CloudAuthDisconnect = MemoizeRpcs.toLayerHandler(
 	"cloud.auth.disconnect",
 	({ providerId }) =>
 		withCloudControl((service) => service.disconnectCloudAuth(providerId)),
+);
+const CloudGithubObserve = MemoizeRpcs.toLayerHandler(
+	"cloud.github.observe",
+	(input) => withCloudControl((service) => service.observeGithub(input)),
 );
 const CloudGithubStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.github.status",
@@ -503,6 +511,7 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 );
 export const MachineHandlersLayer = Layer.mergeAll(
 	Plugins,
+	LocalPlugins,
 	CloudDeviceBridge,
 	CloudAuthStatus,
 	CloudAuthProvision,
@@ -512,6 +521,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudAuthLoginCancel,
 	CloudAuthDisconnect,
 	CloudGithubStatus,
+	CloudGithubObserve,
 	CloudGithubInstall,
 	CloudGithubDisconnect,
 	CloudBillingSummaryHandler,

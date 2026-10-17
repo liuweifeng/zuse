@@ -6,6 +6,7 @@ import {
 	type CloudProjectBuildState,
 	type CloudProjectState,
 	type CloudWorkspaceDesiredState,
+	type CloudWorkspacePreparationPhase,
 	type CloudWorkspaceState,
 	SnapshotAgentAccess,
 	type TurnSettlementOutcome,
@@ -846,11 +847,7 @@ export interface CloudWorkspaceStoreApi {
 		readonly commandProtocolVersion?: number;
 		readonly deviceBridgeVersion?: number;
 		readonly repositoryReady?: boolean;
-		readonly preparationPhase?:
-			| "checking-repository"
-			| "switching-branch"
-			| "fetching-repository"
-			| "preparing-credentials";
+		readonly preparationPhase?: CloudWorkspacePreparationPhase;
 		readonly nowMs: number;
 		readonly nextIdleAtMs: number;
 	}) => Effect.Effect<CloudWorkspaceRecord | null>;

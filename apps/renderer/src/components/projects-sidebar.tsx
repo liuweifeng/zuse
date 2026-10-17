@@ -35,6 +35,7 @@ import {
 	type ProviderId,
 	type SessionId,
 	type SessionStatus,
+	type ThreadGoal,
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -43,12 +44,14 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
+	DashboardSpeedIcon,
 	Delete02Icon,
 	Edit01Icon,
 	Folder01Icon,
 	FolderAddIcon,
 	GitBranchIcon,
 	HelpCircleIcon,
+	Layers01Icon,
 	Login03Icon,
 	PencilIcon,
 	PuzzleIcon,
@@ -98,6 +101,11 @@ import { isHostedProduct } from "~/lib/hosted-session.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
+	type ChatPullRequest,
+	chatPullRequests,
+} from "../lib/chat-pull-requests.ts";
+import {
+	cloudChatShowsLoading,
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
@@ -119,6 +127,7 @@ import {
 } from "../lib/cloud-workspaces.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import { formatElapsed } from "../lib/delegation-display.ts";
 import {
 	useEnvironmentShellCatalog,
 	useEnvironmentShellResource,
@@ -149,6 +158,11 @@ import {
 	environmentBelongsToWorkspace,
 	getLocalEnvironmentId,
 } from "../lib/rpc-client.ts";
+import { useSessionGoalResource } from "../lib/session-goal-client-bus.ts";
+import {
+	GOAL_STATUS_MESSAGE,
+	isGoalInProgress,
+} from "../lib/session-goal-presentation.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import {
 	useOptionalRendererSessionTimeline,
@@ -177,6 +191,11 @@ import {
 	environmentCatalogViewState,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
+import {
+	gitStackKey,
+	readGitStack,
+	useGitStackStore,
+} from "../store/git-stack.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { subscribeSessionTerminals } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -185,6 +204,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState, PrStateIcon } from "./branch-icon.tsx";
+import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
 import { SlackIcon } from "./icons/slack-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
@@ -616,7 +636,13 @@ export function ProjectsSidebar() {
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
+				<span>
+					{uiMessage(
+						threadListSidebar
+							? "projects:projects_sidebar_threads"
+							: "projects:projects_sidebar_projects",
+					)}
+				</span>
 				<div className="flex items-center">
 					{threadListSidebar ? null : (
 						<NewProjectGroupButton
@@ -637,297 +663,275 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{!threadListSidebar && scratchEntries.length > 0 ? (
-					<>
-						<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
-							{uiMessage("projects:no_project")}
-						</li>
-						<ThreadListSection
-							entries={scratchEntries}
-							origins={{}}
-							loading={loading}
-						/>
-					</>
-				) : null}
-				{threadListSidebar
-					? null
-					: ungroupedCloudChats.map((summary) => (
-							<CloudChatRow key={summary.workspaceId} summary={summary} />
-						))}
 				{threadListSidebar ? (
-					<>
-						{folders
-							.filter((folder) => folder.kind !== "scratch")
-							.map((folder) => {
-								const origin = origins[folder.id];
-								const name = origin?.repo ?? folder.name;
-								const avatarUrl = avatarUrlFor(origin ?? null);
-								return (
-									<li key={folder.id}>
-										<button
-											type="button"
-											aria-pressed={selectedFolderId === folder.id}
-											title={folder.path}
-											onClick={() => {
-												if (isHostedProduct()) selectHostedCloudHome(folder.id);
-												else openNewChatLanding(folder.id);
-											}}
-											className={cn(
-												"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-												selectedFolderId === folder.id &&
-													"bg-sidebar-accent/40",
-											)}
-										>
-											<Avatar className="size-5 rounded">
-												{avatarUrl !== null && (
-													<AvatarImage src={avatarUrl} alt="" />
-												)}
-												<AvatarFallback className="rounded text-[10px]">
-													{initialsOf(origin?.owner ?? folder.name)}
-												</AvatarFallback>
-											</Avatar>
-											<span className="truncate">{name}</span>
-										</button>
-									</li>
-								);
-							})}
-						<li className="px-2 pb-1 pt-3 text-[12px] text-muted-foreground">
-							{uiMessage("projects:projects_sidebar_threads")}
-						</li>
-						<ThreadListSection
-							entries={threadListEntries}
-							origins={origins}
-							loading={loading}
-						/>
-					</>
-				) : desktopCatalogEnabled ? (
-					<>
-						{catalogViewState === "loading" ? (
-							<li
-								className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
-								aria-busy="true"
-							>
-								<Spinner className="size-3.5" />
-								{uiMessage("projects:projects_sidebar_loading_projects")}
-							</li>
-						) : null}
-						{catalogViewState === "unavailable" ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								<p role="alert">
-									{uiMessage(
-										"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
-									)}
-								</p>
-								<p className="mt-1 text-[12px]">{catalogInitializationError}</p>
-								<button
-									type="button"
-									className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
-									onClick={() => {
-										void initializeEnvironmentCatalog().catch(() => undefined);
-									}}
-								>
-									{uiMessage("common:retry")}
-								</button>
-							</li>
-						) : null}
-						{catalogViewState === "empty" ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
-								/>
-							</li>
-						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const logical = logicalGroups.find(
-											(group) => group.key === key,
-										);
-										if (logical === undefined) return null;
-										return (
-											<SidebarLogicalRow
-												key={key}
-												group={logical}
-												folders={folders}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(key)}
-												dragProps={organize.projectDragProps(
-													key,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onToggleKey={onToggleKey}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const logical = logicalGroups.find(
-										(group) => group.key === node.key,
-									);
-									if (logical === undefined) return null;
-									return (
-										<SidebarLogicalRow
-											key={node.key}
-											group={logical}
-											folders={folders}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(node.key)}
-											dragProps={organize.projectDragProps(node.key, null)}
-											onToggleExpanded={onToggleExpanded}
-											onToggleKey={onToggleKey}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
-										/>
-									);
-								})()
-							),
-						)}
-					</>
+					<ThreadListSection
+						entries={threadListEntries}
+						origins={origins}
+						loading={loading}
+					/>
 				) : (
 					<>
-						{folders.every((folder) => folder.kind === "scratch") &&
-						ungroupedCloudChats.length === 0 &&
-						!loading ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
+						{scratchEntries.length > 0 ? (
+							<>
+								<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
+									{uiMessage("projects:no_project")}
+								</li>
+								<ThreadListSection
+									entries={scratchEntries}
+									origins={{}}
+									loading={loading}
 								/>
-							</li>
+							</>
 						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const folder = folders.find((entry) => entry.id === key);
-										if (folder === undefined) return null;
-										return (
-											<SidebarFolderRow
-												key={folder.id}
-												folder={folder}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(folder.id)}
-												dragProps={organize.projectDragProps(
-													folder.id,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const folder = folders.find((entry) => entry.id === node.key);
-									if (folder === undefined) return null;
-									return (
-										<SidebarFolderRow
-											key={folder.id}
-											folder={folder}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(folder.id)}
-											dragProps={organize.projectDragProps(folder.id, null)}
-											onToggleExpanded={onToggleExpanded}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
+						{ungroupedCloudChats.map((summary) => (
+							<CloudChatRow key={summary.workspaceId} summary={summary} />
+						))}
+						{desktopCatalogEnabled ? (
+							<>
+								{catalogViewState === "loading" ? (
+									<li
+										className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
+										aria-busy="true"
+									>
+										<Spinner className="size-3.5" />
+										{uiMessage("projects:projects_sidebar_loading_projects")}
+									</li>
+								) : null}
+								{catalogViewState === "unavailable" ? (
+									<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
+										<p role="alert">
+											{uiMessage(
+												"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
+											)}
+										</p>
+										<p className="mt-1 text-[12px]">
+											{catalogInitializationError}
+										</p>
+										<button
+											type="button"
+											className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
+											onClick={() => {
+												void initializeEnvironmentCatalog().catch(
+													() => undefined,
+												);
+											}}
+										>
+											{uiMessage("common:retry")}
+										</button>
+									</li>
+								) : null}
+								{catalogViewState === "empty" ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
 										/>
-									);
-								})()
-							),
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const logical = logicalGroups.find(
+													(group) => group.key === key,
+												);
+												if (logical === undefined) return null;
+												return (
+													<SidebarLogicalRow
+														key={key}
+														group={logical}
+														folders={folders}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(key)}
+														dragProps={organize.projectDragProps(
+															key,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onToggleKey={onToggleKey}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const logical = logicalGroups.find(
+												(group) => group.key === node.key,
+											);
+											if (logical === undefined) return null;
+											return (
+												<SidebarLogicalRow
+													key={node.key}
+													group={logical}
+													folders={folders}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(node.key)}
+													dragProps={organize.projectDragProps(node.key, null)}
+													onToggleExpanded={onToggleExpanded}
+													onToggleKey={onToggleKey}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
+						) : (
+							<>
+								{folders.every((folder) => folder.kind === "scratch") &&
+								ungroupedCloudChats.length === 0 &&
+								!loading ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
+										/>
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const folder = folders.find(
+													(entry) => entry.id === key,
+												);
+												if (folder === undefined) return null;
+												return (
+													<SidebarFolderRow
+														key={folder.id}
+														folder={folder}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(folder.id)}
+														dragProps={organize.projectDragProps(
+															folder.id,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const folder = folders.find(
+												(entry) => entry.id === node.key,
+											);
+											if (folder === undefined) return null;
+											return (
+												<SidebarFolderRow
+													key={folder.id}
+													folder={folder}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(folder.id)}
+													dragProps={organize.projectDragProps(folder.id, null)}
+													onToggleExpanded={onToggleExpanded}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
 						)}
 					</>
 				)}
@@ -1850,6 +1854,8 @@ function SidebarChatHoverCard({
 	providerId,
 	model,
 	status,
+	goal = null,
+	pullRequests = [],
 }: {
 	readonly title: string;
 	readonly repository: string;
@@ -1858,12 +1864,26 @@ function SidebarChatHoverCard({
 	readonly providerId?: ProviderId | null;
 	readonly model?: string | null;
 	readonly status: string;
+	readonly goal?: ThreadGoal | null;
+	readonly pullRequests?: ReadonlyArray<ChatPullRequest>;
 }) {
 	return (
-		<div className="min-w-48 max-w-72 space-y-1 px-1 py-0.5 text-[12px]">
+		<div className="w-72 space-y-1 px-1 py-0.5 text-[12px]">
 			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
 				{title || uiMessage("projects:projects_sidebar_new_chat")}
 			</div>
+			{goal !== null ? (
+				<div className="mb-1.5 flex items-start gap-2">
+					<GoalGlyph goal={goal} />
+					<div className="min-w-0 flex-1">
+						<div className="text-[11px] text-muted-foreground tabular-nums">
+							{uiMessage(GOAL_STATUS_MESSAGE[goal.status])} ·{" "}
+							{formatElapsed(goal.timeUsedSeconds * 1000)}
+						</div>
+						<p className="line-clamp-2 text-foreground/80">{goal.objective}</p>
+					</div>
+				</div>
+			) : null}
 			<div className="flex items-center gap-2 text-muted-foreground">
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
 				<span className="truncate">{repository}</span>
@@ -1884,10 +1904,60 @@ function SidebarChatHoverCard({
 					<span className="truncate">{model || providerId}</span>
 				</div>
 			) : null}
+			{pullRequests.length > 0 ? (
+				<div className="-mx-1 border-t border-border/50 pt-1">
+					<ChatPullRequestList
+						pullRequests={pullRequests}
+						limit={6}
+						density="compact"
+						interactive={false}
+					/>
+				</div>
+			) : null}
 			<div className="pt-0.5 text-[11px] text-muted-foreground/80">
 				{status}
 			</div>
 		</div>
+	);
+}
+
+/** The composer's goal mark, so a goal reads the same wherever it shows. */
+function GoalGlyph({ goal }: { readonly goal: ThreadGoal }) {
+	return (
+		<HugeiconsIcon
+			icon={DashboardSpeedIcon}
+			aria-label={uiMessage(GOAL_STATUS_MESSAGE[goal.status])}
+			className="size-3.5 shrink-0 text-muted-foreground"
+		/>
+	);
+}
+
+/** Layers + count when a chat has several linked PRs (a stack or chain). */
+function LinkedPullRequestsBadge({
+	pullRequests,
+}: {
+	readonly pullRequests: ReadonlyArray<ChatPullRequest>;
+}) {
+	const open = pullRequests.some((pr) => pr.state === "open");
+	const merged = pullRequests.every((pr) => pr.state === "merged");
+	return (
+		<span
+			className={cn(
+				"flex items-center gap-0.5 text-[10px] tabular-nums",
+				merged
+					? "text-purple-400"
+					: open
+						? "text-success"
+						: "text-muted-foreground",
+			)}
+		>
+			<HugeiconsIcon
+				icon={Layers01Icon}
+				className="size-3"
+				aria-hidden="true"
+			/>
+			{pullRequests.length}
+		</span>
 	);
 }
 
@@ -2641,15 +2711,21 @@ function CloudChatRow({
 		runtime: timeline.runtime,
 		timeline: timeline.view,
 	});
+	const loading = cloudChatShowsLoading(activity, shell.connection, summary);
 	const slack = summary.source === "slack";
 	const label = slack
 		? uiMessage("projects:projects_sidebar_started_from_slack")
 		: uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const attentionState = deriveChatAttentionState(
+	const liveAttention = useChatAttention(
+		{ id: summary.chatId },
+		summary.workspaceId,
+		false,
+	);
+	const summaryAttention = deriveChatAttentionState(
 		timeline.messages,
-		cloudChatShowsWorking(activity),
+		cloudChatShowsWorking(activity, timeline.view.pendingCommands),
 		filterActionableQuestionInteractions(
 			summary.initialSessionId,
 			timeline.presentation.interactions.map((item) => item.interaction),
@@ -2657,6 +2733,11 @@ function CloudChatRow({
 		),
 		timeline.presentation.health,
 	);
+
+	const attentionState = mergeChatAttentionStates([
+		liveAttention.attentionState,
+		summaryAttention,
+	]);
 
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
@@ -2721,7 +2802,12 @@ function CloudChatRow({
 									title={summary.title}
 									attentionState={attentionState}
 									creationPending={false}
-									statusLabel={chatAttentionLabel(attentionState)}
+									loading={loading}
+									statusLabel={
+										loading && attentionState === "idle"
+											? uiMessage("common:loading")
+											: chatAttentionLabel(attentionState)
+									}
 									prInfo={null}
 									stats={null}
 									projectName={projectName ?? summary.repositoryDisplayName}
@@ -2755,6 +2841,8 @@ function CloudChatRow({
 												state={attentionState}
 												selected={selected}
 											/>
+										) : loading ? (
+											<Spinner className="size-3.5" />
 										) : (
 											<BranchIcon state="default" selected={selected} />
 										)}
@@ -3135,6 +3223,46 @@ function ChatRow({
 		chatSessions[0] ??
 		null;
 	const hoverStatus = chatAttentionLabel(attentionState, creationPending);
+	const goalRef = useMemo(
+		() =>
+			hoverSession === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						sessionId: hoverSession.id,
+					},
+		[activeEnvironmentId, hoverSession?.id],
+	);
+	const goal = useSessionGoalResource(goalRef, "cache-only").data?.goal ?? null;
+	const activeGoal = isGoalInProgress(goal) ? goal : null;
+	const stackBranch = gitView.data?.status?.branch ?? prInfo?.branch ?? null;
+	const stackRef = useMemo(
+		() =>
+			worktreePath === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						folderId: chat.projectId,
+						worktreeId: chat.worktreeId,
+						rootPath: worktreePath,
+					},
+		[activeEnvironmentId, chat.projectId, chat.worktreeId, worktreePath],
+	);
+	// Rows only read cached stacks; the hover card asks for this one chat's
+	// stack so long sidebars never fan out `gh stack` calls.
+	const stack = useGitStackStore((state) =>
+		stackBranch === null || stackRef === null
+			? null
+			: (state.entries[gitStackKey(stackRef, stackBranch)]?.result ?? null),
+	);
+	const discoverStack = (open: boolean) => {
+		if (!open || stackBranch === null || stackRef === null) return;
+		void readGitStack(stackRef, stackBranch).catch(() => undefined);
+	};
+	const pullRequests = useMemo(
+		() => chatPullRequests({ pr: prInfo, title: null, stack }),
+		[prInfo, stack],
+	);
 
 	const sessionBelongsToChat = useMemo(() => {
 		if (selectedSessionId === null) return false;
@@ -3242,7 +3370,7 @@ function ChatRow({
 				</Suspense>
 			) : null}
 			<li>
-				<Tooltip>
+				<Tooltip onOpenChange={discoverStack}>
 					<TooltipTrigger
 						render={
 							<div
@@ -3304,6 +3432,8 @@ function ChatRow({
 													state={attentionState}
 													selected={isSelected}
 												/>
+											) : activeGoal !== null ? (
+												<GoalGlyph goal={activeGoal} />
 											) : (
 												<BranchIcon state={branchState} selected={isSelected} />
 											)}
@@ -3312,8 +3442,11 @@ function ChatRow({
 											text={chat.title}
 											className="pointer-events-none min-w-0 flex-1 truncate"
 										/>
-										<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
+										<div className="pointer-events-none relative flex h-4 min-w-16 shrink-0 items-center justify-end gap-1.5">
 											{remoteIndicator}
+											{pullRequests.length > 1 ? (
+												<LinkedPullRequestsBadge pullRequests={pullRequests} />
+											) : null}
 											<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 												{showDiff && stats !== null ? (
 													<>
@@ -3350,6 +3483,8 @@ function ChatRow({
 							providerId={hoverSession?.providerId}
 							model={hoverSession?.model}
 							status={hoverStatus}
+							goal={activeGoal}
+							pullRequests={pullRequests}
 						/>
 					</TooltipPopup>
 				</Tooltip>
@@ -3413,6 +3548,7 @@ function ChatRow({
 }
 
 function ThreadListRowBody({
+	loading = false,
 	title,
 	attentionState,
 	creationPending,
@@ -3427,6 +3563,7 @@ function ThreadListRowBody({
 }: {
 	title: string;
 	attentionState: ChatAttentionState;
+	loading?: boolean;
 	creationPending: boolean;
 	statusLabel: string;
 	prInfo: GitPrInfo | null;
@@ -3437,7 +3574,10 @@ function ThreadListRowBody({
 	remoteIndicator: ReactNode;
 	action: ReactNode;
 }) {
-	const working = creationPending || attentionState === "running";
+	const working =
+		creationPending ||
+		attentionState === "running" ||
+		(loading && attentionState === "idle");
 	const prState = prStateLabelFor(prInfo);
 
 	return (

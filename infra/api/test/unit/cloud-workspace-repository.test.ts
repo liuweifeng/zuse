@@ -247,6 +247,19 @@ exec /usr/bin/git "$@"
 		);
 		expect(git("branch", "--show-current")).toBe("main");
 	});
+	test("creates the first branch while preserving local edits across a newer base", () => {
+		const { root, git, run, advanceRemoteMain } = fixture();
+		const remoteHead = advanceRemoteMain("new remote contents\n");
+		writeFileSync(join(root, "file"), "local edits\n");
+		run();
+		expect(git("branch", "--show-current")).toBe("vileplume");
+		expect(git("rev-parse", "HEAD")).toBe(remoteHead);
+		expect(readFileSync(join(root, "file"), "utf8")).toContain("local edits");
+		expect(readFileSync(join(root, "file"), "utf8")).toContain(
+			"new remote contents",
+		);
+	});
+
 	test("recovers the target branch with conflicting edits intact", () => {
 		const { root, git, run, remote } = fixture();
 		run();

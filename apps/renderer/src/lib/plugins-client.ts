@@ -1,4 +1,5 @@
 import {
+	type LocalPluginRequest,
 	PLUGIN_CALLBACK_PORTS,
 	type PluginRequest,
 	type PluginReturnTo,
@@ -13,6 +14,7 @@ import {
 } from "./control-plane-client.ts";
 import { getControlPlaneRpcClient } from "./rpc-client.ts";
 
+/** Route machine-owned connection changes locally and hosted changes to the account API. */
 export async function pluginRequest(input: PluginRequest) {
 	const scope = input.tenantId?.startsWith("organization:")
 		? {
@@ -21,7 +23,38 @@ export async function pluginRequest(input: PluginRequest) {
 			}
 		: { kind: "personal" as const };
 	const client = await getControlPlaneRpcClient(scope);
+	if (
+		"pluginId" in input &&
+		input.pluginId.startsWith("local-") &&
+		input.action === "removeServer"
+	)
+		return Effect.runPromise(
+			client["plugins.local.request"]({ action: "remove", id: input.pluginId }),
+		);
+	if ("connectionId" in input && input.connectionId.startsWith("local-")) {
+		if (input.action === "disconnect")
+			return Effect.runPromise(
+				client["plugins.local.request"]({
+					action: "remove",
+					id: input.connectionId,
+				}),
+			);
+		if (input.action === "setEnabled")
+			return Effect.runPromise(
+				client["plugins.local.request"]({
+					action: "setEnabled",
+					id: input.connectionId,
+					enabled: input.enabled,
+				}),
+			);
+	}
 	return Effect.runPromise(client["plugins.request"](input));
+}
+
+/** Manage local commands through the personal control-plane connection only. */
+export async function localPluginRequest(input: LocalPluginRequest) {
+	const client = await getControlPlaneRpcClient({ kind: "personal" });
+	return Effect.runPromise(client["plugins.local.request"](input));
 }
 
 /**
@@ -74,7 +107,17 @@ export const loadPluginSnapshot = (
 			const result = await pluginRequest({ action: "list", tenantId });
 			if (result.kind !== "snapshot")
 				throw new Error("Unexpected plugin response");
-			return result;
+			if (!result.tenantId.startsWith("personal:")) return result;
+			const local = await localPluginRequest({ action: "list" }).catch(
+				() => null,
+			);
+			return local?.kind === "snapshot"
+				? {
+						...result,
+						catalog: [...local.catalog, ...result.catalog],
+						connections: [...local.connections, ...result.connections],
+					}
+				: result;
 		},
 		{ decode: decodeSnapshot, scope: "account", refresh },
 	);

@@ -29,6 +29,7 @@ import {
 	CloudTranscriptMessagePageUpload,
 	CloudWorkspaceActionRequest,
 	CloudWorkspaceCreateRequest,
+	CloudWorkspacePreparationPhase,
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
@@ -36,6 +37,8 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	DEVICE_BRIDGE_VERSION,
 	DeviceBridgeAction,
+	GitHubObservation,
+	GitHubObserveRequest,
 	ProviderGrantRequest,
 	RuntimeAcknowledgment,
 	RuntimeMode,
@@ -163,6 +166,7 @@ import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
+import { imageBuildRuntime } from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
@@ -201,6 +205,7 @@ import {
 	unauthorized,
 } from "./errors.ts";
 import { githubCallbackPageHeaders } from "./github-callback-page.ts";
+import { observeGithub } from "./github-observations.ts";
 import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
@@ -790,6 +795,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 					},
 		providerId: provider?.providerId,
 		runtimeVersion: active?.templateVersion ?? provider?.templateVersion,
+		runtime: active === undefined ? undefined : imageBuildRuntime(active),
 		buildMode: buildMode(statusBuild),
 		progressPhase: building?.state,
 		errorCode: latestFailedAfterActive ? latest.lastErrorCode : undefined,
@@ -1231,14 +1237,7 @@ const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
 });
 
 const RuntimeReadyRequest = Schema.Struct({
-	preparationPhase: Schema.optional(
-		Schema.Literals([
-			"checking-repository",
-			"switching-branch",
-			"fetching-repository",
-			"preparing-credentials",
-		]),
-	),
+	preparationPhase: Schema.optional(CloudWorkspacePreparationPhase),
 	deviceBridgeVersion: Schema.optional(Schema.Literal(DEVICE_BRIDGE_VERSION)),
 	phase: Schema.Literals([
 		"runtime-connected",
@@ -2530,22 +2529,36 @@ const routeCloudWorkspaceRequestWithAccess = (
 			let useBot = false;
 			if (context.slackMessageId !== undefined) {
 				const message = yield* store.getApiMessage(context.slackMessageId);
-				if (
-					message === null ||
-					message.accountId !== workspace.accountId ||
-					message.workspaceId !== workspaceId
-				)
-					return yield* forbidden("github_execution_identity_invalid");
-				const content = decodeApiMessageContent(
-					yield* openApiMessageString(
-						workspace.accountId,
-						workspaceId,
-						message.messageId,
-						message.sealedContent,
-					),
-				);
-				if (content.githubBot !== true)
-					return yield* forbidden("github_execution_identity_invalid");
+				// Slack creates an idle workspace before submitting its first message.
+				// Its server-persisted launch identity authorizes repository setup even
+				// when no synthetic launch-message row exists. Arbitrary message IDs
+				// still require the normal account/workspace/content checks below.
+				const initialGithub = Schema.decodeUnknownOption(
+					CloudGithubCredentialRequest,
+				)(workspace.requestConfig.initialGithubContext);
+				const trustedSetup =
+					message === null &&
+					context.slackMessageId === `msg_launch_${workspaceId}` &&
+					Option.isSome(initialGithub) &&
+					initialGithub.value.slackMessageId === context.slackMessageId;
+				if (!trustedSetup) {
+					if (
+						message === null ||
+						message.accountId !== workspace.accountId ||
+						message.workspaceId !== workspaceId
+					)
+						return yield* forbidden("github_execution_identity_invalid");
+					const content = decodeApiMessageContent(
+						yield* openApiMessageString(
+							workspace.accountId,
+							workspaceId,
+							message.messageId,
+							message.sealedContent,
+						),
+					);
+					if (content.githubBot !== true)
+						return yield* forbidden("github_execution_identity_invalid");
+				}
 				useBot = true;
 			}
 			const actorId = context.actor?.subject ?? workspace.accountId;
@@ -3619,6 +3632,19 @@ const routeCloudWorkspaceRequestWithAccess = (
 						)
 					: attachMailboxLifecycle(response, workspace);
 			}
+		}
+		if (method === "POST" && path === ApiPaths.cloudGithubObserve) {
+			const input = yield* decodeBody(GitHubObserveRequest, request);
+			const result = yield* observeGithub(
+				access.actor.accountId,
+				ownerId,
+				input,
+			);
+			return json(
+				yield* Schema.encodeEffect(GitHubObservation)(result).pipe(
+					Effect.orDie,
+				),
+			);
 		}
 		if (method === "GET" && path === "/v1/cloud/github") {
 			const installations = yield* refreshGithubConnections(ownerId);

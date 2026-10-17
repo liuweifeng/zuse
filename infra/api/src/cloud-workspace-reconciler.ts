@@ -91,7 +91,11 @@ import {
 } from "./cloud-workspace-runtime-activation.ts";
 import { nextCloudWorkspaceRuntimeFence } from "./cloud-workspace-runtime-fence.ts";
 import { workspaceStartupOutcome } from "./cloud-workspace-runtime-scheduling.ts";
-import { WORKSPACE_RUNTIME_UPDATE_SCRIPT } from "./cloud-workspace-runtime-update.ts";
+import {
+	INSTALLED_RUNTIME_METADATA_FILE,
+	parseInstalledRuntime,
+	WORKSPACE_RUNTIME_UPDATE_SCRIPT,
+} from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudWorkspaceRecord,
@@ -1277,6 +1281,17 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 					}),
 					Effect.orElseSucceed(() => ({}) as Record<string, unknown>),
 				);
+			// Lets clients detect images that predate the current runtime protocol.
+			const installedRuntime = yield* provider
+				.readTextFile(
+					build.providerSandboxId,
+					INSTALLED_RUNTIME_METADATA_FILE,
+					"zuse",
+				)
+				.pipe(
+					Effect.map(parseInstalledRuntime),
+					Effect.orElseSucceed(() => undefined),
+				);
 			const sanitizationFailures = snapshotSanitizationFailures({
 				forbiddenPaths,
 				forbiddenResults,
@@ -1334,10 +1349,15 @@ const reconcileBuildRecord = Effect.fn("reconcileCloudAccountImageBuild")(
 			const sanitizing = {
 				...build,
 				sourceCommit,
-				settings: promoteLaunchAssetsDigest(
-					build.settings,
-					yield* launchAssetsDigest(launchAssetFiles(config)),
-				),
+				settings: {
+					...promoteLaunchAssetsDigest(
+						build.settings,
+						yield* launchAssetsDigest(launchAssetFiles(config)),
+					),
+					...(installedRuntime === undefined
+						? {}
+						: { runtime: installedRuntime }),
+				},
 				logText: [
 					logText,
 					"Repository preparation completed. Publishing snapshot…",
@@ -2733,6 +2753,29 @@ const reconcileWorkspaceRecord = Effect.fn("reconcileCloudWorkspace")(
 				saveWorkspace,
 				true,
 			);
+		}
+
+		// A failed initial checkout can be retried after its source image was
+		// retired. Once enrolled, recover the existing guest with the same fenced
+		// restart used for resumes; its data does not belong to the image lifecycle.
+		if (
+			workspace.state === "queued" &&
+			workspace.desiredState === "ready" &&
+			workspace.providerSandboxId !== undefined &&
+			typeof workspace.requestConfig.runtimeGeneration === "number" &&
+			workspace.statusCode !== "resume-queued" &&
+			workspace.statusCode !== "resume-runtime-recovery-queued"
+		) {
+			const existing = yield* provider.inspect(workspace.providerSandboxId);
+			if (existing !== null)
+				return yield* restartWorkspaceRuntime(
+					workspace,
+					workspace.providerSandboxId,
+					provider,
+					nowMs,
+					saveWorkspace,
+					existing.state === "running",
+				);
 		}
 
 		if (workspace.state === "queued") {

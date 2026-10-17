@@ -125,8 +125,10 @@ test("migrated cloud turns preserve actor ownership across restart without borro
 	);
 	let runtime: { dispose: () => Promise<void> } | undefined;
 	const fetch = vi.fn(async (_url, init) => {
-		const { actor } = JSON.parse(init.body);
-		const name = actor?.subject ?? "workspace-owner";
+		const { actor, slackMessageId } = JSON.parse(init.body);
+		const name = slackMessageId
+			? "zuse[bot]"
+			: (actor?.subject ?? "workspace-owner");
 		return Response.json({
 			token: name,
 			expiresAtMs: Date.now() + 3_600_000,
@@ -208,6 +210,38 @@ test("migrated cloud turns preserve actor ownership across restart without borro
 		);
 		expect((await resolve("s"))?.context).toEqual({});
 		expect((await resolve("s"))?.env.GIT_AUTHOR_NAME).toBe("workspace-owner");
+		// A Slack-created conversation keeps the app identity when continued in
+		// the UI, after the original turn settles, and after runtime restart.
+		await upgraded.runPromise(
+			sql`UPDATE session_turns SET status='running' WHERE id='turn-b'`,
+		);
+		const slackOptions = {
+			...options,
+			initialContext: { slackMessageId: "msg_launch_workspace" },
+		};
+		for (const extra of [
+			{},
+			{ nativeRepositoryPath: "/missing-native-repo" },
+		]) {
+			const execution = await makeCloudGitExecution({
+				...slackOptions,
+				...extra,
+			})("s");
+			expect(execution?.context).toEqual({
+				actor: { subject: "bob", membershipId: "bob" },
+				slackMessageId: "msg_launch_workspace",
+			});
+			expect(execution?.env.GIT_AUTHOR_NAME).toBe("zuse[bot]");
+		}
+		await upgraded.runPromise(
+			sql`UPDATE session_turns SET status='completed' WHERE id='turn-b'`,
+		);
+		expect(
+			(await makeCloudGitExecution(slackOptions)("s"))?.env.GIT_AUTHOR_NAME,
+		).toBe("zuse[bot]");
+		expect(
+			(await makeCloudGitExecution(slackOptions)("another-session"))?.context,
+		).toEqual({});
 	} finally {
 		await runtime?.dispose();
 		await previous.dispose();
@@ -372,6 +406,39 @@ test.each([
 		await new Promise<void>((resolve, reject) =>
 			server.close((error) => (error ? reject(error) : resolve())),
 		);
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+test.each([
+	["github_user_connection_required", "GitHub authentication required"],
+	[
+		"workspace_access_denied",
+		"You do not have permission to edit this workspace",
+	],
+	[
+		"github_execution_identity_invalid",
+		"GitHub execution identity could not be verified",
+	],
+	["unknown", "GitHub access could not be verified"],
+])("preserves the reason for GitHub credential refusal: %s", async (code, message) => {
+	const directory = await mkdtemp(join(tmpdir(), "git-refusal-"));
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => Response.json({ error: code }, { status: 403 })),
+	);
+	try {
+		await expect(
+			prepareGitExecution({
+				directory,
+				authHelperPath,
+				key: "test",
+				context: {},
+				credentialUrl: "https://api.test/token",
+				credential: "runtime",
+			}),
+		).rejects.toThrow(message);
+	} finally {
 		await rm(directory, { recursive: true, force: true });
 	}
 });

@@ -53,6 +53,8 @@ import {
 	type DeviceBridgeAction,
 	DeviceBridgeResult,
 	EntitlementList,
+	GitHubObservation,
+	type GitHubObserveRequest,
 	type PluginRequest,
 	PluginResponse,
 	type SessionId,
@@ -97,6 +99,8 @@ export const makeCloudControlClient = (request: CloudControlRequest) => ({
 		request(ApiPaths.cloudProjects, CloudProject, "POST", input),
 	"cloud.projects.remove": (input: { projectId: string }) =>
 		request(ApiPaths.cloudProject(input.projectId), CloudProject, "DELETE"),
+	"cloud.github.observe": (input: GitHubObserveRequest) =>
+		request(ApiPaths.cloudGithubObserve, GitHubObservation, "POST", input),
 	"cloud.github.status": () => request(ApiPaths.cloudGithub, CloudGithubStatus),
 	"cloud.github.install": () =>
 		request(ApiPaths.cloudGithubInstall, CloudGithubInstallResult, "POST", {}),

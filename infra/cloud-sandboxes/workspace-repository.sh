@@ -70,6 +70,10 @@ if [[ "$(git -C "$workspace" branch --show-current)" != "$branch" ]]; then
     fi
     git -C "$workspace" rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1 || \
       base_ref="origin/${base_ref#origin/}"
-    git -C "$workspace" switch -c "$branch" "$base_ref"
+    if [[ "${ZUSE_SNAPSHOT_NATIVE:-}" != 1 ]] && git -C "$workspace" diff --cached --quiet; then
+      git -C "$workspace" switch --merge -c "$branch" "$base_ref"
+    else
+      git -C "$workspace" switch -c "$branch" "$base_ref"
+    fi
   fi
 fi

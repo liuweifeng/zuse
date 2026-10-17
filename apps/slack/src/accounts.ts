@@ -298,11 +298,106 @@ const finishSignIn = async (
 	);
 };
 
+interface WorkspaceSelection {
+	readonly purpose: "workspace-selection";
+	readonly accountId: string;
+	readonly pending: PendingSignIn;
+	readonly csrf: string;
+	readonly expiresAt: number;
+}
+
+const chooseWorkspace = async (
+	env: AppEnv,
+	installation: Installation,
+	userId: string,
+	accountId: string,
+	pending: PendingSignIn,
+	organizations: ReadonlyArray<{ id: string; name: string }>,
+) => {
+	const csrf = randomSecret();
+	const selection: WorkspaceSelection = {
+		purpose: "workspace-selection",
+		accountId,
+		pending,
+		csrf,
+		expiresAt: Date.now() + 600_000,
+	};
+	const token = await env.store.session(
+		"settings",
+		installation,
+		JSON.stringify(selection),
+		userId,
+	);
+	const response = page(
+		`<div class="brand">Zuse <span>for Slack</span></div><h1>Choose your workspace</h1><p>Choose which Zuse projects and cloud usage to use for tasks from Slack.</p><form method="post" action="/slack/account/workspace"><input type="hidden" name="csrf" value="${csrf}"><label>Workspace<select name="workspace" required><option value="" disabled selected>Select a workspace</option><option value="personal">Personal</option>${organizations.map((org) => `<option value="${htmlEscape(org.id)}">${htmlEscape(org.name)}</option>`).join("")}</select></label><button>Connect workspace</button></form>`,
+	);
+	response.headers.append(
+		"set-cookie",
+		cookie("__Host-zuse-slack-workspace", token, 600),
+	);
+	return response;
+};
+
 export const accountRoutes = async (
 	request: Request,
 	env: AppEnv,
 ): Promise<Response | null> => {
 	const url = new URL(request.url);
+	if (url.pathname === "/slack/account/workspace") {
+		if (request.method !== "POST")
+			return new Response("Method not allowed", {
+				status: 405,
+				headers: { allow: "POST" },
+			});
+		if (request.headers.get("origin") !== appOrigin(env))
+			return new Response("invalid origin", { status: 403 });
+		const token = readCookie(request, "__Host-zuse-slack-workspace");
+		const session = await env.store.authenticate(token, "settings");
+		const installation = session ? await env.store.get(session.team_id) : null;
+		if (
+			!session ||
+			!installation ||
+			installation.generation !== session.generation
+		)
+			return expiredConnectionLink();
+		const selection = JSON.parse(session.payload) as WorkspaceSelection;
+		if (
+			selection.purpose !== "workspace-selection" ||
+			selection.expiresAt <= Date.now()
+		)
+			return expiredConnectionLink();
+		const form = await request.formData();
+		if (form.get("csrf") !== selection.csrf)
+			return new Response("invalid csrf", { status: 403 });
+		const workspace = form.get("workspace");
+		const organization =
+			workspace === "personal"
+				? undefined
+				: (await env.identity.organizations(selection.accountId)).find(
+						(org) => org.id === workspace,
+					);
+		if (workspace !== "personal" && !organization)
+			return page(
+				"<h1>Workspace unavailable</h1><p>Return to Slack and reconnect to choose a workspace you can access.</p>",
+				403,
+			);
+		if (!(await env.store.authenticate(token, "settings", true)))
+			return expiredConnectionLink();
+		const response = await finishSignIn(
+			env,
+			installation,
+			session.owner_id,
+			selection.accountId,
+			selection.pending,
+			organization,
+		);
+		response.headers.append(
+			"set-cookie",
+			cookie("__Host-zuse-slack-workspace", "", 0),
+		);
+		return response;
+	}
+
 	if (url.pathname === "/slack/account/logout") {
 		if (request.method !== "POST")
 			return new Response("Method not allowed", {
@@ -465,24 +560,38 @@ export const accountRoutes = async (
 	const pending = JSON.parse(session.payload) as PendingSignIn & {
 		verifier: string;
 	};
+	const { accountId, organization } = await env.identity.exchange(
+		code,
+		pending.verifier,
+	);
+	const organizations = organization
+		? []
+		: await env.identity.organizations(accountId);
 	const profile = await env.store.member(installation, session.owner_id);
 	if (profile.connection || profile.revision !== pending.revision)
 		return page(
 			"<h1>Connection changed</h1><p>Return to Slack and start again.</p>",
 			409,
 		);
-	const { accountId, organization } = await env.identity.exchange(
-		code,
-		pending.verifier,
-	);
-	const response = await finishSignIn(
-		env,
-		installation,
-		session.owner_id,
-		accountId,
-		pending,
-		organization,
-	);
+	const response =
+		organizations.length > 0
+			? await chooseWorkspace(
+					env,
+					installation,
+					session.owner_id,
+					accountId,
+					pending,
+					organizations,
+				)
+			: await finishSignIn(
+					env,
+					installation,
+					session.owner_id,
+					accountId,
+					pending,
+					organization,
+				);
+
 	response.headers.append(
 		"set-cookie",
 		cookie("__Host-zuse-slack-account", "", 0),

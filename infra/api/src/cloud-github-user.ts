@@ -225,11 +225,12 @@ const refreshGithubUserCredentials = Effect.fn("refreshGithubUserCredentials")(
 );
 
 /** A connected user never falls back to installation permissions after auth failure. */
-export const githubUserCredential = Effect.fn("githubUserCredential")(
+const resolveGithubUserCredential = Effect.fn("resolveGithubUserCredential")(
 	function* (
 		accountId: string,
 		repositoryIdentity: string,
 		installationOwnerId = accountId,
+		scopeToken = true,
 	) {
 		const store = yield* CloudWorkspaceStore;
 
@@ -272,6 +273,8 @@ export const githubUserCredential = Effect.fn("githubUserCredential")(
 			return yield* Effect.fail(
 				serviceUnavailable("github_user_repository_access_required"),
 			);
+		// Account API requests retain the user credential on the control plane.
+		if (!scopeToken) return credential;
 		const config = yield* oauthConfig;
 
 		const scoped = yield* Effect.tryPromise({
@@ -321,6 +324,31 @@ export const githubUserCredential = Effect.fn("githubUserCredential")(
 		return { ...credential, token: scoped.token, expiresAtMs };
 	},
 );
+
+/** Repository-scoped credentials for execution environments; never issue the parent token. */
+export const githubUserCredential = (
+	accountId: string,
+	repositoryIdentity: string,
+	installationOwnerId = accountId,
+) =>
+	resolveGithubUserCredential(
+		accountId,
+		repositoryIdentity,
+		installationOwnerId,
+		true,
+	);
+/** Control-plane API requests keep user tokens on the API and enforce linked repository access. */
+export const githubUserApiCredential = (
+	accountId: string,
+	repositoryIdentity: string,
+	installationOwnerId = accountId,
+) =>
+	resolveGithubUserCredential(
+		accountId,
+		repositoryIdentity,
+		installationOwnerId,
+		false,
+	);
 
 const disconnectGithubUserLocked = Effect.fn("disconnectGithubUserLocked")(
 	function* (accountId: string) {

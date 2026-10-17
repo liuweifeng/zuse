@@ -49,6 +49,7 @@ import {
 	CloudRuntimeCommandList,
 	CloudTranscriptCheckpointPayload,
 	CloudTranscriptMessagePagePayload,
+	type CloudWorkspacePreparationPhase,
 	CloudWorkspaceRuntimeSummary,
 	ComposerInput,
 	DEFAULT_RUNTIME_MODE,
@@ -867,12 +868,14 @@ export const keepCloudRuntimeActive = <E, R>(input: {
 				break;
 			}
 		}).pipe(
-			Effect.catch(() =>
-				Effect.sync(() => {
-					console.warn(
-						"[cloud-workspace-runtime] active work keepalive failed",
-					);
-				}),
+			Effect.catchCause((cause) =>
+				Cause.hasInterruptsOnly(cause)
+					? Effect.failCause(cause)
+					: Effect.sync(() => {
+							console.warn(
+								"[cloud-workspace-runtime] active work keepalive failed",
+							);
+						}),
 			),
 			Effect.andThen(Effect.sleep("30 seconds")),
 		),
@@ -1099,6 +1102,9 @@ export const prepareSelectedAgentCredential = Effect.fn(
 		providerId: CloudAuthProvider,
 	) => Effect.Effect<void, CloudWorkspaceRuntimeError>;
 	readonly recovery: ProviderReadySignal;
+	readonly onUnavailable?: (
+		providerId: CloudAuthProvider,
+	) => Effect.Effect<void>;
 }) {
 	const selected = Schema.decodeUnknownOption(CloudAuthProvider)(input.agent);
 	if (selected._tag === "None") return null;
@@ -1126,6 +1132,11 @@ export const prepareSelectedAgentCredential = Effect.fn(
 		);
 		if (providerCredentialFailureIsTerminal(reason))
 			return yield* Effect.fail(result.failure);
+		if (
+			reason === `${providerId}-auth-reconnect-required` &&
+			input.onUnavailable
+		)
+			yield* input.onUnavailable(providerId);
 
 		if (
 			["authentication-required", "expired", "unavailable"].some(
@@ -2385,11 +2396,7 @@ const postReady = (
 	launchCommandId?: string,
 	errorCode?: string,
 	sessionHeadVersion?: number,
-	preparationPhase?:
-		| "checking-repository"
-		| "switching-branch"
-		| "fetching-repository"
-		| "preparing-credentials",
+	preparationPhase?: CloudWorkspacePreparationPhase,
 ): Effect.Effect<void, CloudWorkspaceRuntimeError> =>
 	requestJson({
 		schema: Schema.Unknown,
@@ -2425,13 +2432,7 @@ const writeCredentialsReady = Effect.tryPromise({
 
 /** Startup markers are durable state; they must not depend on inotify capacity. */
 export const waitForRepository = Effect.fn("waitForRepository")(function* (
-	onProgress: (
-		phase:
-			| "checking-repository"
-			| "switching-branch"
-			| "fetching-repository"
-			| "preparing-credentials",
-	) => void,
+	onProgress: (phase: CloudWorkspacePreparationPhase) => void,
 	readyMarker = REPOSITORY_READY_MARKER,
 ) {
 	const directory = dirname(readyMarker);
@@ -3270,6 +3271,23 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							agent: selectedAgent,
 							prepare: prepareSelectedCredential,
 							recovery: providerRecovery,
+							onUnavailable: (providerId) =>
+								Effect.suspend(() => {
+									preparationPhase = `${providerId}-auth-reconnect-required`;
+									return postCurrentRuntimeReady(
+										"runtime-connected",
+										undefined,
+										undefined,
+										undefined,
+										preparationPhase,
+									).pipe(
+										Effect.retry({
+											schedule: cloudRuntimeRetrySchedule,
+											times: 3,
+										}),
+										Effect.ignore,
+									);
+								}),
 						}).pipe(
 							Effect.tapError((error) =>
 								postCurrentRuntimeReady(
@@ -3300,11 +3318,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						launchCommandId?: string,
 						errorCode?: string,
 						sessionHeadVersion?: number,
-						preparationPhase?:
-							| "checking-repository"
-							| "switching-branch"
-							| "fetching-repository"
-							| "preparing-credentials",
+						preparationPhase?: CloudWorkspacePreparationPhase,
 					) =>
 						Effect.suspend(() =>
 							postReady(
@@ -3727,11 +3741,8 @@ export const makeCloudWorkspaceRuntimeLayer = (
 							releaseLocalCredential(id);
 					};
 					let repositoryReady = false;
-					let preparationPhase:
-						| "preparing-credentials"
-						| "checking-repository"
-						| "switching-branch"
-						| "fetching-repository" = "preparing-credentials";
+					let preparationPhase: CloudWorkspacePreparationPhase =
+						"preparing-credentials";
 					let shellReady = false;
 					const sendGateway = (message: unknown) => {
 						if (gateway?.readyState === WebSocket.OPEN)
@@ -4059,6 +4070,7 @@ export const makeCloudWorkspaceRuntimeLayer = (
 						).pipe(Effect.retry(cloudRuntimeRetrySchedule));
 
 					yield* prepareCredentials;
+					preparationPhase = "preparing-credentials";
 					yield* waitForRepository((phase) => {
 						preparationPhase = phase;
 						void runNetworkPromise(

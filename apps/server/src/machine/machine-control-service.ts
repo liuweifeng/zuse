@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
 	createHttpPluginClient,
 	setDefaultPluginClientFactory,
@@ -9,6 +10,8 @@ import {
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
 import { resolveAccountApiUrl } from "../api/api-url.ts";
+import { AppPaths } from "../app-paths.ts";
+import { LocalPlugins, withLocalPlugins } from "./local-plugins.ts";
 import { RuntimeCloudControl } from "./runtime-cloud-control.ts";
 
 export { streamCloudWorkspaceLifecycle } from "@zuse/client-runtime/cloud-control-client";
@@ -70,6 +73,9 @@ import {
 	DeviceBridgeResult,
 	EntitlementList,
 	type EnvironmentId,
+	GitHubObservation,
+	type GitHubObserveRequest,
+	type LocalPluginRequest,
 	type MachineCreateRequest,
 	type MachineDestroyRequest,
 	MachineErrorCode,
@@ -163,6 +169,9 @@ export interface MachineControlServiceShape {
 	readonly disconnectCloudAuth: (
 		providerId: CloudAuthProvider,
 	) => Effect.Effect<CloudAuthProviderStatus, MachineControlError>;
+	readonly observeGithub: (
+		input: GitHubObserveRequest,
+	) => Effect.Effect<GitHubObservation, MachineControlError>;
 	readonly cloudGithubStatus: () => Effect.Effect<
 		CloudGithubStatus,
 		MachineControlError
@@ -187,6 +196,9 @@ export interface MachineControlServiceShape {
 		idempotencyKey: string,
 	) => Effect.Effect<CloudBillingSummary, MachineControlError>;
 	readonly offers: () => Effect.Effect<MachineOfferList, MachineControlError>;
+	readonly localPlugins: (
+		input: LocalPluginRequest,
+	) => Effect.Effect<PluginResponse, MachineControlError>;
 	readonly plugins: (
 		input: PluginRequest,
 	) => Effect.Effect<PluginResponse, MachineControlError>;
@@ -403,28 +415,56 @@ export const mapApiErrorCode = (
 export const MachineControlServiceLive: Layer.Layer<
 	MachineControlService,
 	never,
-	AuthService | MachineRuntimeRole
+	AuthService | MachineRuntimeRole | AppPaths
 > = Layer.effect(
 	MachineControlService,
 	Effect.gen(function* () {
 		const auth = yield* AuthService;
+		const paths = yield* AppPaths;
+		const localStores = new Map<string, LocalPlugins>();
+		const localStore = (subject: string) => {
+			let store = localStores.get(subject);
+			if (!store) {
+				store = new LocalPlugins(
+					join(paths.userData, "local-plugins"),
+					subject,
+				);
+				localStores.set(subject, store);
+			}
+			return store;
+		};
 		const runtimeRole = yield* MachineRuntimeRole;
 		const runtimeControl = yield* Effect.serviceOption(RuntimeCloudControl);
+		yield* Effect.addFinalizer(() =>
+			Effect.promise(() =>
+				Promise.all([...localStores.values()].map((store) => store.close())),
+			),
+		);
 		const apiUrl = resolveAccountApiUrl();
 		if (runtimeRole === "control-plane") {
 			setDefaultPluginClientFactory(async () => {
 				const session = await Effect.runPromise(auth.getSession());
 				if (session._tag !== "SignedIn") return undefined;
 				const subject = session.session.user.id;
-				return createHttpPluginClient(
-					`${apiUrl}/v1/plugins/tools`,
-					async () => {
+				return withLocalPlugins(
+					localStore(subject),
+					createHttpPluginClient(`${apiUrl}/v1/plugins/tools`, async () => {
 						const token = await Effect.runPromise(auth.getAccessToken());
 						if (decodeJwt(token).sub !== subject)
 							throw new Error(
 								"Plugin session belongs to another account. Start a new chat.",
 							);
 						return token;
+					}),
+					async () => {
+						const current = await Effect.runPromise(auth.getSession());
+						if (
+							current._tag !== "SignedIn" ||
+							current.session.user.id !== subject
+						)
+							throw new Error(
+								"Plugin session belongs to another account. Start a new chat.",
+							);
 					},
 				);
 			});
@@ -616,6 +656,8 @@ export const MachineControlServiceLive: Layer.Layer<
 					CloudAuthProviderStatus,
 					"DELETE",
 				),
+			observeGithub: (input) =>
+				request(ApiPaths.cloudGithubObserve, GitHubObservation, "POST", input),
 			cloudGithubStatus: () => request(ApiPaths.cloudGithub, CloudGithubStatus),
 			installCloudGithub: () =>
 				request(
@@ -646,6 +688,21 @@ export const MachineControlServiceLive: Layer.Layer<
 				request(ApiPaths.cloudBillingCap, CloudBillingSummary, "POST", {
 					overageCapMicros,
 					idempotencyKey,
+				}),
+			localPlugins: (input) =>
+				Effect.gen(function* () {
+					const scope = yield* RequestWorkspace;
+					const session = yield* auth.getSession();
+					if (
+						runtimeRole !== "control-plane" ||
+						scope !== "personal" ||
+						session._tag !== "SignedIn"
+					)
+						return yield* Effect.fail(new MachineControlError("access-denied"));
+					return yield* Effect.tryPromise({
+						try: () => localStore(session.session.user.id).request(input),
+						catch: () => new MachineControlError("invalid-request"),
+					});
 				}),
 			plugins: (input) => request("/v1/plugins", PluginResponse, "POST", input),
 			cloudProviderConnections: () =>

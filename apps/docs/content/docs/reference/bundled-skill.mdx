@@ -1,5 +1,7 @@
 ---
 title: Bundled Zuse skill
+icon: Sparkles
+navTitle: "Bundled skill"
 description: Use the first-party skill for project setup and Zuse configuration help.
 section: reference
 order: 95
@@ -12,7 +14,13 @@ lastVerified: latest
 ---
 
 
-Zuse ships a first-party skill that teaches supported agents how to help with project setup, repository settings, worktrees, scripts, schemas, and troubleshooting.
+Zuse ships a first-party skill named `zuse` that teaches supported agents how to help with Zuse. It covers:
+
+- repository settings in `.zuse/settings.toml`, setup/run/archive scripts, and files to include in worktrees;
+- public schema URLs for user settings, keybindings, and repository settings;
+- connected plugins such as Linear, through the plugin tools and `zuse plugins` commands;
+- Zuse orchestration tools for starting and following work in other chats and sessions;
+- the `zuse` CLI for chats, sessions, cloud workspaces, and preview URLs.
 
 For providers with native skill discovery currently wired in Zuse, it is installed at:
 
@@ -20,6 +28,8 @@ For providers with native skill discovery currently wired in Zuse, it is install
 ~/.claude/skills/zuse/SKILL.md
 ~/.codex/skills/zuse/SKILL.md
 ```
+
+Zuse writes the file when it loads skills for Claude or Codex. If the file differs from the version bundled with the app, Zuse replaces it, so local edits do not persist. Put your own instructions in a separate skill.
 
 The skill is guidance for the agent, not an additional executable or background service. Its instructions point back to Zuse's public configuration contracts so generated settings remain valid.
 

@@ -1,4 +1,5 @@
 {
+	"show_more_count": "Afficher {{count}} de plus",
 	"device_preferences_save_failed": "Impossible d’enregistrer les préférences de cet appareil. Les préférences précédentes sont conservées.",
 	"workspace_settings_load_failed": "Impossible de charger les paramètres de l’espace de travail. Réessayez.",
 	"workspace_settings_save_failed": "Impossible d’enregistrer les paramètres de l’espace de travail. Actualisez avant de réessayer.",

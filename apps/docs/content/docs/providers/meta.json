@@ -1,3 +1,15 @@
 {
-  "icon": "Bot"
+	"title": "Providers",
+	"pages": [
+		"index",
+		"setup",
+		"claude-code",
+		"codex",
+		"cursor",
+		"grok",
+		"kiro",
+		"opencode",
+		"pi",
+		"acp"
+	]
 }

@@ -101,12 +101,27 @@ export const prepareGitExecution = async (input: {
 		},
 		body: JSON.stringify(input.context),
 	});
-	if (!response.ok)
-		throw new Error(
-			response.status === 403
+	if (!response.ok) {
+		const body: unknown = await response.json().catch(() => null);
+		const code =
+			typeof body === "object" && body !== null && "error" in body
+				? body.error
+				: undefined;
+		// Only known API codes may select recovery guidance; a 403 can also
+		// mean the actor lacks workspace access, not that GitHub is disconnected.
+		const message =
+			code === "github_user_connection_required" ||
+			code === "github_user_reconnect_required"
 				? "GitHub authentication required. Connect your own GitHub account in Cloud settings."
-				: "GitHub access could not be verified. Retry after checking your GitHub connection.",
-		);
+				: code === "workspace_access_denied"
+					? "You do not have permission to edit this workspace. Ask its owner for access."
+					: code === "github_execution_identity_invalid"
+						? "GitHub execution identity could not be verified. Retry from the original workspace."
+						: code === "github_user_repository_access_required"
+							? "GitHub repository access is required. Check that your GitHub account and the Zuse GitHub App can access this repository."
+							: "GitHub access could not be verified. Retry after checking your GitHub connection.";
+		throw new Error(message);
+	}
 	const value = Schema.decodeUnknownSync(Credential)(await response.json());
 	if (!Number.isFinite(value.expiresAtMs) || value.expiresAtMs <= Date.now())
 		throw new Error("GitHub credential has expired.");
@@ -151,7 +166,14 @@ export const makeCloudGitExecution = (input: {
 		| undefined;
 
 	return async (sessionId) => {
+		// The initial Slack conversation belongs to the GitHub App even when a
+		// member continues it from the UI. Other sessions retain their own actor.
+		const slackConversationId =
+			sessionId === input.initialSessionId
+				? input.initialContext?.slackMessageId
+				: undefined;
 		if (
+			slackConversationId === undefined &&
 			input.nativeRepositoryPath !== undefined &&
 			input.preferNativeGit !== false
 		) {
@@ -192,12 +214,14 @@ export const makeCloudGitExecution = (input: {
 				? undefined
 				: Schema.decodeUnknownSync(TurnIdentity)(row.input_json);
 		const context =
-			turn?.actor !== undefined || turn?.githubSlackMessageId !== undefined
-				? { actor: turn.actor, slackMessageId: turn.githubSlackMessageId }
-				: sessionId === input.initialSessionId &&
-						row?.turn_id === input.initialTurnId
-					? (input.initialContext ?? {})
-					: {};
+			slackConversationId !== undefined
+				? { actor: turn?.actor, slackMessageId: slackConversationId }
+				: turn?.actor !== undefined || turn?.githubSlackMessageId !== undefined
+					? { actor: turn.actor, slackMessageId: turn.githubSlackMessageId }
+					: sessionId === input.initialSessionId &&
+							row?.turn_id === input.initialTurnId
+						? (input.initialContext ?? {})
+						: {};
 		const key = createHash("sha256")
 			.update(JSON.stringify({ sessionId, context }))
 			.digest("hex");

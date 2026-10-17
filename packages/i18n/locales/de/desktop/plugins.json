@@ -121,5 +121,12 @@
 	"plugins_connected_accounts": "Verbundene Konten",
 	"plugins_turn_off": "Für Agenten deaktivieren",
 	"plugins_turn_on": "Für Agenten aktivieren",
-	"plugins_connection_off": "Aus · Agenten können dieses Konto nicht nutzen"
+	"plugins_connection_off": "Aus · Agenten können dieses Konto nicht nutzen",
+	"plugins_transport": "Verbindungstyp",
+	"plugins_remote": "Remote",
+	"plugins_local": "Lokaler Befehl",
+	"plugins_local_config": "MCP-Konfiguration (JSON)",
+	"plugins_local_hint": "Läuft auf diesem Computer in deinem persönlichen Arbeitsbereich. Füge eine stdio-Serverkonfiguration mit command, args und optional env ein. Desktop-Apps wie Paper müssen hier installiert sein.",
+	"plugins_local_config_invalid": "Gib eine gültige stdio-MCP-Konfiguration mit einem Befehl, einem args-Array und optionalen env-Werten ein.",
+	"plugins_local_connect_failed": "Der lokale MCP-Server konnte nicht gestartet werden. Prüfe den Befehl und ob die App installiert ist und läuft."
 }

@@ -1,14 +1,14 @@
 {
-	"icon": "PanelsTopLeft",
+	"title": "Workspace",
 	"pages": [
 		"index",
 		"files-editor",
 		"terminal-browser",
+		"changes-pull-requests",
 		"browser",
 		"browser-debugging",
 		"browser-evidence",
 		"browser-sessions-privacy",
-		"browser-troubleshooting",
-		"changes-pull-requests"
+		"browser-troubleshooting"
 	]
 }

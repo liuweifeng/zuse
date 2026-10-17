@@ -1,5 +1,7 @@
 ---
 title: "Operate Zuse Serve"
+icon: Cog
+navTitle: "Operations"
 description: "Start, inspect, stop, update, sign out, and uninstall a Serve environment without losing workspaces."
 section: "Serve CLI"
 order: 2
@@ -28,7 +30,9 @@ The readable report shows the computer name, service state, tunnel configuration
 zuse serve start
 ```
 
-`start` is also the default action. It creates the private data directory, obtains account authorization when needed, installs the current runtime into the managed runtime directory, and installs or refreshes the user service. It waits for local reachability before reporting success.
+`start` is also the default action. It creates the private data directory, saves the start options, obtains account authorization when needed, installs the current runtime into the managed runtime directory with npm, and installs or refreshes the user service. It waits up to 45 seconds for local reachability before reporting success.
+
+Each `start` replaces the saved options with the ones you pass, so repeat any access options you want to keep. `status`, `stop`, `update`, `logout`, and `uninstall` reuse the saved options.
 
 For a temporary foreground process:
 
@@ -37,6 +41,27 @@ zuse serve start --foreground
 ```
 
 Foreground mode runs in the current terminal. Closing that terminal stops the environment.
+
+## Choose how clients connect
+
+By default, `start` signs in to your account and creates a managed HTTPS tunnel, so the computer appears in other signed-in Zuse clients. The server listens only on `127.0.0.1:4859`. Add options to `start` for other routes:
+
+| Option | Effect |
+| --- | --- |
+| `--tailscale` | Also share the computer privately over Tailscale Serve HTTPS. Serve prints the **Tailnet** address. |
+| `--lan` | Listen on the local network (`0.0.0.0`). Traffic uses plaintext HTTP; authentication is still required. |
+| `--host <addr>` | Listen on one specific address instead of `127.0.0.1`. You cannot combine it with `--lan`. |
+| `--port <n>` | Listen on another port, from 1 to 65535. |
+| `--no-account` | Skip account sign-in and the managed tunnel. The computer does not appear in your account. |
+
+```sh
+zuse serve start --tailscale
+zuse serve start --lan --port 5000
+```
+
+If Tailscale is not ready when the service starts, the service keeps running without the tailnet address and checks again every 30 seconds. When Tailscale becomes ready within 10 minutes, the service restarts once to add the address; after that, it logs a reminder to run `zuse serve start` again with `--tailscale`.
+
+`--ssh-managed` runs a loopback-only host without account linking for SSH tunnels. It installs a separate user service, so it does not replace your regular Serve service, and it cannot be combined with `--tailscale`, `--lan`, or `--host`.
 
 ## Stop
 
@@ -54,7 +79,7 @@ Serve requires an explicit safe-work confirmation:
 zuse serve update --force
 ```
 
-Before running it, stop or finish active agents and terminals. Serve resolves the latest package, installs it into a versioned runtime directory, updates the service, and performs a reachability check. If the new runtime cannot become ready and a previous runtime exists, Serve restores the previous service definition and reports the rollback.
+Before running it, stop or finish active agents and terminals. Serve resolves the latest `@zusehq/serve` version from the npm registry, installs it into a versioned runtime directory, reinstalls the service with your saved start options, and waits for a reachability check. If the new runtime cannot become ready and a previous runtime exists, Serve restores the previous service definition and reports the rollback.
 
 There is intentionally no unattended update command in this release; `--force` acknowledges that active-work readiness checks are still your responsibility.
 
@@ -64,7 +89,7 @@ There is intentionally no unattended update command in this release; `--force` a
 zuse serve logout
 ```
 
-Logout revokes the environment registration, stops the service, and clears the saved Serve account session. Repositories and workspaces remain on disk. Run `zuse serve start` and authorize again to relink the computer.
+Logout revokes the environment registration, stops the service, and clears the saved Serve account session. If this computer was never linked, there is nothing to revoke and Serve only stops the service and clears the session. Repositories and workspaces remain on disk. Run `zuse serve start` and authorize again to relink the computer.
 
 ## Uninstall the managed runtime
 

@@ -117,16 +117,33 @@ export default function WorkspaceReviewScreen() {
 		[connection, folderId, worktreeId],
 	);
 
+	useEffect(() => {
+		if (!target) return;
+		let active = true;
+		let timer: ReturnType<typeof setTimeout>;
+		const refresh = async () => {
+			try {
+				const value = await Effect.runPromise(loadGitPrState(target));
+				if (active) setPrInfo(value);
+			} catch {
+				/* Keep the last successful observation during transient failures. */
+			}
+			if (active) timer = setTimeout(refresh, 60_000);
+		};
+		void refresh();
+		return () => {
+			active = false;
+			clearTimeout(timer);
+		};
+	}, [target]);
 	const refreshGit = useCallback(async () => {
 		if (target === null) return;
-		const [status, nextBranches, nextPrInfo] = await Promise.all([
+		const [status, nextBranches] = await Promise.all([
 			Effect.runPromise(loadGitStatus(target)),
 			Effect.runPromise(loadGitBranches(target)),
-			Effect.runPromise(loadGitPrState(target)).catch(() => null),
 		]);
 		setGitStatus(status);
 		setBranches(nextBranches);
-		setPrInfo(nextPrInfo);
 	}, [target]);
 
 	useEffect(() => {

@@ -264,3 +264,27 @@ export const PLUGIN_MCP_TOOLS = [
 		},
 	},
 ];
+
+/** Machine-owned commands never travel to the hosted plugin API. */
+export const LocalPluginRequest = Schema.Union([
+	Schema.Struct({ action: Schema.Literal("list") }),
+	Schema.Struct({
+		action: Schema.Literal("add"),
+		name: Schema.String,
+		command: Schema.String,
+		args: Schema.Array(Schema.String),
+		env: Schema.Record(Schema.String, Schema.String),
+	}),
+	Schema.Struct({ action: Schema.Literal("remove"), id: Schema.String }),
+	Schema.Struct({
+		action: Schema.Literal("setEnabled"),
+		id: Schema.String,
+		enabled: Schema.Boolean,
+	}),
+]);
+export type LocalPluginRequest = typeof LocalPluginRequest.Type;
+export const LocalPluginsRequestRpc = Rpc.make("plugins.local.request", {
+	payload: LocalPluginRequest,
+	success: PluginResponse,
+	error: CloudWorkspaceOpError,
+});

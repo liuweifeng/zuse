@@ -1,8 +1,10 @@
 import {
 	AuthState,
+	AuthTokenId,
 	ChatId,
 	ConnectHandshakeRpc,
 	FolderId,
+	LocalPluginsRequestRpc,
 	MemoizeRpcs,
 	PingResult,
 	PingRpc,
@@ -32,6 +34,7 @@ const Rpcs = RpcGroup.make(
 	ConnectHandshakeRpc,
 	PingRpc,
 	PluginsRequestRpc,
+	LocalPluginsRequestRpc,
 	Rpc.make("fs.watchTree", {
 		payload: {
 			folderId: FolderId,
@@ -115,6 +118,7 @@ const Rpcs = RpcGroup.make(
 		success: Schema.String,
 		stream: true,
 	}),
+	Rpc.make("github.observe", { success: Schema.String }),
 	Rpc.make("host.secret", { success: Schema.String }),
 	Rpc.make("machines.checkout", { success: Schema.String }),
 	Rpc.make("machines.billingPortal", { success: Schema.String }),
@@ -140,6 +144,7 @@ const fileScopeResult = () =>
 		),
 	);
 const handlers = Rpcs.toLayer({
+	"plugins.local.request": () => Effect.succeed({ kind: "ok" as const }),
 	"plugins.request": () =>
 		Effect.map(RequestWorkspace, (scope) =>
 			PluginSnapshot.make({
@@ -200,6 +205,7 @@ const handlers = Rpcs.toLayer({
 	"attachments.read": () => Effect.succeed("attachment"),
 	"session.events": () =>
 		Stream.concat(Stream.succeed("connected"), Stream.never),
+	"github.observe": () => Effect.succeed("desktop-credential-read"),
 	"host.secret": () => Effect.succeed("host-only"),
 });
 const makeClient = RpcTest.makeClient(Rpcs, { flatten: true });
@@ -264,6 +270,35 @@ it("enforces shared-workspace reads, denies other RPCs, and expires an active st
 			),
 		);
 	try {
+		await expect(
+			call({ kind: "local" }, (client) => client("github.observe", undefined)),
+		).resolves.toBe("desktop-credential-read");
+		await expect(
+			call({ kind: "local" }, (client) =>
+				client("plugins.local.request", { action: "list" }),
+			),
+		).resolves.toEqual({ kind: "ok" });
+		await expect(
+			call(
+				{ kind: "local" },
+				(client) => client("plugins.local.request", { action: "list" }),
+				"organization:org_1",
+			),
+		).rejects.toMatchObject({ code: "access-denied" });
+		for (const identity of [
+			undefined,
+			{ kind: "paired", tokenId: AuthTokenId.make("paired"), deviceId: null },
+			{ kind: "account", subject: "owner", expiresAt: Date.now() + 60_000 },
+		] as const) {
+			await expect(
+				call(identity, (client) => client("github.observe", undefined)),
+			).rejects.toMatchObject({ code: "access-denied" });
+			await expect(
+				call(identity, (client) =>
+					client("plugins.local.request", { action: "list" }),
+				),
+			).rejects.toMatchObject({ code: "access-denied" });
+		}
 		await runtime.runPromise(
 			Effect.gen(function* () {
 				const sql = yield* SqlClient.SqlClient;

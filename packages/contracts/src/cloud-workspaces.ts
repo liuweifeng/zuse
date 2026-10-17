@@ -25,6 +25,19 @@ import { WorkspaceSettings, WorkspaceSettingsUpdate } from "./settings.ts";
 import { Folder } from "./workspace.ts";
 import { WorkspaceScope } from "./workspace-scope.ts";
 
+export const CloudWorkspacePreparationPhase = Schema.Literals([
+	"checking-repository",
+	"switching-branch",
+	"fetching-repository",
+	"preparing-credentials",
+	"claude-auth-reconnect-required",
+	"codex-auth-reconnect-required",
+	"cursor-auth-reconnect-required",
+	"grok-auth-reconnect-required",
+]);
+export type CloudWorkspacePreparationPhase =
+	typeof CloudWorkspacePreparationPhase.Type;
+
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 export const CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY = "machine-fork-v1";
 
@@ -380,6 +393,13 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 	updatedAt: Schema.Number,
 }) {}
 
+/** The Zuse runtime release installed in an image; absent for older builds. */
+export const CloudAccountImageRuntime = Schema.Struct({
+	appVersion: Schema.String,
+	wireProtocolVersion: Schema.Number,
+});
+export type CloudAccountImageRuntime = typeof CloudAccountImageRuntime.Type;
+
 /** The private image maintained for an account on one sandbox provider. */
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
@@ -399,6 +419,7 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	generation: Schema.optional(Schema.String),
 	providerId: Schema.optional(Schema.String),
 	runtimeVersion: Schema.optional(Schema.String),
+	runtime: Schema.optional(CloudAccountImageRuntime),
 	buildMode: Schema.optional(CloudAccountImageBuildMode),
 	progressPhase: Schema.optional(Schema.String),
 	errorCode: Schema.optional(Schema.String),

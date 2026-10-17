@@ -1,12 +1,14 @@
 ---
 title: How-to guides
+icon: ListChecks
+navTitle: "All guides"
 description: Complete a specific Zuse task with verified steps, a success check, and a recovery path.
 section: how-to
 order: 15
 platforms: [desktop, browser, mobile, serve]
 providers: []
 prerequisites: [/start/first-chat]
-related: [/projects, /composer, /remote, /serve]
+related: [/projects, /composer, /remote, /serve, /api-reference]
 next: /how-to/local-parallel-worktrees
 lastVerified: latest
 ---
@@ -40,6 +42,19 @@ For a normal feature task, create an isolated checkout, give the agent the requi
 | Restore a browser or mobile session | [Recover a remote connection](/how-to/remote-recover-connection/) |
 
 Remote clients control the environment already running on your Mac or Linux computer. They do not copy repositories or move provider credentials onto the phone or browser.
+
+## Run work in the cloud
+
+| Goal | Start here |
+| --- | --- |
+| Run an agent on a cloud machine | [Start a cloud chat](/how-to/cloud-start-chat/) |
+| Pick a provider and machine size | [Choose a cloud machine](/how-to/choose-cloud-provider/) |
+| Give teammates access or share a running app | [Share a cloud chat and its previews](/how-to/cloud-share-chat/) |
+| Let a cloud agent run commands on your computer | [Let cloud agents run commands on your computer](/how-to/cloud-agent-local-commands/) |
+| Start cloud workspaces from your own boxd environment | [Use your own Boxd snapshot](/how-to/custom-boxd-snapshot/) |
+| Hand a task to Zuse from Slack | [Start a task from Slack](/how-to/slack-start-task/) |
+
+Cloud chats run on a machine with their own branch; they do not use your local checkout. To start cloud workspaces from scripts, see the [API reference](/api-reference/).
 
 ## When you need exact behavior
 

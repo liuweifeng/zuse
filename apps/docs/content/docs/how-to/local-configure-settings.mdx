@@ -1,10 +1,12 @@
 ---
 title: Configure local and repository settings
+icon: Settings2
+navTitle: "Configure settings"
 description: Set personal defaults in Zuse and share safe project behavior through .zuse/settings.toml.
 section: how-to
 order: 6
 platforms: [desktop]
-providers: [claude, codex, grok, gemini, cursor, opencode, kiro]
+providers: [claude, codex, grok, cursor, opencode, kiro, pi]
 prerequisites: [/start/install, /projects]
 related: [/reference/settings, /projects/repository-settings, /projects/scripts, /projects/file-includes, /reference/schemas]
 next: /how-to/local-configure-mcp
@@ -32,9 +34,10 @@ Settings provide defaults for new chats and worktrees. A running provider proces
 
 1. Open **Settings**.
 2. Select **General** to choose the defaults used when starting new chats.
-3. Select **Providers** to configure provider availability, models, sign-in, and provider-specific options.
-4. Review the other computer-wide surfaces when applicable: **Integrations**, **Devices**, **Browser**, **Pokedex**, **Keyboard shortcuts**, and **Diagnostics**.
-5. Close Settings, start a new chat, and confirm that its provider, model, runtime mode, and workspace choice match the intended defaults.
+3. Select **Providers** to configure provider availability, sign-in, and provider-specific options.
+4. Select **Default models** to choose the model each provider uses for new chats.
+5. Review the other surfaces when applicable: **Plugins**, **Remote access**, **Cloud workspaces · Public beta** (when available), **Browser**, **Pokedex**, **Keyboard shortcuts**, **Experimental**, and **Diagnostics**.
+6. Close Settings, start a new chat, and confirm that its provider, model, runtime mode, and workspace choice match the intended defaults.
 
 Zuse persists personal preferences in `~/.zuse/settings.json`. The settings UI is the safest editor because it validates values and synchronizes them through the running desktop service. If you must hand-edit the file, close Zuse first and validate it against:
 
@@ -42,24 +45,24 @@ Zuse persists personal preferences in `~/.zuse/settings.json`. The settings UI i
 https://zuse.sh/schemas/settings.schema.json
 ```
 
-Provider credentials are not stored in this file. App-managed secrets belong in the macOS Keychain, while provider-native credentials remain under that provider's control.
+Provider credentials are not stored in this file. App-managed secrets are encrypted with a key held by your system keychain, while provider-native credentials remain under that provider's control.
 
 ## 2. Configure one repository
 
 1. Open **Settings**.
 2. Under **Repositories**, select the repository by name.
-3. In **Defaults**, enable only the provider, model, or runtime-mode overrides that should differ from your global defaults. Leave an override off to inherit the global value.
-4. Set the worktree default. Enable automatic worktrees when new tasks should begin in isolated checkouts.
-5. Configure **Setup script**, **Run script**, **Auto-run after setup**, and **Archive script** for the repository lifecycle.
-6. Add **Environment variables** only for non-secret `KEY=value` values needed by those scripts.
-7. Configure **Worktree file includes** for ignored local files that a new worktree needs.
-8. Use **Project permissions → Manage** when the project needs a permission policy distinct from the global runtime default.
+3. In **Defaults**, enable only the **Default agent** (provider and model) or **Default permission mode** overrides that should differ from your global defaults. Leave an override off to inherit the global value.
+4. Under **Project permissions**, choose **Manage** to review and revoke tool-permission decisions saved for this repository.
+5. Under **Worktrees**, turn on **Auto-create a worktree for new chats** when new tasks should begin in isolated checkouts.
+6. Under **Scripts**, configure **Setup script**, **Run script**, **Auto-run after setup**, and **Archive script** for the repository lifecycle.
+7. Add **Environment variables** only for non-secret `KEY=value` values needed by those scripts.
+8. Configure **Worktree file includes** for ignored local files that a new worktree needs.
 
 The repository screen writes the canonical project file at `.zuse/settings.toml`. Zuse creates this file when registering a project if it does not already exist, and does not overwrite an existing file.
 
 ## 3. Review the shared file
 
-Choose **Use `.zuse/settings.toml`** from the repository settings screen when you want to hand-edit or share repository settings. A typical file is:
+To hand-edit or share repository settings, edit `.zuse/settings.toml` in the repository. A typical file is:
 
 ```toml
 schemaVersion = 1
@@ -93,7 +96,7 @@ https://zuse.sh/schemas/repository-settings.schema.json
 
 1. Start a new chat in the configured repository.
 2. Confirm that the composer shows the expected provider, model, runtime mode, and current-checkout or worktree choice.
-3. If automatic worktrees are enabled, send a small task and wait for **Creating a worktree and running setup** to finish.
+3. If automatic worktrees are enabled, send a small task and wait for the setup card to show **Environment setup complete**.
 4. Confirm that included files are present in the new worktree and that the configured setup command completed.
 5. Run the repository's standard command from its project controls or terminal and verify that configured non-secret environment values are available.
 6. Reopen the repository settings and confirm that the saved values match `.zuse/settings.toml`.

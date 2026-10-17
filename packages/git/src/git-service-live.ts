@@ -15,9 +15,6 @@ import {
 	GitIssueSummary,
 	GitNotARepoError,
 	GitNotInstalledError,
-	GitPrCheckRun,
-	GitPrDetails,
-	GitPrFile,
 	GitPrInfo,
 	GitPrSummary,
 	GitResetRemotePreview,
@@ -30,14 +27,7 @@ import {
 	GitStalePreviewError,
 	GitStatusSummary,
 } from "@zuse/contracts";
-import {
-	type ActionsJob,
-	actionsJobsApiPath,
-	checkRunFromRollup,
-	collectActionsRunIds,
-	isFailedCheckRollup,
-	metadataForRollupEntry,
-} from "@zuse/git/check-runs";
+import { type ActionsJob, isFailedCheckRollup } from "@zuse/git/check-runs";
 import { GitService } from "@zuse/git/git-service";
 import {
 	DateTime,
@@ -57,11 +47,11 @@ import {
 } from "effect/unstable/process";
 import { parseRemoteUrl, resolveGitHubRepository } from "./git-remote.ts";
 import {
-	feedbackComments,
-	feedbackReviews,
-	parseFeedbackPages,
-	parseReviewThreads,
-} from "./pr-feedback.ts";
+	emptyDetails,
+	emptyPr,
+	infoFromPr,
+	readPrDetails,
+} from "./github-observations.ts";
 
 export { parseRemoteUrl } from "./git-remote.ts";
 
@@ -72,7 +62,7 @@ import {
 	GitHubRequestScope,
 	githubExecutionEnvironment,
 } from "./github-client.ts";
-import { type GitHubPr, GitHubPullRequests } from "./github-pull-requests.ts";
+import { GitHubPullRequests } from "./github-pull-requests.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
 	buildCreateReviewCommentBody,
@@ -376,71 +366,6 @@ const parseReviewStats = (out: string): ReadonlyMap<string, ReviewStat> => {
 	return stats;
 };
 
-const aggregateChecks = (
-	rollup: ReadonlyArray<{
-		status?: string;
-		state?: string;
-		conclusion?: string;
-	}>,
-): GitPrInfo["checks"] => {
-	if (rollup.length === 0) return "none";
-	let pending = false;
-	for (const entry of rollup) {
-		const conclusion = (entry.conclusion ?? "").toUpperCase();
-		const status = (entry.status ?? "").toUpperCase();
-		const state = (entry.state ?? "").toUpperCase();
-		if (isFailedCheckRollup(entry)) {
-			return "failure";
-		}
-		if (
-			status === "QUEUED" ||
-			status === "IN_PROGRESS" ||
-			status === "PENDING" ||
-			state === "PENDING" ||
-			(status !== "COMPLETED" && conclusion === "" && state === "")
-		) {
-			pending = true;
-		}
-	}
-	return pending ? "pending" : "success";
-};
-
-const countChecks = (
-	rollup: ReadonlyArray<{
-		status?: string;
-		state?: string;
-		conclusion?: string;
-	}>,
-): {
-	total: number;
-	running: number;
-	passing: number;
-	failing: number;
-} => {
-	let running = 0;
-	let passing = 0;
-	let failing = 0;
-	for (const entry of rollup) {
-		const conclusion = (entry.conclusion ?? "").toUpperCase();
-		const status = (entry.status ?? "").toUpperCase();
-		const state = (entry.state ?? "").toUpperCase();
-		if (isFailedCheckRollup(entry)) {
-			failing += 1;
-		} else if (
-			status === "QUEUED" ||
-			status === "IN_PROGRESS" ||
-			status === "PENDING" ||
-			state === "PENDING" ||
-			(status !== "COMPLETED" && conclusion === "" && state === "")
-		) {
-			running += 1;
-		} else {
-			passing += 1;
-		}
-	}
-	return { total: rollup.length, running, passing, failing };
-};
-
 export const GitServiceLive = Layer.effect(
 	GitService,
 	Effect.gen(function* () {
@@ -523,6 +448,7 @@ export const GitServiceLive = Layer.effect(
 							// commands still require the scoped credential environment.
 							env:
 								args[0] === "rev-parse" ||
+								args[0] === "symbolic-ref" ||
 								args[0] === "config" ||
 								(args[0] === "remote" &&
 									(args.length === 1 || args[1] === "get-url"))
@@ -956,6 +882,36 @@ export const GitServiceLive = Layer.effect(
 					owner: parseRemoteUrl(url.trim())?.owner,
 				};
 			});
+		const githubContext: GitService["Service"]["githubContext"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository) return null;
+					const branch = (yield* run(folderId, cwd, [
+						"symbolic-ref",
+						"--quiet",
+						"--short",
+						"HEAD",
+					]).pipe(Effect.catch(() => Effect.succeed("HEAD")))).trim();
+					const headSha =
+						(yield* run(folderId, cwd, ["rev-parse", "HEAD"]).pipe(
+							Effect.catch(() => Effect.succeed("")),
+						)).trim() || undefined;
+					const head =
+						branch === "HEAD" ? null : yield* githubHead(folderId, cwd, branch);
+					return {
+						host: repository.host,
+						owner: repository.owner,
+						repo: repository.repo,
+						branch: head?.branch ?? null,
+						headOwner: head?.owner,
+						headSha,
+					};
+				}),
+			);
 		const currentPr = (
 			folderId: FolderId,
 			cwd: string,
@@ -986,66 +942,6 @@ export const GitServiceLive = Layer.effect(
 				);
 				return { repository, pr, branch };
 			});
-		const emptyPr = (
-			branch: string | null,
-			capability: GitPrInfo["prCapability"] = "available",
-		): GitPrInfo =>
-			GitPrInfo.make({
-				nodeId: null,
-				state: "none",
-				branch,
-				baseBranch: null,
-				additions: 0,
-				deletions: 0,
-				number: null,
-				url: null,
-				isDraft: false,
-				checks: "none",
-				mergeable: "unknown",
-				checksTotal: 0,
-				checksRunning: 0,
-				checksPassing: 0,
-				checksFailing: 0,
-				autoMergeEnabled: false,
-				prCapability: capability,
-				stale: capability !== "available",
-
-				checksComplete: true,
-			});
-		const infoFromPr = (pr: GitHubPr): GitPrInfo => {
-			const counts = countChecks(pr.statusCheckRollup);
-			return GitPrInfo.make({
-				nodeId: pr.id,
-				state:
-					pr.state === "OPEN"
-						? "open"
-						: pr.state === "MERGED"
-							? "merged"
-							: "closed",
-				branch: pr.headRefName,
-				baseBranch: pr.baseRefName,
-				headSha: pr.headRefOid,
-				additions: pr.additions,
-				deletions: pr.deletions,
-				number: pr.number,
-				url: pr.url,
-				isDraft: pr.isDraft,
-				checks: aggregateChecks(pr.statusCheckRollup),
-				checkRuns: pr.statusCheckRollup.map(checkRunFromRollup),
-				mergeable: mapMergeable(pr.mergeable),
-				checksTotal: counts.total,
-				checksRunning: counts.running,
-				checksPassing: counts.passing,
-				checksFailing: counts.failing,
-				autoMergeEnabled: pr.autoMergeRequest != null,
-				prCapability: "available",
-				stale: false,
-				statusRevision: pr.statusRevision,
-				remarksRevision: pr.remarksRevision,
-				observedAt: new Date(pr.observedAt),
-				checksComplete: pr.checksComplete,
-			});
-		};
 		const prState: GitService["Service"]["prState"] = (
 			folderId,
 			worktreeId,
@@ -1133,38 +1029,6 @@ export const GitServiceLive = Layer.effect(
 					});
 				}),
 			);
-
-		const mapMergeable = (raw: string | undefined): GitPrInfo["mergeable"] => {
-			switch ((raw ?? "").toUpperCase()) {
-				case "MERGEABLE":
-				case "CLEAN":
-					return "clean";
-				case "CONFLICTING":
-					return "conflicting";
-				default:
-					return "unknown";
-			}
-		};
-
-		const emptyDetails: GitPrDetails = GitPrDetails.make({
-			state: "none",
-			number: null,
-			url: null,
-			isDraft: false,
-			checks: "none",
-			mergeable: "unknown",
-			additions: 0,
-			deletions: 0,
-			title: "",
-			body: "",
-			author: "",
-			baseBranch: null,
-			headBranch: null,
-			comments: [],
-			reviews: [],
-			files: [],
-			checkRuns: [],
-		});
 
 		const createReviewComment: GitService["Service"]["createReviewComment"] = (
 			folderId,
@@ -1280,75 +1144,14 @@ export const GitServiceLive = Layer.effect(
 					if (!current) return emptyDetails;
 					const { repository, pr } = current;
 					return yield* githubEffect(folderId, async (signal) => {
-						const credential = await github.credential(repository, signal);
-						const [feedback, files, jobs] = await Promise.all([
-							pullRequests.feedback(repository, pr, signal),
-							pullRequests.files(repository, pr, signal),
-							Promise.all(
-								collectActionsRunIds(pr.statusCheckRollup).map(
-									async (runId) => {
-										try {
-											return [
-												runId,
-												await github.pages<ActionsJob>(
-													credential,
-													actionsJobsApiPath(
-														repository.owner,
-														repository.repo,
-														runId,
-													),
-													signal,
-													(value) => (value as { jobs: ActionsJob[] }).jobs,
-												),
-											] as const;
-										} catch (error) {
-											if (
-												error instanceof GitHubFailure &&
-												error.kind === "access"
-											)
-												return [runId, []] as const;
-											throw error;
-										}
-									},
-								),
-							),
-						]);
-						const threads = parseReviewThreads(
-							JSON.stringify(feedback.threads),
+						return readPrDetails(
+							github,
+							pullRequests,
+							repository,
+							pr,
+							current.branch,
+							signal,
 						);
-						const discussion =
-							parseFeedbackPages(JSON.stringify([feedback.comments])) ?? [];
-						const inline =
-							parseFeedbackPages(JSON.stringify([feedback.inline])) ?? [];
-						const reviews =
-							parseFeedbackPages(JSON.stringify([feedback.reviews])) ?? [];
-						const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>(
-							jobs,
-						);
-						return GitPrDetails.make({
-							...infoFromPr(pr),
-							title: pr.title,
-							body: pr.body,
-							author: pr.author?.login ?? "",
-							authorAvatarUrl: pr.author?.avatarUrl ?? null,
-							headBranch: current.branch,
-							headSha: pr.headRefOid,
-							baseBranch: pr.baseRefName,
-							comments: [
-								...feedbackComments(discussion),
-								...feedbackComments(inline, threads),
-							],
-							reviews: feedbackReviews(reviews, threads, inline),
-							files: files.map((file) => GitPrFile.make(file)),
-							checkRuns: pr.statusCheckRollup.map((check) =>
-								GitPrCheckRun.make({
-									...checkRunFromRollup(check),
-									...metadataForRollupEntry(check, jobsByRunId),
-									appName: check.checkSuite?.app?.name ?? null,
-									appAvatarUrl: check.checkSuite?.app?.logoUrl ?? null,
-								}),
-							),
-						});
 					});
 				}),
 			);
@@ -2965,6 +2768,7 @@ export const GitServiceLive = Layer.effect(
 			workspaceSnapshot,
 			origin,
 			prState,
+			githubContext,
 			prDetails,
 			createReviewComment,
 			reviewIdentity,

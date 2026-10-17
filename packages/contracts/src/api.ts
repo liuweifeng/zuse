@@ -89,6 +89,7 @@ export const ApiPaths = {
 		`/v1/cloud/auth/login/${encodeURIComponent(operationId)}/cancel`,
 	cloudAuthDisconnect: (providerId: string) =>
 		`/v1/cloud/auth/providers/${encodeURIComponent(providerId)}`,
+	cloudGithubObserve: "/v1/cloud/github/observe",
 	cloudGithub: "/v1/cloud/github",
 	cloudGithubInstall: "/v1/cloud/github/install",
 	cloudGithubCallback: "/v1/cloud/github/callback",

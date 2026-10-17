@@ -75,9 +75,17 @@ const originalFetch = globalThis.fetch;
 test.each([
 	"public-base",
 	"ioeu6w9tn6l30781rikc",
-])("checks template %s with the rebound BYOK key without creating compute", async (templateId) => {
+])("creates public template %s with the BYOK key without an ownership-only lookup", async (templateId) => {
 	const http = makeHttp([
-		{ status: 200, body: { templateID: "public-base", public: true } },
+		{
+			status: 201,
+			body: {
+				sandboxID: "sbx_public",
+				templateID: templateId,
+				clientID: "client",
+				envdVersion: "0.4.0",
+			},
+		},
 	]);
 	const base = makeAdapter(http.client);
 	if (!base.withCredentials) throw new Error("Missing credential rebinding");
@@ -85,24 +93,39 @@ test.each([
 		apiKey: Redacted.make("other-team"),
 		templateId,
 	});
-	if (!adapter.validateTemplate) throw new Error("Missing template validation");
-	await Effect.runPromise(adapter.validateTemplate());
+	expect(adapter.validateTemplate).toBeUndefined();
+	await Effect.runPromise(adapter.create(createInput));
 	expect(http.calls).toHaveLength(1);
-	expect(http.calls[0]?.url).toBe(
-		`https://sandbox.test/templates/aliases/${templateId}`,
+	expect(http.calls[0]?.url).toBe("https://sandbox.test/sandboxes");
+	expect(JSON.parse(String(http.calls[0]?.init?.body)).templateID).toBe(
+		templateId,
 	);
 	expect(new Headers(http.calls[0]?.init?.headers).get("X-API-Key")).toBe(
 		"other-team",
 	);
 });
 
-test("inaccessible templates fail the read-only access check", async () => {
-	const http = makeHttp([{ status: 404 }]);
-	const adapter = makeAdapter(http.client);
-	if (!adapter.validateTemplate) throw new Error("Missing template validation");
+test.each([
+	403, 404,
+])("allocation rejects inaccessible templates (%s) without transient retries", async (status) => {
+	const http = makeHttp([{ status }]);
 	await expect(
-		Effect.runPromise(adapter.validateTemplate()),
+		Effect.runPromise(makeAdapter(http.client).create(createInput)),
+	).rejects.toMatchObject({ code: "rejected" });
+	expect(http.calls).toHaveLength(1);
+});
+
+test("missing snapshot forks preserve not-found for recovery", async () => {
+	const http = makeHttp([{ status: 404 }]);
+	await expect(
+		Effect.runPromise(
+			makeAdapter(http.client).fork({
+				...createInput,
+				snapshotId: "missing-snapshot:default",
+			}),
+		),
 	).rejects.toMatchObject({ code: "not-found" });
+	expect(http.calls).toHaveLength(1);
 });
 
 const decodeConnectJsonBody = (body: BodyInit | null | undefined): unknown => {

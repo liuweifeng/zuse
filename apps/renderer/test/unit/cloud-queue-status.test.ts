@@ -73,6 +73,10 @@ describe("cloud lifecycle label", () => {
 
 	it.each([
 		["preparing-credentials", "Preparing connected accounts…"],
+		[
+			"grok-auth-reconnect-required",
+			"Reconnect Grok in Cloud Workspaces to continue.",
+		],
 		["checking-repository", "Checking repository…"],
 		["switching-branch", "Switching branch…"],
 		["fetching-repository", "Fetching repository…"],

@@ -1,3 +1,10 @@
 {
-  "icon": "GitBranch"
+	"title": "Projects",
+	"pages": [
+		"index",
+		"worktrees",
+		"scripts",
+		"repository-settings",
+		"file-includes"
+	]
 }

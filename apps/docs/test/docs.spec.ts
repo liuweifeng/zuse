@@ -46,37 +46,37 @@ test("product links use the canonical website domain", async ({
 	await page.goto("/start/install");
 
 	const sidebar = page.locator("#nd-sidebar");
-	await expect(sidebar.getByRole("link", { name: "Product" })).toHaveAttribute(
-		"href",
-		"https://zuse.sh",
-	);
-	await expect(sidebar.getByRole("link", { name: "Download" })).toHaveAttribute(
-		"href",
-		"https://zuse.sh/download",
-	);
+	await expect(
+		sidebar.getByRole("link", { name: "Open zuse.sh" }),
+	).toHaveAttribute("href", "https://zuse.sh");
+	await expect(
+		sidebar.getByRole("link", { name: "Download Zuse" }),
+	).toHaveAttribute("href", "https://zuse.sh/download");
 });
 
-test("reference and how-to guides use separate navigation modes", async ({
+test("documentation and how-to guides use separate navigation sections", async ({
 	page,
 	isMobile,
 }) => {
-	test.skip(isMobile, "Desktop sidebar mode selector");
+	test.skip(isMobile, "Desktop sidebar section switcher");
 	await page.goto("/start/first-chat");
 
 	const sidebar = page.locator("#nd-sidebar");
-	const modeSelector = sidebar.locator('button[aria-haspopup="dialog"]');
-	await expect(modeSelector).toContainText("Reference");
-	await expect(sidebar.getByText("Start here", { exact: true })).toBeVisible();
-	await expect(sidebar.getByText("How to", { exact: true })).toHaveCount(0);
-
-	await modeSelector.click();
-	await page.getByRole("link", { name: /How to/ }).click();
-	await expect(page).toHaveURL(/\/how-to$/u);
-	await expect(modeSelector).toContainText("How to");
+	const sectionSwitcher = sidebar.locator('button[aria-haspopup="dialog"]');
+	await expect(sectionSwitcher).toContainText("Documentation");
+	await expect(sidebar.getByRole("link", { name: "Welcome" })).toBeVisible();
 	await expect(
-		sidebar.getByText("Run tasks in parallel with worktrees", { exact: true }),
+		sidebar.getByRole("link", { name: "Parallel worktrees" }),
+	).toHaveCount(0);
+
+	await sectionSwitcher.click();
+	await page.getByRole("link", { name: /How-to guides/ }).click();
+	await expect(page).toHaveURL(/\/how-to$/u);
+	await expect(sectionSwitcher).toContainText("How-to guides");
+	await expect(
+		sidebar.getByRole("link", { name: "Parallel worktrees" }),
 	).toBeVisible();
-	await expect(sidebar.getByText("Start here", { exact: true })).toHaveCount(0);
+	await expect(sidebar.getByRole("link", { name: "Welcome" })).toHaveCount(0);
 });
 
 test("documentation search supports the keyboard", async ({
@@ -132,7 +132,7 @@ test("documentation search indexes only pages and headings", async ({
 	expect(await bodyQuery.json()).toEqual([]);
 });
 
-test("navigation uses disclosure headings and native active states", async ({
+test("navigation uses flat labeled groups and a filled active row", async ({
 	page,
 	isMobile,
 }) => {
@@ -140,39 +140,17 @@ test("navigation uses disclosure headings and native active states", async ({
 	await page.goto("/concepts/local-first");
 
 	const sidebar = page.locator("#nd-sidebar");
-	await expect(
-		sidebar.getByRole("button", { name: "Core concepts" }),
-	).toBeVisible();
-	await expect(
-		sidebar.getByRole("link", { name: "Core concepts" }),
-	).toHaveCount(0);
-	await expect(sidebar.getByRole("link", { name: "Overview" })).toBeVisible();
+	await expect(sidebar.getByText("Concepts", { exact: true })).toBeVisible();
+	await expect(sidebar.getByRole("button", { name: "Concepts" })).toHaveCount(
+		0,
+	);
 
-	const activeLink = page.locator("#nd-sidebar a[data-active='true']");
+	const activeLink = sidebar.locator("a[data-active='true']");
+	await expect(activeLink).toHaveText("Local-first data");
 	const activeBackground = await activeLink.evaluate(
 		(element) => getComputedStyle(element).backgroundColor,
 	);
 	expect(activeBackground).not.toBe("rgba(0, 0, 0, 0)");
-	const activeIndicator = await activeLink.evaluate((element) => {
-		const style = getComputedStyle(element, "::before");
-		return {
-			height: style.getPropertyValue("height"),
-			inlineStart: style.getPropertyValue("inset-inline-start"),
-			width: style.getPropertyValue("width"),
-		};
-	});
-	expect(activeIndicator).toEqual({
-		height: "12px",
-		inlineStart: "0px",
-		width: "2px",
-	});
-	const folderGuide = sidebar.locator(
-		'div[data-state="open"][class*="before:inset-y-1"]:has(a[data-active="true"])',
-	);
-	const folderGuideContent = await folderGuide.evaluate((element) =>
-		getComputedStyle(element, "::before").getPropertyValue("content"),
-	);
-	expect(folderGuideContent).toBe("none");
 
 	await page.keyboard.press("Control+k");
 	await page.getByRole("textbox", { name: "Search" }).fill("worktree");
@@ -194,8 +172,12 @@ test("theme choice persists", async ({ page }) => {
 	await expect(page.locator("html")).toHaveAttribute("class", theme ?? "light");
 });
 
-test("page actions expose Markdown and AI readers", async ({ page }) => {
+test("page actions expose Markdown and AI readers", async ({
+	page,
+	isMobile,
+}) => {
 	await page.goto("/serve/command-reference");
+	if (isMobile) await page.locator("[data-toc-popover-trigger]").click();
 	await expect(
 		page.getByRole("button", { name: "Copy Markdown" }),
 	).toBeVisible();
@@ -238,7 +220,7 @@ test("LLM requests receive Markdown without changing the page URL", async ({
 	});
 	expect(root.ok()).toBeTruthy();
 	expect(root.headers()["content-type"]).toContain("text/markdown");
-	expect(await root.text()).toContain("# Start here");
+	expect(await root.text()).toContain("# Build with Zuse");
 
 	const crawler = await request.get("/serve", {
 		headers: { "User-Agent": "GPTBot/1.0" },
@@ -260,7 +242,7 @@ test("LLM requests receive Markdown without changing the page URL", async ({
 
 	const fullIndex = await request.get("/llms-full.txt");
 	expect(fullIndex.ok()).toBeTruthy();
-	expect(await fullIndex.text()).toContain("# Configure MCP servers locally");
+	expect(await fullIndex.text()).toContain("# Add an MCP server");
 
 	const browser = await request.get("/remote", {
 		headers: { Accept: "text/html" },
@@ -282,8 +264,34 @@ test("mobile navigation contains search", async ({ page, isMobile }) => {
 	await page.getByRole("button", { name: "Open Sidebar" }).click();
 	await expect(
 		page.locator("button:has(> svg.lucide-chevrons-up-down)"),
-	).toContainText("Reference");
+	).toContainText("Remote and Serve");
 	await page.getByRole("button", { name: "Open Sidebar" }).last().click();
 	await page.getByRole("button", { name: "Open Search" }).click();
 	await expect(page.getByRole("textbox", { name: "Search" })).toBeVisible();
+});
+
+test("API reference renders generated endpoint pages", async ({ page }) => {
+	await page.goto("/api-reference/workspaces/create-workspace");
+	await expect(
+		page.getByRole("heading", { name: "Create workspace", level: 1 }),
+	).toBeVisible();
+	await expect(page.getByText("/v1/api/workspaces").first()).toBeVisible();
+	await expect(page.getByText("Idempotency-Key").first()).toBeVisible();
+});
+
+test("OpenAPI document and retired provider routes are served", async ({
+	request,
+}) => {
+	const document = await request.get("/openapi.json");
+	expect(document.ok()).toBeTruthy();
+	const spec = (await document.json()) as {
+		openapi: string;
+		paths: Record<string, unknown>;
+	};
+	expect(spec.openapi).toBe("3.1.0");
+	expect(Object.keys(spec.paths)).toContain("/v1/api/workspaces");
+
+	const gemini = await request.get("/providers/gemini", { maxRedirects: 0 });
+	expect(gemini.status()).toBe(308);
+	expect(gemini.headers().location).toBe("/providers/acp#gemini-cli");
 });

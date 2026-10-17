@@ -4,6 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./github-observer": "./src/github-observer.ts",
 		"./background-agent-presentation": "./src/background-agent-presentation.ts",
 		"./native-subagent-fork": "./src/native-subagent-fork.ts",
 		"./session-attempt-history": "./src/session-attempt-history.ts",
@@ -16,6 +17,7 @@
 		"./cloud-transcript": "./src/cloud-transcript.ts",
 		"./cloud-catalog": "./src/cloud-catalog.ts",
 		"./cloud-provider-availability": "./src/cloud-provider-availability.ts",
+		"./cloud-image-runtime": "./src/cloud-image-runtime.ts",
 		"./cloud-sandbox-providers": "./src/cloud-sandbox-providers.ts",
 		"./cloud-send-delivery": "./src/cloud-send-delivery.ts",
 		"./cloud-startup-presentation": "./src/cloud-startup-presentation.ts",
@@ -74,6 +76,7 @@
 		"@zuse/cloud-commands": "*",
 		"@noble/hashes": "^1.8.0",
 		"@zuse/contracts": "*",
+		"@zuse/git": "*",
 		"@zuse/domain": "*",
 		"@zuse/utils": "*",
 		"effect": "catalog:"

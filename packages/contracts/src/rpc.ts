@@ -87,6 +87,7 @@ import {
 import {
 	CloudGithubDisconnectRpc,
 	CloudGithubInstallRpc,
+	CloudGithubObserveRpc,
 	CloudGithubStatusRpc,
 } from "./cloud-github.ts";
 import {
@@ -181,6 +182,8 @@ import {
 	GitCreateReviewCommentRpc,
 	GitDiffRpc,
 	GitFixFailingChecksRpc,
+	GitHubContextRpc,
+	GitHubObserveRpc,
 	GitInitRpc,
 	GitIssueMarkdownRpc,
 	GitListIssuesRpc,
@@ -294,7 +297,7 @@ import {
 	PermissionRevokeDecisionRpc,
 } from "./permission.ts";
 import { PingRpc } from "./ping.ts";
-import { PluginsRequestRpc } from "./plugins.ts";
+import { LocalPluginsRequestRpc, PluginsRequestRpc } from "./plugins.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PreviewsListServersRpc } from "./previews.ts";
 import {
@@ -491,6 +494,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	ModelConnectionDisconnectRpc,
 	ModelConnectionAcknowledgePlanRpc,
 	PluginsRequestRpc,
+	LocalPluginsRequestRpc,
 	DeviceBridgeControlRpc,
 	CloudDeviceBridgeRpc,
 	PingRpc,
@@ -527,6 +531,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudAuthLoginCancelRpc,
 	CloudAuthDisconnectRpc,
 	CloudGithubStatusRpc,
+	CloudGithubObserveRpc,
 	CloudGithubInstallRpc,
 	CloudGithubDisconnectRpc,
 	CloudAccountImageStatusRpc,
@@ -642,6 +647,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitWorkspaceSnapshotRpc,
 	GitOriginRpc,
 	GitPrStateRpc,
+	GitHubObserveRpc,
+	GitHubContextRpc,
 	GitPrNotificationClaimRpc,
 	GitPrDetailsRpc,
 	GitListPrsRpc,

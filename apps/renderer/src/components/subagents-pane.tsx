@@ -6,14 +6,15 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronLeft } from "lucide-react";
 import { useMemo } from "react";
 
+import { subagentDelegationView } from "~/lib/delegation-display";
 import {
 	type DetachedSubagentGroup,
 	detachedSubagentGroups,
 } from "~/lib/group-messages";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks";
 import { rightPaneKey, useUiStore } from "~/store/ui";
+import { StatusGlyph } from "./delegation-row.tsx";
 import { ForkButton } from "./fork-menu.tsx";
-import { SubagentAvatar } from "./subagent-identity";
 import { SubagentTranscript } from "./subagent-transcript.tsx";
 
 const formatAge = (date: Date): string => {
@@ -71,7 +72,6 @@ export function SubagentsPane({
 					>
 						<ChevronLeft className="size-4" />
 					</button>
-					<SubagentAvatar name={selected.agentName} size="sm" />
 					<span className="min-w-0 flex-1 truncate text-xs font-medium">
 						{selected.agentName}
 					</span>
@@ -160,7 +160,17 @@ function AgentSection({
 								onClick={() => onSelect(group.childSessionId)}
 								className="flex min-h-14 w-full items-start gap-2.5 rounded px-2 py-2 text-left hover:bg-muted/40 focus-visible:outline focus-visible:outline-1"
 							>
-								<SubagentAvatar name={group.agentName} />
+								<span className="grid h-5 w-3 shrink-0 place-items-center">
+									<StatusGlyph
+										status={
+											subagentDelegationView(group, {
+												providerId: null,
+												parentLive: true,
+												canReveal: true,
+											}).status
+										}
+									/>
+								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block truncate text-sm font-medium text-foreground/90">
 										{group.agentName}

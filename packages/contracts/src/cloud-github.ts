@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { Rpc } from "effect/unstable/rpc";
 import { CloudWorkspaceOpError } from "./cloud-workspaces.ts";
 import { WorkspaceActor } from "./collaboration.ts";
+import { GitHubObservation, GitHubObserveRequest } from "./git.ts";
 import { GithubRepoSummary } from "./workspace.ts";
 
 export class CloudGithubInstallation extends Schema.Class<CloudGithubInstallation>(
@@ -66,3 +67,9 @@ export const CloudGithubCredentialRequest = Schema.Struct({
 
 export const CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY =
 	"github-execution-v1" as const;
+
+export const CloudGithubObserveRpc = Rpc.make("cloud.github.observe", {
+	payload: GitHubObserveRequest,
+	success: GitHubObservation,
+	error: CloudWorkspaceOpError,
+});

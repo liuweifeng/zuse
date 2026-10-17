@@ -239,6 +239,8 @@ const listAccessibleOrganizations = Effect.fn("listAccessibleOrganizations")(
 	},
 );
 
+export { listAccessibleOrganizations };
+
 export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 	function* (request: Request) {
 		const path = new URL(request.url).pathname;

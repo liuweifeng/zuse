@@ -2131,6 +2131,24 @@ describe("cloud workspace store", () => {
 		expect(connected?.requestConfig.startupTimings).toMatchObject({
 			connectedAt: 215,
 		});
+		const waitingForAuth = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				repositoryReady: false,
+				preparationPhase: "grok-auth-reconnect-required",
+				nowMs: 216,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(waitingForAuth).toMatchObject({
+			state: "setup",
+			desiredState: "ready",
+			runtimeState: "online",
+			runtimeCredentialHash: "runtime-hash",
+			statusCode: "grok-auth-reconnect-required",
+		});
+
 		const repositoryReady = await runtime.runPromise(
 			store.markRuntimeRepositoryReady({
 				workspaceId: workspace.workspaceId,

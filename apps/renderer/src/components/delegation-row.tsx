@@ -17,7 +17,6 @@ import { cn } from "~/lib/utils";
 
 import { CopyButton } from "./copy-button.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
-import { SubagentAvatar } from "./subagent-identity.tsx";
 import { SubagentTranscript } from "./subagent-transcript.tsx";
 import { ShimmerText } from "./ui/shimmer-text.tsx";
 
@@ -62,7 +61,7 @@ export interface DelegationInlineBody {
 	readonly environmentId: EnvironmentId | undefined;
 }
 
-function StatusGlyph({ status }: { readonly status: DelegationStatus }) {
+export function StatusGlyph({ status }: { readonly status: DelegationStatus }) {
 	if (status === "done") {
 		return (
 			<Check aria-hidden="true" className="size-3 shrink-0 text-emerald-500" />
@@ -123,9 +122,7 @@ export function DelegationRow({
 					providerId={view.providerId}
 					className="size-3.5 text-muted-foreground"
 				/>
-			) : (
-				<SubagentAvatar name={view.title} size="sm" />
-			)}
+			) : null}
 			<span className="min-w-0 max-w-56 truncate font-medium text-foreground/90">
 				{title}
 			</span>

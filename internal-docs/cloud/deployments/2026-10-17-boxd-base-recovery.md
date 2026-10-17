@@ -1,0 +1,52 @@
+# Boxd missing base recovery — 2026-10-17
+
+A production Boxd account image remained queued with no build output. Provider
+logs showed `machines.create` returning NotFound before any sandbox was allocated.
+Production referenced `zuse-base-v20260927-1`; a direct snapshot lookup confirmed
+that name was missing. The error escaped reconciliation and the build retried
+after its lease expired, leaving the UI in progress. This investigation did not
+establish who or what removed the original snapshot.
+
+## Recovery
+
+Created an isolated temporary machine from the remaining clean base,
+`zuse-base-vstaging-20261010`. Verified the runtime launcher and updater, Node 22,
+empty repository storage, absent agent credentials and runtime identity, empty
+runtime data and secret directories, and a successful runtime help invocation.
+No account image or customer machine was used as the source.
+
+Published the missing name `zuse-base-v20260927-1` as snapshot
+`snap_d90031c360194e10b8e5ebf29d9a518d`, version 1, and verified it reached ready.
+This restores the configured name; it is a replacement base, not a recovery of
+the original September bytes. Existing account images and workspaces are not
+modified by restoring this name. The disposable recovery builder was deleted
+after the replacement snapshot reached ready.
+
+The original queued build recovered without resubmission: machine allocation
+was persisted at 06:08:32 UTC and repository preparation completed by 06:09:32
+UTC. The build successfully installed the production signed runtime before
+preparing the repositories. Snapshot publication completed and the build reached
+ready at 06:10:12 UTC; its build machine was released.
+
+## Preventing the silent queue loop
+
+The Boxd adapter now implements the existing `validateTemplate` contract using
+its shared snapshot resolver. Missing or unfinished templates enter the build
+reconciler's existing visible `provider-template-unavailable` failure path.
+Transient provider failures retain their retry behavior. This validation runs
+for image preparation and does not add a lookup to workspace resume or fork.
+
+Verification: 126 Boxd adapter tests, the queued-build missing-template
+reconciler regression, package type checking, and applicable Biome checks.
+
+## Release gate follow-up
+
+The new live base gate passed against the checked-in production configuration
+using the available provider test credentials on October 17: Boat 10,912 ms,
+E2B 4,291 ms, Boxd 3,987 ms, each including runtime execution and cleanup.
+These are smoke-check durations, not full authenticated message startup times.
+Eight release-gate tests, API types and applicable Biome checks passed.
+GitHub Actions production provider secrets could not be inspected or configured:
+the available GitHub credential returns 403 for Actions secrets. The required
+secret names and verification limits are in the production runbook. The new
+gate is not yet active on the default branch.
