@@ -3,6 +3,26 @@
   import ZuseCore
 
   extension WorkspaceModel {
+    static func previewModelCatalog() throws -> [ModelProvider] {
+      let json =
+        #"{"providers":{"Preview":{"displayName":"OpenAI · sample","defaultModelId":"sample-balanced","models":[{"id":"sample-balanced","label":"GPT-4.1","optionDescriptors":[{"id":"reasoning","kind":"select","defaultId":"medium","options":[{"id":"low","label":"Low"},{"id":"medium","label":"Medium"},{"id":"high","label":"High"},{"id":"max","label":"Max"}]}]},{"id":"sample-fast","label":"GPT-4.1 mini"},{"id":"sample-reasoning","label":"o3"},{"id":"sample-code","label":"o4-mini"}]},"sample-anthropic":{"displayName":"Anthropic · sample","models":[{"id":"sample-sonnet","label":"Claude Sonnet 4"},{"id":"sample-opus","label":"Claude Opus 4"}]},"sample-google":{"displayName":"Google · sample","models":[{"id":"sample-pro","label":"Gemini 2.5 Pro"},{"id":"sample-flash","label":"Gemini 2.5 Flash"}]}}}"#
+      return try ModelProvider.parse(JSONDecoder().decode(JSONValue.self, from: Data(json.utf8)))
+    }
+    func choosePreviewModel(_ model: String) {
+      guard ProcessInfo.processInfo.arguments.contains("--native-preview"),
+        let current = selectedSession,
+        (try? Self.previewModelCatalog().flatMap(\.models).contains { $0.id == model }) == true
+      else { return }
+      let updated = SessionRow(
+        id: current.id, projectId: current.projectId, title: current.title,
+        providerId: (try? Self.previewModelCatalog().first {
+          $0.models.contains { $0.id == model }
+        }?.id) ?? current.providerId, model: model, worktreeId: current.worktreeId)
+      selectedSession = updated
+      if let index = sessions.firstIndex(where: { $0.id == current.id }) {
+        sessions[index] = updated
+      }
+    }
     func loadPreview(selected: SessionRow? = nil) throws {
       let session =
         selected
@@ -10,7 +30,7 @@
           id: "preview", projectId: "preview-project",
           title: ProcessInfo.processInfo.arguments.contains("--conversation-preview")
             ? "Compact composer" : "Native chat preview",
-          providerId: "Preview", model: "preview", worktreeId: nil)
+          providerId: "Preview", model: "sample-balanced", worktreeId: nil)
       selectedSession =
         ProcessInfo.processInfo.arguments.contains("--home-preview") && selected == nil
         ? nil : session
@@ -22,7 +42,7 @@
         ].enumerated().map { index, title in
           SessionRow(
             id: "preview-\(index)", projectId: "preview-project", title: title,
-            providerId: "Preview", model: "preview", worktreeId: nil)
+            providerId: "Preview", model: "sample-balanced", worktreeId: nil)
         }
       }
       projects = [ProjectRow(id: "preview-project", name: "Zuse · Preview")]
@@ -73,32 +93,32 @@
             ),
           ]),
           .object([
-            "_tag": .string("tool_use"), "tool": .string("Read"), "id": .string("read-preview"),
+            "_tag": .string("tool_use"), "tool": .string("Read"), "itemId": .string("read-preview"),
             "input": .object(["file_path": .string("App/Composer.swift")]),
           ]),
           .object([
-            "_tag": .string("tool_result"), "toolUseId": .string("read-preview"),
+            "_tag": .string("tool_result"), "itemId": .string("read-preview"),
             "output": .string(
               "Composer.swift · 84 lines\nInput, attachment menu, model label, and send control."),
             "isError": .bool(false),
           ]),
           .object([
-            "_tag": .string("tool_use"), "tool": .string("Edit"), "id": .string("edit-preview"),
+            "_tag": .string("tool_use"), "tool": .string("Edit"), "itemId": .string("edit-preview"),
             "input": .object([
               "file_path": .string("App/Composer.swift"), "old_string": .string("spacing: 16"),
               "new_string": .string("spacing: 8"),
             ]),
           ]),
           .object([
-            "_tag": .string("tool_result"), "toolUseId": .string("edit-preview"),
+            "_tag": .string("tool_result"), "itemId": .string("edit-preview"),
             "output": .string("Updated spacing in Composer.swift."), "isError": .bool(false),
           ]),
           .object([
-            "_tag": .string("tool_use"), "tool": .string("Run"), "id": .string("run-preview"),
+            "_tag": .string("tool_use"), "tool": .string("Run"), "itemId": .string("run-preview"),
             "input": .object(["command": .string("swift test")]),
           ]),
           .object([
-            "_tag": .string("tool_result"), "toolUseId": .string("run-preview"),
+            "_tag": .string("tool_result"), "itemId": .string("run-preview"),
             "output": .string(
               "Sample test output\n✓ Composer layout\n✓ Attachment actions\n✓ Send and stop states"),
             "isError": .bool(false),
@@ -160,6 +180,9 @@
           "projection": .object(["messages": .array(messages), "status": .string("idle")]),
         ]), sessionID: session.id)
       connectionState = "Preview · offline"
+      if ProcessInfo.processInfo.arguments.contains("--model-picker-preview") {
+        draft = "Review the changes"
+      }
     }
   }
 #endif

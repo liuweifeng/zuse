@@ -29,3 +29,13 @@ import Testing
   #expect(remote.worktreeSource["remote"].string == "origin")
   #expect(local.worktreeSource["remote"] == .null)
 }
+
+@Test func chatCreationKeepsInitialPromptAcrossRetry() throws {
+  let request = ChatCreation(
+    projectID: "project", providerID: "codex", model: "model", initialPrompt: "Review this change")
+  let restored = try JSONDecoder().decode(ChatCreation.self, from: JSONEncoder().encode(request))
+  #expect(restored.payload == request.payload)
+  #expect(restored.payload["initialPrompt"]?.string == "Review this change")
+  let empty = ChatCreation(projectID: "project", providerID: "codex", model: "model")
+  #expect(empty.payload["initialPrompt"] == nil)
+}

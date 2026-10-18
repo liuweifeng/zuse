@@ -6,6 +6,22 @@ public struct ModelProvider: Identifiable, Sendable {
     public let label: String
     public let available: Bool?
     public let defaultModel: Bool?
+    public let optionDescriptors: [OptionDescriptor]?
+    public var reasoning: OptionDescriptor? {
+      optionDescriptors?.first {
+        $0.kind == "select" && ($0.id == "reasoning" || $0.id == "effort")
+      }
+    }
+    public struct OptionDescriptor: Decodable, Sendable {
+      public let id: String
+      public let kind: String
+      public let defaultId: String?
+      public let options: [Option]?
+      public struct Option: Decodable, Identifiable, Sendable {
+        public let id: String
+        public let label: String
+      }
+    }
   }
   public let id: String
   public let name: String

@@ -26,11 +26,14 @@ public struct ChatCreation: Codable, Sendable, Equatable {
   public var permissionMode: String
   public var freshWorktree: Bool
   public var worktreeID: String?
+  public var initialPrompt: String?
+  public var modelOptions: [String: String]?
 
   public init(
     projectID: String, providerID: String, model: String,
     runtimeMode: String = "approval-required", permissionMode: String = "default",
-    freshWorktree: Bool = false, worktreeID: String? = nil
+    freshWorktree: Bool = false, worktreeID: String? = nil, initialPrompt: String? = nil,
+    modelOptions: [String: String]? = nil
   ) {
     operationID = UUID().uuidString
     chatID = UUID().uuidString
@@ -42,6 +45,8 @@ public struct ChatCreation: Codable, Sendable, Equatable {
     self.permissionMode = permissionMode
     self.freshWorktree = freshWorktree
     self.worktreeID = worktreeID
+    self.initialPrompt = initialPrompt
+    self.modelOptions = modelOptions
   }
   public var payload: [String: JSONValue] {
     let policy: JSONValue
@@ -50,12 +55,19 @@ public struct ChatCreation: Codable, Sendable, Equatable {
     } else {
       policy = .object(["_tag": .string(freshWorktree ? "fresh" : "main")])
     }
-    return [
+    var value: [String: JSONValue] = [
       "operationId": .string(operationID), "chatId": .string(chatID),
       "initialSessionId": .string(sessionID), "projectId": .string(projectID),
       "providerId": .string(providerID), "model": .string(model),
       "runtimeMode": .string(runtimeMode), "permissionMode": .string(permissionMode),
       "workspacePolicy": policy,
     ]
+    if let initialPrompt, !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      value["initialPrompt"] = .string(initialPrompt)
+    }
+    if let modelOptions, !modelOptions.isEmpty {
+      value["modelOptions"] = .object(modelOptions.mapValues(JSONValue.string))
+    }
+    return value
   }
 }

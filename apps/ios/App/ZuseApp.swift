@@ -14,6 +14,7 @@ import ZuseCore
   var body: some Scene {
     WindowGroup {
       WorkspaceView(workspace: workspace).tint(AppTheme.accent)
+        .background(AppTheme.surface.ignoresSafeArea())
         .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         .nativeWindowMinimum()
     }
@@ -49,12 +50,14 @@ struct WorkspaceView: View {
   @State private var showCloudLaunch = false
   @State private var showSettings = false
   @State private var showProject = false
+  @State private var composerHeight: CGFloat = 80
   @State private var modelCatalog: [ModelProvider] = []
   @State private var branchName: String?
   @FocusState private var composerFocused: Bool
   @State private var selection: SessionRow?
   @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   var body: some View {
     presentedWorkspace
       .alert(
@@ -72,7 +75,7 @@ struct WorkspaceView: View {
   private var presentedWorkspace: some View {
     interactiveWorkspace
       .sheet(isPresented: $showConnection) {
-        ConnectionView(workspace: workspace).nativeSheetSize()
+        ConnectionView(workspace: workspace, method: .pairing).nativeSheetSize()
       }
       .sheet(isPresented: $showProject) { AddProjectView(workspace: workspace) }
       .inspector(isPresented: $showDiff) {
@@ -81,11 +84,20 @@ struct WorkspaceView: View {
         }
       }
       .sheet(isPresented: $showSettings) { SettingsView(workspace: workspace) }
-      .sheet(isPresented: $showCloudLaunch) { CloudLaunchView(workspace: workspace) }
-      .sheet(isPresented: $showNewChat) { NewChatView(workspace: workspace) }
+      .newChatPresentation(isPresented: $showCloudLaunch) {
+        NewChatSetupView(workspace: workspace, initialCloud: true)
+      }
+      .newChatPresentation(isPresented: $showNewChat) { NewChatSetupView(workspace: workspace) }
   }
   private var interactiveWorkspace: some View {
     navigation
+      #if os(iOS)
+        .onReceive(
+          NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)
+        ) { _ in
+          composerFocused = false
+        }
+      #endif
       .onReceive(NotificationCenter.default.publisher(for: .nativeNewChat)) { _ in
         showNewChat = true
       }
@@ -98,6 +110,14 @@ struct WorkspaceView: View {
       .task(id: workspace.connectionState + (workspace.selectedSession?.id ?? "")) {
         modelCatalog = []
         branchName = nil
+        #if DEBUG
+          if ProcessInfo.processInfo.arguments.contains("--native-preview") {
+            do { modelCatalog = try WorkspaceModel.previewModelCatalog() } catch {
+              workspace.error = error.localizedDescription
+            }
+            return
+          }
+        #endif
         if workspace.connectionState == "Connected", let rpc = workspace.rpc {
           do {
             let models = try await ModelProvider.load(rpc)
@@ -127,8 +147,10 @@ struct WorkspaceView: View {
       .onChange(of: scenePhase) { _, phase in workspace.sceneChanged(active: phase == .active) }
       .onChange(of: workspace.account.generation) {
         showSettings = false
-        showCloudLaunch = false
-        showNewChat = false
+        if !workspace.account.signedIn {
+          showCloudLaunch = false
+          showNewChat = false
+        }
         showConnection = false
         showProject = false
         showDiff = false
@@ -199,47 +221,6 @@ struct WorkspaceView: View {
     } detail: {
       if let session = workspace.selectedSession {
         VStack(spacing: 0) {
-          HStack {
-            Menu {
-              ForEach(workspace.savedConnections) { connection in
-                Button(connection.displayName) { workspace.openRemote(connection) }
-              }
-              ForEach(workspace.environments) { environment in
-                Button(environment.label ?? "Computer") { workspace.openEnvironment(environment) }
-              }
-              Button("Connect a computer…") { showConnection = true }
-            } label: {
-              Label(workspace.connectedComputer ?? "Computer", systemImage: "laptopcomputer")
-                .font(.caption).lineLimit(1)
-            }.menuStyle(.automatic)
-            if let branchName {
-              Label(branchName, systemImage: "arrow.triangle.branch").font(.caption).lineLimit(1)
-                .foregroundStyle(.secondary)
-            }
-            Circle().fill(workspace.connectionState == "Connected" ? .green : .orange).frame(
-              width: 6, height: 6)
-            Text(workspace.connectionState).font(.caption).foregroundStyle(.secondary)
-            Spacer()
-            if workspace.connectionState != "Connected"
-              && workspace.connectionState != "Preview · offline"
-            {
-              Button("Reconnect") { workspace.reconnect() }.font(.caption)
-            }
-            if workspace.transcript.status != "idle" {
-              Text(workspace.transcript.status.replacingOccurrences(of: "_", with: " ").capitalized)
-                .font(.caption).foregroundStyle(.secondary)
-            }
-          }.padding(.horizontal, 20).padding(.vertical, 6)
-          if let failure = workspace.sessionRestorationError {
-            HStack {
-              Text(failure).font(.caption).foregroundStyle(.secondary)
-              Spacer()
-              Button("Retry restoring chat") { workspace.retrySessionRestoration() }
-                .font(.caption)
-            }.padding(.horizontal, 20).padding(.vertical, 6)
-          } else if !workspace.sessionReady && workspace.connectionState != "Preview · offline" {
-            ProgressView("Restoring chat…").font(.caption).padding(6)
-          }
           if workspace.transcript.olderSequence != nil {
             Button(workspace.paging ? "Loading…" : "Load earlier messages") {
               Task { await workspace.loadOlder() }
@@ -248,6 +229,7 @@ struct WorkspaceView: View {
           }
           TranscriptView(
             messages: workspace.transcript.messages, sessionID: session.id, rpc: workspace.rpc,
+            bottomInset: composerHeight,
             respond: { message, text in try await workspace.respondToUI(message, text: text) })
           if !workspace.outbox.isEmpty {
             ScrollView(.horizontal) {
@@ -287,7 +269,25 @@ struct WorkspaceView: View {
             }
           }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) { composer }
+        .background(AppTheme.surface)
+        .overlay(alignment: .bottom) {
+          composer.background {
+            GeometryReader { geometry in
+              LinearGradient(
+                stops: [
+                  .init(color: AppTheme.surface.opacity(0), location: 0),
+                  .init(color: AppTheme.surface.opacity(0.18), location: 0.35),
+                  .init(color: AppTheme.surface.opacity(0.55), location: 1),
+                ], startPoint: .top, endPoint: .bottom
+              )
+              .frame(height: geometry.size.height + 64)
+              .offset(y: -64)
+              .allowsHitTesting(false)
+              .preference(key: ComposerHeightKey.self, value: geometry.size.height)
+            }
+          }
+        }
+        .onPreferenceChange(ComposerHeightKey.self) { composerHeight = $0 }
         .navigationTitle(session.title.isEmpty ? "Chat" : session.title)
         .compactNavigationTitle()
         .toolbar {
@@ -312,109 +312,194 @@ struct WorkspaceView: View {
     }
     .navigationSplitViewStyle(.balanced)
   }
+  private var composerExpanded: Bool {
+    composerFocused || !workspace.attachments.isEmpty
+      || workspace.transcript.activeTurnID != nil
+  }
   private var composer: some View {
     VStack(spacing: 8) {
-      if !workspace.attachments.isEmpty {
-        ScrollView(.horizontal) {
-          HStack {
-            ForEach(Array(workspace.attachments.enumerated()), id: \.offset) { _, ref in
-              HStack {
-                Label(ref["originalName"].string ?? "Attachment", systemImage: "paperclip")
-                  .lineLimit(1)
-                Button("Remove", systemImage: "xmark.circle.fill") {
-                  workspace.removeAttachment(ref["id"].string ?? "")
-                }.labelStyle(.iconOnly)
-              }.font(.caption).padding(8).background(.quaternary, in: Capsule())
-            }
-          }
-        }
-      }
+      connectionNotice
       VStack(spacing: 0) {
+        if !workspace.attachments.isEmpty {
+          ScrollView(.horizontal) {
+            HStack(spacing: 6) {
+              ForEach(Array(workspace.attachments.enumerated()), id: \.offset) { _, ref in
+                HStack(spacing: 5) {
+                  Label(ref["originalName"].string ?? "Attachment", systemImage: "paperclip")
+                    .lineLimit(1)
+                  Button("Remove", systemImage: "xmark.circle.fill") {
+                    workspace.removeAttachment(ref["id"].string ?? "")
+                  }.labelStyle(.iconOnly)
+                }.font(.caption).padding(7).background(.quaternary, in: Capsule())
+              }
+            }.padding(.horizontal, 12).padding(.top, 10)
+          }.scrollIndicators(.hidden)
+        }
         TextField("Ask Zuse", text: $workspace.draft, axis: .vertical)
           .disabled(!workspace.composerEditable && workspace.connectionState != "Preview · offline")
-          .focused($composerFocused)
-          .accessibilityIdentifier("chat-composer")
-          .font(.callout).lineLimit(1...6)
-          .padding(.horizontal, 14).padding(.top, 13).padding(.bottom, 4)
-        HStack(spacing: 4) {
-          Menu {
-            PhotosPicker(selection: $photo, matching: .images) {
-              Label("Photo library", systemImage: "photo")
-            }
-            Button("Choose file", systemImage: "doc") {
-              attachmentTarget = workspace.sessionSelection
-              showFilePicker = true
-            }
-          } label: {
-            Group {
-              if workspace.uploading {
-                ProgressView()
-              } else {
-                Image(systemName: "plus").font(.system(size: 18))
-              }
-            }.frame(width: 44, height: 44).contentShape(Rectangle())
-          }
-          .foregroundStyle(.secondary).accessibilityLabel("Add attachment")
-          .disabled(
-            !workspace.composerEditable || workspace.uploading
-              || workspace.connectionState != "Connected")
-          Spacer(minLength: 4)
-          if let session = workspace.selectedSession {
-            Menu {
-              ForEach(modelCatalog.first { $0.id == session.providerId }?.models ?? []) { model in
-                Button(model.label) { Task { await workspace.setModel(model.id) } }
-              }
-            } label: {
-              HStack(spacing: 4) {
-                Text(session.model == "preview" ? "Preview" : session.model).lineLimit(1)
-                  .truncationMode(.middle)
-                Image(systemName: "chevron.down").font(.system(size: 9))
-              }.font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            }
-            .accessibilityLabel("Current model: \(session.model)")
-            .disabled(
-              !workspace.sessionReady || workspace.connectionState != "Connected"
-                || workspace.transcript.activeTurnID != nil
-                || modelCatalog.isEmpty)
-          }
-          Button {
-            Task {
-              if workspace.transcript.activeTurnID != nil {
-                await workspace.stop()
-              } else {
-                await workspace.send()
-              }
-            }
-          } label: {
-            Group {
-              if workspace.sending {
-                ProgressView().tint(.white)
-              } else {
-                Image(
-                  systemName: workspace.transcript.activeTurnID != nil ? "stop.fill" : "arrow.up"
-                )
-                .font(.system(size: 14, weight: .semibold))
-              }
-            }
-            .foregroundStyle(.white).frame(width: 30, height: 30)
-            .background(
-              sendDisabled ? Color.secondary.opacity(0.25) : AppTheme.accent,
-              in: RoundedRectangle(cornerRadius: 8)
-            )
-            .frame(width: 44, height: 44).contentShape(Rectangle())
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel(
-            workspace.transcript.activeTurnID != nil ? "Stop response" : "Send message"
-          )
-          .disabled(sendDisabled)
-          .keyboardShortcut(.return, modifiers: [.command])
-        }.padding(.horizontal, 3)
+          .focused($composerFocused).accessibilityIdentifier("chat-composer")
+          .font(.system(size: 15)).lineLimit(1...(composerExpanded ? 6 : 1))
+          .padding(.leading, composerExpanded ? 14 : 46)
+          .padding(.trailing, composerExpanded ? 14 : 146)
+          .padding(.top, composerExpanded ? 10 : 9).padding(.bottom, composerExpanded ? 2 : 9)
+        if composerExpanded {
+          HStack(spacing: 4) {
+            attachmentMenu
+            Spacer(minLength: 4)
+            modelMenu
+            sendControl
+          }.padding(.horizontal, 4)
+        }
       }
-      .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
-    }.frame(maxWidth: 900).frame(maxWidth: .infinity)
-      .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 8)
-      .background(AppTheme.surface)
+      .overlay(alignment: .leading) { if !composerExpanded { attachmentMenu.padding(.leading, 3) } }
+      .overlay(alignment: .trailing) {
+        if !composerExpanded {
+          HStack(spacing: 4) {
+            modelMenu.frame(maxWidth: 94)
+            sendControl
+          }.padding(.trailing, 3)
+        }
+      }
+      .frame(minHeight: composerExpanded ? 0 : 44)
+      .composerGlass()
+      .accessibilityElement(children: .contain)
+      .accessibilityIdentifier(composerExpanded ? "composer-expanded" : "composer-collapsed")
+    }
+    .frame(maxWidth: 720).frame(maxWidth: .infinity)
+    .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 6)
+  }
+  @ViewBuilder private var connectionNotice: some View {
+    if let failure = workspace.sessionRestorationError {
+      HStack(spacing: 8) {
+        Image(systemName: "arrow.clockwise").foregroundStyle(.secondary)
+        Text(failure).lineLimit(2)
+        Spacer(minLength: 4)
+        Button("Retry") { workspace.retrySessionRestoration() }
+      }.font(.caption).padding(.horizontal, 12).padding(.vertical, 9).floatingGlass(radius: 14)
+    } else if workspace.connectionState == "Preview · offline" {
+      HStack(spacing: 5) {
+        Image(systemName: "wifi.slash")
+        Text("Offline preview")
+      }.font(.caption2).foregroundStyle(.secondary)
+        .padding(.horizontal, 8).padding(.vertical, 3)
+        .background(.ultraThinMaterial, in: Capsule())
+        .frame(maxWidth: .infinity, alignment: .leading)
+    } else if workspace.connectionState != "Connected" {
+      HStack(spacing: 8) {
+        Image(systemName: "wifi.slash").font(.system(size: 12)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 2) {
+          Text(
+            workspace.connectionState == "Preview · offline"
+              ? "Offline preview" : "Computer offline"
+          )
+          .font(.caption.weight(.medium))
+          if workspace.connectionState != "Preview · offline" {
+            Text(
+              workspace.connectionProblem
+                ?? "Your messages stay on this device until you reconnect."
+            )
+            .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
+          }
+        }
+        Spacer(minLength: 4)
+        if workspace.connectionState != "Preview · offline" {
+          Button("Reconnect") { workspace.reconnect() }.font(.caption.weight(.medium))
+        }
+      }.padding(.horizontal, 12).padding(.vertical, 9).floatingGlass(radius: 14)
+    } else {
+      HStack(spacing: 5) {
+        Circle().fill(.green).frame(width: 4, height: 4)
+        Text("Connected")
+        if let computer = workspace.connectedComputer { Text("· " + computer).lineLimit(1) }
+        Spacer()
+        if let branchName { Label(branchName, systemImage: "arrow.triangle.branch").lineLimit(1) }
+      }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 7)
+    }
+  }
+  private var attachmentMenu: some View {
+    Menu {
+      PhotosPicker(selection: $photo, matching: .images) {
+        Label("Photo library", systemImage: "photo")
+      }
+      Button("Choose file", systemImage: "doc") {
+        attachmentTarget = workspace.sessionSelection
+        showFilePicker = true
+      }
+    } label: {
+      Group {
+        if workspace.uploading {
+          ProgressView()
+        } else {
+          Image(systemName: "plus").font(.system(size: 18))
+        }
+      }.frame(width: 40, height: 44).contentShape(Rectangle())
+    }.foregroundStyle(.secondary).accessibilityLabel("Add attachment")
+      .disabled(
+        !workspace.composerEditable || workspace.uploading
+          || workspace.connectionState != "Connected")
+  }
+  @ViewBuilder private var modelMenu: some View {
+    if let session = workspace.selectedSession {
+      ModelPickerButton(
+        catalog: modelCatalog, providerID: session.providerId, modelID: session.model,
+        lockedProvider: isSampleCatalog ? nil : session.providerId, sample: isSampleCatalog,
+        modelOptions: Binding(
+          get: { workspace.selectedModelOptions }, set: { workspace.selectedModelOptions = $0 })
+      ) { _, model in
+        #if DEBUG
+          if isSampleCatalog {
+            workspace.choosePreviewModel(model)
+            return
+          }
+        #endif
+        Task { await workspace.setModel(model) }
+      }.disabled(modelPickerDisabled)
+    }
+  }
+  private var isSampleCatalog: Bool {
+    #if DEBUG
+      return ProcessInfo.processInfo.arguments.contains("--native-preview")
+    #else
+      return false
+    #endif
+  }
+  private var modelPickerDisabled: Bool {
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--native-preview") {
+        return modelCatalog.isEmpty
+      }
+    #endif
+    return !workspace.sessionReady || workspace.connectionState != "Connected"
+      || workspace.transcript.activeTurnID != nil || modelCatalog.isEmpty
+  }
+  private var sendControl: some View {
+    Button {
+      Task {
+        if workspace.transcript.activeTurnID != nil {
+          await workspace.stop()
+        } else {
+          await workspace.send()
+        }
+      }
+    } label: {
+      Group {
+        if workspace.sending {
+          ProgressView().tint(.white)
+        } else {
+          Image(systemName: workspace.transcript.activeTurnID != nil ? "stop.fill" : "arrow.up")
+            .font(.system(size: 13, weight: .semibold))
+        }
+      }.foregroundStyle(.white).frame(width: 29, height: 29)
+        .background(
+          sendDisabled ? Color.secondary.opacity(0.2) : AppTheme.accent,
+          in: RoundedRectangle(cornerRadius: 9)
+        )
+        .frame(width: 42, height: 44).contentShape(Rectangle())
+    }.buttonStyle(.plain)
+      .accessibilityLabel(
+        workspace.transcript.activeTurnID != nil ? "Stop response" : "Send message"
+      )
+      .disabled(sendDisabled).keyboardShortcut(.return, modifiers: [.command])
   }
   private var sendDisabled: Bool {
     if workspace.transcript.activeTurnID != nil {
@@ -427,8 +512,21 @@ struct WorkspaceView: View {
   }
 }
 
+enum ConnectionMethod: String, Identifiable {
+  case nearby, pairing, manual
+  var id: String { rawValue }
+  var title: String {
+    switch self {
+    case .nearby: "Nearby computers"
+    case .pairing: "Pair a computer"
+    case .manual: "Add computer"
+    }
+  }
+}
+
 struct ConnectionView: View {
   let workspace: WorkspaceModel
+  var method: ConnectionMethod = .nearby
   @Environment(\.dismiss) private var dismiss
   @State private var address = ""
   @State private var token = ""
@@ -444,76 +542,79 @@ struct ConnectionView: View {
   var body: some View {
     NavigationStack {
       Form {
-        Section("Nearby computers") {
-          ForEach(nearby.computers) { computer in
-            Button(computer.name, systemImage: "laptopcomputer") { nearbySelection = computer }
-              .disabled(pairing)
+        if method == .nearby {
+          Section("Nearby computers") {
+            ForEach(nearby.computers) { computer in
+              Button(computer.name, systemImage: "laptopcomputer") { nearbySelection = computer }
+                .disabled(pairing)
+            }
+            if nearby.computers.isEmpty {
+              Text(nearby.error ?? "Looking for computers on your network…").font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            if let computer = nearbySelection {
+              Text("Pair with " + computer.name).font(.subheadline)
+              TextField("Pairing code from your computer", text: $nearbyCode)
+                .verbatimInput().autocorrectionDisabled().frame(height: 28)
+              Button("Pair nearby computer") {
+                var url = URLComponents(url: computer.url, resolvingAgainstBaseURL: false)
+                var fragment = URLComponents()
+                fragment.queryItems = [URLQueryItem(name: "pair", value: nearbyCode)]
+                url?.percentEncodedFragment = fragment.percentEncodedQuery
+                if let value = url?.url?.absoluteString {
+                  link = value
+                  pair(pin: computer.pin)
+                }
+              }.disabled(pairing || nearbyCode.isEmpty)
+            }
           }
-          if nearby.computers.isEmpty {
-            Text(nearby.error ?? "Looking for computers on your network…").font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          if let computer = nearbySelection {
-            Text("Pair with " + computer.name).font(.subheadline)
-            TextField("Pairing code from your computer", text: $nearbyCode)
-              .verbatimInput().autocorrectionDisabled().frame(height: 28)
-            Button("Pair nearby computer") {
-              var url = URLComponents(url: computer.url, resolvingAgainstBaseURL: false)
-              var fragment = URLComponents()
-              fragment.queryItems = [URLQueryItem(name: "pair", value: nearbyCode)]
-              url?.percentEncodedFragment = fragment.percentEncodedQuery
-              if let value = url?.url?.absoluteString {
-                link = value
-                pair(pin: computer.pin)
-              }
-            }.disabled(pairing || nearbyCode.isEmpty)
-          }
+          .disabled(pairing)
         }
-        .disabled(pairing)
-        Section("Pair with your computer") {
-          TextField("Paste a Zuse pairing link", text: $link).verbatimInput()
-            .autocorrectionDisabled().frame(height: 28)
-          Button(pairing ? "Pairing…" : "Pair") { pair() }.disabled(link.isEmpty || pairing)
-          #if os(iOS)
-            if DataScannerViewController.isSupported {
-              Button("Scan QR code", systemImage: "qrcode.viewfinder") {
-                Task {
-                  if await AVCaptureDevice.requestAccess(for: .video),
-                    DataScannerViewController.isAvailable
-                  {
-                    scanning = true
-                  } else {
-                    error = "Camera access is unavailable. You can paste the pairing link instead."
+        if method == .pairing {
+          Section("Pair with your computer") {
+            TextField("Paste a Zuse pairing link", text: $link).verbatimInput()
+              .autocorrectionDisabled().frame(height: 28)
+            Button(pairing ? "Pairing…" : "Pair") { pair() }.disabled(link.isEmpty || pairing)
+            #if os(iOS)
+              if DataScannerViewController.isSupported {
+                Button("Scan QR code", systemImage: "qrcode.viewfinder") {
+                  Task {
+                    if await AVCaptureDevice.requestAccess(for: .video),
+                      DataScannerViewController.isAvailable
+                    {
+                      scanning = true
+                    } else {
+                      error =
+                        "Camera access is unavailable. You can paste the pairing link instead."
+                    }
                   }
                 }
+                .disabled(pairing)
               }
-              .disabled(pairing)
-            }
-          #endif
+            #endif
+          }
         }
-        Section {
-          TextField("wss://your-computer.example/rpc", text: $address).verbatimInput()
-            .autocorrectionDisabled()
-          SecureField("Connection token", text: $token).frame(height: 28)
-          Button("Connect") {
-            workspace.openRemote(
-              RemoteConnection(
-                address: address.trimmingCharacters(in: .whitespacesAndNewlines), token: token))
-            dismiss()
-          }.disabled(address.isEmpty || pairing)
-        } header: {
-          Text("Manual connection")
-        } footer: {
-          Text(
-            "Use a secure remote address or a private local address. Credentials stay in this device’s Keychain."
-          )
+        if method == .manual {
+          Section {
+            TextField("wss://your-computer.example/rpc", text: $address).verbatimInput()
+              .autocorrectionDisabled()
+            SecureField("Connection token", text: $token).frame(height: 28)
+            Button("Connect") {
+              workspace.openRemote(
+                RemoteConnection(
+                  address: address.trimmingCharacters(in: .whitespacesAndNewlines), token: token))
+              dismiss()
+            }.disabled(address.isEmpty || pairing)
+          } header: {
+            Text("Manual connection")
+          } footer: {
+            Text(
+              "Use a secure remote address or a private local address. Credentials stay in this device’s Keychain."
+            )
+          }
         }
-        Button("Reconnect saved computer") {
-          workspace.restoreRemote()
-          dismiss()
-        }.disabled(pairing)
         if let error { Text(error).foregroundStyle(.red) }
-      }.navigationTitle("Connect").compactNavigationTitle()
+      }.navigationTitle(method.title).compactNavigationTitle()
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         #if os(iOS)
           .sheet(isPresented: $scanning) {
@@ -537,7 +638,7 @@ struct ConnectionView: View {
             }
           }
         #endif
-    }.task { nearby.start() }.onDisappear {
+    }.task { if method == .nearby { nearby.start() } }.onDisappear {
       nearby.stop()
       pairRequest = UUID()
       pairingTask?.cancel()

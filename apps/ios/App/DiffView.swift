@@ -18,65 +18,107 @@ struct DiffView: View {
     let truncated: Bool
     let error: String?
   }
+  @State private var collapsed: Set<String> = []
   var body: some View {
     NavigationStack {
-      List {
+      VStack(spacing: 0) {
         Picker("Changes", selection: $scope) {
           Text("Working tree").tag("unstaged")
           Text("Staged").tag("staged")
           Text("Branch").tag("branch")
-        }.pickerStyle(.segmented)
-        if loading { ProgressView("Loading changes…") }
+        }.pickerStyle(.segmented).padding(.horizontal, 16).padding(.vertical, 10)
+        if loading { ProgressView("Loading changes…").padding() }
         if let error {
-          Text(error).foregroundStyle(.red)
+          Text(error).font(.callout).foregroundStyle(.red).padding()
           Button("Retry") { Task { await load() } }
         }
         if !loading && patches.isEmpty && error == nil {
           ContentUnavailableView("No changes", systemImage: "checkmark.circle")
         }
-        ForEach(patches) { patch in
-          Section(patch.id) {
-            if let error = patch.error {
-              Text(error).foregroundStyle(.red)
-            } else if patch.mode == "binary" {
-              Label("Binary file changed", systemImage: "doc")
-            } else {
-              // Each source line is a recycled list row, including very large patches.
-              ForEach(patch.lines) { line in
-                HStack(alignment: .top, spacing: 8) {
-                  Text(line.oldLine.map(String.init) ?? "").foregroundStyle(.secondary)
-                    .frame(width: 36, alignment: .trailing)
-                  Text(line.newLine.map(String.init) ?? "").foregroundStyle(.secondary)
-                    .frame(width: 36, alignment: .trailing)
-                  Text(line.text).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .fixedSize(horizontal: false, vertical: true)
+        ScrollView {
+          LazyVStack(spacing: 16, pinnedViews: [.sectionHeaders]) {
+            ForEach(patches) { patch in
+              Section {
+                if !collapsed.contains(patch.id) {
+                  if let error = patch.error {
+                    Text(error).font(.caption).foregroundStyle(.red).padding(12)
+                  } else if patch.mode == "binary" {
+                    Label("Binary file changed", systemImage: "doc").font(.caption).padding(12)
+                  } else {
+                    LazyVStack(spacing: 0) {
+                      ForEach(patch.lines.filter { $0.kind != .header || $0.text.hasPrefix("@@") })
+                      { line in
+                        diffLine(line)
+                      }
+                    }.textSelection(.enabled)
+                    if patch.truncated {
+                      Label("Patch truncated by server", systemImage: "exclamationmark.triangle")
+                        .font(.caption).foregroundStyle(.orange).padding(10)
+                    }
+                  }
                 }
-                .font(.system(.caption, design: .monospaced)).padding(.vertical, 2).padding(
-                  .trailing, 12
-                )
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                .listRowSeparator(.hidden)
-                .listRowBackground(
-                  line.kind == .addition
-                    ? Color.green.opacity(0.12)
-                    : line.kind == .deletion ? Color.red.opacity(0.12) : .clear)
-              }
-              Button("View working-copy file", systemImage: "doc.text") { file = patch }
-              if patch.truncated {
-                Label("The server truncated this patch.", systemImage: "exclamationmark.triangle")
-                  .font(.caption).foregroundStyle(.orange)
+              } header: {
+                HStack(spacing: 8) {
+                  Button {
+                    if !collapsed.insert(patch.id).inserted { collapsed.remove(patch.id) }
+                  } label: {
+                    HStack(spacing: 8) {
+                      Image(
+                        systemName: collapsed.contains(patch.id) ? "chevron.right" : "chevron.down"
+                      )
+                      .font(.system(size: 9, weight: .semibold))
+                      Image(systemName: "doc.text").foregroundStyle(.secondary)
+                      Text(patch.id).font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .lineLimit(1).truncationMode(.middle)
+                    }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+                  }.buttonStyle(.plain)
+                  Text("+\(patch.lines.filter { $0.kind == .addition }.count)").foregroundStyle(
+                    .green)
+                  Text("−\(patch.lines.filter { $0.kind == .deletion }.count)").foregroundStyle(
+                    .red)
+                  Button {
+                    file = patch
+                  } label: {
+                    Image(systemName: "arrow.up.right.square")
+                  }
+                  .buttonStyle(.plain).accessibilityLabel("View working-copy file")
+                }.font(.system(size: 11, weight: .medium, design: .monospaced))
+                  .padding(.horizontal, 12).frame(minHeight: 40)
+                  .background(.bar)
               }
             }
-          }
+          }.padding(.bottom, 24).frame(maxWidth: 960).frame(maxWidth: .infinity)
         }
-      }.listStyle(.plain).navigationTitle("Changes").compactNavigationTitle()
+      }.background(AppTheme.surface).navigationTitle("Changes").compactNavigationTitle()
         .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         .task(id: scope) { await load() }
         .sheet(item: $file) { patch in FileContentsView(rpc: rpc, session: session, path: patch.id)
         }
     }
+  }
+  private func diffLine(_ line: DiffLine) -> some View {
+    let tint: Color = line.kind == .addition ? .green : line.kind == .deletion ? .red : .secondary
+    return HStack(alignment: .top, spacing: 0) {
+      if line.kind != .header {
+        HStack(spacing: 4) {
+          Text(line.oldLine.map(String.init) ?? "").frame(width: 25, alignment: .trailing)
+          Text(line.newLine.map(String.init) ?? "").frame(width: 25, alignment: .trailing)
+        }.font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+          .padding(.trailing, 8).padding(.top, 3)
+      }
+      Text(line.text)
+        .font(.system(size: 11, design: .monospaced)).lineSpacing(2)
+        .foregroundStyle(line.kind == .header ? Color.secondary : Color.primary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true).padding(.vertical, 3).padding(.trailing, 10)
+    }.padding(.leading, 4)
+      .background(
+        tint.opacity(
+          line.kind == .addition || line.kind == .deletion ? 0.09 : line.kind == .header ? 0.04 : 0)
+      )
+      .overlay(alignment: .leading) {
+        if line.kind == .addition || line.kind == .deletion { tint.opacity(0.6).frame(width: 2) }
+      }
   }
   private func load() async {
     let request = UUID()

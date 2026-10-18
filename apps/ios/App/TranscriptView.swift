@@ -12,16 +12,18 @@ import ZuseCore
     let messages: [ChatMessage]
     let sessionID: String
     let rpc: RPCClient?
+    var bottomInset: CGFloat = 0
     var respond: ((ChatMessage, String) async throws -> Void)?
     func makeUIViewController(context: Context) -> TranscriptController { TranscriptController() }
     func updateUIViewController(_ controller: TranscriptController, context: Context) {
+      controller.setBottomInset(bottomInset)
       controller.respond = respond
       controller.setConnection(rpc)
       controller.update(messages, sessionID: sessionID)
     }
   }
 
-  @MainActor final class TranscriptController: UIViewController {
+  @MainActor final class TranscriptController: UIViewController, UICollectionViewDelegate {
     var respond: ((ChatMessage, String) async throws -> Void)?
     private var rpc: RPCClient?
     private var connectionChanged = false
@@ -33,21 +35,26 @@ import ZuseCore
     }
     private var collection: UICollectionView!
     private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
-    private var rows: [String: ChatMessage] = [:]
+    private var rows: [String: TranscriptGroup] = [:]
     private var sessionID = ""
     private var applying = false
     private var queued: ([ChatMessage], String)?
     override func viewDidLoad() {
       super.viewDidLoad()
-      var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
-      configuration.showsSeparators = false
-      configuration.backgroundColor = .clear
+      let size = NSCollectionLayoutSize(
+        widthDimension: .fractionalWidth(1), heightDimension: .estimated(36))
+      let item = NSCollectionLayoutItem(layoutSize: size)
+      let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [item])
+      let section = NSCollectionLayoutSection(group: group)
       collection = UICollectionView(
         frame: .zero,
-        collectionViewLayout: UICollectionViewCompositionalLayout.list(using: configuration))
+        collectionViewLayout: UICollectionViewCompositionalLayout(section: section))
+      collection.selfSizingInvalidation = .enabledIncludingConstraints
       collection.accessibilityIdentifier = "chat-transcript"
-      collection.backgroundColor = AppTheme.background
+      view.backgroundColor = AppTheme.background
+      collection.backgroundColor = .clear
       collection.keyboardDismissMode = .interactive
+      collection.delegate = self
       collection.allowsSelection = false
       collection.alwaysBounceVertical = true
       collection.translatesAutoresizingMaskIntoConstraints = false
@@ -58,13 +65,25 @@ import ZuseCore
         collection.topAnchor.constraint(equalTo: view.topAnchor),
         collection.bottomAnchor.constraint(equalTo: view.bottomAnchor),
       ])
-      let registration = UICollectionView.CellRegistration<UICollectionViewListCell, String> {
+      let registration = UICollectionView.CellRegistration<UICollectionViewCell, String> {
         [weak self] cell, _, id in
         guard let row = self?.rows[id] else { return }
         cell.contentConfiguration = UIHostingConfiguration {
-          MessageCell(
-            message: row, rpc: self?.rpc,
-            respond: self?.respond.map { callback in { text in try await callback(row, text) } })
+          Group {
+            if row.isActivity {
+              ToolActivityGroup(
+                group: row,
+                toggleDisclosure: { [weak self] change in
+                  self?.resizeDisclosure(change)
+                })
+            } else {
+              MessageCell(
+                message: row.rows[0].message, rpc: self?.rpc,
+                respond: self?.respond.map { callback in
+                  { text in try await callback(row.rows[0].message, text) }
+                })
+            }
+          }.id(row.id)
         }.margins(
           .all, 0
         ).minSize(width: 0, height: 0)
@@ -75,6 +94,55 @@ import ZuseCore
         view.dequeueConfiguredReusableCell(using: registration, for: index, item: id)
       }
     }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+      view.window?.endEditing(true)
+    }
+    private var previousViewportHeight: CGFloat = 0
+    override func viewDidLayoutSubviews() {
+      super.viewDidLayoutSubviews()
+      let height = collection.bounds.height
+      defer { previousViewportHeight = height }
+      guard previousViewportHeight > 0, abs(height - previousViewportHeight) > 1,
+        !collection.isDragging, !collection.isDecelerating
+      else { return }
+      let previousDistance =
+        collection.contentSize.height - collection.contentOffset.y
+        - previousViewportHeight + collection.adjustedContentInset.bottom
+      if previousDistance < 100 {
+        scrollToLatest(sessionID: sessionID, remainingPasses: 0)
+      }
+    }
+    func setBottomInset(_ height: CGFloat) {
+      loadViewIfNeeded()
+      guard abs(collection.contentInset.bottom - height) > 0.5 else { return }
+      let atBottom =
+        collection.contentSize.height - collection.bounds.maxY
+        + collection.adjustedContentInset.bottom < 40
+      collection.contentInset.bottom = height
+      collection.verticalScrollIndicatorInsets.bottom = height
+      if atBottom && !collection.isDragging && !collection.isDecelerating {
+        let y = max(
+          -collection.adjustedContentInset.top,
+          collection.contentSize.height - collection.bounds.height
+            + collection.adjustedContentInset.bottom)
+        collection.setContentOffset(CGPoint(x: 0, y: y), animated: false)
+      }
+    }
+    private func resizeDisclosure(_ change: () -> Void) {
+      // The collection owns cell geometry. Avoid competing SwiftUI and UIKit height animations.
+      UIView.performWithoutAnimation {
+        change()
+        collection.collectionViewLayout.invalidateLayout()
+        collection.layoutIfNeeded()
+      }
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        UIView.performWithoutAnimation {
+          self.collection.collectionViewLayout.invalidateLayout()
+          self.collection.layoutIfNeeded()
+        }
+      }
+    }
     func update(_ messages: [ChatMessage], sessionID: String) {
       loadViewIfNeeded()
       if applying {
@@ -83,8 +151,9 @@ import ZuseCore
       }
       let changedSession = self.sessionID != sessionID
       let prior = dataSource.snapshot().itemIdentifiers
-      let incoming = messages.map(\.id)
-      let changed = messages.filter { connectionChanged || rows[$0.id] != $0 }.map(\.id)
+      let presented = TranscriptGroup.project(messages)
+      let incoming = presented.map(\.id)
+      let changed = presented.filter { connectionChanged || rows[$0.id] != $0 }.map(\.id)
       connectionChanged = false
       guard changedSession || incoming != prior || !changed.isEmpty else { return }
       let atBottom =
@@ -96,7 +165,7 @@ import ZuseCore
         $0 - collection.contentOffset.y
       }
       self.sessionID = sessionID
-      rows = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+      rows = Dictionary(uniqueKeysWithValues: presented.map { ($0.id, $0) })
       var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
       snapshot.appendSections([0])
       snapshot.appendItems(incoming)
@@ -143,6 +212,7 @@ import ZuseCore
     let messages: [ChatMessage]
     let sessionID: String
     let rpc: RPCClient?
+    var bottomInset: CGFloat = 0
     var respond: ((ChatMessage, String) async throws -> Void)?
     func makeNSViewController(context: Context) -> MacTranscriptController {
       MacTranscriptController()
@@ -352,8 +422,10 @@ struct MessageCell: View {
     .background(
       isUser ? Color.secondary.opacity(0.07) : .clear, in: RoundedRectangle(cornerRadius: 16)
     )
-    .padding(.horizontal, 16).padding(.vertical, isUser ? 8 : (message.kind == "assistant" ? 8 : 4))
-    .frame(maxWidth: 900, alignment: .leading).frame(maxWidth: .infinity)
+    .padding(.horizontal, 16).padding(
+      .vertical, isUser ? 10 : (message.kind == "assistant" ? 7 : 3)
+    )
+    .frame(maxWidth: 720, alignment: .leading).frame(maxWidth: .infinity)
     .contextMenu {
       Button("Copy", systemImage: "doc.on.doc") { NativePlatform.copy(message.text) }
       ShareLink(item: message.text)

@@ -16,6 +16,10 @@ import ZuseCore
   var environments: [RemoteEnvironment] = []
   private(set) var savedConnections: [RemoteConnection] = []
   private(set) var connectedComputer: String?
+  private(set) var gitStates: [String: JSONValue] = [:]
+  private var gitQueue: [(String, SessionRow)] = []
+  private var gitQueued = Set<String>()
+  private var gitWorker: Task<Void, Never>?
   var projects: [ProjectRow] = []
   var sessions: [SessionRow] = []
   var selectedProject: ProjectRow?
@@ -585,6 +589,32 @@ import ZuseCore
       }
     }
   }
+  private func gitKey(_ session: SessionRow) -> String {
+    selection.uuidString + ":" + account.generation.uuidString + ":" + (operationScope ?? "offline")
+      + ":" + session.projectId + ":" + (session.worktreeId ?? "main")
+  }
+  func gitState(for session: SessionRow) -> JSONValue { gitStates[gitKey(session)] ?? .null }
+  func requestGitState(_ session: SessionRow, refresh: Bool = false) {
+    guard connectionState == "Connected", rpc != nil else { return }
+    let key = gitKey(session)
+    guard refresh || gitStates[key] == nil, gitQueued.insert(key).inserted else { return }
+    gitQueue.append((key, session))
+    guard gitWorker == nil else { return }
+    gitWorker = Task {
+      defer { gitWorker = nil }
+      while !gitQueue.isEmpty && !Task.isCancelled {
+        let (key, session) = gitQueue.removeFirst()
+        defer { gitQueued.remove(key) }
+        guard gitKey(session) == key, connectionState == "Connected", let rpc else { continue }
+        var payload: [String: JSONValue] = ["folderId": .string(session.projectId)]
+        if let tree = session.worktreeId { payload["worktreeId"] = .string(tree) }
+        let value = try? await rpc.call("git.prState", payload)
+        guard gitKey(session) == key, !Task.isCancelled else { continue }
+        if gitStates.count >= 256 { gitStates.removeAll() }
+        gitStates[key] = value ?? gitStates[key] ?? .null
+      }
+    }
+  }
   func loadSessions() async {
     guard let rpc, let project = selectedProject else { return }
     let current = selection
@@ -732,6 +762,16 @@ import ZuseCore
     sessionReady && selectedSession != nil && archive != nil && !sending && !enqueueing
       && !uploading
   }
+  var selectedModelOptions: [String: String] {
+    get {
+      sessionModelOptions[(operationScope ?? "preview") + ":" + (selectedSession?.id ?? "")] ?? [:]
+    }
+    set {
+      sessionModelOptions[(operationScope ?? "preview") + ":" + (selectedSession?.id ?? "")] =
+        newValue
+    }
+  }
+  private var sessionModelOptions: [String: [String: String]] = [:]
   func send() async {
     guard canSend, let session = selectedSession, let archive else { return }
     draftTask?.cancel()
@@ -751,7 +791,8 @@ import ZuseCore
           "fileRefs": .array([]),
           "skillRefs": .array([]), "annotations": .array([]),
         ])
-      let pending = PendingMessage(sessionID: session.id, text: text, input: input)
+      let pending = PendingMessage(
+        sessionID: session.id, text: text, input: input, modelOptions: selectedModelOptions)
       try await archive.enqueue(pending)
       guard generation == sessionGeneration else { return }
       if draft == originalDraft { draft = "" }

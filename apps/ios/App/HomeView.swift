@@ -9,6 +9,13 @@ struct HomeView: View {
   let newChat: () -> Void
   let newCloudChat: () -> Void
   var addProject: () -> Void = {}
+  private var isTablet: Bool {
+    #if os(iOS)
+      UIDevice.current.userInterfaceIdiom == .pad
+    #else
+      false
+    #endif
+  }
   @State private var search = ""
   @State private var collapsed: Set<String> = []
   @State private var showArchivedCloud = false
@@ -25,10 +32,6 @@ struct HomeView: View {
       $0.isArchived == showArchivedCloud && matches($0.title)
     }
     List(selection: $selection) {
-      if let problem = workspace.connectionProblem {
-        Label(problem, systemImage: "wifi.exclamationmark")
-          .font(.caption).foregroundStyle(.secondary)
-      }
       if let problem = workspace.catalogProblem {
         Label(problem, systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
       }
@@ -98,20 +101,10 @@ struct HomeView: View {
           if !collapsed.contains(project.id) {
             ForEach(grouped[project.id] ?? []) {
               session in
-              NavigationLink(value: session) {
-                HStack(spacing: 9) {
-                  Image(systemName: "bubble.left").font(.subheadline).foregroundStyle(.secondary)
-                  Text(session.title.isEmpty ? "New chat" : session.title).font(.subheadline)
-                    .lineLimit(1)
-                  Spacer(minLength: 4)
-                }.padding(.vertical, 2)
-              }
-              .listRowSeparator(.hidden)
-              .listRowBackground(Color.clear)
-              .listRowInsets(EdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 14))
+              SessionListRow(workspace: workspace, session: session)
             }
-            if workspace.selectedProject != project {
-              Button("Load chats") {
+            if grouped[project.id] == nil && workspace.catalogProblem != nil && search.isEmpty {
+              Button("Retry loading chats") {
                 workspace.selectedProject = project
                 Task { await workspace.loadSessions() }
               }.font(.subheadline)
@@ -153,44 +146,53 @@ struct HomeView: View {
       }
     }
     .listStyle(.plain)
-    .environment(\.defaultMinListRowHeight, 40)
+    .environment(\.defaultMinListRowHeight, 38)
     .compactListSections()
+    .contentMargins(.top, isTablet ? 8 : 16, for: .scrollContent)
     .listRowSeparator(.hidden)
     .scrollContentBackground(.hidden)
     .background(AppTheme.surface)
     .navigationTitle("Zuse")
     .compactNavigationTitle()
     .toolbar {
-      ToolbarItemGroup(placement: .primaryAction) {
-        Button("Add project", systemImage: "folder.badge.plus", action: addProject)
-          .disabled(workspace.rpc == nil)
-        Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
-        Button("Open settings", systemImage: "gearshape", action: settings)
+      if !isTablet {
+        ToolbarItemGroup(placement: .primaryAction) {
+          Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
+          Button("Open settings", systemImage: "gearshape", action: settings)
+        }
       }
     }
     .safeAreaInset(edge: .bottom) {
-      HStack(spacing: 9) {
-        HStack(spacing: 9) {
+      HStack(spacing: 8) {
+        if isTablet {
+          Button("Open settings", systemImage: "gearshape", action: settings)
+            .labelStyle(.iconOnly).font(.system(size: 15))
+            .frame(width: 36, height: 36).contentShape(Circle())
+            .contextMenu {
+              Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
+            }
+        }
+        HStack(spacing: 8) {
           Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
           TextField("Search", text: $search).accessibilityLabel("Search chats")
           if !search.isEmpty {
             Button("Clear search", systemImage: "xmark.circle.fill") { search = "" }
               .labelStyle(.iconOnly).foregroundStyle(.secondary)
           }
-        }.padding(.horizontal, 16).frame(height: 48).background(.regularMaterial, in: Capsule())
-        Menu {
-          Button("On your computer", systemImage: "laptopcomputer", action: newChat)
-            .disabled(workspace.rpc == nil)
-          Button("In the cloud", systemImage: "cloud", action: newCloudChat)
-            .disabled(!workspace.account.signedIn)
-          if workspace.rpc == nil && !workspace.account.signedIn {
-            Button("Connect to get started", action: settings)
-          }
-        } label: {
-          Image(systemName: "square.and.pencil").font(.title3)
-            .frame(width: 48, height: 48).background(.regularMaterial, in: Circle())
-        }.accessibilityLabel("New chat")
-      }.padding(.horizontal, 16).padding(.vertical, 8)
+        }.font(.system(size: isTablet ? 13 : 15))
+          .padding(.horizontal, 12).frame(height: isTablet ? 36 : 46)
+          .floatingGlass(radius: isTablet ? 18 : 23)
+        Button(action: newChat) {
+          Image(systemName: "square.and.pencil").font(
+            .system(size: isTablet ? 16 : 18, weight: .medium)
+          )
+          .frame(width: isTablet ? 36 : 46, height: isTablet ? 36 : 46)
+          .contentShape(Circle()).floatingGlass(radius: isTablet ? 18 : 23)
+        }.buttonStyle(.plain).accessibilityLabel("New chat")
+      }.frame(maxWidth: 560).frame(maxWidth: .infinity).padding(.horizontal, 16).padding(
+        .vertical, isTablet ? 8 : 10
+      )
+      .foregroundStyle(.secondary).tint(.primary)
     }
     .task(id: workspace.account.generation) {
       var delay = 5.0
@@ -259,144 +261,313 @@ struct HomeView: View {
 struct SettingsView: View {
   @Bindable var workspace: WorkspaceModel
   @Environment(\.dismiss) private var dismiss
-  @State private var showConnection = false
-  @State private var showCloud = false
-  @State private var showRuntime = false
-  @State private var showCloudPreferences = false
   @AppStorage("native.appearance") private var appearance = "system"
+  @State private var showCloud = false
+  @State private var showCloudPreferences = false
   var body: some View {
     NavigationStack {
       List {
-        Section("Account") {
+        Section {
           if workspace.account.signedIn {
-            if workspace.account.reauthenticationRequired {
-              Button("Sign in again", systemImage: "person.crop.circle.badge.exclamationmark") {
-                Task {
-                  do { try await workspace.signIn() } catch {
-                    workspace.error = error.localizedDescription
-                  }
-                }
-              }.frame(height: 28)
-            }
-
-            Button {
-              showCloudPreferences = true
-            } label: {
-              Label("Cloud preferences", systemImage: "slider.horizontal.3")
-            }
             NavigationLink {
-              CloudInfrastructureView(workspace: workspace)
+              accountSettings
             } label: {
-              Label("Cloud provider accounts", systemImage: "cloud")
-            }
-            NavigationLink {
-              RegisteredDevicesView(workspace: workspace)
-            } label: {
-              Label("Registered devices", systemImage: "desktopcomputer.and.iphone")
-            }
-            Button {
-              showCloud = true
-            } label: {
-              Label("Cloud agent sign-in", systemImage: "person.crop.circle")
+              SettingsRow(
+                title: "Account", subtitle: "Cloud chats and remote access",
+                icon: "person.crop.circle")
             }
           } else {
             Button {
               Task {
-                do {
-                  try await workspace.signIn()
-                } catch { workspace.error = error.localizedDescription }
+                do { try await workspace.signIn() } catch {
+                  workspace.error = error.localizedDescription
+                }
               }
             } label: {
-              Label("Sign in to Zuse", systemImage: "person.crop.circle")
-            }
+              SettingsRow(
+                title: "Sign in to Zuse", subtitle: "Cloud chats and remote access",
+                icon: "person.crop.circle")
+            }.foregroundStyle(.primary).accessibilityLabel("Sign in to Zuse")
           }
         }
-        Section("Appearance") {
-          Picker("Theme", selection: $appearance) {
-            Text("System").tag("system")
-            Text("Light").tag("light")
-            Text("Dark").tag("dark")
-          }.frame(height: 28)
-        }
-        if let name = workspace.connectedComputer {
-          Section("Connected computer") {
-            LabeledContent(name, value: workspace.connectionState)
-            Button("Computer settings", systemImage: "slider.horizontal.3") { showRuntime = true }
-              .disabled(workspace.connectionState != "Connected")
-            if let rpc = workspace.rpc {
-              NavigationLink {
-                ComputerAccessView(rpc: rpc)
-              } label: {
-                Label("Computer access", systemImage: "ipad.and.iphone")
-              }.disabled(workspace.connectionState != "Connected")
-            }
-            Button("Disconnect") {
-              workspace.persistDraft(immediate: true)
-              workspace.disconnect(clearSaved: true)
-            }
-          }
-        }
-        Section("Computers") {
-          Button {
-            showConnection = true
-          } label: {
-            Label("Connect a computer", systemImage: "qrcode.viewfinder")
-          }
-          ForEach(workspace.savedConnections) { connection in
-            HStack {
-              Button {
-                workspace.openRemote(connection)
-                dismiss()
-              } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                  Label(connection.displayName, systemImage: "laptopcomputer")
-                  Text(connection.transportName).font(.caption).foregroundStyle(.secondary)
-                }
-              }
-              Spacer()
-              Menu {
-                Button("Forget saved connection", role: .destructive) {
-                  workspace.forgetComputer(connection)
-                }
-              } label: {
-                Image(systemName: "ellipsis")
-              }.buttonStyle(.plain)
-            }
-          }
-          ForEach(workspace.environments) { environment in
-            Button(environment.label ?? "Computer", systemImage: "laptopcomputer") {
-              workspace.openEnvironment(environment)
-              dismiss()
-            }
-          }
-        }
-        Section("Connections") {
+        Section {
           NavigationLink {
-            ServeSettingsView(workspace: workspace)
+            ComputerConnectionsView(workspace: workspace)
           } label: {
-            Label("Zuse Serve & Tailscale", systemImage: "network")
+            SettingsRow(
+              title: "Computers", subtitle: "Connections and remote access", icon: "desktopcomputer"
+            )
+          }
+          NavigationLink {
+            Form {
+              Picker("Theme", selection: $appearance) {
+                Text("System").tag("system")
+                Text("Light").tag("light")
+                Text("Dark").tag("dark")
+              }.pickerStyle(.inline)
+            }.navigationTitle("Appearance").compactNavigationTitle()
+          } label: {
+            SettingsRow(
+              title: "Appearance", subtitle: appearance.capitalized, icon: "circle.lefthalf.filled")
           }
         }
         if workspace.account.signedIn {
           Section {
-            Button("Sign out", role: .destructive) { Task { await workspace.signOut() } }
+            NavigationLink {
+              CloudInfrastructureView(workspace: workspace)
+            } label: {
+              SettingsRow(title: "Cloud providers", icon: "cloud")
+            }
+            NavigationLink {
+              RegisteredDevicesView(workspace: workspace)
+            } label: {
+              SettingsRow(title: "Registered devices", icon: "desktopcomputer.and.iphone")
+            }
           }
         }
       }
-      .environment(\.defaultMinListRowHeight, 36).controlSize(.small)
+      .environment(\.defaultMinListRowHeight, 44)
+      .listSectionSpacing(12)
+      .contentMargins(.top, 12)
       .scrollContentBackground(.hidden).background(AppTheme.surface)
       .navigationTitle("Settings").compactNavigationTitle()
       .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
       .disabled(workspace.clearingAccount)
-    }.nativeSheetSize().tint(AppTheme.accent)
-      .sheet(isPresented: $showConnection) { ConnectionView(workspace: workspace) }
+    }.nativeSheetSize(width: 440, height: 520).tint(.primary)
       .sheet(isPresented: $showCloud) { CloudSettingsView(workspace: workspace).nativeSheetSize() }
       .sheet(isPresented: $showCloudPreferences) {
-        RuntimeSettingsView(cloud: workspace.cloud).nativeSheetSize().id(
-          workspace.account.generation)
+        RuntimeSettingsView(cloud: workspace.cloud).nativeSheetSize()
       }
+  }
+  private var accountSettings: some View {
+    List {
+      if workspace.account.reauthenticationRequired {
+        Button("Sign in again") {
+          Task {
+            do { try await workspace.signIn() } catch {
+              workspace.error = error.localizedDescription
+            }
+          }
+        }
+      }
+      Button {
+        showCloudPreferences = true
+      } label: {
+        SettingsRow(title: "Cloud preferences", icon: "slider.horizontal.3")
+      }
+      Button {
+        showCloud = true
+      } label: {
+        SettingsRow(title: "Agent sign-in", icon: "key")
+      }
+      Button("Sign out", role: .destructive) { Task { await workspace.signOut() } }
+    }.navigationTitle("Account").compactNavigationTitle()
+  }
+}
+
+struct SettingsRow: View {
+  let title: String
+  var subtitle: String? = nil
+  let icon: String
+  var body: some View {
+    HStack(spacing: 9) {
+      Image(systemName: icon).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
+        if let subtitle {
+          Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+        }
+      }
+    }.frame(minHeight: 32, alignment: .leading)
+      .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+  }
+}
+
+struct ComputerConnectionsView: View {
+  @Bindable var workspace: WorkspaceModel
+  @State private var method: ConnectionMethod?
+  @State private var forgetting: RemoteConnection?
+  @State private var showRuntime = false
+  var body: some View {
+    List {
+      Section {
+        Button {
+          method = .nearby
+        } label: {
+          SettingsRow(
+            title: "Connect to a nearby computer", subtitle: "Find it automatically over Wi-Fi",
+            icon: "wifi")
+        }
+        Button {
+          method = .pairing
+        } label: {
+          SettingsRow(
+            title: "Scan a pairing code", subtitle: "Pair using a QR code or link",
+            icon: "qrcode.viewfinder")
+        }
+        Button {
+          method = .manual
+        } label: {
+          SettingsRow(title: "Add manually", icon: "plus")
+        }
+      } header: {
+        Text("Connections")
+      } footer: {
+        Text("Pair over your local network. No account needed.")
+      }
+      if !workspace.savedConnections.isEmpty {
+        Section("Saved computers") {
+          ForEach(workspace.savedConnections) { connection in
+            Button {
+              workspace.openRemote(connection)
+            } label: {
+              SettingsRow(
+                title: connection.displayName,
+                subtitle: workspace.connectedComputer == connection.displayName
+                  ? workspace.connectionState : connection.transportName,
+                icon: "laptopcomputer")
+            }.contextMenu {
+              Button("Forget computer", role: .destructive) { forgetting = connection }
+            }
+            .swipeActions { Button("Forget") { forgetting = connection }.tint(.red) }
+          }
+        }
+      }
+      if !workspace.environments.isEmpty {
+        Section("Account computers") {
+          ForEach(workspace.environments) { environment in
+            Button {
+              workspace.openEnvironment(environment)
+            } label: {
+              SettingsRow(
+                title: environment.label ?? "Computer", subtitle: "Remote access",
+                icon: "desktopcomputer")
+            }
+          }
+        }
+      }
+      if let name = workspace.connectedComputer {
+        Section(name) {
+          if let rpc = workspace.rpc {
+            Button {
+              showRuntime = true
+            } label: {
+              SettingsRow(title: "Computer settings", icon: "slider.horizontal.3")
+            }.disabled(workspace.connectionState != "Connected")
+            NavigationLink {
+              ComputerAccessView(rpc: rpc)
+            } label: {
+              SettingsRow(title: "Device access", icon: "ipad.and.iphone")
+            }.disabled(workspace.connectionState != "Connected")
+          }
+          Button("Disconnect", role: .destructive) {
+            workspace.persistDraft(immediate: true)
+            workspace.disconnect(clearSaved: true)
+          }
+        }
+      }
+      Section {
+        NavigationLink {
+          ServeSettingsView(workspace: workspace)
+        } label: {
+          SettingsRow(
+            title: "Remote network", subtitle: "Zuse Serve and Tailscale", icon: "network")
+        }
+      }
+    }.environment(\.defaultMinListRowHeight, 44)
+      .listSectionSpacing(12).scrollContentBackground(.hidden).background(AppTheme.surface)
+      .navigationTitle("Computers").compactNavigationTitle()
+      .sheet(item: $method) { ConnectionView(workspace: workspace, method: $0) }
       .sheet(isPresented: $showRuntime) {
         if let rpc = workspace.rpc { RuntimeSettingsView(rpc: rpc).nativeSheetSize() }
       }
+      .confirmationDialog(
+        "Forget this computer?",
+        isPresented: Binding(get: { forgetting != nil }, set: { if !$0 { forgetting = nil } })
+      ) {
+        Button("Forget computer", role: .destructive) {
+          if let connection = forgetting { workspace.forgetComputer(connection) }
+          forgetting = nil
+        }
+      }
+  }
+}
+
+struct GitStatusGlyph: View {
+  let info: JSONValue
+  private var color: Color {
+    if info["checks"].string == "failure" || info["mergeable"].string == "conflicting" {
+      return .red
+    }
+    switch info["state"].string {
+    case "merged": return .purple
+    case "open": return info["isDraft"].bool ? .secondary : .green
+    case "closed": return .red
+    default: return .secondary
+    }
+  }
+  var body: some View {
+    GitBranchShape(pullRequest: info["number"].int != nil, merged: info["state"].string == "merged")
+      .stroke(color, style: StrokeStyle(lineWidth: 1.35, lineCap: .round, lineJoin: .round))
+      .frame(width: 16, height: 16)
+      .accessibilityLabel(
+        info["number"].int.map { "Pull request #\($0), " + (info["state"].string ?? "") }
+          ?? "Git branch")
+  }
+}
+private struct GitBranchShape: Shape {
+  let pullRequest: Bool
+  let merged: Bool
+  func path(in rect: CGRect) -> Path {
+    var p = Path()
+    p.addEllipse(in: CGRect(x: 1, y: 1, width: 4, height: 4))
+    p.addEllipse(in: CGRect(x: 1, y: 11, width: 4, height: 4))
+    p.move(to: CGPoint(x: 3, y: 5))
+    p.addLine(to: CGPoint(x: 3, y: 11))
+    p.addEllipse(in: CGRect(x: 11, y: pullRequest ? 11 : 1, width: 4, height: 4))
+    p.move(to: CGPoint(x: 13, y: pullRequest ? 11 : 5))
+    if pullRequest && !merged {
+      p.addLine(to: CGPoint(x: 13, y: 5))
+      p.addQuadCurve(to: CGPoint(x: 8, y: 2), control: CGPoint(x: 13, y: 2))
+    } else {
+      p.addQuadCurve(to: CGPoint(x: 3, y: 9), control: CGPoint(x: 13, y: 9))
+    }
+    return p
+  }
+}
+
+private struct SessionListRow: View {
+  let workspace: WorkspaceModel
+  let session: SessionRow
+  private var context: String {
+    (workspace.operationScope ?? "") + workspace.connectionState
+      + workspace.account.generation.uuidString
+  }
+  var body: some View {
+    let info = workspace.gitState(for: session)
+    NavigationLink(value: session) {
+      HStack(spacing: 9) {
+        GitStatusGlyph(info: info).accessibilityIdentifier("git-status-\(session.id)")
+        Text(session.title.isEmpty ? "New chat" : session.title).font(.subheadline).lineLimit(1)
+        Spacer(minLength: 4)
+        if let number = info["number"].int {
+          Text("#\(number)").font(.caption2).foregroundStyle(.secondary)
+        }
+      }.padding(.vertical, 2)
+    }
+    .task(id: context) {
+      workspace.requestGitState(session)
+      while !Task.isCancelled && workspace.connectionState == "Connected" {
+        do { try await Task.sleep(for: .seconds(60)) } catch { return }
+        workspace.requestGitState(session, refresh: true)
+      }
+    }
+    .contextMenu {
+      if let value = info["url"].string, let url = URL(string: value), url.scheme == "https" {
+        Link("Open pull request", destination: url)
+      }
+    }
+    .listRowSeparator(.hidden).listRowBackground(Color.clear)
+    .listRowInsets(EdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 14))
   }
 }

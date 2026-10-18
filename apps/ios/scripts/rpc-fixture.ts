@@ -26,6 +26,7 @@ const server = Bun.serve<{
 	timeline?: string;
 	version: number;
 	session?: FixtureSession;
+	initialPrompt?: string;
 	settings?: Record<string, unknown>;
 }>({
 	hostname: "127.0.0.1",
@@ -70,6 +71,24 @@ const server = Bun.serve<{
 						},
 					},
 				});
+			else if (frame.tag === "git.prState")
+				reply({
+					state: "open",
+					branch: "main",
+					baseBranch: "main",
+					additions: 1,
+					deletions: 1,
+					number: 42,
+					url: "https://github.com/example/project/pull/42",
+					isDraft: false,
+					checks: "success",
+					mergeable: "mergeable",
+					checksTotal: 1,
+					checksRunning: 0,
+					checksPassing: 1,
+					checksFailing: 0,
+					autoMergeEnabled: false,
+				});
 			else if (frame.tag === "git.status")
 				reply({ branch: "main", ahead: 0, behind: 0, dirtyFiles: 1 });
 			else if (frame.tag === "git.branches")
@@ -99,6 +118,7 @@ const server = Bun.serve<{
 							? null
 							: "fixture-tree",
 				};
+				socket.data.initialPrompt = frame.payload.initialPrompt;
 				reply({
 					initialSession: socket.data.session,
 					chat: { id: frame.payload.chatId },
@@ -144,7 +164,24 @@ const server = Bun.serve<{
 								sessionId: activeSession.id,
 								throughVersion: 0,
 								cursor: { epoch: "fixture", version: 0 },
-								projection: { messages: [], status: "idle", interactions: [] },
+								projection: {
+									messages: socket.data.initialPrompt
+										? [
+												{
+													id: "initial-prompt",
+													sessionId: activeSession.id,
+													role: "user",
+													content: {
+														_tag: "user",
+														text: socket.data.initialPrompt,
+													},
+													createdAt: new Date().toISOString(),
+												},
+											]
+										: [],
+									status: "idle",
+									interactions: [],
+								},
 							},
 							{
 								kind: "synchronized",

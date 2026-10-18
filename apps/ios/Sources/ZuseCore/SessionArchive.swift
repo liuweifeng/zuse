@@ -13,15 +13,19 @@ public struct PendingMessage: Codable, Identifiable, Sendable, Equatable {
   public let sessionID: String
   public let text: String
   public let input: JSONValue?
+  public let modelOptions: [String: String]?
   public let createdAt: Date
   public var delivery: Delivery
 
-  public init(sessionID: String, text: String, input: JSONValue? = nil) {
+  public init(
+    sessionID: String, text: String, input: JSONValue? = nil, modelOptions: [String: String]? = nil
+  ) {
     id = UUID().uuidString
     messageID = UUID().uuidString
     self.sessionID = sessionID
     self.text = text
     self.input = input
+    self.modelOptions = modelOptions
     createdAt = Date()
     delivery = .queued
   }
@@ -31,6 +35,9 @@ public struct PendingMessage: Codable, Identifiable, Sendable, Equatable {
       "clientMessageId": .string(messageID),
     ]
     if let input { value["input"] = input } else { value["text"] = .string(text) }
+    if let modelOptions, !modelOptions.isEmpty {
+      value["modelOptions"] = .object(modelOptions.mapValues(JSONValue.string))
+    }
     return value
   }
 }

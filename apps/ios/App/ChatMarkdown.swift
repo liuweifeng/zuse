@@ -6,13 +6,16 @@ import ZuseCore
 struct ChatMarkdown: View {
   let text: String
   var body: some View {
-    VStack(alignment: .leading, spacing: 12) {
+    VStack(alignment: .leading, spacing: 8) {
       ForEach(MarkdownBlock.parse(text)) { block in
         if block.kind == .diagram {
           DiagramView(source: block.content)
         } else {
-          StructuredText(markdown: block.content, syntaxExtensions: [.math]).textual.textSelection(
-            .enabled)
+          StructuredText(markdown: block.content, syntaxExtensions: [.math])
+            .font(.subheadline)
+            .textual.blockSpacing(.fontScaled(top: 0.45, bottom: 0.45))
+            .textual.listItemSpacing(.fontScaled(top: 0.15, bottom: 0.15))
+            .textual.textSelection(.enabled)
         }
       }
     }

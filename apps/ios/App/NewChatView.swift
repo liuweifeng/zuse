@@ -3,10 +3,15 @@ import ZuseCore
 
 struct NewChatView: View {
   let workspace: WorkspaceModel
+  var embedded = false
+  var destination: AnyView? = nil
+  var prompt: Binding<String> = .constant("")
+  var busyChanged: (Bool) -> Void = { _ in }
   @Environment(\.dismiss) private var dismiss
   @State private var project = ""
   @State private var provider = ""
   @State private var model = ""
+  @State private var modelOptions: [String: String] = [:]
   @State private var mode = "main"
   @State private var branch = ""
   @State private var worktree = ""
@@ -23,6 +28,8 @@ struct NewChatView: View {
   @State private var intent: ChatCreation?
   @State private var uncertainBranch = false
   @State private var switchingDevice = false
+  @State private var showProject = false
+  @State private var showOptions = false
   private var selectedProvider: ModelProvider? { catalog.first { $0.id == provider } }
   private var intentKey: String? {
     scope.map { "create-chat:" + ArchiveStore.storageID($0) }
@@ -31,117 +38,97 @@ struct NewChatView: View {
     scope == workspace.operationScope && workspace.connectionState == "Connected"
   }
   var body: some View {
-    NavigationStack {
-      Form {
-        if let failure { Section { Text(failure).foregroundStyle(.red) } }
-        Section("Computer & project") {
+    Group {
+      if embedded { content } else { NavigationStack { content } }
+    }.nativeSheetSize(width: 480, height: 600)
+  }
+  private var content: some View {
+    Color.clear
+      .background(AppTheme.surface)
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        VStack(alignment: .leading, spacing: 2) {
+          if let failure { Text(failure).font(.caption).foregroundStyle(.red).padding(.bottom, 8) }
+          if let destination { destination }
           Menu {
-            ForEach(workspace.savedConnections) { connection in
-              Button(connection.displayName) {
-                switchingDevice = true
-                workspace.openRemote(connection)
-                scope = workspace.operationScope
-              }
+            Picker("Project", selection: $project) {
+              Text("Choose a project").tag("")
+              ForEach(workspace.projects) { Text($0.name).tag($0.id) }
             }
-            ForEach(workspace.environments) { environment in
-              Button(environment.label ?? "Computer") {
-                switchingDevice = true
-                workspace.openEnvironment(environment)
-                scope = workspace.operationScope
+            Button("Add a project", systemImage: "folder.badge.plus") { showProject = true }
+          } label: {
+            SetupSelectorLabel(
+              icon: "folder",
+              title: workspace.projects.first { $0.id == project }?.name ?? "Choose a project")
+          }.disabled(intent != nil || creating)
+          Menu {
+            Picker("Work in", selection: $mode) {
+              Text("Main checkout").tag("main")
+              Text("New worktree").tag("fresh")
+              Text("Existing branch").tag("branch")
+              Text("Existing worktree").tag("existing")
+            }
+          } label: {
+            SetupSelectorLabel(icon: "desktopcomputer", title: workspaceLabel)
+          }
+          .disabled(intent != nil || creating)
+          Menu {
+            if mode == "existing" {
+              Picker("Worktree", selection: $worktree) {
+                Text("Choose a worktree").tag("")
+                ForEach(worktrees, id: \.["id"].string) { row in
+                  Text(row["branch"].string ?? row["name"].string ?? "Worktree").tag(
+                    row["id"].string ?? "")
+                }
+              }
+            } else {
+              Picker("Branch", selection: $branch) {
+                Text("Choose a branch").tag("")
+                ForEach(branches.filter { !$0.current }) { Text($0.name).tag($0.id) }
               }
             }
           } label: {
-            LabeledContent(
-              "Computer", value: workspace.connectedComputer ?? workspace.connectionState)
+            SetupSelectorLabel(icon: "arrow.triangle.branch", title: branchLabel)
           }
-          .disabled(workspace.savedConnections.isEmpty && workspace.environments.isEmpty)
-          if switchingDevice {
-            Text(workspace.connectionProblem ?? workspace.connectionState).font(.caption)
-              .foregroundStyle(.secondary)
-          }
-          Picker("Project", selection: $project) {
-            Text("Choose a project").tag("")
-            ForEach(workspace.projects) { Text($0.name).tag($0.id) }
-          }
-        }
-        .disabled(intent != nil)
-        Section("Workspace") {
-          Picker("Work in", selection: $mode) {
-            Text("Main checkout").tag("main")
-            Text("New worktree").tag("fresh")
-            Text("Existing branch").tag("branch")
-            Text("Existing worktree").tag("existing")
-          }
-          if mode == "branch" {
-            Picker("Branch", selection: $branch) {
-              Text("Choose a branch").tag("")
-              ForEach(branches.filter { !$0.current }) { Text($0.name).tag($0.id) }
-            }
-          } else if mode == "existing" {
-            Picker("Worktree", selection: $worktree) {
-              Text("Choose a worktree").tag("")
-              ForEach(worktrees, id: \.["id"].string) { row in
-                Text(row["branch"].string ?? row["name"].string ?? "Worktree")
-                  .tag(row["id"].string ?? "")
-              }
-            }
-          }
-          if loadingSources { ProgressView("Loading branches…") }
+          .disabled(
+            intent != nil || creating || loadingSources || mode == "main" || mode == "fresh")
+          if loadingSources { ProgressView().controlSize(.mini).padding(.leading, 6) }
           if let sourceFailure {
-            Text(sourceFailure).font(.caption).foregroundStyle(.secondary)
-            Button("Reload branches") { Task { await loadSources() } }
+            HStack {
+              Text(sourceFailure).lineLimit(2)
+              Button("Retry") { Task { await loadSources() } }
+            }.font(.caption).foregroundStyle(.secondary)
           }
-        }
-        .disabled(intent != nil)
-        Section("Agent") {
-          if catalog.isEmpty {
-            Text("No available agents. Check this computer's provider settings.").foregroundStyle(
-              .secondary)
-          }
-          Picker("Agent", selection: $provider) {
-            ForEach(catalog) { Text($0.name).tag($0.id) }
-          }.onChange(of: provider) {
-            if intent == nil { model = selectedProvider?.defaultModel ?? "" }
-          }
-          Picker("Model", selection: $model) {
-            ForEach(selectedProvider?.models ?? []) { Text($0.label).tag($0.id) }
-          }
-          Picker("Permissions", selection: $runtimeMode) {
-            Text("Ask before changes").tag("approval-required")
-            Text("Allow edits").tag("auto-accept-edits")
-            Text("Allow edits & commands").tag("auto-accept-edits-and-bash")
-            Text("Full access").tag("full-access")
-          }
-          Toggle(
-            "Start in plan mode",
-            isOn: Binding(
-              get: { permissionMode == "plan" }, set: { permissionMode = $0 ? "plan" : "default" }))
-        }
-        .disabled(intent != nil)
-        Section {
-          Button(creating ? "Creating…" : intent == nil ? "Create chat" : "Retry same chat") {
-            Task { await create() }
-          }
-          .accessibilityIdentifier("new-chat-create")
-          .disabled(!canCreate)
           if intent != nil {
-            Text(
-              "A creation request is saved. Retry uses the same identity to prevent duplicate chats."
-            )
-            .font(.caption).foregroundStyle(.secondary)
-            Button("Discard saved request", role: .destructive) {
-              do {
-                if let intentKey { try Vault.write(nil, key: intentKey) }
-                intent = nil
-              } catch { failure = error.localizedDescription }
-            }
+            HStack {
+              Text("A saved chat request is ready to retry.")
+              Button("Discard", role: .destructive) {
+                do {
+                  if let intentKey { try Vault.write(nil, key: intentKey) }
+                  intent = nil
+                } catch { failure = error.localizedDescription }
+              }
+            }.font(.caption).padding(.vertical, 4)
           }
+          NewChatDraftComposer(
+            text: prompt, enabled: canCreate, busy: creating, editable: intent == nil,
+            options: AnyView(
+              Button("Chat options", systemImage: "slider.horizontal.3") { showOptions = true }),
+            models: AnyView(modelMenu)
+          ) { Task { await create() } }
+          .padding(.top, 10)
+        }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+          .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 12)
+          .background { ComposerFade().padding(.top, -40) }
+      }
+      .navigationTitle("New chat").compactNavigationTitle()
+      .toolbar {
+        if !embedded {
+          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
         }
       }
-      .formStyle(.grouped)
-      .disabled(creating)
-      .navigationTitle("New chat").compactNavigationTitle()
-      .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+      .sheet(isPresented: $showProject) { AddProjectView(workspace: workspace) }
+      .sheet(isPresented: $showOptions) { options }
+      .onChange(of: creating) { _, value in busyChanged(value) }
       .task { await load() }
       .task(id: project) { await loadSources() }
       .interactiveDismissDisabled(creating)
@@ -156,7 +143,50 @@ struct NewChatView: View {
           }
         }
       }
-    }.nativeSheetSize(width: 440, height: 520)
+  }
+  private var workspaceLabel: String {
+    switch mode {
+    case "fresh": "New worktree"
+    case "branch": "Existing branch"
+    case "existing": "Existing worktree"
+    default: "Main checkout"
+    }
+  }
+  private var branchLabel: String {
+    if mode == "existing" {
+      return worktrees.first { $0["id"].string == worktree }?["branch"].string
+        ?? "Choose a worktree"
+    }
+    if mode == "branch" { return branches.first { $0.id == branch }?.name ?? "Choose a branch" }
+    return branches.first { $0.current }?.name ?? "Current branch"
+  }
+  private var modelMenu: some View {
+    ModelPickerButton(
+      catalog: catalog, providerID: provider, modelID: model, modelOptions: $modelOptions
+    ) {
+      providerID, modelID in
+      provider = providerID
+      model = modelID
+    }.disabled(intent != nil || creating || catalog.isEmpty)
+  }
+  private var options: some View {
+    NavigationStack {
+      Form {
+        Picker("Permissions", selection: $runtimeMode) {
+          Text("Ask before changes").tag("approval-required")
+          Text("Allow edits").tag("auto-accept-edits")
+          Text("Allow edits & commands").tag("auto-accept-edits-and-bash")
+          Text("Full access").tag("full-access")
+        }
+        Toggle(
+          "Plan mode",
+          isOn: Binding(
+            get: { permissionMode == "plan" }, set: { permissionMode = $0 ? "plan" : "default" }))
+      }.disabled(intent != nil).navigationTitle("Chat options").compactNavigationTitle()
+        .toolbar {
+          ToolbarItem(placement: .confirmationAction) { Button("Done") { showOptions = false } }
+        }
+    }.nativeSheetSize(width: 400, height: 320)
   }
   private var canCreate: Bool {
     connected && !creating && !project.isEmpty && !model.isEmpty && !provider.isEmpty
@@ -185,6 +215,7 @@ struct NewChatView: View {
           model = intent.model
           runtimeMode = intent.runtimeMode
           permissionMode = intent.permissionMode
+          prompt.wrappedValue = intent.initialPrompt ?? ""
           mode = intent.freshWorktree ? "fresh" : intent.worktreeID == nil ? "main" : "existing"
           worktree = intent.worktreeID ?? ""
         }
@@ -245,13 +276,16 @@ struct NewChatView: View {
         let creation = ChatCreation(
           projectID: project, providerID: provider, model: model,
           runtimeMode: runtimeMode, permissionMode: permissionMode,
-          freshWorktree: mode == "fresh", worktreeID: treeID)
+          freshWorktree: mode == "fresh", worktreeID: treeID,
+          initialPrompt: prompt.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines),
+          modelOptions: modelOptions)
         try Vault.write(JSONEncoder().encode(creation), key: intentKey)
         intent = creation
       }
       guard let intent else { return }
       try await workspace.createChat(intent)
       try Vault.write(nil, key: intentKey)
+      prompt.wrappedValue = ""
       dismiss()
     } catch {
       failure =
@@ -259,5 +293,214 @@ struct NewChatView: View {
         ? "The branch checkout result is unconfirmed. Reload and choose its existing worktree before creating a chat."
         : error.localizedDescription
     }
+  }
+}
+
+struct NewChatSetupView: View {
+  @Bindable var workspace: WorkspaceModel
+  init(workspace: WorkspaceModel, initialCloud: Bool = false) {
+    self.workspace = workspace
+    _cloud = State(initialValue: initialCloud)
+  }
+  @Environment(\.dismiss) private var dismiss
+  @State private var cloud = false
+  @State private var draft = ""
+  @State private var busy = false
+  @State private var method: ConnectionMethod?
+  @State private var sampleModel = "sample-balanced"
+  @State private var sampleModelOptions: [String: String] = [:]
+  private var machineLabel: String {
+    cloud ? "Cloud" : workspace.connectedComputer ?? "Choose computer"
+  }
+  private var destinationMenu: some View {
+    Menu {
+      Section("Run on") {
+        Button("Computer", systemImage: "laptopcomputer") { cloud = false }
+        Button("Cloud", systemImage: "cloud") { cloud = true }
+      }
+      if !workspace.savedConnections.isEmpty {
+        Section("Saved computers") {
+          ForEach(workspace.savedConnections) { connection in
+            Button(connection.displayName) {
+              cloud = false
+              workspace.openRemote(connection)
+            }
+          }
+        }
+      }
+      if !workspace.environments.isEmpty {
+        Section("Remote computers") {
+          ForEach(workspace.environments) { environment in
+            Button(environment.label ?? "Computer") {
+              cloud = false
+              workspace.openEnvironment(environment)
+            }
+          }
+        }
+      }
+      Section {
+        Button("Find a nearby computer", systemImage: "wifi") {
+          cloud = false
+          method = .nearby
+        }
+        Button("Scan a pairing code", systemImage: "qrcode.viewfinder") {
+          cloud = false
+          method = .pairing
+        }
+        Button("Add manually", systemImage: "plus") {
+          cloud = false
+          method = .manual
+        }
+      }
+    } label: {
+      SetupSelectorLabel(icon: cloud ? "cloud" : "laptopcomputer", title: machineLabel)
+    }
+    .accessibilityIdentifier("new-chat-destination").accessibilityLabel("Run on: " + machineLabel)
+    .disabled(busy).menuOrder(.fixed)
+  }
+  @ViewBuilder private var fallbackModelPicker: some View {
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--native-preview"),
+        let catalog = try? WorkspaceModel.previewModelCatalog()
+      {
+        ModelPickerButton(
+          catalog: catalog,
+          providerID: catalog.first { $0.models.contains { $0.id == sampleModel } }?.id
+            ?? "Preview",
+          modelID: sampleModel, sample: true, modelOptions: $sampleModelOptions
+        ) { _, model in sampleModel = model }
+      } else {
+        Text("Choose agent").font(.caption).foregroundStyle(.tertiary)
+      }
+    #else
+      Text("Choose agent").font(.caption).foregroundStyle(.tertiary)
+    #endif
+  }
+  var body: some View {
+    NavigationStack {
+      Group {
+        if cloud && workspace.account.signedIn {
+          CloudLaunchView(
+            workspace: workspace, embedded: true, prompt: $draft,
+            destination: AnyView(destinationMenu), busyChanged: { busy = $0 })
+        } else if !cloud && workspace.rpc != nil {
+          NewChatView(
+            workspace: workspace, embedded: true,
+            destination: AnyView(destinationMenu), prompt: $draft, busyChanged: { busy = $0 }
+          )
+          .id(workspace.operationScope)
+        } else {
+          Color.clear.safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 3) {
+              destinationMenu
+              if cloud {
+                Button {
+                  Task {
+                    do { try await workspace.signIn() } catch {
+                      workspace.error = error.localizedDescription
+                    }
+                  }
+                } label: {
+                  SetupSelectorLabel(
+                    icon: "person.crop.circle", title: "Sign in to choose a repository")
+                }
+                .accessibilityLabel("Sign in to Zuse")
+              } else {
+                Button {
+                  method = .nearby
+                } label: {
+                  SetupSelectorLabel(icon: "folder", title: "Connect to choose a project")
+                }
+              }
+              if workspace.loading {
+                ProgressView("Connecting…").font(.caption).padding(.vertical, 6)
+              }
+              if let problem = workspace.connectionProblem {
+                Text(problem).font(.caption).foregroundStyle(.secondary)
+              }
+              NewChatDraftComposer(
+                text: $draft, enabled: false, busy: false,
+                options: AnyView(
+                  Menu {
+                    Button("Find a nearby computer") { method = .nearby }
+                    Button("Add manually") { method = .manual }
+                  } label: {
+                    Image(systemName: "plus").frame(width: 36, height: 40)
+                  }),
+                models: AnyView(fallbackModelPicker)
+              ) {}
+              .padding(.top, 10)
+            }.frame(maxWidth: 720).frame(maxWidth: .infinity)
+              .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 12)
+              .background { ComposerFade().padding(.top, -40) }
+          }
+        }
+      }.background(AppTheme.surface)
+        .navigationTitle("New chat").compactNavigationTitle()
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel", systemImage: "chevron.left") { dismiss() }.labelStyle(.iconOnly)
+              .disabled(busy)
+          }
+        }
+        .interactiveDismissDisabled(busy)
+        .sheet(item: $method) { ConnectionView(workspace: workspace, method: $0) }
+    }.nativeSheetSize(width: 500, height: 640)
+  }
+}
+
+struct SetupSelectorLabel: View {
+  let icon: String
+  let title: String
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: icon).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
+      Text(title).font(.system(size: 14)).lineLimit(1).foregroundStyle(.primary)
+      Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium)).foregroundStyle(
+        .secondary)
+      Spacer(minLength: 0)
+    }.frame(minHeight: 32).padding(.horizontal, 4).contentShape(Rectangle())
+  }
+}
+
+struct NewChatDraftComposer: View {
+  @FocusState private var focused: Bool
+  @Binding var text: String
+  let enabled: Bool
+  let busy: Bool
+  var editable = true
+  let options: AnyView
+  let models: AnyView
+  let submit: () -> Void
+  var body: some View {
+    VStack(spacing: 0) {
+      TextField("Ask Zuse", text: $text, axis: .vertical)
+        .focused($focused).font(.callout).lineLimit(2...6).padding(.horizontal, 6).padding(.top, 8)
+        .padding(.bottom, 4).disabled(busy || !editable).accessibilityIdentifier("new-chat-prompt")
+      HStack(spacing: 6) {
+        options.buttonStyle(.plain).font(.system(size: 16)).frame(minWidth: 36, minHeight: 40)
+          .foregroundStyle(.secondary).accessibilityLabel("Chat options")
+        Spacer(minLength: 4)
+        models
+        Button {
+          focused = false
+          submit()
+        } label: {
+          Group {
+            if busy {
+              ProgressView().tint(.white)
+            } else {
+              Image(systemName: "arrow.up").font(.system(size: 13, weight: .semibold))
+            }
+          }.foregroundStyle(.white).frame(width: 29, height: 29)
+            .background(
+              enabled ? AppTheme.accent : Color.secondary.opacity(0.2),
+              in: RoundedRectangle(cornerRadius: 8)
+            )
+            .frame(width: 40, height: 40).contentShape(Rectangle())
+        }.buttonStyle(.plain).disabled(!enabled || busy)
+          .accessibilityIdentifier("new-chat-create").accessibilityLabel("Create chat")
+      }
+    }.padding(8).composerGlass()
   }
 }

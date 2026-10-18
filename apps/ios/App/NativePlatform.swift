@@ -1,4 +1,5 @@
 import SwiftUI
+import ZuseCore
 
 #if os(macOS)
   import AppKit
@@ -45,11 +46,7 @@ import SwiftUI
           : NSColor(red: 0.28, green: 0.41, blue: 0, alpha: 1)
       })
   #else
-    static let background = UIColor { traits in
-      traits.userInterfaceStyle == .dark
-        ? UIColor(white: 0.06, alpha: 1)
-        : UIColor(red: 247 / 255, green: 247 / 255, blue: 245 / 255, alpha: 1)
-    }
+    static let background = UIColor.systemBackground
     static let surface = Color(uiColor: background)
     static let accent = Color(
       uiColor: UIColor { traits in
@@ -95,11 +92,27 @@ extension Image {
 }
 
 extension View {
+  @ViewBuilder func newChatPresentation<Content: View>(
+    isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content
+  ) -> some View {
+    #if os(iOS)
+      if UIDevice.current.userInterfaceIdiom == .pad {
+        fullScreenCover(isPresented: isPresented, content: content)
+      } else {
+        sheet(isPresented: isPresented, content: content)
+      }
+    #else
+      sheet(isPresented: isPresented, content: content)
+    #endif
+  }
+}
+
+extension View {
   @ViewBuilder func nativeSheetSize(width: CGFloat = 480, height: CGFloat = 560) -> some View {
     #if os(macOS)
       frame(minWidth: width, idealWidth: width, minHeight: height, idealHeight: height)
     #else
-      self
+      presentationSizing(.form)
     #endif
   }
 }
@@ -118,4 +131,297 @@ extension Notification.Name {
   static let nativeNewChat = Notification.Name("sh.zuse.native.new-chat")
   static let nativeNewCloudChat = Notification.Name("sh.zuse.native.new-cloud-chat")
   static let nativeSettings = Notification.Name("sh.zuse.native.settings")
+}
+
+extension View {
+  @ViewBuilder func floatingGlass(radius: CGFloat = 24, clear: Bool = false) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+    if #available(iOS 26, macOS 26, *) {
+      glassEffect(clear ? .clear : .regular, in: shape)
+    } else {
+      background(clear ? .ultraThinMaterial : .regularMaterial, in: shape)
+
+    }
+  }
+}
+
+private struct ComposerGlass: ViewModifier {
+  let radius: CGFloat
+  @ViewBuilder func body(content: Content) -> some View {
+    let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+    if #available(iOS 26, macOS 26, *) {
+      content.glassEffect(.clear.interactive(), in: shape)
+    } else {
+      content.background(.ultraThinMaterial, in: shape)
+    }
+  }
+}
+extension View {
+  func composerGlass(radius: CGFloat = 22) -> some View { modifier(ComposerGlass(radius: radius)) }
+}
+
+struct ComposerFade: View {
+  var body: some View {
+    LinearGradient(
+      stops: [
+        .init(color: AppTheme.surface.opacity(0), location: 0),
+        .init(color: AppTheme.surface.opacity(0.35), location: 0.4),
+        .init(color: AppTheme.surface.opacity(0.9), location: 1),
+      ], startPoint: .top, endPoint: .bottom
+    )
+    .ignoresSafeArea(.container, edges: .bottom).allowsHitTesting(false)
+  }
+}
+
+struct ProviderMark: View {
+  let providerID: String
+  var size: CGFloat = 16
+  private var asset: String? {
+    let id = providerID.lowercased()
+    if id == "preview" || id.contains("openai") || id.contains("codex") { return "provider-codex" }
+    if id.contains("anthropic") || id.contains("claude") { return "provider-claude" }
+    if id.contains("google") || id.contains("gemini") { return "provider-gemini" }
+    return nil
+  }
+  var body: some View {
+    Group {
+      if let asset {
+        Image(asset).renderingMode(.template).resizable().scaledToFit()
+      } else {
+        Image(systemName: "cpu").resizable().scaledToFit()
+      }
+    }.frame(width: size, height: size).accessibilityHidden(true)
+  }
+}
+
+struct ModelPickerButton: View {
+  let catalog: [ModelProvider]
+  let providerID: String
+  let modelID: String
+  var lockedProvider: String? = nil
+  var sample = false
+  var allowsReasoning = true
+  var modelOptions: Binding<[String: String]> = .constant([:])
+  let select: (String, String) -> Void
+  @State private var presented = false
+  private var currentProvider: ModelProvider? { catalog.first { $0.id == providerID } }
+  var body: some View {
+    Button {
+      presented = true
+    } label: {
+      HStack(spacing: 5) {
+        ProviderMark(providerID: providerID, size: 13)
+        Text(
+          catalog.first { $0.id == providerID }?.models.first { $0.id == modelID }?.label ?? modelID
+        )
+        .lineLimit(1).truncationMode(.middle)
+      }.font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        .padding(.horizontal, 4).frame(minHeight: 32)
+    }.buttonStyle(.plain).accessibilityLabel("Current model: \(modelID)")
+      .sheet(isPresented: $presented) {
+        ModelSettingsSheet(
+          catalog: catalog, providerID: providerID, modelID: modelID,
+          lockedProvider: lockedProvider, sample: sample, allowsReasoning: allowsReasoning,
+          modelOptions: modelOptions,
+          select: select)
+      }
+  }
+}
+
+private struct ModelSettingsSheet: View {
+  let catalog: [ModelProvider]
+  let lockedProvider: String?
+  let sample: Bool
+  let allowsReasoning: Bool
+  let select: (String, String) -> Void
+  @Environment(\.dismiss) private var dismiss
+  @Binding private var modelOptions: [String: String]
+  @State private var provider: String
+  @State private var model: String
+  init(
+    catalog: [ModelProvider], providerID: String, modelID: String,
+    lockedProvider: String?, sample: Bool, allowsReasoning: Bool,
+    modelOptions: Binding<[String: String]>,
+    select: @escaping (String, String) -> Void
+  ) {
+    self.catalog = catalog
+    self.lockedProvider = lockedProvider
+    self.sample = sample
+    self.allowsReasoning = allowsReasoning
+    self.select = select
+    _modelOptions = modelOptions
+    _provider = State(initialValue: providerID)
+    _model = State(initialValue: modelID)
+  }
+  private var reasoning: ModelProvider.Model.OptionDescriptor? {
+    guard allowsReasoning else { return nil }
+    return catalog.first { $0.id == provider }?.models.first { $0.id == model }?.reasoning
+  }
+  private var effortIndex: Int {
+    guard let descriptor = reasoning, let levels = descriptor.options else { return 0 }
+    let selected = modelOptions[descriptor.id] ?? descriptor.defaultId
+    return levels.firstIndex { $0.id == selected } ?? 0
+  }
+  var body: some View {
+    NavigationStack {
+      List {
+        Section {
+          #if os(iOS)
+            modelMenuRow(
+              "Provider", id: "model-provider-menu",
+              value: catalog.first { $0.id == provider }?.name.replacingOccurrences(
+                of: " · sample", with: "") ?? provider,
+              choices: catalog.filter { lockedProvider == nil || $0.id == lockedProvider }.map {
+                ($0.id, $0.name.replacingOccurrences(of: " · sample", with: ""))
+              }, selected: provider
+            ) { id in
+              provider = id
+            }.disabled(lockedProvider != nil)
+            modelMenuRow(
+              "Model", id: "model-model-menu",
+              value: catalog.first { $0.id == provider }?.models.first { $0.id == model }?.label
+                ?? model,
+              choices: (catalog.first { $0.id == provider }?.models ?? []).map {
+                ($0.id, $0.label)
+              }, selected: model
+            ) { model = $0 }
+          #else
+            Picker("Provider", selection: $provider) {
+              ForEach(catalog) { Text($0.name).tag($0.id) }
+            }.disabled(lockedProvider != nil)
+            Picker("Model", selection: $model) {
+              ForEach(catalog.first { $0.id == provider }?.models ?? []) {
+                Text($0.label).tag($0.id)
+              }
+            }
+          #endif
+          if let descriptor = reasoning, let levels = descriptor.options, levels.count > 1 {
+            VStack(alignment: .leading, spacing: 8) {
+              HStack(spacing: 8) {
+                Image(systemName: "brain").font(.system(size: 13)).foregroundStyle(.secondary)
+                Text("Reasoning").font(.system(size: 13))
+                Spacer()
+                Text(levels[effortIndex].label).font(.system(size: 12, weight: .medium))
+                  .foregroundStyle(AppTheme.accent)
+              }
+              Slider(
+                value: Binding(
+                  get: { Double(effortIndex) },
+                  set: { index in
+                    modelOptions[descriptor.id] = levels[Int(index.rounded())].id
+                  }), in: 0...Double(levels.count - 1), step: 1
+              )
+              .frame(height: 40)
+              .tint(AppTheme.accent).accessibilityLabel("Reasoning effort")
+              .accessibilityValue(levels[effortIndex].label)
+              HStack {
+                ForEach(Array(levels.enumerated()), id: \.element.id) { index, level in
+                  if index > 0 { Spacer(minLength: 0) }
+                  Text(level.label).font(.system(size: 10))
+                    .foregroundStyle(index == effortIndex ? Color.primary : Color.secondary)
+                }
+              }
+            }.padding(.vertical, 14)
+              .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+              .alignmentGuide(.listRowSeparatorLeading) { _ in -16 }
+              .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 16 }
+          }
+        } footer: {
+          if sample { Text("Sample models for preview") }
+        }
+      }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
+        .contentMargins(.top, 8)
+        .environment(\.defaultMinListRowHeight, 40)
+        .navigationTitle("Model settings").compactNavigationTitle()
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        .onChange(of: provider) { _, id in
+          guard let item = catalog.first(where: { $0.id == id }) else { return }
+          model = item.defaultModel
+          select(id, model)
+        }
+        .onChange(of: model) { _, id in
+          modelOptions = [:]
+          if let descriptor = reasoning,
+            let value = descriptor.defaultId ?? descriptor.options?.first?.id
+          {
+            modelOptions[descriptor.id] = value
+          }
+          select(provider, id)
+        }
+    }.presentationDetents([.height(reasoning == nil ? 220 : 330)]).presentationDragIndicator(
+      .visible
+    )
+    .presentationCornerRadius(28)
+  }
+  #if os(iOS)
+    private func modelMenuRow(
+      _ title: String, id: String, value: String,
+      choices: [(String, String)], selected: String, select: @escaping (String) -> Void
+    ) -> some View {
+      HStack(spacing: 8) {
+        ProviderMark(providerID: provider, size: 13)
+        Text(title).font(.system(size: 13))
+        Spacer(minLength: 8)
+        NativeSelectionMenu(
+          title: value, identifier: id, choices: choices, selected: selected, select: select
+        )
+        .frame(width: 180, height: 40)
+      }.listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+        .alignmentGuide(.listRowSeparatorLeading) { _ in -16 }
+        .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 16 }
+    }
+  #endif
+
+}
+
+#if os(iOS)
+  private struct NativeSelectionMenu: View {
+    let title: String
+    let identifier: String
+    let choices: [(String, String)]
+    let selected: String
+    let select: (String) -> Void
+    @State private var open = false
+    var body: some View {
+      Button {
+        open = true
+      } label: {
+        HStack(spacing: 6) {
+          Text(title).lineLimit(1)
+          Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
+        }.font(.system(size: 13)).foregroundStyle(.secondary)
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing).contentShape(
+            Rectangle())
+      }.buttonStyle(.plain).accessibilityIdentifier(identifier)
+        .popover(isPresented: $open, arrowEdge: .bottom) {
+          ScrollView {
+            VStack(spacing: 0) {
+              ForEach(choices, id: \.0) { id, label in
+                Button {
+                  select(id)
+                  open = false
+                } label: {
+                  HStack {
+                    if identifier == "model-provider-menu" {
+                      ProviderMark(providerID: id, size: 17)
+                    }
+                    Text(label).font(.system(size: 14))
+                    Spacer()
+                    if id == selected {
+                      Image(systemName: "checkmark").foregroundStyle(AppTheme.accent)
+                    }
+                  }.padding(.horizontal, 16).frame(height: 44).contentShape(Rectangle())
+                }.buttonStyle(.plain).accessibilityIdentifier("selection-choice-\(id)")
+              }
+            }.padding(.vertical, 6)
+          }.frame(width: 260, height: min(CGFloat(choices.count * 44 + 12), 280))
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+  }
+#endif
+
+struct ComposerHeightKey: PreferenceKey {
+  static let defaultValue: CGFloat = 80
+  static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
