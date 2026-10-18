@@ -108,7 +108,7 @@ other systems. ACP shutdown uses the existing owned-process tree cleanup.
 Use Node 24 and Bun 1.3.10 on native Windows x64, with Visual Studio C++ build tools
 (including Spectre-mitigated libraries) and Python available for native modules.
 Run `bun install --frozen-lockfile` from the repository root. If a previous install
-was interrupted, run `bun run --cwd apps/desktop postinstall` explicitly.
+was interrupted, run `bun run --cwd apps/desktop rebuild:native` explicitly.
 The rebuild script supplies the Bun workspace root to electron-rebuild and fails
 if either node-pty or keytar was not found. It builds sequentially.
 
