@@ -8,6 +8,7 @@ import { PluginsSettingsPane } from "./settings/plugins-settings-pane.tsx";
 import { WallpaperSettings } from "./settings/wallpaper-settings";
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -103,6 +104,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { OrganizationSharingPane } from "./settings/organization-sharing-pane.tsx";
 import { OrganizationsPane } from "./settings/organizations-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { SimulatorSettingsPane } from "./settings/simulator-settings-pane.tsx";
 import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
@@ -379,7 +381,11 @@ function SectionTitle({
 	section: SettingsSection;
 	folders: ReadonlyArray<Folder>;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"simulators",
+	]);
 	const workspace = useSyncExternalStore(
 		subscribeRendererWorkspace,
 		rendererWorkspaceSnapshot,
@@ -438,6 +444,12 @@ function SectionTitle({
 				title: uiMessage("settings:settings_page_browser"),
 				subtitle:
 					"Browser sessions and credentials stay on this device; they are not shared with your organization.",
+			};
+		}
+		if (section.kind === "simulator") {
+			return {
+				title: uiMessage("simulators:settings_title"),
+				subtitle: uiMessage("simulators:settings_subtitle"),
 			};
 		}
 		if (section.kind === "pokedex") {
@@ -543,6 +555,7 @@ function Pane({ section }: { section: SettingsSection }) {
 		);
 	}
 	if (section.kind === "browser") return <BrowserSettingsPagePane />;
+	if (section.kind === "simulator") return <SimulatorSettingsPane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
