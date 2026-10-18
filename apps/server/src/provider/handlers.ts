@@ -732,7 +732,7 @@ const updateCreationPhase = (
 	`.pipe(Effect.asVoid, Effect.orDie);
 };
 
-const ChatCreate = MemoizeRpcs.toLayerHandler(
+export const ChatCreate = MemoizeRpcs.toLayerHandler(
 	"chat.create",
 	Effect.gen(function* () {
 		const serviceScope = yield* Effect.scope;
@@ -1014,39 +1014,8 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 											.setChatWorktree(chatId, worktree.id, true)
 											.pipe(Effect.orDie);
 									}
-									if (
-										worktree !== null &&
-										durableOperation.setup_bypassed === 0 &&
-										worktree.setupStatus !== "succeeded" &&
-										worktree.setupStatus !== "skipped"
-									) {
-										yield* updateCreationPhase(
-											sql,
-											operationId,
-											"running_setup",
-										);
-										yield* worktrees.setupStream(worktree.id).pipe(
-											Stream.runDrain,
-											Effect.catch(() => Effect.void),
-										);
-									}
-									const ready =
-										worktree === null
-											? null
-											: yield* worktrees.get(worktree.id);
-									if (
-										worktree !== null &&
-										durableOperation.setup_bypassed === 0 &&
-										(ready === null || ready.setupStatus === "failed")
-									) {
-										yield* updateCreationPhase(sql, operationId, "failed", {
-											failureStage: "setup",
-											error:
-												ready?.setupOutput.trim() ||
-												"The workspace setup failed.",
-										});
-										return;
-									}
+									// WorktreeService.create already owns background setup. Chat startup
+									// waits only for the checkout, so setup failures cannot block a turn.
 									if (yield* cancellationRequested) return;
 									yield* updateCreationPhase(
 										sql,
@@ -1247,45 +1216,6 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 								`.pipe(Effect.orDie);
 											}
 
-											const worktrees = yield* WorktreeService;
-											yield* worktrees.setupStream(created.id).pipe(
-												Stream.runDrain,
-												Effect.mapError(
-													(error) =>
-														new SessionStartError({
-															providerId: input.providerId,
-															reason: `The fresh worktree setup could not be observed: ${String(error)}`,
-														}),
-												),
-												Effect.tapError((error) =>
-													input.operationId === undefined
-														? Effect.void
-														: sql`
-											UPDATE chat_creation_operations
-											SET status = 'failed', error = ${error.reason},
-											    updated_at = ${new Date().toISOString()}
-											WHERE operation_id = ${input.operationId}
-										`.pipe(Effect.orDie),
-												),
-											);
-											const ready = yield* worktrees.get(created.id);
-											if (ready === null || ready.setupStatus === "failed") {
-												const error = new SessionStartError({
-													providerId: input.providerId,
-													reason:
-														ready?.setupOutput.trim() ||
-														"The fresh worktree setup failed.",
-												});
-												if (input.operationId !== undefined) {
-													yield* sql`
-											UPDATE chat_creation_operations
-											SET status = 'failed', error = ${error.reason},
-											    updated_at = ${new Date().toISOString()}
-											WHERE operation_id = ${input.operationId}
-										`.pipe(Effect.orDie);
-												}
-												return yield* error;
-											}
 											if (input.operationId !== undefined) {
 												yield* sql`
 									UPDATE chat_creation_operations
