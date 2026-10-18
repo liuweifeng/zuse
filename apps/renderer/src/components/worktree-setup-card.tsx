@@ -89,8 +89,10 @@ export function WorktreeSetupCard() {
 	// Creation, session summaries, and the active context arrive independently.
 	// The reserved identities remain valid before the other views catch up.
 	const initialSession = (() => {
-		if (creation?.initialSessionId === selectedSessionId) return true;
-		if (pendingCreation?.sessionId === selectedSessionId) return true;
+		const reservedSessionId =
+			creation?.initialSessionId ?? pendingCreation?.sessionId;
+		if (reservedSessionId !== undefined)
+			return reservedSessionId === selectedSessionId;
 		if (session === null) return false;
 		const chatSessions = sessionsByProject[session.projectId] ?? [];
 		const oldest = chatSessions
@@ -134,11 +136,7 @@ export function WorktreeSetupCard() {
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);
 	const setupStatus = worktree?.setupStatus ?? null;
-	const setupDone =
-		setupStatus === "succeeded" ||
-		setupStatus === "skipped" ||
-		((setupStatus === null || setupStatus === "pending") &&
-			(creationPhase === "starting_agent" || creationPhase === "running"));
+	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
 	// A provider thread can already be running while workspace setup continues.
 	const externalResume =
 		session !== null && session.providerThread !== null && worktree === null;
@@ -201,13 +199,11 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const setupStatus =
 		observedSetupStatus !== null && observedSetupStatus !== "pending"
 			? observedSetupStatus
-			: creationPhase === "starting_agent" || creationPhase === "running"
-				? "succeeded"
-				: creationPhase === "running_setup"
-					? "running"
-					: creationPhase === "failed"
-						? "failed"
-						: observedSetupStatus;
+			: creationPhase === "running_setup"
+				? "running"
+				: creationPhase === "failed"
+					? "failed"
+					: observedSetupStatus;
 	const showsWorktreeSteps = hasWorktree || worktreePending;
 	const wtReady =
 		showsWorktreeSteps &&

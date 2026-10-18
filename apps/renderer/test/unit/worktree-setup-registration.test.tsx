@@ -3,6 +3,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
 	sessionVisible: false,
+	durableCreation: true,
+	pendingCreation: false,
+	creationPhase: "running_setup",
+	worktreePresent: true,
 	providerAttached: false,
 	selectedSessionId: "session",
 	setupStatus: "running",
@@ -18,7 +22,20 @@ vi.mock("../../src/store/active-workspace.ts", () => ({
 }));
 vi.mock("../../src/store/chats.ts", () => ({
 	useChatsStore: (select: (s: unknown) => unknown) =>
-		select({ selectedChatId: "chat", pendingCreationByChat: {} }),
+		select({
+			selectedChatId: "chat",
+			pendingCreationByChat: fixture.pendingCreation
+				? {
+						chat: {
+							sessionId: "session",
+							projectId: "project",
+							worktreeId: "reserved-worktree",
+							workspaceRequested: true,
+							phase: fixture.creationPhase,
+						},
+					}
+				: {},
+		}),
 }));
 vi.mock("../../src/store/sessions.ts", () => ({
 	useSessionsStore: (select: (s: unknown) => unknown) =>
@@ -42,7 +59,7 @@ vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
 			project: fixture.sessionVisible
 				? [
 						{
-							id: "session",
+							id: fixture.selectedSessionId,
 							chatId: "chat",
 							projectId: "project",
 							createdAt: new Date(0),
@@ -54,23 +71,25 @@ vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
 				: [],
 		},
 		creationOperationsByProject: {
-			project: [
-				{
-					chatId: "chat",
-					projectId: "project",
-					initialSessionId: "session",
-					worktreeId: "reserved-worktree",
-					phase: "running_setup",
-					workspacePolicy: { _tag: "fresh" },
-					createdAt: new Date(0),
-				},
-			],
+			project: fixture.durableCreation
+				? [
+						{
+							chatId: "chat",
+							projectId: "project",
+							initialSessionId: "session",
+							worktreeId: "reserved-worktree",
+							phase: fixture.creationPhase,
+							workspacePolicy: { _tag: "fresh" },
+							createdAt: new Date(0),
+						},
+					]
+				: [],
 		},
 	}),
 }));
 vi.mock("../../src/hooks/use-worktree-setup-lifecycle.ts", () => ({
 	useWorktreeSetupLifecycle: (_projectId: string, worktreeId: string | null) =>
-		worktreeId === "reserved-worktree"
+		fixture.worktreePresent && worktreeId === "reserved-worktree"
 			? {
 					name: "poliwrath",
 					branch: "poliwrath",
@@ -85,6 +104,10 @@ import { WorktreeSetupCard } from "../../src/components/worktree-setup-card.tsx"
 
 beforeEach(() => {
 	fixture.sessionVisible = false;
+	fixture.durableCreation = true;
+	fixture.pendingCreation = false;
+	fixture.creationPhase = "running_setup";
+	fixture.worktreePresent = true;
 	fixture.providerAttached = false;
 	fixture.worktreeId = null;
 	fixture.selectedSessionId = "session";
@@ -116,4 +139,32 @@ it("keeps background setup visible while the provider is already replying", () =
 	expect(renderToStaticMarkup(<WorktreeSetupCard />)).toContain(
 		"Running environment setup",
 	);
+});
+
+it.each([
+	"durable",
+	"optimistic",
+])("keeps the %s reserved session authoritative when only a later session is loaded", (source) => {
+	fixture.durableCreation = source === "durable";
+	fixture.pendingCreation = source === "optimistic";
+	fixture.selectedSessionId = "later-session";
+	fixture.sessionVisible = true;
+	expect(renderToStaticMarkup(<WorktreeSetupCard />)).toBe("");
+});
+it.each([
+	"starting_agent",
+	"running",
+])("does not hide pending setup when chat creation is %s", (phase) => {
+	fixture.creationPhase = phase;
+	fixture.setupStatus = "pending";
+	const html = renderToStaticMarkup(<WorktreeSetupCard />);
+	expect(html).not.toBe("");
+	expect(html).not.toContain("Workspace ready");
+});
+it("does not declare unhydrated setup complete when the agent is running", () => {
+	fixture.creationPhase = "running";
+	fixture.worktreePresent = false;
+	const html = renderToStaticMarkup(<WorktreeSetupCard />);
+	expect(html).not.toBe("");
+	expect(html).not.toContain("Workspace ready");
 });
