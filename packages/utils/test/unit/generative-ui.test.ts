@@ -4,6 +4,7 @@ import {
 	generativeUiComponentLines,
 	generativeUiComponentNames,
 	generativeUiJsonSchema,
+	parseGenerativeUiSpec,
 	UI_SPEC_MAX_CHARS,
 	UI_SPEC_VERSION,
 	validateGenerativeUiSpec,
@@ -268,5 +269,24 @@ views = Tabs([{label: "Before", content: Text("a")}, {label: "After", content: T
 		const result = validateGenerativeUiSpec(spec);
 		expect(result.ok).toBe(false);
 		if (!result.ok) expect(result.error).toContain(reason);
+	});
+});
+
+describe("native render tree", () => {
+	it("resolves references using the shared component props", () => {
+		const root = parseGenerativeUiSpec(
+			'metric = Stat("Count", "12")\nroot = Card([metric], "Overview")',
+		);
+		expect(root.typeName).toBe("Card");
+		expect(root.props.title).toBe("Overview");
+		expect(root.props.children).toMatchObject([
+			{ typeName: "Stat", props: { label: "Count", value: "12" } },
+		]);
+	});
+	it("rejects executable and malformed content before returning a tree", () => {
+		expect(() => parseGenerativeUiSpec('root = eval("secret")')).toThrow();
+		expect(() =>
+			parseGenerativeUiSpec('root = Slider("x", "X", 10, 1)'),
+		).toThrow();
 	});
 });
