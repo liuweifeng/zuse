@@ -57,17 +57,11 @@ export type SetupCardData = {
 };
 
 /**
- * Inline timeline card shown while a new chat is coming up: it narrates the
- * worktree branch/copy, streams the live environment-setup log, and tracks
- * the provider/model CLI boot — all in one place, with the composer pinned
- * at the bottom. Replaces the old full-screen `ChatCreatingPanel` stepper.
- * Renders nothing once there's no setup work left and the provider is ready.
+ * Compact worktree progress alongside the transcript. Workspace setup runs
+ * independently of the agent; its logs and retry action stay collapsed until
+ * requested, including after a setup failure.
  */
-export function WorktreeSetupCard({
-	providerOutputStarted = false,
-}: {
-	readonly providerOutputStarted?: boolean;
-} = {}) {
+export function WorktreeSetupCard() {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const pendingCreation = useChatsStore((state) =>
@@ -145,7 +139,9 @@ export function WorktreeSetupCard({
 		setupStatus === "skipped" ||
 		((setupStatus === null || setupStatus === "pending") &&
 			(creationPhase === "starting_agent" || creationPhase === "running"));
-	const externalResume = session !== null && session.providerThread !== null;
+	// A provider thread can already be running while workspace setup continues.
+	const externalResume =
+		session !== null && session.providerThread !== null && worktree === null;
 
 	const visible = shouldShowSetupCard({
 		externalResume,
@@ -154,7 +150,6 @@ export function WorktreeSetupCard({
 		setupDone,
 		workspacePending: worktreePending,
 	});
-	if (providerOutputStarted) return null;
 
 	if (cloudSummary !== null) return null;
 	if (!visible) return null;
@@ -323,10 +318,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	}, [output]);
 
 	return (
-		<details
-			className="group/setup w-full px-4 py-1 text-[11px]"
-			open={failed || undefined}
-		>
+		<details className="group/setup w-full px-4 py-1 text-[11px]">
 			<summary className="flex h-7 cursor-pointer list-none items-center gap-2 rounded-md text-muted-foreground outline-none select-none marker:content-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
 				<span
 					className="flex size-4 shrink-0 items-center justify-center"

@@ -403,7 +403,7 @@ export function ChatView({
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
-						<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
+						<WorktreeSetupCard />
 						{backgroundAgents.length > 0 && (
 							<Suspense fallback={null}>
 								<BackgroundAgentWorkingRows agents={backgroundAgents} />

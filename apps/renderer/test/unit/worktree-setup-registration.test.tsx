@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 const fixture = vi.hoisted(() => ({
 	sessionVisible: false,
+	providerAttached: false,
 	selectedSessionId: "session",
 	setupStatus: "running",
 	worktreeId: null as string | null,
@@ -45,7 +46,9 @@ vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
 							chatId: "chat",
 							projectId: "project",
 							createdAt: new Date(0),
-							providerThread: null,
+							providerThread: fixture.providerAttached
+								? { id: "thread" }
+								: null,
 						},
 					]
 				: [],
@@ -82,6 +85,7 @@ import { WorktreeSetupCard } from "../../src/components/worktree-setup-card.tsx"
 
 beforeEach(() => {
 	fixture.sessionVisible = false;
+	fixture.providerAttached = false;
 	fixture.worktreeId = null;
 	fixture.selectedSessionId = "session";
 	fixture.setupStatus = "running";
@@ -106,8 +110,10 @@ it("hides the card once the reserved worktree finishes setup", () => {
 	fixture.setupStatus = "succeeded";
 	expect(renderToStaticMarkup(<WorktreeSetupCard />)).toBe("");
 });
-it("hands the display to provider output even before summaries catch up", () => {
-	expect(
-		renderToStaticMarkup(<WorktreeSetupCard providerOutputStarted />),
-	).toBe("");
+it("keeps background setup visible while the provider is already replying", () => {
+	fixture.sessionVisible = true;
+	fixture.providerAttached = true;
+	expect(renderToStaticMarkup(<WorktreeSetupCard />)).toContain(
+		"Running environment setup",
+	);
 });
