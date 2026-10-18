@@ -27,7 +27,7 @@
 		"test:engine": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts",
 		"test:engine-reliability": "bun run build && node --import tsx scripts/engine-runtime-smoke.ts --provider-fixture --account-outage",
 		"test:integration": "vp test run test/integration --passWithNoTests",
-		"postinstall": "node scripts/rebuild-native.mjs",
+		"rebuild:native": "node scripts/rebuild-native.mjs",
 		"icon": "node scripts/make-icon.mjs",
 		"dmg:background": "node scripts/make-dmg-background.mjs",
 		"native:build": "node scripts/build-local-connectivity-helper.mjs",
