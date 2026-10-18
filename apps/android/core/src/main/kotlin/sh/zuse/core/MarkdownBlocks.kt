@@ -1,22 +1,21 @@
 package sh.zuse.core
 
-data class MarkdownBlock(val diagram: Boolean, val content: String) {
+data class MarkdownBlock(val diagram: Boolean, val content: String, val language: String? = null) {
     companion object {
         /**
-         * Keep ordinary/unclosed code fences as Markdown, extracting only complete Mermaid blocks.
+         * Complete top-level fences become native code/diagram surfaces; partial streams stay text.
          */
         fun parse(markdown: String): List<MarkdownBlock> {
             val blocks = ArrayList<MarkdownBlock>()
             val text = ArrayList<String>()
-            val diagram = ArrayList<String>()
+            val fence = ArrayList<String>()
             var character: Char? = null
             var length = 0
-            var isDiagram = false
+            var language = ""
             fun flushText() {
-                if (text.isNotEmpty()) {
-                    blocks.add(MarkdownBlock(false, text.joinToString("\n")))
-                    text.clear()
-                }
+                val content = text.joinToString("\n")
+                if (content.isNotBlank()) blocks.add(MarkdownBlock(false, content))
+                text.clear()
             }
             for (line in markdown.split('\n')) {
                 val trimmed = line.trimStart(' ')
@@ -30,21 +29,26 @@ data class MarkdownBlock(val diagram: Boolean, val content: String) {
                             count >= length &&
                             trimmed.drop(count).isBlank()
                     ) {
-                        if (isDiagram) {
-                            flushText()
-                            blocks.add(MarkdownBlock(true, diagram.drop(1).joinToString("\n")))
-                            diagram.clear()
-                        } else text.add(line)
+                        flushText()
+                        blocks.add(
+                            MarkdownBlock(
+                                language == "mermaid",
+                                fence.drop(1).joinToString("\n"),
+                                language.ifEmpty { "code" },
+                            )
+                        )
+                        fence.clear()
                         character = null
-                    } else if (isDiagram) diagram.add(line) else text.add(line)
+                    } else fence.add(line)
                 } else if (indent <= 3 && first in listOf('`', '~') && count >= 3) {
                     character = first
                     length = count
-                    isDiagram = trimmed.drop(count).trim().equals("mermaid", ignoreCase = true)
-                    if (isDiagram) diagram.add(line) else text.add(line)
+                    language =
+                        trimmed.drop(count).trim().takeWhile { !it.isWhitespace() }.lowercase()
+                    fence.add(line)
                 } else text.add(line)
             }
-            if (diagram.isNotEmpty()) text.addAll(diagram)
+            if (fence.isNotEmpty()) text.addAll(fence)
             flushText()
             return blocks
         }

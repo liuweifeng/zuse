@@ -7,8 +7,6 @@ package sh.zuse.android
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
@@ -22,6 +20,7 @@ import androidx.compose.material3.adaptive.layout.*
 import androidx.compose.material3.adaptive.navigation.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -39,6 +38,7 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
     val scope = rememberCoroutineScope()
     var settings by rememberSaveable { mutableStateOf(false) }
     var newChat by rememberSaveable { mutableStateOf(false) }
+    val newChatState = rememberSaveableStateHolder()
     var cloud by rememberSaveable { mutableStateOf(false) }
     var diffs by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
@@ -63,7 +63,7 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
     ) { insets ->
         ListDetailPaneScaffold(
             modifier = Modifier.padding(insets).consumeWindowInsets(insets).fillMaxSize(),
-            directive = navigator.scaffoldDirective,
+            directive = navigator.scaffoldDirective.copy(defaultPanePreferredWidth = 320.dp),
             value = navigator.scaffoldValue,
             listPane = {
                 AnimatedPane {
@@ -71,7 +71,12 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
                         workspace,
                         onSettings = { settings = true },
                         onNewChat = {
-                            if (workspace.connected) newChat = true
+                            if (
+                                workspace.connected ||
+                                    (BuildConfig.DEBUG &&
+                                        workspace.selectedSession?.id == "preview-session")
+                            )
+                                newChat = true
                             else if (workspace.signedIn) cloud = true else settings = true
                         },
                         onOpen = { session ->
@@ -85,16 +90,26 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
             },
             detailPane = {
                 AnimatedPane {
-                    key(workspace.conversationKey) {
-                        ConversationPane(
-                            workspace,
-                            onBack = { scope.launch { navigator.navigateBack() } },
-                            onNewChat = {
-                                if (workspace.connected) newChat = true
-                                else if (workspace.signedIn) cloud = true else settings = true
-                            },
-                            onDiffs = { diffs = true },
-                        )
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+                        key(workspace.conversationKey) {
+                            ConversationPane(
+                                workspace,
+                                onBack = { scope.launch { navigator.navigateBack() } },
+                                showBack =
+                                    navigator.scaffoldValue[ListDetailPaneScaffoldRole.List] ==
+                                        PaneAdaptedValue.Hidden,
+                                onNewChat = {
+                                    if (
+                                        workspace.connected ||
+                                            (BuildConfig.DEBUG &&
+                                                workspace.selectedSession?.id == "preview-session")
+                                    )
+                                        newChat = true
+                                    else if (workspace.signedIn) cloud = true else settings = true
+                                },
+                                onDiffs = { diffs = true },
+                            )
+                        }
                     }
                 }
             },
@@ -114,19 +129,26 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
             },
         )
     if (newChat)
-        NewChatSheet(
-            workspace,
-            onClose = { newChat = false },
-            onCreated = {
-                newChat = false
-                scope.launch {
-                    navigator.navigateTo(
-                        ListDetailPaneScaffoldRole.Detail,
-                        workspace.selectedSession?.id,
-                    )
-                }
-            },
-        )
+        newChatState.SaveableStateProvider("new-chat") {
+            NewChatSheet(
+                workspace,
+                onClose = { newChat = false },
+                onCloud = {
+                    newChat = false
+                    cloud = true
+                },
+                onCreated = {
+                    newChat = false
+                    newChatState.removeState("new-chat")
+                    scope.launch {
+                        navigator.navigateTo(
+                            ListDetailPaneScaffoldRole.Detail,
+                            workspace.selectedSession?.id,
+                        )
+                    }
+                },
+            )
+        }
     if (cloud) CloudSheet(workspace, openUri, onClose = { cloud = false })
     if (diffs) DiffSheet(workspace) { diffs = false }
     LaunchedEffect(workspace.selectedSession?.id) {
@@ -138,7 +160,7 @@ fun ZuseApp(workspace: WorkspaceViewModel, openUri: (Uri) -> Unit) {
 @Composable
 fun SmallIcon(icon: ImageVector, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     IconButton(onClick = onClick, enabled = enabled, modifier = Modifier.size(44.dp)) {
-        Icon(icon, label, Modifier.size(20.dp))
+        Icon(icon, label, Modifier.size(18.dp))
     }
 }
 
@@ -150,7 +172,7 @@ fun PaneHeader(
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 8.dp),
+        Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         leading()
@@ -158,7 +180,7 @@ fun PaneHeader(
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -190,12 +212,16 @@ private fun HomePane(
             is Source.Device -> source.device.label
             is Source.Cloud -> "Zuse Cloud"
             is Source.Computer -> source.device.label ?: "Computer"
-            null -> "Your workspace"
+            null ->
+                if (BuildConfig.DEBUG && workspace.selectedSession?.id == "preview-session")
+                    "Demo computer"
+                else "Choose computer"
         }
     Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         PaneHeader(
             "Zuse",
-            workspace.status,
+            if (BuildConfig.DEBUG && workspace.status.startsWith("Preview")) "Sample data"
+            else null,
             actions = {
                 SmallIcon(Icons.Outlined.Settings, "Settings", onSettings)
                 SmallIcon(
@@ -207,19 +233,38 @@ private fun HomePane(
             },
         )
         Row(
-            Modifier.padding(horizontal = 16.dp).fillMaxWidth(),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(36.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box {
-                TextButton(
-                    onClick = { deviceMenu = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    modifier = Modifier.height(36.dp),
+            Box(Modifier.weight(1f)) {
+                Row(
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                        .clickable { deviceMenu = true }
+                        .height(32.dp)
+                        .padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
                 ) {
-                    Icon(Icons.Outlined.Devices, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(name, maxLines = 1)
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+                    Icon(
+                        if (source is Source.Cloud) Icons.Outlined.CloudQueue
+                        else Icons.Outlined.Computer,
+                        null,
+                        Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Icon(
+                        Icons.Outlined.ExpandMore,
+                        null,
+                        Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 DropdownMenu(deviceMenu, { deviceMenu = false }) {
                     workspace.devices.forEach { device ->
@@ -241,7 +286,7 @@ private fun HomePane(
                         )
                     }
                     DropdownMenuItem(
-                        text = { Text("Manage devices") },
+                        text = { Text("Manage computers") },
                         onClick = {
                             deviceMenu = false
                             onSettings()
@@ -249,156 +294,179 @@ private fun HomePane(
                     )
                 }
             }
-            Spacer(Modifier.weight(1f))
-            if (source != null) SmallIcon(Icons.Outlined.Refresh, "Reconnect", workspace::reconnect)
-        }
-        if (workspace.projects.isNotEmpty())
-            Box(Modifier.padding(horizontal = 16.dp)) {
-                TextButton(
-                    onClick = { projectMenu = true },
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                ) {
-                    Icon(Icons.Outlined.FolderOpen, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(workspace.selectedProject?.name ?: "Select project")
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
-                }
-                DropdownMenu(projectMenu, { projectMenu = false }) {
-                    workspace.projects.forEach { project ->
-                        DropdownMenuItem(
-                            text = { Text(project.name) },
-                            onClick = {
-                                workspace.selectProject(project)
-                                projectMenu = false
-                            },
+            if (workspace.projects.isNotEmpty())
+                Box(Modifier.widthIn(max = 130.dp)) {
+                    Row(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .clickable { projectMenu = true }
+                            .height(32.dp)
+                            .padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.FolderOpen,
+                            null,
+                            Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            workspace.selectedProject?.name ?: "Project",
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Icon(
+                            Icons.Outlined.ExpandMore,
+                            null,
+                            Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                    DropdownMenu(projectMenu, { projectMenu = false }) {
+                        workspace.projects.forEach { project ->
+                            DropdownMenuItem(
+                                text = { Text(project.name) },
+                                onClick = {
+                                    workspace.selectProject(project)
+                                    projectMenu = false
+                                },
+                            )
+                        }
+                    }
                 }
-            }
+        }
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(12.dp),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
         ) {
             val filtered =
                 workspace.sessions.filter { search.isBlank() || it.title.contains(search, true) }
             items(filtered, key = { "session:${it.id}" }, contentType = { "chat" }) { session ->
-                val selected = workspace.selectedSession?.id == session.id
-                Column(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(
-                            if (selected) MaterialTheme.colorScheme.surfaceContainerHigh
-                            else Color.Transparent
-                        )
-                        .clickable { onOpen(session) }
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                ChatListRow(
+                    session.title,
+                    session.model,
+                    workspace.selectedSession?.id == session.id,
+                    Icons.Outlined.ChatBubbleOutline,
                 ) {
-                    Text(
-                        session.title,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                    )
-                    Spacer(Modifier.height(5.dp))
-                    Text(
-                        session.model,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    onOpen(session)
                 }
             }
-            if (workspace.cloudChats.isNotEmpty()) {
+            val cloud =
+                workspace.cloudChats.filter { search.isBlank() || it.title.contains(search, true) }
+            if (cloud.isNotEmpty()) {
                 item {
                     Text(
-                        "CLOUD CHATS",
-                        Modifier.padding(14.dp),
+                        "Cloud chats",
+                        Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 items(
-                    workspace.cloudChats.filter {
-                        search.isBlank() || it.title.contains(search, true)
-                    },
+                    cloud,
                     key = { "cloud:${it.workspaceId}:${it.chatId}" },
                     contentType = { "cloud" },
                 ) { chat ->
-                    ListItem(
-                        headlineContent = {
-                            Text(chat.title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        },
-                        supportingContent = {
-                            Text(
-                                "${chat.repositoryDisplayName} · ${chat.runtimeState}",
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        },
-                        leadingContent = {
-                            Icon(Icons.Outlined.CloudQueue, null, Modifier.size(18.dp))
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        modifier =
-                            Modifier.clip(RoundedCornerShape(12.dp)).clickable {
-                                workspace.connect(Source.Cloud(chat))
-                            },
-                    )
+                    ChatListRow(
+                        chat.title,
+                        chat.repositoryDisplayName,
+                        source is Source.Cloud && source.chat.chatId == chat.chatId,
+                        Icons.Outlined.CloudQueue,
+                    ) {
+                        workspace.connect(Source.Cloud(chat))
+                    }
                 }
             }
-            if (filtered.isEmpty() && workspace.cloudChats.isEmpty())
+            if (filtered.isEmpty() && cloud.isEmpty())
                 item {
                     Column(
-                        Modifier.fillMaxWidth().padding(24.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 48.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Spacer(Modifier.height(56.dp))
                         Icon(
                             Icons.Outlined.Forum,
                             null,
-                            Modifier.size(30.dp),
+                            Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(16.dp))
                         Text(
-                            if (workspace.connected) "Start something new"
-                            else "Your work, anywhere",
+                            if (workspace.connected) "Start a chat" else "Connect your computer",
                             style = MaterialTheme.typography.titleMedium,
                         )
                         Text(
-                            if (workspace.connected) "Create a chat in this project."
-                            else "Connect your computer or sign in to Zuse Cloud.",
-                            Modifier.padding(top = 8.dp),
+                            if (workspace.connected) "Choose a project, then start a chat."
+                            else
+                                "Your chats and projects stay on your computer. Pair it to get started, or sign in for cloud chats.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         )
-                        TextButton(onClick = if (workspace.connected) onNewChat else onSettings) {
-                            Text(if (workspace.connected) "New chat" else "Connect a device")
-                        }
+                        CompactAction(
+                            if (workspace.connected) "New chat" else "Get connected",
+                            onClick = if (workspace.connected) onNewChat else onSettings,
+                        )
                     }
                 }
         }
         Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(14.dp),
-            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shape = RoundedCornerShape(22.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp).fillMaxWidth(),
         ) {
             Row(
-                Modifier.padding(horizontal = 12.dp),
+                Modifier.height(44.dp).padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Outlined.Search, null, Modifier.size(18.dp))
-                BasicSearch(search, { search = it }, Modifier.weight(1f))
-                SmallIcon(
-                    Icons.Outlined.Edit,
-                    "Create chat",
-                    onNewChat,
-                    workspace.connected || workspace.signedIn,
+                Icon(
+                    Icons.Outlined.Search,
+                    null,
+                    Modifier.size(17.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                BasicSearch(search, { search = it }, Modifier.weight(1f))
             }
+        }
+    }
+}
+
+@Composable
+private fun ChatListRow(
+    title: String,
+    detail: String,
+    selected: Boolean,
+    icon: ImageVector,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent
+            )
+            .clickable(onClick = onClick)
+            .heightIn(min = 46.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, null, Modifier.size(17.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                title,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(
+                detail,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }
@@ -429,10 +497,12 @@ private fun BasicSearch(value: String, onChange: (String) -> Unit, modifier: Mod
 private fun ConversationPane(
     workspace: WorkspaceViewModel,
     onBack: () -> Unit,
+    showBack: Boolean,
     onNewChat: () -> Unit,
     onDiffs: () -> Unit,
 ) {
     val session = workspace.selectedSession
+    var actions by remember { mutableStateOf(false) }
     val list = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var follow by remember(session?.id) { mutableStateOf(true) }
@@ -459,25 +529,56 @@ private fun ConversationPane(
         if (follow && list.layoutInfo.totalItemsCount > 0)
             list.scrollToItem(list.layoutInfo.totalItemsCount - 1)
     }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxHeight().widthIn(max = 760.dp).fillMaxWidth()) {
         PaneHeader(
             session?.title ?: "Zuse",
-            if (session != null) "${workspace.status} · ${session.model}" else null,
-            leading = { SmallIcon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to chats", onBack) },
-            actions = {
-                if (session != null)
-                    SmallIcon(
-                        Icons.Outlined.Difference,
-                        "Review changes",
-                        onDiffs,
-                        workspace.connected,
+            if (session != null)
+                listOfNotNull(
+                        workspace.selectedProject?.name,
+                        if (BuildConfig.DEBUG && workspace.status.startsWith("Preview"))
+                            "Sample data"
+                        else null,
                     )
-                SmallIcon(
-                    Icons.Outlined.Edit,
-                    "New chat",
-                    onNewChat,
-                    workspace.connected || workspace.signedIn,
-                )
+                    .joinToString(" · ")
+            else null,
+            leading = {
+                if (showBack)
+                    SmallIcon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to chats", onBack)
+            },
+            actions = {
+                Box {
+                    SmallIcon(Icons.Outlined.MoreVert, "Chat actions", { actions = true })
+                    DropdownMenu(actions, { actions = false }) {
+                        DropdownMenuItem(
+                            text = { Text("New chat") },
+                            enabled =
+                                workspace.connected ||
+                                    workspace.signedIn ||
+                                    (BuildConfig.DEBUG && session?.id == "preview-session"),
+                            onClick = {
+                                actions = false
+                                onNewChat()
+                            },
+                        )
+                        if (session != null)
+                            DropdownMenuItem(
+                                text = { Text("Review changes") },
+                                enabled = workspace.connected,
+                                onClick = {
+                                    actions = false
+                                    onDiffs()
+                                },
+                            )
+                        if (workspace.source != null)
+                            DropdownMenuItem(
+                                text = { Text("Reconnect") },
+                                onClick = {
+                                    actions = false
+                                    workspace.reconnect()
+                                },
+                            )
+                    }
+                }
             },
         )
         if (session == null) {
@@ -497,8 +598,8 @@ private fun ConversationPane(
                     state = list,
                     modifier =
                         Modifier.fillMaxSize().semantics { contentDescription = "Chat transcript" },
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(18.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (workspace.olderSequence != null)
                         item(key = "older") {
@@ -590,138 +691,6 @@ private fun ConversationPane(
             }
             InteractionBar(workspace)
             Composer(workspace)
-        }
-    }
-}
-
-@Composable
-private fun Composer(workspace: WorkspaceViewModel) {
-    var modelMenu by remember { mutableStateOf(false) }
-    val picker =
-        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            uri?.let { workspace.attach(it) }
-        }
-    Column(Modifier.fillMaxWidth().imePadding().padding(horizontal = 12.dp, vertical = 8.dp)) {
-        if (workspace.attachments.isNotEmpty())
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                workspace.attachments.forEach { ref ->
-                    InputChip(
-                        selected = false,
-                        onClick = { workspace.removeAttachment(ref) },
-                        label = { Text(ref.text("originalName") ?: "Attachment", maxLines = 1) },
-                        trailingIcon = {
-                            Icon(Icons.Outlined.Close, "Remove attachment", Modifier.size(14.dp))
-                        },
-                    )
-                }
-            }
-        Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-        ) {
-            Column {
-                androidx.compose.foundation.text.BasicTextField(
-                    value = workspace.draft,
-                    onValueChange = workspace::updateDraft,
-                    enabled = workspace.inputsReady,
-                    cursorBrush =
-                        androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
-                    textStyle =
-                        MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface
-                        ),
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .heightIn(min = 48.dp, max = 160.dp)
-                            .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp)
-                            .semantics { contentDescription = "Ask Zuse" },
-                    decorationBox = { inner ->
-                        if (workspace.draft.isEmpty())
-                            Text(
-                                "Ask Zuse",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        inner()
-                    },
-                )
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 4.dp, end = 8.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SmallIcon(
-                        Icons.Outlined.Add,
-                        "Add attachment",
-                        { picker.launch(arrayOf("*/*")) },
-                        workspace.synced && !workspace.uploading,
-                    )
-                    if (workspace.uploading)
-                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.weight(1f))
-                    Box {
-                        TextButton(
-                            onClick = { modelMenu = true },
-                            enabled = workspace.synced && workspace.activeTurnId == null,
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                        ) {
-                            Text(
-                                workspace.selectedSession?.model.orEmpty(),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.widthIn(max = 180.dp),
-                            )
-                        }
-                        DropdownMenu(modelMenu, { modelMenu = false }) {
-                            workspace.models.forEach { model ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("${model.name} · ${model.provider}", maxLines = 1)
-                                    },
-                                    onClick = {
-                                        modelMenu = false
-                                        workspace.changeModel(model)
-                                    },
-                                )
-                            }
-                        }
-                    }
-                    val stopping = workspace.activeTurnId != null
-                    val sendEnabled =
-                        if (stopping) workspace.connected
-                        else
-                            workspace.inputsReady &&
-                                !workspace.sending &&
-                                !workspace.uploading &&
-                                (workspace.draft.isNotBlank() || workspace.attachments.isNotEmpty())
-                    IconButton(
-                        onClick = { if (stopping) workspace.stop() else workspace.send() },
-                        enabled = sendEnabled,
-                        modifier = Modifier.size(44.dp),
-                    ) {
-                        Box(
-                            Modifier.size(30.dp)
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(
-                                    if (sendEnabled) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = .18f)
-                                ),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                if (stopping) Icons.Outlined.Stop else Icons.Outlined.ArrowUpward,
-                                if (stopping) "Stop response" else "Send message",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }

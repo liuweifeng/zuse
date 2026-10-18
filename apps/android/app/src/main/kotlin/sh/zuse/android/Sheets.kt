@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -100,6 +102,13 @@ fun CompactAction(label: String, enabled: Boolean = true, onClick: () -> Unit) {
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             shape = RoundedCornerShape(7.dp),
             modifier = Modifier.height(28.dp),
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = brandFill,
+                    contentColor = Color.White,
+                    disabledContainerColor = brandFill.copy(alpha = .45f),
+                    disabledContentColor = Color.White,
+                ),
         ) {
             Text(label, style = MaterialTheme.typography.labelMedium)
         }
@@ -109,8 +118,8 @@ fun CompactAction(label: String, enabled: Boolean = true, onClick: () -> Unit) {
 @Composable
 private fun SectionLabel(text: String) {
     Text(
-        text.uppercase(),
-        Modifier.padding(top = 20.dp, bottom = 8.dp),
+        text,
+        Modifier.padding(top = 4.dp, bottom = 0.dp),
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
@@ -123,6 +132,9 @@ fun SettingsSheet(
     onCloud: () -> Unit,
     onClose: () -> Unit,
 ) {
+    var page by rememberSaveable {
+        mutableStateOf(if (workspace.pairingLink != null) "pair" else "home")
+    }
     var label by rememberSaveable { mutableStateOf("") }
     var address by rememberSaveable { mutableStateOf("") }
     var token by rememberSaveable { mutableStateOf("") }
@@ -130,211 +142,441 @@ fun SettingsSheet(
     var pairing by rememberSaveable { mutableStateOf(workspace.pairingLink.orEmpty()) }
     var nearbySelection by remember { mutableStateOf<NearbyComputer?>(null) }
     var code by rememberSaveable { mutableStateOf("") }
-    var showAdvanced by rememberSaveable { mutableStateOf(false) }
+    var advanced by rememberSaveable { mutableStateOf(false) }
     val scanner =
         rememberLauncherForActivityResult(ScanContract()) { result ->
             result.contents?.let { pairing = it }
         }
     val context = LocalContext.current
     var nearbyError by remember { mutableStateOf<String?>(null) }
-    val nearby by
-        remember(context) {
-                NearbyBrowser(context).computers.catch {
-                    nearbyError = it.message
-                    emit(emptyList())
-                }
-            }
-            .collectAsStateWithLifecycle(emptyList())
+    val nearby =
+        if (page == "computers" || page == "pair") {
+            val rows by
+                remember(context) {
+                        NearbyBrowser(context).computers.catch {
+                            nearbyError = it.message
+                            emit(emptyList())
+                        }
+                    }
+                    .collectAsStateWithLifecycle(emptyList())
+            rows
+        } else emptyList()
     ModalBottomSheet(
         onDismissRequest = onClose,
+        sheetMaxWidth = 560.dp,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = { SheetHandle() },
+        properties = ModalBottomSheetProperties(shouldDismissOnBackPress = page == "home"),
     ) {
+        androidx.activity.compose.BackHandler(page != "home") {
+            page = if (page in listOf("pair", "manual")) "computers" else "home"
+        }
         Column(
             Modifier.fillMaxWidth()
-                .fillMaxHeight(.9f)
-                .widthIn(max = 620.dp)
-                .align(Alignment.CenterHorizontally)
+                .heightIn(
+                    max =
+                        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp *
+                            .85f
+                )
         ) {
             PaneHeader(
-                "Settings",
+                when (page) {
+                    "home" -> "Settings"
+                    "account" -> "Account"
+                    "computers" -> "Computers"
+                    "pair" -> "Pair a computer"
+                    "manual" -> "Manual connection"
+                    else -> "Help"
+                },
+                leading = {
+                    if (page != "home")
+                        SmallIcon(
+                            Icons.AutoMirrored.Outlined.ArrowBack,
+                            "Back to settings",
+                            { page = if (page in listOf("pair", "manual")) "computers" else "home" },
+                        )
+                },
                 actions = { SmallIcon(Icons.Outlined.Close, "Close settings", onClose) },
             )
-            Column(
-                Modifier.weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp)
-                    .imePadding()
-            ) {
-                workspace.error?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-                SectionLabel("Zuse Cloud")
-                Text(
-                    if (workspace.signedIn) "Signed in to Zuse"
-                    else "Your cloud workspaces and linked computers.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CompactAction(
-                        if (workspace.signedIn) "Refresh" else "Sign in",
-                        !workspace.cloudLoading,
-                    ) {
-                        if (workspace.signedIn) workspace.refreshCloud()
-                        else workspace.signIn(openUri)
+            key(page) {
+                Column(
+                    Modifier.weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp)
+                        .imePadding(),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    workspace.error?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
                     }
-                    if (workspace.signedIn)
-                        TextButton(onClick = { workspace.signOut() }) { Text("Sign out") }
-                }
-                if (workspace.signedIn)
-                    TextButton(onClick = onCloud) { Text("Workspaces & cloud agent settings") }
-                workspace.computers.forEach { computer ->
-                    ListItem(
-                        headlineContent = {
-                            Text(
-                                computer.label ?: "Computer",
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        },
-                        supportingContent = {
-                            Text(computer.providerKind, style = MaterialTheme.typography.labelSmall)
-                        },
-                        leadingContent = {
-                            Icon(Icons.Outlined.Computer, null, Modifier.size(18.dp))
-                        },
-                        trailingContent = {
-                            CompactAction("Connect") {
-                                workspace.connect(Source.Computer(computer))
-                                onClose()
-                            }
-                        },
-                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                    )
-                }
-                SectionLabel("Connected devices")
-                if (workspace.devices.isEmpty())
-                    Text(
-                        "No saved computers yet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                workspace.devices.forEach { device ->
-                    Row(
-                        Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(
-                            Modifier.weight(1f)
-                                .clickable {
-                                    workspace.connect(Source.Device(device))
-                                    onClose()
+                    when (page) {
+                        "home" -> {
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.Outlined.AccountCircle,
+                                    if (workspace.signedIn) "Account" else "Sign in",
+                                    "Cloud chats and remote access",
+                                ) {
+                                    page = "account"
                                 }
-                                .padding(vertical = 8.dp)
-                        ) {
-                            Text(device.label, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.Outlined.Computer,
+                                    "Computers",
+                                    "${workspace.devices.size + workspace.computers.size} saved · local, remote & Tailscale",
+                                ) {
+                                    page = "computers"
+                                }
+                                SettingsRow(
+                                    Icons.Outlined.CloudQueue,
+                                    "Zuse Cloud",
+                                    "Hosted chats and agent connections",
+                                ) {
+                                    if (workspace.signedIn) onCloud() else page = "account"
+                                }
+                            }
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.AutoMirrored.Outlined.HelpOutline,
+                                    "Help",
+                                    "Pairing, zuse serve and connections",
+                                ) {
+                                    page = "help"
+                                }
+                            }
                             Text(
-                                device.address,
+                                "Zuse for Android · ${BuildConfig.VERSION_NAME}",
+                                Modifier.fillMaxWidth().padding(top = 4.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                         }
-                        SmallIcon(
-                            Icons.Outlined.DeleteOutline,
-                            "Forget ${device.label}",
-                            { workspace.forgetDevice(device) },
-                        )
+                        "account" -> {
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.Outlined.AccountCircle,
+                                    if (workspace.signedIn) "Signed in to Zuse"
+                                    else "Sign in to Zuse",
+                                    "Cloud chats and your linked computers",
+                                    chevron = false,
+                                )
+                            }
+                            Text(
+                                "Use your Zuse account to reach linked computers and start chats in the cloud.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CompactAction(
+                                    if (workspace.signedIn) "Refresh account" else "Sign in",
+                                    !workspace.cloudLoading,
+                                ) {
+                                    if (workspace.signedIn) workspace.refreshCloud()
+                                    else workspace.signIn(openUri)
+                                }
+                                if (workspace.signedIn)
+                                    CompactAction("Sign out") { workspace.signOut() }
+                            }
+                            if (workspace.signedIn)
+                                SettingsGroup {
+                                    SettingsRow(
+                                        Icons.Outlined.CloudQueue,
+                                        "Cloud agent settings",
+                                        "Connect Claude, Codex and other agents",
+                                        onClick = onCloud,
+                                    )
+                                }
+                        }
+                        "computers" -> {
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.Outlined.QrCodeScanner,
+                                    "Pair a computer",
+                                    "Scan a code or paste a pairing link",
+                                ) {
+                                    page = "pair"
+                                }
+                                SettingsRow(
+                                    Icons.Outlined.Link,
+                                    "Add manually",
+                                    "LAN, remote server or Tailscale",
+                                ) {
+                                    page = "manual"
+                                }
+                            }
+                            if (
+                                workspace.devices.isNotEmpty() || workspace.computers.isNotEmpty()
+                            ) {
+                                SectionLabel("Saved computers")
+                                SettingsGroup {
+                                    workspace.devices.forEach { device ->
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
+                                            Box(Modifier.weight(1f)) {
+                                                SettingsRow(
+                                                    Icons.Outlined.Laptop,
+                                                    device.label,
+                                                    device.address,
+                                                    chevron = false,
+                                                ) {
+                                                    workspace.connect(Source.Device(device))
+                                                    onClose()
+                                                }
+                                            }
+                                            SmallIcon(
+                                                Icons.Outlined.DeleteOutline,
+                                                "Forget ${device.label}",
+                                                { workspace.forgetDevice(device) },
+                                            )
+                                        }
+                                    }
+                                    workspace.computers.forEach { computer ->
+                                        SettingsRow(
+                                            Icons.Outlined.Computer,
+                                            computer.label ?: "Computer",
+                                            computer.providerKind,
+                                        ) {
+                                            workspace.connect(Source.Computer(computer))
+                                            onClose()
+                                        }
+                                    }
+                                }
+                            }
+                            if (workspace.source != null)
+                                CompactAction("Disconnect", onClick = workspace::disconnect)
+                            SectionLabel("Nearby computers")
+                            Text(
+                                nearbyError
+                                    ?: if (nearby.isEmpty()) "Looking for Zuse on your Wi-Fi…"
+                                    else "Select your computer to pair.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            if (nearby.isNotEmpty())
+                                SettingsGroup {
+                                    nearby.forEach { computer ->
+                                        SettingsRow(Icons.Outlined.Laptop, computer.name) {
+                                            nearbySelection = computer
+                                            page = "pair"
+                                        }
+                                    }
+                                }
+                        }
+                        "pair" -> {
+                            Text(
+                                "Open Zuse → Devices on your computer, or run zuse serve. Scan its QR code or paste the pairing link.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                CompactAction("Scan QR code") {
+                                    scanner.launch(
+                                        ScanOptions()
+                                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                                            .setPrompt("Scan a Zuse pairing code")
+                                            .setBeepEnabled(false)
+                                            .setOrientationLocked(false)
+                                    )
+                                }
+                            }
+                            Column {
+                                CompactField(
+                                    "Computer name",
+                                    label,
+                                    { label = it },
+                                    placeholder = "My computer",
+                                )
+                                CompactField(
+                                    "Pairing link",
+                                    pairing,
+                                    { pairing = it },
+                                    secret = true,
+                                    placeholder = "Paste the link from Zuse",
+                                )
+                                TextButton(
+                                    onClick = { advanced = !advanced },
+                                    contentPadding = PaddingValues(0.dp),
+                                    modifier = Modifier.height(28.dp),
+                                ) {
+                                    Text(
+                                        if (advanced) "Hide certificate pin"
+                                        else "Certificate pin (optional)",
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                }
+                                if (advanced) CompactField("Certificate pin", pin, { pin = it })
+                                CompactAction(
+                                    if (workspace.busy) "Pairing…" else "Pair computer",
+                                    pairing.isNotBlank() && !workspace.busy,
+                                ) {
+                                    workspace.pair(pairing, label, pin.ifBlank { null }, onClose)
+                                }
+                            }
+                            nearbySelection?.let { computer ->
+                                SettingsGroup {
+                                    SettingsRow(
+                                        Icons.Outlined.Laptop,
+                                        computer.name,
+                                        "Nearby computer",
+                                        chevron = false,
+                                    )
+                                }
+                                SelectionContainerText("Certificate: ${computer.pin}")
+                                CompactField(
+                                    "One-time pairing code",
+                                    code,
+                                    { code = it },
+                                    secret = true,
+                                )
+                                CompactAction(
+                                    "Pair ${computer.name}",
+                                    code.isNotBlank() && !workspace.busy,
+                                ) {
+                                    workspace.pair(
+                                        "${computer.address}/#pair=${Uri.encode(code)}",
+                                        computer.name,
+                                        computer.pin,
+                                        onClose,
+                                    )
+                                }
+                            }
+                        }
+                        "manual" -> {
+                            Text(
+                                "Use a LAN or Tailscale address, or a public server with TLS. Tailscale connects through your phone’s system VPN.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Column {
+                                CompactField(
+                                    "Computer name",
+                                    label,
+                                    { label = it },
+                                    placeholder = "My computer",
+                                )
+                                CompactField(
+                                    "WebSocket address",
+                                    address,
+                                    { address = it },
+                                    placeholder = "wss://computer.example/rpc",
+                                )
+                                CompactField(
+                                    "Connection token",
+                                    token,
+                                    { token = it },
+                                    secret = true,
+                                )
+                                CompactField("Certificate pin (optional)", pin, { pin = it })
+                                CompactAction(
+                                    "Save and connect",
+                                    address.isNotBlank() && label.isNotBlank(),
+                                ) {
+                                    workspace.saveDevice(
+                                        label,
+                                        address,
+                                        token,
+                                        pin.ifBlank { null },
+                                    )
+                                }
+                            }
+                        }
+                        else -> {
+                            SettingsGroup {
+                                SettingsRow(
+                                    Icons.Outlined.Computer,
+                                    "Your computer",
+                                    "Chats run on the computer you connect. Projects are its repositories.",
+                                    chevron = false,
+                                )
+                                SettingsRow(
+                                    Icons.Outlined.CloudQueue,
+                                    "Cloud chats",
+                                    "A cloud workspace is a hosted computer running a repository and agent.",
+                                    chevron = false,
+                                )
+                            }
+                            Text(
+                                "For LAN or Tailscale, run zuse serve on your computer and add its connection in Computers. Connect Tailscale on both devices first.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            CompactAction("Set up a computer") { page = "computers" }
+                            CompactAction("Contact support") {
+                                openUri(Uri.parse("mailto:hi@zuse.sh"))
+                            }
+                        }
                     }
+                    Spacer(Modifier.height(16.dp))
                 }
-                if (workspace.source != null)
-                    TextButton(onClick = workspace::disconnect) { Text("Disconnect") }
-                SectionLabel("Pair a computer")
-                Text(
-                    "On your computer, open Zuse’s device settings or run zuse serve, then paste its pairing link.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                CompactField("Computer name", label, { label = it })
-                CompactField("Pairing link", pairing, { pairing = it }, secret = true)
-                TextButton(
-                    onClick = {
-                        scanner.launch(
-                            ScanOptions()
-                                .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-                                .setPrompt("Scan a Zuse pairing code")
-                                .setBeepEnabled(false)
-                                .setOrientationLocked(false)
-                        )
-                    }
-                ) {
-                    Icon(Icons.Outlined.QrCodeScanner, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text("Scan QR code")
-                }
-                CompactField("Certificate pin, if supplied", pin, { pin = it })
-                CompactAction(
-                    if (workspace.busy) "Pairing…" else "Pair computer",
-                    pairing.isNotBlank() && !workspace.busy,
-                ) {
-                    workspace.pair(pairing, label, pin.ifBlank { null }, onClose)
-                }
-                SectionLabel("Nearby computers")
-                Text(
-                    nearbyError
-                        ?: if (nearby.isEmpty()) "Looking for Zuse on your local network…"
-                        else "Verify the computer and enter its one-time code.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                nearby.forEach { computer ->
-                    TextButton(onClick = { nearbySelection = computer }) {
-                        Icon(Icons.Outlined.Laptop, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(computer.name)
-                    }
-                }
-                nearbySelection?.let { computer ->
-                    Text(computer.name, style = MaterialTheme.typography.labelMedium)
-                    SelectionContainerText("Certificate: ${computer.pin}")
-                    CompactField(
-                        "Pairing code from this computer",
-                        code,
-                        { code = it },
-                        secret = true,
-                    )
-                    CompactAction("Pair ${computer.name}", code.isNotBlank() && !workspace.busy) {
-                        workspace.pair(
-                            "${computer.address}/#pair=${Uri.encode(code)}",
-                            computer.name,
-                            computer.pin,
-                            onClose,
-                        )
-                    }
-                }
-                SectionLabel("Local, remote & Tailscale")
-                Text(
-                    "Zuse uses your system VPN. Connect Tailscale first, then use the computer’s tailnet address. Public servers require wss://; private LAN and tailnet addresses also support ws://.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = { showAdvanced = !showAdvanced }) {
-                    Text(if (showAdvanced) "Hide manual connection" else "Manual connection")
-                }
-                if (showAdvanced) {
-                    CompactField("WebSocket address", address, { address = it })
-                    CompactField("Connection token", token, { token = it }, secret = true)
-                    CompactAction("Save and connect", address.isNotBlank() && label.isNotBlank()) {
-                        workspace.saveDevice(label, address, token, pin.ifBlank { null })
-                    }
-                }
-                Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+@Composable
+fun SheetHandle() {
+    Box(Modifier.fillMaxWidth().height(20.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.size(28.dp, 3.dp)
+                .background(
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = .18f),
+                    RoundedCornerShape(2.dp),
+                )
+        )
+    }
+}
+
+@Composable
+private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth(), content = content)
+    }
+}
+
+@Composable
+private fun SettingsRow(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    subtitle: String? = null,
+    chevron: Boolean = true,
+    onClick: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Icon(icon, null, Modifier.size(19.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyMedium)
+            if (subtitle != null)
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (onClick == null) 3 else 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+        }
+        if (chevron && onClick != null)
+            Icon(
+                Icons.Outlined.ChevronRight,
+                null,
+                Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
     }
 }
 
@@ -346,149 +588,236 @@ private fun SelectionContainerText(text: String) {
 }
 
 @Composable
-fun NewChatSheet(workspace: WorkspaceViewModel, onClose: () -> Unit, onCreated: () -> Unit) {
-    var search by rememberSaveable { mutableStateOf("") }
+fun NewChatSheet(
+    workspace: WorkspaceViewModel,
+    onClose: () -> Unit,
+    onCreated: () -> Unit,
+    onCloud: () -> Unit = {},
+) {
+    var prompt by rememberSaveable { mutableStateOf("") }
     var model by remember { mutableStateOf<ModelChoice?>(null) }
     var branch by remember { mutableStateOf<Branch?>(null) }
-    var fresh by rememberSaveable { mutableStateOf(true) }
-    var branchMenu by remember { mutableStateOf(false) }
-    var projectMenu by remember { mutableStateOf(false) }
+    var mode by rememberSaveable { mutableStateOf("New worktree") }
+    var menu by remember { mutableStateOf<String?>(null) }
+    var modelMenu by remember { mutableStateOf(false) }
+    val computer =
+        when (val source = workspace.source) {
+            is Source.Device -> source.device.label
+            is Source.Computer -> source.device.label ?: "Computer"
+            is Source.Cloud -> "Zuse Cloud"
+            null ->
+                if (BuildConfig.DEBUG && workspace.selectedSession?.id == "preview-session")
+                    "Demo computer"
+                else "Choose computer"
+        }
     LaunchedEffect(workspace.selectedProject?.id) {
         workspace.loadBranches()
         branch = null
     }
-    LaunchedEffect(workspace.models.size) {
-        if (model == null) model = workspace.models.firstOrNull()
+    LaunchedEffect(workspace.models.toList()) {
+        if (model !in workspace.models) model = workspace.models.firstOrNull()
     }
     ModalBottomSheet(
         onDismissRequest = onClose,
+        sheetMaxWidth = 620.dp,
+        dragHandle = { SheetHandle() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
-        Column(
-            Modifier.fillMaxHeight(.85f)
-                .fillMaxWidth()
-                .widthIn(max = 620.dp)
-                .align(Alignment.CenterHorizontally)
-                .padding(horizontal = 16.dp)
-        ) {
+        Column(Modifier.fillMaxHeight(.88f).fillMaxWidth()) {
             PaneHeader(
                 "New chat",
                 actions = { SmallIcon(Icons.Outlined.Close, "Close new chat", onClose) },
             )
-            workspace.error?.let {
-                Text(
-                    it,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            Box {
-                TextButton(onClick = { projectMenu = true }) {
-                    Icon(Icons.Outlined.FolderOpen, null, Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(workspace.selectedProject?.name ?: "Choose project")
-                    Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+            Column(Modifier.padding(horizontal = 16.dp)) {
+                workspace.error?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
                 }
-                DropdownMenu(projectMenu, { projectMenu = false }) {
-                    workspace.projects.forEach { project ->
+                Box {
+                    NewChatSelector(Icons.Outlined.Computer, "Where", computer) {
+                        menu = "computer"
+                    }
+                    DropdownMenu(menu == "computer", { menu = null }) {
+                        workspace.devices.forEach { device ->
+                            DropdownMenuItem(
+                                text = { Text(device.label) },
+                                onClick = {
+                                    menu = null
+                                    workspace.connect(Source.Device(device))
+                                },
+                            )
+                        }
+                        workspace.computers.forEach { device ->
+                            DropdownMenuItem(
+                                text = { Text(device.label ?: "Computer") },
+                                onClick = {
+                                    menu = null
+                                    workspace.connect(Source.Computer(device))
+                                },
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text(project.name) },
+                            text = { Text("Zuse Cloud") },
                             onClick = {
-                                projectMenu = false
-                                workspace.selectProject(project)
+                                menu = null
+                                onCloud()
                             },
                         )
                     }
                 }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(fresh, { fresh = it })
-                Column {
-                    Text("New worktree", style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        "Keep this chat’s changes isolated",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            if (!fresh)
                 Box {
-                    TextButton(onClick = { branchMenu = true }) {
-                        Text(
-                            branch?.name
-                                ?: workspace.branches.firstOrNull { it.current }?.name
-                                ?: "Current branch"
-                        )
-                        Icon(Icons.Outlined.ExpandMore, null, Modifier.size(16.dp))
+                    NewChatSelector(
+                        Icons.Outlined.FolderOpen,
+                        "Project",
+                        workspace.selectedProject?.name ?: "Choose project",
+                    ) {
+                        menu = "project"
                     }
-                    DropdownMenu(branchMenu, { branchMenu = false }) {
-                        workspace.branches.forEach { item ->
+                    DropdownMenu(menu == "project", { menu = null }) {
+                        workspace.projects.forEach { project ->
                             DropdownMenuItem(
-                                text = { Text(item.name, maxLines = 1) },
+                                text = { Text(project.name) },
                                 onClick = {
-                                    branch = item
-                                    branchMenu = false
+                                    menu = null
+                                    workspace.selectProject(project)
                                 },
                             )
                         }
                     }
-                    Text(
-                        "Uses the project’s working directory.",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(top = 44.dp),
-                    )
                 }
-            CompactField("Search models", search, { search = it })
-            LazyColumn(Modifier.weight(1f)) {
-                items(
-                    workspace.models.filter {
-                        search.isBlank() ||
-                            it.name.contains(search, true) ||
-                            it.provider.contains(search, true)
-                    },
-                    key = { "${it.provider}:${it.id}" },
-                ) { choice ->
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .clickable { model = choice }
-                            .padding(vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        RadioButton(model == choice, onClick = { model = choice })
-                        Column {
-                            Text(choice.name, style = MaterialTheme.typography.bodyMedium)
-                            Text(
-                                choice.provider,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                Box {
+                    NewChatSelector(Icons.Outlined.AccountTree, "Mode", mode) {
+                        if (!workspace.busy) menu = "mode"
+                    }
+                    DropdownMenu(menu == "mode", { menu = null }) {
+                        listOf("Work locally", "New worktree", "Existing branch").forEach { value ->
+                            DropdownMenuItem(
+                                text = { Text(value) },
+                                onClick = {
+                                    menu = null
+                                    mode = value
+                                    branch = null
+                                },
                             )
                         }
                     }
                 }
-                if (workspace.models.isEmpty())
-                    item {
-                        Text(
-                            "Connect a runtime to load its available models.",
-                            Modifier.padding(12.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
+                if (mode == "Existing branch")
+                    Box {
+                        NewChatSelector(
+                            Icons.Outlined.CallSplit,
+                            "Branch",
+                            branch?.name
+                                ?: workspace.branches.firstOrNull { it.current }?.name
+                                ?: "Current branch",
+                        ) {
+                            menu = "branch"
+                        }
+                        DropdownMenu(menu == "branch", { menu = null }) {
+                            workspace.branches.forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.name) },
+                                    onClick = {
+                                        branch = item
+                                        menu = null
+                                    },
+                                )
+                            }
+                        }
                     }
+                Text(
+                    if (mode == "New worktree")
+                        "Keep this chat’s changes separate in a fresh worktree."
+                    else "Use the project’s working directory on $computer.",
+                    Modifier.padding(start = 34.dp, top = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
-            Row(
-                Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                CompactAction(
-                    if (workspace.busy) "Creating…" else "Create chat",
-                    model != null && workspace.connected && !workspace.busy,
-                ) {
-                    model?.let { workspace.createChat(it, branch, fresh, onCreated) }
-                }
+            Spacer(Modifier.weight(1f))
+            Box(Modifier.fillMaxWidth().imePadding().padding(12.dp)) {
+                ComposerFrame(
+                    prompt,
+                    { prompt = it },
+                    expanded = true,
+                    enabled = !workspace.busy,
+                    inputDescription = "New chat message",
+                    leadingAction = {
+                        Text(
+                            if (workspace.busy) "Creating…" else "",
+                            Modifier.padding(start = 12.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    trailingAction = {
+                        ModelTrigger(model?.name.orEmpty(), !workspace.busy) { modelMenu = true }
+                        ComposerSend(
+                            model != null && workspace.connected && !workspace.busy,
+                            label = if (prompt.isBlank()) "Create chat" else "Create and send",
+                        ) {
+                            model?.let {
+                                workspace.createChat(
+                                    it,
+                                    if (mode == "Existing branch") branch else null,
+                                    mode == "New worktree",
+                                    prompt,
+                                    onCreated,
+                                )
+                            }
+                        }
+                    },
+                )
             }
         }
+    }
+    if (modelMenu)
+        ModelPickerSheet(workspace.models, model, { modelMenu = false }) {
+            model = it
+            modelMenu = false
+        }
+}
+
+@Composable
+private fun NewChatSelector(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth()
+            .height(44.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(icon, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            label,
+            Modifier.width(66.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Icon(
+            Icons.Outlined.UnfoldMore,
+            null,
+            Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -501,6 +830,8 @@ fun DiffSheet(workspace: WorkspaceViewModel, onClose: () -> Unit) {
     DisposableEffect(Unit) { onDispose { workspace.closeDiff() } }
     ModalBottomSheet(
         onDismissRequest = onClose,
+        sheetMaxWidth = 620.dp,
+        dragHandle = { SheetHandle() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -516,14 +847,9 @@ fun DiffSheet(workspace: WorkspaceViewModel, onClose: () -> Unit) {
                     SmallIcon(Icons.Outlined.Close, "Close changes", onClose)
                 },
             )
-            Row(
-                Modifier.padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                listOf("unstaged" to "Working tree", "staged" to "Staged", "branch" to "Branch")
-                    .forEach { (key, label) ->
-                        FilterChip(scope == key, { scope = key }, label = { Text(label) })
-                    }
+            val scopes = listOf("unstaged", "staged", "branch")
+            CompactTabs(listOf("Working tree", "Staged", "Branch"), scopes.indexOf(scope)) {
+                scope = scopes[it]
             }
             workspace.error?.let {
                 Text(
@@ -568,8 +894,8 @@ fun DiffSheet(workspace: WorkspaceViewModel, onClose: () -> Unit) {
                     ) { _, line ->
                         val color =
                             when (line.kind) {
-                                DiffLine.Kind.ADDITION -> Color(0x16269A3B)
-                                DiffLine.Kind.DELETION -> Color(0x16D93F4C)
+                                DiffLine.Kind.ADDITION -> Color(0x24269A3B)
+                                DiffLine.Kind.DELETION -> Color(0x24D93F4C)
                                 else -> Color.Transparent
                             }
                         Row(
@@ -580,20 +906,37 @@ fun DiffSheet(workspace: WorkspaceViewModel, onClose: () -> Unit) {
                             Text(
                                 line.oldLine?.toString().orEmpty(),
                                 Modifier.width(34.dp),
-                                style = MaterialTheme.typography.labelSmall,
+                                style =
+                                    MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        lineHeight = 20.sp,
+                                    ),
+                                fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             Text(
                                 line.newLine?.toString().orEmpty(),
                                 Modifier.width(34.dp),
-                                style = MaterialTheme.typography.labelSmall,
+                                style =
+                                    MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = 10.sp,
+                                        lineHeight = 20.sp,
+                                    ),
+                                fontFamily = FontFamily.Monospace,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             androidx.compose.foundation.text.selection.SelectionContainer {
                                 Text(
                                     line.text,
                                     fontFamily = FontFamily.Monospace,
-                                    style = MaterialTheme.typography.bodySmall,
+                                    style =
+                                        MaterialTheme.typography.bodySmall.copy(
+                                            fontSize = 11.sp,
+                                            lineHeight = 20.sp,
+                                        ),
+                                    color =
+                                        if (line.kind == DiffLine.Kind.HEADER) Color(0xFFA63AA5)
+                                        else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                 )
                             }
@@ -667,6 +1010,40 @@ private fun FileDialog(workspace: WorkspaceViewModel, path: String, onClose: () 
                             }
                         }
                     }
+            }
+        }
+    }
+}
+
+@Composable
+fun CompactTabs(labels: List<String>, selected: Int, onSelect: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        labels.forEachIndexed { index, label ->
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color =
+                    if (selected == index) MaterialTheme.colorScheme.secondaryContainer
+                    else Color.Transparent,
+                modifier =
+                    Modifier.height(28.dp)
+                        .clickable { onSelect(index) }
+                        .semantics {
+                            role = Role.Tab
+                            this.selected = index == selected
+                        },
+            ) {
+                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.labelMedium,
+                        color =
+                            if (selected == index) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
     }

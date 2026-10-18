@@ -92,21 +92,45 @@ class Vault(context: Context) {
 
     suspend fun write(identity: String, value: String?) = storage { writeUnsafe(identity, value) }
 
+    private fun prepareIntentUnsafe(
+        identity: String,
+        body: kotlinx.serialization.json.JsonObject,
+        prompt: String? = null,
+    ): kotlinx.serialization.json.JsonElement {
+        val stored = readUnsafe(identity)?.let(WireJson::parseToJsonElement)
+        require(stored == null || stored.field("body") == body) {
+            "A previous request has an uncertain outcome. Refresh and retry the same selections first."
+        }
+        return stored
+            ?: obj(
+                    "id" to java.util.UUID.randomUUID().toString().json(),
+                    "body" to body,
+                    "prompt" to prompt?.json(),
+                )
+                .also { writeUnsafe(identity, it.toString()) }
+    }
+
     suspend fun prepareIntent(
         identity: String,
         body: kotlinx.serialization.json.JsonObject,
         idField: String = "idempotencyKey",
     ): kotlinx.serialization.json.JsonObject = storage {
-        val stored = readUnsafe(identity)?.let(WireJson::parseToJsonElement)
-        require(stored == null || stored.field("body") == body) {
-            "A previous request has an uncertain outcome. Refresh and retry the same selections first."
-        }
-        val id =
-            stored?.text("id")
-                ?: java.util.UUID.randomUUID().toString().also {
-                    writeUnsafe(identity, obj("id" to it.json(), "body" to body).toString())
-                }
-        kotlinx.serialization.json.JsonObject(body + (idField to id.json()))
+        val record = prepareIntentUnsafe(identity, body)
+        kotlinx.serialization.json.JsonObject(
+            body + (idField to requireNotNull(record.text("id")).json())
+        )
+    }
+
+    /** The first prompt is atomically bound to the operation, without locking later text edits. */
+    suspend fun prepareChatIntent(
+        identity: String,
+        body: kotlinx.serialization.json.JsonObject,
+        prompt: String,
+    ): Pair<kotlinx.serialization.json.JsonObject, String> = storage {
+        val record = prepareIntentUnsafe(identity, body, prompt)
+        kotlinx.serialization.json.JsonObject(
+            body + ("operationId" to requireNotNull(record.text("id")).json())
+        ) to (record.text("prompt") ?: prompt)
     }
 
     private fun metadataUnsafe(identity: String): SessionMetadata {

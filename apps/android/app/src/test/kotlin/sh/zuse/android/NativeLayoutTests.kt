@@ -3,6 +3,7 @@ package sh.zuse.android
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.setContent
+import androidx.activity.findViewTreeOnBackPressedDispatcherOwner
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -65,10 +66,109 @@ class NativeLayoutTests {
         preview()
         compose.onNodeWithContentDescription("Ask Zuse").assertIsDisplayed()
         compose.onNodeWithContentDescription("Chat transcript").assertIsDisplayed()
+        val composer = compose.onNodeWithContentDescription("Message composer")
+        composer.assert(
+            SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.StateDescription,
+                "Collapsed",
+            )
+        )
+        val resting = composer.fetchSemanticsNode().boundsInRoot.height
+        org.junit.Assert.assertEquals(
+            44f * compose.activity.resources.displayMetrics.density,
+            resting,
+            2f,
+        )
+        screenshot("phone-chat-collapsed")
+        compose.onNodeWithContentDescription("Ask Zuse").performClick()
+        composer.assert(
+            SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.StateDescription,
+                "Expanded",
+            )
+        )
         compose
             .onNodeWithContentDescription("Ask Zuse")
-            .performTextInput("Make something thoughtful…")
+            .performTextInput("Make the composer feel like the mobile app.")
+        org.junit.Assert.assertTrue(composer.fetchSemanticsNode().boundsInRoot.height > resting * 2)
+        screenshot("phone-chat-expanded")
+        compose.onNodeWithContentDescription("Ask Zuse").performTextReplacement("")
+        compose.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composer.assert(
+            SemanticsMatcher.expectValue(
+                androidx.compose.ui.semantics.SemanticsProperties.StateDescription,
+                "Collapsed",
+            )
+        )
         screenshot("phone-chat")
+    }
+
+    @Test
+    fun restingComposerAccommodatesLargeAccessibilityType() {
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                val density = androidx.compose.ui.platform.LocalDensity.current
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalDensity provides
+                        androidx.compose.ui.unit.Density(density.density, 2f)
+                ) {
+                    ZuseTheme {
+                        Surface(Modifier.fillMaxSize()) {
+                            Column(Modifier.padding(12.dp)) {
+                                ComposerFrame(
+                                    "",
+                                    {},
+                                    expanded = false,
+                                    leadingAction = {},
+                                    trailingAction = {},
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val frame =
+            compose
+                .onNodeWithContentDescription("Message composer")
+                .fetchSemanticsNode()
+                .boundsInRoot
+        val placeholder = compose.onNodeWithText("Ask Zuse").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue(
+            placeholder.top >= frame.top && placeholder.bottom <= frame.bottom
+        )
+    }
+
+    @Test
+    fun nativeBackNavigatesSettingsBeforeDismissing() {
+        compose.onNodeWithContentDescription("Settings").performClick()
+        compose.onNodeWithText("Computers").performClick()
+        compose.onNodeWithText("Pair a computer").assertExists()
+        compose.runOnUiThread {
+            val window =
+                android.view.inspector.WindowInspector.getGlobalWindowViews().last { it.isShown }
+            requireNotNull(window.findViewTreeOnBackPressedDispatcherOwner())
+                .onBackPressedDispatcher
+                .onBackPressed()
+        }
+        compose.onNodeWithText("Pair a computer").assertDoesNotExist()
+        compose.onNodeWithText("Zuse Cloud").assertExists()
+    }
+
+    @Test
+    fun unfinishedNewChatDraftSurvivesClosingAndReopening() {
+        preview()
+        compose.onNodeWithContentDescription("Chat actions").performClick()
+        compose.onNodeWithText("New chat").performClick()
+        compose
+            .onNodeWithContentDescription("New chat message")
+            .performTextInput("Keep this new chat draft")
+        compose.onNodeWithContentDescription("Close new chat").performClick()
+        compose.onNodeWithContentDescription("Chat actions").performClick()
+        compose.onNodeWithText("New chat").performClick()
+        compose
+            .onNodeWithContentDescription("New chat message")
+            .assertTextContains("Keep this new chat draft")
     }
 
     @Test
@@ -78,7 +178,20 @@ class NativeLayoutTests {
         compose.onNodeWithContentDescription("Ask Zuse").assertIsDisplayed()
         compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
         compose.onNodeWithContentDescription("Chat transcript").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Back to chats").assertDoesNotExist()
         screenshot("tablet-chat")
+        compose.onNodeWithContentDescription("Settings").performClick()
+        screenshot("tablet-settings")
+    }
+
+    @Test
+    @Config(qualifiers = "w841dp-h701dp-land-xhdpi")
+    fun foldSizedWindowKeepsListAndConversation() {
+        preview()
+        compose.onNodeWithContentDescription("Settings").assertExists()
+        compose.onNodeWithContentDescription("Back to chats").assertDoesNotExist()
+        compose.onNodeWithContentDescription("Ask Zuse").assertIsDisplayed()
+        screenshot("fold-open-chat")
     }
 
     @Test
@@ -206,14 +319,117 @@ class NativeLayoutTests {
 
     @Test
     fun settingsExposeCloudPairingAndTailscale() {
+        compose.runOnUiThread {
+            ViewModelProvider(compose.activity)[WorkspaceViewModel::class.java]
+                .devices
+                .addAll(
+                    listOf(
+                        SavedDevice(
+                            "demo-mac",
+                            "MacBook Pro · demo",
+                            "wss://macbook.example/rpc",
+                            "",
+                        ),
+                        SavedDevice(
+                            "demo-server",
+                            "Home server · demo",
+                            "wss://server.example/rpc",
+                            "",
+                        ),
+                    )
+                )
+        }
         compose.onNodeWithContentDescription("Settings").performClick()
-        compose.onNodeWithText("Zuse Cloud", ignoreCase = true).assertExists()
-        compose.onNodeWithText("Pairing link").assertExists()
+        compose.onNodeWithText("Zuse Cloud").assertExists()
         screenshot("phone-settings")
-        compose
-            .onNodeWithText("Local, remote & Tailscale", ignoreCase = true)
-            .performScrollTo()
-            .assertIsDisplayed()
+        compose.onNodeWithText("Computers").performClick()
+        compose.onNodeWithText("Pair a computer").assertExists()
+        screenshot("phone-computers")
+        compose.onNodeWithText("Pair a computer").performClick()
+        compose.onNodeWithText("Pairing link").assertExists()
+        screenshot("phone-pairing")
+        compose.onNodeWithContentDescription("Back to settings").performClick()
+        compose.onNodeWithText("Add manually").performClick()
+        compose.onNodeWithText("WebSocket address").assertExists()
         screenshot("phone-connections")
+        compose.onNodeWithContentDescription("Back to settings").performClick()
+        compose.onNodeWithContentDescription("Back to settings").performClick()
+        compose.onNodeWithText("Sign in").performClick()
+        screenshot("phone-account")
+    }
+
+    @Test
+    fun phoneHomeShowsCompactChatRowsAndComputerNames() {
+        preview()
+        val workspace = ViewModelProvider(compose.activity)[WorkspaceViewModel::class.java]
+        compose.runOnUiThread {
+            listOf(
+                    "Review the Android composer",
+                    "Fix reconnect recovery",
+                    "Add tablet navigation",
+                    "Polish connection settings",
+                )
+                .forEachIndexed { index, title ->
+                    workspace.sessions.add(
+                        Session("demo-$index", "preview-project", title, "claude", "Sonnet · demo")
+                    )
+                }
+        }
+        compose.onNodeWithContentDescription("Back to chats").performClick()
+        compose.onNodeWithText("Your workspace").assertDoesNotExist()
+        screenshot("phone-home")
+    }
+
+    @Test
+    fun changesRenderScopesAndNativePatchLines() {
+        preview()
+        val workspace = ViewModelProvider(compose.activity)[WorkspaceViewModel::class.java]
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                ZuseTheme { Surface(Modifier.fillMaxSize()) { DiffSheet(workspace, {}) } }
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            workspace.patches.add(
+                Patch(
+                    "app/Composer.kt",
+                    DiffLine.parse(
+                        "@@ -12,3 +12,4 @@\n val expanded = focused\n-Composer(height = 108.dp)\n+Composer(height = if (expanded) 96.dp else 44.dp)\n+ModelPicker(selectedModel)\n showKeyboard()"
+                    ),
+                    "text",
+                    false,
+                    null,
+                )
+            )
+        }
+        compose.onNodeWithText("Working tree").assertExists()
+        compose.onNodeWithText("app/Composer.kt").assertExists()
+        screenshot("phone-changes")
+    }
+
+    @Test
+    fun newChatShowsProjectBranchAndModelChoices() {
+        preview()
+        val workspace = ViewModelProvider(compose.activity)[WorkspaceViewModel::class.java]
+        compose.runOnUiThread {
+            workspace.models.addAll(
+                listOf(
+                    ModelChoice("claude", "sonnet-demo", "Sonnet · demo"),
+                    ModelChoice("codex", "codex-demo", "Codex · demo"),
+                )
+            )
+            compose.activity.setContent {
+                ZuseTheme { Surface(Modifier.fillMaxSize()) { NewChatSheet(workspace, {}, {}) } }
+            }
+        }
+        compose.onNodeWithText("Where").assertExists()
+        compose.onNodeWithText("Project").assertExists()
+        compose.onNodeWithContentDescription("New chat message").assertExists()
+        compose.onNodeWithText("Mode").assertExists()
+        screenshot("phone-new-chat")
+        compose.onNodeWithText("Sonnet · demo").performClick()
+        compose.onNodeWithText("Codex · demo").assertExists()
+        screenshot("phone-model-picker")
     }
 }

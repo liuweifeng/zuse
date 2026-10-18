@@ -31,6 +31,25 @@ class NativeFlowTests {
     }
 
     @Test
+    fun backFromComputersReturnsToSettings() {
+        compose.onNodeWithContentDescription("Settings").performClick()
+        compose.onNodeWithText("Computers").performClick()
+        compose.onNodeWithText("Pair a computer").assertExists()
+        check(
+            androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+                .uiAutomation
+                .performGlobalAction(
+                    android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK
+                )
+        )
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithText("Zuse Cloud").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Pair a computer").assertDoesNotExist()
+        compose.onNodeWithText("Zuse Cloud").assertExists()
+    }
+
+    @Test
     fun encryptedLegacyArchiveMigratesWithoutRewritingHistoryDuringDraftEdits() =
         kotlinx.coroutines.runBlocking {
             val vault = (compose.activity.application as ZuseApplication).vault
@@ -60,6 +79,14 @@ class NativeFlowTests {
                 JsonNull,
                 WireJson.parseToJsonElement(vault.read("archive:$identity")!!).field("messages"),
             )
+            val parameters = obj("projectId" to "project".json())
+            val original =
+                vault.prepareChatIntent("$identity:create", parameters, "Original prompt")
+            val edited = vault.prepareChatIntent("$identity:create", parameters, "Edited prompt")
+            assertEquals(original.first, edited.first)
+            assertEquals("Original prompt", edited.second)
+            assertEquals(JsonNull, edited.first.field("prompt"))
+            vault.write("$identity:create", null)
             vault.write("history:$identity", null)
             vault.write("archive:$identity", null)
         }

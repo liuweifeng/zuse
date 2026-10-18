@@ -33,7 +33,7 @@ private fun CloudPicker(
         Box {
             TextButton(
                 onClick = { expanded = true },
-                modifier = Modifier.height(36.dp),
+                modifier = Modifier.height(28.dp),
                 contentPadding = PaddingValues(horizontal = 4.dp),
             ) {
                 Text(rows.firstOrNull { it.first == selected }?.second ?: "Choose…", maxLines = 1)
@@ -105,6 +105,8 @@ fun CloudSheet(
     }
     ModalBottomSheet(
         onDismissRequest = { if (!cloud.busy) onClose() },
+        sheetMaxWidth = 560.dp,
+        dragHandle = { SheetHandle() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
@@ -126,15 +128,12 @@ fun CloudSheet(
                     SmallIcon(Icons.Outlined.Close, "Close cloud", onClose, !cloud.busy)
                 },
             )
-            PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(tab == 0, { tab = 0 }, text = { Text("New workspace") })
-                Tab(tab == 1, { tab = 1 }, text = { Text("Agent settings") })
-            }
+            CompactTabs(listOf("New cloud chat", "Cloud providers"), tab) { tab = it }
             if (cloud.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             Column(
                 Modifier.weight(1f)
                     .verticalScroll(rememberScrollState())
-                    .padding(20.dp)
+                    .padding(16.dp)
                     .imePadding()
             ) {
                 cloud.failure?.let {
@@ -193,7 +192,7 @@ fun CloudSheet(
                             ?.array("sizes")
                             .orEmpty()
                     CloudPicker(
-                        "Computer size",
+                        "Size",
                         size,
                         listOf("" to "Default size") +
                             sizes.mapNotNull {
@@ -228,15 +227,15 @@ fun CloudSheet(
                     }
                     if (cloud.agents.isEmpty())
                         TextButton(onClick = { tab = 1 }) {
-                            Text("Connect an agent to start a workspace")
+                            Text("Connect an agent to start a cloud chat")
                         }
                     Text(
-                        "Starting a workspace uses your cloud plan or connected provider account.",
+                        "Runs this repository and agent on a hosted computer using your cloud plan or provider account.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     CompactAction(
-                        "Start cloud workspace",
+                        "Start cloud chat",
                         !cloud.busy &&
                             project.isNotEmpty() &&
                             provider.isNotEmpty() &&

@@ -6,19 +6,25 @@ import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
+import io.noties.markwon.core.MarkwonTheme
 import io.noties.markwon.ext.latex.JLatexMathPlugin
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
 import io.noties.markwon.ext.tables.TablePlugin
@@ -40,7 +46,52 @@ private fun Markdown(text: String) {
     val blocks = remember(text) { MarkdownBlock.parse(text) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         blocks.forEach { block ->
-            if (block.diagram) DiagramView(block.content) else NativeMarkdown(block.content)
+            val language = block.language
+            when {
+                block.diagram -> DiagramView(block.content)
+                language != null -> CodeBlock(block.content, language)
+                else -> NativeMarkdown(block.content)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CodeBlock(content: String, language: String) {
+    val clipboard = LocalClipboardManager.current
+    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainer) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth().height(32.dp).padding(start = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    language.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { clipboard.setText(AnnotatedString(content)) },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        "Copy code block",
+                        Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            SelectionContainer {
+                Text(
+                    content,
+                    Modifier.horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp, top = 4.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
         }
     }
 }
@@ -51,10 +102,66 @@ private fun NativeMarkdown(text: String) {
     val foreground = MaterialTheme.colorScheme.onSurface.toArgb()
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val mathEnabled = text.length <= 32 * 1024 && text.contains("$$")
-    val textPixels = with(LocalDensity.current) { 14.sp.toPx() }
+    val density = LocalDensity.current
+    val textPixels = with(density) { 15.sp.toPx() }
+    val linePixels = with(density) { 22.sp.toPx().toInt() }
+    val codePixels = with(density) { 13.sp.toPx().toInt() }
+    val card = MaterialTheme.colorScheme.surfaceContainer.toArgb()
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val hairline = MaterialTheme.colorScheme.outlineVariant.toArgb()
     val renderer =
-        remember(context, foreground, textPixels, mathEnabled) {
+        remember(
+            context,
+            foreground,
+            textPixels,
+            codePixels,
+            card,
+            muted,
+            hairline,
+            linkColor,
+            mathEnabled,
+        ) {
             Markwon.builder(context)
+                .usePlugin(
+                    object : AbstractMarkwonPlugin() {
+                        override fun configureTheme(builder: MarkwonTheme.Builder) {
+                            builder
+                                .headingTextSizeMultipliers(
+                                    floatArrayOf(
+                                        22f / 15,
+                                        19f / 15,
+                                        17f / 15,
+                                        1f,
+                                        14f / 15,
+                                        13f / 15,
+                                    )
+                                )
+                                .headingBreakHeight(0)
+                                .headingTypeface(
+                                    android.graphics.Typeface.create(
+                                        android.graphics.Typeface.DEFAULT,
+                                        500,
+                                        false,
+                                    )
+                                )
+                                .bulletWidth(with(density) { 5.dp.roundToPx() })
+                                .listItemColor(muted)
+                                .blockMargin(with(density) { 12.dp.roundToPx() })
+                                .codeTypeface(android.graphics.Typeface.MONOSPACE)
+                                .codeTextSize(codePixels)
+                                .codeBlockTextSize(codePixels)
+                                .codeBackgroundColor(card)
+                                .codeBlockBackgroundColor(card)
+                                .codeBlockMargin(with(density) { 12.dp.roundToPx() })
+                                .linkColor(linkColor)
+                                .isLinkUnderlined(true)
+                                .thematicBreakColor(hairline)
+                                .thematicBreakHeight(1)
+                                .blockQuoteColor(hairline)
+                                .blockQuoteWidth(with(density) { 3.dp.roundToPx() })
+                        }
+                    }
+                )
                 .apply {
                     if (mathEnabled) {
                         usePlugin(MarkwonInlineParserPlugin.create())
@@ -78,10 +185,9 @@ private fun NativeMarkdown(text: String) {
     AndroidView(
         factory = {
             TextView(it).apply {
-                textSize = 14f
+                textSize = 15f
                 setTextIsSelectable(true)
                 movementMethod = LinkMovementMethod.getInstance()
-                setLineSpacing(3f, 1f)
             }
         },
         onReset = { view ->
@@ -92,6 +198,7 @@ private fun NativeMarkdown(text: String) {
             view.setTextColor(color)
             view.setLinkTextColor(linkColor)
             view.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, textPixels)
+            view.setLineHeight(linePixels)
             if (view.text != parsed)
                 renderer.setParsedMarkdown(view, android.text.SpannableStringBuilder(parsed))
         },
@@ -132,17 +239,20 @@ fun MessageRow(
                 onDraftChange = onUiDraftChange,
             )
         } else if (user) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                SelectionContainer {
-                    Text(
-                        message.text,
-                        Modifier.padding(14.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = brandFill,
+                    contentColor = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier.align(Alignment.TopEnd).widthIn(max = maxWidth * .88f),
+                ) {
+                    SelectionContainer {
+                        Text(
+                            message.text,
+                            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
+                        )
+                    }
                 }
             }
             message.content.array("attachments").forEach { ref ->
@@ -207,7 +317,11 @@ fun MessageRow(
                     "user_question" -> "Question"
                     else -> "Answer"
                 }
-            TextButton(onClick = { expanded = !expanded }, contentPadding = PaddingValues(0.dp)) {
+            TextButton(
+                onClick = { expanded = !expanded },
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.height(28.dp),
+            ) {
                 Text(
                     "${if (expanded) "▾" else "▸"} $label",
                     style = MaterialTheme.typography.labelMedium,
@@ -235,13 +349,6 @@ fun MessageRow(
                     }
             }
         } else {
-            if (message.role == "assistant")
-                Text(
-                    "Zuse",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
             Markdown(message.text)
         }
     }

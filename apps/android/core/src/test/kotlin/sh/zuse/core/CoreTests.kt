@@ -268,7 +268,13 @@ class MarkdownBlockTests {
         val incomplete = "Before\n```mermaid\ngraph TD; A-->B"
         assertEquals(listOf(MarkdownBlock(false, incomplete)), MarkdownBlock.parse(incomplete))
         val nested = "````text\n```mermaid\ngraph TD; A-->B\n```\n````"
-        assertEquals(listOf(MarkdownBlock(false, nested)), MarkdownBlock.parse(nested))
+        val extracted = MarkdownBlock.parse(nested).single()
+        assertFalse(extracted.diagram)
+        assertEquals("text", extracted.language)
+        assertEquals("```mermaid\ngraph TD; A-->B\n```", extracted.content)
+        val code = MarkdownBlock.parse("~~~kotlin\nval n = 1\n~~~").single()
+        assertEquals("kotlin", code.language)
+        assertEquals("val n = 1", code.content)
     }
 }
 

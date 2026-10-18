@@ -224,9 +224,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     "user",
                     obj(
                         "_tag" to "text".json(),
-                        "text" to
-                            "Can you make the workspace feel faster and a little more considered?"
-                                .json(),
+                        "text" to "Tighten the chat layout and keep the composer compact.".json(),
                     ),
                 ),
                 Message(
@@ -236,7 +234,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     obj(
                         "_tag" to "text".json(),
                         "text" to
-                            "I’ll start with the interactions you use most: **opening a chat**, switching devices, and reviewing changes.\n\nThe interface should stay quiet while your work stays in focus."
+                            "I’ll follow the mobile app’s spacing, simplify the header, and keep the composer small until you start typing."
                                 .json(),
                     ),
                 ),
@@ -246,8 +244,8 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     "assistant",
                     obj(
                         "_tag" to "tool_use".json(),
-                        "tool" to "Read · workspace.kt".json(),
-                        "input" to obj("path" to "workspace.kt".json()),
+                        "tool" to "Read · composer.tsx".json(),
+                        "input" to obj("path" to "composer.tsx".json()),
                     ),
                 ),
                 Message(
@@ -257,7 +255,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     obj(
                         "_tag" to "text".json(),
                         "text" to
-                            "### A smaller, faster workspace\n\n- Native controls and keyboard behavior\n- A paged, recycling conversation\n- Your devices, one tap away\n\n```kotlin\nval workspace = rememberWorkspace()\nworkspace.connect(device)\n```\n\nReady to review the changes?"
+                            "### Updated\n\n- Native controls and keyboard behavior\n- A paged, recycling conversation\n- Your devices, one tap away\n\n```kotlin\nComposer(expanded = focused)\n```\n\nReady to review the changes?"
                                 .json(),
                     ),
                 ),
@@ -943,11 +941,18 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    fun createChat(model: ModelChoice, branch: Branch?, fresh: Boolean, done: () -> Unit) = action {
+    fun createChat(
+        model: ModelChoice,
+        branch: Branch?,
+        fresh: Boolean,
+        initialPrompt: String = "",
+        done: () -> Unit,
+    ) = action {
         if (busy) return@action
         val project = selectedProject ?: throw ClientException("Choose a connected project.")
         val client = rpc ?: return@action
         val epoch = generation
+        val archiveIdentity = identity()
         busy = true
         try {
             // Branch selection is a server-side checkout; surface errors before creating a chat.
@@ -960,9 +965,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                         "remote" to branch.remote?.json(),
                     ),
                 )
-            val intentKey = "chat-create:${identity()}:${project.id}"
-            val request =
-                vault.prepareIntent(
+            val intentKey = "chat-create:$archiveIdentity:${project.id}"
+            val (request, savedPrompt) =
+                vault.prepareChatIntent(
                     intentKey,
                     obj(
                         "projectId" to project.id.json(),
@@ -971,7 +976,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                         "runtimeMode" to "approval-required".json(),
                         "workspacePolicy" to obj("_tag" to (if (fresh) "fresh" else "main").json()),
                     ),
-                    "operationId",
+                    initialPrompt,
                 )
             val response =
                 try {
@@ -980,11 +985,40 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                     vault.write(intentKey, null)
                     throw failure
                 }
+            val created: Session = response.field("initialSession").decode()
+            if (savedPrompt.isNotBlank() || initialPrompt != savedPrompt) {
+                val operation = requireNotNull(request.text("operationId"))
+                val item =
+                    PendingMessage(
+                        operation,
+                        UUID.nameUUIDFromBytes(("initial:" + operation).toByteArray()).toString(),
+                        created.id,
+                        savedPrompt.trim(),
+                    )
+                vault.updateMetadata("$archiveIdentity|${created.id}") { record ->
+                    var updated =
+                        if (savedPrompt.isBlank() || record.pending.any { it.id == item.id }) record
+                        else record.copy(pending = record.pending + item)
+                    if (initialPrompt != savedPrompt)
+                        updated =
+                            updated.copy(
+                                draftRevision = updated.draftRevision + 1,
+                                draft = initialPrompt,
+                            )
+                    updated
+                }
+            }
             vault.write(intentKey, null)
             if (epoch == generation) {
-                selectSession(response.field("initialSession").decode())
+                selectSession(created)
                 done()
                 loadSessions()
+                if (initialPrompt != savedPrompt)
+                    error =
+                        "Recovered the previous chat. Your edited message is saved in the composer."
+            } else {
+                done()
+                error = "Chat created on the original computer. Open it there to continue."
             }
         } finally {
             busy = false
