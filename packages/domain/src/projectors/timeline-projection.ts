@@ -1,6 +1,7 @@
 import {
 	AgentTurnId,
 	AttemptId,
+	ComposerInput,
 	Message,
 	MessageContent,
 	MessageId,
@@ -197,7 +198,7 @@ export const timelineEventFromDomain = (
 				: {
 						_tag: "QueueUpdated",
 						queueId: event.queueId,
-						input: input.success,
+						input: ComposerInput.make(input.success),
 						updatedAt: new Date(event.updatedAt),
 						ready: event.ready,
 					};

@@ -1,4 +1,12 @@
-import { AgentItemId, Message, MessageId, SessionId } from "@zuse/contracts";
+import {
+	AgentItemId,
+	ComposerInput,
+	Message,
+	MessageId,
+	SessionId,
+	SessionTimelineFrame,
+} from "@zuse/contracts";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { timelineEventFromDomain } from "../../../src/projectors/timeline-projection.ts";
 import {
@@ -9,6 +17,65 @@ import {
 const sessionId = SessionId.make("session-interactions");
 
 describe("durable session interactions", () => {
+	it.each([
+		"QueuedTurnEnqueued",
+		"QueuedTurnUpdated",
+	] as const)("serializes %s with a materialized attachment through the timeline RPC codec", (_tag) => {
+		const input = ComposerInput.make({
+			text: "first image",
+			attachments: [
+				{
+					id: "uploaded-image",
+					mimeType: "image/png",
+					originalName: "image.png",
+				},
+			],
+			fileRefs: [],
+			skillRefs: [],
+			annotations: [],
+			asGoal: false,
+		});
+		const event = timelineEventFromDomain(
+			sessionId,
+			_tag === "QueuedTurnEnqueued"
+				? {
+						_tag,
+						queueId: "startup-queue",
+						inputJson: JSON.stringify(input),
+						position: 0,
+						createdAt: 1,
+						ready: true,
+					}
+				: {
+						_tag,
+						queueId: "startup-queue",
+						inputJson: JSON.stringify(input),
+						updatedAt: 2,
+						ready: true,
+					},
+		);
+		const frame: SessionTimelineFrame = {
+			kind: "event",
+			sessionId,
+			streamVersion: 3,
+			eventId: "startup-update",
+			cursor: { epoch: "startup", version: 3 },
+			event,
+		};
+		const codec = Schema.Array(SessionTimelineFrame);
+		const decoded = Schema.decodeUnknownSync(codec)(
+			JSON.parse(JSON.stringify(Schema.encodeSync(codec)([frame]))),
+		);
+		expect(decoded[0]).toEqual(frame);
+		const queuedInput =
+			event._tag === "QueueEnqueued"
+				? event.item.input
+				: event._tag === "QueueUpdated"
+					? event.input
+					: null;
+		expect(queuedInput).toBeInstanceOf(ComposerInput);
+	});
+
 	it("replays a queued author and retains that author when the prompt is edited", () => {
 		const actor = { subject: "author", membershipId: "original-membership" };
 		const input = {
