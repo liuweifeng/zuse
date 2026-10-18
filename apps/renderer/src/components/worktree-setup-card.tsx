@@ -92,7 +92,11 @@ export function WorktreeSetupCard({
 			: (Object.values(sessionsByProject)
 					.flat()
 					.find((candidate) => candidate.id === selectedSessionId) ?? null);
+	// Creation, session summaries, and the active context arrive independently.
+	// The reserved identities remain valid before the other views catch up.
 	const initialSession = (() => {
+		if (creation?.initialSessionId === selectedSessionId) return true;
+		if (pendingCreation?.sessionId === selectedSessionId) return true;
 		if (session === null) return false;
 		const chatSessions = sessionsByProject[session.projectId] ?? [];
 		const oldest = chatSessions
@@ -108,14 +112,18 @@ export function WorktreeSetupCard({
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
 	});
 	const setupProjectId =
+		creation?.projectId ??
 		pendingCreation?.projectId ??
 		(ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.folderId
 			: null);
 	const setupWorktreeId =
-		ctx.status === "ready" || ctx.status === "worktree-pending"
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.worktreeId
-			: (creation?.worktreeId ?? pendingCreation?.worktreeId ?? null);
+			: null) ??
+		creation?.worktreeId ??
+		pendingCreation?.worktreeId ??
+		null;
 	const worktree = useWorktreeSetupLifecycle(
 		setupProjectId,
 		setupWorktreeId,
@@ -123,9 +131,12 @@ export function WorktreeSetupCard({
 	);
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
+		setupWorktreeId !== null ||
 		ctx.status === "worktree-pending" ||
-		(ctx.status === "ready" && ctx.worktreeId !== null);
+		(creation !== undefined && creation.workspacePolicy._tag !== "main") ||
+		pendingCreation?.workspaceRequested === true;
 	const worktreePending =
+		(hasWorktree && worktree === null) ||
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);
 	const setupStatus = worktree?.setupStatus ?? null;
@@ -141,7 +152,7 @@ export function WorktreeSetupCard({
 		initialSession,
 		hasWorktree,
 		setupDone,
-		workspacePending: ctx.status === "worktree-pending",
+		workspacePending: worktreePending,
 	});
 	if (providerOutputStarted) return null;
 
