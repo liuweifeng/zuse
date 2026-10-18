@@ -56,11 +56,12 @@ export function readGitStack(
 	})
 		.then(({ result }) => result)
 		.catch((cause: unknown) => {
+			// Tagged RPC errors are Errors with an empty message; prefer `reason`.
 			const reason =
-				cause instanceof Error
-					? cause.message
-					: typeof cause === "object" && cause !== null && "reason" in cause
-						? String(cause.reason)
+				typeof cause === "object" && cause !== null && "reason" in cause
+					? String(cause.reason)
+					: cause instanceof Error
+						? cause.message
 						: "";
 			if (
 				reason === GIT_STACK_UNAVAILABLE_REASON ||
