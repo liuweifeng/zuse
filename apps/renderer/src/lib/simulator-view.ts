@@ -23,7 +23,12 @@ export function simulatorPhase(
 	sync: string,
 ): SimulatorPhase {
 	if (!state) return sync === "failed" ? "offline" : "loading";
-	if (!state.enabled) return "setup";
+	if (
+		!state.enabled ||
+		(state.status === "unavailable" &&
+			state.requirements.some((item) => item.id === "android-java" && !item.ok))
+	)
+		return "setup";
 	if (state.status === "ready") return "ready";
 	if (state.status === "error" || state.status === "unavailable")
 		return "failed";
@@ -37,6 +42,8 @@ export function requirementLabel(id: SimulatorRequirement["id"]): string {
 			return message("simulators:requirement_xcode");
 		case "runtime":
 			return message("simulators:requirement_runtime");
+		case "android-java":
+			return message("simulators:requirement_android_java");
 		case "android-sdk":
 			return message("simulators:requirement_android_sdk");
 		case "android-avd":

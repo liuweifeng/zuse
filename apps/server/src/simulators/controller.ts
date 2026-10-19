@@ -66,18 +66,25 @@ const HubDevice = Schema.Struct({
 	physical: Schema.optional(Schema.Boolean),
 	supported: Schema.optional(Schema.Boolean),
 });
+const HubErrors = Schema.optional(
+	Schema.Array(
+		Schema.Struct({
+			message: Schema.String,
+			error: Schema.optional(Schema.String),
+		}),
+	),
+);
 const HubDevices = Schema.Struct({
 	simulators: Schema.Array(HubDevice),
 	emulators: Schema.optional(Schema.Array(HubDevice)),
-	errors: Schema.optional(
-		Schema.Array(Schema.Struct({ message: Schema.String })),
-	),
+	errors: HubErrors,
 });
 const HubAction = Schema.Struct({
 	ok: Schema.Boolean,
 	/** Android boots return the running emulator's serial. */
 	id: Schema.optional(SimulatorSummary.fields.id),
 	error: Schema.optional(Schema.String),
+	errors: HubErrors,
 });
 const Sessions = Schema.Array(
 	Schema.Struct({
@@ -282,9 +289,14 @@ export class SimulatorController {
 	/** Read-only host inspection; never installs or starts anything. */
 	async inspect(): Promise<SimulatorRequirement[]> {
 		const probe = (file: string, args: string[]) =>
-			this.run(file, args, this.options.root, this.lifetime.signal).catch(
-				() => null,
-			);
+			this.run(
+				file,
+				args,
+				this.options.root,
+				this.lifetime.signal,
+				30000,
+				this.env,
+			).catch(() => null);
 		const mac = this.platform === "darwin";
 		const [npm, xcode, simctl, android, avds] = await Promise.all([
 			probe("npm", ["--version"]),
@@ -296,6 +308,19 @@ export class SimulatorController {
 			listAvdNames(this.env, this.options.home),
 		]);
 		this.android = android;
+		const java =
+			this.platform === "linux" || android.root !== null
+				? await probe(
+						this.env.JAVA_HOME
+							? join(
+									this.env.JAVA_HOME,
+									"bin",
+									this.platform === "win32" ? "java.exe" : "java",
+								)
+							: "java",
+						["-version"],
+					)
+				: null;
 		const requirements: SimulatorRequirement[] = [];
 		if (mac) {
 			let simulators: number | null = null;
@@ -351,11 +376,27 @@ export class SimulatorController {
 				},
 			);
 		}
+		if (this.platform === "linux") {
+			requirements.push({
+				id: "android-java",
+				platform: "android",
+				ok: java !== null,
+				detail:
+					java !== null
+						? "Java is ready"
+						: "Install a JDK for Android tools using the Linux installation guide. Then choose Check again. If you set JAVA_HOME or change PATH, restart Zuse first.",
+				...(java === null
+					? { fix: { label: "Get Java", running: false } }
+					: {}),
+			});
+		}
+
 		const sdkReady =
 			android.root !== null &&
 			android.adb &&
 			android.emulator &&
-			android.cmdlineTools;
+			android.cmdlineTools &&
+			java !== null;
 		const canDownloadTools =
 			ANDROID_CMDLINE_TOOLS.archives[`${this.platform}-${this.arch}`] !==
 			undefined;
@@ -365,6 +406,7 @@ export class SimulatorController {
 			android.cmdlineTools ? null : "Command-line Tools",
 		].filter((item) => item !== null);
 		const sdkFixable =
+			java !== null &&
 			android.root !== null &&
 			(android.cmdlineTools || canDownloadTools) &&
 			(android.licensed || (android.adb && android.emulator));
@@ -376,13 +418,17 @@ export class SimulatorController {
 				detail:
 					android.root === null
 						? "Install Android Studio, which includes the Android SDK."
-						: sdkReady
-							? android.root
-							: `The Android SDK is missing ${missing.join(", ").replace(/, ([^,]*)$/u, " and $1")}.${
-									sdkFixable
-										? ""
-										: " Accept the SDK license in Android Studio’s SDK Manager, then check again."
-								}`,
+						: java === null
+							? this.platform === "linux"
+								? "Complete the Java step first."
+								: "Android SDK tools require Java. Install a JDK and set JAVA_HOME to its installation directory, then restart Zuse."
+							: sdkReady
+								? android.root
+								: `The Android SDK is missing ${missing.join(", ").replace(/, ([^,]*)$/u, " and $1")}.${
+										sdkFixable
+											? ""
+											: " Accept the SDK license in Android Studio’s SDK Manager, then check again."
+									}`,
 				...(android.root === null
 					? { fix: { label: "Get Android Studio", running: false } }
 					: !sdkReady && sdkFixable
@@ -520,6 +566,8 @@ export class SimulatorController {
 				);
 			} else if (id === "node") {
 				await this.openOnHost("https://nodejs.org/en/download");
+			} else if (id === "android-java") {
+				await this.openOnHost("https://adoptium.net/installation/linux/");
 			} else if (id === "android-sdk") {
 				const sdk = this.android;
 				if (!sdk?.root) {
@@ -628,7 +676,8 @@ export class SimulatorController {
 			throw new Error(
 				this.platform === "darwin"
 					? "Set up Xcode for iOS simulators or the Android SDK for emulators."
-					: "Install the Android SDK to use emulators. iOS simulators need a Mac with Xcode.",
+					: (requirements.find((item) => item.id === "android-sdk")?.detail ??
+							"Install the Android SDK to use emulators. iOS simulators need a Mac with Xcode."),
 			);
 	}
 	/** Native helpers find adb and the emulator through the resolved SDK. */
@@ -780,9 +829,15 @@ export class SimulatorController {
 		return response;
 	}
 	private async hubAction(path: string, body: unknown) {
-		return Schema.decodeUnknownSync(HubAction)(
+		const result = Schema.decodeUnknownSync(HubAction)(
 			await (await this.request(path, body)).json(),
 		);
+		if (!result.ok) {
+			const detail = hubErrorDetails(result.errors);
+			if (detail)
+				throw new Error([result.error, detail].filter(Boolean).join("\n"));
+		}
+		return result;
 	}
 	async refresh() {
 		if (this.refreshJob) return this.refreshJob;
@@ -824,7 +879,7 @@ export class SimulatorController {
 					status: "ready",
 					devices,
 					detail:
-						result.errors?.map((error) => error.message).join("\n") ||
+						hubErrorDetails(result.errors) ||
 						(devices.length
 							? "Devices are ready."
 							: "No simulators or emulators found."),
@@ -838,6 +893,13 @@ export class SimulatorController {
 								: "unavailable",
 						detail: errorMessage(cause),
 					});
+				// Missing Java is an actionable setup step, not a failed hub operation.
+				if (
+					this.state.requirements.some(
+						(item) => item.id === "android-java" && !item.ok,
+					)
+				)
+					return this.state;
 				throw cause;
 			}
 			return this.state;
@@ -1624,3 +1686,12 @@ const pick = (device: typeof HubDevice.Type) => ({
 
 const vendor = (platform: SimulatorPlatform) =>
 	platform === "ios" ? "/vendor/serve-sim" : "/vendor/serve-emu";
+
+/** Keep the hub's command failure details instead of only its generic action label. */
+function hubErrorDetails(
+	errors?: readonly { message: string; error?: string }[],
+) {
+	return errors
+		?.map(({ message, error }) => [message, error].filter(Boolean).join("\n"))
+		.join("\n");
+}

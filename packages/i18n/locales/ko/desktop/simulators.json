@@ -83,6 +83,7 @@
 	"status_first_use": "처음 사용할 때 설치",
 	"requirement_xcode": "Xcode",
 	"requirement_runtime": "iOS 시뮬레이터 런타임",
+	"requirement_android_java": "Java",
 	"requirement_android_sdk": "Android SDK",
 	"requirement_android_avd": "Android 에뮬레이터",
 	"requirement_node": "Node 22.12+ 및 npm",

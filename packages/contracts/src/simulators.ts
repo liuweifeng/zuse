@@ -26,6 +26,7 @@ export type SimulatorSession = typeof SimulatorSession.Type;
 export const SimulatorRequirementId = Schema.Literals([
 	"xcode",
 	"runtime",
+	"android-java",
 	"android-sdk",
 	"android-avd",
 	"node",

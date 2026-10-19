@@ -34118,7 +34118,7 @@
 			},
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 208
+				"line": 215
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34222,7 +34222,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 37
+				"line": 42
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34232,7 +34232,17 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 39
+				"line": 44
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
+	"simulators:requirement_android_java": {
+		"source": "Java",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 46
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34242,7 +34252,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 41
+				"line": 48
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34252,7 +34262,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 43
+				"line": 50
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34262,7 +34272,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 45
+				"line": 52
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34272,7 +34282,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 54
+				"line": 61
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34282,7 +34292,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 56
+				"line": 63
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34292,7 +34302,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 57
+				"line": 64
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34302,7 +34312,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 131
+				"line": 138
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34312,7 +34322,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 134
+				"line": 141
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34322,7 +34332,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 136
+				"line": 143
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34332,7 +34342,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 137
+				"line": 144
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34342,7 +34352,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 143
+				"line": 150
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34352,7 +34362,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 211
+				"line": 218
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34362,7 +34372,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 217
+				"line": 224
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34372,7 +34382,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 217
+				"line": 224
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34382,7 +34392,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 217
+				"line": 224
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -34392,7 +34402,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/simulator-view.ts",
-				"line": 221
+				"line": 228
 			}
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

@@ -165,7 +165,7 @@ it("boots an Android emulator by AVD name and follows it under its serial", asyn
     booted ? {id:'emulator-5554',name:'Pixel_8',version:'Android 15.0',platform:'android',booted:true}
            : {id:'Pixel_8',name:'Pixel_8',version:'Android 15.0',platform:'android',booted:false},
     {id:'R5CT',name:'Phone',version:'Android 14.0',platform:'android',booted:true,physical:true}]});
-   if (req.url==='/api/devices/boot') { const action = JSON.parse(body); if (action.platform !== 'android' || action.name !== 'Pixel_8') return json(res,{ok:false,error:'bad boot'}); booted = true; return json(res,{ok:true,id:'emulator-5554'}); }
+   if (req.url==='/api/devices/boot') { const action = JSON.parse(body); if (action.name === 'Fresh_AVD') return json(res,{ok:false,error:'Failed to allocate an emulator port for Fresh_AVD',errors:[{message:'Failed to list devices',error:'JAVA_HOME is not set and no java command could be found'}]}); if (action.platform !== 'android' || action.name !== 'Pixel_8') return json(res,{ok:false,error:'bad boot'}); booted = true; return json(res,{ok:true,id:'emulator-5554'}); }
    if (req.url==='/api/devices/shutdown') { const action = JSON.parse(body); booted = !(action.platform==='android' && action.id==='emulator-5554'); return json(res,{ok:!booted}); }
    if (req.url?.startsWith('/vendor/serve-emu/api/screenshot?device=emulator-5554') && req.method==='POST') return res.end(Buffer.from('android-png'));
    res.statusCode = 404; res.end();
@@ -215,6 +215,12 @@ it("boots an Android emulator by AVD name and follows it under its serial", asyn
 			},
 		]);
 		const chatId = ChatId.make("android-chat");
+		await expect(
+			controller.open({ chatId, deviceId: "Fresh_AVD" }),
+		).rejects.toThrow(
+			"Failed to allocate an emulator port for Fresh_AVD\nFailed to list devices\nJAVA_HOME is not set and no java command could be found",
+		);
+		expect(controller.state.sessions).toEqual([]);
 		const opened = await controller.open({ chatId, deviceId: "Pixel_8" });
 		expect(opened).toMatchObject({ id: "emulator-5554", booted: true });
 		const target = { chatId, deviceId: "emulator-5554" };

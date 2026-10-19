@@ -83,6 +83,7 @@
 	"status_first_use": "⟦ÏÏnstààlls ôôn fïïrst üüsëë⟧",
 	"requirement_xcode": "⟦Xcôôdëë⟧",
 	"requirement_runtime": "⟦ïïÔÔS sïïmüülààtôôr rüüntïïmëë⟧",
+	"requirement_android_java": "⟦Jààvàà⟧",
 	"requirement_android_sdk": "⟦ÀÀndrôôïïd SDK⟧",
 	"requirement_android_avd": "⟦ÀÀndrôôïïd ëëmüülààtôôr⟧",
 	"requirement_node": "⟦Nôôdëë 22.12+ àànd npm⟧",

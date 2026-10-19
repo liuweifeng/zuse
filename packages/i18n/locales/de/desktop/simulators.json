@@ -83,6 +83,7 @@
 	"status_first_use": "Wird bei der ersten Verwendung installiert",
 	"requirement_xcode": "Xcode",
 	"requirement_runtime": "iOS-Simulator-Laufzeit",
+	"requirement_android_java": "Java",
 	"requirement_android_sdk": "Android SDK",
 	"requirement_android_avd": "Android-Emulator",
 	"requirement_node": "Node 22.12+ und npm",

@@ -83,6 +83,7 @@
 	"status_first_use": "首次使用時安裝",
 	"requirement_xcode": "Xcode",
 	"requirement_runtime": "iOS 模擬器執行環境",
+	"requirement_android_java": "Java",
 	"requirement_android_sdk": "Android SDK",
 	"requirement_android_avd": "Android 模擬器",
 	"requirement_node": "Node 22.12+ 與 npm",
