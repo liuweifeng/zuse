@@ -126,6 +126,7 @@ describe("simulator capability lifecycle", () => {
 		// Only read-only probes run while support is off.
 		expect(run.mock.calls.map((call) => call.slice(0, 2))).toEqual([
 			["npm", ["--version"]],
+			["java", ["-version"]],
 		]);
 		expect(controller.state.status).toBe("disabled");
 		expect(controller.state.detail).toContain("Android SDK");
@@ -170,6 +171,86 @@ describe("simulator capability lifecycle", () => {
 			"xcrun",
 		]);
 		await controller.dispose();
+	});
+
+	it.each([
+		undefined,
+		"/configured/jdk",
+	])("requires working Java for Android tools (JAVA_HOME=%s)", async (javaHome) => {
+		const { root, controller, run } = await setup();
+		for (const tool of [
+			"platform-tools/adb",
+			"emulator/emulator",
+			"cmdline-tools/latest/bin/avdmanager",
+		]) {
+			const path = join(root, "Android", "Sdk", tool);
+			await mkdir(dirname(path), { recursive: true });
+			await writeFile(path, "");
+		}
+		// Use a separate controller to exercise the environment passed by the host.
+		const android = new SimulatorController({
+			root,
+			platform: "linux",
+			home: root,
+			env: { PATH: "", JAVA_HOME: javaHome },
+			run,
+			preferences: async () => ({
+				enabled: true,
+				agentAccessEnabled: false,
+				onboardingCompleted: false,
+			}),
+			savePreferences: async () => {},
+			publish: () => {},
+		});
+		const java = javaHome ? join(javaHome, "bin", "java") : "java";
+		run.mockImplementation(async (...args: unknown[]) => {
+			if (args[0] === java) throw new Error("Java unavailable");
+			return "";
+		});
+		try {
+			const requirements = await android.inspect();
+			expect(
+				requirements.find((item) => item.id === "android-sdk"),
+			).toMatchObject({
+				ok: false,
+				detail: "Complete the Java step first.",
+			});
+			expect(
+				requirements.find((item) => item.id === "android-sdk")?.fix,
+			).toBeUndefined();
+			expect(requirements.find((item) => item.id === "android-avd")?.ok).toBe(
+				false,
+			);
+			expect(requirements[0]).toMatchObject({
+				id: "android-java",
+				ok: false,
+				fix: { label: "Get Java", running: false },
+			});
+			await android.initialize();
+			await expect(android.refresh()).resolves.toMatchObject({
+				status: "unavailable",
+			});
+			await android.fix("android-java");
+			expect(run).toHaveBeenCalledWith(
+				"xdg-open",
+				["https://adoptium.net/installation/linux/"],
+				root,
+				expect.any(AbortSignal),
+			);
+
+			run.mockResolvedValue("");
+			expect(
+				(await android.inspect()).find((item) => item.id === "android-sdk")?.ok,
+			).toBe(true);
+			expect((await android.inspect())[0]).toMatchObject({
+				id: "android-java",
+				ok: true,
+			});
+			expect((await android.inspect())[0]?.fix).toBeUndefined();
+		} finally {
+			await android.dispose();
+			await controller.dispose();
+		}
 	});
 	it("offers host fixes and runs the runtime download with live progress", async () => {
 		const root = await directory();
@@ -247,9 +328,12 @@ describe("simulator capability lifecycle", () => {
 	it("does nothing for requirements that have no fix", async () => {
 		const { controller, run } = await setup();
 		await controller.fix("runtime");
-		expect(run.mock.calls.every(([file]) => file === "npm")).toBe(true);
+		expect(
+			run.mock.calls.every(([file]) => file === "npm" || file === "java"),
+		).toBe(true);
 		// iOS requirements are not offered on Linux.
 		expect(controller.state.requirements.map((item) => item.id)).toEqual([
+			"android-java",
 			"android-sdk",
 			"android-avd",
 			"node",
@@ -293,7 +377,9 @@ describe("simulator capability lifecycle", () => {
 		const { controller, run } = await setup({ enabled: true });
 		await expect(controller.refresh()).rejects.toThrow("Android SDK");
 		expect(controller.state.status).toBe("unavailable");
-		expect(run.mock.calls.every(([file]) => file === "npm")).toBe(true);
+		expect(
+			run.mock.calls.every(([file]) => file === "npm" || file === "java"),
+		).toBe(true);
 		await controller.dispose();
 	});
 	async function androidHost(parts: {
@@ -334,12 +420,13 @@ describe("simulator capability lifecycle", () => {
 		await controller.initialize();
 		return { root, sdk, run, controller };
 	}
-	it("finds an Android SDK and its emulators without starting any tool", async () => {
+	it("finds an Android SDK and its emulators with read-only runtime probes", async () => {
 		const { sdk, run, controller } = await androidHost({
 			avds: ["Pixel_8_API_35", "Tablet"],
 		});
 		await controller.check();
 		expect(controller.state.requirements).toEqual([
+			expect.objectContaining({ id: "android-java", ok: true }),
 			expect.objectContaining({ id: "android-sdk", ok: true, detail: sdk }),
 			expect.objectContaining({
 				id: "android-avd",
@@ -348,7 +435,9 @@ describe("simulator capability lifecycle", () => {
 			}),
 			expect.objectContaining({ id: "node", ok: true }),
 		]);
-		expect(run.mock.calls.every(([file]) => file === "npm")).toBe(true);
+		expect(
+			run.mock.calls.every(([file]) => file === "npm" || file === "java"),
+		).toBe(true);
 		await controller.dispose();
 	});
 	it("offers Command-line Tools when Android Studio left them out", async () => {
@@ -371,7 +460,9 @@ describe("simulator capability lifecycle", () => {
 				?.fix,
 		).toEqual({ label: "Create", running: false });
 		await controller.fix("android-avd");
-		const calls = run.mock.calls.filter(([file]) => file !== "npm");
+		const calls = run.mock.calls.filter(
+			([file]) => file !== "npm" && file !== "java",
+		);
 		expect(calls.map((call) => call.slice(0, 2))).toEqual([
 			[
 				join(sdk, "cmdline-tools", "latest", "bin", "sdkmanager"),

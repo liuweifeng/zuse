@@ -35840,6 +35840,16 @@
 		],
 		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
+	"simulators:requirement_android_java": {
+		"source": "Java",
+		"locations": [
+			{
+				"path": "apps/renderer/src/lib/simulator-view.ts",
+				"line": 41
+			}
+		],
+		"context": "simulators interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
 	"simulators:requirement_android_sdk": {
 		"source": "Android SDK",
 		"locations": [

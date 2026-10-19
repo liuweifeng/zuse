@@ -83,6 +83,7 @@
 	"status_first_use": "初回使用時にインストール",
 	"requirement_xcode": "Xcode",
 	"requirement_runtime": "iOS シミュレータランタイム",
+	"requirement_android_java": "Java",
 	"requirement_android_sdk": "Android SDK",
 	"requirement_android_avd": "Android エミュレータ",
 	"requirement_node": "Node 22.12 以降と npm",
