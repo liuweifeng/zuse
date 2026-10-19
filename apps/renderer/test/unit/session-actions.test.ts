@@ -407,7 +407,11 @@ describe("session actions", () => {
 		retained.lease.release();
 	});
 
-	it("converges when a queued message was consumed before its final update", async () => {
+	it.each([
+		"consumed",
+		"rejected",
+		"accepted",
+	] as const)("reports a %s queued-message update without losing readiness", async (outcome) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let streamStarts = 0;
 		const input = ComposerInput.make({
@@ -425,7 +429,23 @@ describe("session actions", () => {
 						return Stream.fromQueue(frames);
 					},
 					"messages.queue.update": () =>
-						Effect.fail(new QueuedMessageNotFoundError({ sessionId, queueId })),
+						outcome === "consumed"
+							? Effect.fail(
+									new QueuedMessageNotFoundError({ sessionId, queueId }),
+								)
+							: outcome === "rejected"
+								? Effect.fail(new SessionNotFoundError({ sessionId }))
+								: Effect.succeed(
+										QueuedMessage.make({
+											id: queueId,
+											sessionId,
+											input,
+											ready: true,
+											position: 0,
+											createdAt: new Date(),
+											updatedAt: new Date(),
+										}),
+									),
 				}) as never,
 		);
 
@@ -465,15 +485,18 @@ describe("session actions", () => {
 					.length === 1,
 		);
 
-		await updateQueuedMessage(ref, queueId, input);
+		expect(await updateQueuedMessage(ref, queueId, input)).toBe(
+			outcome !== "rejected",
+		);
 
-		expect(
-			getRendererClientBus().snapshot(retained.key).data?.queue.items,
-		).toEqual([]);
-		expect(
-			getRendererClientBus().snapshot(retained.key).failedCommands,
-		).toEqual([]);
-		expect(pendingSessionCommandError(ref)).toBeNull();
+		const items = getRendererClientBus().snapshot(retained.key).data?.queue
+			.items;
+		if (outcome === "consumed") expect(items).toEqual([]);
+		else expect(items?.[0]?.ready).toBe(outcome === "accepted");
+		if (outcome === "rejected")
+			expect(pendingSessionCommandError(ref)).not.toBeNull();
+		else expect(pendingSessionCommandError(ref)).toBeNull();
+
 		retained.lease.release();
 	});
 

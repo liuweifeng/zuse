@@ -811,5 +811,8 @@
 	"voice_error_no_speech": "⟦Nôô spëëëëch wààs dëëtëëctëëd. Try ààgààïïn.⟧",
 	"voice_error_transcription_failed": "⟦Côôüüldn't tràànscrïïbëë yôôüür rëëcôôrdïïng. Chëëck yôôüür côônnëëctïïôôn àànd try ààgààïïn.⟧",
 	"voice_error_service_unavailable": "⟦Tràànscrïïptïïôôn ïïsn't ààvààïïlààblëë frôôm thïïs wôôrkspààcëë.⟧",
-	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧"
+	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧",
+	"startup_queue_preparing": "⟦ÀÀttààchïïng fïïlëës…⟧",
+	"startup_queue_failed": "⟦Fïïlëës wëërëën’t ààttààchëëd⟧",
+	"startup_queue_reattach": "⟦Rëëmôôvëë thïïs mëëssààgëë àànd ààttààch thëë fïïlëës ààgààïïn. Yôôüür prôômpt hààs nôôt bëëëën sëënt.⟧"
 }

@@ -811,5 +811,8 @@
 	"voice_error_no_speech": "未偵測到語音。請再試一次。",
 	"voice_error_transcription_failed": "無法轉寫錄音。請檢查網路連線後再試一次。",
 	"voice_error_service_unavailable": "此工作區無法使用轉寫服務。",
-	"voice_error_start_failed": "無法開始聽寫。請再試一次。"
+	"voice_error_start_failed": "無法開始聽寫。請再試一次。",
+	"startup_queue_preparing": "正在附加檔案…",
+	"startup_queue_failed": "未能附加檔案",
+	"startup_queue_reattach": "請移除此訊息並重新附加檔案。你的提示尚未傳送。"
 }

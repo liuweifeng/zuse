@@ -1,3 +1,5 @@
+import { prepareStartupQueue } from "../composer/startup-queue.ts";
+import { validateAttachmentFile } from "../lib/attachments.ts";
 import "@zuse/i18n/english/shell";
 import { subscribeControlPlaneSessionCache } from "~/lib/control-plane-client.ts";
 import {
@@ -155,7 +157,6 @@ import {
 	discardStagedSessionMessage,
 	sendSessionMessage,
 	stageSessionMessage,
-	updateQueuedMessage,
 } from "~/lib/session-actions";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { switchToEnvironment } from "~/lib/switch-environment";
@@ -1001,6 +1002,13 @@ function WorkspaceChatLanding({
 		},
 	): Promise<void> => {
 		if (submitting || rendererWorkspaceSnapshot() !== workspace) return;
+		try {
+			for (const pending of opts.pendingAttachments)
+				validateAttachmentFile(pending.file);
+		} catch (error) {
+			setSubmitError(formatError(error));
+			return;
+		}
 		if (cloudOnlyHome && selectedCloudProviderId === null) {
 			setSubmitError(
 				uiMessage(
@@ -1430,9 +1438,8 @@ function WorkspaceChatLanding({
 			sessionId,
 		);
 
-		let finalInput = startupInput;
-		try {
-			finalInput = await finalizeStartupInputWhenReady(
+		if (startupNeedsPreparation && startupQueueId !== null) {
+			const sent = await prepareStartupQueue(
 				startupInput,
 				{
 					ref: {
@@ -1442,26 +1449,19 @@ function WorkspaceChatLanding({
 					uploadRoot: null,
 				},
 				startupOptions,
-			);
-		} catch (err) {
-			console.error("[chat-landing] startup input preparation failed", err);
-			setSubmitError(
-				err instanceof StartupInputError ? err.message : formatError(err),
-			);
-			setPendingPrompt(null);
-			setPendingWorktreeId(null);
-			setSubmitting(false);
-			return;
-		} finally {
-			releaseDraftAttachmentPreviews(opts.pendingAttachments);
-		}
-		if (startupNeedsPreparation && startupQueueId !== null) {
-			await updateQueuedMessage(
-				{ environmentId: EnvironmentId.make(activeEnvironmentId), sessionId },
 				startupQueueId,
-				finalInput,
 			);
+			// The queue owns both the error and retry bytes after navigation.
+			// Keep the accepted draft cleared even when preparation failed.
+			useSessionsStore.getState().clearDraft(draftRevision);
+			if (!sent) {
+				setPendingPrompt(null);
+				setPendingWorktreeId(null);
+				setSubmitting(false);
+				return;
+			}
 		}
+
 		setCreateSource(null);
 		useSessionsStore.getState().clearDraft(draftRevision);
 	};
