@@ -469,6 +469,13 @@ export const ProviderServiceLive = Layer.effect(
 							entry.providerSessionId === expectedProviderSessionId)
 					);
 				}),
+			liveSessions: (providerId) =>
+				Effect.sync(() =>
+					registry
+						.entries()
+						.filter(([, entry]) => entry.providerId === providerId)
+						.map(([sessionId]) => sessionId),
+				),
 			quiesce: (sessionId, expectedProviderSessionId) =>
 				lifecycleWorker.run(
 					sessionId,

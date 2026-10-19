@@ -58,6 +58,16 @@ export const isGeminiAcpUpgradeError = (text: string): boolean =>
 		text,
 	);
 
+const CODEX_MODEL_NEEDS_UPDATE_PATTERN =
+	/The '([^']+)' model is not supported when using Codex with a ChatGPT account/i;
+
+/**
+ * Codex's backend filters ChatGPT-account models by client version, so a model
+ * newer than the installed CLI fails with this error until Codex is updated.
+ */
+export const codexModelNeedingUpdate = (text: string): string | null =>
+	CODEX_MODEL_NEEDS_UPDATE_PATTERN.exec(text)?.[1] ?? null;
+
 const CLOUD_ACCOUNT_AUTH_PROVIDERS: ReadonlySet<ProviderId> = new Set([
 	"claude",
 	"codex",
@@ -78,6 +88,12 @@ export type ProviderErrorNotice =
 			readonly maxAttempts: number;
 	  }
 	| { readonly kind: "gemini-upgrade" }
+	/** The installed provider CLI is too old for the selected model. */
+	| {
+			readonly kind: "provider-update";
+			readonly providerId: ProviderId;
+			readonly modelId: string;
+	  }
 	/** Cloud workspace account-level credential needs reconnecting. */
 	| { readonly kind: "cloud-auth"; readonly providerId: ProviderId }
 	/** Local provider with in-app sign-in; `ProviderSignInTray` owns recovery. */
@@ -97,6 +113,16 @@ export const describeProviderError = (
 	environmentId: EnvironmentId | undefined,
 ): ProviderErrorNotice => {
 	if (isGeminiAcpUpgradeError(error.message)) return { kind: "gemini-upgrade" };
+	const errorProvider =
+		(error.kind === "auth" ? error.providerId : undefined) ?? providerId;
+	const codexModel =
+		errorProvider === "codex" ? codexModelNeedingUpdate(error.message) : null;
+	if (codexModel !== null)
+		return {
+			kind: "provider-update",
+			providerId: "codex",
+			modelId: codexModel,
+		};
 	const limit = parseRateLimit(error.message);
 	if (limit !== null) return { kind: "usage-limit", limit };
 	const reconnecting = parseReconnectingStatus(error.message);
@@ -139,6 +165,7 @@ export const isBlockingNotice = (notice: ProviderErrorNotice): boolean => {
 	switch (notice.kind) {
 		case "usage-limit":
 		case "gemini-upgrade":
+		case "provider-update":
 		case "cloud-auth":
 		case "auth":
 		case "terminal":

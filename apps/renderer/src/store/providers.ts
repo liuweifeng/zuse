@@ -354,6 +354,9 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
 					return;
 				}
 				await get().refreshFor(EnvironmentId.make(environmentId));
+				void useModelCatalogStore
+					.getState()
+					.refreshFor(EnvironmentId.make(environmentId));
 				if (providerUpdateOwners.get(key) !== owner) return;
 				setUpdate({ kind: "success" });
 				owner.resetAfter(() => {

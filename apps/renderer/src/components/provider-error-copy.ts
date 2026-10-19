@@ -1,7 +1,7 @@
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/common";
 import { cloudProviderAuthenticationMode } from "@zuse/client-runtime/cloud-provider-availability";
-import type { EnvironmentId } from "@zuse/contracts";
+import { type EnvironmentId, labelForModelId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
@@ -11,6 +11,7 @@ import type {
 } from "../lib/provider-error-notice.ts";
 import { providerDisplayName } from "../lib/provider-labels.ts";
 import type { ChatError } from "../lib/session-actions.ts";
+import { useModelCatalogStore } from "../store/model-catalog.ts";
 
 export interface ProviderErrorCopy {
 	readonly title: string;
@@ -35,6 +36,7 @@ export function useProviderErrorCopy(
 					(summary) => summary.workspaceId === environmentId,
 				) ?? null),
 	);
+	const modelCatalog = useModelCatalogStore((state) => state.catalog);
 
 	const resetDetail = (limit: RateLimitInfo): string => {
 		if (limit.resetText !== undefined)
@@ -73,6 +75,23 @@ export function useProviderErrorCopy(
 						"chat:message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b",
 					),
 				};
+			case "provider-update": {
+				const label = providerDisplayName(notice.providerId);
+				return {
+					title: uiMessage("chat:message_row_update_provider_to_use_model", {
+						label,
+						model: labelForModelId(
+							modelCatalog,
+							notice.modelId,
+							notice.providerId,
+						),
+					}),
+					detail: uiMessage(
+						"chat:message_row_installed_provider_does_not_support_model",
+						{ label },
+					),
+				};
+			}
 			case "cloud-auth": {
 				const providerLabel = String(providerDisplayName(notice.providerId));
 				const mode = cloudProviderAuthenticationMode(
