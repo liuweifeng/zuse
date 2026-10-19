@@ -95,13 +95,15 @@ export function ProviderErrorTray({
 	const commandError = localError ?? pendingSessionCommandError(ref);
 	const transcriptError = latestTranscriptError(timeline.messages, providerId);
 
-	let source: { error: ChatError; dismiss: () => void } | null = null;
+	let source: { error: ChatError; key: string; dismiss: () => void } | null =
+		null;
 	if (
 		commandError !== null &&
 		!isRecoveredPreAckSessionError(commandError, timeline.view)
 	) {
 		source = {
 			error: commandError,
+			key: `command:${commandError.message}`,
 			dismiss: () => clearSessionCommandError(ref),
 		};
 	} else if (
@@ -114,6 +116,7 @@ export function ProviderErrorTray({
 		const messageId = transcriptError.message.id;
 		source = {
 			error: transcriptError.error,
+			key: `message:${messageId}`,
 			dismiss: () => dismissTranscriptProviderError(sessionKey, messageId),
 		};
 	}
@@ -173,6 +176,7 @@ export function ProviderErrorTray({
 						/>
 					) : null}
 					<ProviderErrorActions
+						key={source.key}
 						notice={notice}
 						switchesAccounts={isNativeAccountProvider(providerId)}
 						onRetry={() => void retryLastSessionMessage(ref, providerId)}

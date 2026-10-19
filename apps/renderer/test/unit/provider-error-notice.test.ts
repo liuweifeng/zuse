@@ -100,6 +100,9 @@ describe("provider error notices", () => {
 			modelId: "gpt-6.1-sol",
 		});
 		expect(isBlockingNotice(notice)).toBe(true);
+		expect(describeProviderError(error, "claude", local)).toEqual({
+			kind: "generic",
+		});
 	});
 
 	it("leaves in-app sign-in to the sign-in tray", () => {

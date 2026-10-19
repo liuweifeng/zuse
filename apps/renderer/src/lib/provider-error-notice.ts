@@ -113,7 +113,10 @@ export const describeProviderError = (
 	environmentId: EnvironmentId | undefined,
 ): ProviderErrorNotice => {
 	if (isGeminiAcpUpgradeError(error.message)) return { kind: "gemini-upgrade" };
-	const codexModel = codexModelNeedingUpdate(error.message);
+	const errorProvider =
+		(error.kind === "auth" ? error.providerId : undefined) ?? providerId;
+	const codexModel =
+		errorProvider === "codex" ? codexModelNeedingUpdate(error.message) : null;
 	if (codexModel !== null)
 		return {
 			kind: "provider-update",

@@ -3512,7 +3512,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 196
+				"line": 200
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3552,7 +3552,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 299
+				"line": 303
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3562,11 +3562,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 308
+				"line": 312
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 351
+				"line": 355
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3596,7 +3596,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 273
+				"line": 277
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3626,7 +3626,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 430
+				"line": 434
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3636,7 +3636,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 429
+				"line": 433
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3736,7 +3736,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 195
+				"line": 199
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -3766,11 +3766,11 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 332
+				"line": 336
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 414
+				"line": 418
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -7521,7 +7521,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 439
+				"line": 443
 			}
 		],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -9113,7 +9113,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 145
+				"line": 148
 			},
 			{
 				"path": "apps/renderer/src/components/projects-sidebar.tsx",
@@ -9127,7 +9127,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 145
+				"line": 148
 			},
 			{
 				"path": "apps/renderer/src/components/html-visual.tsx",
@@ -9392,7 +9392,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 320
+				"line": 324
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-sign-in-tray.tsx",
@@ -9828,7 +9828,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 272
+				"line": 276
 			},
 			{
 				"path": "apps/renderer/src/components/copy-button.tsx",
@@ -10405,7 +10405,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 187
+				"line": 191
 			},
 			{
 				"path": "apps/renderer/src/components/startup-surface.tsx",
@@ -19313,7 +19313,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/composer/provider-error-tray.tsx",
-				"line": 403
+				"line": 407
 			},
 			{
 				"path": "apps/renderer/src/components/provider-card.tsx",
