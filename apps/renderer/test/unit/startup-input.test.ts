@@ -266,3 +266,21 @@ describe("startup input retry while the target session registers", () => {
 		expect(uploadAttachment).toHaveBeenCalledTimes(1);
 	});
 });
+
+it("stops waiting for registration when the queued upload is cancelled", async () => {
+	const controller = new AbortController();
+	saveContextText.mockRejectedValue({ _tag: "ContextWriteError" });
+	const pending = finalizeStartupInputWhenReady(
+		inputWith(),
+		target,
+		{ ...emptyOptions, issueMarkdown: "# Bug" },
+		{ signal: controller.signal },
+	);
+	const rejected = expect(pending).rejects.toMatchObject({
+		name: "AbortError",
+	});
+	await vi.waitFor(() => expect(saveContextText).toHaveBeenCalledTimes(1));
+	controller.abort();
+	await rejected;
+	expect(saveContextText).toHaveBeenCalledTimes(1);
+});

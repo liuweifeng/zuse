@@ -811,5 +811,8 @@
 	"voice_error_no_speech": "No speech was detected. Try again.",
 	"voice_error_transcription_failed": "Couldn't transcribe your recording. Check your connection and try again.",
 	"voice_error_service_unavailable": "Transcription isn't available from this workspace.",
-	"voice_error_start_failed": "Couldn't start dictation. Try again."
+	"voice_error_start_failed": "Couldn't start dictation. Try again.",
+	"startup_queue_preparing": "Attaching files…",
+	"startup_queue_failed": "Files weren’t attached",
+	"startup_queue_reattach": "Remove this message and attach the files again. Your prompt has not been sent."
 }

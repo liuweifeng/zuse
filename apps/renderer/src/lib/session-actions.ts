@@ -521,7 +521,7 @@ export const updateQueuedMessage = async (
 	queueId: string,
 	input: ComposerInput,
 	providerId?: ProviderId,
-): Promise<void> => {
+): Promise<boolean> => {
 	const previous = projectionFor(ref)?.queue.items.find(
 		(item) => item.id === queueId,
 	);
@@ -552,12 +552,13 @@ export const updateQueuedMessage = async (
 		updateQueue(ref, (items) =>
 			items.map((item) => (item.id === queueId ? updated : item)),
 		);
+		return true;
 	} catch (cause) {
-		if (retryableFailure(ref, commandId)) return;
+		if (retryableFailure(ref, commandId)) return false;
 		if (isQueuedMessageNotFound(cause)) {
 			updateQueue(ref, (items) => items.filter((item) => item.id !== queueId));
 			clearSessionCommandError(ref);
-			return;
+			return true;
 		}
 		if (previous !== undefined) {
 			updateQueue(ref, (items) =>
@@ -565,6 +566,7 @@ export const updateQueuedMessage = async (
 			);
 		}
 		setSessionError(ref, classifyError(cause, providerId));
+		return false;
 	}
 };
 

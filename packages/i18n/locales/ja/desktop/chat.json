@@ -811,5 +811,8 @@
 	"voice_error_no_speech": "音声が検出されませんでした。もう一度お試しください。",
 	"voice_error_transcription_failed": "録音を文字起こしできませんでした。接続を確認して、もう一度お試しください。",
 	"voice_error_service_unavailable": "このワークスペースでは文字起こしを利用できません。",
-	"voice_error_start_failed": "音声入力を開始できませんでした。もう一度お試しください。"
+	"voice_error_start_failed": "音声入力を開始できませんでした。もう一度お試しください。",
+	"startup_queue_preparing": "ファイルを添付中…",
+	"startup_queue_failed": "ファイルを添付できませんでした",
+	"startup_queue_reattach": "このメッセージを削除して、ファイルを添付し直してください。プロンプトは送信されていません。"
 }

@@ -55,6 +55,7 @@ export function QueueChip({
 	onDragStart,
 	onDragOver,
 	onDrop,
+	onRemove,
 }: {
 	sessionId: SessionId;
 	environmentId: EnvironmentId;
@@ -68,6 +69,7 @@ export function QueueChip({
 	onDragStart: () => void;
 	onDragOver: () => void;
 	onDrop: () => void;
+	onRemove?: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
@@ -85,7 +87,7 @@ export function QueueChip({
 	};
 
 	const edit = () => {
-		if (runningNow) return;
+		if (runningNow || !item.ready) return;
 		useComposerBridge.getState().editQueuedMessage?.(item);
 	};
 
@@ -175,7 +177,7 @@ export function QueueChip({
 							render={
 								<button
 									type="button"
-									disabled={runningNow}
+									disabled={runningNow || !item.ready}
 									onClick={edit}
 									className={trayPillActionClass}
 									aria-label={uiMessage("chat:queue_chip_edit_queued_message")}
@@ -193,7 +195,10 @@ export function QueueChip({
 									type="button"
 									disabled={runningNow}
 									onClick={() => {
-										if (!runningNow) dropQueuedMessage(ref, item.id);
+										if (!runningNow) {
+											onRemove?.();
+											dropQueuedMessage(ref, item.id);
+										}
 									}}
 									className={cn(trayPillActionClass, "hover:text-destructive")}
 									aria-label={uiMessage(

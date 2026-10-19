@@ -811,5 +811,8 @@
 	"voice_error_no_speech": "未检测到语音。请重试。",
 	"voice_error_transcription_failed": "无法转写录音。请检查网络连接后重试。",
 	"voice_error_service_unavailable": "此工作区无法使用转写服务。",
-	"voice_error_start_failed": "无法开始听写。请重试。"
+	"voice_error_start_failed": "无法开始听写。请重试。",
+	"startup_queue_preparing": "正在添加文件…",
+	"startup_queue_failed": "文件未能添加",
+	"startup_queue_reattach": "请移除此消息并重新添加文件。你的提示尚未发送。"
 }
