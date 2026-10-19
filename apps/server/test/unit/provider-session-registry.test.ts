@@ -14,6 +14,16 @@ describe("provider session registry", () => {
 		expect(registry.lookup("session-1")).toBe("grok");
 	});
 
+	it("lists only published handles", () => {
+		const registry = makeProviderSessionRegistry<string, string>();
+		registry.publish("session-1", registry.begin("session-1"), "codex");
+		registry.begin("session-2");
+
+		expect(registry.entries()).toEqual([["session-1", "codex"]]);
+		registry.invalidate("session-1");
+		expect(registry.entries()).toEqual([]);
+	});
+
 	it.each([
 		"explicit",
 		"unexpected",

@@ -85,6 +85,23 @@ describe("provider error notices", () => {
 		).toBe(false);
 	});
 
+	it("asks for a Codex update when its ChatGPT account rejects a newer model", () => {
+		const error = classifyErrorContent(
+			{
+				message:
+					'{"type":"error","status":400,"error":{"type":"invalid_request_error","message":"The \'gpt-6.1-sol\' model is not supported when using Codex with a ChatGPT account."}}',
+			},
+			"codex",
+		);
+		const notice = describeProviderError(error, "codex", local);
+		expect(notice).toEqual({
+			kind: "provider-update",
+			providerId: "codex",
+			modelId: "gpt-6.1-sol",
+		});
+		expect(isBlockingNotice(notice)).toBe(true);
+	});
+
 	it("leaves in-app sign-in to the sign-in tray", () => {
 		const signIn = describeProviderError(
 			{ kind: "auth", message: "Not logged in" },

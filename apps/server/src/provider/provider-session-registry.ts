@@ -9,6 +9,7 @@ export interface ProviderSessionRegistry<SessionId, Entry> {
 	/** Permanently revoke all generations and transfer remaining handles to cleanup. */
 	readonly close: () => ReadonlyArray<Entry>;
 	readonly lookup: (sessionId: SessionId) => Entry | undefined;
+	readonly entries: () => ReadonlyArray<readonly [SessionId, Entry]>;
 	readonly currentGeneration: (sessionId: SessionId) => number | undefined;
 	readonly isCurrent: (sessionId: SessionId, generation: number) => boolean;
 	readonly currentProviderSessionId: (
@@ -55,6 +56,7 @@ export const makeProviderSessionRegistry = <
 			return entries;
 		},
 		lookup: (sessionId) => sessions.get(sessionId),
+		entries: () => [...sessions.entries()],
 		currentGeneration: (sessionId) => generations.get(sessionId)?.generation,
 		currentProviderSessionId: (sessionId) =>
 			generations.get(sessionId)?.providerSessionId,
