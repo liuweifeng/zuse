@@ -233,12 +233,37 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+/**
+ * Idle chats keep their provider process across turns, so they would keep
+ * running the replaced CLI. Release them before reporting success; their next
+ * turn starts the updated binary. Busy chats pick it up on their next restart.
+ */
+const releaseUpdatedProviderSessions = (providerId: ProviderId) =>
+	Effect.gen(function* () {
+		const provider = yield* ProviderService;
+		const sessions = yield* SessionService;
+		const live = yield* provider.liveSessions(providerId);
+		yield* Effect.forEach(
+			live,
+			(sessionId) => sessions.releaseProvider(sessionId).pipe(Effect.ignore),
+			{ discard: true },
+		);
+	});
+
 const UpdateProvider = MemoizeRpcs.toLayerHandler(
 	"provider.update",
 	({ providerId }) =>
 		Stream.unwrap(
 			resolveUpdateCommand(providerId).pipe(
-				Effect.map((command) => startProviderUpdate(providerId, command)),
+				Effect.map((command) =>
+					startProviderUpdate(providerId, command).pipe(
+						Stream.tap((event) =>
+							event._tag === "done" && event.ok
+								? releaseUpdatedProviderSessions(providerId)
+								: Effect.void,
+						),
+					),
+				),
 			),
 		),
 );

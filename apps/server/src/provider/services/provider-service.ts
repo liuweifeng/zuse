@@ -78,6 +78,10 @@ export interface ProviderServiceShape {
 		sessionId: AgentSessionId,
 		expectedProviderSessionId?: string,
 	) => Effect.Effect<boolean>;
+	/** Sessions with a live handle for this provider. */
+	readonly liveSessions: (
+		providerId: ProviderId,
+	) => Effect.Effect<ReadonlyArray<AgentSessionId>>;
 	/** Stop and verify quiescence before filesystem rollback; failed handles remain owned. */
 	readonly quiesce?: (
 		sessionId: AgentSessionId,

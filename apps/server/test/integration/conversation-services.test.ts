@@ -254,6 +254,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 	availability: () => Effect.succeed([]),
 	hasSession: (sessionId) =>
 		Effect.sync(() => activeProviderSessions.has(sessionId)),
+	liveSessions: () => Effect.sync(() => [...activeProviderSessions]),
 	guardCurrent: (sessionId, _generation, effect) =>
 		Effect.suspend(() =>
 			(

@@ -70,7 +70,7 @@ jobs:
           bun install --frozen-lockfile
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Explicit: a prior interrupted install may leave postinstall unfinished.
-          bun run --cwd apps/desktop postinstall
+          bun run --cwd apps/desktop rebuild:native
           exit $LASTEXITCODE
       # Save before validation so a later compatibility failure does not discard
       # the download cache. Native modules are still rebuilt on every runner.

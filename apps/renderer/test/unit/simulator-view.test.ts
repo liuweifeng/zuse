@@ -2,6 +2,7 @@ import type { SimulatorState } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 import {
 	groupSimulators,
+	requirementLabel,
 	requirementSections,
 	requirementsBlocked,
 	setupSteps,
@@ -48,6 +49,26 @@ describe("simulator presentation", () => {
 		expect(
 			simulatorPhase(state({ enabled: true, status: "ready" }), "live"),
 		).toBe("ready");
+	});
+
+	it("keeps a Linux host missing Java in guided setup", () => {
+		const requirements = [
+			{
+				id: "android-java",
+				platform: "android",
+				ok: false,
+				detail: "Install Java",
+				fix: { label: "Get Java", running: false },
+			},
+			...missing("android-sdk").filter((item) => item.platform !== "ios"),
+		] as SimulatorState["requirements"];
+		const host = state({ enabled: true, status: "unavailable", requirements });
+		expect(simulatorPhase(host, "live")).toBe("setup");
+		expect(requirementsBlocked(host)).toBe(true);
+		expect(requirementSections(requirements)[0]?.items[0]?.id).toBe(
+			"android-java",
+		);
+		expect(requirementLabel("android-java")).toBe("Java");
 	});
 
 	it("needs Node and one platform, never a runtime or an emulator", () => {
