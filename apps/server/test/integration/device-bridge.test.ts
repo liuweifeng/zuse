@@ -8,7 +8,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime, PubSub, Schema, Stream } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { AuthService } from "../../src/auth/services/auth-service.ts";
 import { CloudDeviceCommandClient } from "../../src/device-bridge/cloud-client.ts";
 import {
@@ -243,6 +243,98 @@ it.each([
 		client.close();
 		await runtime.dispose();
 		await new Promise<void>((resolve) => server.close(() => resolve()));
+		await rm(directory, { recursive: true, force: true });
+	}
+});
+
+it.each([
+	"network",
+	"response",
+	"account",
+	"token",
+	"disabled",
+])("preserves bridge retry eligibility after a failed enable: %s", async (failure) => {
+	const directory = await mkdtemp(join(tmpdir(), "zuse-bridge-enable-"));
+	let accountId = "account";
+	let tokenFails = false;
+	const sql = sqliteLayer({ filename: join(directory, "state.sqlite") });
+	const account = Layer.succeed(AuthService, {
+		sessionChanges: () => Stream.empty,
+		signIn: () => Effect.die("Unused in this test"),
+		signOut: () => Effect.void,
+		getSession: () =>
+			Effect.succeed(
+				Schema.decodeUnknownSync(AuthState)({
+					_tag: "SignedIn",
+					session: {
+						user: {
+							id: accountId,
+							email: "test@example.com",
+							firstName: null,
+							lastName: null,
+							profilePictureUrl: null,
+						},
+						organizationId: null,
+						expiresAt: Date.now() + 60000,
+					},
+				}),
+			),
+		getAccessToken: () =>
+			tokenFails
+				? Effect.die(new Error("Token unavailable"))
+				: Effect.succeed("token"),
+	} as AuthService["Service"]);
+	let starts = 0;
+	const runtime = ManagedRuntime.make(
+		DeviceBridgeServiceLive.pipe(
+			Layer.provide(
+				sql.pipe(Layer.provideMerge(MigrationsLive.pipe(Layer.provide(sql)))),
+			),
+			Layer.provide(account),
+			Layer.provide(
+				Layer.succeed(LanAuthService, {
+					environmentId: () => Effect.succeed(EnvironmentId.make("desktop")),
+				} as unknown as LanAuthService["Service"]),
+			),
+			Layer.provide(
+				Layer.succeed(DeviceBridgeChannelFactory, {
+					make: () => ({
+						start: () => {
+							starts++;
+						},
+						stop: () => {},
+						restart: () => {},
+						snapshot: () => ({ connected: false, error: null, accountId }),
+					}),
+				}),
+			),
+		),
+	);
+	const fetchSpy = vi.spyOn(globalThis, "fetch");
+	try {
+		const service = await runtime.runPromise(DeviceBridgeService);
+		if (failure === "disabled") {
+			fetchSpy.mockResolvedValue(new Response(null, { status: 200 }));
+			await service.setEnabled(false);
+		}
+		const before = starts;
+		tokenFails = failure === "token";
+		fetchSpy.mockImplementation(async () => {
+			if (failure === "account") {
+				accountId = "another-account";
+				return new Response(null, { status: 200 });
+			}
+			if (failure === "response") return new Response(null, { status: 503 });
+			throw new Error("Network unavailable");
+		});
+		await expect(service.setEnabled(true)).rejects.toThrow();
+		expect(starts).toBe(before + 1);
+		expect((await service.broker.status()).enabled).toBe(
+			failure !== "disabled",
+		);
+	} finally {
+		fetchSpy.mockRestore();
+		await runtime.dispose();
 		await rm(directory, { recursive: true, force: true });
 	}
 });

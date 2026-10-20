@@ -76,8 +76,8 @@ const defaultBindingDependencies: CloudDeviceBindingDependencies = {
 };
 
 /**
- * Makes the desktop sending the next message the cloud workspace's command
- * target. Binding is best-effort so device access never prevents chat delivery.
+ * Binds the sending desktop only when the cloud workspace has no command target.
+ * Binding is best-effort so device access never prevents chat delivery.
  */
 export const bindCloudWorkspaceToLocalDevice = async (
 	workspaceId: string,

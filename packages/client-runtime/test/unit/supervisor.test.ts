@@ -27,10 +27,14 @@ const makeHarness = (input?: {
 	online?: boolean;
 	maxAutomaticAttempts?: number | ((options: Options) => number);
 	prepareOptions?: (options: Options) => Promise<Options>;
-	createClient?: (options: Options) => Promise<{
+	createClient?: (
+		options: Options,
+		signal: AbortSignal,
+	) => Promise<{
 		readonly client: Client;
 		readonly dispose: () => Promise<void>;
 	}>;
+	validateClient?: (client: Client) => Promise<void>;
 	isRetryableCommandError?: (cause: unknown) => boolean;
 	isIgnorableFailure?: (cause: unknown) => boolean;
 	shouldReconnectOnOptionsChange?: (
@@ -51,6 +55,7 @@ const makeHarness = (input?: {
 		requiresNetwork: input?.requiresNetwork,
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
+		validateClient: input?.validateClient,
 		isRetryableCommandError: input?.isRetryableCommandError,
 		isIgnorableFailure: input?.isIgnorableFailure,
 		shouldReconnectOnOptionsChange: input?.shouldReconnectOnOptionsChange,
@@ -594,4 +599,65 @@ describe("connection supervisor", () => {
 		expect(harness.created).toEqual([]);
 		expect(harness.supervisor.snapshots()).toEqual([]);
 	});
+});
+
+test.each([
+	"retry",
+	"remove",
+	"offline",
+])("aborts in-flight creation on %s and disposes late sessions", async (action) => {
+	const started = deferred<void>();
+	const late = deferred<{ client: Client; dispose: () => Promise<void> }>();
+	let signal: AbortSignal | undefined;
+	let disposed = 0;
+	const harness = makeHarness({
+		createClient: async (_options, attemptSignal) => {
+			if (signal) return { client: { id: 2 }, dispose: async () => {} };
+			signal = attemptSignal;
+			started.resolve();
+			return late.promise;
+		},
+	});
+	const entry = harness.supervisor.get({ key: "device" });
+	const pending = runClient(entry.getClient());
+	const rejected = expect(pending).rejects.toThrow("superseded");
+	await started.promise;
+	if (action === "retry") entry.retryNow();
+	else if (action === "remove") await entry.remove();
+	else harness.supervisor.setOnline(false);
+	expect(signal?.aborted).toBe(true);
+	late.resolve({
+		client: { id: 1 },
+		dispose: async () => {
+			disposed++;
+		},
+	});
+	await rejected;
+	expect(disposed).toBe(1);
+	await harness.supervisor.dispose();
+});
+
+test("late validation cannot install a superseded client or clear its replacement", async () => {
+	const started = deferred<void>();
+	const finish = deferred<void>();
+	const harness = makeHarness({
+		validateClient: async (client) => {
+			if (client.id === 1) {
+				started.resolve();
+				await finish.promise;
+			}
+		},
+	});
+	const entry = harness.supervisor.get({ key: "device" });
+	const pending = runClient(entry.getClient());
+	const rejected = expect(pending).rejects.toThrow("superseded");
+	await started.promise;
+	entry.retryNow();
+	expect(await runClient(entry.getClient())).toEqual({ id: 2 });
+	finish.resolve();
+	await rejected;
+	expect(await runClient(entry.getClient())).toEqual({ id: 2 });
+	expect(harness.disposed).toEqual([1]);
+	await harness.supervisor.dispose();
+	expect(harness.disposed).toEqual([1, 2]);
 });

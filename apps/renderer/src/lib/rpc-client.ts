@@ -281,14 +281,17 @@ const makeRendererRpcSession = async (
 	assertConnectionAccount(options);
 	if (options.kind === "websocket" && options.routes) {
 		let selected: string | undefined;
-		const result = await raceConnectionRoutes(options.routes, (url, signal) =>
-			makeRendererRpcSession(
-				{ ...options, wsUrl: url, routes: undefined },
-				(event) => {
-					if (selected === url) onClose(event);
-				},
-				signal,
-			),
+		const result = await raceConnectionRoutes(
+			options.routes,
+			(url, signal) =>
+				makeRendererRpcSession(
+					{ ...options, wsUrl: url, routes: undefined },
+					(event) => {
+						if (selected === url) onClose(event);
+					},
+					signal,
+				),
+			{ signal },
 		);
 		try {
 			assertConnectionAccount(options);
@@ -411,20 +414,24 @@ const supervisor = createConnectionSupervisor<
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
 	},
-	createClient: async (options) => {
+	createClient: async (options, signal) => {
 		try {
-			return await makeRendererRpcSession(options, (event) => {
-				if (options.key.startsWith("workspace:")) {
-					const workspaceId = options.key.slice("workspace:".length);
-					invalidateCloudWorkspaceTicket(workspaceId);
-				}
-				reportRendererEntryFailure(
-					options.key,
-					new Error(
-						`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
-					),
-				);
-			});
+			return await makeRendererRpcSession(
+				options,
+				(event) => {
+					if (options.key.startsWith("workspace:")) {
+						const workspaceId = options.key.slice("workspace:".length);
+						invalidateCloudWorkspaceTicket(workspaceId);
+					}
+					reportRendererEntryFailure(
+						options.key,
+						new Error(
+							`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+						),
+					);
+				},
+				signal,
+			);
 		} catch (cause) {
 			if (options.key.startsWith("workspace:")) {
 				const workspaceId = options.key.slice("workspace:".length);

@@ -263,44 +263,49 @@ export const DeviceBridgeServiceLive = Layer.effect(
 						sql`UPDATE device_bridge_enrollment SET enabled=0 WHERE account_id=${accountId}`,
 					);
 				channel?.stop();
-				await broker.invalidate();
-				const token = await run(account.getAccessToken());
-				if (next) {
-					const response = await fetch(`${apiUrl}/v1/device-bridge/enroll`, {
-						method: "POST",
-						headers: {
-							authorization: `Bearer ${token}`,
-							"content-type": "application/json",
-						},
-						body: JSON.stringify({
-							deviceId,
-							label: deviceName,
-							secret: enrollment.secret,
-							restore: true,
-						}),
-						signal: AbortSignal.timeout(8000),
-					});
-					if (!response.ok)
-						throw new Error("Could not enable cloud device access");
-					const current = await run(account.getSession());
-					if (
-						current._tag !== "SignedIn" ||
-						current.session.user.id !== accountId
-					)
-						throw new Error("Account changed");
-					await run(
-						sql`UPDATE device_bridge_enrollment SET enabled=1 WHERE account_id=${accountId}`,
-					);
-					channel?.start();
-				} else {
-					await fetch(
-						`${apiUrl}/v1/device-bridge/revoke?deviceId=${encodeURIComponent(deviceId)}`,
-						{
+				try {
+					await broker.invalidate();
+					const token = await run(account.getAccessToken());
+					if (next) {
+						const response = await fetch(`${apiUrl}/v1/device-bridge/enroll`, {
 							method: "POST",
-							headers: { authorization: `Bearer ${token}` },
+							headers: {
+								authorization: `Bearer ${token}`,
+								"content-type": "application/json",
+							},
+							body: JSON.stringify({
+								deviceId,
+								label: deviceName,
+								secret: enrollment.secret,
+								restore: true,
+							}),
 							signal: AbortSignal.timeout(8000),
-						},
-					).catch(() => undefined);
+						});
+						if (!response.ok)
+							throw new Error("Could not enable cloud device access");
+						const current = await run(account.getSession());
+						if (
+							current._tag !== "SignedIn" ||
+							current.session.user.id !== accountId
+						)
+							throw new Error("Account changed");
+						await run(
+							sql`UPDATE device_bridge_enrollment SET enabled=1 WHERE account_id=${accountId}`,
+						);
+					} else {
+						await fetch(
+							`${apiUrl}/v1/device-bridge/revoke?deviceId=${encodeURIComponent(deviceId)}`,
+							{
+								method: "POST",
+								headers: { authorization: `Bearer ${token}` },
+								signal: AbortSignal.timeout(8000),
+							},
+						).catch(() => undefined);
+					}
+				} finally {
+					// The channel reads current account and enrollment state before connecting.
+					// Retry enabled devices after failures without re-enabling disabled ones.
+					if (next) channel?.start();
 				}
 			},
 			// Legacy public tunnel ingress is intentionally disabled.

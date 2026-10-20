@@ -47,7 +47,11 @@ export const raceConnectionRoutes = <
 >(
 	routes: readonly Route[],
 	connect: (route: Route, signal: AbortSignal) => Promise<Session>,
-	options: { staggerMs?: number; timeoutMs?: number } = {},
+	options: {
+		staggerMs?: number;
+		timeoutMs?: number;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<{ route: Route; session: Session }> => {
 	if (!routes.length)
 		return Promise.reject(
@@ -63,7 +67,20 @@ export const raceConnectionRoutes = <
 		const errors: unknown[] = [];
 		const finish = () => {
 			for (const timer of timers) clearTimeout(timer);
+			options.signal?.removeEventListener("abort", cancel);
 		};
+		const cancel = () => {
+			if (settled) return;
+			settled = true;
+			finish();
+			for (const controller of controllers) controller.abort();
+			reject(new Error("Connection routes cancelled"));
+		};
+		options.signal?.addEventListener("abort", cancel, { once: true });
+		if (options.signal?.aborted) {
+			cancel();
+			return;
+		}
 		const fail = (index: number, cause: unknown) => {
 			if (settled || errors[index] !== undefined) return;
 			errors[index] = cause ?? new Error("Connection failed");

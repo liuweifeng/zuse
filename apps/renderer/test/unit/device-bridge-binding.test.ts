@@ -92,6 +92,7 @@ describe("cloud device binding", () => {
 				workspaceId: "workspace-1",
 				action: { _tag: "status" },
 				targetDeviceId: "mac-one",
+				bindOnlyIfUnbound: true,
 			});
 		} finally {
 			vi.useRealTimers();

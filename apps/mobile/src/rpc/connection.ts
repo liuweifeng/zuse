@@ -53,11 +53,14 @@ const makeClientSession = async (
 	signal?: AbortSignal,
 ): Promise<{ client: MemoizeClient; dispose: () => Promise<void> }> => {
 	if (options.routes) {
-		const result = await raceConnectionRoutes(options.routes, (url, signal) =>
-			makeClientSession(
-				{ ...options, wsBaseUrl: url, routes: undefined },
-				signal,
-			),
+		const result = await raceConnectionRoutes(
+			options.routes,
+			(url, signal) =>
+				makeClientSession(
+					{ ...options, wsBaseUrl: url, routes: undefined },
+					signal,
+				),
+			{ signal },
 		);
 		return result.session;
 	}

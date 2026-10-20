@@ -75,9 +75,16 @@ export function DevicesPane() {
 				]);
 			if (revision !== refreshRevision.current) return;
 			const unavailable: PairingMethod[] = [];
-			if (networkResult.status === "rejected" || networkResult.value === null)
+			const hasNetworkBridge = bridge?.network !== undefined;
+			if (
+				networkResult.status === "rejected" ||
+				(hasNetworkBridge && networkResult.value === null)
+			)
 				unavailable.push("local");
-			if (tailnetResult.status === "rejected" || tailnetResult.value === null)
+			if (
+				tailnetResult.status === "rejected" ||
+				(hasNetworkBridge && tailnetResult.value === null)
+			)
 				unavailable.push("tailscale");
 			if (apiResult.status === "rejected") unavailable.push("account");
 			setUnavailableMethods(unavailable);

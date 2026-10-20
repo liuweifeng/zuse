@@ -79,3 +79,41 @@ it("excludes insecure routes in hosted HTTPS clients and deduplicates endpoints"
 	expect(grantRouteEndpoints(grant)).toEqual([privateRoute, managed]);
 	expect(grantRouteEndpoints(grant, true)).toEqual([managed]);
 });
+
+it("cancels pending routes, clears stagger timers, and disposes late sessions", async () => {
+	vi.useFakeTimers();
+	const controller = new AbortController();
+	const late = { dispose: vi.fn(async () => {}) };
+	let finish!: (session: typeof late) => void;
+	let routeSignal: AbortSignal | undefined;
+	const connect = vi.fn((_route: string, signal: AbortSignal) => {
+		routeSignal = signal;
+		return new Promise<typeof late>((resolve) => {
+			finish = resolve;
+		});
+	});
+	const pending = raceConnectionRoutes(["lan", "serve"], connect, {
+		signal: controller.signal,
+	});
+	const rejected = expect(pending).rejects.toThrow("cancelled");
+	await vi.advanceTimersByTimeAsync(0);
+	controller.abort();
+	await rejected;
+	expect(routeSignal?.aborted).toBe(true);
+	expect(vi.getTimerCount()).toBe(0);
+	await vi.advanceTimersByTimeAsync(1000);
+	expect(connect).toHaveBeenCalledTimes(1);
+	finish(late);
+	await vi.advanceTimersByTimeAsync(0);
+	expect(late.dispose).toHaveBeenCalledTimes(1);
+});
+
+it("does not start routes when already cancelled", async () => {
+	const controller = new AbortController();
+	controller.abort();
+	const connect = vi.fn(async () => ({ dispose: async () => {} }));
+	await expect(
+		raceConnectionRoutes(["serve"], connect, { signal: controller.signal }),
+	).rejects.toThrow("cancelled");
+	expect(connect).not.toHaveBeenCalled();
+});
