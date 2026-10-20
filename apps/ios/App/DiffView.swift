@@ -68,7 +68,7 @@ struct DiffView: View {
                       )
                       .font(.system(size: 9, weight: .semibold))
                       Image(systemName: "doc.text").foregroundStyle(.secondary)
-                      Text(patch.id).font(.system(size: 12, weight: .medium, design: .monospaced))
+                      Text(patch.id).font(.system(size: 14, weight: .medium, design: .monospaced))
                         .lineLimit(1).truncationMode(.middle)
                     }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                   }.buttonStyle(.plain)
@@ -82,7 +82,7 @@ struct DiffView: View {
                     Image(systemName: "arrow.up.right.square")
                   }
                   .buttonStyle(.plain).accessibilityLabel("View working-copy file")
-                }.font(.system(size: 11, weight: .medium, design: .monospaced))
+                }.font(.system(size: 13, weight: .medium, design: .monospaced))
                   .padding(.horizontal, 12).frame(minHeight: 40)
                   .background(.bar)
               }
@@ -103,11 +103,11 @@ struct DiffView: View {
         HStack(spacing: 4) {
           Text(line.oldLine.map(String.init) ?? "").frame(width: 25, alignment: .trailing)
           Text(line.newLine.map(String.init) ?? "").frame(width: 25, alignment: .trailing)
-        }.font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+        }.font(.system(size: 11, design: .monospaced)).foregroundStyle(.tertiary)
           .padding(.trailing, 8).padding(.top, 3)
       }
       Text(line.text)
-        .font(.system(size: 11, design: .monospaced)).lineSpacing(2)
+        .font(.system(size: 12.5, design: .monospaced)).lineSpacing(2)
         .foregroundStyle(line.kind == .header ? Color.secondary : Color.primary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true).padding(.vertical, 3).padding(.trailing, 10)

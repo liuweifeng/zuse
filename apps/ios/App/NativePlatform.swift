@@ -39,6 +39,11 @@ import ZuseCore
         : NSColor(red: 247 / 255, green: 247 / 255, blue: 245 / 255, alpha: 1)
     }
     static let surface = Color(nsColor: background)
+    static let card = Color(
+      nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+          ? NSColor(white: 0.12, alpha: 1) : .white
+      })
     static let accent = Color(
       nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -46,8 +51,16 @@ import ZuseCore
           : NSColor(red: 0.28, green: 0.41, blue: 0, alpha: 1)
       })
   #else
-    static let background = UIColor.systemBackground
+    static let background = UIColor { traits in
+      traits.userInterfaceStyle == .dark
+        ? UIColor(white: 0.06, alpha: 1)
+        : UIColor(red: 247 / 255, green: 247 / 255, blue: 245 / 255, alpha: 1)
+    }
     static let surface = Color(uiColor: background)
+    static let card = Color(
+      uiColor: UIColor { traits in
+        traits.userInterfaceStyle == .dark ? UIColor(white: 0.12, alpha: 1) : .white
+      })
     static let accent = Color(
       uiColor: UIColor { traits in
         traits.userInterfaceStyle == .dark
@@ -92,18 +105,88 @@ extension Image {
 }
 
 extension View {
-  @ViewBuilder func newChatPresentation<Content: View>(
-    isPresented: Binding<Bool>, @ViewBuilder content: @escaping () -> Content
-  ) -> some View {
+  /// Inset-grouped settings list shared by every settings page.
+  @ViewBuilder func settingsList() -> some View {
     #if os(iOS)
-      if UIDevice.current.userInterfaceIdiom == .pad {
-        fullScreenCover(isPresented: isPresented, content: content)
-      } else {
-        sheet(isPresented: isPresented, content: content)
-      }
+      listStyle(.insetGrouped).listSectionSpacing(.compact)
+        .environment(\.defaultMinListRowHeight, 44)
+        .contentMargins(.top, 4, for: .scrollContent)
+        .scrollContentBackground(.hidden).background(AppTheme.surface)
     #else
-      sheet(isPresented: isPresented, content: content)
+      formStyle(.grouped).scrollContentBackground(.hidden).background(AppTheme.surface)
     #endif
+  }
+}
+
+struct SettingsIcon: View {
+  let symbol: String
+  var brand = false
+  var body: some View {
+    Image(systemName: symbol).font(.system(size: 14, weight: .semibold))
+      .foregroundStyle(brand ? Color.white : Color.primary)
+      .frame(width: 28, height: 28)
+      .background(
+        brand ? AppTheme.accent : Color.primary.opacity(0.09),
+        in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+      )
+      .accessibilityHidden(true)
+  }
+}
+
+struct SettingsRow: View {
+  let title: String
+  var subtitle: String? = nil
+  let icon: String
+  var value: String? = nil
+  var brand = false
+  var destructive = false
+  var body: some View {
+    HStack(spacing: 12) {
+      SettingsIcon(symbol: icon, brand: brand)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(title).foregroundStyle(destructive ? Color.red : Color.primary)
+        if let subtitle {
+          Text(subtitle).font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+        }
+      }
+      Spacer(minLength: 8)
+      if let value { Text(value).foregroundStyle(.secondary).lineLimit(1) }
+    }.contentShape(Rectangle())
+  }
+}
+
+extension ToolbarItemPlacement {
+  /// Trailing, non-prominent slot for a sheet's close control.
+  static var sheetClose: ToolbarItemPlacement {
+    #if os(iOS)
+      .topBarTrailing
+    #else
+      .cancellationAction
+    #endif
+  }
+}
+
+/// Close control for sheets: native glass close button on current systems.
+struct SheetCloseButton: View {
+  let action: () -> Void
+  var body: some View {
+    Group {
+      if #available(iOS 26, macOS 26, *) {
+        Button(role: .close, action: action)
+      } else {
+        Button("Done", action: action)
+      }
+    }.tint(.primary)
+  }
+}
+
+struct BrandTitle: View {
+  var body: some View {
+    HStack(spacing: 8) {
+      Image("brand-mark").resizable().scaledToFill().frame(width: 26, height: 26)
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+      Text("Zuse").font(.system(size: 18, weight: .bold))
+    }.accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
   }
 }
 
@@ -160,16 +243,25 @@ extension View {
   func composerGlass(radius: CGFloat = 22) -> some View { modifier(ComposerGlass(radius: radius)) }
 }
 
-struct ComposerFade: View {
+/// Accent send/stop control shared by every composer.
+struct ComposerSendGlyph: View {
+  var symbol = "arrow.up"
+  let enabled: Bool
+  let busy: Bool
   var body: some View {
-    LinearGradient(
-      stops: [
-        .init(color: AppTheme.surface.opacity(0), location: 0),
-        .init(color: AppTheme.surface.opacity(0.35), location: 0.4),
-        .init(color: AppTheme.surface.opacity(0.9), location: 1),
-      ], startPoint: .top, endPoint: .bottom
+    Group {
+      if busy {
+        ProgressView().tint(.white)
+      } else {
+        Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
+      }
+    }
+    .foregroundStyle(.white).frame(width: 32, height: 32)
+    .background(
+      enabled ? AppTheme.accent : Color.secondary.opacity(0.22),
+      in: RoundedRectangle(cornerRadius: 10, style: .continuous)
     )
-    .ignoresSafeArea(.container, edges: .bottom).allowsHitTesting(false)
+    .frame(width: 44, height: 44).contentShape(Rectangle())
   }
 }
 
@@ -210,14 +302,21 @@ struct ModelPickerButton: View {
       presented = true
     } label: {
       HStack(spacing: 5) {
-        ProviderMark(providerID: providerID, size: 13)
+        ProviderMark(providerID: providerID, size: 15)
         Text(
           catalog.first { $0.id == providerID }?.models.first { $0.id == modelID }?.label ?? modelID
         )
         .lineLimit(1).truncationMode(.middle)
-      }.font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
-        .padding(.horizontal, 4).frame(minHeight: 32)
+      }.font(.system(size: 15, weight: .medium)).foregroundStyle(.secondary)
+        .padding(.horizontal, 6).frame(minHeight: 36)
     }.buttonStyle(.plain).accessibilityLabel("Current model: \(modelID)")
+      #if DEBUG
+        .task {
+          if ProcessInfo.processInfo.arguments.contains("--model-sheet-preview") {
+            presented = true
+          }
+        }
+      #endif
       .sheet(isPresented: $presented) {
         ModelSettingsSheet(
           catalog: catalog, providerID: providerID, modelID: modelID,
@@ -298,10 +397,10 @@ private struct ModelSettingsSheet: View {
           if let descriptor = reasoning, let levels = descriptor.options, levels.count > 1 {
             VStack(alignment: .leading, spacing: 8) {
               HStack(spacing: 8) {
-                Image(systemName: "brain").font(.system(size: 13)).foregroundStyle(.secondary)
-                Text("Reasoning").font(.system(size: 13))
+                Image(systemName: "brain").font(.system(size: 15)).foregroundStyle(.secondary)
+                Text("Reasoning").font(.system(size: 16))
                 Spacer()
-                Text(levels[effortIndex].label).font(.system(size: 12, weight: .medium))
+                Text(levels[effortIndex].label).font(.system(size: 15, weight: .medium))
                   .foregroundStyle(AppTheme.accent)
               }
               Slider(
@@ -317,7 +416,7 @@ private struct ModelSettingsSheet: View {
               HStack {
                 ForEach(Array(levels.enumerated()), id: \.element.id) { index, level in
                   if index > 0 { Spacer(minLength: 0) }
-                  Text(level.label).font(.system(size: 10))
+                  Text(level.label).font(.system(size: 12))
                     .foregroundStyle(index == effortIndex ? Color.primary : Color.secondary)
                 }
               }
@@ -329,11 +428,9 @@ private struct ModelSettingsSheet: View {
         } footer: {
           if sample { Text("Sample models for preview") }
         }
-      }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
-        .contentMargins(.top, 8)
-        .environment(\.defaultMinListRowHeight, 40)
+      }.settingsList()
         .navigationTitle("Model settings").compactNavigationTitle()
-        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        .toolbar { ToolbarItem(placement: .sheetClose) { SheetCloseButton { dismiss() } } }
         .onChange(of: provider) { _, id in
           guard let item = catalog.first(where: { $0.id == id }) else { return }
           model = item.defaultModel
@@ -359,13 +456,13 @@ private struct ModelSettingsSheet: View {
       choices: [(String, String)], selected: String, select: @escaping (String) -> Void
     ) -> some View {
       HStack(spacing: 8) {
-        ProviderMark(providerID: provider, size: 13)
-        Text(title).font(.system(size: 13))
+        ProviderMark(providerID: provider, size: 16)
+        Text(title).font(.system(size: 16))
         Spacer(minLength: 8)
         NativeSelectionMenu(
           title: value, identifier: id, choices: choices, selected: selected, select: select
         )
-        .frame(width: 180, height: 40)
+        .frame(width: 210, height: 48)
       }.listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
         .alignmentGuide(.listRowSeparatorLeading) { _ in -16 }
         .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 16 }
@@ -388,8 +485,8 @@ private struct ModelSettingsSheet: View {
       } label: {
         HStack(spacing: 6) {
           Text(title).lineLimit(1)
-          Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
-        }.font(.system(size: 13)).foregroundStyle(.secondary)
+          Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .medium))
+        }.font(.system(size: 16)).foregroundStyle(.secondary)
           .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing).contentShape(
             Rectangle())
       }.buttonStyle(.plain).accessibilityIdentifier(identifier)
@@ -405,7 +502,7 @@ private struct ModelSettingsSheet: View {
                     if identifier == "model-provider-menu" {
                       ProviderMark(providerID: id, size: 17)
                     }
-                    Text(label).font(.system(size: 14))
+                    Text(label).font(.system(size: 16))
                     Spacer()
                     if id == selected {
                       Image(systemName: "checkmark").foregroundStyle(AppTheme.accent)

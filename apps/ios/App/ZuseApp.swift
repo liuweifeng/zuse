@@ -1,12 +1,7 @@
-import AVFoundation
 import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 import ZuseCore
-
-#if os(iOS)
-  import VisionKit
-#endif
 
 @main struct ZuseApp: App {
   @State private var workspace = WorkspaceModel()
@@ -44,10 +39,11 @@ struct WorkspaceView: View {
   @State private var photo: PhotosPickerItem?
   @State private var showFilePicker = false
   @State private var attachmentTarget: UUID?
-  @State private var showConnection = false
+  @State private var connectionMethod: ConnectionMethod?
   @State private var showDiff = false
-  @State private var showNewChat = false
-  @State private var showCloudLaunch = false
+  @State private var newChat: NewChatRoute?
+  @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @State private var visibilityBeforeNewChat: NavigationSplitViewVisibility = .all
   @State private var showSettings = false
   @State private var showProject = false
   @State private var composerHeight: CGFloat = 80
@@ -58,6 +54,33 @@ struct WorkspaceView: View {
   @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var sizeClass
+  #endif
+  private var isCompact: Bool {
+    #if os(iOS)
+      sizeClass == .compact
+    #else
+      false
+    #endif
+  }
+  private struct NewChatRoute: Equatable {
+    let id = UUID()
+    let cloud: Bool
+  }
+  /// New chat is a page in the detail column: pushed on iPhone, full width elsewhere.
+  private func openNewChat(cloud: Bool) {
+    newChat = NewChatRoute(cloud: cloud)
+    preferredColumn = .detail
+    if !isCompact && columnVisibility != .detailOnly {
+      visibilityBeforeNewChat = columnVisibility
+      columnVisibility = .detailOnly
+    }
+  }
+  private func closeNewChat() {
+    newChat = nil
+    if !isCompact { columnVisibility = visibilityBeforeNewChat }
+  }
   var body: some View {
     presentedWorkspace
       .alert(
@@ -74,9 +97,7 @@ struct WorkspaceView: View {
   }
   private var presentedWorkspace: some View {
     interactiveWorkspace
-      .sheet(isPresented: $showConnection) {
-        ConnectionView(workspace: workspace, method: .pairing).nativeSheetSize()
-      }
+      .connectionFlow($connectionMethod, workspace: workspace)
       .sheet(isPresented: $showProject) { AddProjectView(workspace: workspace) }
       .inspector(isPresented: $showDiff) {
         if let session = workspace.selectedSession, let rpc = workspace.rpc {
@@ -84,10 +105,6 @@ struct WorkspaceView: View {
         }
       }
       .sheet(isPresented: $showSettings) { SettingsView(workspace: workspace) }
-      .newChatPresentation(isPresented: $showCloudLaunch) {
-        NewChatSetupView(workspace: workspace, initialCloud: true)
-      }
-      .newChatPresentation(isPresented: $showNewChat) { NewChatSetupView(workspace: workspace) }
   }
   private var interactiveWorkspace: some View {
     navigation
@@ -99,10 +116,10 @@ struct WorkspaceView: View {
         }
       #endif
       .onReceive(NotificationCenter.default.publisher(for: .nativeNewChat)) { _ in
-        showNewChat = true
+        openNewChat(cloud: false)
       }
       .onReceive(NotificationCenter.default.publisher(for: .nativeNewCloudChat)) { _ in
-        showCloudLaunch = true
+        openNewChat(cloud: true)
       }
       .onReceive(NotificationCenter.default.publisher(for: .nativeSettings)) { _ in
         showSettings = true
@@ -137,7 +154,14 @@ struct WorkspaceView: View {
       }
       .onChange(of: workspace.selectedSession) { _, session in
         selection = session
-        if session != nil { preferredColumn = .detail }
+        if session != nil {
+          if newChat != nil { closeNewChat() }
+          preferredColumn = .detail
+        }
+      }
+      .onChange(of: preferredColumn) { _, column in
+        // Popping the pushed page on iPhone returns to the sidebar.
+        if column == .sidebar && isCompact { newChat = nil }
       }
       .onChange(of: selection) {
         if let selection, selection.id != workspace.selectedSession?.id {
@@ -147,11 +171,8 @@ struct WorkspaceView: View {
       .onChange(of: scenePhase) { _, phase in workspace.sceneChanged(active: phase == .active) }
       .onChange(of: workspace.account.generation) {
         showSettings = false
-        if !workspace.account.signedIn {
-          showCloudLaunch = false
-          showNewChat = false
-        }
-        showConnection = false
+        if !workspace.account.signedIn && newChat != nil { closeNewChat() }
+        connectionMethod = nil
         showProject = false
         showDiff = false
       }
@@ -163,6 +184,12 @@ struct WorkspaceView: View {
         await workspace.refreshCloud()
         workspace.restoreWorkspace()
         if workspace.selectedSession != nil { preferredColumn = .detail }
+        #if DEBUG
+          let arguments = ProcessInfo.processInfo.arguments
+          if arguments.contains("--settings-preview") { showSettings = true }
+          if arguments.contains("--new-chat-preview") { openNewChat(cloud: false) }
+          if arguments.contains("--pairing-preview") { connectionMethod = .pairing }
+        #endif
       }
       .fileImporter(
         isPresented: $showFilePicker, allowedContentTypes: [.item], onCompletion: importFile
@@ -209,17 +236,25 @@ struct WorkspaceView: View {
   }
 
   private var navigation: some View {
-    NavigationSplitView(preferredCompactColumn: $preferredColumn) {
+    NavigationSplitView(
+      columnVisibility: $columnVisibility, preferredCompactColumn: $preferredColumn
+    ) {
       HomeView(
         workspace: workspace, selection: $selection,
-        settings: { showSettings = true }, connect: { showConnection = true },
-        newChat: { showNewChat = true }, newCloudChat: { showCloudLaunch = true },
+        settings: { showSettings = true }, connect: { connectionMethod = .pairing },
+        newChat: { openNewChat(cloud: false) }, newCloudChat: { openNewChat(cloud: true) },
         addProject: { showProject = true }
       )
       .disabled(workspace.clearingAccount)
       .navigationSplitViewColumnWidth(min: 230, ideal: 280, max: 340)
+      .toolbar(removing: newChat == nil ? nil : .sidebarToggle)
     } detail: {
-      if let session = workspace.selectedSession {
+      if let route = newChat {
+        NewChatSetupView(
+          workspace: workspace, initialCloud: route.cloud, showsClose: !isCompact,
+          close: closeNewChat
+        ).id(route.id)
+      } else if let session = workspace.selectedSession {
         VStack(spacing: 0) {
           if workspace.transcript.olderSequence != nil {
             Button(workspace.paging ? "Loading…" : "Load earlier messages") {
@@ -291,10 +326,16 @@ struct WorkspaceView: View {
         .navigationTitle(session.title.isEmpty ? "Chat" : session.title)
         .compactNavigationTitle()
         .toolbar {
+          ToolbarItem(placement: .principal) {
+            ChatHeaderTitle(
+              title: session.title.isEmpty ? "Chat" : session.title,
+              subtitle: [
+                workspace.projects.first { $0.id == session.projectId }?.name, branchName,
+              ].compactMap { $0 }.joined(separator: " · "))
+          }
           ToolbarItem(placement: .primaryAction) {
-            Button("Changes", systemImage: "chevron.left.forwardslash.chevron.right") {
-              showDiff = true
-            }.disabled(workspace.connectionState != "Connected")
+            Button("Changes", systemImage: "plusminus") { showDiff = true }
+              .tint(.primary).disabled(workspace.connectionState != "Connected")
           }
         }
       } else {
@@ -308,6 +349,7 @@ struct WorkspaceView: View {
             ProgressView().padding().background(.regularMaterial, in: Capsule())
           }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity).background(AppTheme.surface)
       }
     }
     .navigationSplitViewStyle(.balanced)
@@ -338,10 +380,10 @@ struct WorkspaceView: View {
         TextField("Ask Zuse", text: $workspace.draft, axis: .vertical)
           .disabled(!workspace.composerEditable && workspace.connectionState != "Preview · offline")
           .focused($composerFocused).accessibilityIdentifier("chat-composer")
-          .font(.system(size: 15)).lineLimit(1...(composerExpanded ? 6 : 1))
+          .font(.system(size: 17)).lineLimit(1...(composerExpanded ? 6 : 1))
           .padding(.leading, composerExpanded ? 14 : 46)
-          .padding(.trailing, composerExpanded ? 14 : 146)
-          .padding(.top, composerExpanded ? 10 : 9).padding(.bottom, composerExpanded ? 2 : 9)
+          .padding(.trailing, composerExpanded ? 14 : 160)
+          .padding(.top, composerExpanded ? 12 : 12).padding(.bottom, composerExpanded ? 2 : 12)
         if composerExpanded {
           HStack(spacing: 4) {
             attachmentMenu
@@ -368,6 +410,7 @@ struct WorkspaceView: View {
     .frame(maxWidth: 720).frame(maxWidth: .infinity)
     .padding(.horizontal, 12).padding(.top, 6).padding(.bottom, 6)
   }
+  /// Brief reconnects stay silent; only lasting or user-actionable failures are shown.
   @ViewBuilder private var connectionNotice: some View {
     if let failure = workspace.sessionRestorationError {
       HStack(spacing: 8) {
@@ -384,36 +427,19 @@ struct WorkspaceView: View {
         .padding(.horizontal, 8).padding(.vertical, 3)
         .background(.ultraThinMaterial, in: Capsule())
         .frame(maxWidth: .infinity, alignment: .leading)
-    } else if workspace.connectionState != "Connected" {
+    } else if workspace.connectionIssue {
       HStack(spacing: 8) {
-        Image(systemName: "wifi.slash").font(.system(size: 12)).foregroundStyle(.secondary)
-        VStack(alignment: .leading, spacing: 2) {
-          Text(
-            workspace.connectionState == "Preview · offline"
-              ? "Offline preview" : "Computer offline"
-          )
-          .font(.caption.weight(.medium))
-          if workspace.connectionState != "Preview · offline" {
-            Text(
-              workspace.connectionProblem
-                ?? "Your messages stay on this device until you reconnect."
-            )
-            .font(.caption2).foregroundStyle(.secondary).lineLimit(2)
-          }
-        }
+        Circle().fill(.orange).frame(width: 6, height: 6)
+        Text(
+          workspace.connectionState == "Connection needs attention"
+            ? (workspace.connectionProblem ?? "Connection needs attention")
+            : "Reconnecting… Messages you send will be delivered when it’s back."
+        ).lineLimit(2)
         Spacer(minLength: 4)
-        if workspace.connectionState != "Preview · offline" {
-          Button("Reconnect") { workspace.reconnect() }.font(.caption.weight(.medium))
-        }
-      }.padding(.horizontal, 12).padding(.vertical, 9).floatingGlass(radius: 14)
-    } else {
-      HStack(spacing: 5) {
-        Circle().fill(.green).frame(width: 4, height: 4)
-        Text("Connected")
-        if let computer = workspace.connectedComputer { Text("· " + computer).lineLimit(1) }
-        Spacer()
-        if let branchName { Label(branchName, systemImage: "arrow.triangle.branch").lineLimit(1) }
-      }.font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 7)
+        Button("Retry") { workspace.reconnect() }.fontWeight(.medium).tint(AppTheme.accent)
+      }
+      .font(.caption).foregroundStyle(.secondary)
+      .padding(.horizontal, 12).padding(.vertical, 8).floatingGlass(radius: 14)
     }
   }
   private var attachmentMenu: some View {
@@ -430,9 +456,9 @@ struct WorkspaceView: View {
         if workspace.uploading {
           ProgressView()
         } else {
-          Image(systemName: "plus").font(.system(size: 18))
+          Image(systemName: "plus").font(.system(size: 20))
         }
-      }.frame(width: 40, height: 44).contentShape(Rectangle())
+      }.frame(width: 44, height: 48).contentShape(Rectangle())
     }.foregroundStyle(.secondary).accessibilityLabel("Add attachment")
       .disabled(
         !workspace.composerEditable || workspace.uploading
@@ -482,19 +508,9 @@ struct WorkspaceView: View {
         }
       }
     } label: {
-      Group {
-        if workspace.sending {
-          ProgressView().tint(.white)
-        } else {
-          Image(systemName: workspace.transcript.activeTurnID != nil ? "stop.fill" : "arrow.up")
-            .font(.system(size: 13, weight: .semibold))
-        }
-      }.foregroundStyle(.white).frame(width: 29, height: 29)
-        .background(
-          sendDisabled ? Color.secondary.opacity(0.2) : AppTheme.accent,
-          in: RoundedRectangle(cornerRadius: 9)
-        )
-        .frame(width: 42, height: 44).contentShape(Rectangle())
+      ComposerSendGlyph(
+        symbol: workspace.transcript.activeTurnID != nil ? "stop.fill" : "arrow.up",
+        enabled: !sendDisabled, busy: workspace.sending)
     }.buttonStyle(.plain)
       .accessibilityLabel(
         workspace.transcript.activeTurnID != nil ? "Stop response" : "Send message"
@@ -531,7 +547,6 @@ struct ConnectionView: View {
   @State private var address = ""
   @State private var token = ""
   @State private var link = ""
-  @State private var scanning = false
   @State private var pairing = false
   @State private var pairingTask: Task<Void, Never>?
   @State private var pairRequest = UUID()
@@ -575,23 +590,6 @@ struct ConnectionView: View {
             TextField("Paste a Zuse pairing link", text: $link).verbatimInput()
               .autocorrectionDisabled().frame(height: 28)
             Button(pairing ? "Pairing…" : "Pair") { pair() }.disabled(link.isEmpty || pairing)
-            #if os(iOS)
-              if DataScannerViewController.isSupported {
-                Button("Scan QR code", systemImage: "qrcode.viewfinder") {
-                  Task {
-                    if await AVCaptureDevice.requestAccess(for: .video),
-                      DataScannerViewController.isAvailable
-                    {
-                      scanning = true
-                    } else {
-                      error =
-                        "Camera access is unavailable. You can paste the pairing link instead."
-                    }
-                  }
-                }
-                .disabled(pairing)
-              }
-            #endif
           }
         }
         if method == .manual {
@@ -616,28 +614,6 @@ struct ConnectionView: View {
         if let error { Text(error).foregroundStyle(.red) }
       }.navigationTitle(method.title).compactNavigationTitle()
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
-        #if os(iOS)
-          .sheet(isPresented: $scanning) {
-            NavigationStack {
-              QRScanner(
-                scanned: { value in
-                  link = value
-                  scanning = false
-                  pair()
-                },
-                onError: { message in
-                  scanning = false
-                  error = message
-                }
-              ).ignoresSafeArea(edges: .bottom)
-              .navigationTitle("Scan pairing code").toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                  Button("Cancel") { scanning = false }
-                }
-              }
-            }
-          }
-        #endif
     }.task { if method == .nearby { nearby.start() } }.onDisappear {
       nearby.stop()
       pairRequest = UUID()
@@ -705,5 +681,20 @@ struct PermissionView: View {
 extension JSONValue {
   fileprivate var interactionIdentity: String {
     (self["_tag"].string ?? "") + ":" + (self["id"].string ?? "")
+  }
+}
+
+private struct ChatHeaderTitle: View {
+  let title: String
+  let subtitle: String
+  var body: some View {
+    VStack(spacing: 1) {
+      Text(title).font(.system(size: 17, weight: .semibold)).lineLimit(1)
+      if !subtitle.isEmpty {
+        Text(subtitle).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(1)
+      }
+    }
+    .frame(maxWidth: 240)
+    .accessibilityElement(children: .combine).accessibilityAddTraits(.isHeader)
   }
 }

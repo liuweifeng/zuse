@@ -191,9 +191,9 @@ struct TranscriptDisclosureStyle: DisclosureGroupStyle {
           configuration.label
           Spacer(minLength: 4)
           Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
-            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.tertiary)
+            .font(.system(size: 11, weight: .semibold)).foregroundStyle(.tertiary)
         }
-        .frame(minHeight: 28).contentShape(Rectangle())
+        .frame(minHeight: 32).contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
@@ -229,20 +229,20 @@ struct ToolTreeRow: View {
         } label: {
           HStack(spacing: 7) {
             Image(systemName: message.kind == "thinking" ? "brain" : "terminal")
-              .font(.system(size: 12)).frame(width: 15).foregroundStyle(.secondary)
-            Text(title).font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+              .font(.system(size: 14)).frame(width: 18).foregroundStyle(.secondary)
+            Text(title).font(.system(size: 14, weight: .medium)).foregroundStyle(.secondary)
             if !summary.isEmpty {
-              Text(summary).font(.system(size: 11, design: .monospaced))
+              Text(summary).font(.system(size: 13, design: .monospaced))
                 .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                 .padding(.horizontal, 6).padding(.vertical, 3)
                 .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 5))
             }
             if let result = row.result, result.content["isError"].bool {
-              Image(systemName: "exclamationmark.circle").font(.system(size: 11)).foregroundStyle(
+              Image(systemName: "exclamationmark.circle").font(.system(size: 13)).foregroundStyle(
                 .red)
             }
             Image(systemName: "chevron.right")
-              .font(.system(size: 8, weight: .medium)).foregroundStyle(.tertiary)
+              .font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
               .rotationEffect(.degrees(expanded ? 90 : 0))
               .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: expanded)
           }.frame(minHeight: 30, alignment: .leading).contentShape(Rectangle())
@@ -339,11 +339,11 @@ struct ToolActivityGroup: View {
       } label: {
         HStack(spacing: 7) {
           Image(systemName: "chevron.right")
-            .font(.system(size: 10, weight: .medium))
+            .font(.system(size: 11, weight: .medium))
             .rotationEffect(.degrees(expanded ? 90 : 0))
             .animation(reduceMotion ? nil : .easeOut(duration: 0.15), value: expanded)
-          Text(heading).font(.system(size: 12)).monospacedDigit()
-        }.foregroundStyle(.secondary).frame(minHeight: 30).contentShape(Rectangle())
+          Text(heading).font(.system(size: 14)).monospacedDigit()
+        }.foregroundStyle(.secondary).frame(minHeight: 34).contentShape(Rectangle())
       }.buttonStyle(.plain).padding(.horizontal, 20)
         .accessibilityLabel(heading).accessibilityValue(expanded ? "Expanded" : "Collapsed")
         .accessibilityIdentifier("tool-group-\(group.id)")

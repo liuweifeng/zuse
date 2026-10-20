@@ -37,7 +37,7 @@ struct RegisteredDevicesView: View {
             height: 28)
         }
       }
-    }.disabled(busy).navigationTitle("Registered devices").compactNavigationTitle()
+    }.settingsList().disabled(busy).navigationTitle("Registered devices").compactNavigationTitle()
       .task { await load() }.refreshable { await load() }
       .confirmationDialog(
         "Revoke this device?",

@@ -57,7 +57,7 @@ struct CloudInfrastructureView: View {
         .font(.caption).foregroundStyle(.secondary)
       }
       if busy { ProgressView() }
-    }.formStyle(.grouped).navigationTitle("Cloud providers").compactNavigationTitle()
+    }.settingsList().navigationTitle("Cloud providers").compactNavigationTitle()
       .disabled(busy)
       .task { await load() }
       .onDisappear { key = "" }

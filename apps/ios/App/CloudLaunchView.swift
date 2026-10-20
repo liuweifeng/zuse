@@ -3,7 +3,6 @@ import ZuseCore
 
 struct CloudLaunchView: View {
   let workspace: WorkspaceModel
-  let embedded: Bool
   let prompt: Binding<String>
   let destination: AnyView?
   var busyChanged: (Bool) -> Void
@@ -11,11 +10,9 @@ struct CloudLaunchView: View {
   private let accountGeneration: UUID
   private let accountIdentity: String?
   init(
-    workspace: WorkspaceModel, embedded: Bool = false,
-    prompt: Binding<String> = .constant(""), destination: AnyView? = nil,
-    busyChanged: @escaping (Bool) -> Void = { _ in }
+    workspace: WorkspaceModel, prompt: Binding<String> = .constant(""),
+    destination: AnyView? = nil, busyChanged: @escaping (Bool) -> Void = { _ in }
   ) {
-    self.embedded = embedded
     self.prompt = prompt
     self.destination = destination
     self.busyChanged = busyChanged
@@ -24,7 +21,6 @@ struct CloudLaunchView: View {
     accountGeneration = workspace.account.generation
     accountIdentity = workspace.account.archiveIdentity
   }
-  @Environment(\.dismiss) private var dismiss
   @State private var projects: [JSONValue] = []
   @State private var providers: [JSONValue] = []
   @State private var agents: [ModelProvider] = []
@@ -41,106 +37,131 @@ struct CloudLaunchView: View {
   @State private var failure: String?
   @State private var pendingIntent: CloudIntent?
   @State private var showOptions = false
+  @State private var launching = false
+  /// The created workspace; the page shows setup progress until its chat opens.
+  @State private var launched: String?
+  @State private var launchedPrompt = ""
   private var selectedAgent: ModelProvider? { agents.first { $0.id == agent } }
   private var sizes: [JSONValue] {
     providers.first { $0["providerId"].string == provider }?["sizes"].array ?? []
   }
-  var body: some View {
-    Group {
-      if embedded { content } else { NavigationStack { content } }
-    }.nativeSheetSize(width: 480, height: 600)
+  private var launchProgress: NewChatProgress? {
+    if launching && launched == nil {
+      return NewChatProgress(
+        title: "Setting up your workspace",
+        steps: [
+          .init(id: "create", title: "Creating workspace", state: .active),
+          .init(id: "start", title: "Starting cloud computer", state: .pending),
+          .init(id: "open", title: "Opening chat", state: .pending),
+        ], prompt: prompt.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    guard let launched else { return nil }
+    let chat = workspace.cloudChats.first { $0.workspaceId == launched }
+    let opening = ["Synchronizing…", "Connected"].contains(workspace.connectionState)
+    let started = opening || chat?.state == "ready"
+    let blocked = workspace.connectionState == "Connection needs attention"
+    return NewChatProgress(
+      title: "Setting up your workspace",
+      steps: [
+        .init(id: "create", title: "Creating workspace", state: .done),
+        .init(
+          id: "start", title: "Starting cloud computer",
+          detail: chat.map { $0.statusLabel } ?? "This can take a minute",
+          state: started ? .done : .active),
+        .init(id: "open", title: "Opening chat", state: started ? .active : .pending),
+      ], prompt: launchedPrompt,
+      failure: blocked ? workspace.connectionProblem ?? "The workspace needs attention." : nil,
+      retry: blocked ? { workspace.reconnect() } : nil)
   }
-  private var content: some View {
-    Color.clear.background(AppTheme.surface)
-      .safeAreaInset(edge: .bottom, spacing: 0) {
-        VStack(alignment: .leading, spacing: 2) {
-          if let failure { Text(failure).font(.caption).foregroundStyle(.red).padding(.bottom, 6) }
-          if let destination { destination }
-          Menu {
-            Picker("Repository", selection: $project) {
-              Text("Choose a repository").tag("")
-              ForEach(projects, id: \.["projectId"].string) { row in
-                Text(row["displayName"].string ?? "Repository").tag(row["projectId"].string ?? "")
-              }
-            }
-            Button("Connect a repository") { showOptions = true }
-          } label: {
-            SetupSelectorLabel(
-              icon: "folder",
-              title: projects.first { $0["projectId"].string == project }?["displayName"].string
-                ?? "Choose a repository")
-          }.disabled(pendingIntent != nil || busy)
-          Menu {
-            Picker("Provider", selection: $provider) {
-              ForEach(providers, id: \.["providerId"].string) { row in
-                Text(row["displayName"].string ?? "Provider").tag(row["providerId"].string ?? "")
-              }
-            }
-            if !sizes.isEmpty {
-              Picker("Size", selection: $size) {
-                Text("Default size").tag("")
-                ForEach(sizes, id: \.["sizeId"].string) { row in
-                  Text(row["displayName"].string ?? "Size").tag(row["sizeId"].string ?? "")
-                }
-              }
-            }
-          } label: {
-            SetupSelectorLabel(
-              icon: "server.rack",
-              title: providers.first { $0["providerId"].string == provider }?["displayName"].string
-                ?? "Choose cloud computer")
-          }.disabled(pendingIntent != nil || busy)
-          Button {
-            showOptions = true
-          } label: {
-            SetupSelectorLabel(
-              icon: "arrow.triangle.branch", title: baseRef.isEmpty ? "Default branch" : baseRef)
-          }.disabled(pendingIntent != nil || busy)
-          if pendingIntent != nil {
-            HStack {
-              Text("A saved workspace request is ready to retry.")
-              Button("Discard", role: .destructive) {
-                do {
-                  if let account = accountIdentity {
-                    try Vault.write(
-                      nil, key: CloudIntent.key(account: account, operation: "launch"))
-                  }
-                  pendingIntent = nil
-                } catch { failure = error.localizedDescription }
-              }
-            }.font(.caption).padding(.vertical, 4)
-          }
-          NewChatDraftComposer(
-            text: prompt,
-            enabled: !busy && !project.isEmpty && !provider.isEmpty && !agent.isEmpty
-              && !model.isEmpty,
-            busy: busy, editable: pendingIntent == nil,
-            options: AnyView(
-              Button("Cloud options", systemImage: "slider.horizontal.3") { showOptions = true }),
-            models: AnyView(modelMenu)
-          ) { Task { await launch() } }.padding(.top, 10)
-        }.frame(maxWidth: 720).frame(maxWidth: .infinity)
-          .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 12)
-          .background { ComposerFade().padding(.top, -40) }
-      }
-      .navigationTitle("New chat").compactNavigationTitle()
-      .toolbar {
-        if !embedded {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Close") { dismiss() }.disabled(busy)
+  var body: some View {
+    NewChatPage(
+      subtitle: projects.first { $0["projectId"].string == project }?["displayName"].string,
+      progress: launchProgress
+    ) {
+      if let failure { Text(failure).font(.caption).foregroundStyle(.red).padding(.bottom, 6) }
+      if let destination { destination }
+      Menu {
+        Picker("Repository", selection: $project) {
+          Text("Choose a repository").tag("")
+          ForEach(projects, id: \.["projectId"].string) { row in
+            Text(row["displayName"].string ?? "Repository").tag(row["projectId"].string ?? "")
           }
         }
+        Button("Connect a repository") { showOptions = true }
+      } label: {
+        SetupSelectorLabel(
+          icon: "folder",
+          title: projects.first { $0["projectId"].string == project }?["displayName"].string
+            ?? "Choose a repository")
+      }.disabled(pendingIntent != nil || busy)
+      Menu {
+        Picker("Provider", selection: $provider) {
+          ForEach(providers, id: \.["providerId"].string) { row in
+            Text(row["displayName"].string ?? "Provider").tag(row["providerId"].string ?? "")
+          }
+        }
+        if !sizes.isEmpty {
+          Picker("Size", selection: $size) {
+            Text("Default size").tag("")
+            ForEach(sizes, id: \.["sizeId"].string) { row in
+              Text(row["displayName"].string ?? "Size").tag(row["sizeId"].string ?? "")
+            }
+          }
+        }
+      } label: {
+        SetupSelectorLabel(
+          icon: "server.rack",
+          title: providers.first { $0["providerId"].string == provider }?["displayName"].string
+            ?? "Choose cloud computer")
+      }.disabled(pendingIntent != nil || busy)
+      Button {
+        showOptions = true
+      } label: {
+        SetupSelectorLabel(
+          icon: "arrow.triangle.branch", title: baseRef.isEmpty ? "Default branch" : baseRef)
+      }.disabled(pendingIntent != nil || busy)
+      if pendingIntent != nil {
+        HStack {
+          Text("A saved workspace request is ready to retry.")
+          Button("Discard", role: .destructive) {
+            do {
+              if let account = accountIdentity {
+                try Vault.write(
+                  nil, key: CloudIntent.key(account: account, operation: "launch"))
+              }
+              pendingIntent = nil
+            } catch { failure = error.localizedDescription }
+          }
+        }.font(.caption).padding(.vertical, 4)
       }
-      .sheet(isPresented: $showOptions) { options }
-      .onChange(of: project) {
-        guard pendingIntent == nil else { return }
-        baseRef =
-          "origin/"
-          + (projects.first { $0["projectId"].string == project }?["defaultBranch"].string ?? "main")
+    } composer: {
+      NewChatDraftComposer(
+        text: prompt,
+        enabled: !busy && !project.isEmpty && !provider.isEmpty && !agent.isEmpty
+          && !model.isEmpty,
+        busy: busy, editable: pendingIntent == nil,
+        options: AnyView(
+          Button("Cloud options", systemImage: "slider.horizontal.3") { showOptions = true }),
+        models: AnyView(modelMenu)
+      ) { Task { await launch() } }
+    }
+    .sheet(isPresented: $showOptions) { options }
+    .onChange(of: project) {
+      guard pendingIntent == nil else { return }
+      baseRef =
+        "origin/"
+        + (projects.first { $0["projectId"].string == project }?["defaultBranch"].string ?? "main")
+    }
+    .onChange(of: provider) { if pendingIntent == nil { size = "" } }
+    .onChange(of: busy) { _, value in busyChanged(value) }
+    .task { await load() }
+    .task(id: launched) {
+      // Keep the lifecycle label fresh while the workspace boots.
+      while launched != nil && !Task.isCancelled {
+        do { try await Task.sleep(for: .seconds(4)) } catch { return }
+        await workspace.refreshCloud(reportErrors: false)
       }
-      .onChange(of: provider) { if pendingIntent == nil { size = "" } }
-      .onChange(of: busy) { _, value in busyChanged(value) }
-      .task { await load() }.interactiveDismissDisabled(busy)
+    }
   }
   private var modelMenu: some View {
     ModelPickerButton(
@@ -166,9 +187,12 @@ struct CloudLaunchView: View {
           Button("Connect repository") { Task { await connectRepository() } }.disabled(
             busy || repository.isEmpty || branch.isEmpty)
         }
-      }.disabled(pendingIntent != nil).navigationTitle("Cloud options").compactNavigationTitle()
+      }.settingsList().disabled(pendingIntent != nil).navigationTitle("Cloud options")
+        .compactNavigationTitle()
         .toolbar {
-          ToolbarItem(placement: .confirmationAction) { Button("Done") { showOptions = false } }
+          ToolbarItem(placement: .sheetClose) {
+            SheetCloseButton { showOptions = false }
+          }
         }
     }.nativeSheetSize(width: 420, height: 440)
   }
@@ -255,8 +279,12 @@ struct CloudLaunchView: View {
     }
     let body = JSONValue.object(fields)
     busy = true
+    launching = true
     failure = nil
-    defer { busy = false }
+    defer {
+      busy = false
+      launching = false
+    }
     let generation = accountGeneration
     do {
       guard let account = accountIdentity else {
@@ -276,10 +304,13 @@ struct CloudLaunchView: View {
           "The workspace response was incomplete. Refresh your cloud list before trying again.")
       }
       try Vault.write(nil, key: key)
+      launchedPrompt = prompt.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
       workspace.openCloud(workspaceID: workspaceID, sessionID: sessionID)
-      await workspace.refreshCloud()
+      // The page closes when the chat is selected; a refused open returns to the form.
+      guard workspace.error == nil else { return }
+      launched = workspaceID
       prompt.wrappedValue = ""
-      dismiss()
+      await workspace.refreshCloud()
     } catch { failure = error.localizedDescription }
   }
 }

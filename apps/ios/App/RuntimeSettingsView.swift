@@ -64,10 +64,10 @@ struct RuntimeSettingsView: View {
             }
           }
         }
-      }.formStyle(.grouped).searchable(text: $search, prompt: "Find a setting")
+      }.settingsList().searchable(text: $search, prompt: "Find a setting")
         .navigationTitle(target.title).compactNavigationTitle()
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
+          ToolbarItem(placement: .sheetClose) { SheetCloseButton { dismiss() } }
           ToolbarItem(placement: .confirmationAction) {
             Button(saving ? "Saving…" : "Save") { Task { await save() } }
               .disabled(saving || edited == original || loading)
@@ -245,7 +245,7 @@ private struct SettingContainer: View {
           value = .array(items + [schema.initialValue(definition["items"])])
         }.frame(height: 28)
       }
-    }.formStyle(.grouped).navigationTitle(name).compactNavigationTitle()
+    }.settingsList().navigationTitle(name).compactNavigationTitle()
   }
   private func object(_ value: JSONValue) -> [String: JSONValue] {
     if case .object(let fields) = value { return fields }

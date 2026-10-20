@@ -27,7 +27,10 @@ public struct TranscriptRow: Identifiable, Equatable, Sendable {
         paired[message.id] = output
       }
     }
-    let visible = messages.filter { !consumed.contains($0.id) }
+    // Usage and context accounting are metadata, not conversation content.
+    let visible = messages.filter {
+      !consumed.contains($0.id) && !["usage", "context_usage"].contains($0.kind)
+    }
     func activity(_ index: Int) -> Bool {
       visible.indices.contains(index)
         && ["thinking", "tool_use", "tool_result"].contains(visible[index].kind)

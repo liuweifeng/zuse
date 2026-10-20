@@ -50,7 +50,7 @@ struct AddProjectView: View {
             } catch { self.error = error.localizedDescription }
           }
         }.disabled(busy || path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-      }.formStyle(.grouped).disabled(busy)
+      }.settingsList().disabled(busy)
         .navigationTitle("Add project").compactNavigationTitle()
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         .task {

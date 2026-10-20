@@ -31,7 +31,7 @@ final class NativeChatTests: XCTestCase {
     let sonnet = app.buttons["selection-choice-sample-sonnet"]
     XCTAssertTrue(sonnet.waitForExistence(timeout: 5))
     sonnet.tap()
-    app.buttons["Done"].tap()
+    app.buttons["Close"].tap()
     XCTAssertTrue(app.buttons["Current model: sample-sonnet"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.buttons["3 tool calls"].exists)
     XCTAssertFalse(app.buttons["Send message"].isEnabled)
@@ -103,7 +103,7 @@ final class NativeChatTests: XCTestCase {
     app.launchArguments = ["--native-preview", "--home-preview"]
     app.launch()
     app.buttons["New chat"].tap()
-    XCTAssertTrue(app.navigationBars["New chat"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.navigationBars["New Chat"].waitForExistence(timeout: 5))
     let newPrompt = app.textFields["new-chat-prompt"]
     XCTAssertTrue(newPrompt.waitForExistence(timeout: 5))
     newPrompt.tap()
@@ -221,7 +221,12 @@ final class NativeChatTests: XCTestCase {
       XCTAssertTrue(link.waitForExistence(timeout: 10))
       link.tap()
     }
-    XCTAssertTrue(app.staticTexts["Connected"].waitForExistence(timeout: 15))
+    // Changes is enabled only once the chat is connected.
+    let changes = app.buttons["Changes"]
+    XCTAssertTrue(changes.waitForExistence(timeout: 15))
+    wait(
+      for: [expectation(for: NSPredicate(format: "enabled == true"), evaluatedWith: changes)],
+      timeout: 15)
     let composer = app.textFields["chat-composer"]
     composer.tap()
     composer.typeText("Hello from native UI")

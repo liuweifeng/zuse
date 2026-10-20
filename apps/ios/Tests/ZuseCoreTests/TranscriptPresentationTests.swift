@@ -58,3 +58,11 @@ private func activity(
   #expect(groups[1].rows.count == 2)
   #expect(groups[1].id == "read")
 }
+
+@Test func transcriptRowsOmitUsageMetadata() {
+  let rows = TranscriptRow.project([
+    activity("answer", "assistant"), activity("usage", "usage"),
+    activity("context", "context_usage"), activity("limit", "usage_limit"),
+  ])
+  #expect(rows.map(\.id) == ["answer", "limit"])
+}

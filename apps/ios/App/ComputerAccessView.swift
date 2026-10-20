@@ -86,7 +86,7 @@ struct ComputerAccessView: View {
         }
         Button("Refresh devices") { Task { await load() } }.disabled(busy).frame(height: 28)
       }
-    }.navigationTitle("Computer access").compactNavigationTitle()
+    }.settingsList().navigationTitle("Computer access").compactNavigationTitle()
       .task {
         active = true
         await load()

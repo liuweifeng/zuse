@@ -11,10 +11,14 @@ import Testing
   #expect(items.first { $0.name == "code_challenge_method" }?.value == "S256")
   #expect(items.first { $0.name == "code_challenge" }?.value == "challenge")
   #expect(items.first { $0.name == "state" }?.value == "state")
-  #expect(
-    try AccountAuthorization.code(
-      from: URL(string: "zuse://auth?code=one&state=expected")!, expectedState: "expected") == "one"
-  )
+  for callback in [
+    "zuse://auth?code=one&state=expected", "zuse://auth/?code=one&state=expected",
+    "zuse://auth?code=one&state=expected#",
+  ] {
+    #expect(
+      try AccountAuthorization.code(from: URL(string: callback)!, expectedState: "expected")
+        == "one")
+  }
 }
 
 @Test func nativeAuthorizationRejectsUntrustedAndAmbiguousCallbacks() {

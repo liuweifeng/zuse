@@ -26,7 +26,34 @@ import ZuseCore
   var selectedSession: SessionRow?
   var transcript = Transcript()
   var error: String?
-  var connectionState = "Not connected"
+  var connectionState = "Not connected" {
+    didSet { if connectionState != oldValue { updateConnectionIssue() } }
+  }
+  /// Set only when a failure outlasts automatic retries or needs the user; brief reconnects stay quiet.
+  private(set) var connectionIssue = false
+  private var connectionIssueTask: Task<Void, Never>?
+  private func updateConnectionIssue() {
+    switch connectionState {
+    case "Connected", "Not connected", "Preview · offline":
+      connectionIssueTask?.cancel()
+      connectionIssueTask = nil
+      connectionIssue = false
+    case "Connection needs attention":
+      connectionIssueTask?.cancel()
+      connectionIssueTask = nil
+      connectionIssue = true
+    case "Offline · reconnecting":
+      guard connectionIssueTask == nil, !connectionIssue else { return }
+      connectionIssueTask = Task { [weak self] in
+        try? await Task.sleep(for: .seconds(8))
+        guard !Task.isCancelled else { return }
+        self?.connectionIssue = true
+      }
+    default:
+      // Connecting and synchronizing keep any grace period that is already running.
+      break
+    }
+  }
   var connectionProblem: String?
   var loading = false
   var clearingAccount = false

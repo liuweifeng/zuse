@@ -22,8 +22,8 @@ public enum AccountAuthorization {
 
   public static func code(from callback: URL, expectedState: String) throws -> String {
     guard let url = URLComponents(url: callback, resolvingAgainstBaseURL: false),
-      url.scheme == callbackScheme, url.host == "auth", url.path.isEmpty,
-      url.user == nil, url.password == nil, url.port == nil, url.fragment == nil
+      url.scheme == callbackScheme, url.host == "auth", url.path.isEmpty || url.path == "/",
+      url.user == nil, url.password == nil, url.port == nil, url.fragment?.isEmpty ?? true
     else { throw ClientError("The sign-in response could not be verified.") }
     let items = url.queryItems ?? []
     let states = items.filter { $0.name == "state" }

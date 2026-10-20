@@ -77,7 +77,7 @@ struct ServeSettingsView: View {
         Link("Connection setup", destination: URL(string: "https://zuse.sh/docs/remote/tailscale")!)
       }
     }
-    .formStyle(.grouped).navigationTitle("Zuse Serve").compactNavigationTitle()
+    .settingsList().navigationTitle("Zuse Serve").compactNavigationTitle()
     .disabled(busy)
     #if os(macOS)
       .task { await run(["serve", "status", "--json"], readsStatus: true) }

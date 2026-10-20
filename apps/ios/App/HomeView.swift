@@ -20,6 +20,8 @@ struct HomeView: View {
   @State private var collapsed: Set<String> = []
   @State private var showArchivedCloud = false
   @State private var cloudConfirmation: CloudActionSelection?
+  @State private var connectMethod: ConnectionMethod?
+  @State private var signingIn = false
   private struct CloudActionSelection {
     let chat: CloudChat
     let action: CloudWorkspaceAction
@@ -32,167 +34,156 @@ struct HomeView: View {
       $0.isArchived == showArchivedCloud && matches($0.title)
     }
     List(selection: $selection) {
+      if showsConnectionBanner {
+        ConnectionBanner(workspace: workspace).homeRow(leading: 4, minHeight: 0)
+          .padding(.bottom, 8)
+      }
       if let problem = workspace.catalogProblem {
-        Label(problem, systemImage: "arrow.clockwise").font(.caption).foregroundStyle(.secondary)
+        HomeNotice(text: problem, icon: "arrow.clockwise")
       }
       if let problem = workspace.cloudCatalogProblem {
-        Label(problem, systemImage: "cloud.bolt").font(.caption).foregroundStyle(.secondary)
+        HomeNotice(text: problem, icon: "cloud.bolt")
       }
       if !workspace.cloudChats.isEmpty {
-        Section {
-          if visibleCloud.isEmpty {
-            Text(showArchivedCloud ? "No archived cloud chats" : "No active cloud chats")
-              .font(.caption).foregroundStyle(.secondary).listRowSeparator(.hidden)
-          }
-          ForEach(visibleCloud) { chat in
-            Button {
-              if let pending = workspace.pendingCloudActions[chat.workspaceId] {
-                requestCloudAction(chat, action: pending)
-              } else if chat.isArchived {
-                requestCloudAction(chat, action: .unarchive)
+        HStack {
+          Text(showArchivedCloud ? "Archived" : "Cloud")
+          Spacer()
+          Menu {
+            Picker("Show", selection: $showArchivedCloud) {
+              Text("Active").tag(false)
+              Text("Archived").tag(true)
+            }
+          } label: {
+            Image(systemName: "line.3.horizontal.decrease").frame(width: 32, height: 28)
+              .contentShape(Rectangle())
+          }.accessibilityLabel("Filter cloud chats")
+        }
+        .font(.system(size: 13, weight: .medium)).foregroundStyle(.secondary)
+        .homeRow(leading: 20, minHeight: 32)
+        if visibleCloud.isEmpty {
+          Text(showArchivedCloud ? "No archived cloud chats" : "No active cloud chats")
+            .font(.subheadline).foregroundStyle(.tertiary).homeRow(leading: 24, minHeight: 40)
+        }
+        ForEach(visibleCloud) { chat in
+          Button {
+            if let pending = workspace.pendingCloudActions[chat.workspaceId] {
+              requestCloudAction(chat, action: pending)
+            } else if chat.isArchived {
+              requestCloudAction(chat, action: .unarchive)
+            } else {
+              workspace.openCloud(chat)
+            }
+          } label: {
+            HomeChatLabel(
+              title: chat.title.isEmpty ? "Untitled chat" : chat.title,
+              detail: workspace.pendingCloudActions[chat.workspaceId].map {
+                $0.title + " pending"
+              } ?? chat.statusLabel
+            ) {
+              if workspace.cloudRequestsBusy.contains(chat.workspaceId) {
+                ProgressView().controlSize(.mini)
               } else {
-                workspace.openCloud(chat)
+                Image(systemName: chat.isArchived ? "archivebox" : "cloud")
+                  .font(.system(size: 14)).foregroundStyle(.secondary)
               }
-            } label: {
-              HStack(spacing: 9) {
-                if workspace.cloudRequestsBusy.contains(chat.workspaceId) {
-                  ProgressView().controlSize(.small)
-                } else {
-                  Image(systemName: chat.isArchived ? "archivebox" : "cloud").foregroundStyle(
-                    .secondary)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(chat.title.isEmpty ? "Untitled chat" : chat.title).lineLimit(1)
-                  Text(
-                    chat.repositoryDisplayName + " · "
-                      + (workspace.pendingCloudActions[chat.workspaceId].map {
-                        $0.title + " pending"
-                      } ?? chat.statusLabel)
-                  ).font(.caption)
-                    .foregroundStyle(.secondary).lineLimit(1)
-                }
-                Spacer(minLength: 4)
-              }.foregroundStyle(.primary).padding(.vertical, 3)
             }
-            .disabled(workspace.cloudRequestsBusy.contains(chat.workspaceId))
-            .listRowSeparator(.hidden).listRowBackground(Color.clear)
-            .contextMenu { cloudActions(chat) }
-            .swipeActions { cloudActions(chat) }
           }
-        } header: {
-          HStack {
-            Label(
-              showArchivedCloud ? "Archived" : "Cloud",
-              systemImage: showArchivedCloud ? "archivebox" : "cloud"
-            ).textCase(nil)
-            Spacer()
-            Menu {
-              Button("Active cloud chats") { showArchivedCloud = false }
-              Button("Archived cloud chats") { showArchivedCloud = true }
-            } label: {
-              Image(systemName: "line.3.horizontal.decrease")
-            }
-            .accessibilityLabel("Filter cloud chats")
-          }
+          .buttonStyle(.plain)
+          .disabled(workspace.cloudRequestsBusy.contains(chat.workspaceId))
+          .homeRow(leading: 24)
+          .contextMenu { cloudActions(chat) }
+          .swipeActions { cloudActions(chat) }
         }
       }
       ForEach(workspace.projects) { project in
-        Section {
-          if !collapsed.contains(project.id) {
-            ForEach(grouped[project.id] ?? []) {
-              session in
-              SessionListRow(workspace: workspace, session: session)
-            }
-            if grouped[project.id] == nil && workspace.catalogProblem != nil && search.isEmpty {
-              Button("Retry loading chats") {
-                workspace.selectedProject = project
-                Task { await workspace.loadSessions() }
-              }.font(.subheadline)
-            }
-          }
-        } header: {
-          Button {
+        let chats = grouped[project.id] ?? []
+        Button {
+          withAnimation(.snappy(duration: 0.2)) {
             if collapsed.contains(project.id) {
               collapsed.remove(project.id)
             } else {
               collapsed.insert(project.id)
             }
-          } label: {
-            HStack(spacing: 10) {
-              Text(String(project.name.prefix(1)).uppercased())
-                .font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-              Text(project.name).font(.footnote.weight(.semibold))
-              Spacer()
-              Image(systemName: collapsed.contains(project.id) ? "chevron.right" : "chevron.down")
-                .font(.caption).foregroundStyle(.secondary)
-            }.foregroundStyle(Color.primary).textCase(nil).padding(.vertical, 2)
-          }.buttonStyle(.plain).accessibilityLabel("\(project.name), toggle chats")
+          }
+        } label: {
+          HomeProjectHeader(
+            name: project.name, count: chats.count, collapsed: collapsed.contains(project.id))
+        }
+        .buttonStyle(.plain).homeRow(leading: 16, minHeight: 48)
+        .padding(.top, 4)
+        .accessibilityLabel(
+          "\(project.name), \(chats.count) chats"
+            + (collapsed.contains(project.id) ? ", collapsed" : ""))
+        if !collapsed.contains(project.id) {
+          ForEach(chats) { session in
+            SessionListRow(workspace: workspace, session: session)
+          }
+          if chats.isEmpty && workspace.catalogProblem != nil && search.isEmpty {
+            Button("Retry loading chats") {
+              workspace.selectedProject = project
+              Task { await workspace.loadSessions() }
+            }.font(.subheadline).homeRow(leading: 24)
+          }
         }
       }
-      if workspace.projects.isEmpty && workspace.cloudChats.isEmpty {
-        ContentUnavailableView {
-          Label("Your chats live here", systemImage: "bubble.left.and.bubble.right")
-        } description: {
-          Text("Connect a computer or start a cloud chat to pick up your work.")
-        } actions: {
-          Button("Get started", action: settings).buttonStyle(.borderedProminent)
-        }.listRowBackground(Color.clear)
+      if workspace.projects.isEmpty && workspace.cloudChats.isEmpty && search.isEmpty
+        && !showsConnectionBanner
+      {
+        emptyState.homeRow(leading: 0).padding(.top, 72)
       }
       if !search.isEmpty && !workspace.sessions.contains(where: { matches($0.title) })
         && visibleCloud.isEmpty
       {
-        ContentUnavailableView.search(text: search)
+        ContentUnavailableView.search(text: search).homeRow(leading: 0)
       }
     }
     .listStyle(.plain)
-    .environment(\.defaultMinListRowHeight, 38)
-    .compactListSections()
-    .contentMargins(.top, isTablet ? 8 : 16, for: .scrollContent)
-    .listRowSeparator(.hidden)
+    .environment(\.defaultMinListRowHeight, 32)
+    .contentMargins(.top, 4, for: .scrollContent)
+    .contentMargins(.horizontal, isTablet ? 8 : 12, for: .scrollContent)
     .scrollContentBackground(.hidden)
     .background(AppTheme.surface)
     .navigationTitle("Zuse")
     .compactNavigationTitle()
     .toolbar {
+      ToolbarItem(placement: .principal) { BrandTitle() }
       if !isTablet {
         ToolbarItemGroup(placement: .primaryAction) {
           Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
-          Button("Open settings", systemImage: "gearshape", action: settings)
+          Button("Open settings", systemImage: "gearshape.fill", action: settings)
         }
       }
     }
+    .tint(.primary)
     .safeAreaInset(edge: .bottom) {
-      HStack(spacing: 8) {
+      HStack(spacing: 10) {
         if isTablet {
-          Button("Open settings", systemImage: "gearshape", action: settings)
-            .labelStyle(.iconOnly).font(.system(size: 15))
-            .frame(width: 36, height: 36).contentShape(Circle())
-            .contextMenu {
-              Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
-            }
+          Button(action: settings) {
+            Image(systemName: "gearshape.fill").font(.system(size: 16))
+              .frame(width: 44, height: 44).contentShape(Circle()).floatingGlass(radius: 22)
+          }
+          .buttonStyle(.plain).accessibilityLabel("Open settings")
+          .contextMenu {
+            Button("Pair with desktop", systemImage: "qrcode.viewfinder", action: connect)
+          }
         }
         HStack(spacing: 8) {
-          Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-          TextField("Search", text: $search).accessibilityLabel("Search chats")
+          Image(systemName: "magnifyingglass").font(.system(size: 16)).foregroundStyle(.secondary)
+          TextField("Search", text: $search).font(.system(size: 16))
+            .autocorrectionDisabled().verbatimInput().accessibilityLabel("Search chats")
           if !search.isEmpty {
             Button("Clear search", systemImage: "xmark.circle.fill") { search = "" }
-              .labelStyle(.iconOnly).foregroundStyle(.secondary)
+              .labelStyle(.iconOnly).foregroundStyle(.tertiary)
           }
-        }.font(.system(size: isTablet ? 13 : 15))
-          .padding(.horizontal, 12).frame(height: isTablet ? 36 : 46)
-          .floatingGlass(radius: isTablet ? 18 : 23)
+        }
+        .padding(.horizontal, 14).frame(height: 44).floatingGlass(radius: 22)
         Button(action: newChat) {
-          Image(systemName: "square.and.pencil").font(
-            .system(size: isTablet ? 16 : 18, weight: .medium)
-          )
-          .frame(width: isTablet ? 36 : 46, height: isTablet ? 36 : 46)
-          .contentShape(Circle()).floatingGlass(radius: isTablet ? 18 : 23)
+          Image(systemName: "square.and.pencil").font(.system(size: 18, weight: .medium))
+            .frame(width: 44, height: 44).contentShape(Circle()).floatingGlass(radius: 22)
         }.buttonStyle(.plain).accessibilityLabel("New chat")
-      }.frame(maxWidth: 560).frame(maxWidth: .infinity).padding(.horizontal, 16).padding(
-        .vertical, isTablet ? 8 : 10
-      )
-      .foregroundStyle(.secondary).tint(.primary)
+      }
+      .frame(maxWidth: 560).frame(maxWidth: .infinity).padding(.horizontal, 16)
+      .padding(.vertical, 8).foregroundStyle(.primary)
     }
     .task(id: workspace.account.generation) {
       var delay = 5.0
@@ -204,6 +195,7 @@ struct HomeView: View {
         }
       }
     }
+    .connectionFlow($connectMethod, workspace: workspace)
     .confirmationDialog(
       cloudConfirmation?.action == .archive ? "Archive cloud workspace?" : "Pause cloud workspace?",
       isPresented: Binding(
@@ -225,6 +217,56 @@ struct HomeView: View {
       await workspace.refreshCloud()
       await workspace.refreshSessionCatalog()
     }
+  }
+  /// First connections show progress; later reconnects only surface once they become a problem.
+  private var showsConnectionBanner: Bool {
+    workspace.connectionIssue
+      || (workspace.projects.isEmpty && workspace.cloudChats.isEmpty
+        && ["Connecting…", "Synchronizing…", "Offline · reconnecting"].contains(
+          workspace.connectionState))
+  }
+  private var emptyState: some View {
+    VStack(spacing: 28) {
+      VStack(spacing: 8) {
+        Image(systemName: "bubble.left.and.bubble.right.fill").font(.system(size: 40))
+          .foregroundStyle(.tertiary).padding(.bottom, 6)
+        Text("No chats yet").font(.title3.weight(.semibold))
+        Text(
+          workspace.account.signedIn
+            ? "Start a cloud chat or connect a computer." : "Sign in or connect a computer."
+        ).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
+      }
+      VStack(spacing: 10) {
+        if !workspace.account.signedIn {
+          Button {
+            signingIn = true
+            Task {
+              defer { signingIn = false }
+              do { try await workspace.signIn() } catch {
+                workspace.error = error.localizedDescription
+              }
+            }
+          } label: {
+            Text(signingIn ? "Signing In…" : "Sign In").frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent).tint(AppTheme.accent).disabled(signingIn)
+        }
+        Button {
+          connectMethod = .pairing
+        } label: {
+          Label("Scan QR Code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(workspace.account.signedIn ? AppTheme.accent : Color.primary.opacity(0.12))
+        .foregroundStyle(workspace.account.signedIn ? Color.white : Color.primary)
+        HStack(spacing: 24) {
+          Button("Find Nearby") { connectMethod = .nearby }
+          Button("Add Manually") { connectMethod = .manual }
+        }.buttonStyle(.borderless).font(.subheadline).foregroundStyle(.secondary)
+      }
+      .controlSize(.large).buttonBorderShape(.capsule)
+      .frame(maxWidth: 340).padding(.horizontal, 24)
+    }.frame(maxWidth: .infinity)
   }
   @ViewBuilder private func cloudActions(_ chat: CloudChat) -> some View {
     if let pending = workspace.pendingCloudActions[chat.workspaceId] {
@@ -264,6 +306,12 @@ struct SettingsView: View {
   @AppStorage("native.appearance") private var appearance = "system"
   @State private var showCloud = false
   @State private var showCloudPreferences = false
+  private var version: String {
+    let info = Bundle.main.infoDictionary
+    let short = info?["CFBundleShortVersionString"] as? String ?? "1.0"
+    let build = info?["CFBundleVersion"] as? String ?? ""
+    return build.isEmpty ? short : "\(short) (\(build))"
+  }
   var body: some View {
     NavigationStack {
       List {
@@ -274,7 +322,7 @@ struct SettingsView: View {
             } label: {
               SettingsRow(
                 title: "Account", subtitle: "Cloud chats and remote access",
-                icon: "person.crop.circle")
+                icon: "person.crop.circle.fill", brand: true)
             }
           } else {
             Button {
@@ -285,9 +333,9 @@ struct SettingsView: View {
               }
             } label: {
               SettingsRow(
-                title: "Sign in to Zuse", subtitle: "Cloud chats and remote access",
-                icon: "person.crop.circle")
-            }.foregroundStyle(.primary).accessibilityLabel("Sign in to Zuse")
+                title: "Sign in", subtitle: "Cloud chats and remote access",
+                icon: "person.crop.circle.fill", brand: true)
+            }.accessibilityLabel("Sign in to Zuse")
           }
         }
         Section {
@@ -295,20 +343,20 @@ struct SettingsView: View {
             ComputerConnectionsView(workspace: workspace)
           } label: {
             SettingsRow(
-              title: "Computers", subtitle: "Connections and remote access", icon: "desktopcomputer"
-            )
+              title: "Computers", icon: "desktopcomputer",
+              value: workspace.connectedComputer)
           }
           NavigationLink {
-            Form {
+            List {
               Picker("Theme", selection: $appearance) {
                 Text("System").tag("system")
                 Text("Light").tag("light")
                 Text("Dark").tag("dark")
-              }.pickerStyle(.inline)
-            }.navigationTitle("Appearance").compactNavigationTitle()
+              }.pickerStyle(.inline).labelsHidden()
+            }.settingsList().navigationTitle("Appearance").compactNavigationTitle()
           } label: {
             SettingsRow(
-              title: "Appearance", subtitle: appearance.capitalized, icon: "circle.lefthalf.filled")
+              title: "Appearance", icon: "circle.lefthalf.filled", value: appearance.capitalized)
           }
         }
         if workspace.account.signedIn {
@@ -316,22 +364,26 @@ struct SettingsView: View {
             NavigationLink {
               CloudInfrastructureView(workspace: workspace)
             } label: {
-              SettingsRow(title: "Cloud providers", icon: "cloud")
+              SettingsRow(title: "Cloud providers", icon: "cloud.fill")
             }
             NavigationLink {
               RegisteredDevicesView(workspace: workspace)
             } label: {
-              SettingsRow(title: "Registered devices", icon: "desktopcomputer.and.iphone")
+              SettingsRow(title: "Registered devices", icon: "iphone.gen3")
             }
           }
         }
+        Section {
+        } footer: {
+          Text("Zuse \(version)").frame(maxWidth: .infinity).font(.caption)
+            .foregroundStyle(.tertiary)
+        }
       }
-      .environment(\.defaultMinListRowHeight, 44)
-      .listSectionSpacing(12)
-      .contentMargins(.top, 12)
-      .scrollContentBackground(.hidden).background(AppTheme.surface)
+      .settingsList()
       .navigationTitle("Settings").compactNavigationTitle()
-      .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+      .toolbar {
+        ToolbarItem(placement: .sheetClose) { SheetCloseButton { dismiss() } }
+      }
       .disabled(workspace.clearingAccount)
     }.nativeSheetSize(width: 440, height: 520).tint(.primary)
       .sheet(isPresented: $showCloud) { CloudSettingsView(workspace: workspace).nativeSheetSize() }
@@ -341,45 +393,45 @@ struct SettingsView: View {
   }
   private var accountSettings: some View {
     List {
-      if workspace.account.reauthenticationRequired {
-        Button("Sign in again") {
-          Task {
-            do { try await workspace.signIn() } catch {
-              workspace.error = error.localizedDescription
+      Section {
+        SettingsRow(
+          title: "Signed in",
+          subtitle: workspace.account.reauthenticationRequired
+            ? "Session expired" : "Zuse account", icon: "checkmark.seal.fill", brand: true)
+        if workspace.account.reauthenticationRequired {
+          Button {
+            Task {
+              do { try await workspace.signIn() } catch {
+                workspace.error = error.localizedDescription
+              }
             }
+          } label: {
+            SettingsRow(title: "Sign in again", icon: "arrow.clockwise")
           }
         }
       }
-      Button {
-        showCloudPreferences = true
-      } label: {
-        SettingsRow(title: "Cloud preferences", icon: "slider.horizontal.3")
-      }
-      Button {
-        showCloud = true
-      } label: {
-        SettingsRow(title: "Agent sign-in", icon: "key")
-      }
-      Button("Sign out", role: .destructive) { Task { await workspace.signOut() } }
-    }.navigationTitle("Account").compactNavigationTitle()
-  }
-}
-
-struct SettingsRow: View {
-  let title: String
-  var subtitle: String? = nil
-  let icon: String
-  var body: some View {
-    HStack(spacing: 9) {
-      Image(systemName: icon).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
-      VStack(alignment: .leading, spacing: 2) {
-        Text(title).font(.system(size: 13, weight: .medium)).foregroundStyle(.primary)
-        if let subtitle {
-          Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
+      Section {
+        Button {
+          showCloudPreferences = true
+        } label: {
+          SettingsRow(title: "Cloud preferences", icon: "slider.horizontal.3")
+        }
+        Button {
+          showCloud = true
+        } label: {
+          SettingsRow(title: "Agent sign-in", icon: "key.fill")
         }
       }
-    }.frame(minHeight: 32, alignment: .leading)
-      .listRowInsets(EdgeInsets(top: 5, leading: 14, bottom: 5, trailing: 14))
+      Section {
+        Button {
+          Task { await workspace.signOut() }
+        } label: {
+          SettingsRow(
+            title: "Sign out", icon: "rectangle.portrait.and.arrow.right", destructive: true)
+        }
+      }
+    }.settingsList()
+      .navigationTitle("Account").compactNavigationTitle()
   }
 }
 
@@ -401,9 +453,7 @@ struct ComputerConnectionsView: View {
         Button {
           method = .pairing
         } label: {
-          SettingsRow(
-            title: "Scan a pairing code", subtitle: "Pair using a QR code or link",
-            icon: "qrcode.viewfinder")
+          SettingsRow(title: "Scan a pairing code", icon: "qrcode.viewfinder")
         }
         Button {
           method = .manual
@@ -413,19 +463,19 @@ struct ComputerConnectionsView: View {
       } header: {
         Text("Connections")
       } footer: {
-        Text("Pair over your local network. No account needed.")
+        Text("Pairs over your local network. No account needed.")
       }
       if !workspace.savedConnections.isEmpty {
         Section("Saved computers") {
           ForEach(workspace.savedConnections) { connection in
+            let current = workspace.connectedComputer == connection.displayName
             Button {
               workspace.openRemote(connection)
             } label: {
               SettingsRow(
                 title: connection.displayName,
-                subtitle: workspace.connectedComputer == connection.displayName
-                  ? workspace.connectionState : connection.transportName,
-                icon: "laptopcomputer")
+                subtitle: current ? workspace.connectionState : connection.transportName,
+                icon: "laptopcomputer", brand: current)
             }.contextMenu {
               Button("Forget computer", role: .destructive) { forgetting = connection }
             }
@@ -460,9 +510,11 @@ struct ComputerConnectionsView: View {
               SettingsRow(title: "Device access", icon: "ipad.and.iphone")
             }.disabled(workspace.connectionState != "Connected")
           }
-          Button("Disconnect", role: .destructive) {
+          Button {
             workspace.persistDraft(immediate: true)
             workspace.disconnect(clearSaved: true)
+          } label: {
+            SettingsRow(title: "Disconnect", icon: "xmark", destructive: true)
           }
         }
       }
@@ -474,10 +526,9 @@ struct ComputerConnectionsView: View {
             title: "Remote network", subtitle: "Zuse Serve and Tailscale", icon: "network")
         }
       }
-    }.environment(\.defaultMinListRowHeight, 44)
-      .listSectionSpacing(12).scrollContentBackground(.hidden).background(AppTheme.surface)
+    }.settingsList()
       .navigationTitle("Computers").compactNavigationTitle()
-      .sheet(item: $method) { ConnectionView(workspace: workspace, method: $0) }
+      .connectionFlow($method, workspace: workspace)
       .sheet(isPresented: $showRuntime) {
         if let rpc = workspace.rpc { RuntimeSettingsView(rpc: rpc).nativeSheetSize() }
       }
@@ -545,16 +596,22 @@ private struct SessionListRow: View {
   }
   var body: some View {
     let info = workspace.gitState(for: session)
-    NavigationLink(value: session) {
-      HStack(spacing: 9) {
-        GitStatusGlyph(info: info).accessibilityIdentifier("git-status-\(session.id)")
-        Text(session.title.isEmpty ? "New chat" : session.title).font(.subheadline).lineLimit(1)
-        Spacer(minLength: 4)
+    // A hidden link keeps split-view selection while omitting the disclosure chevron.
+    ZStack {
+      NavigationLink(value: session) { EmptyView() }.opacity(0)
+      HomeChatLabel(title: session.title.isEmpty ? "New chat" : session.title) {
+        ProviderMark(providerID: session.providerId, size: 16).foregroundStyle(.secondary)
+      } trailing: {
         if let number = info["number"].int {
-          Text("#\(number)").font(.caption2).foregroundStyle(.secondary)
+          HStack(spacing: 4) {
+            GitStatusGlyph(info: info).scaleEffect(0.8)
+            Text("#\(number)").font(.system(size: 12)).monospacedDigit()
+              .foregroundStyle(.secondary)
+          }.accessibilityIdentifier("git-status-\(session.id)")
         }
-      }.padding(.vertical, 2)
+      }
     }
+    .homeRow(leading: 24)
     .task(id: context) {
       workspace.requestGitState(session)
       while !Task.isCancelled && workspace.connectionState == "Connected" {
@@ -567,7 +624,105 @@ private struct SessionListRow: View {
         Link("Open pull request", destination: url)
       }
     }
-    .listRowSeparator(.hidden).listRowBackground(Color.clear)
-    .listRowInsets(EdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 14))
+  }
+}
+
+private struct HomeChatLabel<Leading: View, Trailing: View>: View {
+  let title: String
+  var detail: String? = nil
+  @ViewBuilder let leading: Leading
+  @ViewBuilder var trailing: Trailing
+  var body: some View {
+    HStack(spacing: 10) {
+      leading.frame(width: 20, height: 20)
+      Text(title).font(.system(size: 16)).foregroundStyle(.primary.opacity(0.92)).lineLimit(1)
+      Spacer(minLength: 6)
+      if let detail {
+        Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1)
+      }
+      trailing
+    }.frame(minHeight: 44).contentShape(Rectangle())
+  }
+}
+
+extension HomeChatLabel where Trailing == EmptyView {
+  init(title: String, detail: String? = nil, @ViewBuilder leading: () -> Leading) {
+    self.init(title: title, detail: detail, leading: leading, trailing: { EmptyView() })
+  }
+}
+
+private struct HomeProjectHeader: View {
+  let name: String
+  let count: Int
+  let collapsed: Bool
+  var body: some View {
+    HStack(spacing: 10) {
+      Text(String(name.trimmingCharacters(in: .whitespaces).prefix(1)).uppercased())
+        .font(.system(size: 14, weight: .bold)).foregroundStyle(AppTheme.accent)
+        .frame(width: 28, height: 28)
+        .background(
+          Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6, style: .continuous)
+        )
+        .overlay {
+          RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+        }
+      Text(name).font(.system(size: 16, weight: .bold)).lineLimit(1)
+      Spacer(minLength: 6)
+      Text("\(count)").font(.system(size: 13)).monospacedDigit().foregroundStyle(.secondary)
+      Image(systemName: collapsed ? "chevron.right" : "chevron.down")
+        .font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary).frame(width: 16)
+    }.contentShape(Rectangle())
+  }
+}
+
+private struct ConnectionBanner: View {
+  let workspace: WorkspaceModel
+  private var connecting: Bool { !workspace.connectionIssue }
+  var body: some View {
+    HStack(alignment: .top, spacing: 10) {
+      Group {
+        if connecting {
+          ProgressView().controlSize(.small)
+        } else {
+          Image(systemName: "wifi.exclamationmark").foregroundStyle(.orange)
+        }
+      }.frame(width: 20, height: 20)
+      VStack(alignment: .leading, spacing: 2) {
+        Text(
+          connecting
+            ? workspace.connectedComputer.map { "Connecting to \($0)…" } ?? "Connecting…"
+            : "Can’t reach \(workspace.connectedComputer ?? "your computer")"
+        ).font(.subheadline.weight(.semibold)).lineLimit(1)
+        if let problem = workspace.connectionProblem, !connecting {
+          Text(problem).font(.footnote).foregroundStyle(.secondary).lineLimit(4)
+            .textSelection(.enabled)
+        }
+      }
+      Spacer(minLength: 4)
+      if !connecting {
+        Button("Retry") { workspace.reconnect() }.font(.subheadline.weight(.medium))
+          .buttonStyle(.borderless).tint(AppTheme.accent)
+      }
+    }
+    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+  }
+}
+
+private struct HomeNotice: View {
+  let text: String
+  let icon: String
+  var body: some View {
+    Label(text, systemImage: icon).font(.footnote).foregroundStyle(.secondary)
+      .homeRow(leading: 20, minHeight: 32)
+  }
+}
+
+extension View {
+  fileprivate func homeRow(leading: CGFloat, minHeight: CGFloat = 44) -> some View {
+    frame(minHeight: minHeight)
+      .listRowInsets(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: 12))
+      .listRowSeparator(.hidden).listRowBackground(Color.clear)
   }
 }

@@ -3,11 +3,10 @@ import ZuseCore
 
 struct NewChatView: View {
   let workspace: WorkspaceModel
-  var embedded = false
   var destination: AnyView? = nil
   var prompt: Binding<String> = .constant("")
   var busyChanged: (Bool) -> Void = { _ in }
-  @Environment(\.dismiss) private var dismiss
+  var finish: () -> Void = {}
   @State private var project = ""
   @State private var provider = ""
   @State private var model = ""
@@ -27,7 +26,6 @@ struct NewChatView: View {
   @State private var scope: String?
   @State private var intent: ChatCreation?
   @State private var uncertainBranch = false
-  @State private var switchingDevice = false
   @State private var showProject = false
   @State private var showOptions = false
   private var selectedProvider: ModelProvider? { catalog.first { $0.id == provider } }
@@ -37,112 +35,98 @@ struct NewChatView: View {
   private var connected: Bool {
     scope == workspace.operationScope && workspace.connectionState == "Connected"
   }
-  var body: some View {
-    Group {
-      if embedded { content } else { NavigationStack { content } }
-    }.nativeSheetSize(width: 480, height: 600)
+  private var creationProgress: NewChatProgress? {
+    guard creating else { return nil }
+    let detail: String? =
+      switch mode {
+      case "fresh": "Creating a new worktree"
+      case "branch": "Checking out " + (branches.first { $0.id == branch }?.name ?? "the branch")
+      default: nil
+      }
+    return NewChatProgress(
+      title: "Setting up your chat",
+      steps: [.init(id: "chat", title: "Starting chat", detail: detail, state: .active)],
+      prompt: prompt.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines))
   }
-  private var content: some View {
-    Color.clear
-      .background(AppTheme.surface)
-      .safeAreaInset(edge: .bottom, spacing: 0) {
-        VStack(alignment: .leading, spacing: 2) {
-          if let failure { Text(failure).font(.caption).foregroundStyle(.red).padding(.bottom, 8) }
-          if let destination { destination }
-          Menu {
-            Picker("Project", selection: $project) {
-              Text("Choose a project").tag("")
-              ForEach(workspace.projects) { Text($0.name).tag($0.id) }
-            }
-            Button("Add a project", systemImage: "folder.badge.plus") { showProject = true }
-          } label: {
-            SetupSelectorLabel(
-              icon: "folder",
-              title: workspace.projects.first { $0.id == project }?.name ?? "Choose a project")
-          }.disabled(intent != nil || creating)
-          Menu {
-            Picker("Work in", selection: $mode) {
-              Text("Main checkout").tag("main")
-              Text("New worktree").tag("fresh")
-              Text("Existing branch").tag("branch")
-              Text("Existing worktree").tag("existing")
-            }
-          } label: {
-            SetupSelectorLabel(icon: "desktopcomputer", title: workspaceLabel)
-          }
-          .disabled(intent != nil || creating)
-          Menu {
-            if mode == "existing" {
-              Picker("Worktree", selection: $worktree) {
-                Text("Choose a worktree").tag("")
-                ForEach(worktrees, id: \.["id"].string) { row in
-                  Text(row["branch"].string ?? row["name"].string ?? "Worktree").tag(
-                    row["id"].string ?? "")
-                }
-              }
-            } else {
-              Picker("Branch", selection: $branch) {
-                Text("Choose a branch").tag("")
-                ForEach(branches.filter { !$0.current }) { Text($0.name).tag($0.id) }
-              }
-            }
-          } label: {
-            SetupSelectorLabel(icon: "arrow.triangle.branch", title: branchLabel)
-          }
-          .disabled(
-            intent != nil || creating || loadingSources || mode == "main" || mode == "fresh")
-          if loadingSources { ProgressView().controlSize(.mini).padding(.leading, 6) }
-          if let sourceFailure {
-            HStack {
-              Text(sourceFailure).lineLimit(2)
-              Button("Retry") { Task { await loadSources() } }
-            }.font(.caption).foregroundStyle(.secondary)
-          }
-          if intent != nil {
-            HStack {
-              Text("A saved chat request is ready to retry.")
-              Button("Discard", role: .destructive) {
-                do {
-                  if let intentKey { try Vault.write(nil, key: intentKey) }
-                  intent = nil
-                } catch { failure = error.localizedDescription }
-              }
-            }.font(.caption).padding(.vertical, 4)
-          }
-          NewChatDraftComposer(
-            text: prompt, enabled: canCreate, busy: creating, editable: intent == nil,
-            options: AnyView(
-              Button("Chat options", systemImage: "slider.horizontal.3") { showOptions = true }),
-            models: AnyView(modelMenu)
-          ) { Task { await create() } }
-          .padding(.top, 10)
-        }.frame(maxWidth: 720).frame(maxWidth: .infinity)
-          .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 12)
-          .background { ComposerFade().padding(.top, -40) }
-      }
-      .navigationTitle("New chat").compactNavigationTitle()
-      .toolbar {
-        if !embedded {
-          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+  var body: some View {
+    NewChatPage(
+      subtitle: workspace.projects.first { $0.id == project }?.name, progress: creationProgress
+    ) {
+      if let failure { Text(failure).font(.caption).foregroundStyle(.red).padding(.bottom, 8) }
+      if let destination { destination }
+      Menu {
+        Picker("Project", selection: $project) {
+          Text("Choose a project").tag("")
+          ForEach(workspace.projects) { Text($0.name).tag($0.id) }
         }
+        Button("Add a project", systemImage: "folder.badge.plus") { showProject = true }
+      } label: {
+        SetupSelectorLabel(
+          icon: "folder",
+          title: workspace.projects.first { $0.id == project }?.name ?? "Choose a project")
+      }.disabled(intent != nil || creating)
+      Menu {
+        Picker("Work in", selection: $mode) {
+          Text("Main checkout").tag("main")
+          Text("New worktree").tag("fresh")
+          Text("Existing branch").tag("branch")
+          Text("Existing worktree").tag("existing")
+        }
+      } label: {
+        SetupSelectorLabel(icon: "desktopcomputer", title: workspaceLabel)
       }
-      .sheet(isPresented: $showProject) { AddProjectView(workspace: workspace) }
-      .sheet(isPresented: $showOptions) { options }
-      .onChange(of: creating) { _, value in busyChanged(value) }
-      .task { await load() }
-      .task(id: project) { await loadSources() }
-      .interactiveDismissDisabled(creating)
-      .onChange(of: workspace.operationScope) { _, _ in
-        if !switchingDevice { dismiss() }
-      }
-      .onChange(of: workspace.connectionState) { _, state in
-        if switchingDevice && state == "Connected" {
-          Task {
-            await load()
-            switchingDevice = false
+      .disabled(intent != nil || creating)
+      Menu {
+        if mode == "existing" {
+          Picker("Worktree", selection: $worktree) {
+            Text("Choose a worktree").tag("")
+            ForEach(worktrees, id: \.["id"].string) { row in
+              Text(row["branch"].string ?? row["name"].string ?? "Worktree").tag(
+                row["id"].string ?? "")
+            }
+          }
+        } else {
+          Picker("Branch", selection: $branch) {
+            Text("Choose a branch").tag("")
+            ForEach(branches.filter { !$0.current }) { Text($0.name).tag($0.id) }
           }
         }
+      } label: {
+        SetupSelectorLabel(icon: "arrow.triangle.branch", title: branchLabel)
       }
+      .disabled(
+        intent != nil || creating || loadingSources || mode == "main" || mode == "fresh")
+      if loadingSources { ProgressView().controlSize(.mini).padding(.leading, 6) }
+      if let sourceFailure {
+        HStack {
+          Text(sourceFailure).lineLimit(2)
+          Button("Retry") { Task { await loadSources() } }
+        }.font(.caption).foregroundStyle(.secondary)
+      }
+      if intent != nil {
+        HStack {
+          Text("A saved chat request is ready to retry.")
+          Button("Discard", role: .destructive) {
+            do {
+              if let intentKey { try Vault.write(nil, key: intentKey) }
+              intent = nil
+            } catch { failure = error.localizedDescription }
+          }
+        }.font(.caption).padding(.vertical, 4)
+      }
+    } composer: {
+      NewChatDraftComposer(
+        text: prompt, enabled: canCreate, busy: creating, editable: intent == nil,
+        options: AnyView(
+          Button("Chat options", systemImage: "slider.horizontal.3") { showOptions = true }),
+        models: AnyView(modelMenu)
+      ) { Task { await create() } }
+    }
+    .sheet(isPresented: $showProject) { AddProjectView(workspace: workspace) }
+    .sheet(isPresented: $showOptions) { options }
+    .onChange(of: creating) { _, value in busyChanged(value) }
+    .task { await load() }
+    .task(id: project) { await loadSources() }
   }
   private var workspaceLabel: String {
     switch mode {
@@ -182,11 +166,14 @@ struct NewChatView: View {
           "Plan mode",
           isOn: Binding(
             get: { permissionMode == "plan" }, set: { permissionMode = $0 ? "plan" : "default" }))
-      }.disabled(intent != nil).navigationTitle("Chat options").compactNavigationTitle()
+      }.settingsList().disabled(intent != nil).navigationTitle("Chat options")
+        .compactNavigationTitle()
         .toolbar {
-          ToolbarItem(placement: .confirmationAction) { Button("Done") { showOptions = false } }
+          ToolbarItem(placement: .sheetClose) {
+            SheetCloseButton { showOptions = false }
+          }
         }
-    }.nativeSheetSize(width: 400, height: 320)
+    }.nativeSheetSize(width: 400, height: 320).presentationDetents([.medium])
   }
   private var canCreate: Bool {
     connected && !creating && !project.isEmpty && !model.isEmpty && !provider.isEmpty
@@ -286,7 +273,7 @@ struct NewChatView: View {
       try await workspace.createChat(intent)
       try Vault.write(nil, key: intentKey)
       prompt.wrappedValue = ""
-      dismiss()
+      finish()
     } catch {
       failure =
         uncertainBranch
@@ -298,11 +285,17 @@ struct NewChatView: View {
 
 struct NewChatSetupView: View {
   @Bindable var workspace: WorkspaceModel
-  init(workspace: WorkspaceModel, initialCloud: Bool = false) {
+  let showsClose: Bool
+  let close: () -> Void
+  init(
+    workspace: WorkspaceModel, initialCloud: Bool = false, showsClose: Bool,
+    close: @escaping () -> Void
+  ) {
     self.workspace = workspace
+    self.showsClose = showsClose
+    self.close = close
     _cloud = State(initialValue: initialCloud)
   }
-  @Environment(\.dismiss) private var dismiss
   @State private var cloud = false
   @State private var draft = ""
   @State private var busy = false
@@ -376,76 +369,196 @@ struct NewChatSetupView: View {
       Text("Choose agent").font(.caption).foregroundStyle(.tertiary)
     #endif
   }
+  private var sampleProgress: NewChatProgress? {
+    #if DEBUG
+      if ProcessInfo.processInfo.arguments.contains("--setup-progress-preview") {
+        return NewChatProgress(
+          title: "Setting up your workspace",
+          steps: [
+            .init(id: "create", title: "Creating workspace", state: .done),
+            .init(
+              id: "start", title: "Starting cloud computer", detail: "Provisioning",
+              state: .active),
+            .init(id: "open", title: "Opening chat", state: .pending),
+          ], prompt: "Testing, if this works")
+      }
+    #endif
+    return nil
+  }
   var body: some View {
-    NavigationStack {
+    Group {
+      if cloud && workspace.account.signedIn {
+        CloudLaunchView(
+          workspace: workspace, prompt: $draft, destination: AnyView(destinationMenu),
+          busyChanged: { busy = $0 })
+      } else if !cloud && workspace.rpc != nil {
+        NewChatView(
+          workspace: workspace, destination: AnyView(destinationMenu), prompt: $draft,
+          busyChanged: { busy = $0 }, finish: close
+        )
+        .id(workspace.operationScope)
+      } else {
+        NewChatPage(progress: sampleProgress) {
+          destinationMenu
+          if cloud {
+            Button {
+              Task {
+                do { try await workspace.signIn() } catch {
+                  workspace.error = error.localizedDescription
+                }
+              }
+            } label: {
+              SetupSelectorLabel(
+                icon: "person.crop.circle", title: "Sign in to choose a repository")
+            }
+            .buttonStyle(.plain).accessibilityLabel("Sign in to Zuse")
+          } else {
+            Button {
+              method = .nearby
+            } label: {
+              SetupSelectorLabel(icon: "folder", title: "Connect to choose a project")
+            }.buttonStyle(.plain)
+          }
+          if workspace.loading {
+            ProgressView("Connecting…").font(.caption).padding(.vertical, 6).padding(.leading, 6)
+          }
+          if let problem = workspace.connectionProblem {
+            Text(problem).font(.caption).foregroundStyle(.secondary).padding(.leading, 6)
+          }
+        } composer: {
+          NewChatDraftComposer(
+            text: $draft, enabled: false, busy: false,
+            options: AnyView(
+              Menu {
+                Button("Find a nearby computer", systemImage: "wifi") { method = .nearby }
+                Button("Add manually", systemImage: "plus") { method = .manual }
+              } label: {
+                Image(systemName: "plus").frame(width: 36, height: 40)
+              }),
+            models: AnyView(fallbackModelPicker)
+          ) {}
+        }
+      }
+    }
+    .navigationTitle("New Chat").compactNavigationTitle()
+    .navigationBarBackButtonHidden(busy)
+    .toolbar {
+      if showsClose {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Close", systemImage: "xmark", action: close).tint(.primary).disabled(busy)
+        }
+      }
+    }
+    .connectionFlow($method, workspace: workspace)
+  }
+}
+
+/// Shared new-chat page: an empty canvas with setup selectors and the composer at the bottom.
+struct NewChatProgress {
+  enum StepState { case done, active, pending }
+  struct Step: Identifiable {
+    let id: String
+    let title: String
+    var detail: String? = nil
+    let state: StepState
+  }
+  let title: String
+  let steps: [Step]
+  var prompt: String = ""
+  var failure: String? = nil
+  var retry: (() -> Void)? = nil
+}
+
+/// Shared new-chat page: a prompt canvas with setup selectors and the composer at the bottom.
+/// Once a chat is submitted the page shows live setup progress until the chat opens.
+struct NewChatPage<Selectors: View, Composer: View>: View {
+  var subtitle: String? = nil
+  var progress: NewChatProgress? = nil
+  @ViewBuilder let selectors: Selectors
+  @ViewBuilder let composer: Composer
+  var body: some View {
+    ZStack {
+      AppTheme.surface.ignoresSafeArea()
+      if let progress {
+        NewChatProgressView(progress: progress).transition(.opacity)
+      } else {
+        VStack(spacing: 6) {
+          Text("What should we work on?").font(.title2.weight(.semibold))
+          if let subtitle {
+            Text(subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+          }
+        }
+        .multilineTextAlignment(.center).padding(.horizontal, 32).padding(.bottom, 80)
+        .transition(.opacity)
+      }
+    }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
       Group {
-        if cloud && workspace.account.signedIn {
-          CloudLaunchView(
-            workspace: workspace, embedded: true, prompt: $draft,
-            destination: AnyView(destinationMenu), busyChanged: { busy = $0 })
-        } else if !cloud && workspace.rpc != nil {
-          NewChatView(
-            workspace: workspace, embedded: true,
-            destination: AnyView(destinationMenu), prompt: $draft, busyChanged: { busy = $0 }
-          )
-          .id(workspace.operationScope)
+        if let progress {
+          if !progress.prompt.isEmpty {
+            Text(progress.prompt).font(.body).lineLimit(4)
+              .padding(.horizontal, 14).padding(.vertical, 10)
+              .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+              .frame(maxWidth: .infinity, alignment: .trailing)
+          }
         } else {
-          Color.clear.safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 3) {
-              destinationMenu
-              if cloud {
-                Button {
-                  Task {
-                    do { try await workspace.signIn() } catch {
-                      workspace.error = error.localizedDescription
-                    }
-                  }
-                } label: {
-                  SetupSelectorLabel(
-                    icon: "person.crop.circle", title: "Sign in to choose a repository")
-                }
-                .accessibilityLabel("Sign in to Zuse")
-              } else {
-                Button {
-                  method = .nearby
-                } label: {
-                  SetupSelectorLabel(icon: "folder", title: "Connect to choose a project")
-                }
-              }
-              if workspace.loading {
-                ProgressView("Connecting…").font(.caption).padding(.vertical, 6)
-              }
-              if let problem = workspace.connectionProblem {
-                Text(problem).font(.caption).foregroundStyle(.secondary)
-              }
-              NewChatDraftComposer(
-                text: $draft, enabled: false, busy: false,
-                options: AnyView(
-                  Menu {
-                    Button("Find a nearby computer") { method = .nearby }
-                    Button("Add manually") { method = .manual }
-                  } label: {
-                    Image(systemName: "plus").frame(width: 36, height: 40)
-                  }),
-                models: AnyView(fallbackModelPicker)
-              ) {}
-              .padding(.top, 10)
-            }.frame(maxWidth: 720).frame(maxWidth: .infinity)
-              .padding(.horizontal, 16).padding(.bottom, 12).padding(.top, 12)
-              .background { ComposerFade().padding(.top, -40) }
+          VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) { selectors }.tint(.primary)
+            composer.padding(.top, 14)
           }
         }
-      }.background(AppTheme.surface)
-        .navigationTitle("New chat").compactNavigationTitle()
-        .toolbar {
-          ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel", systemImage: "chevron.left") { dismiss() }.labelStyle(.iconOnly)
-              .disabled(busy)
+      }
+      .frame(maxWidth: 720).frame(maxWidth: .infinity)
+      .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
+    }
+    .animation(.snappy(duration: 0.25), value: progress == nil)
+  }
+}
+
+private struct NewChatProgressView: View {
+  let progress: NewChatProgress
+  var body: some View {
+    VStack(alignment: .leading, spacing: 18) {
+      Text(progress.title).font(.title3.weight(.semibold))
+      VStack(alignment: .leading, spacing: 14) {
+        ForEach(progress.steps) { step in
+          HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Group {
+              switch step.state {
+              case .done:
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(AppTheme.accent)
+              case .active:
+                if progress.failure == nil {
+                  ProgressView().controlSize(.small)
+                } else {
+                  Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                }
+              case .pending:
+                Image(systemName: "circle").foregroundStyle(.tertiary)
+              }
+            }.frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+              Text(step.title).foregroundStyle(step.state == .pending ? .secondary : .primary)
+              if let detail = step.detail, step.state == .active {
+                Text(detail).font(.footnote).foregroundStyle(.secondary)
+              }
+            }
+          }
+          .accessibilityElement(children: .combine)
+        }
+      }
+      if let failure = progress.failure {
+        VStack(alignment: .leading, spacing: 10) {
+          Text(failure).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
+          if let retry = progress.retry {
+            Button("Try Again", action: retry).buttonStyle(.borderedProminent)
+              .tint(AppTheme.accent).buttonBorderShape(.capsule)
           }
         }
-        .interactiveDismissDisabled(busy)
-        .sheet(item: $method) { ConnectionView(workspace: workspace, method: $0) }
-    }.nativeSheetSize(width: 500, height: 640)
+      }
+    }
+    .frame(maxWidth: 340, alignment: .leading).padding(.horizontal, 32).padding(.bottom, 60)
+    .animation(.snappy(duration: 0.25), value: progress.steps.map(\.state))
   }
 }
 
@@ -454,12 +567,12 @@ struct SetupSelectorLabel: View {
   let title: String
   var body: some View {
     HStack(spacing: 10) {
-      Image(systemName: icon).font(.system(size: 14)).foregroundStyle(.secondary).frame(width: 18)
-      Text(title).font(.system(size: 14)).lineLimit(1).foregroundStyle(.primary)
-      Image(systemName: "chevron.down").font(.system(size: 9, weight: .medium)).foregroundStyle(
-        .secondary)
+      Image(systemName: icon).font(.system(size: 17)).foregroundStyle(.secondary).frame(width: 24)
+      Text(title).font(.system(size: 17)).lineLimit(1).foregroundStyle(.primary)
+      Image(systemName: "chevron.up.chevron.down").font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(.tertiary)
       Spacer(minLength: 0)
-    }.frame(minHeight: 32).padding(.horizontal, 4).contentShape(Rectangle())
+    }.frame(minHeight: 44).padding(.horizontal, 6).contentShape(Rectangle())
   }
 }
 
@@ -475,10 +588,11 @@ struct NewChatDraftComposer: View {
   var body: some View {
     VStack(spacing: 0) {
       TextField("Ask Zuse", text: $text, axis: .vertical)
-        .focused($focused).font(.callout).lineLimit(2...6).padding(.horizontal, 6).padding(.top, 8)
+        .focused($focused).font(.system(size: 17)).lineLimit(2...6).padding(.horizontal, 8)
+        .padding(.top, 10)
         .padding(.bottom, 4).disabled(busy || !editable).accessibilityIdentifier("new-chat-prompt")
       HStack(spacing: 6) {
-        options.buttonStyle(.plain).font(.system(size: 16)).frame(minWidth: 36, minHeight: 40)
+        options.buttonStyle(.plain).font(.system(size: 19)).frame(minWidth: 44, minHeight: 44)
           .foregroundStyle(.secondary).accessibilityLabel("Chat options")
         Spacer(minLength: 4)
         models
@@ -486,18 +600,7 @@ struct NewChatDraftComposer: View {
           focused = false
           submit()
         } label: {
-          Group {
-            if busy {
-              ProgressView().tint(.white)
-            } else {
-              Image(systemName: "arrow.up").font(.system(size: 13, weight: .semibold))
-            }
-          }.foregroundStyle(.white).frame(width: 29, height: 29)
-            .background(
-              enabled ? AppTheme.accent : Color.secondary.opacity(0.2),
-              in: RoundedRectangle(cornerRadius: 8)
-            )
-            .frame(width: 40, height: 40).contentShape(Rectangle())
+          ComposerSendGlyph(enabled: enabled, busy: busy)
         }.buttonStyle(.plain).disabled(!enabled || busy)
           .accessibilityIdentifier("new-chat-create").accessibilityLabel("Create chat")
       }

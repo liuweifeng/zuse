@@ -119,8 +119,8 @@ struct CloudSettingsView: View {
           )
           .font(.caption).foregroundStyle(.secondary)
         }
-      }.navigationTitle("Cloud settings").compactNavigationTitle()
-        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } } }
+      }.settingsList().navigationTitle("Cloud settings").compactNavigationTitle()
+        .toolbar { ToolbarItem(placement: .sheetClose) { SheetCloseButton { dismiss() } } }
         .task { await load() }
         .onDisappear { credential = "" }
         .task(id: (operation["operationId"].string ?? "") + loginRevision.uuidString) {
