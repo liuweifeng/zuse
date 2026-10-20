@@ -116,7 +116,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/rpc/connection.ts`,
 			"utf8",
 		);
-		expect(connection).toContain("maxAutomaticAttempts: 2");
+		expect(connection).toContain("maxAutomaticAttempts: (options) =>");
+		expect(connection).toContain(
+			"options.cloudWorkspaceId ? 2 : Number.POSITIVE_INFINITY",
+		);
 	});
 	test("declares local pairing and Expo development discovery services", () => {
 		const config = JSON.parse(

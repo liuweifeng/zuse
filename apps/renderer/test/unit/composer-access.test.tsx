@@ -17,6 +17,10 @@ vi.mock("../../src/components/cloud-connection-notice.tsx", () => ({
 	CloudConnectionNotice: () => null,
 }));
 
+vi.mock("../../src/components/cloud-device-selector.tsx", () => ({
+	CloudDeviceSelector: () => null,
+}));
+
 const fixture = vi.hoisted(() => ({ slackTurn: false }));
 beforeEach(() => {
 	fixture.slackTurn = false;
