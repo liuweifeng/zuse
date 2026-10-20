@@ -59,6 +59,7 @@ describe("cloud device binding", () => {
 			workspaceId: "workspace-from-slack",
 			action: { _tag: "status" },
 			targetDeviceId: "current-mac",
+			bindOnlyIfUnbound: true,
 		});
 	});
 
@@ -91,6 +92,7 @@ describe("cloud device binding", () => {
 				workspaceId: "workspace-1",
 				action: { _tag: "status" },
 				targetDeviceId: "mac-one",
+				bindOnlyIfUnbound: true,
 			});
 		} finally {
 			vi.useRealTimers();

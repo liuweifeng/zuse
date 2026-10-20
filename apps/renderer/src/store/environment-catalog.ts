@@ -1,7 +1,9 @@
 import type { ResourceLease } from "@zuse/client-runtime/client-bus";
-import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type {
+	ConnectionPhase,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import {
-	type ApiConnectGrant,
 	type ApiEnvironmentRecord,
 	type Chat,
 	type ChatId,
@@ -14,7 +16,6 @@ import {
 	type SshEnvironmentTarget,
 	type TailnetEnvironmentConnection,
 	type TailnetEnvironmentProfile,
-	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
@@ -50,7 +51,7 @@ import {
 	environmentBelongsToWorkspace,
 	isDesktopLocalEnvironment,
 	LOCAL_ENVIRONMENT_KEY,
-	registerApiEnvironment,
+	registerApiEnvironmentRoutes,
 	registerLocalEnvironment,
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
@@ -71,6 +72,7 @@ import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 export type CatalogConnectionStatus =
+	| "not-connected"
 	| "connecting"
 	| "connected"
 	| "offline"
@@ -86,6 +88,9 @@ export type EnvironmentCatalogEntry = {
 	readonly status: CatalogConnectionStatus;
 	readonly error: string | null;
 	readonly lastHeartbeat?: number;
+	readonly connectionPhase?: ConnectionPhase;
+	readonly activeRoute?: string;
+	readonly routeAddresses?: readonly string[];
 };
 
 export type EnvironmentShellSeed = Readonly<{
@@ -445,7 +450,7 @@ const profileEntry = (
 	label: profile.label,
 	target: profile.target,
 	descriptor: null,
-	status: "offline",
+	status: "not-connected",
 	error: null,
 });
 
@@ -471,7 +476,7 @@ const apiEntry = (
 	label: environment.label ?? "Unnamed computer",
 	target: null,
 	descriptor: null,
-	status: "offline",
+	status: "not-connected",
 	error: null,
 	lastHeartbeat: environment.lastHeartbeat,
 });
@@ -569,13 +574,6 @@ const entryKey = (entry: EnvironmentCatalogEntry): string =>
 		? `${entry.connectionKind}:${entry.profileId}`
 		: `${entry.connectionKind}:${entry.environmentId}`;
 
-const apiGrantUrl = (grant: ApiConnectGrant): string => {
-	const url = new URL(grant.endpoint.wsBaseUrl);
-	url.searchParams.set("token", grant.connectToken);
-	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
-	return url.toString();
-};
-
 export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
 		const apiRecords = new Map<string, ApiEnvironmentRecord>();
@@ -595,7 +593,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			set((state) => ({
 				entries: orderEnvironmentCatalog(
 					state.entries.map((entry) =>
-						entryKey(entry) === key ? { ...entry, ...patch } : entry,
+						entryKey(entry) === key
+							? {
+									...entry,
+									...patch,
+									connectionPhase:
+										patch.connectionPhase ??
+										(patch.status === "not-connected"
+											? "dormant"
+											: patch.status === "error"
+												? "failed"
+												: (patch.status ?? entry.connectionPhase)),
+								}
+							: entry,
 					),
 				),
 			}));
@@ -607,16 +617,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			const status: CatalogConnectionStatus =
 				view.connection === "connected"
 					? "connected"
-					: view.connection === "dormant" || view.connection === "offline"
-						? "offline"
-						: view.connection === "failed" ||
-								view.connection === "blocked-auth" ||
-								view.connection === "update-required" ||
-								view.connection === "revoked"
-							? "error"
-							: "connecting";
+					: view.connection === "dormant"
+						? "not-connected"
+						: view.connection === "offline"
+							? "offline"
+							: view.connection === "failed" ||
+									view.connection === "blocked-auth" ||
+									view.connection === "update-required" ||
+									view.connection === "revoked"
+								? "error"
+								: "connecting";
 			patchEntry(catalogKey, {
 				status,
+				connectionPhase: view.connection,
 				error:
 					status === "error"
 						? getRendererClientBus().connection(
@@ -1034,24 +1047,34 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							}
 						})();
 						if (!isCurrent()) return;
-						registerApiEnvironment(
+						registerApiEnvironmentRoutes(
 							environment.environmentId,
-							apiGrantUrl(grant),
-							async () =>
-								apiGrantUrl(
-									await Effect.runPromise(
-										localClient["environments.connect"]({
-											environmentId: environment.environmentId,
-										}),
-									),
+							grant,
+							() =>
+								Effect.runPromise(
+									localClient["environments.connect"]({
+										environmentId: environment.environmentId,
+									}),
 								),
 							account,
+							(address) => {
+								if (isCurrent())
+									patchEntry(catalogKey, { activeRoute: address });
+							},
 						);
 						try {
 							await completeConnection({
 								catalogKey,
 								environmentId: environment.environmentId,
 								patch: {
+									routeAddresses: [
+										...new Set([
+											grant.endpoint.httpBaseUrl,
+											...(grant.endpointCandidates ?? []).map(
+												(candidate) => candidate.endpoint.httpBaseUrl,
+											),
+										]),
+									],
 									descriptor: {
 										...environment,
 										endpoint: grant.endpoint,
