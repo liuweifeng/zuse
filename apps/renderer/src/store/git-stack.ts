@@ -1,5 +1,9 @@
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
-import { CommandId, type GitStackResult } from "@zuse/contracts";
+import {
+	CommandId,
+	GIT_STACK_UNAVAILABLE_REASON,
+	type GitStackResult,
+} from "@zuse/contracts";
 import { useEffect, useMemo } from "react";
 import { dispatchGitWorkspaceCommand } from "../lib/git-workspace-client-bus.ts";
 import { createAtomStore } from "../state/atom-store.ts";
@@ -52,13 +56,15 @@ export function readGitStack(
 	})
 		.then(({ result }) => result)
 		.catch((cause: unknown) => {
+			// Tagged RPC errors are Errors with an empty message; prefer `reason`.
 			const reason =
-				cause instanceof Error
-					? cause.message
-					: typeof cause === "object" && cause !== null && "reason" in cause
-						? String(cause.reason)
+				typeof cause === "object" && cause !== null && "reason" in cause
+					? String(cause.reason)
+					: cause instanceof Error
+						? cause.message
 						: "";
 			if (
+				reason === GIT_STACK_UNAVAILABLE_REASON ||
 				/current branch is not part of (?:a |the )?stack|^no stack$/i.test(
 					reason,
 				)

@@ -97,6 +97,7 @@ import {
 	updateImageChipEffect,
 } from "~/lib/codemirror/composer-chips";
 import { saveContextText } from "~/lib/context-handoff.ts";
+import { formatError } from "~/lib/format-error.ts";
 import {
 	chooseComposerSubmitRoute,
 	deliverNativePlanFeedback,
@@ -375,6 +376,20 @@ export function ChatComposer({
 
 	const hasQueued = (timeline.projection?.queue.items.length ?? 0) > 0;
 	const goal = goalView.data?.goal ?? null;
+	const pendingGoalCommand = goalView.pendingCommands.find(
+		(command) =>
+			command.kind === "session.goal.set" ||
+			command.kind === "session.goal.clear",
+	);
+	const pendingGoalAction =
+		pendingGoalCommand === undefined
+			? null
+			: pendingGoalCommand.kind === "session.goal.clear"
+				? "clear"
+				: "set";
+	const reportGoalError = (cause: unknown) => {
+		toastManager.add({ type: "error", title: formatError(cause) });
+	};
 	const respondToPlan = useSessionsStore((s) => s.respondToPlan);
 	const send = (
 		input: string | ComposerInput,
@@ -1449,6 +1464,7 @@ export function ChatComposer({
 					{goal !== null ? (
 						<GoalBanner
 							goal={goal}
+							pendingAction={pendingGoalAction}
 							inPlanMode={inPlanMode}
 							onPause={() =>
 								void setSessionGoal({
@@ -1456,7 +1472,7 @@ export function ChatComposer({
 									goal: {
 										status: goal.status === "active" ? "paused" : "active",
 									},
-								}).catch(() => undefined)
+								}).catch(reportGoalError)
 							}
 							onSave={(objective, tokenBudget) =>
 								void setSessionGoal({
@@ -1466,10 +1482,10 @@ export function ChatComposer({
 										status: "active",
 										tokenBudget,
 									},
-								}).catch(() => undefined)
+								}).catch(reportGoalError)
 							}
 							onClear={() =>
-								void clearSessionGoal({ ref: goalRef }).catch(() => undefined)
+								void clearSessionGoal({ ref: goalRef }).catch(reportGoalError)
 							}
 						/>
 					) : null}
@@ -2145,12 +2161,14 @@ function GoalModeToggle({
 
 function GoalBanner({
 	goal,
+	pendingAction,
 	inPlanMode,
 	onPause,
 	onSave,
 	onClear,
 }: {
 	goal: ThreadGoal;
+	pendingAction: "set" | "clear" | null;
 	inPlanMode: boolean;
 	onPause: () => void;
 	onSave: (objective: string, tokenBudget: number | null) => void;
@@ -2187,6 +2205,8 @@ function GoalBanner({
 									<button
 										type="button"
 										onClick={onPause}
+										disabled={pendingAction !== null}
+										aria-busy={pendingAction === "set"}
 										className={trayPillActionClass}
 										aria-label={
 											goal.status === "active"
@@ -2194,10 +2214,14 @@ function GoalBanner({
 												: uiMessage("chat:chat_composer_resume_goal")
 										}
 									>
-										<HugeiconsIcon
-											icon={goal.status === "active" ? SquareIcon : PlayIcon}
-											className="size-3.5"
-										/>
+										{pendingAction === "set" ? (
+											<Spinner className="size-3.5" />
+										) : (
+											<HugeiconsIcon
+												icon={goal.status === "active" ? SquareIcon : PlayIcon}
+												className="size-3.5"
+											/>
+										)}
 									</button>
 								}
 							/>
@@ -2213,6 +2237,7 @@ function GoalBanner({
 									<button
 										type="button"
 										onClick={() => setOpen(true)}
+										disabled={pendingAction !== null}
 										className={trayPillActionClass}
 										aria-label={uiMessage("chat:chat_composer_edit_goal")}
 									>
@@ -2233,13 +2258,19 @@ function GoalBanner({
 									<button
 										type="button"
 										onClick={onClear}
+										disabled={pendingAction !== null}
+										aria-busy={pendingAction === "clear"}
 										className={cn(
 											trayPillActionClass,
 											"hover:bg-destructive/10 hover:text-destructive",
 										)}
 										aria-label={uiMessage("chat:chat_composer_delete_goal")}
 									>
-										<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+										{pendingAction === "clear" ? (
+											<Spinner className="size-3.5" />
+										) : (
+											<HugeiconsIcon icon={Delete02Icon} className="size-3.5" />
+										)}
 									</button>
 								}
 							/>

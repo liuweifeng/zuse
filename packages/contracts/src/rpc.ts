@@ -407,6 +407,17 @@ import {
 	SettingsUpdateRpc,
 } from "./settings.ts";
 import {
+	SimulatorCloseRpc,
+	SimulatorConfigureRpc,
+	SimulatorFixRpc,
+	SimulatorFramesRpc,
+	SimulatorInputRpc,
+	SimulatorOpenRpc,
+	SimulatorRefreshRpc,
+	SimulatorScreenshotRpc,
+	SimulatorStateRpc,
+} from "./simulators.ts";
+import {
 	SkillListForProjectRpc,
 	SkillListGlobalRpc,
 	SkillListRpc,
@@ -501,6 +512,15 @@ export const MemoizeRpcs = RpcGroup.make(
 	DeviceBridgeSetEnabledRpc,
 	DeviceBridgeDevicesRpc,
 	CloudDeviceBridgeRpc,
+	SimulatorStateRpc,
+	SimulatorRefreshRpc,
+	SimulatorConfigureRpc,
+	SimulatorFixRpc,
+	SimulatorOpenRpc,
+	SimulatorCloseRpc,
+	SimulatorFramesRpc,
+	SimulatorInputRpc,
+	SimulatorScreenshotRpc,
 	PingRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,

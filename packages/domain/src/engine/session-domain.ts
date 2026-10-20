@@ -500,73 +500,74 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 	const dispatchTransactionally: SessionDomainApi["dispatchTransactionally"] =
 		Effect.fn("SessionDomain.dispatchTransactionally")(
 			function* (input, onCommitted) {
-				const { result, appended, enqueued, cancelled } =
-					yield* Semaphore.withPermits(
+				const { result, appended, enqueued, cancelled } = yield* admission.run(
+					// Callers can already own a transaction (for example queue admission).
+					// Always acquire SQL before the session lock, including those callers.
+					Semaphore.withPermits(
 						commandLock(input.streamId),
 						1,
-						admission.run(
-							Effect.gen(function* () {
-								if (
-									input.command._tag !== "CreateSession" &&
-									input.command._tag !== "DeleteSession" &&
-									input.command._tag !== "RequestProviderStop" &&
-									input.command._tag !== "PersistMessage"
-								) {
-									const pending = yield* sql<{
+						Effect.gen(function* () {
+							if (
+								input.command._tag !== "CreateSession" &&
+								input.command._tag !== "DeleteSession" &&
+								input.command._tag !== "RequestProviderStop" &&
+								input.command._tag !== "PersistMessage"
+							) {
+								const pending = yield* sql<{
+									pending: number;
+								}>`SELECT EXISTS(SELECT 1 FROM session_fork_constructions WHERE session_id = ${input.streamId} AND completed_at IS NULL) AS pending`;
+								if (pending[0]?.pending === 1)
+									return yield* new AdmissionClosed();
+							}
+							switch (input.command._tag) {
+								case "SubmitTurn":
+								case "StartTurn":
+								case "RetryTurn":
+								case "RecoverTurn":
+								case "CreateSessionWithInitialTurn":
+								case "ReleaseInitialTurn":
+								case "ClaimQueuedTurn":
+								case "SteerQueuedTurn":
+								case "ReserveProviderSession":
+								case "SetProvider":
+								case "SetModel":
+								case "SetWorktree":
+								case "UnarchiveSession": {
+									const restoring = yield* sql<{
 										pending: number;
-									}>`SELECT EXISTS(SELECT 1 FROM session_fork_constructions WHERE session_id = ${input.streamId} AND completed_at IS NULL) AS pending`;
-									if (pending[0]?.pending === 1)
+									}>`SELECT EXISTS(SELECT 1 FROM session_checkpoint_restores WHERE completed_at IS NULL) AS pending`;
+									if (restoring[0]?.pending === 1)
 										return yield* new AdmissionClosed();
+									break;
 								}
-								switch (input.command._tag) {
-									case "SubmitTurn":
-									case "StartTurn":
-									case "RetryTurn":
-									case "RecoverTurn":
-									case "CreateSessionWithInitialTurn":
-									case "ReleaseInitialTurn":
-									case "ClaimQueuedTurn":
-									case "SteerQueuedTurn":
-									case "ReserveProviderSession":
-									case "SetProvider":
-									case "SetModel":
-									case "SetWorktree":
-									case "UnarchiveSession": {
-										const restoring = yield* sql<{
-											pending: number;
-										}>`SELECT EXISTS(SELECT 1 FROM session_checkpoint_restores WHERE completed_at IS NULL) AS pending`;
-										if (restoring[0]?.pending === 1)
-											return yield* new AdmissionClosed();
-										break;
-									}
-								}
-								const receipt = yield* dispatch.dispatch(input).pipe(
-									Effect.retry({
-										while: (error) => error._tag === "ConcurrencyConflict",
-										schedule: Schedule.recurs(8),
-									}),
-								);
-								const appended =
-									receipt.eventIds.length === 0
-										? []
-										: yield* dispatchStorage.eventsInVersionRange(
-												input.streamId,
-												receipt.streamVersion - receipt.eventIds.length,
-												receipt.streamVersion,
-											);
-								const cursorRows = yield* sql<{
-									readonly last_sequence: number;
-								}>`
+							}
+							const receipt = yield* dispatch.dispatch(input).pipe(
+								Effect.retry({
+									while: (error) => error._tag === "ConcurrencyConflict",
+									schedule: Schedule.recurs(8),
+								}),
+							);
+							const appended =
+								receipt.eventIds.length === 0
+									? []
+									: yield* dispatchStorage.eventsInVersionRange(
+											input.streamId,
+											receipt.streamVersion - receipt.eventIds.length,
+											receipt.streamVersion,
+										);
+							const cursorRows = yield* sql<{
+								readonly last_sequence: number;
+							}>`
 							SELECT last_sequence FROM projector_cursors
 							WHERE projector_name = ${transactionalProjector.name}
 							LIMIT 1
 						`;
-								let cursor = cursorRows[0]?.last_sequence ?? 0;
-								for (const record of appended) {
-									if (record.sequence <= cursor) continue;
-									yield* transactionalProjector.apply(record);
-									cursor = record.sequence;
-									yield* sql`
+							let cursor = cursorRows[0]?.last_sequence ?? 0;
+							for (const record of appended) {
+								if (record.sequence <= cursor) continue;
+								yield* transactionalProjector.apply(record);
+								cursor = record.sequence;
+								yield* sql`
 								INSERT INTO projector_cursors
 									(projector_name, last_sequence, updated_at)
 								VALUES
@@ -575,53 +576,57 @@ export const makeSessionDomain = Effect.fn("SessionDomain.make")(function* (
 									last_sequence = MAX(projector_cursors.last_sequence, excluded.last_sequence),
 									updated_at = excluded.updated_at
 							`;
-								}
+							}
 
-								let cancelled: ReadonlyArray<JobId> = [];
-								if (
-									input.command._tag === "ExpireAttempt" ||
-									appended.some(
-										(record) => record.event._tag === "AttemptStarted",
-									)
-								) {
-									cancelled = yield* jobs.cancelUnsettled({
+							let cancelled: ReadonlyArray<JobId> = [];
+							if (
+								input.command._tag === "ExpireAttempt" ||
+								appended.some(
+									(record) => record.event._tag === "AttemptStarted",
+								)
+							) {
+								cancelled = yield* jobs.cancelUnsettled({
+									sessionId: input.streamId,
+									kinds: [
+										"provider.turn.send",
+										"provider.turn.interrupt",
+										"provider.turn.recover",
+									],
+									reason: "Superseded by a new attempt.",
+								});
+							}
+							if (
+								appended.some(
+									(record) => record.event._tag === "TurnInterruptRequested",
+								)
+							) {
+								cancelled = [
+									...cancelled,
+									...(yield* jobs.cancelUnsettled({
 										sessionId: input.streamId,
-										kinds: [
-											"provider.turn.send",
-											"provider.turn.interrupt",
-											"provider.turn.recover",
-										],
-										reason: "Superseded by a new attempt.",
-									});
-								}
-								if (
-									appended.some(
-										(record) => record.event._tag === "TurnInterruptRequested",
-									)
-								) {
-									cancelled = [
-										...cancelled,
-										...(yield* jobs.cancelUnsettled({
-											sessionId: input.streamId,
-											kinds: ["provider.turn.send", "provider.turn.recover"],
-											reason: "Turn interrupted by the user.",
-										})),
-									];
-								}
+										kinds: ["provider.turn.send", "provider.turn.recover"],
+										reason: "Turn interrupted by the user.",
+									})),
+								];
+							}
 
-								const enqueued = yield* jobs.enqueue(
-									appended.flatMap(jobsForSessionEvent),
-								);
+							const enqueued = yield* jobs.enqueue(
+								appended.flatMap(jobsForSessionEvent),
+							);
 
-								const result = yield* onCommitted(receipt);
+							const result = yield* onCommitted(receipt);
 
-								return { result, appended, enqueued, cancelled };
-							}),
-						),
-					);
+							return { result, appended, enqueued, cancelled };
+						}),
+					),
+				);
 				if (cancelled.length > 0)
 					yield* PubSub.publish(jobCancellations, cancelled);
-				if (appended.length > 0) yield* reconcileDurableEvents();
+				// An enclosing transaction may still own SQL. Wake the independent reader
+				// rather than wait for a publisher that may itself be waiting for SQL.
+				// It observes events only after the enclosing transaction commits.
+				if (appended.length > 0)
+					yield* PubSub.publish(reconciliationWakeHub, undefined);
 				if (enqueued > 0) yield* PubSub.publish(jobWakeups, undefined);
 				return result;
 			},

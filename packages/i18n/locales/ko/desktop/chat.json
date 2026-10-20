@@ -347,6 +347,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI 업그레이드가 필요합니다",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "설치된 Gemini CLI는 아직 ACP 모드를 지원하지 않으므로 Zuse Zuse(베타)는 CLI가 업데이트될 때까지 Gemini 세션을 시작할 수 없습니다.",
 	"message_row_copy_upgrade_command": "업그레이드 명령 복사",
+	"message_row_update_provider_to_use_model": "{{model}}을(를) 사용하려면 {{label}}을(를) 업데이트하세요",
+	"message_row_installed_provider_does_not_support_model": "설치된 {{label}} 버전은 아직 이 모델을 지원하지 않습니다.",
+	"message_row_update_provider": "{{label}} 업데이트",
+	"message_row_retry_provider_update": "업데이트 다시 시도",
 	"message_row_limit_reached": "한도 도달",
 	"message_row_limit_resets": "{{time}}에 재설정",
 	"message_row_weekly_limit": "주간 한도",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "음성이 감지되지 않았습니다. 다시 시도하세요.",
 	"voice_error_transcription_failed": "녹음을 텍스트로 변환하지 못했습니다. 연결을 확인하고 다시 시도하세요.",
 	"voice_error_service_unavailable": "이 워크스페이스에서는 텍스트 변환을 사용할 수 없습니다.",
-	"voice_error_start_failed": "받아쓰기를 시작하지 못했습니다. 다시 시도하세요."
+	"voice_error_start_failed": "받아쓰기를 시작하지 못했습니다. 다시 시도하세요.",
+	"startup_queue_preparing": "파일 첨부 중…",
+	"startup_queue_failed": "파일을 첨부하지 못했습니다",
+	"startup_queue_reattach": "이 메시지를 삭제하고 파일을 다시 첨부하세요. 프롬프트는 전송되지 않았습니다."
 }

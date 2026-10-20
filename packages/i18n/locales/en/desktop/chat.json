@@ -348,6 +348,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI needs an upgrade",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "Your installed Gemini CLI does not support ACP mode yet, so Zuse Zuse (Beta) cannot start Gemini sessions until the CLI is updated.",
 	"message_row_copy_upgrade_command": "Copy upgrade command",
+	"message_row_update_provider_to_use_model": "Update {{label}} to use {{model}}",
+	"message_row_installed_provider_does_not_support_model": "Your installed {{label}} version doesn't support this model yet.",
+	"message_row_update_provider": "Update {{label}}",
+	"message_row_retry_provider_update": "Try update again",
 	"message_row_limit_reached": "Limit reached",
 	"message_row_limit_resets": "Resets {{time}}",
 	"message_row_weekly_limit": "Weekly limit",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "No speech was detected. Try again.",
 	"voice_error_transcription_failed": "Couldn't transcribe your recording. Check your connection and try again.",
 	"voice_error_service_unavailable": "Transcription isn't available from this workspace.",
-	"voice_error_start_failed": "Couldn't start dictation. Try again."
+	"voice_error_start_failed": "Couldn't start dictation. Try again.",
+	"startup_queue_preparing": "Attaching files…",
+	"startup_queue_failed": "Files weren’t attached",
+	"startup_queue_reattach": "Remove this message and attach the files again. Your prompt has not been sent."
 }

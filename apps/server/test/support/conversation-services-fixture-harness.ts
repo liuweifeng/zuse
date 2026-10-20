@@ -236,6 +236,7 @@ export const makeConversationFixtureRuntime = (
 	const StubProviderLive = Layer.succeed(ProviderService, {
 		availability: () => Effect.succeed([]),
 		hasSession: () => Effect.succeed(providerStarted),
+		liveSessions: () => Effect.succeed([]),
 		guardCurrent: (_sessionId, _generation, effect) =>
 			effect.pipe(Effect.as(true)),
 		start: (

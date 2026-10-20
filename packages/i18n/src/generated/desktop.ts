@@ -12,6 +12,7 @@ import type projects from "../../locales/en/desktop/projects.json";
 import type providers from "../../locales/en/desktop/providers.json";
 import type settings from "../../locales/en/desktop/settings.json";
 import type shell from "../../locales/en/desktop/shell.json";
+import type simulators from "../../locales/en/desktop/simulators.json";
 import type tools from "../../locales/en/desktop/tools.json";
 import type usage from "../../locales/en/desktop/usage.json";
 export type Namespace =
@@ -27,6 +28,7 @@ export type Namespace =
 	| "providers"
 	| "settings"
 	| "shell"
+	| "simulators"
 	| "tools"
 	| "usage";
 export type MessageKey =
@@ -42,6 +44,7 @@ export type MessageKey =
 	| `providers:${keyof typeof providers}`
 	| `settings:${keyof typeof settings}`
 	| `shell:${keyof typeof shell}`
+	| `simulators:${keyof typeof simulators}`
 	| `tools:${keyof typeof tools}`
 	| `usage:${keyof typeof usage}`;
 export const loaders: Readonly<
@@ -68,6 +71,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/en/desktop/providers.json"),
 		settings: () => import("../../locales/en/desktop/settings.json"),
 		shell: () => import("../../locales/en/desktop/shell.json"),
+		simulators: () => import("../../locales/en/desktop/simulators.json"),
 		tools: () => import("../../locales/en/desktop/tools.json"),
 		usage: () => import("../../locales/en/desktop/usage.json"),
 	},
@@ -84,6 +88,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/fr/desktop/providers.json"),
 		settings: () => import("../../locales/fr/desktop/settings.json"),
 		shell: () => import("../../locales/fr/desktop/shell.json"),
+		simulators: () => import("../../locales/fr/desktop/simulators.json"),
 		tools: () => import("../../locales/fr/desktop/tools.json"),
 		usage: () => import("../../locales/fr/desktop/usage.json"),
 	},
@@ -100,6 +105,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/de/desktop/providers.json"),
 		settings: () => import("../../locales/de/desktop/settings.json"),
 		shell: () => import("../../locales/de/desktop/shell.json"),
+		simulators: () => import("../../locales/de/desktop/simulators.json"),
 		tools: () => import("../../locales/de/desktop/tools.json"),
 		usage: () => import("../../locales/de/desktop/usage.json"),
 	},
@@ -116,6 +122,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/zh-Hans/desktop/providers.json"),
 		settings: () => import("../../locales/zh-Hans/desktop/settings.json"),
 		shell: () => import("../../locales/zh-Hans/desktop/shell.json"),
+		simulators: () => import("../../locales/zh-Hans/desktop/simulators.json"),
 		tools: () => import("../../locales/zh-Hans/desktop/tools.json"),
 		usage: () => import("../../locales/zh-Hans/desktop/usage.json"),
 	},
@@ -132,6 +139,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/zh-Hant/desktop/providers.json"),
 		settings: () => import("../../locales/zh-Hant/desktop/settings.json"),
 		shell: () => import("../../locales/zh-Hant/desktop/shell.json"),
+		simulators: () => import("../../locales/zh-Hant/desktop/simulators.json"),
 		tools: () => import("../../locales/zh-Hant/desktop/tools.json"),
 		usage: () => import("../../locales/zh-Hant/desktop/usage.json"),
 	},
@@ -148,6 +156,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/ja/desktop/providers.json"),
 		settings: () => import("../../locales/ja/desktop/settings.json"),
 		shell: () => import("../../locales/ja/desktop/shell.json"),
+		simulators: () => import("../../locales/ja/desktop/simulators.json"),
 		tools: () => import("../../locales/ja/desktop/tools.json"),
 		usage: () => import("../../locales/ja/desktop/usage.json"),
 	},
@@ -164,6 +173,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/ko/desktop/providers.json"),
 		settings: () => import("../../locales/ko/desktop/settings.json"),
 		shell: () => import("../../locales/ko/desktop/shell.json"),
+		simulators: () => import("../../locales/ko/desktop/simulators.json"),
 		tools: () => import("../../locales/ko/desktop/tools.json"),
 		usage: () => import("../../locales/ko/desktop/usage.json"),
 	},
@@ -180,6 +190,7 @@ export const loaders: Readonly<
 		providers: () => import("../../locales/en-XA/desktop/providers.json"),
 		settings: () => import("../../locales/en-XA/desktop/settings.json"),
 		shell: () => import("../../locales/en-XA/desktop/shell.json"),
+		simulators: () => import("../../locales/en-XA/desktop/simulators.json"),
 		tools: () => import("../../locales/en-XA/desktop/tools.json"),
 		usage: () => import("../../locales/en-XA/desktop/usage.json"),
 	},

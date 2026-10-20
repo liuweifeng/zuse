@@ -47,6 +47,7 @@
 		"./session-timeline": "./src/session-timeline.ts",
 		"./session-activity": "./src/session-activity.ts",
 		"./session-presentation": "./src/session-presentation.ts",
+		"./session-registration": "./src/session-registration.ts",
 		"./session-timeline-driver": "./src/session-timeline-driver.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",
@@ -68,7 +69,9 @@
 		"./organization-control-client": "./src/organization-control-client.ts",
 		"./control-api-error": "./src/control-api-error.ts",
 		"./html-render": "./src/html-render.ts",
-		"./generative-ui": "./src/generative-ui.ts"
+		"./generative-ui": "./src/generative-ui.ts",
+		"./simulators/video": "./src/simulators/video.ts",
+		"./simulators/reveal": "./src/simulators/reveal.ts"
 	},
 	"scripts": {
 		"check-types": "tsc --noEmit",

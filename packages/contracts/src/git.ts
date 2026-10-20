@@ -1013,6 +1013,9 @@ export const GitStackAction = Schema.Literals([
 	"submit",
 ]);
 export type GitStackAction = typeof GitStackAction.Type;
+/** `git.stack` failure reason when the `gh stack` extension is absent. */
+export const GIT_STACK_UNAVAILABLE_REASON =
+	"GitHub CLI stack support is not installed (gh stack).";
 export class GitStackResult extends Schema.Class<GitStackResult>(
 	"GitStackResult",
 )({

@@ -18,6 +18,7 @@ import {
 	type TailnetEnvironmentProfile,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
 import {
 	cloudSummaryActiveSessionId,
@@ -174,12 +175,7 @@ export const projectEnvironmentShell = (
 	).flat();
 	const recoverableCreationOperationIds = new Set(
 		creationOperations
-			.filter(
-				(operation) =>
-					operation.phase !== "running" &&
-					operation.phase !== "failed" &&
-					operation.phase !== "cancelled",
-			)
+			.filter((operation) => chatCreationIsInProgress(operation.phase))
 			.map((operation) => operation.operationId),
 	);
 	for (const operationId of resumedCreationOperations) {
@@ -345,12 +341,7 @@ export const projectEnvironmentShell = (
 		loadingByProject: {},
 		creatingByProject: Object.fromEntries(
 			creationOperations
-				.filter(
-					(operation) =>
-						operation.phase !== "running" &&
-						operation.phase !== "failed" &&
-						operation.phase !== "cancelled",
-				)
+				.filter((operation) => chatCreationIsInProgress(operation.phase))
 				.map((operation) => [operation.projectId, true] as const),
 		),
 		pendingCreationByChat: { ...pendingByChat, ...restoredPending },
@@ -370,7 +361,7 @@ export const projectEnvironmentShell = (
 
 	for (const [chatId, creation] of Object.entries(restoredPending)) {
 		if (
-			creation.phase !== "failed" &&
+			chatCreationIsInProgress(creation.phase) &&
 			!resumedCreationOperations.has(creation.operationId)
 		) {
 			resumedCreationOperations.add(creation.operationId);

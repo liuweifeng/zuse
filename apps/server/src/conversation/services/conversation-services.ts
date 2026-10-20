@@ -175,7 +175,7 @@ export interface CreateChatInput {
 	readonly permissionMode?: PermissionMode;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly toolSearch?: boolean;
-	/** Persist the initial turn while workspace/setup is still preparing. */
+	/** Persist the initial turn until its workspace checkout is available. */
 	readonly queuePaused?: boolean;
 	/** Return after rows are durable and start the provider in the background. */
 	readonly background?: boolean;

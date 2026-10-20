@@ -347,6 +347,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI benötigt ein Upgrade",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "Ihr installiertes Gemini CLI unterstützt den ACP-Modus noch nicht, daher kann Zuse Zuse (Beta) keine Gemini-Sitzungen starten, bis CLI aktualisiert wurde.",
 	"message_row_copy_upgrade_command": "Upgrade-Befehl kopieren",
+	"message_row_update_provider_to_use_model": "Aktualisieren Sie {{label}}, um {{model}} zu verwenden",
+	"message_row_installed_provider_does_not_support_model": "Ihre installierte {{label}}-Version unterstützt dieses Modell noch nicht.",
+	"message_row_update_provider": "{{label}} aktualisieren",
+	"message_row_retry_provider_update": "Aktualisierung erneut versuchen",
 	"message_row_limit_reached": "Limit erreicht",
 	"message_row_limit_resets": "Wird um {{time}} zurückgesetzt",
 	"message_row_weekly_limit": "Wöchentliches Limit",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "Keine Sprache erkannt. Versuche es erneut.",
 	"voice_error_transcription_failed": "Die Aufnahme konnte nicht transkribiert werden. Prüfe deine Verbindung und versuche es erneut.",
 	"voice_error_service_unavailable": "Transkription ist in diesem Workspace nicht verfügbar.",
-	"voice_error_start_failed": "Diktat konnte nicht gestartet werden. Versuche es erneut."
+	"voice_error_start_failed": "Diktat konnte nicht gestartet werden. Versuche es erneut.",
+	"startup_queue_preparing": "Dateien werden angehängt…",
+	"startup_queue_failed": "Dateien wurden nicht angehängt",
+	"startup_queue_reattach": "Entferne diese Nachricht und hänge die Dateien erneut an. Deine Anfrage wurde nicht gesendet."
 }

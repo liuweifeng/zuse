@@ -348,6 +348,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "⟦Gëëmïïnïï CLÏÏ nëëëëds ààn üüpgrààdëë⟧",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "⟦Yôôüür ïïnstààllëëd Gëëmïïnïï CLÏÏ dôôëës nôôt süüppôôrt ÀÀCP môôdëë yëët, sôô Züüsëë Züüsëë (Bëëtàà) càànnôôt stààrt Gëëmïïnïï sëëssïïôôns üüntïïl thëë CLÏÏ ïïs üüpdààtëëd.⟧",
 	"message_row_copy_upgrade_command": "⟦Côôpy üüpgrààdëë côômmàànd⟧",
+	"message_row_update_provider_to_use_model": "⟦ÜÜpdààtëë {{label}} tôô üüsëë {{model}}⟧",
+	"message_row_installed_provider_does_not_support_model": "⟦Yôôüür ïïnstààllëëd {{label}} vëërsïïôôn dôôëësn't süüppôôrt thïïs môôdëël yëët.⟧",
+	"message_row_update_provider": "⟦ÜÜpdààtëë {{label}}⟧",
+	"message_row_retry_provider_update": "⟦Try üüpdààtëë ààgààïïn⟧",
 	"message_row_limit_reached": "⟦Lïïmïït rëëààchëëd⟧",
 	"message_row_limit_resets": "⟦Rëësëëts {{time}}⟧",
 	"message_row_weekly_limit": "⟦Wëëëëkly lïïmïït⟧",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "⟦Nôô spëëëëch wààs dëëtëëctëëd. Try ààgààïïn.⟧",
 	"voice_error_transcription_failed": "⟦Côôüüldn't tràànscrïïbëë yôôüür rëëcôôrdïïng. Chëëck yôôüür côônnëëctïïôôn àànd try ààgààïïn.⟧",
 	"voice_error_service_unavailable": "⟦Tràànscrïïptïïôôn ïïsn't ààvààïïlààblëë frôôm thïïs wôôrkspààcëë.⟧",
-	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧"
+	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧",
+	"startup_queue_preparing": "⟦ÀÀttààchïïng fïïlëës…⟧",
+	"startup_queue_failed": "⟦Fïïlëës wëërëën’t ààttààchëëd⟧",
+	"startup_queue_reattach": "⟦Rëëmôôvëë thïïs mëëssààgëë àànd ààttààch thëë fïïlëës ààgààïïn. Yôôüür prôômpt hààs nôôt bëëëën sëënt.⟧"
 }

@@ -186,7 +186,11 @@ export const deriveSessionPresentation = ({
 	let pendingStartApplied = false;
 	if (
 		view.pendingCommands.some(
-			(command) => command.kind === "messages.interrupt",
+			(command) =>
+				command.kind === "messages.interrupt" &&
+				(command.targetId === null ||
+					view.data?.activeTurn == null ||
+					command.targetId === view.data.activeTurn.id),
 		) &&
 		(view.data === null ||
 			view.data.activeTurn !== null ||

@@ -1,8 +1,10 @@
+import { cancelStartupQueue } from "../../composer/startup-queue.ts";
 import {
 	useCloudMessageQueue,
 	useCloudQueueStatus,
 } from "../../lib/cloud-message-queue.ts";
 import { CloudMailboxQueue } from "./cloud-mailbox-queue.tsx";
+import { StartupQueueStatus } from "./startup-queue-status.tsx";
 import "@zuse/i18n/english/chat";
 import type {
 	CloudChatSummary,
@@ -10,7 +12,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useEnvironmentEntities } from "../../lib/environment-entity-hooks.ts";
 import { usePlatformOnline } from "../../lib/network-status.ts";
 import {
@@ -56,7 +58,7 @@ export function QueueTray({
 	const creation = Object.values(creationOperationsByProject)
 		.flat()
 		.find((operation) => operation.initialSessionId === sessionId);
-	// Startup deliberately pauses the queue until the workspace is ready. The
+	// Startup can hold the queue while the checkout is being created. The
 	// durable operation survives navigation and reconnects; the local optimistic
 	// creation entry does not always exist when this tray first renders.
 	const preparing = creation
@@ -142,26 +144,35 @@ export function QueueTray({
 				/>
 			) : null}
 			{items.map((item, index) => (
-				<QueueChip
-					key={item.id}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					item={item}
-					index={index}
-					count={items.length}
-					running={running}
-					submitting={queuedMessageRunPending(timeline.view, item.id)}
-					dragging={dragIndex === index}
-					onMove={move}
-					onDragStart={() => setDragIndex(index)}
-					onDragOver={() => {
-						if (dragIndex !== null && dragIndex !== index) {
-							move(dragIndex, index);
-							setDragIndex(index);
-						}
-					}}
-					onDrop={() => setDragIndex(null)}
-				/>
+				<Fragment key={item.id}>
+					{item.ready === false ? (
+						<StartupQueueStatus
+							sessionRef={ref}
+							queueId={item.id}
+							creating={preparing}
+						/>
+					) : null}
+					<QueueChip
+						sessionId={sessionId}
+						environmentId={environmentId}
+						item={item}
+						index={index}
+						count={items.length}
+						running={running}
+						submitting={queuedMessageRunPending(timeline.view, item.id)}
+						dragging={dragIndex === index}
+						onMove={move}
+						onDragStart={() => setDragIndex(index)}
+						onDragOver={() => {
+							if (dragIndex !== null && dragIndex !== index) {
+								move(dragIndex, index);
+								setDragIndex(index);
+							}
+						}}
+						onDrop={() => setDragIndex(null)}
+						onRemove={() => cancelStartupQueue(ref, item.id)}
+					/>
+				</Fragment>
 			))}
 		</div>
 	);

@@ -347,6 +347,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI 需要升級",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "您安裝的 Gemini CLI 尚不支援 ACP 模式，因此在更新 CLI 之前，Zuse Zuse（測試版）無法啟動 Gemini Zuse（測試版）無法啟動 Gemini 工作階段。",
 	"message_row_copy_upgrade_command": "複製升級命令",
+	"message_row_update_provider_to_use_model": "更新 {{label}} 以使用 {{model}}",
+	"message_row_installed_provider_does_not_support_model": "您安裝的 {{label}} 版本尚不支援此模型。",
+	"message_row_update_provider": "更新 {{label}}",
+	"message_row_retry_provider_update": "重試更新",
 	"message_row_limit_reached": "達到限制",
 	"message_row_limit_resets": "{{time}} 重設",
 	"message_row_weekly_limit": "每週限額",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "未偵測到語音。請再試一次。",
 	"voice_error_transcription_failed": "無法轉寫錄音。請檢查網路連線後再試一次。",
 	"voice_error_service_unavailable": "此工作區無法使用轉寫服務。",
-	"voice_error_start_failed": "無法開始聽寫。請再試一次。"
+	"voice_error_start_failed": "無法開始聽寫。請再試一次。",
+	"startup_queue_preparing": "正在附加檔案…",
+	"startup_queue_failed": "未能附加檔案",
+	"startup_queue_reattach": "請移除此訊息並重新附加檔案。你的提示尚未傳送。"
 }

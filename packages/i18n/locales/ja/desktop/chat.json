@@ -347,6 +347,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI にはアップグレードが必要です",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "インストールされている Gemini CLI はまだ ACP モードをサポートしていないため、CLI が更新されるまで、Zuse Zuse (ベータ) は Gemini セッションを開始できません。",
 	"message_row_copy_upgrade_command": "コピーアップグレードコマンド",
+	"message_row_update_provider_to_use_model": "{{model}} を使用するには {{label}} を更新してください",
+	"message_row_installed_provider_does_not_support_model": "インストールされている {{label}} のバージョンはこのモデルにまだ対応していません。",
+	"message_row_update_provider": "{{label}} を更新",
+	"message_row_retry_provider_update": "更新を再試行",
 	"message_row_limit_reached": "限界に達しました",
 	"message_row_limit_resets": "{{time}} にリセット",
 	"message_row_weekly_limit": "週間上限",
@@ -807,5 +811,8 @@
 	"voice_error_no_speech": "音声が検出されませんでした。もう一度お試しください。",
 	"voice_error_transcription_failed": "録音を文字起こしできませんでした。接続を確認して、もう一度お試しください。",
 	"voice_error_service_unavailable": "このワークスペースでは文字起こしを利用できません。",
-	"voice_error_start_failed": "音声入力を開始できませんでした。もう一度お試しください。"
+	"voice_error_start_failed": "音声入力を開始できませんでした。もう一度お試しください。",
+	"startup_queue_preparing": "ファイルを添付中…",
+	"startup_queue_failed": "ファイルを添付できませんでした",
+	"startup_queue_reattach": "このメッセージを削除して、ファイルを添付し直してください。プロンプトは送信されていません。"
 }

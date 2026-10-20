@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import {
 	type FolderId,
+	GIT_STACK_UNAVAILABLE_REASON,
 	GitBranchInfo,
 	GitChange,
 	type GitChangeKind,
@@ -642,6 +643,16 @@ export const GitServiceLive = Layer.effect(
 							: action === "view"
 								? 10_000
 								: 120_000,
+					).pipe(
+						Effect.mapError((error) =>
+							error._tag === "GitCommandError" &&
+							/unknown command "stack"/.test(error.reason)
+								? new GitCommandError({
+										folderId,
+										reason: GIT_STACK_UNAVAILABLE_REASON,
+									})
+								: error,
+						),
 					);
 					if (action !== "view")
 						return GitStackResult.make({ output, trunk: null, branches: [] });
@@ -2670,11 +2681,21 @@ export const GitServiceLive = Layer.effect(
 					);
 					let revision = 0;
 					let watching = false;
+					// A checkout that cannot be resolved stays failed until it returns.
+					// Polling it would only replay the same snapshot error forever.
+					let missing = false;
+					let watched = false;
 					let quietTicks = 0;
 					const emitRevision = Effect.sync(() => {
 						quietTicks = 0;
 						revision += 1;
 						Queue.offerUnsafe(mailbox, { revision });
+					});
+					const markMissing = Effect.suspend(() => {
+						if (missing) return Effect.void;
+						missing = true;
+						// The initial frame already reports a checkout missing at subscribe.
+						return watched ? emitRevision : Effect.void;
 					});
 					const watchOnce = Effect.gen(function* () {
 						const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
@@ -2695,6 +2716,11 @@ export const GitServiceLive = Layer.effect(
 							absoluteMetadataPath(commonDirectoryOutput),
 						].filter((value, index, values) => values.indexOf(value) === index);
 						watching = true;
+						watched = true;
+						if (missing) {
+							missing = false;
+							yield* emitRevision;
+						}
 						yield* Stream.mergeAll(
 							watchPaths.map((watchPath) => fs.watch(watchPath)),
 							{ concurrency: "unbounded" },
@@ -2712,6 +2738,10 @@ export const GitServiceLive = Layer.effect(
 					yield* Effect.forkScoped(
 						Effect.forever(
 							watchOnce.pipe(
+								Effect.catchTags({
+									GitFolderNotFoundError: () => markMissing,
+									GitNotARepoError: () => markMissing,
+								}),
 								Effect.catch(() => Effect.void),
 								Effect.andThen(Effect.sleep(Duration.seconds(5))),
 							),
@@ -2724,7 +2754,7 @@ export const GitServiceLive = Layer.effect(
 								Effect.andThen(
 									Effect.suspend(() => {
 										quietTicks += 1;
-										return !watching || quietTicks >= 6
+										return !missing && (!watching || quietTicks >= 6)
 											? emitRevision
 											: Effect.void;
 									}),

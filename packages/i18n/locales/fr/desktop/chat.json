@@ -348,6 +348,10 @@
 	"message_row_gemini_cli_needs_an_upgrade": "Gemini CLI nécessite une mise à niveau",
 	"message_row_your_installed_gemini_cli_does_not_support_acp_mode_yet_so_zuse_zuse_b": "Votre Gemini CLI installé ne prend pas encore en charge le mode ACP, donc Zuse Zuse (bêta) ne peut pas démarrer de sessions Gemini tant que le CLI n'est pas mis à jour.",
 	"message_row_copy_upgrade_command": "Copier la commande de mise à niveau",
+	"message_row_update_provider_to_use_model": "Mettez à jour {{label}} pour utiliser {{model}}",
+	"message_row_installed_provider_does_not_support_model": "La version installée de {{label}} ne prend pas encore en charge ce modèle.",
+	"message_row_update_provider": "Mettre à jour {{label}}",
+	"message_row_retry_provider_update": "Réessayer la mise à jour",
 	"message_row_limit_reached": "Limite atteinte",
 	"message_row_limit_resets": "Réinitialisation à {{time}}",
 	"message_row_weekly_limit": "Limite hebdomadaire",
@@ -811,5 +815,8 @@
 	"voice_error_no_speech": "Aucune parole détectée. Réessayez.",
 	"voice_error_transcription_failed": "Impossible de transcrire l'enregistrement. Vérifiez votre connexion et réessayez.",
 	"voice_error_service_unavailable": "La transcription n'est pas disponible depuis cet espace de travail.",
-	"voice_error_start_failed": "Impossible de démarrer la dictée. Réessayez."
+	"voice_error_start_failed": "Impossible de démarrer la dictée. Réessayez.",
+	"startup_queue_preparing": "Ajout des fichiers…",
+	"startup_queue_failed": "Les fichiers n’ont pas été joints",
+	"startup_queue_reattach": "Supprimez ce message et joignez à nouveau les fichiers. Votre demande n’a pas été envoyée."
 }
