@@ -6,6 +6,7 @@ import {
 	CloudChatSummary,
 	CloudProject,
 	CloudWorkspaceOpError,
+	CommandId,
 	EnvironmentId,
 	Folder,
 	FolderId,
@@ -60,6 +61,8 @@ import { useCloudChatCatalogStore } from "../../src/lib/cloud-workspace-catalog.
 import {
 	ensureCloudWorkspaceAttached,
 	openCloudChat,
+	rearmRegisteredCloudConnection,
+	recoverCloudWorkspaceConnection,
 	stageCloudChat,
 	useCloudChatsStore,
 	watchCloudChatCatalog,
@@ -825,4 +828,83 @@ it.each([
 	expect(mocks.watch).not.toHaveBeenCalled();
 	expect(mocks.resume).not.toHaveBeenCalled();
 	expect(mocks.connect).not.toHaveBeenCalled();
+});
+
+it("keeps normal online attachment fast without provider verification", async () => {
+	observeRendererAccount("fast-online-owner");
+	mocks.get.mockReturnValue(Effect.succeed(summary));
+	mocks.connect.mockReturnValue(Effect.fail(new Error("gateway unavailable")));
+	await expect(ensureCloudWorkspaceAttached(summary, "wake")).rejects.toThrow(
+		"gateway unavailable",
+	);
+	expect(mocks.resume).not.toHaveBeenCalled();
+});
+it("verifies a stale online machine only through single-flight fallback recovery", async () => {
+	observeRendererAccount("fallback-owner");
+	mocks.get.mockReturnValue(Effect.succeed(summary));
+	mocks.resume.mockReturnValue(Effect.succeed(summary));
+	mocks.connect.mockReturnValue(Effect.fail(new Error("gateway unavailable")));
+	const first = recoverCloudWorkspaceConnection(summary);
+	expect(recoverCloudWorkspaceConnection(summary)).toBe(first);
+	await expect(first).rejects.toThrow("gateway unavailable");
+	expect(mocks.resume).toHaveBeenCalledExactlyOnceWith({
+		workspaceId: summary.workspaceId,
+	});
+});
+
+it("does not publish fallback recovery after the account changes", async () => {
+	observeRendererAccount("fallback-old-owner");
+	let finish!: (value: typeof summary) => void;
+	mocks.resume.mockReturnValue(
+		Effect.promise(
+			() =>
+				new Promise<typeof summary>((resolve) => {
+					finish = resolve;
+				}),
+		),
+	);
+	const recovery = recoverCloudWorkspaceConnection(summary);
+	await vi.waitFor(() => expect(mocks.resume).toHaveBeenCalledOnce());
+	observeRendererAccount("fallback-new-owner");
+	finish(summary);
+	await expect(recovery).rejects.toThrow("account changed");
+	expect(mocks.connect).not.toHaveBeenCalled();
+});
+
+it.each([
+	false,
+	true,
+])("only runs automatic fallback with queued work (queued=%s)", async (queued) => {
+	observeRendererAccount(`auto-fallback-${queued}`);
+	const row = { ...summary, workspaceId: `auto-fallback-${queued}` };
+	const bus = getRendererClientBus();
+	const connection = vi.spyOn(bus, "connection").mockReturnValue({
+		environmentId: EnvironmentId.make(row.workspaceId),
+		phase: "failed",
+		generation: 1,
+		error: "runtime unavailable",
+	});
+	const snapshot = vi.spyOn(bus, "snapshot").mockReturnValue({
+		...emptyResourceView<never>(),
+		pendingCommands: queued
+			? [
+					{
+						commandId: CommandId.make("queued-message"),
+						kind: "messages.send",
+						targetId: null,
+						submittedAt: 1,
+						deliveryPhase: "waiting-for-runtime",
+					},
+				]
+			: [],
+	});
+	mocks.resume.mockReturnValue(Effect.fail(new Error("provider unavailable")));
+	try {
+		rearmRegisteredCloudConnection(row);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(mocks.resume).toHaveBeenCalledTimes(queued ? 1 : 0);
+	} finally {
+		snapshot.mockRestore();
+		connection.mockRestore();
+	}
 });

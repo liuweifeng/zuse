@@ -9414,7 +9414,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 312
+				"line": 318
 			},
 			{
 				"path": "apps/renderer/src/components/composer/cloud-agent-sign-in-tray.tsx",
@@ -10201,7 +10201,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 311
+				"line": 317
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-sign-in-tray.tsx",
@@ -10481,7 +10481,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 310
+				"line": 316
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10655,7 +10655,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 89
+				"line": 92
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10665,7 +10665,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 226
+				"line": 231
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10675,7 +10675,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 229
+				"line": 234
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10685,7 +10685,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 235
+				"line": 240
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10695,7 +10695,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 241
+				"line": 246
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11136,7 +11136,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/cloud-memory-notice.ts",
-				"line": 23
+				"line": 28
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11146,33 +11146,33 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/cloud-memory-notice.ts",
-				"line": 16
+				"line": 21
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"connections:cloud_memory_recovering": {
-		"source": "Your cloud machine ran out of memory. Reconnecting…",
+		"source": "Your cloud machine ran out of memory and interrupted the agent. Reconnecting…",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/cloud-memory-notice.ts",
-				"line": 18
+				"line": 23
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"connections:cloud_memory_failed": {
-		"source": "Automatic recovery stopped because of memory pressure.",
+		"source": "Your cloud machine has insufficient memory. Automatic recovery stopped.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/lib/cloud-memory-notice.ts",
-				"line": 20
+				"line": 25
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"connections:cloud_memory_advice": {
-		"source": "Ask your agent to run fewer tests or builds at once, or use a larger machine.",
+		"source": "Use a larger machine with more memory, or ask your agent to run fewer tests or builds at once.",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
@@ -32683,7 +32683,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/devices-pane.tsx",
-				"line": 254
+				"line": 261
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -32693,7 +32693,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/settings/devices-pane.tsx",
-				"line": 260
+				"line": 267
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

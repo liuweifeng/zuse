@@ -151,6 +151,20 @@ describe("cloud lifecycle label", () => {
 });
 
 describe("cloud queue status", () => {
+	it("stops animating a queued prompt after connection retries are exhausted", () => {
+		expect(
+			cloudQueueStatus({
+				summary: summary(),
+				activity: "failed",
+				connection: "failed",
+				pendingCommands: [],
+			}),
+		).toEqual({
+			label:
+				"Cloud connection failed. Retry to reconnect; your message is still queued.",
+			busy: false,
+		});
+	});
 	const send = {
 		commandId: CommandId.make("message-send:prompt"),
 		kind: "messages.send",

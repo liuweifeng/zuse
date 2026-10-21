@@ -8,7 +8,10 @@ import {
 	openCloudTranscriptPage,
 } from "@zuse/client-runtime/cloud-transcript";
 import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
-import type { SessionRef } from "@zuse/client-runtime/resource-ref";
+import {
+	makeResourceKey,
+	type SessionRef,
+} from "@zuse/client-runtime/resource-ref";
 import type {
 	ConnectionView,
 	ResourceView,
@@ -33,7 +36,10 @@ import {
 	waitForCloudWorkspaceAttachable,
 	waitForCloudWorkspaceReady,
 } from "../lib/cloud-workspace-lifecycle.ts";
-import { overlayActiveEnvironmentShell } from "../lib/environment-entities.ts";
+import {
+	environmentShellData,
+	overlayActiveEnvironmentShell,
+} from "../lib/environment-entities.ts";
 import { formatError } from "../lib/format-error.ts";
 import { registerCloudWorkspace } from "../lib/rpc-client.ts";
 import {
@@ -78,6 +84,7 @@ import {
 	registerCloudChatCatalogRefresh,
 	useCloudChatCatalogStore,
 } from "./cloud-workspace-catalog.ts";
+import { isWaitingCloudSend } from "./composer-delivery.ts";
 import {
 	type EnvironmentShellData,
 	environmentShellResourceKey,
@@ -151,8 +158,8 @@ let hydrationRequested = false;
 
 /**
  * An authoritative online runtime is a new recovery signal for a client whose
- * socket exhausted its retry ladder while compute was asleep. Include both
- * lifecycle revision and client generation so each real state change gets one
+ * socket exhausted its retry ladder while compute was asleep. Use the
+ * lifecycle revision so each real state change gets one
  * automatic attempt without turning a persistent outage into a retry storm.
  */
 export const cloudConnectionRearmKey = (
@@ -160,7 +167,7 @@ export const cloudConnectionRearmKey = (
 	connection: ConnectionView,
 ): string | null =>
 	isCloudWorkspaceAttachable(summary) && connection.phase === "failed"
-		? `${summary.workspaceId}:${summary.revision}:${connection.generation}`
+		? `${summary.workspaceId}:${summary.revision}`
 		: null;
 
 export const rearmReadyCloudConnection = (
@@ -187,10 +194,80 @@ export const rearmRegisteredCloudConnection = (
 		rearmedClientByWorkspace,
 		(retryEnvironmentId) =>
 			queueMicrotask(() => {
-				if (rendererAccountSnapshot() === account)
-					retryRendererEnvironmentConnection(retryEnvironmentId);
+				if (rendererAccountSnapshot() !== account) return;
+				const activeSessionId = cloudSummaryActiveSessionId(summary);
+				const shell = environmentShellData(environmentId);
+				const sessionIds = new Set([
+					summary.initialSessionId,
+					...(activeSessionId === null ? [] : [activeSessionId]),
+					...Object.values(shell?.sessionsByProject ?? {})
+						.flat()
+						.filter((session) => session.chatId === summary.chatId)
+						.map((session) => session.id),
+				]);
+				const hasDemand = [...sessionIds].some((sessionId) =>
+					getRendererClientBus()
+						.snapshot(
+							makeResourceKey<SessionTimelineProjection>("session-timeline", {
+								environmentId,
+								sessionId,
+							}),
+						)
+						.pendingCommands.some(
+							(command) =>
+								isWaitingCloudSend(command) &&
+								command.deliveryPhase !== "blocked",
+						),
+				);
+				if (hasDemand) {
+					void recoverCloudWorkspaceConnection(summary)
+						.then(() => {
+							if (rendererAccountSnapshot() === account)
+								retryRendererEnvironmentConnection(retryEnvironmentId);
+						})
+						.catch(() => undefined);
+				} else retryRendererEnvironmentConnection(retryEnvironmentId);
 			}),
 	);
+};
+
+const recoveringCloudConnections = new Map<
+	string,
+	{ account: RendererAccountSnapshot; promise: Promise<void> }
+>();
+
+/** Slow-path recovery after connection failure or an explicit Retry. Normal
+ * attachment stays optimistic; passive discovery never wakes stopped compute. */
+export const recoverCloudWorkspaceConnection = (
+	summary: CloudChatSummary,
+): Promise<void> => {
+	const account = rendererAccountSnapshot();
+	const existing = recoveringCloudConnections.get(summary.workspaceId);
+	if (existing?.account === account) return existing.promise;
+	const promise = (async () => {
+		const control = await getCloudControlClient(
+			summary.workspaceScope ?? { kind: "personal" },
+		);
+		assertRendererAccountCurrent(account);
+		const workspace = await Effect.runPromise(
+			control["cloud.workspaces.resume"]({ workspaceId: summary.workspaceId }),
+		);
+		assertRendererAccountCurrent(account);
+		const current = refreshSummaryFromWorkspace(summary, workspace);
+		updateSummary(current);
+		await ensureCloudWorkspaceAttached(current, "wake");
+	})();
+	const tracked = promise.finally(() => {
+		if (
+			recoveringCloudConnections.get(summary.workspaceId)?.promise === tracked
+		)
+			recoveringCloudConnections.delete(summary.workspaceId);
+	});
+	recoveringCloudConnections.set(summary.workspaceId, {
+		account,
+		promise: tracked,
+	});
+	return tracked;
 };
 
 const trackCloudAttachment = (
