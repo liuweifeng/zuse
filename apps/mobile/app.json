@@ -32,6 +32,8 @@
 		"plugins": [
 			"expo-router",
 			"./plugins/with-android-architectures",
+			"./plugins/with-android-cleartext-traffic",
+			"./plugins/with-android-material-theme",
 			"expo-dev-client",
 			"expo-secure-store",
 			"expo-notifications",

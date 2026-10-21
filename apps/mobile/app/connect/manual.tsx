@@ -1,22 +1,19 @@
 import { DEFAULT_LOCAL_DESKTOP_PORT } from "@zuse/contracts";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import {
-	KeyboardAvoidingView,
-	ScrollView,
-	Text,
-	TextInput,
-	View,
-} from "react-native";
+import { ScrollView, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Button } from "~/components/ui/button";
+import { KeyboardAvoidingView } from "~/components/ui/keyboard-avoiding-view";
 import { returnToInbox } from "~/lib/connection-navigation";
+import { useOpaqueHeaderHeight } from "~/lib/native-header";
 import { addConnection } from "~/store/connections";
 import { colors } from "~/theme";
 
 /** Manual connection setup in the same root navigation stack as the inbox. */
 export default function ManualConnectScreen() {
+	const keyboardOffset = useOpaqueHeaderHeight();
 	const insets = useSafeAreaInsets();
 	const [host, setHost] = useState("127.0.0.1");
 	const [port, setPort] = useState(String(DEFAULT_LOCAL_DESKTOP_PORT));
@@ -34,7 +31,12 @@ export default function ManualConnectScreen() {
 		setBusy(true);
 		setError(null);
 		try {
-			await addConnection({ host, port: Number(port), token, source: "manual" });
+			await addConnection({
+				host,
+				port: Number(port),
+				token,
+				source: "manual",
+			});
 			returnToInbox(router);
 		} catch (cause) {
 			setError(
@@ -48,7 +50,11 @@ export default function ManualConnectScreen() {
 	};
 
 	return (
-		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
+		<KeyboardAvoidingView
+			behavior="padding"
+			keyboardVerticalOffset={keyboardOffset}
+			className="flex-1 bg-background"
+		>
 			<ScrollView
 				contentInsetAdjustmentBehavior="automatic"
 				contentContainerClassName="gap-6 p-4"

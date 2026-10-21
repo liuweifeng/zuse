@@ -6,9 +6,11 @@ import { ScrollView, Text, View } from "react-native";
 
 import { Markdown } from "~/components/messages/markdown";
 import { connectionSessionKey } from "~/lib/session-key";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import { sessionMessagesAtom } from "~/store/messages";
 
 export default function PlanViewerScreen() {
+	const toolbarIcon = useToolbarIcons();
 	const { conn, sessionId, messageId, itemId } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -44,7 +46,7 @@ export default function PlanViewerScreen() {
 			/>
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
-					icon="xmark"
+					icon={toolbarIcon("xmark")}
 					separateBackground
 					onPress={() => router.back()}
 				/>

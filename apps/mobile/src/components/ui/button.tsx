@@ -2,6 +2,7 @@ import { Children, forwardRef } from "react";
 import { Pressable, type PressableProps, Text, View } from "react-native";
 
 import { cn } from "~/lib/cn";
+import { ANDROID_RIPPLE_SURFACE, RIPPLE } from "~/lib/ripple";
 
 type ButtonProps = PressableProps & {
 	children: React.ReactNode;
@@ -56,6 +57,7 @@ export const Button = forwardRef<
 	) => (
 		<Pressable
 			ref={ref}
+			android_ripple={RIPPLE}
 			disabled={disabled}
 			hitSlop={size === "sm" ? 4 : undefined}
 			onPress={
@@ -81,6 +83,7 @@ export const Button = forwardRef<
 				variant === "danger" && "border-danger bg-danger",
 				disabled && "opacity-45",
 				className,
+				ANDROID_RIPPLE_SURFACE,
 			)}
 			{...props}
 		>

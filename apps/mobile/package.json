@@ -16,6 +16,7 @@
 		"test:unit": "vitest run test/unit",
 		"test:integration": "vitest run test/integration --passWithNoTests",
 		"android": "expo run:android",
+		"android:local": "APP_VARIANT=development EXPO_PUBLIC_APP_SCHEME=zuse-dev expo run:android --variant debug",
 		"gen:file-icons": "node scripts/gen-file-icons.mjs"
 	},
 	"expo": {
@@ -74,6 +75,7 @@
 		"expo-secure-store": "~57.0.3",
 		"expo-status-bar": "~57.0.1",
 		"expo-symbols": "~57.0.2",
+		"expo-system-ui": "~57.0.4",
 		"expo-web-browser": "~57.0.2",
 		"jose": "^6.2.3",
 		"lucide-react-native": "^0.475.0",

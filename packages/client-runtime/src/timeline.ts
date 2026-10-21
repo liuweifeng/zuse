@@ -210,20 +210,30 @@ const linesForReplacement = (oldText: string, newText: string): DiffLine[] => [
 	})),
 ];
 
+/** Git file headers that precede the first hunk of a patch. */
+const PATCH_FILE_HEADER =
+	/^(?:diff --git |index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |--- |\+\+\+ |Binary files )/;
+
 export const parseUnifiedPatch = (patch: string): DiffLine[] => {
 	const lines: DiffLine[] = [];
 	let oldLine = 0;
 	let newLine = 0;
-	for (const raw of patch.split(/\r\n|\r|\n/)) {
+	let inHunk = false;
+	const rawLines = patch.split(/\r\n|\r|\n/);
+	if (rawLines.at(-1) === "") rawLines.pop();
+	for (const raw of rawLines) {
 		const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+		if (raw.startsWith("diff --git ")) inHunk = false;
+		if (header === null && !inHunk && PATCH_FILE_HEADER.test(raw)) continue;
 		if (header !== null) {
+			inHunk = true;
 			oldLine = Number(header[1]);
 			newLine = Number(header[2]);
 			lines.push({ kind: "hunk", text: raw, oldLine: null, newLine: null });
-		} else if (raw.startsWith("+") && !raw.startsWith("+++")) {
+		} else if (raw.startsWith("+") && (inHunk || !raw.startsWith("+++"))) {
 			lines.push({ kind: "added", text: raw.slice(1), oldLine: null, newLine });
 			newLine += 1;
-		} else if (raw.startsWith("-") && !raw.startsWith("---")) {
+		} else if (raw.startsWith("-") && (inHunk || !raw.startsWith("---"))) {
 			lines.push({
 				kind: "removed",
 				text: raw.slice(1),

@@ -1,0 +1,32 @@
+diff --git a/node_modules/@expo/ui/.bun-tag-ccbeaecc8ccaec0b b/.bun-tag-ccbeaecc8ccaec0b
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
+index ac8ae4af0a1fee8afbea2b9a5393d8eae271b108..31147b9614ecf1d82b067ff8292eaf611c18c52f 100644
+--- a/src/community/bottom-sheet/BottomSheet.android.tsx
++++ b/src/community/bottom-sheet/BottomSheet.android.tsx
+@@ -46,6 +46,9 @@ function findNearestSnapPointIndex(
+   return typeof position === 'number' ? snapPoints.length - 1 : 0;
+ }
+ 
++/** `BottomSheetDefaults.SheetMaxWidth` in Material 3. */
++const SHEET_MAX_WIDTH = 640;
++
+ /**
+  * Android implementation of `BottomSheet` using Material3 ModalBottomSheet.
+  *
+@@ -204,7 +207,13 @@ export function BottomSheet(props: BottomSheetProps) {
+                   the sheet width while its height stays content-sized. Otherwise flexGrow:1 + height:0
+                   (flex-basis 0) fills RNHostView's measured height without inheriting the scrollable
+                   child's content height, which would block scrolling to the end. */}
+-              <View style={fitToContents ? { width } : { flexGrow: 1, height: 0 }}>
++              <View
++                style={
++                  fitToContents
++                    ? // Material 3 caps the sheet at 640dp on large screens.
++                      { width: Math.min(width, SHEET_MAX_WIDTH) }
++                    : { flexGrow: 1, height: 0 }
++                }>
+                 <SheetScrollContextReset>{children}</SheetScrollContextReset>
+               </View>
+             </RNHostView>

@@ -11,12 +11,12 @@ import { Stack, useLocalSearchParams } from "expo-router";
 import { Eye, FileText, Share2 } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+	Alert,
 	FlatList,
 	Platform,
 	Pressable,
 	RefreshControl,
 	ScrollView,
-	Share,
 	Text,
 	useWindowDimensions,
 	View,
@@ -38,7 +38,10 @@ import { readWorkspaceFile } from "~/rpc/actions";
 import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
-import { presentQuickLook } from "../../../../../modules/mobile-platform";
+import {
+	presentQuickLook,
+	shareFile,
+} from "../../../../../modules/mobile-platform";
 
 export default function WorkspaceFileScreen() {
 	const { width } = useWindowDimensions();
@@ -66,6 +69,17 @@ export default function WorkspaceFileScreen() {
 	const [refreshing, setRefreshing] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [binaryPreviewUri, setBinaryPreviewUri] = useState<string | null>(null);
+
+	const shareBinary = useCallback(async (uri: string, title: string) => {
+		try {
+			await shareFile(uri, { title });
+		} catch (cause) {
+			Alert.alert(
+				"Couldn’t share file",
+				cause instanceof Error ? cause.message : String(cause),
+			);
+		}
+	}, []);
 
 	const load = useCallback(
 		async (refresh = false) => {
@@ -220,7 +234,7 @@ export default function WorkspaceFileScreen() {
 									className="min-h-11 flex-row items-center gap-2 rounded-xl bg-primary px-4 active:opacity-60"
 									onPress={() => {
 										if (!presentQuickLook(binaryPreviewUri)) {
-											void Share.share({ url: binaryPreviewUri });
+											void shareBinary(binaryPreviewUri, basename(path));
 										}
 									}}
 								>
@@ -233,7 +247,9 @@ export default function WorkspaceFileScreen() {
 									accessibilityRole="button"
 									accessibilityLabel={`Share ${basename(path)}`}
 									className="min-h-11 flex-row items-center gap-2 rounded-xl border border-border bg-card px-4 active:opacity-60"
-									onPress={() => void Share.share({ url: binaryPreviewUri })}
+									onPress={() =>
+										void shareBinary(binaryPreviewUri, basename(path))
+									}
 								>
 									<Share2 size={17} color={colors.fg} />
 									<Text className="font-sans-medium text-foreground">

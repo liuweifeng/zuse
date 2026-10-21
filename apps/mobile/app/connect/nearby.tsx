@@ -1,10 +1,10 @@
 import * as ExpoCrypto from "expo-crypto";
 import { router, Stack } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import { Monitor, Radio, ShieldCheck } from "lucide-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	ActivityIndicator,
+	Platform,
 	Pressable,
 	ScrollView,
 	Text,
@@ -17,6 +17,7 @@ import { EmptyState } from "~/components/ui/empty-state";
 import { returnToInbox } from "~/lib/connection-navigation";
 import { deviceLabel, getOrCreateDeviceId } from "~/lib/device-identity";
 import { successTap } from "~/lib/haptics";
+import { useHeaderContentInset } from "~/lib/native-header";
 import { pollNearbyApproval } from "~/lib/nearby-approval";
 import {
 	nearbyPairingChallenge,
@@ -47,6 +48,7 @@ import {
 	openLocalProxy,
 	startLocalDiscovery,
 } from "../../modules/local-connectivity";
+import { deviceModelName } from "../../modules/mobile-platform";
 
 type PendingApproval = {
 	readonly requestId: string;
@@ -57,6 +59,16 @@ type PendingApproval = {
 	readonly proxy: LocalProxy;
 };
 
+const DISCOVERY_UNAVAILABLE_HINT =
+	Platform.OS === "ios"
+		? "Nearby access is unavailable. Check Local Network access for Zuse in iPhone Settings."
+		: "Nearby access is unavailable. Make sure Wi-Fi is on and this phone is on the same network as your Mac.";
+
+const NEARBY_DISCOVERY_SUMMARY =
+	Platform.OS === "ios"
+		? "Nearby Macs appear automatically over Wi-Fi or peer-to-peer."
+		: "Nearby Macs on the same Wi-Fi network appear automatically.";
+
 const safetyPhraseLabel = (phrase: string): string =>
 	phrase.split("-").join("  ·  ");
 
@@ -66,7 +78,7 @@ const randomNonce = (): string =>
 	).join("");
 
 export default function NearbyConnectScreen() {
-	const headerHeight = useHeaderHeight();
+	const headerHeight = useHeaderContentInset();
 	const insets = useSafeAreaInsets();
 	const { height: windowHeight } = useWindowDimensions();
 	const [services, setServices] = useState<readonly NearbyService[]>([]);
@@ -135,7 +147,7 @@ export default function NearbyConnectScreen() {
 					port: proxy.port,
 					deviceId,
 					deviceLabel: deviceLabel(),
-					deviceModel: "iPhone",
+					deviceModel: deviceModelName(),
 					devicePublicKey: publicKey,
 					ephemeralPublicKey,
 					clientNonce,
@@ -329,7 +341,7 @@ export default function NearbyConnectScreen() {
 				) : (
 					<View className="flex-1 pt-4">
 						<Text className="mx-auto max-w-80 text-center font-sans text-sm leading-5 text-muted-foreground">
-							Nearby Macs appear automatically over Wi-Fi or peer-to-peer.
+							{NEARBY_DISCOVERY_SUMMARY}
 						</Text>
 						{services.length === 0 ? (
 							<View className="flex-1 items-center justify-center gap-3 py-8">
@@ -342,7 +354,7 @@ export default function NearbyConnectScreen() {
 										<Text className="max-w-72 text-center font-sans text-sm leading-5 text-muted-foreground">
 											{discoveryState.state === "waiting" ||
 											discoveryState.state === "failed"
-												? "Nearby access is unavailable. Check Local Network access for Zuse in iPhone Settings."
+												? DISCOVERY_UNAVAILABLE_HINT
 												: "Keep Zuse open on the Mac and make sure both devices have Wi-Fi enabled."}
 										</Text>
 										<Button

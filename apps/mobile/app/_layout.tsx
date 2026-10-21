@@ -19,9 +19,12 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { Uniwind, useUniwind } from "uniwind";
 
 import { CrashReportOverlay } from "~/components/crash-report-overlay";
+import { TextPromptHost } from "~/components/text-prompt-host";
 import { useMobileAnalytics } from "~/hooks/use-mobile-analytics";
 import { noteMobileInteraction } from "~/lib/analytics";
 import { installCrashReporting } from "~/lib/crash-reporting";
+import { isTabletDevice, useReadableContentStyle } from "~/lib/form-factor";
+import { SHEET_PRESENTATION, TRANSPARENT_HEADER } from "~/lib/native-header";
 import { isLegacyPairingUrl } from "~/lib/pairing";
 import { installNotificationResponseHandler } from "~/notifications/push";
 import { usePushRegistration } from "~/notifications/use-push-registration";
@@ -39,6 +42,8 @@ function ConnectivityRuntimeBridge() {
 	const pathname = usePathname();
 	useMobileAnalytics(pathname);
 	useEffect(() => {
+		// Tablets keep the system's rotation; only phones pin portrait.
+		if (isTabletDevice()) return;
 		void ScreenOrientation.lockAsync(
 			pathname.endsWith("/terminal")
 				? ScreenOrientation.OrientationLock.ALL
@@ -55,6 +60,8 @@ export default function RootLayout() {
 		GeistMono_400Regular,
 	});
 	const incomingUrl = Linking.useURL();
+	// Wide windows center content in a readable column; headers stay full width.
+	const readableContent = useReadableContentStyle();
 
 	useEffect(() => {
 		installCrashReporting();
@@ -74,6 +81,10 @@ export default function RootLayout() {
 		return <View className="flex-1 bg-background" />;
 	}
 
+	// iOS form sheets show system glass through a clear background.
+	const sheetBackground = Platform.OS === "ios" ? "transparent" : colors.bg;
+	const fullBleedContent = { backgroundColor: colors.bg };
+
 	return (
 		<AppAtomProvider>
 			<GestureHandlerRootView
@@ -87,7 +98,7 @@ export default function RootLayout() {
 						<Stack
 							screenOptions={{
 								headerLargeTitle: true,
-								headerTransparent: Platform.OS === "ios",
+								headerTransparent: TRANSPARENT_HEADER,
 								headerShadowVisible: false,
 								headerLargeTitleShadowVisible: false,
 								headerStyle:
@@ -107,7 +118,7 @@ export default function RootLayout() {
 								headerTitleStyle: { color: colors.fg },
 								headerTintColor: colors.fg,
 								headerBackButtonDisplayMode: "minimal",
-								contentStyle: { backgroundColor: colors.bg },
+								contentStyle: readableContent,
 							}}
 						>
 							<Stack.Screen name="index" options={{ title: "Chats" }} />
@@ -132,14 +143,15 @@ export default function RootLayout() {
 								options={{
 									title: "Settings",
 									headerShown: false,
-									presentation: "formSheet",
+									presentation: SHEET_PRESENTATION,
 									headerLargeTitle: false,
 									sheetAllowedDetents: [0.92],
 									sheetInitialDetentIndex: 0,
 									sheetGrabberVisible: true,
 									headerTintColor: colors.fg,
-									headerTransparent: true,
-									contentStyle: { backgroundColor: colors.bg },
+									headerTransparent: TRANSPARENT_HEADER,
+									// The nested settings stack applies the readable column.
+									contentStyle: fullBleedContent,
 								}}
 							/>
 							<Stack.Screen
@@ -165,6 +177,7 @@ export default function RootLayout() {
 							<Stack.Screen
 								name="media-viewer"
 								options={{
+									contentStyle: fullBleedContent,
 									headerShown: false,
 									presentation: "fullScreenModal",
 									animation: "fade",
@@ -190,6 +203,7 @@ export default function RootLayout() {
 							<Stack.Screen
 								name="connect/scan"
 								options={{
+									contentStyle: fullBleedContent,
 									title: "Scan",
 									headerLargeTitle: false,
 									headerShown: false,
@@ -217,11 +231,14 @@ export default function RootLayout() {
 								options={{
 									title: "Threads",
 									headerLargeTitle: false,
-									presentation: "formSheet",
+									presentation: SHEET_PRESENTATION,
 									sheetAllowedDetents: [0.42, 0.92],
 									sheetInitialDetentIndex: 0,
 									sheetGrabberVisible: true,
-									contentStyle: { backgroundColor: "transparent" },
+									contentStyle: {
+										...readableContent,
+										backgroundColor: sheetBackground,
+									},
 								}}
 							/>
 							<Stack.Screen
@@ -255,11 +272,14 @@ export default function RootLayout() {
 								options={{
 									title: "Review changes",
 									headerLargeTitle: false,
-									presentation: "formSheet",
+									presentation: SHEET_PRESENTATION,
 									sheetAllowedDetents: [0.72, 1],
 									sheetInitialDetentIndex: 0,
 									sheetGrabberVisible: true,
-									contentStyle: { backgroundColor: "transparent" },
+									contentStyle: {
+										...readableContent,
+										backgroundColor: sheetBackground,
+									},
 								}}
 							/>
 							<Stack.Screen
@@ -284,6 +304,7 @@ export default function RootLayout() {
 							/>
 						</Stack>
 						<CrashReportOverlay />
+						{Platform.OS === "ios" ? null : <TextPromptHost />}
 					</ThemeProvider>
 				</KeyboardProvider>
 			</GestureHandlerRootView>

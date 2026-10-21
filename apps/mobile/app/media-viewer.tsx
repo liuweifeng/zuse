@@ -6,14 +6,18 @@ import {
 	Alert,
 	Pressable,
 	ScrollView,
-	Share,
 	Text,
 	useWindowDimensions,
 	View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { saveImageToPhotos } from "../modules/mobile-platform";
+import {
+	photoLibraryName,
+	saveImageRefusedMessage,
+	saveImageToPhotos,
+	shareFile,
+} from "../modules/mobile-platform";
 
 export default function MediaViewerScreen() {
 	const { width, height } = useWindowDimensions();
@@ -30,7 +34,7 @@ export default function MediaViewerScreen() {
 
 	const share = useCallback(async () => {
 		try {
-			await Share.share({ url: uri, title: name });
+			await shareFile(uri, { title: name });
 		} catch (cause) {
 			Alert.alert(
 				"Couldn’t share image",
@@ -43,10 +47,8 @@ export default function MediaViewerScreen() {
 		try {
 			const saved = await saveImageToPhotos(uri);
 			Alert.alert(
-				saved ? "Saved to Photos" : "Couldn’t save image",
-				saved
-					? undefined
-					: "Allow photo-library access in iPhone Settings and try again.",
+				saved ? `Saved to ${photoLibraryName()}` : "Couldn’t save image",
+				saved ? undefined : saveImageRefusedMessage(),
 			);
 		} catch {
 			Alert.alert("Couldn’t save image", "The image could not be saved.");

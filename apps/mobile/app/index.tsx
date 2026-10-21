@@ -8,6 +8,7 @@ import {
 	AppState,
 	FlatList,
 	Image,
+	Platform,
 	Pressable,
 	RefreshControl,
 	Text,
@@ -25,6 +26,7 @@ import { ProjectDragRow } from "~/components/home/project-drag-row";
 import { useProjectOrder } from "~/components/home/use-project-order";
 import { Button } from "~/components/ui/button";
 import { EmptyState } from "~/components/ui/empty-state";
+import { Fab } from "~/components/ui/fab";
 import { GlassSurface } from "~/components/ui/glass-surface";
 import { HugeIcon } from "~/components/ui/huge-icon";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
@@ -44,6 +46,8 @@ import {
 } from "~/lib/inbox";
 import { startLoadingDeadline } from "~/lib/loading-deadline";
 import { moveProject, orderProjects } from "~/lib/project-order";
+import { platformSymbolName } from "~/lib/symbol-names";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import {
 	authAccountAtom,
 	authBusyAtom,
@@ -95,6 +99,7 @@ import {
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
+import { localConnectivityAvailable } from "../modules/local-connectivity";
 
 const LOGO = require("../assets/icon.png");
 
@@ -109,6 +114,7 @@ const HEADER_ACTION_STYLE = {
 type ChatFeedItem = HomeFeedItem & { type: "chat" };
 
 export default function HomeScreen() {
+	const toolbarIcon = useToolbarIcons();
 	const { width } = useWindowDimensions();
 	const [search, setSearch] = useState("");
 	const [displayStates, setDisplayStates] = useState<
@@ -508,6 +514,34 @@ export default function HomeScreen() {
 		);
 	}
 
+	const searchField = (
+		<>
+			<Search size={17} color={colors.secondaryFg} />
+			<TextInput
+				editable={!dragging}
+				accessibilityLabel="Search chats"
+				autoCapitalize="none"
+				autoCorrect={false}
+				className="min-h-7 flex-1 font-sans text-[16px] text-foreground"
+				placeholder="Search"
+				placeholderTextColor={colors.tertiaryFg}
+				returnKeyType="search"
+				value={search}
+				onChangeText={setSearch}
+			/>
+			{searching ? (
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Clear search"
+					hitSlop={8}
+					onPress={() => setSearch("")}
+				>
+					<HugeIcon icon={Cancel01Icon} size={15} color={colors.secondaryFg} />
+				</Pressable>
+			) : null}
+		</>
+	);
+
 	return (
 		<>
 			<Stack.Screen
@@ -528,7 +562,7 @@ export default function HomeScreen() {
 								]}
 							>
 								<SymbolView
-									name="qrcode.viewfinder"
+									name={platformSymbolName("qrcode.viewfinder")}
 									size={19}
 									weight="semibold"
 									tintColor={colors.fg}
@@ -545,7 +579,7 @@ export default function HomeScreen() {
 								]}
 							>
 								<SymbolView
-									name="gearshape.fill"
+									name={platformSymbolName("gearshape.fill")}
 									size={20}
 									weight="medium"
 									tintColor={colors.fg}
@@ -555,54 +589,6 @@ export default function HomeScreen() {
 					),
 				}}
 			/>
-			<Stack.Toolbar placement="bottom">
-				<Stack.Toolbar.View separateBackground>
-					<GlassSurface
-						style={{
-							width: Math.min(width - 88, 520),
-							height: 44,
-							borderRadius: 22,
-							flexDirection: "row",
-							alignItems: "center",
-							gap: 8,
-							paddingHorizontal: 14,
-						}}
-					>
-						<Search size={17} color={colors.secondaryFg} />
-						<TextInput
-							editable={!dragging}
-							accessibilityLabel="Search chats"
-							autoCapitalize="none"
-							autoCorrect={false}
-							className="min-h-7 flex-1 font-sans text-[16px] text-foreground"
-							placeholder="Search"
-							placeholderTextColor={colors.tertiaryFg}
-							returnKeyType="search"
-							value={search}
-							onChangeText={setSearch}
-						/>
-						{searching ? (
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel="Clear search"
-								hitSlop={8}
-								onPress={() => setSearch("")}
-							>
-								<HugeIcon
-									icon={Cancel01Icon}
-									size={15}
-									color={colors.secondaryFg}
-								/>
-							</Pressable>
-						) : null}
-					</GlassSurface>
-				</Stack.Toolbar.View>
-				<Stack.Toolbar.Button
-					icon="square.and.pencil"
-					separateBackground
-					onPress={() => router.push("/new-chat")}
-				/>
-			</Stack.Toolbar>
 			<FlatList
 				scrollEnabled={!dragging}
 				className="flex-1 bg-background"
@@ -625,6 +611,11 @@ export default function HomeScreen() {
 				}
 				ListHeaderComponent={
 					<>
+						{Platform.OS === "ios" ? null : (
+							<View className="mb-3 h-14 flex-row items-center gap-3 rounded-full bg-card-elevated px-5">
+								{searchField}
+							</View>
+						)}
 						{cloudCatalog.error ? (
 							<Text
 								role="alert"
@@ -733,7 +724,7 @@ export default function HomeScreen() {
 										onPress={() => router.push("/connect/scan")}
 									>
 										<SymbolView
-											name="qrcode.viewfinder"
+											name={platformSymbolName("qrcode.viewfinder")}
 											size={18}
 											tintColor={
 												account === null ? colors.fg : colors.primaryForeground
@@ -742,13 +733,15 @@ export default function HomeScreen() {
 										Scan QR Code
 									</Button>
 									<View className="flex-row justify-center gap-2">
-										<Button
-											size="sm"
-											variant="ghost"
-											onPress={() => router.push("/connect/nearby")}
-										>
-											Find Nearby
-										</Button>
+										{localConnectivityAvailable ? (
+											<Button
+												size="sm"
+												variant="ghost"
+												onPress={() => router.push("/connect/nearby")}
+											>
+												Find Nearby
+											</Button>
+										) : null}
 										<Button
 											size="sm"
 											variant="ghost"
@@ -771,6 +764,36 @@ export default function HomeScreen() {
 					)
 				}
 			/>
+			{Platform.OS === "ios" ? (
+				<Stack.Toolbar placement="bottom">
+					<Stack.Toolbar.View separateBackground>
+						<GlassSurface
+							style={{
+								width: Math.min(width - 88, 520),
+								height: 44,
+								borderRadius: 22,
+								flexDirection: "row",
+								alignItems: "center",
+								gap: 8,
+								paddingHorizontal: 14,
+							}}
+						>
+							{searchField}
+						</GlassSurface>
+					</Stack.Toolbar.View>
+					<Stack.Toolbar.Button
+						icon={toolbarIcon("square.and.pencil")}
+						separateBackground
+						onPress={() => router.push("/new-chat")}
+					/>
+				</Stack.Toolbar>
+			) : (
+				<Fab
+					symbol="square.and.pencil"
+					label="New chat"
+					onPress={() => router.push("/new-chat")}
+				/>
+			)}
 		</>
 	);
 }

@@ -24,6 +24,7 @@ const createExpoConfig = require("../../app.config.js") as (context: {
 		readonly bundleIdentifier: string;
 		readonly entitlements: Readonly<Record<string, readonly string[]>>;
 	};
+	readonly android: { readonly package: string };
 	readonly extra: {
 		readonly appVariant: string;
 		readonly releaseChannel: string;
@@ -82,6 +83,7 @@ describe("mobile api configuration", () => {
 				name: "Zuse Dev",
 				scheme: "zuse-dev",
 				ios: { bundleIdentifier: "com.zuse.sh.dev" },
+				android: { package: "com.zuse.sh.dev" },
 				extra: {
 					appVariant: "development",
 					releaseChannel: "development",
@@ -94,6 +96,7 @@ describe("mobile api configuration", () => {
 					name: "Zuse",
 					scheme: "zuse",
 					ios: { bundleIdentifier: "com.zuse.sh" },
+					android: { package: "com.zuse.sh" },
 					extra: { appVariant: variant, releaseChannel: variant },
 				});
 			}

@@ -17,6 +17,7 @@ import {
 
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
+import { promptText } from "~/lib/text-prompt";
 import {
 	deleteArchivedChat,
 	listArchivedChats,
@@ -149,10 +150,13 @@ export default function ArchivesScreen() {
 	const confirmDelete = (row: ArchivedRow) => {
 		const connection = optionsForConnection(row.connectionKey, connections);
 		if (connection === null && row.cloudWorkspaceId === undefined) return;
-		Alert.prompt(
-			"Delete permanently?",
-			`This permanently deletes “${row.chat.title}” and its sessions. Type DELETE to continue.`,
-			(value) => {
+		promptText({
+			title: "Delete permanently?",
+			message: `This permanently deletes “${row.chat.title}” and its sessions. Type DELETE to continue.`,
+			placeholder: "DELETE",
+			confirmLabel: "Delete",
+			destructive: true,
+			onSubmit: (value) => {
 				if (value !== "DELETE") return;
 				setBusyId(row.chat.id);
 				const deletion =
@@ -183,8 +187,7 @@ export default function ArchivesScreen() {
 					)
 					.finally(() => setBusyId(null));
 			},
-			"plain-text",
-		);
+		});
 	};
 
 	const showPreview = async (row: ArchivedRow) => {
