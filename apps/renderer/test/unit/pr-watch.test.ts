@@ -41,28 +41,38 @@ const details = GitPrDetails.make({
 });
 
 describe("CI watcher failure identity", () => {
-	test("ignores pending checks, drafts and closed PRs", () => {
+	test("ignores pending-only checks, drafts and closed PRs", () => {
 		for (const patch of [
 			{ isDraft: true },
 			{ state: "closed" as const },
 			{ checks: "pending" as const },
 			{ checkRuns: [] },
-			{
-				checkRuns: [
-					...details.checkRuns,
-					{
-						name: "build",
-						status: "queued" as const,
-						conclusion: null,
-						url: null,
-					},
-				],
-			},
 		])
 			expect(
 				prFailureKey(GitPrDetails.make({ ...details, ...patch })),
 			).toBeNull();
 	});
+	test("pending checks do not block or change the identity of completed failures", () => {
+		for (const status of ["queued", "in_progress"] as const) {
+			expect(
+				prFailureKey(
+					GitPrDetails.make({
+						...details,
+						checkRuns: [
+							...details.checkRuns,
+							{
+								name: "build",
+								status,
+								conclusion: null,
+								url: null,
+							},
+						],
+					}),
+				),
+			).toBe(prFailureKey(details));
+		}
+	});
+
 	test("distinguishes new heads and reruns from repeated polls", () => {
 		expect(prFailureKey(details)).toBe(
 			prFailureKey(GitPrDetails.make({ ...details })),
