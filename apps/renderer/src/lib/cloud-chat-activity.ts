@@ -88,7 +88,8 @@ export const deriveCloudChatActivity = ({
 		summary.state === "ready" && summary.runtimeState === "online";
 
 	if (
-		(computeReady || timeline?.connection === "connected") &&
+		// A lifecycle heartbeat can lag an observed turn during reconnect. Keep
+		// that turn active until its timeline settles or the workspace stops.
 		timeline?.origin === "runtime" &&
 		timeline.data?.activeTurn != null
 	) {

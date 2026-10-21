@@ -471,6 +471,13 @@ describe("cloud chat catalog", () => {
 				timeline,
 			};
 			expect(deriveCloudChatActivity(input)).toBe("running");
+			// Lifecycle heartbeats can lag the live turn while its socket reconnects.
+			expect(
+				deriveCloudChatActivity({
+					...input,
+					summary: { ...row, state: "resuming", runtimeState: "offline" },
+				}),
+			).toBe("running");
 			expect(
 				deriveCloudChatActivity({
 					...input,
