@@ -901,6 +901,35 @@ export const failedWorkspaceResumeTarget = (
 	} as const;
 };
 
+/** Verify provider metadata on explicit wake; an online database row is not a
+ * guarantee that externally stopped compute is still running. Never allocate
+ * replacement compute from a failed or missing observation. */
+export const cloudWorkspaceProviderNeedsWake = Effect.fn(
+	"cloudWorkspaceProviderNeedsWake",
+)(function* (
+	workspace: Pick<
+		CloudWorkspaceRecord,
+		"state" | "runtimeState" | "providerSandboxId"
+	>,
+	provider: Pick<ConnectedSandboxProvider, "inspect">,
+) {
+	if (
+		workspace.state !== "ready" ||
+		workspace.runtimeState !== "online" ||
+		workspace.providerSandboxId === undefined
+	)
+		return false;
+	const sandbox = yield* provider.inspect(workspace.providerSandboxId).pipe(
+		Effect.timeout("10 seconds"),
+		Effect.mapError(() =>
+			serviceUnavailable("cloud_provider_state_unavailable"),
+		),
+	);
+	if (sandbox === null)
+		return yield* notFound("cloud_workspace_sandbox_not_found");
+	return sandbox.state === "paused";
+});
+
 export const cloudWorkspaceResumeIsAlreadyRequested = (
 	workspace: Pick<CloudWorkspaceRecord, "desiredState" | "state">,
 ): boolean =>
@@ -4694,13 +4723,25 @@ const routeCloudWorkspaceRequestWithAccess = (
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
 					: yield* decodeBody(CloudWorkspaceActionRequest, request);
 
+			const resumeProvider =
+				action === "resume" &&
+				workspace.state === "ready" &&
+				workspace.runtimeState === "online"
+					? yield* resolveResourceProvider(workspace)
+					: null;
+			const providerNeedsWake =
+				resumeProvider !== null
+					? yield* cloudWorkspaceProviderNeedsWake(workspace, resumeProvider)
+					: false;
 			const recoverRuntime =
 				action === "resume" &&
 				workspace.providerSandboxId !== undefined &&
-				((workspace.state === "failed" &&
-					(cloudWorkspaceHasRetainedRuntimeData(workspace) ||
-						workspace.statusCode === "runtime-connection-timeout" ||
-						workspace.statusCode === "runtime-activation-unconfirmed")) ||
+				((providerNeedsWake &&
+					resumeProvider?.preservesProcessesOnResume !== true) ||
+					(workspace.state === "failed" &&
+						(cloudWorkspaceHasRetainedRuntimeData(workspace) ||
+							workspace.statusCode === "runtime-connection-timeout" ||
+							workspace.statusCode === "runtime-activation-unconfirmed")) ||
 					workspace.statusCode === "runtime-memory-recovery-failed" ||
 					workspace.requestConfig.cloudMailboxFenceRequired === true);
 
@@ -4737,6 +4778,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 								: "paused";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(providerNeedsWake && !recoverRuntime
+					? { state: "paused" as const, runtimeState: "offline" as const }
+					: {}),
 				...(failedRetryBuild === null
 					? {}
 					: { buildId: failedRetryBuild.buildId }),
@@ -4852,6 +4896,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				deduplicateRequestedResume:
 					action === "resume" &&
 					!recoverRuntime &&
+					!providerNeedsWake &&
 					cloudWorkspaceResumeIsAlreadyRequested(workspace),
 				createdAtMs: nowMs,
 			});

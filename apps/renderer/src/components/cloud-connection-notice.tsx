@@ -28,8 +28,8 @@ import {
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import {
-	ensureCloudWorkspaceAttached,
 	rearmRegisteredCloudConnection,
+	recoverCloudWorkspaceConnection,
 } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
@@ -102,7 +102,7 @@ type RetryRendererConnection = (environmentId: EnvironmentId) => void;
 
 export const retryCloudConnection = async (
 	summary: CloudChatSummary,
-	attach: AttachCloudWorkspace = ensureCloudWorkspaceAttached,
+	attach: AttachCloudWorkspace = recoverCloudWorkspaceConnection,
 	retryConnection: RetryRendererConnection = retryRendererEnvironmentConnection,
 ): Promise<void> => {
 	await attach(summary, "wake");
