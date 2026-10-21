@@ -162,6 +162,7 @@ export function CloudConnectionNotice() {
 			resources.sync === "live" &&
 			resources.connection === "connected" &&
 			resources.data?.sample.memoryPressure === true,
+		summary.failureDiagnostic,
 	);
 	const lifecycle = cloudConnectionPresentation(
 		summary,
@@ -243,15 +244,15 @@ export function CloudConnectionNotice() {
 						detail:
 							"Your session expired — sign in to reconnect this cloud workspace.",
 					}
-				: typedConnectionFailure !== null
+				: memoryNotice !== null && !terminalConnectionFailure
 					? {
-							title: typedConnectionFailure.headline,
-							detail: typedConnectionFailure.message,
+							title: uiMessage(memoryNotice.title),
+							detail: uiMessage("connections:cloud_memory_advice"),
 						}
-					: memoryNotice !== null
+					: typedConnectionFailure !== null
 						? {
-								title: uiMessage(memoryNotice.title),
-								detail: uiMessage("connections:cloud_memory_advice"),
+								title: typedConnectionFailure.headline,
+								detail: typedConnectionFailure.message,
 							}
 						: presentation === "hidden"
 							? null
@@ -278,6 +279,7 @@ export function CloudConnectionNotice() {
 	return (
 		<TrayPill
 			flush
+			tone={memoryNotice !== null ? "warning" : "default"}
 			role="status"
 			aria-live="polite"
 			icon={

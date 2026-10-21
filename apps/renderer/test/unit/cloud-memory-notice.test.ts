@@ -5,6 +5,15 @@ import {
 } from "../../src/lib/cloud-memory-notice.ts";
 
 describe("cloud memory notice", () => {
+	test("preserves a memory diagnostic when lifecycle reports a generic failure", () => {
+		expect(
+			cloudMemoryNotice("connection-failed", false, "runtime-memory-recovering")
+				?.title,
+		).toBe("connections:cloud_memory_recovering");
+		expect(
+			cloudMemoryNotice("connection-failed", false, "network-error"),
+		).toBeNull();
+	});
 	test("shows a warning only for measured pressure and clears after recovery", () => {
 		expect(cloudMemoryNotice("ready", true)?.title).toBe(
 			"connections:cloud_memory_low",

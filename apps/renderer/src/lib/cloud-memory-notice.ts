@@ -7,11 +7,16 @@ import type { CloudChatActivity } from "./cloud-chat-activity.ts";
 export const cloudMemoryNotice = (
 	statusCode: string,
 	pressure: boolean,
+	failureDiagnostic?: string,
 ): {
 	readonly title: MessageKey;
 	readonly busy: boolean;
 } | null => {
-	switch (statusCode) {
+	switch (
+		failureDiagnostic?.startsWith("runtime-memory-")
+			? failureDiagnostic
+			: statusCode
+	) {
 		case "runtime-memory-pressure":
 			return { title: "connections:cloud_memory_waiting", busy: true };
 		case "runtime-memory-recovering":
