@@ -5,6 +5,7 @@ import {
 	decidePermission,
 	pendingBySessionAtom,
 	resetPermissionsRuntime,
+	retainPermissionConnection,
 } from "../../../src/store/permissions";
 import { appAtomRegistry } from "../../../src/store/registry";
 
@@ -14,6 +15,7 @@ const harness = vi.hoisted(() => {
 	};
 	return {
 		data,
+		listener: undefined as (() => void) | undefined,
 		resolve: undefined as (() => void) | undefined,
 		reject: undefined as ((cause: Error) => void) | undefined,
 		dispatch: vi.fn(
@@ -29,6 +31,11 @@ const harness = vi.hoisted(() => {
 vi.mock("../../../src/store/mobile-client-bus", () => ({
 	dispatchMobileSessionCommand: harness.dispatch,
 	mobileClientBus: () => ({
+		retain: () => ({ release: () => undefined }),
+		subscribe: (_key: unknown, listener: () => void) => {
+			harness.listener = listener;
+			return () => undefined;
+		},
 		snapshot: () => ({ data: harness.data }),
 		overlay: (
 			_key: unknown,
@@ -93,5 +100,15 @@ describe("permission decisions", () => {
 		harness.reject?.(new Error("decision failed"));
 		await expect(pendingDecision).rejects.toThrow("decision failed");
 		expect(harness.data.requestsById).toEqual({ [request.id]: request });
+	});
+
+	test("clears a session's card once its last request is resolved", () => {
+		appAtomRegistry.set(pendingBySessionAtom, {});
+		retainPermissionConnection("conn", options);
+		expect(appAtomRegistry.get(pendingBySessionAtom)[key]).toEqual([request]);
+
+		harness.data.requestsById = {};
+		harness.listener?.();
+		expect(appAtomRegistry.get(pendingBySessionAtom)).toEqual({});
 	});
 });
