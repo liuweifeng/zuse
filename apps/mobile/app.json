@@ -34,6 +34,7 @@
 			"./plugins/with-android-architectures",
 			"./plugins/with-android-cleartext-traffic",
 			"./plugins/with-android-material-theme",
+			"./plugins/with-android-release",
 			"expo-dev-client",
 			"expo-secure-store",
 			"expo-notifications",
@@ -53,7 +54,8 @@
 		},
 		"owner": "swarajbachu",
 		"android": {
-			"package": "com.zuse.sh"
+			"package": "com.zuse.sh",
+			"versionCode": 1
 		}
 	}
 }
