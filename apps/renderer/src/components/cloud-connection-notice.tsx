@@ -82,9 +82,12 @@ const copy: Record<
 		get title() {
 			return uiMessage("connections:cloud_connection_notice_reconnect_needed");
 		},
-		detail: "The workspace is still running. Retry the live connection.",
+		detail:
+			"The live connection is unavailable. Retry to reconnect; queued messages are preserved.",
 	},
 	failed: {
+		detail:
+			"Couldn’t reconnect to this cloud workspace. Retry to connect; queued messages are preserved.",
 		get title() {
 			return uiMessage("connections:cloud_connection_notice_connection_failed");
 		},
@@ -172,6 +175,7 @@ export function CloudConnectionNotice() {
 
 	const presentation =
 		queuedPrompts > 0 &&
+		shell.connection !== "failed" &&
 		(lifecycle === "paused" ||
 			lifecycle === "resuming" ||
 			lifecycle === "updating")

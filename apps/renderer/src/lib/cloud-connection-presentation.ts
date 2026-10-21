@@ -1,3 +1,4 @@
+import { cloudWorkspaceIsStarting } from "@zuse/client-runtime/cloud-startup-presentation";
 import type { ConnectionPhase } from "@zuse/client-runtime/resource-state";
 import type { CloudChatSummary } from "@zuse/contracts";
 import type { CloudChatActivity } from "./cloud-chat-activity.ts";
@@ -41,7 +42,10 @@ export const cloudConnectionPresentation = (
 	}
 	if (activity === "paused") return "paused";
 	if (summary.statusCode.includes("runtime-update")) return "updating";
-	if (activity === "resuming") return "resuming";
+	if (activity === "resuming")
+		return connection === "failed" && !cloudWorkspaceIsStarting(summary)
+			? "failed"
+			: "resuming";
 
 	if (activity === "attaching") return "hidden";
 	return "hidden";

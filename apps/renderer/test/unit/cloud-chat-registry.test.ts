@@ -347,7 +347,9 @@ describe("cloud chat catalog", () => {
 					expect(activity).toBe(state);
 					expect(
 						cloudConnectionPresentation(workspace, activity, connection),
-					).toBe(state);
+					).toBe(
+						state === "resuming" && connection === "failed" ? "failed" : state,
+					);
 					expect(cloudChatShowsWorking(activity)).toBe(false);
 				}
 			}

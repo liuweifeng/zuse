@@ -9414,7 +9414,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 314
+				"line": 318
 			},
 			{
 				"path": "apps/renderer/src/components/composer/cloud-agent-sign-in-tray.tsx",
@@ -10201,7 +10201,7 @@
 			},
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 313
+				"line": 317
 			},
 			{
 				"path": "apps/renderer/src/components/composer/provider-sign-in-tray.tsx",
@@ -10481,7 +10481,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 312
+				"line": 316
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10655,7 +10655,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 89
+				"line": 92
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10665,7 +10665,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 227
+				"line": 231
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10675,7 +10675,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 230
+				"line": 234
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10685,7 +10685,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 236
+				"line": 240
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -10695,7 +10695,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 242
+				"line": 246
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -11176,7 +11176,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-connection-notice.tsx",
-				"line": 250
+				"line": 254
 			}
 		],
 		"context": "connections interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

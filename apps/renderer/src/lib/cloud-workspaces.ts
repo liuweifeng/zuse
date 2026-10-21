@@ -151,8 +151,8 @@ let hydrationRequested = false;
 
 /**
  * An authoritative online runtime is a new recovery signal for a client whose
- * socket exhausted its retry ladder while compute was asleep. Include both
- * lifecycle revision and client generation so each real state change gets one
+ * socket exhausted its retry ladder while compute was asleep. Use the
+ * lifecycle revision so each real state change gets one
  * automatic attempt without turning a persistent outage into a retry storm.
  */
 export const cloudConnectionRearmKey = (
@@ -160,7 +160,7 @@ export const cloudConnectionRearmKey = (
 	connection: ConnectionView,
 ): string | null =>
 	isCloudWorkspaceAttachable(summary) && connection.phase === "failed"
-		? `${summary.workspaceId}:${summary.revision}:${connection.generation}`
+		? `${summary.workspaceId}:${summary.revision}`
 		: null;
 
 export const rearmReadyCloudConnection = (
