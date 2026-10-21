@@ -42,7 +42,8 @@
 			"expo-status-bar",
 			"expo-image",
 			"expo-audio",
-			"expo-screen-orientation"
+			"expo-screen-orientation",
+			"expo-localization"
 		],
 		"extra": {
 			"router": {},

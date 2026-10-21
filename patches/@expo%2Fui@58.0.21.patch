@@ -1,8 +1,5 @@
-diff --git a/node_modules/@expo/ui/.bun-tag-ccbeaecc8ccaec0b b/.bun-tag-ccbeaecc8ccaec0b
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/src/community/bottom-sheet/BottomSheet.android.tsx b/src/community/bottom-sheet/BottomSheet.android.tsx
-index ac8ae4af0a1fee8afbea2b9a5393d8eae271b108..31147b9614ecf1d82b067ff8292eaf611c18c52f 100644
+index 419edefacdca8b98e318dc924c66575171e35124..3a9a3d280fc4cc7e075b943e981bfcc28f25a18f 100644
 --- a/src/community/bottom-sheet/BottomSheet.android.tsx
 +++ b/src/community/bottom-sheet/BottomSheet.android.tsx
 @@ -46,6 +46,9 @@ function findNearestSnapPointIndex(

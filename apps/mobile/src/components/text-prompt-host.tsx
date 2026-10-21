@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Modal, Pressable, Text, type TextInput, View } from "react-native";
+import {
+	Modal,
+	Pressable,
+	Text,
+	type TextInputInstance,
+	View,
+} from "react-native";
 
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
@@ -23,7 +29,7 @@ export function TextPromptHost() {
 	// Keep the closing dialog painted while the modal fades out.
 	const [shown, setShown] = useState(request);
 	if (request !== null && request !== shown) setShown(request);
-	const inputRef = useRef<TextInput>(null);
+	const inputRef = useRef<TextInputInstance>(null);
 
 	return (
 		<Modal
@@ -50,7 +56,7 @@ function TextPromptDialog({
 	inputRef,
 }: {
 	request: TextPromptRequest;
-	inputRef: React.RefObject<TextInput | null>;
+	inputRef: React.RefObject<TextInputInstance | null>;
 }) {
 	const [value, setValue] = useState(request.defaultValue ?? "");
 	const cancel = () => textPromptQueue.settle(request.id, { kind: "cancel" });

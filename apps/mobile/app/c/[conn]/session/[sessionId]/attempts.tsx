@@ -107,7 +107,7 @@ export default function SessionAttemptsScreen() {
 						<Text className="py-4 font-sans text-[13px] text-muted-foreground">
 							{message("chat:attempts_empty")}
 						</Text>
-					) : null
+					) : undefined
 				}
 				renderItem={({ item }) => (
 					<View className="gap-1 rounded-xl bg-muted/30 px-3 py-2.5">
@@ -137,7 +137,7 @@ export default function SessionAttemptsScreen() {
 					</View>
 				)}
 				ListFooterComponent={
-					state.nextCursor === null ? null : (
+					state.nextCursor === null ? undefined : (
 						<Button
 							variant="ghost"
 							className="h-7"

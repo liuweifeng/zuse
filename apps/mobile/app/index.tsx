@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	AppState,
 	FlatList,
+	type HostInstance,
 	Image,
 	Platform,
 	Pressable,
@@ -139,7 +140,7 @@ export default function HomeScreen() {
 	const pinnedHydrated = useAtomValue(pinnedChatsHydratedAtom);
 	const pinnedKeys = useAtomValue(pinnedChatKeysAtom);
 	const projectOrder = useProjectOrder();
-	const projectViews = useRef(new Map<string, View>());
+	const projectViews = useRef(new Map<string, HostInstance>());
 	const projectPositions = useRef(new Map<string, number>());
 	const [dragging, setDragging] = useState(false);
 	const onboardingHydrated = useAtomValue(onboardingHydratedAtom);

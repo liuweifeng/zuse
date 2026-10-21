@@ -264,7 +264,7 @@ export default function WorkspaceFilesScreen() {
 								<Text className="px-2 pb-2 pt-1 font-sans text-xs text-muted-foreground">
 									Showing the first 50,000 paths.
 								</Text>
-							) : null
+							) : undefined
 						}
 						ListEmptyComponent={
 							<FileEmptyState

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
-import { Animated, View } from "react-native";
+import { Animated, type HostInstance, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { selectionTap } from "~/lib/haptics";
 
@@ -14,7 +14,7 @@ export function ProjectDragRow({
 }: {
 	children: ReactNode;
 	enabled: boolean;
-	register: (view: View | null) => void;
+	register: (view: HostInstance | null) => void;
 	onStart: () => void;
 	onDrop: (screenY: number) => void;
 	onFinish: () => void;

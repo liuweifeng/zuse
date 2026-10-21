@@ -10,11 +10,7 @@ import {
 	useRef,
 	useState,
 } from "react";
-import {
-	type NativeSyntheticEvent,
-	TextInput,
-	type TextInputSelectionChangeEventData,
-} from "react-native";
+import { TextInput, type TextInputSelectionChangeEvent } from "react-native";
 
 import { colors } from "~/theme";
 
@@ -145,9 +141,7 @@ export function ComposerTextInput({
 		}
 	};
 
-	const handleSelection = (
-		event: NativeSyntheticEvent<TextInputSelectionChangeEventData>,
-	) => {
+	const handleSelection = (event: TextInputSelectionChangeEvent) => {
 		selectionRef.current = event.nativeEvent.selection;
 		onTriggerChange?.(
 			detectComposerTrigger(textRef.current, event.nativeEvent.selection.start),

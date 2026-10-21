@@ -31,6 +31,7 @@ import {
 	AccessibilityInfo,
 	ActivityIndicator,
 	Alert,
+	type HostInstance,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
@@ -224,7 +225,7 @@ function ThreadScreen() {
 	} | null>(null);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const readerGestureActiveRef = useRef(false);
-	const composerOverlayRef = useRef<View>(null);
+	const composerOverlayRef = useRef<HostInstance>(null);
 	const [jumpAccessible, setJumpAccessible] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
 	const composerBottomInset = insets.bottom + 10;
