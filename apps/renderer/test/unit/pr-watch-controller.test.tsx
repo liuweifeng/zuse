@@ -202,3 +202,22 @@ test("retries prepared context after workspace synchronization without preparing
 	expect(fixture.prepare).toHaveBeenCalledOnce();
 	expect(fixture.watches[0]?.pending).toBeNull();
 });
+
+test("repairs completed failures while other checks are still running", async () => {
+	const details = fixture.details;
+	if (details === null) throw new Error("Missing PR fixture");
+	fixture.details = GitPrDetails.make({
+		...details,
+		checkRuns: [
+			...details.checkRuns,
+			{ name: "build", status: "in_progress", conclusion: null, url: null },
+			{ name: "review", status: "queued", conclusion: null, url: null },
+		],
+	});
+	await renderWatch();
+	expect(fixture.prepare).toHaveBeenCalledOnce();
+	expect(fixture.send).toHaveBeenCalledOnce();
+	expect(fixture.watches[0]?.handled).toHaveLength(1);
+	await renderWatch();
+	expect(fixture.send).toHaveBeenCalledOnce();
+});
