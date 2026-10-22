@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+	accountImageBuildsForHosting,
 	cloudAccountImageConfiguration,
 	codexAuthModeForAccountBuild,
 	isCloudAccountImageOutdated,
@@ -220,5 +221,61 @@ describe("image configuration freshness across providers", () => {
 		expect(configuration(projects)).toBe(
 			configuration([...projects].reverse()),
 		);
+	});
+});
+
+describe("account image status after switching hosting", () => {
+	const managed: CloudProjectBuildRecord = {
+		buildId: "managed",
+		projectId: null,
+		accountId: "account",
+		provider: "boxd",
+		configurationDigest: "config",
+		idempotencyKey: "managed",
+		nextActionAtMs: 0,
+		revision: 1,
+		updatedAtMs: 100,
+		state: "ready",
+		createdAtMs: 100,
+		snapshotId: "managed-snapshot",
+		templateVersion: "runtime",
+	};
+	const imported = (
+		state: CloudProjectBuildRecord["state"],
+	): CloudProjectBuildRecord => ({
+		...managed,
+		buildId: "import",
+		state,
+		createdAtMs: 200,
+		snapshotId: "private-snapshot",
+		templateVersion: "runtime:connection:key-old",
+		settings: { source: "custom-snapshot", providerConnectionId: "key-old" },
+	});
+
+	test.each([
+		"ready",
+		"failed",
+		"building",
+	] as const)("ignores a disconnected %s import in managed hosting status", (state) => {
+		expect(
+			accountImageBuildsForHosting([managed, imported(state)], "runtime"),
+		).toEqual([managed]);
+		expect(accountImageBuildsForHosting([imported(state)], "runtime")).toEqual(
+			[],
+		);
+	});
+	test("retains imports only for their active credential version", () => {
+		const build = imported("ready");
+		expect(
+			accountImageBuildsForHosting([build], "new-runtime:connection:key-old"),
+		).toEqual([build]);
+		expect(
+			accountImageBuildsForHosting([build], "runtime:connection:key-new"),
+		).toEqual([]);
+	});
+	test("retains outdated managed images for rebuild status", () => {
+		expect(accountImageBuildsForHosting([managed], "runtime-new")).toEqual([
+			managed,
+		]);
 	});
 });

@@ -581,6 +581,18 @@ export const isCloudAccountImageOutdated = (input: {
 	(input.requiredProviderAuthDeliveryVersion === 1 &&
 		input.providerAuthDeliveryVersion !== 1);
 
+export const accountImageBuildsForHosting = (
+	builds: ReadonlyArray<CloudProjectBuildRecord>,
+	currentTemplateVersion: string | undefined,
+) =>
+	builds
+		.filter(
+			(build) =>
+				!importedSnapshot(build) ||
+				snapshotBuildCompatible(build, currentTemplateVersion),
+		)
+		.sort((left, right) => right.createdAtMs - left.createdAtMs);
+
 export const selectActiveAccountImageBuild = (
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
 	currentTemplateVersion: string | undefined,
@@ -640,9 +652,10 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const builds =
 		provider === undefined
 			? []
-			: [
-					...(yield* store.listAccountBuilds(accountId, provider.providerId)),
-				].sort((left, right) => right.createdAtMs - left.createdAtMs);
+			: accountImageBuildsForHosting(
+					yield* store.listAccountBuilds(accountId, provider.providerId),
+					provider.templateVersion,
+				);
 	const snapshotRecords =
 		provider?.providerId === "box" && provider.connectionId === undefined
 			? yield* (yield* CloudBillingStore).snapshots.list(accountId, false)
