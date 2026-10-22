@@ -335,9 +335,9 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 		instances.delete(mf);
 		mf = create(directory);
 		a = await client(mf);
-		expect(
-			(await a.request({ action: "list" })).body.connections[0].label,
-		).toBe("Work docs");
+		expect((await a.request({ action: "list" })).body.connections).toEqual([
+			expect.objectContaining({ label: "Work docs" }),
+		]);
 		expect((await a.request({ action: "list" })).body.connections).toHaveLength(
 			1,
 		);
