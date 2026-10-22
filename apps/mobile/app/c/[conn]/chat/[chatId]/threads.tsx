@@ -7,7 +7,7 @@ import type {
 	SessionStatus,
 } from "@zuse/contracts";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { Check, Ellipsis, Plus, Search, X } from "lucide-react-native";
+import { Check, Plus, Search, X } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	ActivityIndicator,
@@ -19,7 +19,7 @@ import {
 	TextInput,
 	View,
 } from "react-native";
-
+import { OverflowMenu } from "~/components/overflow-menu";
 import { ProviderLogo } from "~/components/provider-logo";
 import { StatusDot } from "~/components/ui/status-dot";
 import {
@@ -27,13 +27,16 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { lightTap } from "~/lib/haptics";
+import type { MenuItem } from "~/lib/menu-items";
 import { connectionSessionKey } from "~/lib/session-key";
+import { promptText } from "~/lib/text-prompt";
 import {
 	nearestSurvivingThread,
 	threadDisplayTitle,
 	threadStatusLabel,
 } from "~/lib/thread-presentation";
 import { activeThreadSelection, switchToThread } from "~/lib/thread-switching";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { pendingBySessionAtom } from "~/store/permissions";
 import {
@@ -51,6 +54,7 @@ import { colors } from "~/theme";
 const LARGE_THREAD_COUNT = 8;
 
 export default function ThreadsScreen() {
+	const toolbarIcon = useToolbarIcons();
 	const { conn, chatId, sessionId } = useLocalSearchParams<{
 		conn: string;
 		chatId: string;
@@ -220,39 +224,48 @@ export default function ThreadsScreen() {
 		],
 	);
 
-	const openActions = useCallback(
-		(thread: Session, title: string) => {
-			if (options === null) return;
-			Alert.alert(title, undefined, [
-				{
-					text: "Rename",
-					onPress: () =>
-						Alert.prompt(
-							"Rename thread",
-							undefined,
-							(value) => {
-								if (value?.trim()) {
-									void renameSession(connKey, options, thread.id, value).catch(
-										(cause) =>
-											Alert.alert(
-												"Could not rename session",
-												cause instanceof Error ? cause.message : String(cause),
-											),
-									);
-								}
-							},
-							"plain-text",
-							title,
-						),
-				},
-				{
-					text: threads.length === 1 ? "Archive chat" : "Archive thread",
-					style: "destructive",
-					onPress: () => archiveThread(thread),
-				},
-				{ text: "Cancel", style: "cancel" },
-			]);
-		},
+	const threadActions = useCallback(
+		(thread: Session, title: string): readonly MenuItem[] =>
+			options === null
+				? []
+				: [
+						{
+							id: "rename",
+							title: "Rename",
+							systemImage: "pencil",
+							onSelect: () =>
+								promptText({
+									title: "Rename thread",
+									defaultValue: title,
+									placeholder: "Thread name",
+									confirmLabel: "Rename",
+									onSubmit: (value) => {
+										if (value.trim()) {
+											void renameSession(
+												connKey,
+												options,
+												thread.id,
+												value,
+											).catch((cause) =>
+												Alert.alert(
+													"Could not rename session",
+													cause instanceof Error
+														? cause.message
+														: String(cause),
+												),
+											);
+										}
+									},
+								}),
+						},
+						{
+							id: "archive",
+							title: threads.length === 1 ? "Archive chat" : "Archive thread",
+							systemImage: "archivebox",
+							destructive: true,
+							onSelect: () => archiveThread(thread),
+						},
+					],
 		[archiveThread, connKey, options, threads.length],
 	);
 
@@ -397,14 +410,11 @@ export default function ThreadsScreen() {
 									</Text>
 								</View>
 							</View>
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel={`Actions for ${title}`}
-								className="h-11 w-11 items-center justify-center"
-								onPress={() => openActions(thread, title)}
-							>
-								<Ellipsis size={19} color={colors.secondaryFg} />
-							</Pressable>
+							<OverflowMenu
+								label={`Actions for ${title}`}
+								title={title}
+								items={threadActions(thread, title)}
+							/>
 						</Pressable>
 					);
 				}}
@@ -438,7 +448,7 @@ export default function ThreadsScreen() {
 			) : null}
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
-					icon="xmark"
+					icon={toolbarIcon("xmark")}
 					disabled={switchingSessionId !== null}
 					onPress={() => router.back()}
 				/>

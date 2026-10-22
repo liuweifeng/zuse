@@ -96,8 +96,9 @@ for (const kind of ["js", "css"]) {
 	if (totals[kind] > budgets[kind]) process.exitCode = 1;
 }
 
-// Allow 1 KiB for incremental chat recovery and durable queue acknowledgment.
-const defaultRouteBudget = 501 * 1024;
+// Allow 1 KiB for incremental chat recovery and durable queue acknowledgment,
+// and 4 KiB for React 19.3, which React Native 0.88 requires for mobile.
+const defaultRouteBudget = 505 * 1024;
 console.log(
 	`default route js: ${(defaultRouteTotals.js / 1024).toFixed(1)} KiB gzip (budget ${defaultRouteBudget / 1024} KiB)`,
 );

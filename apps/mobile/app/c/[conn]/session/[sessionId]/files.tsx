@@ -2,7 +2,6 @@ import { useAtomValue } from "@effect/atom-react";
 import type { FolderId, SessionId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import {
 	ChevronDown,
 	ChevronRight,
@@ -32,6 +31,7 @@ import {
 	optionsForConnection,
 } from "~/lib/connection-params";
 import { buildFileTree, flattenFileTree } from "~/lib/file-tree";
+import { useHeaderContentInset } from "~/lib/native-header";
 import { listWorkspacePaths } from "~/rpc/actions";
 import { allConnectionsAtom as connectionsAtom } from "~/store/connections";
 import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
@@ -39,7 +39,7 @@ import { colors } from "~/theme";
 
 export default function WorkspaceFilesScreen() {
 	const { width } = useWindowDimensions();
-	const headerHeight = useHeaderHeight();
+	const headerHeight = useHeaderContentInset();
 	const {
 		conn,
 		sessionId,
@@ -264,7 +264,7 @@ export default function WorkspaceFilesScreen() {
 								<Text className="px-2 pb-2 pt-1 font-sans text-xs text-muted-foreground">
 									Showing the first 50,000 paths.
 								</Text>
-							) : null
+							) : undefined
 						}
 						ListEmptyComponent={
 							<FileEmptyState

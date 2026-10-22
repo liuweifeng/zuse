@@ -1,6 +1,8 @@
 import { ChevronDown } from "lucide-react-native";
-import { Pressable, Text, View } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 
+import { cn } from "~/lib/cn";
+import { useIsWideLayout } from "~/lib/form-factor";
 import { colors } from "~/theme";
 
 export function ThreadHeaderTitle({
@@ -16,13 +18,18 @@ export function ThreadHeaderTitle({
 	runningCount: number;
 	onPress: () => void;
 }) {
+	// Wide Android app bars have room for longer chat titles.
+	const wide = useIsWideLayout() && Platform.OS === "android";
 	return (
 		<Pressable
 			accessibilityRole="button"
 			accessibilityLabel={`Open threads. Thread ${current} of ${total}`}
 			hitSlop={8}
 			onPress={onPress}
-			className="min-h-11 max-w-[230px] items-center justify-center px-2 active:opacity-70"
+			className={cn(
+				"min-h-11 max-w-[230px] items-center justify-center px-2 active:opacity-70",
+				wide && "max-w-[520px]",
+			)}
 		>
 			<Text
 				className="font-sans-bold text-[16px] text-foreground"

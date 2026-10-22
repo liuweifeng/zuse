@@ -1,27 +1,32 @@
-import { Plus } from "lucide-react-native";
+import { SymbolView } from "expo-symbols";
 import { Pressable } from "react-native";
 
+import {
+	type ComposerPlusMenuProps,
+	composerPlusMenuItems,
+} from "~/lib/action-menus";
+import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
+import { ActionMenu } from "./action-menu";
 
-/** Non-iOS fallback opens the document picker directly. */
-export function ComposerPlusMenu(props: {
-	goalMode: boolean;
-	goalSupported: boolean;
-	planMode: boolean;
-	onCaptureImage: () => void;
-	onPickImages: () => void;
-	onPickFiles: () => void;
-	onToggleGoal: (next: boolean) => void;
-	onTogglePlan: (next: boolean) => void;
-}) {
+/** Composer actions: attachments plus the Goal and Plan send modes. */
+export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 	return (
-		<Pressable
-			accessibilityRole="button"
-			accessibilityLabel="Add attachment"
-			className="h-11 w-11 items-center justify-center"
-			onPress={props.onPickFiles}
-		>
-			<Plus size={21} color={colors.fg} />
-		</Pressable>
+		<ActionMenu items={composerPlusMenuItems(props)}>
+			{(open) => (
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="Add attachment or mode"
+					className="h-10 w-10 items-center justify-center active:opacity-60"
+					onPress={open}
+				>
+					<SymbolView
+						name={platformSymbolName("plus")}
+						size={21}
+						tintColor={colors.fg}
+					/>
+				</Pressable>
+			)}
+		</ActionMenu>
 	);
 }

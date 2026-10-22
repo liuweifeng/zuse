@@ -8,7 +8,7 @@ describe("iOS native menu compatibility", () => {
 	test("does not require HStackView from the installed development client", () => {
 		for (const file of [
 			"selector-row.ios.tsx",
-			"model-mode-menu.ios.tsx",
+			"swift-menu-items.tsx",
 			"model-sheet.ios.tsx",
 		]) {
 			expect(source(file)).not.toContain("\tHStack,");
@@ -44,7 +44,8 @@ describe("iOS native menu compatibility", () => {
 		const sessionActions = source("session-actions-menu.ios.tsx");
 		expect(sessionActions).toContain("<Host");
 		expect(sessionActions).toContain("<Menu");
-		expect(sessionActions).toContain("<NativeButton");
+		expect(sessionActions).toContain("<SwiftMenuItems");
+		expect(source("swift-menu-items.tsx")).toContain("<NativeButton");
 		expect(sessionActions).not.toContain("ActionSheetIOS");
 		expect(sessionActions).not.toContain("Stack.Toolbar.Menu");
 	});

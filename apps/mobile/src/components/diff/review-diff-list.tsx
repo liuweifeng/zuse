@@ -3,6 +3,7 @@ import type { GitReviewFile, GitReviewSummary } from "@zuse/contracts";
 import { Check, ChevronDown, ChevronRight } from "lucide-react-native";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+	type ListViewToken,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
 	Platform,
@@ -12,7 +13,6 @@ import {
 	StyleSheet,
 	Text,
 	View,
-	type ViewToken,
 } from "react-native";
 import { useUniwind } from "uniwind";
 
@@ -190,10 +190,10 @@ export function ReviewDiffList({
 		[palette],
 	);
 	const onViewableItemsChanged = useRef(
-		({ viewableItems }: { viewableItems: ViewToken<DiffRow>[] }) => {
+		({ viewableItems }: { viewableItems: ListViewToken[] }) => {
 			const firstVisibleRow = viewableItems.find(
 				(token) => token.isViewable && token.item !== undefined,
-			)?.item;
+			)?.item as DiffRow | undefined;
 			if (
 				firstVisibleRow !== undefined &&
 				firstVisibleRow.filePath !== activeFilePathRef.current

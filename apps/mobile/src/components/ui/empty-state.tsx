@@ -1,6 +1,7 @@
 import { type SFSymbol, SymbolView } from "expo-symbols";
 import type { LucideIcon } from "lucide-react-native";
 import { Text, View } from "react-native";
+import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
 
 export const EmptyState = ({
@@ -21,7 +22,7 @@ export const EmptyState = ({
 		>
 			{symbol ? (
 				<SymbolView
-					name={symbol}
+					name={platformSymbolName(symbol)}
 					size={27}
 					weight="medium"
 					tintColor={colors.fg}

@@ -41,6 +41,7 @@ import {
 	mobileTerminalOwnerId,
 	terminalRouteIdentity,
 } from "~/lib/terminal-route-fence";
+import { promptText } from "~/lib/text-prompt";
 import {
 	type TerminalInputEvent,
 	type TerminalLinkEvent,
@@ -549,11 +550,13 @@ function MobileTerminalContent() {
 		const identity = routeIdentity;
 		const currentLabel =
 			terminals.find((terminal) => terminal.ptyId === activeId)?.label ?? "";
-		Alert.prompt(
-			"Rename terminal",
-			undefined,
-			(value) => {
-				const nextLabel = value?.trim() || null;
+		promptText({
+			title: "Rename terminal",
+			defaultValue: currentLabel,
+			placeholder: "Terminal name",
+			confirmLabel: "Rename",
+			onSubmit: (value) => {
+				const nextLabel = value.trim() || null;
 				void Effect.runPromise(
 					renameOwnedTerminal({
 						connKey,
@@ -577,9 +580,7 @@ function MobileTerminalContent() {
 						setError(connectionErrorMessage(cause));
 					});
 			},
-			"plain-text",
-			currentLabel,
-		);
+		});
 	};
 
 	const restartActive = () => {

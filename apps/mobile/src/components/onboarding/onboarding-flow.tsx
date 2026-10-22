@@ -15,6 +15,7 @@ import {
 import { completeOnboarding } from "~/store/onboarding";
 import { appAtomRegistry } from "~/store/registry";
 import { colors } from "~/theme";
+import { localConnectivityAvailable } from "../../../modules/local-connectivity";
 import { Button } from "../ui/button";
 
 type ConnectionPath = "cloud" | "local";
@@ -305,13 +306,23 @@ export function OnboardingFlow({ replay = false }: { replay?: boolean }) {
 						<Button onPress={() => router.push("/connect/scan")}>
 							Scan QR Code
 						</Button>
-						<Button
-							size="sm"
-							variant="ghost"
-							onPress={() => router.push("/connect/nearby")}
-						>
-							Find Nearby Mac
-						</Button>
+						{localConnectivityAvailable ? (
+							<Button
+								size="sm"
+								variant="ghost"
+								onPress={() => router.push("/connect/nearby")}
+							>
+								Find Nearby Mac
+							</Button>
+						) : (
+							<Button
+								size="sm"
+								variant="ghost"
+								onPress={() => router.push("/connect/manual")}
+							>
+								Add Manually
+							</Button>
+						)}
 					</>
 				) : (
 					<Button disabled={busy} onPress={() => run(connectCloud)}>

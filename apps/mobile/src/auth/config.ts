@@ -13,6 +13,28 @@ import {
  */
 export const WORKOS_API = "https://api.workos.com";
 
+/** Path of the WorkOS sign-in redirect, e.g. `zuse://auth?code=…`. */
+export const AUTH_REDIRECT_PATH = "auth";
+
+/**
+ * The browser auth session consumes its own redirect. Android also delivers it
+ * to the app as a deep link, which must not navigate.
+ */
+export const isAuthRedirectUrl = (url: string): boolean => {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol !== "zuse:" && parsed.protocol !== "zuse-dev:")
+			return false;
+		return (
+			parsed.hostname === AUTH_REDIRECT_PATH ||
+			(parsed.hostname === "" &&
+				parsed.pathname.replace(/^\/+|\/+$/g, "") === AUTH_REDIRECT_PATH)
+		);
+	} catch {
+		return false;
+	}
+};
+
 export const defaultWorkosClientId = (development: boolean): string =>
 	development ? WORKOS_STAGING_PUBLIC_CLIENT_ID : WORKOS_PUBLIC_CLIENT_ID;
 

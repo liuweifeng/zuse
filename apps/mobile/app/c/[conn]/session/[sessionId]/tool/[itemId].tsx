@@ -8,7 +8,6 @@ import {
 } from "@zuse/contracts";
 import * as Clipboard from "expo-clipboard";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import { useMemo, useState } from "react";
 import {
 	FlatList,
@@ -21,9 +20,11 @@ import {
 import { ReviewDiffList } from "~/components/diff/review-diff-list";
 import { type FileTab, FileTabs } from "~/components/files/file-tabs";
 import { FileIcon } from "~/components/ui/file-icon";
+import { useHeaderContentInset } from "~/lib/native-header";
 import { prepareReviewLines } from "~/lib/review-diff-model";
 import { connectionSessionKey } from "~/lib/session-key";
 import { buildToolPresentation, toResultText } from "~/lib/tool-presentation";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import { sessionMessagesAtom } from "~/store/messages";
 import { colors } from "~/theme";
 
@@ -42,7 +43,8 @@ const rawText = (tool: ToolUse, result: ToolResult | undefined): string => {
 };
 
 export default function ToolDetailScreen() {
-	const headerHeight = useHeaderHeight();
+	const toolbarIcon = useToolbarIcons();
+	const headerHeight = useHeaderContentInset();
 	const { conn, sessionId, itemId, filePath } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -147,14 +149,17 @@ export default function ToolDetailScreen() {
 			</Stack.Screen.Title>
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
-					icon="xmark"
+					icon={toolbarIcon("xmark")}
 					separateBackground
 					onPress={() => router.back()}
 				/>
 			</Stack.Toolbar>
 			<Stack.Toolbar placement="right">
-				<Stack.Toolbar.Button icon="doc.on.doc" onPress={copy} />
-				<Stack.Toolbar.Button icon="square.and.arrow.up" onPress={share} />
+				<Stack.Toolbar.Button icon={toolbarIcon("doc.on.doc")} onPress={copy} />
+				<Stack.Toolbar.Button
+					icon={toolbarIcon("square.and.arrow.up")}
+					onPress={share}
+				/>
 			</Stack.Toolbar>
 			<View className="flex-1" style={{ paddingTop: headerHeight }}>
 				{hasFiles ? (

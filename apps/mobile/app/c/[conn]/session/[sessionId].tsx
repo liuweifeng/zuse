@@ -25,16 +25,17 @@ import {
 import { PLAN_APPROVAL_PROMPT } from "@zuse/utils/proposed-plan";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import { ChevronDown } from "lucide-react-native";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
 	AccessibilityInfo,
 	ActivityIndicator,
 	Alert,
+	type HostInstance,
 	type LayoutChangeEvent,
 	type NativeScrollEvent,
 	type NativeSyntheticEvent,
+	Platform,
 	Pressable,
 	Text,
 	View,
@@ -82,8 +83,10 @@ import { captureMobileError } from "~/lib/crash-reporting";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
+import { useHeaderContentInset } from "~/lib/native-header";
 import { mobileReleaseFeatures } from "~/lib/release-features";
 import { connectionSessionKey } from "~/lib/session-key";
+import { promptText } from "~/lib/text-prompt";
 import { transcriptEndRunwayHeight } from "~/lib/thread-runway";
 import { shouldRestoreThreadPosition } from "~/lib/thread-switching";
 import {
@@ -202,7 +205,7 @@ export default function ThreadScreenRoute() {
 
 function ThreadScreen() {
 	const insets = useSafeAreaInsets();
-	const headerHeight = useHeaderHeight();
+	const headerHeight = useHeaderContentInset();
 	const { theme } = useUniwind();
 	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
 		conn: string;
@@ -222,7 +225,7 @@ function ThreadScreen() {
 	} | null>(null);
 	const previousMessagesRef = useRef<readonly unknown[] | null>(null);
 	const readerGestureActiveRef = useRef(false);
-	const composerOverlayRef = useRef<View>(null);
+	const composerOverlayRef = useRef<HostInstance>(null);
 	const [jumpAccessible, setJumpAccessible] = useState(false);
 	const [hasUnseenContent, setHasUnseenContent] = useState(false);
 	const composerBottomInset = insets.bottom + 10;
@@ -831,27 +834,29 @@ function ThreadScreen() {
 
 	const onRenameChat = () => {
 		if (chatId === null || options === null) return;
-		Alert.prompt(
-			"Rename chat",
-			undefined,
-			(value) => {
-				const next = value?.trim() ?? "";
+		promptText({
+			title: "Rename chat",
+			defaultValue: title,
+			placeholder: "Chat name",
+			confirmLabel: "Rename",
+			onSubmit: (value) => {
+				const next = value.trim();
 				if (next.length === 0) return;
 				void renameChat(connKey, options, chatId, next).catch((cause) =>
 					Alert.alert("Could not rename chat", connectionErrorMessage(cause)),
 				);
 			},
-			"plain-text",
-			title,
-		);
+		});
 	};
 	const onRenameSession = () => {
 		if (detail === null || options === null) return;
-		Alert.prompt(
-			"Rename session",
-			undefined,
-			(value) => {
-				const next = value?.trim() ?? "";
+		promptText({
+			title: "Rename session",
+			defaultValue: detail.session.title,
+			placeholder: "Session name",
+			confirmLabel: "Rename",
+			onSubmit: (value) => {
+				const next = value.trim();
 				if (next.length === 0) return;
 				void renameSession(connKey, options, detail.session.id, next).catch(
 					(cause) =>
@@ -861,9 +866,7 @@ function ThreadScreen() {
 						),
 				);
 			},
-			"plain-text",
-			detail.session.title,
-		);
+		});
 	};
 	const onRenameBranch = () => {
 		const worktreeId = detail?.session.worktreeId;
@@ -877,11 +880,13 @@ function ThreadScreen() {
 					);
 					return;
 				}
-				Alert.prompt(
-					"Rename branch",
-					undefined,
-					(value) => {
-						const next = value?.trim() ?? "";
+				promptText({
+					title: "Rename branch",
+					defaultValue: worktree.branch,
+					placeholder: "Branch name",
+					confirmLabel: "Rename",
+					onSubmit: (value) => {
+						const next = value.trim();
 						if (next.length === 0 || next === worktree.branch) return;
 						void Effect.runPromise(
 							renameWorktreeBranch({
@@ -896,9 +901,7 @@ function ThreadScreen() {
 							),
 						);
 					},
-					"plain-text",
-					worktree.branch,
-				);
+				});
 			})
 			.catch((cause) =>
 				Alert.alert("Could not rename branch", connectionErrorMessage(cause)),
@@ -1428,7 +1431,10 @@ function ThreadScreen() {
 						experimental_backgroundImage:
 							theme === "dark"
 								? "linear-gradient(to bottom, rgba(15,15,15,0) 0%, rgba(15,15,15,0.45) 60%, rgba(15,15,15,0.85) 100%)"
-								: "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.45) 60%, rgba(255,255,255,0.85) 100%)",
+								: Platform.OS === "ios"
+									? "linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,0.45) 60%, rgba(255,255,255,0.85) 100%)"
+									: // Fade into the page color so the dock has no edges on wide screens.
+										"linear-gradient(to bottom, rgba(247,247,245,0) 0%, rgba(247,247,245,0.45) 60%, rgba(247,247,245,0.85) 100%)",
 					}}
 				/>
 				<View

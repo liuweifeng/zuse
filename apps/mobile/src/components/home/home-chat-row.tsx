@@ -42,6 +42,8 @@ export function HomeChatRow({
 			overshootLeft={false}
 			overshootRight={false}
 			enableTrackpadTwoFingerGesture
+			// Actions are always mounted underneath; the row must cover them.
+			childrenContainerStyle={{ backgroundColor: colors.bg }}
 			renderLeftActions={
 				canPin
 					? (_, __, methods) => (

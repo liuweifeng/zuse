@@ -2,7 +2,12 @@ import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
 import { decodeJwt } from "jose";
 
-import { APP_SCHEME, WORKOS_API, workosClientId } from "./config.ts";
+import {
+	APP_SCHEME,
+	AUTH_REDIRECT_PATH,
+	WORKOS_API,
+	workosClientId,
+} from "./config.ts";
 
 const SESSION_KEY = "zuse.mobile.workos.session.v1";
 const REFRESH_SKEW_MS = 60_000;
@@ -49,7 +54,10 @@ const discovery: AuthSession.DiscoveryDocument = {
 };
 
 const redirectUri = (): string =>
-	AuthSession.makeRedirectUri({ scheme: APP_SCHEME, path: "auth" });
+	AuthSession.makeRedirectUri({
+		scheme: APP_SCHEME,
+		path: AUTH_REDIRECT_PATH,
+	});
 
 const readSession = async (): Promise<StoredSession | null> => {
 	const raw = await SecureStore.getItemAsync(SESSION_KEY);

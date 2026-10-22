@@ -10,7 +10,6 @@ import type {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
-import { useHeaderHeight } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	ActivityIndicator,
@@ -30,12 +29,15 @@ import {
 } from "~/lib/connection-params";
 import { connectionSupports } from "~/lib/connection-records";
 import { buildLastTurnReview } from "~/lib/last-turn-review";
+import { useHeaderContentInset } from "~/lib/native-header";
 import {
 	type MobileReviewScope,
 	REVIEW_SCOPES,
 	reviewScopeLabel,
 } from "~/lib/review-scope";
 import { connectionSessionKey } from "~/lib/session-key";
+import { promptText } from "~/lib/text-prompt";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import {
 	applyGitResetRemote,
 	commitGitChanges,
@@ -59,7 +61,8 @@ import { connectionBundlesAtom, selectSessionChat } from "~/store/sessions";
 import { colors } from "~/theme";
 
 export default function WorkspaceReviewScreen() {
-	const headerHeight = useHeaderHeight();
+	const toolbarIcon = useToolbarIcons();
+	const headerHeight = useHeaderContentInset();
 	const { conn, sessionId } = useLocalSearchParams<{
 		conn: string;
 		sessionId: string;
@@ -181,11 +184,13 @@ export default function WorkspaceReviewScreen() {
 			Alert.alert("Select files", "Choose at least one file to commit.");
 			return;
 		}
-		Alert.prompt(
-			"Commit selected files",
-			`${selectedPaths.size} file${selectedPaths.size === 1 ? "" : "s"} selected`,
-			(message) => {
-				const trimmed = message?.trim() ?? "";
+		promptText({
+			title: "Commit selected files",
+			message: `${selectedPaths.size} file${selectedPaths.size === 1 ? "" : "s"} selected`,
+			placeholder: "Commit message",
+			confirmLabel: "Commit",
+			onSubmit: (message) => {
+				const trimmed = message.trim();
 				if (trimmed.length === 0) return;
 				void runMutation("Committing", () =>
 					Effect.runPromise(
@@ -197,18 +202,20 @@ export default function WorkspaceReviewScreen() {
 					),
 				);
 			},
-			"plain-text",
-		);
+		});
 	};
 
 	const promptResetRemote = () => {
 		if (target === null) return;
 		void Effect.runPromise(previewGitResetRemote(target))
 			.then((preview) => {
-				Alert.prompt(
-					"Reset to remote?",
-					`${preview.changedPaths.length} paths and ${preview.commitsToDiscard.length} local commits will be discarded. Type ${preview.branch} to continue.`,
-					(value) => {
+				promptText({
+					title: "Reset to remote?",
+					message: `${preview.changedPaths.length} paths and ${preview.commitsToDiscard.length} local commits will be discarded. Type ${preview.branch} to continue.`,
+					placeholder: preview.branch,
+					confirmLabel: "Reset",
+					destructive: true,
+					onSubmit: (value) => {
 						if (value !== preview.branch) {
 							Alert.alert("Branch name did not match", "Nothing was changed.");
 							return;
@@ -223,25 +230,27 @@ export default function WorkspaceReviewScreen() {
 							),
 						);
 					},
-					"plain-text",
-				);
+				});
 			})
 			.catch((cause) => setActionError(connectionErrorMessage(cause)));
 	};
 
 	const promptRevertAll = () => {
 		if (target === null) return;
-		Alert.prompt(
-			"Revert every change?",
-			"Uncommitted work will be permanently removed. Type REVERT to continue.",
-			(value) => {
+		promptText({
+			title: "Revert every change?",
+			message:
+				"Uncommitted work will be permanently removed. Type REVERT to continue.",
+			placeholder: "REVERT",
+			confirmLabel: "Revert",
+			destructive: true,
+			onSubmit: (value) => {
 				if (value !== "REVERT") return;
 				void runMutation("Reverting", () =>
 					Effect.runPromise(revertAllGitChanges(target)),
 				);
 			},
-			"plain-text",
-		);
+		});
 	};
 
 	const promptRevertSelected = () => {
@@ -327,14 +336,14 @@ export default function WorkspaceReviewScreen() {
 			<Stack.Screen.Title>{reviewScopeLabel(scope)}</Stack.Screen.Title>
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
-					icon="xmark"
+					icon={toolbarIcon("xmark")}
 					separateBackground
 					onPress={() => router.back()}
 				/>
 			</Stack.Toolbar>
 			<Stack.Toolbar placement="right">
 				<Stack.Toolbar.Menu
-					icon="arrow.triangle.branch"
+					icon={toolbarIcon("arrow.triangle.branch")}
 					disabled={mutation !== null}
 				>
 					{branches.map((branch) => (
@@ -358,7 +367,7 @@ export default function WorkspaceReviewScreen() {
 						</Stack.Toolbar.MenuAction>
 					))}
 				</Stack.Toolbar.Menu>
-				<Stack.Toolbar.Menu icon="line.3.horizontal.decrease">
+				<Stack.Toolbar.Menu icon={toolbarIcon("line.3.horizontal.decrease")}>
 					{REVIEW_SCOPES.map((candidate) => (
 						<Stack.Toolbar.MenuAction
 							key={candidate}
@@ -370,44 +379,45 @@ export default function WorkspaceReviewScreen() {
 					))}
 				</Stack.Toolbar.Menu>
 				<Stack.Toolbar.Button
-					icon={
+					icon={toolbarIcon(
 						allFilesExpanded
 							? "arrow.down.right.and.arrow.up.left"
-							: "arrow.up.left.and.arrow.down.right"
-					}
+							: "arrow.up.left.and.arrow.down.right",
+					)}
 					onPress={() => {
 						setAllFilesExpanded((current) => !current);
 						setAccordionKey((current) => current + 1);
 					}}
 				/>
-				<Stack.Toolbar.Menu icon="ellipsis">
+				<Stack.Toolbar.Menu icon={toolbarIcon("ellipsis")}>
+					{/* Menus only accept action elements, so no fragments here. */}
 					{supportsRemoteGitActions ? (
-						<>
-							<Stack.Toolbar.MenuAction
-								disabled={mutation !== null}
-								onPress={() =>
-									target === null
-										? undefined
-										: void runMutation("Stashing", () =>
-												Effect.runPromise(stashGitChanges(target)),
-											)
-								}
-							>
-								Stash changes
-							</Stack.Toolbar.MenuAction>
-							<Stack.Toolbar.MenuAction
-								disabled={mutation !== null}
-								onPress={() =>
-									target === null
-										? undefined
-										: void runMutation("Applying stash", () =>
-												Effect.runPromise(popGitStash(target)),
-											)
-								}
-							>
-								Stash pop
-							</Stack.Toolbar.MenuAction>
-						</>
+						<Stack.Toolbar.MenuAction
+							disabled={mutation !== null}
+							onPress={() =>
+								target === null
+									? undefined
+									: void runMutation("Stashing", () =>
+											Effect.runPromise(stashGitChanges(target)),
+										)
+							}
+						>
+							Stash changes
+						</Stack.Toolbar.MenuAction>
+					) : null}
+					{supportsRemoteGitActions ? (
+						<Stack.Toolbar.MenuAction
+							disabled={mutation !== null}
+							onPress={() =>
+								target === null
+									? undefined
+									: void runMutation("Applying stash", () =>
+											Effect.runPromise(popGitStash(target)),
+										)
+							}
+						>
+							Stash pop
+						</Stack.Toolbar.MenuAction>
 					) : null}
 					<Stack.Toolbar.MenuAction
 						disabled={selectedPaths.size !== 1 || mutation !== null}

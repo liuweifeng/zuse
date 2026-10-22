@@ -1,57 +1,26 @@
-import "@zuse/i18n/english/chat";
 import { Host } from "@expo/ui";
-import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Image, Menu } from "@expo/ui/swift-ui";
 import { accessibilityLabel, frame } from "@expo/ui/swift-ui/modifiers";
-import { useMessages } from "@zuse/i18n/react";
 import { SquarePen } from "lucide-react-native";
 import { Pressable, View } from "react-native";
 
+import { useSessionActionMenuItems } from "~/hooks/use-session-action-menu-items";
+import type { SessionActionsMenuProps } from "~/lib/action-menus";
 import { colors } from "~/theme";
+import { SwiftMenuItems } from "./swift-menu-items";
 
 const sf = (name: string) => name as never;
 
 /** Header actions backed by SwiftUI's native anchored UIMenu. */
-export function SessionActionsMenu({
-	isPinned,
-	onNewChat,
-	onPin,
-	onRenameChat,
-	onRenameSession,
-	onRenameBranch,
-	onThreads,
-	onChanges,
-	onFiles,
-	onAttempts,
-	onCheckpoints,
-	onTerminal,
-	onOpenOnDesktop,
-	onMergeBack,
-	onArchive,
-}: {
-	isPinned: boolean;
-	onNewChat: () => void;
-	onPin?: () => void;
-	onRenameChat?: () => void;
-	onRenameSession?: () => void;
-	onRenameBranch?: () => void;
-	onThreads: () => void;
-	onChanges: () => void;
-	onFiles: () => void;
-	onAttempts?: () => void;
-	onCheckpoints?: () => void;
-	onTerminal?: () => void;
-	onOpenOnDesktop?: () => void;
-	onMergeBack?: () => void;
-	onArchive: () => void;
-}) {
-	const { message } = useMessages(["chat"]);
+export function SessionActionsMenu(props: SessionActionsMenuProps) {
+	const items = useSessionActionMenuItems(props);
 	return (
 		<View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
 			<Pressable
 				accessibilityRole="button"
 				accessibilityLabel="New chat"
 				hitSlop={8}
-				onPress={onNewChat}
+				onPress={props.onNewChat}
 				style={{
 					width: 40,
 					height: 40,
@@ -77,91 +46,7 @@ export function SessionActionsMenu({
 					}
 					modifiers={[accessibilityLabel("Chat actions")]}
 				>
-					{onPin !== undefined ? (
-						<NativeButton
-							label={isPinned ? "Unpin" : "Pin"}
-							systemImage={sf(isPinned ? "pin.slash" : "pin")}
-							onPress={onPin}
-						/>
-					) : null}
-					{onRenameChat !== undefined ? (
-						<NativeButton
-							label="Rename chat"
-							systemImage={sf("pencil")}
-							onPress={onRenameChat}
-						/>
-					) : null}
-					{onRenameSession !== undefined ? (
-						<NativeButton
-							label="Rename session"
-							systemImage={sf("rectangle.and.pencil.and.ellipsis")}
-							onPress={onRenameSession}
-						/>
-					) : null}
-					{onRenameBranch !== undefined ? (
-						<NativeButton
-							label="Rename branch"
-							systemImage={sf("arrow.triangle.branch")}
-							onPress={onRenameBranch}
-						/>
-					) : null}
-					<NativeButton
-						label="Threads"
-						systemImage={sf("rectangle.stack")}
-						onPress={onThreads}
-					/>
-					<NativeButton
-						label="Changes"
-						systemImage={sf("arrow.triangle.branch")}
-						onPress={onChanges}
-					/>
-					<NativeButton
-						label="Files"
-						systemImage={sf("folder")}
-						onPress={onFiles}
-					/>
-					{onCheckpoints !== undefined ? (
-						<NativeButton
-							label={message("chat:checkpoints_title")}
-							systemImage={sf("clock.arrow.circlepath")}
-							onPress={onCheckpoints}
-						/>
-					) : null}
-					{onAttempts !== undefined ? (
-						<NativeButton
-							label={message("chat:attempts_title")}
-							systemImage={sf("clock.arrow.circlepath")}
-							onPress={onAttempts}
-						/>
-					) : null}
-					{onTerminal !== undefined ? (
-						<NativeButton
-							label="Terminal"
-							systemImage={sf("terminal")}
-							onPress={onTerminal}
-						/>
-					) : null}
-					{onOpenOnDesktop !== undefined ? (
-						<NativeButton
-							label="Open on desktop"
-							systemImage={sf("macbook")}
-							onPress={onOpenOnDesktop}
-						/>
-					) : null}
-					{onMergeBack !== undefined ? (
-						<NativeButton
-							label="Merge back to parent"
-							systemImage={sf("arrow.triangle.merge")}
-							onPress={onMergeBack}
-						/>
-					) : null}
-					{/* biome-ignore lint/a11y/useValidAriaRole: SwiftUI maps this to UIMenu destructive styling. */}
-					<NativeButton
-						label="Archive"
-						systemImage={sf("archivebox")}
-						role="destructive"
-						onPress={onArchive}
-					/>
+					<SwiftMenuItems items={items} />
 				</Menu>
 			</Host>
 		</View>

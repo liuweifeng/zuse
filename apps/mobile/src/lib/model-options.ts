@@ -15,6 +15,15 @@ import {
 
 export const PROVIDER_LABEL = PROVIDER_LABELS;
 
+/** The provider, model, and permission choices a composer sends with. */
+export type ModelModeValue = {
+	providerId: ProviderId;
+	model: string;
+	runtimeMode: RuntimeMode;
+	permissionMode: PermissionMode;
+	modelOptions?: Record<string, string>;
+};
+
 export type RuntimeOption = {
 	value: RuntimeMode;
 	label: string;

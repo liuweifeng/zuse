@@ -1,21 +1,18 @@
 import { Host } from "@expo/ui";
-import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Image, Menu } from "@expo/ui/swift-ui";
 import { accessibilityLabel, frame } from "@expo/ui/swift-ui/modifiers";
 
+import {
+	type ForkFromMessageMenuProps,
+	forkFromMessageMenuItems,
+} from "~/lib/action-menus";
 import { colors } from "~/theme";
+import { SwiftMenuItems } from "../swift-menu-items";
 
 const sf = (name: string) => name as never;
 
 /** A compact native counterpart to the desktop message fork menu. */
-export function ForkFromMessageMenu({
-	onForkInChat,
-	onForkInCurrentWorktree,
-	onForkInNewWorktree,
-}: {
-	onForkInChat: () => void;
-	onForkInCurrentWorktree: () => void;
-	onForkInNewWorktree: () => void;
-}) {
+export function ForkFromMessageMenu(props: ForkFromMessageMenuProps) {
 	return (
 		<Host
 			ignoreSafeArea="all"
@@ -36,23 +33,7 @@ export function ForkFromMessageMenu({
 					accessibilityLabel("Fork from here"),
 				]}
 			>
-				<NativeButton
-					label="Fork in this chat"
-					systemImage={sf("rectangle.stack.badge.plus")}
-					onPress={onForkInChat}
-				/>
-				<Menu label="Fork to a new chat" systemImage={sf("plus.bubble")}>
-					<NativeButton
-						label="Use current worktree"
-						systemImage={sf("folder")}
-						onPress={onForkInCurrentWorktree}
-					/>
-					<NativeButton
-						label="Create isolated worktree"
-						systemImage={sf("arrow.triangle.branch")}
-						onPress={onForkInNewWorktree}
-					/>
-				</Menu>
+				<SwiftMenuItems items={forkFromMessageMenuItems(props)} />
 			</Menu>
 		</Host>
 	);

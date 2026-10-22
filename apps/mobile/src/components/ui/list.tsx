@@ -11,6 +11,7 @@ import {
 
 import { cn } from "~/lib/cn";
 import { lightTap } from "~/lib/haptics";
+import { ANDROID_RIPPLE_ROW, RIPPLE } from "~/lib/ripple";
 import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
 
@@ -99,6 +100,7 @@ export function ListRow({
 	return (
 		<Pressable
 			disabled={disabled}
+			android_ripple={onPress ? RIPPLE : undefined}
 			onPress={
 				onPress
 					? (event) => {
@@ -117,6 +119,7 @@ export function ListRow({
 				"min-h-[54px] flex-row items-center gap-3 px-4 py-2.5 active:bg-card-elevated",
 				disabled && "opacity-40",
 				className,
+				ANDROID_RIPPLE_ROW,
 			)}
 			{...rest}
 		>

@@ -17,14 +17,7 @@ import type {
 import { Effect } from "effect";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-	Alert,
-	KeyboardAvoidingView,
-	ScrollView,
-	Text,
-	TextInput,
-	View,
-} from "react-native";
+import { Alert, ScrollView, Text, TextInput, View } from "react-native";
 import { KeyboardController } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ComposerActionSlot } from "~/components/composer-action-slot";
@@ -40,6 +33,7 @@ import { ModelSheetTrigger } from "~/components/model-sheet-trigger";
 import { SelectorRow } from "~/components/selector-row";
 import { Button } from "~/components/ui/button";
 import { GlassSurface } from "~/components/ui/glass-surface";
+import { KeyboardAvoidingView } from "~/components/ui/keyboard-avoiding-view";
 import { cloudSandboxStatus } from "~/lib/cloud-sandbox-setup";
 import {
 	captureComposerImage,
@@ -56,6 +50,7 @@ import {
 	defaultModelForProvider,
 	defaultModelOptions,
 } from "~/lib/model-options";
+import { useOpaqueHeaderHeight } from "~/lib/native-header";
 import {
 	buildNewChatCreatePayload,
 	MAIN_SOURCE,
@@ -67,6 +62,7 @@ import {
 } from "~/lib/new-chat";
 import { connectionSessionKey } from "~/lib/session-key";
 import { hasRunningChatThread } from "~/lib/thread-presentation";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import {
 	createWorktree,
 	listBranches,
@@ -123,6 +119,8 @@ import {
 import { colors } from "~/theme";
 
 export default function NewChatScreen() {
+	const keyboardOffset = useOpaqueHeaderHeight();
+	const toolbarIcon = useToolbarIcons();
 	const insets = useSafeAreaInsets();
 	const {
 		conn,
@@ -872,7 +870,11 @@ export default function NewChatScreen() {
 	};
 
 	return (
-		<KeyboardAvoidingView behavior="padding" className="flex-1 bg-background">
+		<KeyboardAvoidingView
+			behavior="padding"
+			keyboardVerticalOffset={keyboardOffset}
+			className="flex-1 bg-background"
+		>
 			<Stack.Screen
 				options={{
 					title: threadMode ? "New Thread" : "New Chat",
@@ -881,7 +883,7 @@ export default function NewChatScreen() {
 			/>
 			<Stack.Toolbar placement="left">
 				<Stack.Toolbar.Button
-					icon="chevron.left"
+					icon={toolbarIcon("chevron.left")}
 					separateBackground
 					onPress={() => router.back()}
 				/>

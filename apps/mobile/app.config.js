@@ -33,6 +33,10 @@ module.exports = ({ config }) => {
 				],
 			},
 		},
+		android: {
+			...config.android,
+			package: bundleIdentifier,
+		},
 		plugins: config.plugins.map((plugin) =>
 			plugin === "expo-dev-client"
 				? ["expo-dev-client", { addGeneratedScheme: development }]

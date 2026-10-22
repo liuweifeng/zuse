@@ -849,6 +849,13 @@ const patchChat = (
 				},
 	);
 
+/**
+ * Copies a decoded entity with updated fields while keeping its schema class,
+ * so offline snapshots can still encode it (a spread yields a plain object).
+ */
+const withFields = <T extends object>(entity: T, fields: Partial<T>): T =>
+	Object.assign(Object.create(Object.getPrototypeOf(entity)), entity, fields);
+
 const patchChatFields = (
 	bundles: readonly ProjectBundle[],
 	chatId: Chat["id"],
@@ -857,7 +864,7 @@ const patchChatFields = (
 	bundles.map((bundle) => ({
 		...bundle,
 		chats: bundle.chats.map((chat) =>
-			chat.id === chatId ? ({ ...chat, ...fields } as Chat) : chat,
+			chat.id === chatId ? withFields(chat, fields) : chat,
 		),
 	}));
 
@@ -931,9 +938,7 @@ const patchSessionFields = (
 	bundles.map((bundle) => ({
 		...bundle,
 		sessions: bundle.sessions.map((session) =>
-			session.id === sessionId
-				? ({ ...session, ...fields } as Session)
-				: session,
+			session.id === sessionId ? withFields(session, fields) : session,
 		),
 	}));
 

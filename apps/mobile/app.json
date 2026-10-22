@@ -32,6 +32,9 @@
 		"plugins": [
 			"expo-router",
 			"./plugins/with-android-architectures",
+			"./plugins/with-android-cleartext-traffic",
+			"./plugins/with-android-material-theme",
+			"./plugins/with-android-release",
 			"expo-dev-client",
 			"expo-secure-store",
 			"expo-notifications",
@@ -40,7 +43,8 @@
 			"expo-status-bar",
 			"expo-image",
 			"expo-audio",
-			"expo-screen-orientation"
+			"expo-screen-orientation",
+			"expo-localization"
 		],
 		"extra": {
 			"router": {},
@@ -50,7 +54,8 @@
 		},
 		"owner": "swarajbachu",
 		"android": {
-			"package": "com.zuse.sh"
+			"package": "com.zuse.sh",
+			"versionCode": 1
 		}
 	}
 }

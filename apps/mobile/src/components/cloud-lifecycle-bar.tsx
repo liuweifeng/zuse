@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import { cloudLifecycle } from "~/lib/cloud-lifecycle";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
+import { platformSymbolName } from "~/lib/symbol-names";
 import { cloudControlClient } from "~/rpc/api-client";
 import { cloudCatalogAtom, refreshCloudCatalog } from "~/store/cloud-catalog";
 import { colors } from "~/theme";
@@ -88,7 +89,9 @@ export function CloudLifecycleBar({ workspaceId }: { workspaceId: string }) {
 				<ActivityIndicator size="small" color={colors.secondaryFg} />
 			) : (
 				<SymbolView
-					name={failed ? "exclamationmark.circle.fill" : "moon.zzz.fill"}
+					name={platformSymbolName(
+						failed ? "exclamationmark.circle.fill" : "moon.zzz.fill",
+					)}
 					size={14}
 					tintColor={failed ? colors.danger : colors.secondaryFg}
 				/>
