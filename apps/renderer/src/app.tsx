@@ -36,8 +36,6 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
 import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
-import { useModelCatalogStore } from "./store/model-catalog.ts";
-import { useProvidersStore } from "./store/providers.ts";
 
 import { useUiStore } from "./store/ui.ts";
 
@@ -232,10 +230,6 @@ function ReadyApp({
 }) {
 	const { isSignedIn, user } = useAuth();
 	const cloudCacheIdentity = useRef<string | null | undefined>(undefined);
-	const ensureModelCatalog = useModelCatalogStore(
-		(state) => state.ensureLoaded,
-	);
-	const loadProviderAvailability = useProvidersStore((state) => state.load);
 	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(
 		() =>
@@ -324,19 +318,19 @@ function ReadyApp({
 	useEffect(() => {
 		if (isHostedProduct() || !onboardingCompleted || !catalogInitialized)
 			return;
-		void ensureModelCatalog().catch((cause) =>
-			console.error("[zuse] model catalog prefetch failed", cause),
-		);
-		void loadProviderAvailability().catch((cause) =>
-			console.error("[zuse] provider availability prefetch failed", cause),
-		);
-	}, [
-		activeEnvironmentId,
-		catalogInitialized,
-		ensureModelCatalog,
-		loadProviderAvailability,
-		onboardingCompleted,
-	]);
+		void import("./store/model-catalog.ts")
+			.then(({ useModelCatalogStore }) =>
+				useModelCatalogStore.getState().ensureLoaded(),
+			)
+			.catch((cause) =>
+				console.error("[zuse] model catalog prefetch failed", cause),
+			);
+		void import("./store/providers.ts")
+			.then(({ useProvidersStore }) => useProvidersStore.getState().load())
+			.catch((cause) =>
+				console.error("[zuse] provider availability prefetch failed", cause),
+			);
+	}, [activeEnvironmentId, catalogInitialized, onboardingCompleted]);
 	useEffect(() => {
 		if (!onboardingCompleted) return;
 		const identity = user?.id ?? null;
