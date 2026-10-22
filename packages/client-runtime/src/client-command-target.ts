@@ -15,6 +15,8 @@ export const clientCommandTargetId = (
 	command: Pick<ClientCommand, "kind" | "payload">,
 ): string | null => {
 	switch (command.kind) {
+		case "messages.background.stop":
+			return stringField(command.payload, "taskId");
 		case "messages.interrupt":
 			return stringField(command.payload, "expectedTurnId");
 		case "messages.queue.runNext":

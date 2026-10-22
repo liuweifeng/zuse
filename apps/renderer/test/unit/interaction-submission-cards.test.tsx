@@ -9,12 +9,21 @@ import { structuralTupleKey } from "@zuse/utils/structural-tuple-key";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { PlanApprovalSubmissionStatus } from "../../src/components/composer/plan-approval-tray.tsx";
+import {
+	type QuestionAnswerInput,
+	QuestionTray,
+	useQuestionAnswer,
+} from "../../src/components/composer/question-tray.tsx";
 import { PermissionCard } from "../../src/components/permission-card.tsx";
-import { QuestionCard } from "../../src/components/question-card.tsx";
 import { selectPresentedQuestion } from "../../src/lib/question-actionability.ts";
 
 const sessionId = SessionId.make("overlay-session");
 const environmentId = EnvironmentId.make("overlay-environment");
+
+function QuestionCard(props: QuestionAnswerInput) {
+	const answer = useQuestionAnswer(props);
+	return answer === null ? null : <QuestionTray answer={answer} />;
+}
 
 const renderQuestion = (
 	submission: SessionInteractionSubmission,

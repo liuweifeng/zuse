@@ -41,6 +41,7 @@ export interface ProviderSessionHandle {
 		fileRefs?: ReadonlyArray<FileRef>,
 		skillRefs?: ReadonlyArray<SkillRef>,
 	) => Effect.Effect<void>;
+	readonly stopBackgroundTask?: (taskId: string) => Effect.Effect<void, Error>;
 	readonly interrupt: () => Effect.Effect<void>;
 	readonly close: () => Effect.Effect<void>;
 	readonly setPermissionMode: (mode: PermissionMode) => Effect.Effect<void>;

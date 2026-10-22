@@ -4038,11 +4038,22 @@ it("persists and steers queued feedback while a goal send is still pending", asy
 	}
 });
 
-it.each([
-	"messages.send",
-	"messages.queue.runNext",
-	"messages.interrupt",
-])("interrupts without waiting for a pending %s command", async (previousKind) => {
+it.each(
+	[
+		"messages.send",
+		"messages.queue.runNext",
+		"messages.interrupt",
+		"messages.background.stop",
+	].flatMap((previousKind) =>
+		["messages.interrupt", "messages.background.stop"].map((stopKind) => ({
+			previousKind,
+			stopKind,
+		})),
+	),
+)("sends $stopKind without waiting for a pending $previousKind command", async ({
+	previousKind,
+	stopKind,
+}) => {
 	const previousReply = deferred<void>();
 	const calls: string[] = [];
 	const bus = new ClientBus<Client>({
@@ -4072,11 +4083,9 @@ it.each([
 	const previous = bus.dispatch(command(previousKind, "previous"));
 	try {
 		await waitUntil(() => calls.length === 1);
-		const stopping = bus.dispatch(
-			command("messages.interrupt", "stop-current-turn"),
-		);
+		const stopping = bus.dispatch(command(stopKind, "stop-current-turn"));
 		await waitUntil(() => calls.length === 2);
-		expect(calls[1]).toBe("messages.interrupt");
+		expect(calls[1]).toBe(stopKind);
 		await stopping;
 	} finally {
 		previousReply.resolve();

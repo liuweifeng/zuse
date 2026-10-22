@@ -1934,6 +1934,12 @@ export const startClaudeSession = (
 						makeClaudeUserMessage(promptText, attachmentBlocks),
 					);
 				}),
+			stopBackgroundTask: (taskId) =>
+				Effect.tryPromise({
+					try: () => q.stopTask(taskId),
+					catch: (cause) =>
+						cause instanceof Error ? cause : new Error(String(cause)),
+				}),
 			interrupt: () =>
 				Effect.sync(() => {
 					translateState.interrupted = true;

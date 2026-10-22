@@ -5,6 +5,7 @@ import { type Rpc, type RpcGroup, RpcSerialization } from "effect/unstable/rpc";
 const activityRequests: ReadonlySet<string> = new Set([
 	"messages.send",
 	"messages.interrupt",
+	"messages.background.stop",
 	"messages.queue.add",
 	"messages.queue.update",
 	"messages.queue.delete",
