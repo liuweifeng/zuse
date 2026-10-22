@@ -33897,11 +33897,11 @@
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
 	"settings:cloud_device_label": {
-		"source": "Cloud device",
+		"source": "Computer access (optional)",
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-device-selector.tsx",
-				"line": 58
+				"line": 59
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -33911,7 +33911,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-device-selector.tsx",
-				"line": 71
+				"line": 72
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -33921,7 +33921,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-device-selector.tsx",
-				"line": 80
+				"line": 81
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -33931,7 +33931,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-device-selector.tsx",
-				"line": 82
+				"line": 83
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
@@ -33941,7 +33941,7 @@
 		"locations": [
 			{
 				"path": "apps/renderer/src/components/cloud-device-selector.tsx",
-				"line": 83
+				"line": 84
 			}
 		],
 		"context": "settings interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."

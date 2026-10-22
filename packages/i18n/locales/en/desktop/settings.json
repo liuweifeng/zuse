@@ -1275,7 +1275,7 @@
 	"snapshot_connect_to_switch": "Connect at least one agent above to switch.",
 	"snapshot_auth_applying": "Saving sign-in settings…",
 	"snapshot_sign_in_with": "Sign in with",
-	"cloud_device_label": "Cloud device",
+	"cloud_device_label": "Computer access (optional)",
 	"cloud_device_choose": "Choose a computer",
 	"cloud_device_revoked": "Revoked",
 	"cloud_device_ready": "Ready",

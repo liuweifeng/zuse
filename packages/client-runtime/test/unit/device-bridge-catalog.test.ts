@@ -41,3 +41,24 @@ it("ignores results after disposal", async () => {
 	await Promise.resolve();
 	expect(listener).toHaveBeenCalledTimes(1);
 });
+
+it("explains that optional device discovery failure does not block cloud work", async () => {
+	vi.useFakeTimers();
+	const listener = vi.fn();
+	const controller = new DeviceBridgeCatalogController({
+		list: async () => {
+			throw new Error("service unavailable");
+		},
+		status: async () => {
+			throw new Error("no binding");
+		},
+		select: async () => {},
+	});
+	const stop = controller.start(listener);
+	await vi.advanceTimersByTimeAsync(0);
+	expect(listener.mock.lastCall?.[0]).toMatchObject({
+		busy: false,
+		error: "Computer access is unavailable. Cloud work can continue.",
+	});
+	stop();
+});
