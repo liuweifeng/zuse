@@ -1,5 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Alert02Icon, ArrowDown01Icon } from "@zuse/icons/solid-rounded";
+import { Alert02Icon } from "@zuse/icons/solid-rounded";
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -40,10 +41,7 @@ export function DockDisclosureSection({
 							{count}
 						</span>
 					) : null}
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
-						className="size-3 shrink-0 -rotate-90 text-muted-foreground/70 transition-transform duration-150 group-data-[panel-open]:rotate-0"
-					/>
+					<ChevronDown className="size-3 shrink-0 -rotate-90 text-muted-foreground/70 transition-transform duration-150 group-data-[panel-open]:rotate-0" />
 				</CollapsibleTrigger>
 				{action}
 			</div>

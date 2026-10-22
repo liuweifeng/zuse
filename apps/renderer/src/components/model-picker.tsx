@@ -18,6 +18,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import {
+	bundledResolvedModelCatalog,
 	findModelDescriptor,
 	isModelVisible,
 	type ModelOption,
@@ -43,12 +44,16 @@ import { overlaySurface } from "~/components/ui/overlay-surface";
 import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useModelCatalogStore } from "~/store/model-catalog";
 import { useProvidersStore } from "~/store/providers";
 import { useSessionsStore } from "~/store/sessions";
 import { ProviderIcon } from "./provider-icons";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+export const MODEL_PICKER_SETTINGS_TRIGGER =
+	"h-7 w-64 max-w-[40vw] justify-between rounded-md border border-input bg-card px-2.5 text-xs hover:bg-muted";
 
 const _PROVIDER_LABEL = PROVIDER_LABELS;
 
@@ -69,7 +74,19 @@ type Scope = ProviderId | "all";
 export const compactModelLabel = (label: string): string =>
 	label.replace(/^gpt[-\s]*/i, "").trim();
 
+const fallbackEnvironmentCatalog = bundledResolvedModelCatalog();
+
 type ModelPickerProps = { cloudProviderIds?: ReadonlyArray<ProviderId> } & (
+	| {
+			mode: "configuration";
+			environmentId: EnvironmentId;
+			providerId: ProviderId;
+			currentModel: string;
+			onSelect: (providerId: ProviderId, modelId: string) => void;
+			composer?: boolean;
+			triggerClassName?: string;
+			onOpenChange?: (open: boolean) => void;
+	  }
 	| {
 			mode: "session";
 			environmentId: EnvironmentId;
@@ -98,13 +115,14 @@ export function ModelPicker(props: ModelPickerProps) {
 	const { message: uiMessage } = useUiMessages(["providers"]);
 
 	const isDefault = props.mode === "default";
+	const isConfiguration = props.mode === "configuration";
 	const composer = props.composer === true;
 	const triggerDetail =
 		props.mode === "session" ? props.triggerDetail : undefined;
 	const optionsPanel =
 		props.mode === "session" ? props.optionsPanel : undefined;
 	const providerEnvironmentId =
-		props.mode === "session" ? props.environmentId : null;
+		props.mode !== "default" ? props.environmentId : null;
 
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
@@ -140,7 +158,19 @@ export function ModelPicker(props: ModelPickerProps) {
 				]
 			: undefined,
 	);
-	const catalog = useModelCatalogStore((s) => s.catalog);
+	// Configuration pickers (e.g. a Zot on another computer) read that
+	// environment's catalog; everything else uses the active one.
+	const activeEnvironment = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const catalog = useModelCatalogStore((s) =>
+		providerEnvironmentId !== null
+			? (s.byEnvironment[providerEnvironmentId]?.catalog ??
+				(providerEnvironmentId === activeEnvironment
+					? s.catalog
+					: fallbackEnvironmentCatalog))
+			: s.catalog,
+	);
 	const providerId =
 		pendingSelection?.providerId ??
 		(isDefault ? defaultProviderId : props.providerId);
@@ -171,17 +201,17 @@ export function ModelPicker(props: ModelPickerProps) {
 	const refresh = useProvidersStore((s) => s.refresh);
 	const refreshFor = useProvidersStore((s) => s.refreshFor);
 	const availability =
-		props.mode === "session"
+		providerEnvironmentId !== null
 			? (environmentAvailability?.availability ?? [])
 			: defaultAvailability;
 	const availabilityLoaded =
 		props.cloudProviderIds !== undefined
 			? true
-			: props.mode === "session"
+			: providerEnvironmentId !== null
 				? (environmentAvailability?.availabilityLoaded ?? false)
 				: defaultAvailabilityLoaded;
 	const availabilityLoading =
-		props.mode === "session"
+		providerEnvironmentId !== null
 			? (environmentAvailability?.loading ?? false)
 			: defaultAvailabilityLoading;
 	const refreshAvailability = useCallback(
@@ -191,7 +221,17 @@ export function ModelPicker(props: ModelPickerProps) {
 				: refreshFor(providerEnvironmentId),
 		[providerEnvironmentId, refresh, refreshFor],
 	);
-	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
+	const ensureLoaded = useModelCatalogStore((s) => s.ensureLoaded);
+	const ensureCatalog = useCallback(
+		(options?: { maxAgeMs?: number }) =>
+			ensureLoaded({
+				...options,
+				...(providerEnvironmentId !== null
+					? { environmentId: providerEnvironmentId }
+					: {}),
+			}),
+		[ensureLoaded, providerEnvironmentId],
+	);
 
 	useEffect(() => {
 		void ensureCatalog();
@@ -301,7 +341,7 @@ export function ModelPicker(props: ModelPickerProps) {
 			if (pid === "zuse" && !experimentalHarnessAllowed) return false;
 
 			if (
-				isDefault &&
+				(isDefault || isConfiguration) &&
 				pid === providerId &&
 				props.cloudProviderIds === undefined
 			)
@@ -312,12 +352,13 @@ export function ModelPicker(props: ModelPickerProps) {
 				availability: availabilityById.get(pid),
 				providerEnabled,
 				availabilityLoaded,
-				revealBeforeAvailabilityLoaded: isDefault,
+				revealBeforeAvailabilityLoaded: isDefault || isConfiguration,
 			});
 		});
 	}, [
 		catalog,
 		isDefault,
+		isConfiguration,
 		providerId,
 		providerEnabled,
 		availabilityById,
@@ -416,6 +457,11 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	const handlePick = async (pid: ProviderId, modelId: string) => {
 		if (!pickableProviders.includes(pid)) return;
+		if (props.mode === "configuration") {
+			props.onSelect(pid, modelId);
+			setOpen(false);
+			return;
+		}
 		if (isDefault) {
 			setDefaultProviderAndModel(pid, modelId);
 			setOpen(false);
@@ -448,9 +494,19 @@ export function ModelPicker(props: ModelPickerProps) {
 	const currentLabel =
 		modelsForProvider(providerId).find((m) => m.id === currentModel)?.label ??
 		currentModel;
-	const triggerLabel = composer
-		? compactModelLabel(currentLabel)
-		: currentLabel;
+	const unavailable =
+		isConfiguration &&
+		!customModelIdsByProvider[providerId]?.includes(currentModel) &&
+		!catalog.providers[providerId]?.models.some(
+			(model) => model.id === currentModel && model.available,
+		);
+	const triggerLabel = unavailable
+		? uiMessage("providers:model_picker_unavailable_selection", {
+				model: currentLabel,
+			})
+		: composer
+			? compactModelLabel(currentLabel)
+			: currentLabel;
 
 	const showEmpty = flatMatches.length === 0 && modelGroups.length === 0;
 

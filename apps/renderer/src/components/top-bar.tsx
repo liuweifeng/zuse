@@ -19,7 +19,6 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	Copy01Icon,
 	GitBranchIcon,
 	LinkSquare01Icon,
@@ -104,6 +103,14 @@ const ICON_BUTTON_CLASS = `${ACTION_CLASS} flex size-6 items-center justify-cent
 const NATIVE_CONTROLS_INSET_CLASS =
 	"pr-[calc(var(--zuse-window-controls-right-inset)+0.25rem)]";
 
+/** Shared with main-pane bars outside this file (e.g. the Zot header). */
+export {
+	ACTION_CLASS as TOP_BAR_ACTION_CLASS,
+	ICON_BUTTON_CLASS as TOP_BAR_ICON_BUTTON_CLASS,
+	NATIVE_CONTROLS_INSET_CLASS as TOP_BAR_NATIVE_CONTROLS_INSET_CLASS,
+	SECTION_CLASS as TOP_BAR_SECTION_CLASS,
+};
+
 const executionRefFor = (
 	context: ReturnType<typeof useActiveContext>,
 ): ExecutionRef | null =>
@@ -174,6 +181,47 @@ export function TopBarLeft() {
  * open/close toggle (always visible — the user expects to find it here
  * regardless of which way the files panel is currently leaning).
  */
+/**
+ * Leading padding for a main-pane top bar: flush while the projects panel is
+ * open; with it collapsed, room for the open-toggle and, in windowed macOS,
+ * the traffic-light controls.
+ */
+export function useTopBarLeadingPad(): string {
+	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
+	const isFullScreen = useUiStore((s) => s.isFullScreen);
+	return !leftSidebarOpen && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
+}
+
+/** Projects-panel open-toggle shown in a main-pane top bar while it's collapsed. */
+export function ShowProjectsPanelButton() {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
+	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
+	if (leftSidebarOpen) return null;
+	return (
+		<Tooltip>
+			<TooltipTrigger
+				render={
+					<button
+						type="button"
+						onClick={() => setLeftSidebarOpen(true)}
+						className={ICON_BUTTON_CLASS}
+						aria-label={uiMessage("chat:top_bar_show_projects_panel")}
+					>
+						<HugeiconsIcon icon={PanelLeftOpenIcon} className="size-3.5" />
+					</button>
+				}
+			/>
+			<TooltipPopup>
+				<TooltipShortcut
+					label={uiMessage("chat:top_bar_show_projects_panel")}
+					shortcut={formatShortcut("toggle-left-sidebar")}
+				/>
+			</TooltipPopup>
+		</Tooltip>
+	);
+}
+
 export function TopBarMain() {
 	const { message: uiMessage } = useUiMessages([
 		"connections",
@@ -208,8 +256,6 @@ export function TopBarMain() {
 		useGitWorkspaceResource(scratch ? null : executionRef, "connect").data
 			?.status ?? null;
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
-	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
-	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 	const selectedChatRef: ChatRef | null =
 		selectedChatId === null || environmentId === null
@@ -253,7 +299,6 @@ export function TopBarMain() {
 	const setBottomTerminalOpenForChat = useUiStore(
 		(s) => s.setBottomTerminalOpenForChat,
 	);
-	const isFullScreen = useUiStore((s) => s.isFullScreen);
 	const environmentSummaryOpen = useUiStore((s) => s.environmentSummaryOpen);
 	const toggleEnvironmentSummary = useUiStore(
 		(s) => s.toggleEnvironmentSummary,
@@ -282,10 +327,7 @@ export function TopBarMain() {
 	);
 	const branchLabel = resolvedBranch.label;
 	const branchIsCached = resolvedBranch.cached;
-	const showLeftToggle = !leftSidebarOpen;
-
-	const leftPad =
-		showLeftToggle && isMacHost() && !isFullScreen ? "pl-20" : "pl-2";
+	const leftPad = useTopBarLeadingPad();
 
 	const refreshBranches = async (): Promise<void> => {
 		if (scratch || readOnly || executionRef === null || folderId === null)
@@ -363,28 +405,7 @@ export function TopBarMain() {
 			aria-label={uiMessage("common:workspace_toolbar")}
 			className={`${SECTION_CLASS} ${leftPad} bg-muted/20 ${rightSidebarOpen ? "pr-1" : NATIVE_CONTROLS_INSET_CLASS}`}
 		>
-			{showLeftToggle ? (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<button
-								type="button"
-								onClick={() => setLeftSidebarOpen(true)}
-								className={ICON_BUTTON_CLASS}
-								aria-label={uiMessage("chat:top_bar_show_projects_panel")}
-							>
-								<HugeiconsIcon icon={PanelLeftOpenIcon} className="size-3.5" />
-							</button>
-						}
-					/>
-					<TooltipPopup>
-						<TooltipShortcut
-							label={uiMessage("chat:top_bar_show_projects_panel")}
-							shortcut={formatShortcut("toggle-left-sidebar")}
-						/>
-					</TooltipPopup>
-				</Tooltip>
-			) : null}
+			<ShowProjectsPanelButton />
 			<div className={`flex min-w-0 flex-1 items-center ${ACTION_CLASS}`}>
 				{hasSession && !scratch ? (
 					<nav
@@ -670,8 +691,7 @@ export function BranchMenuButton({
 							className="size-3 animate-spin text-muted-foreground"
 						/>
 					) : (
-						<HugeiconsIcon
-							icon={ArrowDown01Icon}
+						<ChevronDown
 							className={`size-3 shrink-0 text-muted-foreground ${variant === "summary" ? "opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 group-data-[popup-open]:opacity-100" : ""}`}
 						/>
 					)}

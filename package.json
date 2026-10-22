@@ -52,7 +52,8 @@
 		"check:i18n": "node scripts/check-i18n.mjs && node scripts/check-website-i18n.mjs",
 		"test:i18n": "node --test scripts/check-i18n.test.mjs && bun run --filter @zuse/i18n test",
 		"dist:win": "node scripts/dist-windows.mjs",
-		"dist:win:unsigned": "node scripts/dist-windows.mjs --unsigned"
+		"dist:win:unsigned": "node scripts/dist-windows.mjs --unsigned",
+		"test:renderer-cache": "node --test scripts/check-renderer-react-cache.test.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.3",

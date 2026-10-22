@@ -1,11 +1,11 @@
 import "@zuse/i18n/english/chat";
+import { ChevronDown } from "lucide-react";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrDetails, GitPrInfo, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	Cancel01Icon,
 	CheckmarkCircle02Icon,
 	Comment01Icon,
@@ -175,10 +175,7 @@ export function PrActionsMenu({
 								})}
 						</span>
 						{rowAction === null ? (
-							<HugeiconsIcon
-								icon={ArrowDown01Icon}
-								className="size-3 shrink-0 text-muted-foreground"
-							/>
+							<ChevronDown className="size-3 shrink-0 text-muted-foreground" />
 						) : null}
 					</MenuTrigger>
 					{action !== null && rowAction !== null ? (

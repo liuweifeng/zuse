@@ -5,6 +5,7 @@ import { layer as sqliteLayer } from "@zuse/sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { expect, it } from "vitest";
+import { Migration0065Masters } from "../../src/persistence/migrations/0065_masters.ts";
 import { Migration0087ScratchFolders } from "../../src/persistence/migrations/0087_scratch_folders.ts";
 import { Migration0088ScratchFoldersRepair } from "../../src/persistence/migrations/0088_scratch_folders_repair.ts";
 import {
@@ -53,6 +54,12 @@ it.each([
 				yield* sql`INSERT INTO chats (id,project_id,title,created_at,updated_at) VALUES ('chat','existing','Retained','2026-10-01','2026-10-01')`;
 				yield* sql`CREATE TABLE preview_data (id TEXT PRIMARY KEY)`;
 				yield* sql`INSERT INTO preview_data VALUES ('preserved')`;
+				if (migrationName === "masters") {
+					yield* Migration0065Masters;
+					yield* sql`INSERT INTO masters (id,revision,state_json) VALUES ('saved-master',2,'{"name":"Retained Master"}')`;
+					yield* sql`INSERT INTO master_artifacts VALUES ('saved-master','memory/testing.md',1,'retained memory evidence')`;
+					yield* sql`INSERT INTO master_commands (command_id,master_id,fingerprint,result_json,created_at) VALUES ('saved-command','saved-master','saved-fingerprint','retained receipt',1)`;
+				}
 				if (migrationName === "scratch_folders") {
 					yield* Migration0087ScratchFolders;
 					yield* sql`UPDATE projects SET kind = 'scratch' WHERE id = 'existing'`;
@@ -109,8 +116,37 @@ it.each([
 							{ id: "preserved" },
 						]);
 						expect(
-							yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id=87`,
-						).toEqual([{ name: migrationName ?? "scratch_folders" }]);
+							yield* sql`SELECT migration_id,name FROM effect_sql_migrations WHERE migration_id BETWEEN 87 AND 90 ORDER BY migration_id`,
+						).toEqual([
+							{ migration_id: 87, name: "scratch_folders" },
+							{ migration_id: 88, name: "scratch_folders_repair" },
+							{ migration_id: 89, name: "device_bridge_enrollment" },
+							{ migration_id: 90, name: "masters" },
+						]);
+						if (migrationName === "masters") {
+							expect(
+								yield* sql`SELECT id,revision,state_json FROM masters`,
+							).toEqual([
+								{
+									id: "saved-master",
+									revision: 2,
+									state_json: '{"name":"Retained Master"}',
+								},
+							]);
+							expect(yield* sql`SELECT content FROM master_artifacts`).toEqual([
+								{ content: "retained memory evidence" },
+							]);
+							expect(
+								yield* sql`SELECT fingerprint,result_json FROM master_commands`,
+							).toEqual([
+								{
+									fingerprint: "saved-fingerprint",
+									result_json: "retained receipt",
+								},
+							]);
+						} else {
+							expect(yield* sql`SELECT id FROM masters`).toEqual([]);
+						}
 						expect(yield* sql`PRAGMA integrity_check`).toEqual([
 							{ integrity_check: "ok" },
 						]);

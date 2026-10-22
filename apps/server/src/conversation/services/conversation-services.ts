@@ -95,6 +95,8 @@ export interface CreateSessionInput {
 	readonly model: string;
 	readonly title?: string;
 	readonly initialPrompt?: string;
+	/** Environment-qualified initial message attribution supplied by trusted server orchestration. */
+	readonly origin?: MessageOrigin;
 	readonly runtimeMode?: RuntimeMode;
 	/**
 	 * Sub-agents the main agent may delegate to. Stored on the session row
@@ -168,6 +170,8 @@ export interface CreateChatInput {
 	readonly model: string;
 	readonly title?: string;
 	readonly initialPrompt?: string;
+	/** Environment-qualified initial message attribution supplied by trusted server orchestration. */
+	readonly origin?: MessageOrigin;
 	readonly runtimeMode?: RuntimeMode;
 	readonly worktreeId?: WorktreeId | null;
 	readonly agents?: Readonly<Record<string, AgentDefinition>>;

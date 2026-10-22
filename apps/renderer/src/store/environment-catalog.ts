@@ -1753,3 +1753,28 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		};
 	},
 );
+
+/** Display label for a cataloged environment, or `null` when it isn't known. */
+export const environmentLabel = (
+	entries: ReadonlyArray<EnvironmentCatalogEntry>,
+	environmentId: string,
+): string | null =>
+	entries.find((entry) => entry.environmentId === environmentId)?.label ?? null;
+
+export const useEnvironmentLabel = (environmentId: string): string | null =>
+	useEnvironmentCatalogStore((state) =>
+		environmentLabel(state.entries, environmentId),
+	);
+
+/** `first`, then every connected environment, without duplicates. */
+export const withConnectedEnvironments = (
+	entries: ReadonlyArray<EnvironmentCatalogEntry>,
+	first: string,
+): readonly string[] => [
+	...new Set([
+		first,
+		...entries
+			.filter((entry) => entry.status === "connected")
+			.map((entry) => entry.environmentId),
+	]),
+];

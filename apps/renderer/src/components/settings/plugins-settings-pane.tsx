@@ -3,11 +3,11 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import type { PluginSnapshot } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	PlugSocketIcon,
 	PuzzleIcon,
 	Search01Icon,
 } from "@zuse/icons/solid-rounded";
+import { ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { usePluginConnectionToggle } from "~/hooks/use-plugin-connection-toggle.ts";
 import {
@@ -107,7 +107,7 @@ export function PluginsSettingsPane({
 							<Menu>
 								<MenuTrigger render={<Button variant="secondary" />}>
 									{m("plugins:plugins_settings_add")}
-									<HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
+									<ChevronDown className="size-3" />
 								</MenuTrigger>
 								<MenuPopup align="end" className="w-60">
 									<MenuItem onClick={browsePlugins}>

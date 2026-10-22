@@ -61,6 +61,7 @@ import {
 	dispatchFileTreeCommand,
 	fileWriteCommandId,
 } from "../lib/file-tree-client-bus.ts";
+import { fnv1a } from "../lib/fnv1a.ts";
 import { formatError } from "../lib/format-error.ts";
 import {
 	dispatchGitWorkspaceCommand,
@@ -182,14 +183,8 @@ const loadViewed = (): Record<string, string> => {
 	}
 };
 
-export const reviewFingerprint = (patch: string): string => {
-	let value = 2166136261;
-	for (let index = 0; index < patch.length; index += 1) {
-		value ^= patch.charCodeAt(index);
-		value = Math.imul(value, 16777619);
-	}
-	return `${patch.length}:${(value >>> 0).toString(36)}`;
-};
+export const reviewFingerprint = (patch: string): string =>
+	`${patch.length}:${fnv1a(patch).toString(36)}`;
 
 type AnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }

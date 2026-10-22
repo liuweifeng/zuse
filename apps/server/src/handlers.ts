@@ -18,6 +18,7 @@ import { ModelConnectionsHandlersLayer } from "./harness/handlers.ts";
 import { HostHandlersLayer } from "./host/handlers.ts";
 import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { MachineHandlersLayer } from "./machine/handlers.ts";
+import { MasterHandlersLayer } from "./master/handlers.ts";
 import { ModelCatalogHandlersLayer } from "./model-catalog/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
@@ -44,6 +45,7 @@ export const HandlersLayer = Layer.mergeAll(
 	CheckpointHandlersLayer,
 	SimulatorHandlersLayer,
 	ModelConnectionsHandlersLayer,
+	MasterHandlersLayer,
 	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,
 	PreviewsHandlersLayer,

@@ -67,6 +67,7 @@ import { Migration0063Jobs } from "./migrations/0063_jobs.ts";
 import { Migration0063ProjectWorkspaceKey } from "./migrations/0063_project_workspace_key.ts";
 import { Migration0064ProviderAccounts } from "./migrations/0064_provider_accounts.ts";
 import { Migration0064SessionGraph } from "./migrations/0064_session_graph.ts";
+import { Migration0065Masters } from "./migrations/0065_masters.ts";
 import { Migration0065ProviderThreadOwnership } from "./migrations/0065_provider_thread_ownership.ts";
 import { Migration0066JobAttemptOwnership } from "./migrations/0066_job_attempt_ownership.ts";
 import { Migration0067ProviderReservations } from "./migrations/0067_provider_reservations.ts";
@@ -241,6 +242,7 @@ const MigrationDefinitions = {
 	"0087_scratch_folders": Migration0087ScratchFolders,
 	"0088_scratch_folders_repair": Migration0088ScratchFoldersRepair,
 	"0089_device_bridge_enrollment": Migration0089DeviceBridgeEnrollment,
+	"0090_masters": Migration0065Masters,
 } as const;
 
 /** Schema before projectless threads, retained for populated upgrade fixtures. */
@@ -270,6 +272,51 @@ export const MigrationsLive = Layer.effectDiscard(
 		const tables =
 			yield* sql`SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'effect_sql_migrations'`;
 		if (tables.length > 0) {
+			// Relocate recognized Masters preview ledgers without touching their data.
+			// Main may already have repaired scratch folders after a slot-87 preview.
+			yield* sql.withTransaction(
+				Effect.gen(function* () {
+					const legacy = yield* sql<{
+						migration_id: number;
+					}>`SELECT migration_id FROM effect_sql_migrations WHERE migration_id IN (65,87) AND name = 'masters'`;
+					const boundary = legacy[0]?.migration_id;
+					if (boundary === undefined) return;
+					const later = yield* sql<{
+						migration_id: number;
+						name: string;
+					}>`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id > ${boundary}`;
+					for (const row of later) {
+						if (
+							boundary !== 87 ||
+							!(
+								(row.migration_id === 88 &&
+									row.name === "scratch_folders_repair") ||
+								(row.migration_id === 89 &&
+									row.name === "device_bridge_enrollment")
+							)
+						)
+							return yield* Effect.die(
+								new Error(
+									"Unrecognized migration history after Masters preview",
+								),
+							);
+					}
+					yield* sql`UPDATE effect_sql_migrations SET migration_id = 90 WHERE migration_id = ${boundary} AND name = 'masters'`;
+					for (const [key, migration] of Object.entries(MigrationDefinitions)) {
+						const id = Number(key.slice(0, 4));
+						if (
+							id < boundary ||
+							id >= 90 ||
+							later.some((row) => row.migration_id === id)
+						)
+							continue;
+						// The repair also tolerates a scratch column already present in a preview.
+						yield* id === 87 ? Migration0088ScratchFoldersRepair : migration;
+						yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (${id}, ${key.slice(5)})`;
+					}
+				}),
+			);
+
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
 					const legacy = yield* sql<{
@@ -331,13 +378,17 @@ export const MigrationsLive = Layer.effectDiscard(
 
 			yield* sql.withTransaction(
 				Effect.gen(function* () {
+					const masters =
+						yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 58 AND name = 'masters'`;
+					if (masters.length > 0) {
+						yield* Migration0058QuestionAnswerDeliveries;
+						yield* sql`UPDATE effect_sql_migrations SET name = 'question_answer_deliveries' WHERE migration_id = 58`;
+					}
 					const legacy = yield* sql<{
 						migration_id: number;
 					}>`SELECT migration_id FROM effect_sql_migrations WHERE migration_id IN (58, 59) AND name = 'collaboration_foundation'`;
 					if (legacy.length === 0) return;
-					const masters =
-						yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 58 AND name = 'masters'`;
-					if (legacy[0]?.migration_id === 58 || masters.length > 0) {
+					if (legacy[0]?.migration_id === 58) {
 						yield* Migration0058QuestionAnswerDeliveries;
 						yield* sql`UPDATE effect_sql_migrations SET name = 'question_answer_deliveries' WHERE migration_id = 58`;
 					}
@@ -364,6 +415,16 @@ export const MigrationsLive = Layer.effectDiscard(
 					if (legacy.length === 0) return;
 					yield* Migration0061HarnessExecutions;
 					yield* sql`UPDATE effect_sql_migrations SET name = 'harness_executions' WHERE migration_id = 61`;
+				}),
+			);
+			// Masters development builds occupied slot 63 before project ownership shipped.
+			yield* sql.withTransaction(
+				Effect.gen(function* () {
+					const legacy =
+						yield* sql`SELECT migration_id FROM effect_sql_migrations WHERE migration_id = 63 AND name = 'masters'`;
+					if (legacy.length === 0) return;
+					yield* Migration0063ProjectWorkspaceKey;
+					yield* sql`UPDATE effect_sql_migrations SET name = 'project_workspace_key' WHERE migration_id = 63`;
 				}),
 			);
 		}

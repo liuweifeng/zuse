@@ -157,5 +157,9 @@
 	"accounts_rename": "이름 변경",
 	"accounts_connect": "다른 계정 연결",
 	"accounts_use_for_new_chats": "새 채팅에 사용",
-	"accounts_default_badge": "기본값"
+	"accounts_default_badge": "기본값",
+	"accounts_add": "계정 추가",
+	"accounts_use": "새 채팅에 사용",
+	"accounts_selected": "선택됨",
+	"model_picker_unavailable_selection": "{{model}} (사용 불가)"
 }

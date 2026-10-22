@@ -4,6 +4,7 @@ import {
 } from "@zuse/client-runtime/html-render";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { useStreamingText } from "../hooks/use-streaming-text.ts";
+import { useMastersStore } from "../store/masters.ts";
 import { ContextPill, contextPillClass } from "./context-pill.tsx";
 import { HtmlVisual } from "./html-visual.tsx";
 import "@zuse/i18n/english/common";
@@ -795,10 +796,11 @@ export function UserBubble({
 								.flat()
 								.find((candidate) => candidate.id === source.chatId);
 							const available =
-								session !== undefined &&
-								chat !== undefined &&
-								session.archivedAt === null &&
-								chat.archivedAt === null;
+								Boolean(source.masterId && source.environmentId) ||
+								(session !== undefined &&
+									chat !== undefined &&
+									session.archivedAt === null &&
+									chat.archivedAt === null);
 							const name =
 								session?.title?.trim() ||
 								source.title?.trim() ||
@@ -809,6 +811,13 @@ export function UserBubble({
 									type="button"
 									disabled={!available}
 									onClick={() => {
+										if (source.masterId && source.environmentId) {
+											useMastersStore.getState().select({
+												masterId: source.masterId,
+												environmentId: source.environmentId,
+											});
+											return;
+										}
 										void openSession({
 											environmentId: EnvironmentId.make(senderEnvironmentId),
 											sessionId: source.sessionId,

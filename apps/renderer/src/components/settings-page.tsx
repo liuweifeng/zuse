@@ -92,7 +92,7 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
 import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { LanguageSelector } from "./language-selector.tsx";
-import { ModelPicker } from "./model-picker.tsx";
+import { MODEL_PICKER_SETTINGS_TRIGGER, ModelPicker } from "./model-picker.tsx";
 import { ProviderSettingsRow } from "./provider-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 import { AccountGithubConnection } from "./settings/account-github.tsx";
@@ -1696,7 +1696,7 @@ export function DefaultModelsPane() {
 				action={
 					<ModelPicker
 						mode="default"
-						triggerClassName="h-7 w-64 max-w-[40vw] justify-between rounded-md border border-input bg-card px-2.5 text-xs hover:bg-muted"
+						triggerClassName={MODEL_PICKER_SETTINGS_TRIGGER}
 					/>
 				}
 			/>

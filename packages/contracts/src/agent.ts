@@ -742,6 +742,8 @@ export type ModelOption = typeof ModelOption.Type;
  */
 
 export const StartSessionInput = Schema.Struct({
+	/** Internal auxiliary turn: supported adapters remove all tools and hooks. */
+	outputOnly: Schema.optional(Schema.Boolean),
 	folderId: FolderId,
 	providerId: ProviderId,
 	mode: SessionMode,

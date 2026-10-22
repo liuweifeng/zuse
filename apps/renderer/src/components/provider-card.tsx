@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { CopyButton } from "./copy-button.tsx";
 import { ProviderAccountsControls } from "./provider-accounts.tsx";
@@ -8,7 +9,6 @@ import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Add01Icon,
 	AlertCircleIcon,
-	ArrowDown01Icon,
 	CircleArrowUp01Icon,
 	Delete02Icon,
 	LinkSquare01Icon,
@@ -231,8 +231,7 @@ export function ProviderSettingsRow({
 						onExpandedChange(!open);
 					}}
 				>
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
+					<ChevronDown
 						className={cn(
 							"size-3.5 transition-transform motion-reduce:transition-none",
 							open && "rotate-180",

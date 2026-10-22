@@ -54,11 +54,12 @@ Preview never implicitly publishes a bootstrap Stable release.
 
 Preview data must remain readable and writable by current Stable. CI gates
 publication by running the
-**actual Stable checkout**, the Preview checkout, and Stable again against one
+**actual Stable checkout**, the Preview checkout, Stable again, and Preview again against one
 isolated data directory. The test harness is copied into older Stable checkouts;
 their production migrations and persistence code remain unchanged. Each stage reads and writes chats, sessions, and global
 settings through the shipped migrations and config store, and checks SQLite
-integrity. Extend this probe whenever new durable data behavior is introduced;
+integrity. Zot history, versioned memory/artifacts and command receipts must survive
+the Stable return, and the final Preview stage must read and update them. Extend this probe whenever new durable data behavior is introduced;
 a passing representative probe is not a proof for every possible user database.
 
 Incompatible migrations must be deferred to a separately reviewed Stable change.

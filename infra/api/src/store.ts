@@ -1,4 +1,7 @@
-import type { EnvironmentSharingAudience } from "@zuse/contracts";
+import type {
+	EnvironmentSharingAudience,
+	MasterOwnership,
+} from "@zuse/contracts";
 import { KeyedEffectSerialWorker } from "@zuse/utils/keyed-worker";
 import { Context, Effect, Layer, Ref, Semaphore } from "effect";
 import { SqlClient } from "effect/unstable/sql";
@@ -116,6 +119,15 @@ export interface ApiStoreApi {
 		organizationId: string,
 		operation: Effect.Effect<A, E, R>,
 	) => Effect.Effect<A, E | ApiError, R>;
+	readonly getMasterOwnership: (
+		accountId: string,
+		masterId: string,
+	) => Effect.Effect<MasterOwnership | null>;
+	readonly compareMasterOwnership: (
+		accountId: string,
+		expectedGeneration: number,
+		next: MasterOwnership,
+	) => Effect.Effect<boolean>;
 	readonly createChallenge: (
 		challenge: LinkChallengeRecord,
 	) => Effect.Effect<void>;
@@ -221,11 +233,40 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 
 		const githubJoining = makeGithubJoiningMemory();
 		const domainJoining = makeDomainJoiningMemory();
+		const masterOwnership = yield* Ref.make(new Map<string, MasterOwnership>());
+
 		return ApiStore.of({
 			githubJoining,
 			domainJoining,
 			withOrganizationLock: (organizationId, operation) =>
 				organizationDeadline(organizationLock.run(organizationId, operation)),
+			getMasterOwnership: (accountId, masterId) =>
+				Ref.get(masterOwnership).pipe(
+					Effect.map((map) => map.get(`${accountId}:${masterId}`) ?? null),
+				),
+			compareMasterOwnership: (accountId, expectedGeneration, next) =>
+				Ref.modify(masterOwnership, (map) => {
+					const key = `${accountId}:${next.masterId}`;
+					if ((map.get(key)?.generation ?? 0) !== expectedGeneration)
+						return [false, map];
+					const requested = new Set(
+						next.repositories.map(
+							(repo) => `${repo.environmentId}:${repo.folderId}`,
+						),
+					);
+					if (requested.size !== next.repositories.length) return [false, map];
+					for (const [ownerKey, owner] of map)
+						if (
+							ownerKey.startsWith(`${accountId}:`) &&
+							ownerKey !== key &&
+							owner.repositories.some((repo) =>
+								requested.has(`${repo.environmentId}:${repo.folderId}`),
+							)
+						)
+							return [false, map];
+					return [true, new Map(map).set(key, next)];
+				}),
+
 			createChallenge: (challenge) =>
 				Ref.update(challenges, (map) =>
 					new Map(map).set(challenge.challengeId, challenge),
@@ -698,6 +739,61 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
               WHERE account_id = ${accountId}
               ORDER BY linked_at DESC
             `.pipe(Effect.map((rows) => rows.map(toEnvironment))),
+					),
+				getMasterOwnership: (accountId, masterId) =>
+					orDie(
+						sql<{
+							home_environment_id: string;
+							generation: number;
+							repositories_json: string;
+						}>`SELECT home_environment_id, generation, repositories_json FROM api_master_ownership WHERE account_id = ${accountId} AND master_id = ${masterId}`.pipe(
+							Effect.map((rows) =>
+								rows[0]
+									? {
+											masterId,
+											homeEnvironmentId: rows[0].home_environment_id,
+											generation: rows[0].generation,
+											repositories: JSON.parse(rows[0].repositories_json),
+										}
+									: null,
+							),
+						),
+					),
+
+				compareMasterOwnership: (accountId, expectedGeneration, next) =>
+					orDie(
+						sql.withTransaction(
+							Effect.gen(function* () {
+								// Serialize repository ownership changes for this account, including first claims.
+								yield* sql`SELECT pg_advisory_xact_lock(hashtext(${accountId}))`;
+								const owners = yield* sql<{
+									master_id: string;
+									repositories_json: string;
+								}>`SELECT master_id, repositories_json FROM api_master_ownership WHERE account_id = ${accountId}`;
+								const requested = new Set(
+									next.repositories.map(
+										(repo) => `${repo.environmentId}:${repo.folderId}`,
+									),
+								);
+								if (requested.size !== next.repositories.length) return false;
+								for (const owner of owners) {
+									const repositories: MasterOwnership["repositories"] =
+										JSON.parse(owner.repositories_json);
+									if (
+										owner.master_id !== next.masterId &&
+										repositories.some((repo) =>
+											requested.has(`${repo.environmentId}:${repo.folderId}`),
+										)
+									)
+										return false;
+								}
+								const changed =
+									expectedGeneration === 0
+										? yield* sql`INSERT INTO api_master_ownership (account_id, master_id, home_environment_id, generation, repositories_json) VALUES (${accountId}, ${next.masterId}, ${next.homeEnvironmentId}, ${next.generation}, ${JSON.stringify(next.repositories)}) ON CONFLICT DO NOTHING RETURNING master_id`
+										: yield* sql`UPDATE api_master_ownership SET home_environment_id = ${next.homeEnvironmentId}, generation = ${next.generation}, repositories_json = ${JSON.stringify(next.repositories)} WHERE account_id = ${accountId} AND master_id = ${next.masterId} AND generation = ${expectedGeneration} RETURNING master_id`;
+								return changed.length === 1;
+							}),
+						),
 					),
 				getEnvironment: (environmentId) =>
 					orDie(

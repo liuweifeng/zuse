@@ -1,8 +1,7 @@
 "use client";
 
 import { Menu as MenuPrimitive } from "@base-ui/react/menu";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowRight01Icon } from "@zuse/icons/solid-rounded";
+import { ChevronRight } from "lucide-react";
 import type * as React from "react";
 import { cn } from "~/lib/utils";
 
@@ -300,8 +299,7 @@ export function MenuSubTrigger({
 			) : (
 				children
 			)}
-			<HugeiconsIcon
-				icon={ArrowRight01Icon}
+			<ChevronRight
 				className={
 					compact
 						? "!size-3 shrink-0 text-muted-foreground"

@@ -174,6 +174,9 @@ export type MessageRole = typeof MessageRole.Type;
  */
 export const MessageOrigin = Schema.Struct({
 	title: Schema.optional(Schema.String),
+	/** Remote attribution is descriptive and never a cross-database foreign key. */
+	environmentId: Schema.optional(Schema.String),
+	masterId: Schema.optional(Schema.String),
 	chatId: ChatId,
 	sessionId: SessionId,
 	providerId: ProviderId,

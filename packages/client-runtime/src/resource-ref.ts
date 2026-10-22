@@ -51,8 +51,14 @@ export type SimulatorRef = Readonly<{
 	format: "avcc" | "mjpeg";
 }>;
 
+export type MasterRef = Readonly<{
+	environmentId: EnvironmentId;
+	masterId: string;
+}>;
+
 export type ResourceRef =
 	| SimulatorRef
+	| MasterRef
 	| EnvironmentRef
 	| ProjectRef
 	| ChatRef
@@ -68,6 +74,7 @@ export const resourceRefKey = (ref: ResourceRef): string => {
 	const environment = part(ref.environmentId);
 	if ("deviceId" in ref)
 		return `simulator:${environment}:${part(ref.chatId)}:${part(ref.deviceId)}:${ref.format}`;
+	if ("masterId" in ref) return `master:${environment}:${part(ref.masterId)}`;
 	if ("sessionId" in ref) {
 		return `session:${environment}:${part(ref.sessionId)}`;
 	}
@@ -98,6 +105,8 @@ export const resourceRefKey = (ref: ResourceRef): string => {
 export type ResourceKind =
 	| "environment-simulators"
 	| "simulator-video"
+	| "master-summary"
+	| "masters-directory"
 	| "environment-shell"
 	| "environment-permissions"
 	| "environment-question-attachments"

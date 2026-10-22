@@ -4,6 +4,7 @@ import {
 	isCloudProjectFolder,
 	mergeCloudProjectFolders,
 } from "../lib/cloud-project-folders.ts";
+import { githubOwnerAvatarUrl } from "../lib/github-avatar.ts";
 import {
 	refreshHostedProjects,
 	selectHostedCloudHome,
@@ -17,8 +18,11 @@ import {
 import { buildThreadList, type ThreadListEntry } from "../lib/thread-list.ts";
 import { useChatAttention } from "../lib/use-chat-attention.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
+import { useMastersStore } from "../store/masters.ts";
 import { GithubStarPrompt } from "./github-star-prompt.tsx";
 import { HostedLaptopSection } from "./hosted-sidebar.tsx";
+import { MastersSidebar } from "./masters/sidebar.tsx";
+import { SidebarActionRow } from "./sidebar-action-row.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -284,19 +288,20 @@ function SidebarErrorToasts(): null {
 	return null;
 }
 
-const githubOwnerAvatarUrl = (host: string, owner: string): string | null =>
-	host.toLowerCase() === "github.com"
-		? `https://github.com/${encodeURIComponent(owner)}.png?size=80`
-		: null;
-
+// Hosts compare case-insensitively; the shared helper builds the URL.
 const avatarUrlFor = (origin: GitOriginInfo | null): string | null =>
-	origin === null ? null : githubOwnerAvatarUrl(origin.host, origin.owner);
+	origin === null
+		? null
+		: githubOwnerAvatarUrl({
+				host: origin.host.toLowerCase(),
+				owner: origin.owner,
+			});
 
 const avatarUrlForRepositoryIdentity = (identity: string): string | null => {
 	const [host, owner] = identity.split("/");
 	return host === undefined || owner === undefined
 		? null
-		: githubOwnerAvatarUrl(host, owner);
+		: githubOwnerAvatarUrl({ host: host.toLowerCase(), owner });
 };
 
 const formatRelative = (iso: Date, compact = false): string => {
@@ -360,6 +365,7 @@ export function ProjectsSidebar() {
 	};
 	const selectFolder = useWorkspaceStore((s) => s.select);
 	const select = async (id: FolderId) => {
+		useMastersStore.getState().select(null);
 		if (isHostedProduct()) selectHostedCloudHome(id);
 		else await selectFolder(id);
 	};
@@ -627,6 +633,7 @@ export function ProjectsSidebar() {
 				</Suspense>
 			)}
 			<SidebarActions />
+			<MastersSidebar />
 			{showComputerControls ? (
 				<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
 					<span>{uiMessage("projects:projects_sidebar_computers")}</span>
@@ -1485,42 +1492,6 @@ function SidebarActions() {
 				/>
 			)}
 		</div>
-	);
-}
-
-function SidebarActionRow({
-	icon,
-	label,
-	shortcut,
-	active = false,
-	onClick,
-}: {
-	icon: IconSvgElement;
-	label: string;
-	shortcut?: string;
-	active?: boolean;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-current={active ? "page" : undefined}
-			className={cn(
-				"flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[12px] transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				active
-					? "bg-sidebar-accent text-sidebar-accent-foreground"
-					: "text-muted-foreground",
-			)}
-		>
-			<HugeiconsIcon icon={icon} className="size-4 shrink-0" />
-			<span className="min-w-0 flex-1 truncate">{label}</span>
-			{shortcut !== undefined && shortcut !== "" ? (
-				<kbd className="shrink-0 font-sans text-[12px] text-muted-foreground">
-					{shortcut}
-				</kbd>
-			) : null}
-		</button>
 	);
 }
 
@@ -3169,7 +3140,11 @@ function ChatRow({
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 
-	const selectChat = useChatsStore((s) => s.select);
+	const selectOrdinaryChat = useChatsStore((s) => s.select);
+	const selectChat = (chatId: ChatId) => {
+		useMastersStore.getState().select(null);
+		return selectOrdinaryChat(chatId);
+	};
 	const renameChat = useChatsStore((s) => s.rename);
 	const unarchiveChat = useChatsStore((s) => s.unarchive);
 	const removeChat = useChatsStore((s) => s.remove);

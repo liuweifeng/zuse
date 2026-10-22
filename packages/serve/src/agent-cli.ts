@@ -51,6 +51,7 @@ const GROUPS = new Set([
 	"workspace",
 	"preview",
 	"plugins",
+	"master",
 	"computer",
 	"project",
 	"model",
@@ -424,6 +425,9 @@ const commandManifest = () => ({
 		"preview set",
 		"preview delete",
 		"session status",
+		"master list",
+		"master state",
+		"master action",
 		"computer list",
 		"project list",
 		"model list",
@@ -1142,6 +1146,50 @@ const execute = async (
 		if (group === "secret") return await executeSecretCommand(client, args);
 		if (group === "preview" && action === "list")
 			return await rpc(client["previews.listServers"]());
+		if (group === "master") {
+			if (action === "list") return rpc(client["masters.list"]({}));
+			if (action !== "state" && action !== "action")
+				throw new CliError(
+					"invalid_input",
+					"Use master list, state, or action.",
+				);
+			const sessionId = required(one(args, "session"), "--session");
+			const source = one(args, "json");
+			const commandJson =
+				source === undefined
+					? undefined
+					: source === "-"
+						? await readStdin()
+						: source.startsWith("@")
+							? await readFile(resolve(source.slice(1)), "utf8")
+							: source;
+			if (action === "action") required(commandJson, "--json");
+			const id =
+				action === "action"
+					? required(
+							one(args, "command-id"),
+							"--command-id (reuse the same ID when retrying)",
+						)
+					: undefined;
+			const response = JSON.parse(
+				(
+					await rpc(
+						client["masters.agent"]({
+							sessionId,
+							commandJson,
+							readOnly: action === "state",
+							commandId: id,
+						}),
+					)
+				).json,
+			);
+			if (!response.ok)
+				throw new CliError(
+					"master_rejected",
+					response.error ?? "Zot command failed.",
+				);
+			return response.result ?? response.master;
+		}
 		if (group === "computer" && action === "list") {
 			const [current, connected] = await Promise.all([
 				rpc(client["connect.describe"]()),

@@ -157,5 +157,9 @@
 	"accounts_rename": "Umbenennen",
 	"accounts_connect": "Weiteres Konto verbinden",
 	"accounts_use_for_new_chats": "Für neue Chats verwenden",
-	"accounts_default_badge": "Standard"
+	"accounts_default_badge": "Standard",
+	"accounts_add": "Konto hinzufügen",
+	"accounts_use": "Für neue Chats verwenden",
+	"accounts_selected": "Ausgewählt",
+	"model_picker_unavailable_selection": "{{model}} (nicht verfügbar)"
 }

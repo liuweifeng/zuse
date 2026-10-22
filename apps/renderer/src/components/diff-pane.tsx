@@ -20,7 +20,6 @@ import type {
 import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	ArrowUpRight01Icon,
 	FolderTreeIcon,
 	GitBranchIcon,
@@ -31,7 +30,7 @@ import {
 	Tick02Icon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
-import { FileWarning, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, FileWarning, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -921,8 +920,7 @@ function ChangedFilesList({
 							style={{ paddingLeft: indent }}
 							className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
 						>
-							<HugeiconsIcon
-								icon={ArrowDown01Icon}
+							<ChevronDown
 								className={cn(
 									"size-3 shrink-0 text-muted-foreground/70 transition-transform duration-150",
 									!open && "-rotate-90",

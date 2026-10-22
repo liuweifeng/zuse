@@ -43,6 +43,10 @@ import {
 } from "./crypto.ts";
 import { routeDeviceBridgeRequest } from "./device-bridge-routes.ts";
 import {
+	hasManagedPublicEndpoint,
+	publicEndpoint,
+} from "./environment-endpoint.ts";
+import {
 	type ApiError,
 	badRequest,
 	conflict,
@@ -63,6 +67,7 @@ import {
 } from "./machine-routes.ts";
 import { MachineStore } from "./machine-store.ts";
 import { ManagedTunnelProvider } from "./managed-tunnel.ts";
+import { routeMasterRequest } from "./master-routes.ts";
 import { routeModelConnectionRequest } from "./model-connection-routes.ts";
 import { ModelConnectionStore } from "./model-connection-store.ts";
 import {
@@ -277,33 +282,6 @@ const hasSensitiveActivityKey = (value: unknown): boolean => {
 	return false;
 };
 
-const publicEndpoint = (environment: EnvironmentRecord) =>
-	environment.tunnelHostname !== undefined
-		? {
-				httpBaseUrl: `https://${environment.tunnelHostname}`,
-				wsBaseUrl: `wss://${environment.tunnelHostname}`,
-			}
-		: {
-				httpBaseUrl: environment.httpBaseUrl,
-				wsBaseUrl: environment.wsBaseUrl,
-			};
-
-const hasManagedPublicEndpoint = (environment: EnvironmentRecord): boolean => {
-	if (environment.tunnelHostname !== undefined) return true;
-	try {
-		const endpoint = new URL(environment.httpBaseUrl);
-		const hostname = endpoint.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
-		return (
-			endpoint.protocol === "https:" &&
-			hostname !== "localhost" &&
-			hostname !== "127.0.0.1" &&
-			hostname !== "::1"
-		);
-	} catch {
-		return false;
-	}
-};
-
 const endpointCandidates = (
 	environment: EnvironmentRecord,
 	includePrivate = true,
@@ -397,6 +375,8 @@ const route = (
 		if (bridgeResponse !== null) return bridgeResponse;
 		const pluginResponse = yield* routePluginRequest(request);
 		if (pluginResponse !== null) return pluginResponse;
+		const masterResponse = yield* routeMasterRequest(request);
+		if (masterResponse !== null) return masterResponse;
 		const machineResponse = yield* routeMachineRequest(request);
 		if (machineResponse !== null) return machineResponse;
 		const cloudBillingResponse = yield* routeCloudBillingRequest(request);
