@@ -321,6 +321,51 @@ function WorkspacePluginsPage() {
 		}
 	};
 
+	const rename = async (
+		connectionId: string,
+		label: string,
+	): Promise<boolean> => {
+		if (!snapshot || busy || !snapshot.canManage) return false;
+		const connection = snapshot.connections.find(
+			(row) => row.id === connectionId,
+		);
+		if (!connection) return false;
+		if (
+			hasPluginConnectionLabel(
+				snapshot.connections.filter((row) => row.id !== connectionId),
+				connection.pluginId,
+				label,
+			)
+		) {
+			toastManager.add({
+				title: m("plugins:plugins_connection_name_exists"),
+				type: "error",
+			});
+			return false;
+		}
+		state.setBusy(connection.pluginId);
+		try {
+			await pluginRequest({
+				action: "rename",
+				tenantId: snapshot.tenantId,
+				connectionId,
+				label,
+			});
+			await state.load();
+			return true;
+		} catch {
+			toastManager.add({
+				title: m("plugins:plugins_settings_toggle_failed", {
+					name: connection.label,
+				}),
+				type: "error",
+			});
+			return false;
+		} finally {
+			state.setBusy(null);
+		}
+	};
+
 	const disconnect = async (plugin: PluginDefinition, connectionId: string) => {
 		if (!snapshot) return;
 		state.setBusy(plugin.id);
@@ -458,6 +503,7 @@ function WorkspacePluginsPage() {
 										onConnect={(label, apiKey) =>
 											connect(detail, label, apiKey)
 										}
+										onRename={rename}
 										onDisconnect={(id) => void disconnect(detail, id)}
 										onRemove={() => removeServer(detail)}
 									/>

@@ -148,6 +148,7 @@ export async function pluginRequest(input){
  }
  if(input.action==='removeServer'){window.lastRemoveServer=input;servers=servers.filter(s=>s.id!==input.pluginId);connections=connections.filter(c=>c.pluginId!==input.pluginId);return {kind:'ok'};}
  if(input.action==='setEnabled'){window.lastPluginToggle=input;connections=connections.map(c=>c.id===input.connectionId?{...c,enabled:input.enabled}:c);return {kind:'ok'};}
+ if(input.action==='rename'){const row=connections.find(c=>c.id===input.connectionId);if(!row)throw Error('Missing connection');row.label=input.label;return {kind:'ok'};}
  if(input.action==='complete'){connections.push({id:'c-linear',pluginId:'linear',label:'Linear',owner:'user',state:'connected',createdAt:Date.now(),enabled:true});return {kind:'attempt',id:'a',connectionId:'c-linear',state:'connected',authorizationUrl:null,expiresAt:Date.now()};}
  if(input.action==='list')return snapshot(input.tenantId);
  if(input.action==='disconnect'){connections=connections.filter(c=>c.id!==input.connectionId);return {kind:'ok'};}
@@ -258,6 +259,29 @@ try {
 		.click();
 	await page.getByRole("heading", { name: "Information" }).waitFor();
 	await shot("plugins-detail-connected");
+	await page
+		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+	await page
+		.getByRole("textbox", { name: "Connection name" })
+		.fill("Work docs");
+	await page.getByRole("button", { name: "Save", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Actions for Work docs", exact: true })
+		.waitFor();
+	// Restore the default before the multi-account checks below.
+	await page
+		.getByRole("button", { name: "Actions for Work docs", exact: true })
+		.click();
+	await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
+	await page
+		.getByRole("textbox", { name: "Connection name" })
+		.fill("Cloudflare Docs");
+	await page.getByRole("button", { name: "Save", exact: true }).click();
+	await page
+		.getByRole("button", { name: "Actions for Cloudflare Docs", exact: true })
+		.waitFor();
 
 	await expect(
 		page.getByRole("textbox", { name: "Connection name" }),

@@ -344,12 +344,32 @@ export class PluginVault {
 				connections: rows.map(({ row }) => row),
 			};
 		}
-		if (input.action === "disconnect" || input.action === "setEnabled") {
+		if (
+			input.action === "disconnect" ||
+			input.action === "setEnabled" ||
+			input.action === "rename"
+		) {
 			const connection = (await this.connections(identity)).find(
 				({ row }) => row.id === input.connectionId,
 			);
 			if (!connection) throw new Error("Connection not found");
 			const { key, row, subject } = connection;
+			if (input.action === "rename") {
+				const label = input.label.trim();
+				if (!label || label.length > 80)
+					throw new Error("Invalid connection name");
+				if (
+					(await this.connections(identity)).some(
+						({ row: other }) =>
+							other.id !== row.id &&
+							other.pluginId === row.pluginId &&
+							other.label.trim().toLowerCase() === label.toLowerCase(),
+					)
+				)
+					throw new Error("Connection name already exists");
+				await this.ctx.storage.put(key, { ...row, label });
+				return { kind: "ok" };
+			}
 			if (input.action === "setEnabled") {
 				await this.ctx.storage.put(key, { ...row, enabled: input.enabled });
 				return { kind: "ok" };

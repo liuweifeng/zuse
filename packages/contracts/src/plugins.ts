@@ -183,6 +183,12 @@ export const PluginRequest = Schema.Union([
 		connectionId: Schema.String,
 	}),
 	Schema.Struct({
+		action: Schema.Literal("rename"),
+		tenantId: Schema.String,
+		connectionId: Schema.String,
+		label: Schema.String,
+	}),
+	Schema.Struct({
 		action: Schema.Literal("setEnabled"),
 		tenantId: Schema.String,
 		connectionId: Schema.String,

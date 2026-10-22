@@ -64,7 +64,7 @@ function authLabel(m: Translate, plugin: PluginDefinition) {
 
 /**
  * One plugin: what it is, the accounts connected to it, and how to add one.
- * Names are never asked for; each account gets the next free default.
+ * Each account gets the next free default and can be renamed later.
  */
 export function PluginDetail({
 	plugin,
@@ -77,6 +77,7 @@ export function PluginDetail({
 	toggle,
 	onBack,
 	onConnect,
+	onRename,
 	onDisconnect,
 	onRemove,
 }: {
@@ -90,6 +91,7 @@ export function PluginDetail({
 	readonly toggle: PluginConnectionToggle;
 	readonly onBack: () => void;
 	readonly onConnect: (label: string, apiKey?: string) => Promise<boolean>;
+	readonly onRename: (connectionId: string, label: string) => Promise<boolean>;
 	readonly onDisconnect: (connectionId: string) => void;
 	readonly onRemove: () => Promise<boolean>;
 }) {
@@ -279,6 +281,7 @@ export function PluginDetail({
 									canManage={canManage}
 									locked={locked}
 									toggle={toggle}
+									onRename={(label) => onRename(connection.id, label)}
 									onDisconnect={() => onDisconnect(connection.id)}
 								/>
 							))}
@@ -512,6 +515,7 @@ function AccountRow({
 	canManage,
 	locked,
 	toggle,
+	onRename,
 	onDisconnect,
 }: {
 	readonly connection: PluginConnection;
@@ -519,10 +523,62 @@ function AccountRow({
 	readonly canManage: boolean;
 	readonly locked: boolean;
 	readonly toggle: PluginConnectionToggle;
+	readonly onRename: (label: string) => Promise<boolean>;
 	readonly onDisconnect: () => void;
 }) {
-	const { message: m } = useUiMessages(["plugins"]);
+	const { message: m } = useUiMessages(["plugins", "common"]);
+	const [editing, setEditing] = useState(false);
+	const [draft, setDraft] = useState(connection.label);
+	const [saving, setSaving] = useState(false);
 	const enabled = toggle.enabled(connection);
+	if (editing)
+		return (
+			<form
+				className="flex items-center gap-2.5 py-2"
+				onSubmit={(event) => {
+					event.preventDefault();
+					if (saving || locked || !draft.trim()) return;
+					setSaving(true);
+					void onRename(draft.trim())
+						.then((saved) => {
+							if (saved) setEditing(false);
+						})
+						.finally(() => setSaving(false));
+				}}
+			>
+				<AccountAvatar label={connection.label} dimmed={!enabled} />
+				<input
+					// biome-ignore lint/a11y/noAutofocus: opened by an explicit rename action
+					autoFocus
+					aria-label={m("plugins:plugins_connection_name")}
+					className="h-7 min-w-0 flex-1 rounded-md bg-background/70 px-2.5 outline-none focus-visible:ring-2 focus-visible:ring-ring/24"
+					value={draft}
+					maxLength={80}
+					disabled={saving || locked}
+					onChange={(event) => setDraft(event.target.value)}
+					onKeyDown={(event) => {
+						if (event.key === "Escape" && !saving) setEditing(false);
+					}}
+				/>
+				<Button
+					type="button"
+					variant="ghost"
+					className="h-7"
+					disabled={saving}
+					onClick={() => setEditing(false)}
+				>
+					{m("common:cancel")}
+				</Button>
+				<Button
+					type="submit"
+					className="h-7"
+					loading={saving}
+					disabled={locked || !draft.trim()}
+				>
+					{m("common:save")}
+				</Button>
+			</form>
+		);
 	return (
 		<div className="flex items-center gap-2.5 py-2">
 			<AccountAvatar label={connection.label} dimmed={!enabled} />
@@ -560,6 +616,17 @@ function AccountRow({
 						<HugeiconsIcon icon={MoreHorizontalIcon} className="size-4" />
 					</MenuTrigger>
 					<MenuPopup align="end" className="w-48">
+						{!connection.id.startsWith("local-") && (
+							<MenuItem
+								disabled={locked}
+								onClick={() => {
+									setDraft(connection.label);
+									setEditing(true);
+								}}
+							>
+								{m("plugins:plugins_rename")}
+							</MenuItem>
+						)}
 						<MenuItem
 							disabled={!toggle.canToggle || toggle.busy(connection.id)}
 							onClick={() => void toggle.toggle(connection, name, !enabled)}
