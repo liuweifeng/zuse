@@ -1,6 +1,7 @@
 import { ChatId, EnvironmentId, SessionId } from "@zuse/contracts";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
+import { chatRowIsUnread } from "../../src/lib/chat-attention-state.ts";
 import { useChatAttention } from "../../src/lib/use-chat-attention.ts";
 
 const mocks = vi.hoisted(() => ({
@@ -27,7 +28,11 @@ const idleSession = SessionId.make("original-session");
 const runningSession = SessionId.make("new-session");
 function Row() {
 	const attention = useChatAttention({ id: chatId }, environmentId, false);
-	return <span>{attention.attentionState}</span>;
+	return (
+		<span>
+			{attention.attentionState}:{String(attention.busy)}
+		</span>
+	);
 }
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -54,7 +59,7 @@ beforeEach(() => {
 	);
 });
 it("shows a running second session even when the original Slack session is idle", () => {
-	expect(renderToStaticMarkup(<Row />)).toContain("running");
+	expect(renderToStaticMarkup(<Row />)).toContain("running:true");
 	expect(mocks.shell).toHaveBeenCalledWith(environmentId, "cache-only");
 	expect(mocks.permissions).toHaveBeenCalledWith(environmentId);
 	expect(mocks.timelines).toHaveBeenCalledWith(
@@ -74,5 +79,33 @@ it("returns to idle when the live sessions finish", () => {
 			presentation: { health: "healthy", interactions: [] },
 		})),
 	);
-	expect(renderToStaticMarkup(<Row />)).toContain("idle");
+	expect(renderToStaticMarkup(<Row />)).toContain("idle:false");
+});
+
+function UnreadRow() {
+	const attention = useChatAttention({ id: chatId }, environmentId, false);
+	return (
+		<span>
+			{String(
+				chatRowIsUnread(
+					false,
+					true,
+					attention.busy,
+					attention.permissionAttention === "permission",
+				),
+			)}
+		</span>
+	);
+}
+it("does not show intermediate unseen output as unread while another tab is running", () => {
+	expect(renderToStaticMarkup(<UnreadRow />)).toContain("false");
+	mocks.timelines.mockImplementation((refs) =>
+		refs.map((ref: { sessionId: string }) => ({
+			ref,
+			runtime: "idle",
+			messages: [],
+			presentation: { health: "healthy", interactions: [] },
+		})),
+	);
+	expect(renderToStaticMarkup(<UnreadRow />)).toContain("true");
 });
