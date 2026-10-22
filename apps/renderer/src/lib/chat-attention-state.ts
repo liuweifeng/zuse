@@ -165,3 +165,11 @@ export const chatAttentionLabel = (
 			return executionAttentionLabel(state) ?? "Inactive";
 	}
 };
+
+/** Unseen output draws attention once every session in the chat has settled. */
+export const chatRowIsUnread = (
+	selected: boolean,
+	unseenOutput: boolean,
+	busy: boolean,
+	permission: boolean,
+): boolean => !selected && (permission || (!busy && unseenOutput));

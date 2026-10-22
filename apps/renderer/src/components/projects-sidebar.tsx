@@ -1,5 +1,6 @@
 import { chatRecency } from "@zuse/client-runtime/chat-recency";
 import { useThreadListSidebarEnabled } from "../lib/browser-device-preferences.ts";
+import { chatRowIsUnread } from "../lib/chat-attention-state.ts";
 import {
 	isCloudProjectFolder,
 	mergeCloudProjectFolders,
@@ -3191,8 +3192,13 @@ function ChatRow({
 	const prInfo = gitView.data?.pr ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 
-	const { chatSessions, sessionIds, attentionState, permissionAttention } =
-		useChatAttention(chat, activeEnvironmentId, creationPending);
+	const {
+		chatSessions,
+		sessionIds,
+		attentionState,
+		permissionAttention,
+		busy,
+	} = useChatAttention(chat, activeEnvironmentId, creationPending);
 	const hoverSession =
 		chatSessions.find((session) => session.id === selectedSessionId) ??
 		chatSessions[0] ??
@@ -3246,10 +3252,12 @@ function ChatRow({
 	const isSelected = selectedChatId === chat.id || sessionBelongsToChat;
 	const isArchived = chat.archivedAt !== null;
 
-	const isUnread =
-		!isSelected &&
-		(isChatUnread(chat, selectedChatId) ||
-			permissionAttention === "permission");
+	const isUnread = chatRowIsUnread(
+		isSelected,
+		isChatUnread(chat, selectedChatId),
+		busy,
+		permissionAttention === "permission",
+	);
 
 	const branchState: BranchState = branchStateFor(prInfo, isArchived);
 	const stats = diffStatsFor(diffStat, prInfo);
