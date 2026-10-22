@@ -533,6 +533,100 @@ const validateElement = (element: ElementNode, form: FormScope): void => {
 	}
 };
 
+/**
+ * Recover unambiguous model formatting variants at the AST boundary. Never
+ * rewrite source text with regexes: quoted content must remain untouched.
+ * Keep references intact so normal cycle, reachability and expansion checks run.
+ */
+const normalizeUiSpec = (spec: string): string => {
+	let changed = false;
+	let budget = 4096;
+	const print = (node: ASTNode, depth = 0): string => {
+		if (--budget < 0 || depth > 48)
+			throw new Error(
+				"UI spec is too complex; use fewer components or references.",
+			);
+		const child = (value: ASTNode) => print(value, depth + 1);
+		switch (node.k) {
+			case "Str":
+			case "Num":
+			case "Bool":
+				return JSON.stringify(node.v);
+			case "Null":
+				return "null";
+			case "Ref":
+				return node.n;
+			case "Arr":
+				return `[${node.els.map(child).join(", ")}]`;
+			case "Obj":
+				return `{${node.entries.map(([key, value]) => `${JSON.stringify(key)}: ${child(value)}`).join(", ")}}`;
+			case "Comp": {
+				let name = node.name;
+				let args = node.args;
+				if (name === "CardHeader" && args.length === 1) {
+					name = "Text";
+					changed = true;
+				}
+				if (name === "KeyValue" && args[0]?.k === "Arr") {
+					const pairs = args[0].els.map((pair): ASTNode => {
+						if (
+							pair.k === "Arr" &&
+							pair.els.length === 2 &&
+							pair.els[0] &&
+							pair.els[1]
+						) {
+							changed = true;
+							return {
+								k: "Obj",
+								entries: [
+									["key", pair.els[0]],
+									["value", pair.els[1]],
+								],
+							};
+						}
+						if (
+							pair.k === "Obj" &&
+							!pair.entries.some(([key]) => key === "key") &&
+							pair.entries.filter(([key]) => key === "label").length === 1
+						) {
+							changed = true;
+							return {
+								...pair,
+								entries: pair.entries.map(([key, value]) => [
+									key === "label" ? "key" : key,
+									value,
+								]),
+							};
+						}
+						return pair;
+					});
+					args = [{ k: "Arr", els: pairs }, ...args.slice(1)];
+				}
+				return `${name}(${args.map(child).join(", ")})`;
+			}
+			default:
+				throw new Error(
+					"Only literal values, components, and references are supported in saved UI blocks.",
+				);
+		}
+	};
+	const normalized = split(tokenize(spec))
+		.map(
+			(statement) =>
+				`${statement.id} = ${print(parseExpression(statement.tokens))}`,
+		)
+		.join("\n");
+	if (!changed) return spec;
+	validateStaticProgram(normalized);
+	if (uiSpecParser.parse(spec).meta.incomplete)
+		throw new Error("Spec looks truncated (incomplete input).");
+	return normalized;
+};
+
+export type PreparedGenerativeUiSpec =
+	| { readonly ok: true; readonly spec: string }
+	| { readonly ok: false; readonly error: string };
+
 export type GenerativeUiSpecValidation =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly error: string };
@@ -543,15 +637,16 @@ export type GenerativeUiSpecValidation =
  * unresolved references, and truncated input all fail so the model gets a
  * fixable error instead of a silently degraded render.
  */
-export const validateGenerativeUiSpec = (
-	spec: unknown,
-): GenerativeUiSpecValidation => {
-	if (typeof spec !== "string" || spec.trim().length === 0) {
+export const prepareGenerativeUiSpec = (
+	input: unknown,
+): PreparedGenerativeUiSpec => {
+	if (typeof input !== "string" || input.trim().length === 0) {
 		return {
 			ok: false,
 			error: "emit_ui requires a non-empty OpenUI Lang spec string.",
 		};
 	}
+	let spec = input;
 	if (spec.length > UI_SPEC_MAX_CHARS) {
 		return {
 			ok: false,
@@ -560,6 +655,7 @@ export const validateGenerativeUiSpec = (
 	}
 	let result: ParseResult;
 	try {
+		spec = normalizeUiSpec(spec);
 		validateStaticProgram(spec);
 		result = uiSpecParser.parse(spec);
 
@@ -602,14 +698,21 @@ export const validateGenerativeUiSpec = (
 	if (result.root === null || problems.length > 0) {
 		return { ok: false, error: problems.join(" ") };
 	}
-	return { ok: true };
+	return { ok: true, spec };
+};
+
+export const validateGenerativeUiSpec = (
+	spec: unknown,
+): GenerativeUiSpecValidation => {
+	const result = prepareGenerativeUiSpec(spec);
+	return result.ok ? { ok: true } : result;
 };
 
 /** Validated render tree for native clients that share this component contract. */
 export const parseGenerativeUiSpec = (spec: string): ElementNode => {
-	const validation = validateGenerativeUiSpec(spec);
+	const validation = prepareGenerativeUiSpec(spec);
 	if (!validation.ok) throw new Error(validation.error);
-	const root = uiSpecParser.parse(spec).root;
+	const root = uiSpecParser.parse(validation.spec).root;
 	if (!root) throw new Error("Spec has no root component.");
 	return root;
 };

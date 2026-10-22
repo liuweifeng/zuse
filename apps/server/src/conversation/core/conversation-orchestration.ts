@@ -36,8 +36,8 @@ import {
 } from "@zuse/contracts";
 import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import {
+	prepareGenerativeUiSpec,
 	UI_SPEC_VERSION,
-	validateGenerativeUiSpec,
 } from "@zuse/utils/generative-ui";
 import { Context, Effect, Option } from "effect";
 import { masterPrompt } from "../../master/state.ts";
@@ -806,7 +806,7 @@ export const makeConversationOrchestration = (
 					),
 				),
 			emitUi: (input) => {
-				const validation = validateGenerativeUiSpec(input.spec);
+				const validation = prepareGenerativeUiSpec(input.spec);
 				if (!validation.ok) {
 					return Promise.resolve({
 						ok: false as const,
@@ -817,7 +817,7 @@ export const makeConversationOrchestration = (
 					dependencies
 						.persistMessage(context.sessionId, {
 							_tag: "ui_spec",
-							spec: input.spec,
+							spec: validation.spec,
 							version: UI_SPEC_VERSION,
 						})
 						.pipe(
