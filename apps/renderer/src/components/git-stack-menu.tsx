@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { readGitStack, useGitStack } from "../store/git-stack.ts";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/projects";
@@ -10,7 +11,6 @@ import {
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	GitBranchIcon,
 	GitMergeIcon,
 	GitPullRequestDraftIcon,
@@ -274,10 +274,7 @@ export function GitStackMenu({
 				{trigger ?? (
 					<>
 						{label}
-						<HugeiconsIcon
-							icon={ArrowDown01Icon}
-							className="size-3 shrink-0 text-muted-foreground"
-						/>
+						<ChevronDown className="size-3 shrink-0 text-muted-foreground" />
 					</>
 				)}
 			</MenuTrigger>

@@ -1,4 +1,5 @@
 import "@zuse/i18n/english/connections";
+import { ChevronDown } from "lucide-react";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -7,7 +8,6 @@ import { formatDate, message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Activity01Icon,
-	ArrowDown01Icon,
 	Calendar03Icon,
 	CloudIcon,
 	Copy01Icon,
@@ -360,10 +360,7 @@ export function CloudWorkspaceMenu({
 										{uiMessage("connections:cloud_workspace_info_open_via_ssh")}
 									</span>
 									<span className="flex h-7 w-7 shrink-0 items-center justify-center border-l border-foreground/15">
-										<HugeiconsIcon
-											icon={ArrowDown01Icon}
-											className="size-3.5"
-										/>
+										<ChevronDown className="size-3.5" />
 									</span>
 								</MenuSubTrigger>
 								<MenuSubPopup className="w-52">
@@ -448,10 +445,7 @@ export function CloudWorkspaceMenu({
 													{syncStatus.localPath}
 												</span>
 												<span className="flex h-7 w-7 shrink-0 items-center justify-center border-l border-foreground/15">
-													<HugeiconsIcon
-														icon={ArrowDown01Icon}
-														className="size-3.5"
-													/>
+													<ChevronDown className="size-3.5" />
 												</span>
 											</MenuSubTrigger>
 											<MenuSubPopup className="w-52">

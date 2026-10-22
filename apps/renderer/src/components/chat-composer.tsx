@@ -87,6 +87,7 @@ import {
 	replaceWithChip,
 	restoreComposerChips,
 	setComposerDoc,
+	setComposerPlaceholder,
 } from "~/lib/codemirror/composer";
 import {
 	addChipEffect,
@@ -135,6 +136,7 @@ import {
 	commitAcceptedComposerDelivery,
 	handoffComposerDraft,
 	shouldQueueComposerMessage,
+	submitComposerDelivery,
 	withComposerContext,
 } from "../lib/composer-delivery.ts";
 import {
@@ -174,6 +176,7 @@ import { useComposerBridge } from "../store/composer-bridge.ts";
 import {
 	composerDraftKeyForSession,
 	EMPTY_COMPOSER_CONTEXTS,
+	recoverComposerDraft,
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import {
@@ -240,11 +243,21 @@ import { RuntimeAccessPicker } from "./runtime-access-picker.tsx";
 
 const EMPTY_QUESTION_ATTACHMENTS: QuestionAttachmentsByKey = {};
 
+const DEFAULT_COMPOSER_PLACEHOLDER =
+	"Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.";
 const MIN_HEIGHT = 44;
+/** Built-in commands that change modes the minimal composer doesn't expose. */
+const MINIMAL_HIDDEN_COMMANDS: ReadonlySet<string> = new Set([
+	"mode",
+	"plan",
+	"run",
+	"goal",
+]);
 const MAX_HEIGHT = 240;
 const MAX_ATTACHMENTS_PER_TURN = 20;
 
 export function ChatComposer({
+	workspaceRootOverride,
 	session,
 	onDraftSubmit,
 	composerDraftKey,
@@ -256,7 +269,18 @@ export function ChatComposer({
 	submitDisabled = false,
 	cloudProviderIds,
 	environmentId,
+	variant = "full",
+	placeholder,
 }: {
+	workspaceRootOverride?: string;
+	/**
+	 * `minimal` keeps only attachments, the model picker and send — for
+	 * conversations (like a Master's) where access, plan, goal and plugin controls
+	 * don't apply.
+	 */
+	variant?: "full" | "minimal";
+	/** Editor placeholder; updates in place without remounting the editor. */
+	placeholder?: string;
 	session: Session;
 	environmentId: EnvironmentId;
 	composerDraftKey?: string;
@@ -563,7 +587,8 @@ export function ChatComposer({
 	const revealPanelForChat = useUiStore((s) => s.revealPanelForChat);
 	const setView = useUiStore((s) => s.setView);
 	const setSettingsSection = useUiStore((s) => s.setSettingsSection);
-	const workspaceRoot = useActiveWorkspaceRoot(session.projectId);
+	const activeWorkspaceRoot = useActiveWorkspaceRoot(session.projectId);
+	const workspaceRoot = workspaceRootOverride ?? activeWorkspaceRoot;
 	const workspaceRootRef = useRef(workspaceRoot);
 	workspaceRootRef.current = workspaceRoot;
 
@@ -574,6 +599,12 @@ export function ChatComposer({
 	const annotationCount = useAnnotationsStore(
 		(s) => (s.bySession[sessionId] ?? []).length,
 	);
+
+	useEffect(() => {
+		const view = editorViewRef.current;
+		if (view !== null)
+			setComposerPlaceholder(view, placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER);
+	}, [placeholder]);
 
 	useEffect(() => {
 		if (
@@ -643,8 +674,7 @@ export function ChatComposer({
 		const view = createComposerView({
 			parent: host,
 			initialDoc: initialSnapshot?.doc ?? "",
-			placeholderText:
-				"Ask to make changes at the @ mentioned files or run slash commands, shift enter for next line.",
+			placeholderText: placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER,
 			callbacks,
 			resolveChipToken: (token) => {
 				if (token.startsWith("@")) {
@@ -873,6 +903,13 @@ export function ChatComposer({
 		command: BuiltinCommand;
 		args: string;
 	}): void => {
+		// The minimal composer has no access, plan or goal controls, so it must
+		// not enter those modes where the user couldn't see or leave them.
+		if (
+			variant === "minimal" &&
+			MINIMAL_HIDDEN_COMMANDS.has(parsed.command.name)
+		)
+			return;
 		switch (parsed.command.name) {
 			case "clear":
 				break;
@@ -1235,10 +1272,11 @@ export function ChatComposer({
 						shouldQueue: shouldQueueNow(),
 					})
 				: null;
-		const commitComposerSubmission = () => {
+		const commitComposerSubmission = (keepPendingAttachments = false) => {
 			if (editorViewRef.current === view && view.state.doc === submittedDoc) {
 				clearComposer(view, {
-					clearPendingAttachments: onDraftSubmit === undefined,
+					clearPendingAttachments:
+						!keepPendingAttachments && onDraftSubmit === undefined,
 				});
 				clearComposerDraft(draftKey);
 			}
@@ -1271,21 +1309,83 @@ export function ChatComposer({
 				},
 			);
 		}
-		const sendAndCommitAfterAcceptance = (options?: {
-			readonly asGoal?: boolean;
-		}) => {
+		const sendAndClear = (options?: { readonly asGoal?: boolean }) => {
+			const snapshot = {
+				doc: view.state.doc.toString(),
+				chips: allChips(view.state),
+			};
+			const pendingAttachments = pendingDraftAttachmentsRef.current;
 			setSubmitting(true);
 			view.contentDOM.blur();
-			void commitAcceptedComposerDelivery(
-				send(input, options),
-				commitComposerSubmission,
+			void submitComposerDelivery(
+				() => send(input, options),
+				() => commitComposerSubmission(true),
+				() => {
+					const currentView = editorViewRef.current === view ? view : null;
+					const current = currentView
+						? {
+								doc: currentView.state.doc.toString(),
+								chips: allChips(currentView.state),
+							}
+						: useComposerDraftsStore.getState().draftsByKey[draftKey];
+					const recovered = recoverComposerDraft(snapshot, current);
+					saveComposerDraft(draftKey, recovered);
+					if (currentView) {
+						currentView.dispatch({ effects: clearChipsEffect.of() });
+						setComposerDoc(currentView, recovered.doc);
+						restoreComposerChips(currentView, recovered.chips);
+						setHasText(recovered.doc.trim().length > 0);
+						hasTextRef.current = recovered.doc.trim().length > 0;
+						setGoalSendMode(options?.asGoal === true);
+					}
+					const drafts = useComposerDraftsStore.getState();
+					const currentContexts =
+						drafts.contextsByKey[draftKey] ?? EMPTY_COMPOSER_CONTEXTS;
+					useComposerDraftsStore.setState({
+						contextsByKey: {
+							...drafts.contextsByKey,
+							[draftKey]: [
+								...contexts.filter(
+									(item) =>
+										!currentContexts.some(
+											(current) => current.sourceKey === item.sourceKey,
+										),
+								),
+								...currentContexts,
+							],
+						},
+					});
+					const currentAnnotations = annotationsForSession(sessionId);
+					useAnnotationsStore
+						.getState()
+						.replace(sessionId, [
+							...annotations.filter(
+								(annotation) =>
+									!currentAnnotations.some(
+										(current) => current.id === annotation.id,
+									),
+							),
+							...currentAnnotations,
+						]);
+				},
 			)
+				.then((accepted) => {
+					if (!accepted) return;
+					for (const pending of pendingAttachments) {
+						if (pending.previewUrl) URL.revokeObjectURL(pending.previewUrl);
+					}
+					if (pendingDraftAttachmentsRef.current === pendingAttachments) {
+						pendingDraftAttachmentsRef.current = [];
+						pendingDraftContextFilesRef.current = [];
+					}
+				})
 				.catch(() => undefined)
 				.finally(() => {
 					setSubmitting(false);
 					editorViewRef.current?.focus();
 				});
 		};
+
 		switch (route) {
 			case "planFeedback":
 				setSubmitting(true);
@@ -1325,7 +1425,7 @@ export function ChatComposer({
 					});
 				break;
 			case "goal":
-				sendAndCommitAfterAcceptance({ asGoal: true });
+				sendAndClear({ asGoal: true });
 				break;
 			case "queue":
 				setSubmitting(true);
@@ -1341,7 +1441,7 @@ export function ChatComposer({
 					.finally(() => setSubmitting(false));
 				break;
 			case "send":
-				sendAndCommitAfterAcceptance();
+				sendAndClear();
 				break;
 		}
 		return true;
@@ -1389,7 +1489,7 @@ export function ChatComposer({
 			?.supportsPlanMode ??
 			true);
 	togglePlanModeRef.current = () => {
-		if (session.providerId === "pi") return;
+		if (session.providerId === "pi" || variant === "minimal") return;
 		void setPermissionMode(
 			sessionId,
 			session.permissionMode === "plan" ? "default" : "plan",
@@ -1692,7 +1792,7 @@ export function ChatComposer({
 									<ComposerAddMenu
 										onAttach={() => fileInputRef.current?.click()}
 										plan={
-											planModeAvailable
+											planModeAvailable && variant === "full"
 												? {
 														active: session.permissionMode === "plan",
 														toggle: () => togglePlanModeRef.current(),
@@ -1700,7 +1800,7 @@ export function ChatComposer({
 												: null
 										}
 										goal={
-											goalCapable
+											goalCapable && variant === "full"
 												? {
 														active: goalSendMode,
 														toggle: () => setGoalSendMode((v) => !v),
@@ -1708,34 +1808,39 @@ export function ChatComposer({
 												: null
 										}
 									/>
-									{session.permissionMode === "plan" && planModeAvailable ? (
-										<PlanModeToggle
-											sessionId={sessionId}
-											environmentId={qualifiedEnvironmentId}
-											current={session.permissionMode}
-										/>
+									{variant === "full" ? (
+										<>
+											{session.permissionMode === "plan" &&
+											planModeAvailable ? (
+												<PlanModeToggle
+													sessionId={sessionId}
+													environmentId={qualifiedEnvironmentId}
+													current={session.permissionMode}
+												/>
+											) : null}
+											{goalSendMode && goalCapable ? (
+												<GoalModeToggle
+													active={goalSendMode}
+													hasGoal={goal !== null}
+													onClick={() => setGoalSendMode((v) => !v)}
+												/>
+											) : null}
+											<RuntimeAccessPicker
+												onChange={(mode) =>
+													void setRuntimeMode(
+														sessionId,
+														mode,
+														qualifiedEnvironmentId,
+													)
+												}
+												providerId={session.providerId}
+												current={appliedRuntimeMode}
+												pending={runtimeModePending}
+												confirmed={isDraft || timeline.projection !== null}
+											/>
+											<PluginsPopover />
+										</>
 									) : null}
-									{goalSendMode && goalCapable ? (
-										<GoalModeToggle
-											active={goalSendMode}
-											hasGoal={goal !== null}
-											onClick={() => setGoalSendMode((v) => !v)}
-										/>
-									) : null}
-									<RuntimeAccessPicker
-										onChange={(mode) =>
-											void setRuntimeMode(
-												sessionId,
-												mode,
-												qualifiedEnvironmentId,
-											)
-										}
-										providerId={session.providerId}
-										current={appliedRuntimeMode}
-										pending={runtimeModePending}
-										confirmed={isDraft || timeline.projection !== null}
-									/>
-									<PluginsPopover />
 								</div>
 								<div className="flex shrink-0 items-center gap-2">
 									<ComposerVoiceButton
@@ -1782,7 +1887,7 @@ export function ChatComposer({
 										onLevelChange={setReasoningLevel}
 										onOpenChange={setModelPickerOpen}
 									/>
-									{!isDraft ? (
+									{!isDraft && variant === "full" ? (
 										<ContextStatusPopover
 											environmentId={qualifiedEnvironmentId}
 											session={session}

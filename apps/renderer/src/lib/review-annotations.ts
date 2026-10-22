@@ -1,4 +1,5 @@
 import type { SelectedLineRange } from "@pierre/diffs";
+import { fnv1a } from "./fnv1a.ts";
 
 export type ReviewAnnotationAnchor = {
 	readonly side: "additions" | "deletions";
@@ -23,11 +24,5 @@ export const getReviewItemVersion = ({
 	readonly editing: boolean;
 	readonly annotationKey: string;
 }): number => {
-	const stateKey = `${Number(collapsed)}:${Number(editing)}:${annotationKey}`;
-	let value = 2166136261;
-	for (let index = 0; index < stateKey.length; index += 1) {
-		value ^= stateKey.charCodeAt(index);
-		value = Math.imul(value, 16777619);
-	}
-	return value >>> 0;
+	return fnv1a(`${Number(collapsed)}:${Number(editing)}:${annotationKey}`);
 };

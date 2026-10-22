@@ -5,6 +5,7 @@ import type { ChipRange } from "../../src/lib/codemirror/composer-chips.ts";
 import {
 	composerDraftKeyForLanding,
 	composerDraftKeyForSession,
+	recoverComposerDraft,
 	useComposerDraftsStore,
 } from "../../src/store/composer-drafts.ts";
 
@@ -53,6 +54,30 @@ describe("composer drafts store", () => {
 			).toBe(`context ${index}`);
 		}
 		expect(keys[0]).toBe(composerDraftKeyForLanding(localEnvironmentId, null));
+	});
+
+	it("recovers attachments without overwriting a newer draft or its chip positions", () => {
+		const chip: ChipRange = {
+			from: 0,
+			to: 5,
+			meta: {
+				kind: "image",
+				id: "image",
+				mimeType: "image/png",
+				originalName: "shot.png",
+				previewUrl: "blob:shot",
+			},
+		};
+		const recovered = recoverComposerDraft(
+			{ doc: "image first", chips: [chip] },
+			{ doc: "image next", chips: [chip] },
+		);
+		expect(recovered.doc).toBe("image first\n\nimage next");
+		expect(recovered.chips.map((chip) => [chip.from, chip.to])).toEqual([
+			[0, 5],
+			[13, 18],
+		]);
+		expect(recovered.chips[0]?.meta).toEqual(chip.meta);
 	});
 
 	it("saves independent drafts by key", () => {

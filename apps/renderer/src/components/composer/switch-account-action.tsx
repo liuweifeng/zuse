@@ -1,4 +1,5 @@
 import "@zuse/i18n/english/chat";
+import { ChevronDown } from "lucide-react";
 import "@zuse/i18n/english/common";
 import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -6,7 +7,6 @@ import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { EnvironmentId, NativeAccountProvider } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	ArrowRight02Icon,
 	ArrowShrink02Icon,
 	UserSwitchIcon,
@@ -307,10 +307,7 @@ function TargetPicker({
 				className="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-1.5 outline-none transition-colors hover:bg-foreground/[0.06] focus-visible:bg-foreground/[0.06] data-popup-open:bg-foreground/[0.06]"
 			>
 				{body}
-				<HugeiconsIcon
-					icon={ArrowDown01Icon}
-					className="ml-auto size-3 shrink-0 text-muted-foreground"
-				/>
+				<ChevronDown className="ml-auto size-3 shrink-0 text-muted-foreground" />
 			</MenuTrigger>
 			<MenuPopup align="end" className="min-w-44">
 				<MenuRadioGroup

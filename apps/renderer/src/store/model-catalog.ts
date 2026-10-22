@@ -34,16 +34,28 @@ import { useEnvironmentCatalogStore } from "./environment-catalog.ts";
  */
 export type ModelCatalogSource = "bundled" | "storage" | "server";
 
+export type EnvironmentModelCatalog = {
+	readonly catalog: ResolvedModelCatalog;
+	readonly source: ModelCatalogSource;
+	readonly loadedAt: number | null;
+	readonly loading: boolean;
+	readonly error: string | null;
+};
+
 type State = {
+	readonly byEnvironment: Readonly<Record<string, EnvironmentModelCatalog>>;
 	readonly catalog: ResolvedModelCatalog;
 	readonly source: ModelCatalogSource;
 	readonly loadedAt: number | null;
 	readonly loadedEnvironmentId: string | null;
 	readonly loading: boolean;
 	readonly error: string | null;
-
-	readonly ensureLoaded: () => Promise<void>;
-
+	/** Refresh from the server unless a load newer than `maxAgeMs` exists. */
+	readonly ensureLoaded: (options?: {
+		readonly maxAgeMs?: number;
+		readonly environmentId?: EnvironmentId;
+	}) => Promise<void>;
+	/** Force the server to re-fetch the remote document and live listings. */
 	readonly refresh: () => Promise<void>;
 	readonly refreshFor: (environmentId: EnvironmentId) => Promise<void>;
 
@@ -135,6 +147,7 @@ const sameCatalog = (
 const pendingLoads = new Map<string, Promise<void>>();
 
 let pushSequence = 0;
+let catalogGeneration = 0;
 
 const initial = (() => {
 	dropLegacyInventoryCaches();
@@ -145,83 +158,107 @@ const initial = (() => {
 })();
 
 export const useModelCatalogStore = create<State>((set, get) => {
+	const publish = (
+		environmentId: EnvironmentId,
+		patch: Partial<EnvironmentModelCatalog>,
+	) => {
+		set((state) => {
+			const previous = state.byEnvironment[environmentId] ?? {
+				catalog: bundledResolvedModelCatalog(),
+				source: "bundled" as const,
+				loadedAt: null,
+				loading: false,
+				error: null,
+			};
+			const next = { ...previous, ...patch };
+			return {
+				byEnvironment: { ...state.byEnvironment, [environmentId]: next },
+				...(environmentId === activeEnvironmentId()
+					? {
+							...next,
+							loadedEnvironmentId:
+								next.loadedAt === null ? null : environmentId,
+						}
+					: {}),
+			};
+		});
+	};
 	const applyServerCatalog = (
 		environmentId: EnvironmentId,
 		next: ResolvedModelCatalog,
-		patch: Partial<Pick<State, "loading">> = {},
-	): void => {
-		if (environmentId !== activeEnvironmentId()) return;
-		const changed = !sameCatalog(get().catalog, next);
-		set({
-			...patch,
-			...(changed ? { catalog: next } : {}),
+	) => {
+		const previous = get().byEnvironment[environmentId]?.catalog;
+		const catalog = previous && sameCatalog(previous, next) ? previous : next;
+		publish(environmentId, {
+			catalog,
 			source: "server",
 			loadedAt: Date.now(),
-			loadedEnvironmentId: environmentId,
+			loading: false,
 			error: null,
 		});
-		if (changed) writeStorage(next);
+		if (environmentId === activeEnvironmentId() && catalog !== previous)
+			writeStorage(catalog);
 	};
-
 	const load = async (
 		refresh: boolean,
 		environmentId = activeEnvironmentId(),
 	): Promise<void> => {
 		if (isHostedProduct() && environmentId === "local") {
-			set({
-				loading: false,
-				loadedAt: Date.now(),
-				loadedEnvironmentId: activeEnvironmentId(),
-			});
+			publish(environmentId, { loading: false, loadedAt: Date.now() });
 			return;
 		}
-		const pendingLoad = pendingLoads.get(environmentId);
-		if (pendingLoad !== undefined) {
-			await pendingLoad;
-			return;
-		}
-		if (environmentId === activeEnvironmentId())
-			set({ loading: true, error: null });
+		const generation = catalogGeneration;
+		const pending = pendingLoads.get(environmentId);
+		if (pending) return pending;
+		publish(environmentId, { loading: true, error: null });
 		const startedAtPush = pushSequence;
 		const run = (async () => {
 			try {
 				const next = await fetchCatalog(environmentId, refresh);
-				if (pushSequence !== startedAtPush) {
-					if (environmentId === activeEnvironmentId()) {
-						set({ loading: false });
-					}
+				if (generation !== catalogGeneration) return;
+				if (
+					environmentId === activeEnvironmentId() &&
+					startedAtPush !== pushSequence
+				) {
+					publish(environmentId, { loading: false });
 					return;
 				}
-				applyServerCatalog(environmentId, next, { loading: false });
+				applyServerCatalog(environmentId, next);
 			} catch (err) {
-				if (environmentId === activeEnvironmentId()) {
-					set({
-						loading: false,
-						error: formatError(err),
-						loadedAt: null,
-						loadedEnvironmentId: null,
-					});
-				}
+				if (generation !== catalogGeneration) return;
+				publish(environmentId, {
+					loading: false,
+					error: formatError(err),
+					loadedAt: null,
+				});
 			}
 		})().finally(() => {
-			if (pendingLoads.get(environmentId) === run) {
+			if (pendingLoads.get(environmentId) === run)
 				pendingLoads.delete(environmentId);
-			}
 		});
 		pendingLoads.set(environmentId, run);
 		await run;
 	};
-
 	return {
+		byEnvironment: {},
 		catalog: initial.catalog,
 		source: initial.source,
 		loadedAt: null,
 		loadedEnvironmentId: null,
 		loading: false,
 		error: null,
-		ensureLoaded: async () => {
-			if (get().loadedEnvironmentId === activeEnvironmentId()) return;
-			await load(false);
+		ensureLoaded: async (options) => {
+			const environmentId = options?.environmentId ?? activeEnvironmentId();
+			const cached = get().byEnvironment[environmentId];
+			if (
+				cached?.loadedAt != null &&
+				Date.now() - cached.loadedAt < (options?.maxAgeMs ?? Infinity)
+			) {
+				if (environmentId === activeEnvironmentId())
+					publish(environmentId, cached);
+				return;
+			}
+			await load(false, environmentId);
 		},
 		refresh: () => load(true),
 		refreshFor: (environmentId) => load(true, environmentId),
@@ -245,7 +282,10 @@ export const useProviderModels = (providerId: ProviderId) =>
 
 /** Drop the renderer copy (environment switch / sign-out). */
 export const resetModelCatalogForEnvironment = (): void => {
+	catalogGeneration += 1;
+	pendingLoads.clear();
 	useModelCatalogStore.setState({
+		byEnvironment: {},
 		catalog: bundledResolvedModelCatalog(),
 		source: "bundled",
 		loadedAt: null,

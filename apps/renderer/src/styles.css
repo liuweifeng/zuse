@@ -497,9 +497,9 @@ body,
 	html:not(.dark) *,
 	html:not(.dark) *::before,
 	html:not(.dark) *::after {
-		--tw-shadow: 0 0 #0000 !important;
-		--tw-shadow-colored: 0 0 #0000 !important;
-		--tw-inset-shadow: 0 0 #0000 !important;
+		--tw-shadow: 0 0 #0000;
+		--tw-shadow-colored: 0 0 #0000;
+		--tw-inset-shadow: 0 0 #0000;
 	}
 
 	* {
@@ -550,7 +550,6 @@ html[data-sidebar-dragging] * {
 }
 
 @layer components {
-
 	.compact-row {
 		min-height: var(--density-row);
 		gap: var(--density-gap);
@@ -599,8 +598,8 @@ html[data-sidebar-dragging] * {
 @media (prefers-reduced-motion: reduce) {
 	.compact-notification,
 	.compact-step-enter {
-		animation-duration: 80ms !important;
-		animation-name: compact-fade-in !important;
+		animation-duration: 80ms;
+		animation-name: compact-fade-in;
 	}
 }
 
@@ -618,8 +617,11 @@ html[data-sidebar-dragging] * {
 	}
 
 	.fz-diff {
-
-		--fz-diff-header-bg: color-mix(in srgb, var(--muted) 45%, var(--background));
+		--fz-diff-header-bg: color-mix(
+			in srgb,
+			var(--muted) 45%,
+			var(--background)
+		);
 
 		--diffs-light-bg: var(--background);
 		--diffs-dark-bg: var(--background);
@@ -1412,7 +1414,7 @@ html[data-sidebar-dragging] * {
 
 		border: 0;
 		border-radius: 0;
-		background: transparent !important;
+		background: transparent;
 		color: var(--message-text);
 		font-family: var(
 			--font-mono,
@@ -1560,7 +1562,6 @@ html[data-sidebar-dragging] * {
 	background: var(--input);
 }
 .workspace-terminal-dock {
-
 	overflow: visible;
 }
 .workspace-terminal-resizer {
@@ -1586,4 +1587,131 @@ html[data-sidebar-dragging] * {
 
 ::highlight(chat-annotation) {
 	background-color: color-mix(in oklch, var(--primary) 32%, transparent);
+}
+
+/* Master mascots: sprite frames + 1px steps, no smooth tweening. */
+.mascot-sprite {
+	shape-rendering: crispEdges;
+	overflow: visible;
+}
+.mascot-sprite [data-frame="closed"] {
+	visibility: hidden;
+}
+.mascot-sprite [data-frame="open"] {
+	animation: mascot-blink-open 4.6s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite [data-frame="closed"] {
+	animation: mascot-blink-closed 4.6s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite [data-part="figure"] {
+	animation: mascot-bob 1.2s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite[data-state="working"] [data-part="figure"] {
+	animation-duration: 0.32s;
+}
+.mascot-sprite[data-state="attention"] [data-part="figure"] {
+	animation-name: mascot-jump;
+	animation-duration: 0.9s;
+}
+.mascot-sprite[data-state="paused"] [data-frame="open"] {
+	display: none;
+}
+.mascot-sprite[data-state="paused"] [data-frame="closed"] {
+	visibility: visible;
+	animation: none;
+}
+.mascot-sprite[data-state="paused"] [data-part="figure"] {
+	animation: none;
+}
+.mascot-sprite [data-part="snore"] {
+	animation: mascot-snore 2.4s steps(4) infinite;
+}
+@keyframes mascot-blink-open {
+	0%,
+	94%,
+	100% {
+		visibility: visible;
+	}
+	95%,
+	98% {
+		visibility: hidden;
+	}
+}
+@keyframes mascot-blink-closed {
+	0%,
+	94%,
+	100% {
+		visibility: hidden;
+	}
+	95%,
+	98% {
+		visibility: visible;
+	}
+}
+@keyframes mascot-bob {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-1px);
+	}
+}
+@keyframes mascot-jump {
+	0%,
+	40%,
+	100% {
+		transform: translateY(0);
+	}
+	10% {
+		transform: translateY(-2px);
+	}
+	20%,
+	30% {
+		transform: translateY(-3px);
+	}
+}
+@keyframes mascot-snore {
+	0% {
+		transform: translate(0, 0);
+		opacity: 0.6;
+	}
+	100% {
+		transform: translate(2px, -4px);
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.mascot-sprite[data-state] [data-frame],
+	.mascot-sprite[data-state] [data-part] {
+		animation: none;
+	}
+}
+
+/* Zot details: the list and a sub-view swap with a short push/pop slide. */
+.details-slide {
+	transition:
+		transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+		opacity 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.details-slide {
+		transition: none;
+	}
+}
+
+/* Zot preferences and editors slide in a few pixels. */
+.details-view-enter {
+	animation: details-view-enter 160ms cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+@keyframes details-view-enter {
+	from {
+		opacity: 0;
+		transform: translateX(6px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.details-view-enter {
+		animation: none;
+	}
 }

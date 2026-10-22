@@ -157,5 +157,9 @@
 	"accounts_rename": "Renommer",
 	"accounts_connect": "Connecter un autre compte",
 	"accounts_use_for_new_chats": "Utiliser pour les nouvelles discussions",
-	"accounts_default_badge": "Par défaut"
+	"accounts_default_badge": "Par défaut",
+	"accounts_add": "Ajouter un compte",
+	"accounts_use": "Utiliser pour les nouvelles discussions",
+	"accounts_selected": "Sélectionné",
+	"model_picker_unavailable_selection": "{{model}} (indisponible)"
 }

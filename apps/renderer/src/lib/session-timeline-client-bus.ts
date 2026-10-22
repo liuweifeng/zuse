@@ -283,6 +283,41 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["simulators.screenshot"](payload as never),
 				);
 				break;
+			case "masters.create":
+				result = await Effect.runPromise(
+					client["masters.create"](payload as never),
+				);
+				break;
+			case "masters.execute":
+				result = await Effect.runPromise(
+					client["masters.execute"](payload as never),
+				);
+				break;
+			case "masters.artifact":
+				result = await Effect.runPromise(
+					client["masters.artifact"](payload as never),
+				);
+				break;
+			case "masters.transcript":
+				result = await Effect.runPromise(
+					client["masters.transcript"](payload as never),
+				);
+				break;
+			case "masters.get":
+				result = await Effect.runPromise(
+					client["masters.get"](payload as never),
+				);
+				break;
+			case "masters.list":
+				result = await Effect.runPromise(
+					client["masters.list"](payload as never),
+				);
+				break;
+			case "workspace.list":
+				result = await Effect.runPromise(
+					client["workspace.list"](payload as never),
+				);
+				break;
 			case "deviceBridge.control":
 				result = await Effect.runPromise(
 					client["deviceBridge.control"](payload as never),
