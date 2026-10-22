@@ -1,5 +1,11 @@
 # Zots validation
 
+## Guided onboarding follow-up
+
+Implemented on `swarajbachu/zots-onboarding` from main `f82f2bf79`. The five-step guide uses native controls and scoped target markers; it stores only versioned, device-local guide progress. It does not change server state, grant permissions or send an example brief.
+
+Final checks passed: 2,088 renderer tests across 330 files, renderer types/state ownership, architecture, Biome (including a separate size-limit override for generated translation context), localization (3,662 desktop messages), and production bundle budgets. Browser walkthroughs against isolated data verified all steps, draft-preserving example insertion without message delivery, dismissal/replay/resume, automatic first-use focus, focus return, missing-coordinator fallback, user-owned panel visibility, and all five cards at 720px. No paid provider turns or real user data were used. A fresh standalone browser profile required explicit desktop catalog initialization to simulate native IPC; native desktop uses its existing initialization path.
+
 ## October 22 integrated PR candidate
 
 Base: `3db1391a2`, with the full backend and renderer changes integrated. Product wording is Zot/Zots; durable identifiers remain `master` for compatibility.

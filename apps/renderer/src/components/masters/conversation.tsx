@@ -7,7 +7,9 @@ import {
 import { useMessages } from "@zuse/i18n/react";
 import { lazy, type ReactNode, Suspense } from "react";
 import { useSessionTimelineResource } from "../../lib/session-timeline-client-bus.ts";
+import { useZotOnboardingStore } from "../../store/zot-onboarding.ts";
 import { FloatingComposerLayout } from "../floating-composer-layout.tsx";
+import { Button } from "../ui/button.tsx";
 import { avatarFor, Mascot, type MascotState } from "./mascot.tsx";
 import { RepositoryIcon } from "./repositories.tsx";
 
@@ -60,17 +62,19 @@ export function MasterConversation({
 					{notice}
 				</p>
 			) : null}
-			<ChatComposer
-				key={session.id}
-				session={session}
-				environmentId={environment}
-				workspaceRootOverride={snapshot.workspacePath}
-				constrain={false}
-				variant="minimal"
-				placeholder={message("projects:masters_composer_placeholder", {
-					name: snapshot.master.settings.name,
-				})}
-			/>
+			<div data-zot-guide="brief">
+				<ChatComposer
+					key={session.id}
+					session={session}
+					environmentId={environment}
+					workspaceRootOverride={snapshot.workspacePath}
+					constrain={false}
+					variant="minimal"
+					placeholder={message("projects:masters_composer_placeholder", {
+						name: snapshot.master.settings.name,
+					})}
+				/>
+			</div>
 		</Suspense>
 	);
 
@@ -111,6 +115,7 @@ function MasterHero({
 	readonly children: ReactNode;
 }) {
 	const { message } = useMessages("projects");
+	const guideOpen = useZotOnboardingStore((state) => state.open);
 	const name = master.settings.name;
 	return (
 		<div className="chat-session-layout relative flex min-h-0 flex-1 flex-col items-center overflow-y-auto px-6 pb-4 max-[800px]:px-4">
@@ -132,6 +137,16 @@ function MasterHero({
 							? message("projects:masters_empty_prompt", { name })
 							: message("projects:masters_hero_no_repositories", { name })}
 					</p>
+					{guideOpen ? null : (
+						<Button
+							variant="ghost"
+							size="sm"
+							className="text-muted-foreground"
+							onClick={useZotOnboardingStore.getState().start}
+						>
+							{message("projects:masters_guide_how")}
+						</Button>
+					)}
 				</div>
 				<div className="w-full">{children}</div>
 				{master.repositories.length > 0 ? (
