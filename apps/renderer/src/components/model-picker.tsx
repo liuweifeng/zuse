@@ -28,7 +28,12 @@ import {
 	selectableCatalogProviderIds,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Search01Icon, StarIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import {
+	FlashIcon,
+	Search01Icon,
+	StarIcon,
+	Tick01Icon,
+} from "@zuse/icons/solid-rounded";
 import { ChevronDown, Clock3 } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -76,7 +81,10 @@ export const compactModelLabel = (label: string): string =>
 
 const fallbackEnvironmentCatalog = bundledResolvedModelCatalog();
 
-type ModelPickerProps = { cloudProviderIds?: ReadonlyArray<ProviderId> } & (
+type ModelPickerProps = {
+	cloudProviderIds?: ReadonlyArray<ProviderId>;
+	fastMode?: boolean;
+} & (
 	| {
 			mode: "configuration";
 			environmentId: EnvironmentId;
@@ -112,7 +120,7 @@ type ModelPickerProps = { cloudProviderIds?: ReadonlyArray<ProviderId> } & (
 export function ModelPicker(props: ModelPickerProps) {
 	const { user } = useAuth();
 	const experimentalHarnessAllowed = canUseExperimentalHarness(user?.email);
-	const { message: uiMessage } = useUiMessages(["providers"]);
+	const { message: uiMessage } = useUiMessages(["providers", "chat"]);
 
 	const isDefault = props.mode === "default";
 	const isConfiguration = props.mode === "configuration";
@@ -560,8 +568,9 @@ export function ModelPicker(props: ModelPickerProps) {
 		<PopoverTrigger
 			className={cn(
 				composer
-					? "flex h-7 w-40 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
+					? "flex h-7 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
 					: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
+				composer && open && "w-40",
 				props.triggerClassName,
 			)}
 			aria-label={uiMessage("providers:model_picker_change_model")}
@@ -576,7 +585,17 @@ export function ModelPicker(props: ModelPickerProps) {
 			}
 		>
 			<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
-			<span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+			<span className="flex min-w-0 flex-1 items-center gap-1">
+				<span className="truncate text-left">{triggerLabel}</span>
+				{props.fastMode ? (
+					<HugeiconsIcon
+						icon={FlashIcon}
+						className="size-3 shrink-0 text-amber-700 dark:text-amber-200"
+						role="img"
+						aria-label={uiMessage("chat:chat_composer_fast")}
+					/>
+				) : null}
+			</span>
 			{triggerDetail !== undefined ? (
 				<span className="shrink-0 capitalize text-muted-foreground">
 					{triggerDetail}
