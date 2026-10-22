@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { appendFile, rename, stat } from "node:fs/promises";
 
 export type BatchedLogWriter = {
 	readonly append: (filePath: string, line: string) => void;
@@ -119,4 +120,30 @@ export const makeBatchedLogWriter = (options: {
 	};
 
 	return { append, flush };
+};
+
+/** Size at which an app log file is moved aside to `<file>.1`. */
+export const MAX_LOG_FILE_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Appends to a log file, first moving it to `<file>.1` (replacing any older
+ * copy) once it has grown past `maxBytes`, so logs stay bounded on disk.
+ */
+export const appendRotatingLogFile = async (
+	filePath: string,
+	data: string,
+	options: { readonly maxBytes?: number; readonly mode?: number } = {},
+): Promise<void> => {
+	const size = await stat(filePath)
+		.then((value) => value.size)
+		.catch(() => 0);
+	if (size > (options.maxBytes ?? MAX_LOG_FILE_BYTES))
+		await rename(filePath, `${filePath}.1`).catch(() => undefined);
+	await appendFile(
+		filePath,
+		data,
+		options.mode === undefined
+			? "utf8"
+			: { encoding: "utf8", mode: options.mode },
+	);
 };
