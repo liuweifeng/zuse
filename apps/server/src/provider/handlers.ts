@@ -12,6 +12,7 @@ import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
 	AgentTurnId,
+	BackgroundTaskStopError,
 	ChatArchiveWorktreeError,
 	ChatCreationConflictError,
 	type ChatCreationOperation,
@@ -2110,6 +2111,29 @@ const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const MessagesBackgroundStop = MemoizeRpcs.toLayerHandler(
+	"messages.background.stop",
+	({ sessionId, turnId, attemptId, taskId }) =>
+		Effect.gen(function* () {
+			yield* Effect.flatMap(SessionService, (svc) => svc.getSession(sessionId));
+			const provider = yield* ProviderService;
+			if (provider.stopBackgroundTask === undefined)
+				return yield* new BackgroundTaskStopError({
+					reason: "This provider cannot stop individual background tasks.",
+				});
+			yield* provider
+				.stopBackgroundTask(sessionId, turnId, attemptId, taskId)
+				.pipe(
+					Effect.mapError(
+						(cause) =>
+							new BackgroundTaskStopError({
+								reason: cause instanceof Error ? cause.message : String(cause),
+							}),
+					),
+				);
+		}),
+);
+
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 	"messages.queue.list",
 	({ sessionId }) =>
@@ -2410,6 +2434,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionWaitHandlers,
 	MessagesSend,
 	MessagesInterrupt,
+	MessagesBackgroundStop,
 	MessagesQueueList,
 	MessagesQueueAdd,
 	MessagesQueueUpdate,

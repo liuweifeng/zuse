@@ -1,4 +1,3 @@
-import { runningBackgroundAgents } from "@zuse/client-runtime/background-agent-presentation";
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
@@ -18,7 +17,6 @@ import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
 import { SessionMergeBack } from "./session-merge-back.tsx";
-import { SessionSecretRequests } from "./session-secret-requests.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -124,11 +122,6 @@ import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 const ChatWorkingRow = lazy(() =>
 	import("./chat-working-row.tsx").then((m) => ({ default: m.ChatWorkingRow })),
-);
-const BackgroundAgentWorkingRows = lazy(() =>
-	import("./chat-working-row.tsx").then((m) => ({
-		default: m.BackgroundAgentWorkingRows,
-	})),
 );
 
 interface TimelineEndState {
@@ -376,13 +369,14 @@ export function ChatView({
 				messages,
 
 				inFlight: shouldRenderGenericAgentStartup({
-					inFlight,
+					inFlight: inFlight && !timeline.presentation.backgroundOnly,
 					agentStarting,
 					hasPendingCreation: workspaceProgressActive || cloudSetupActive,
 				}),
 				awaitingPlanApproval: awaitingUserAction,
 			}),
 		[
+			timeline.presentation.backgroundOnly,
 			cloudSummary === null,
 			cloudRows,
 			awaitingUserAction,
@@ -394,21 +388,12 @@ export function ChatView({
 			uiMessage,
 		],
 	);
-	const backgroundAgents = useMemo(
-		() => runningBackgroundAgents(timeline.view),
-		[timeline.view],
-	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
 						<WorktreeSetupCard />
-						{backgroundAgents.length > 0 && (
-							<Suspense fallback={null}>
-								<BackgroundAgentWorkingRows agents={backgroundAgents} />
-							</Suspense>
-						)}
 						{pendingCreation?.phase === "failed" ? (
 							<ChatCreationFailureActions creation={pendingCreation} />
 						) : null}
@@ -417,7 +402,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[pendingCreation, providerOutputStarted, backgroundAgents, uiMessage],
+		[pendingCreation, providerOutputStarted, uiMessage],
 	);
 	const turns = useMemo(
 		() => deriveChatTurnNavigationEntries(rows),
@@ -936,7 +921,6 @@ export function ChatView({
 			<h1 className="sr-only">
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
-			<SessionSecretRequests sessionRef={sessionRef} />
 			<SessionForkRecovery
 				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
 				sessionRef={sessionRef}

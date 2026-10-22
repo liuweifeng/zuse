@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
 	countRunningBackgroundAgents,
 	runningBackgroundAgents,
+	runningBackgroundTasks,
 } from "../../src/background-agent-presentation.ts";
 import { clientCommandTargetId } from "../../src/client-command-target.ts";
 import type { ResourceView } from "../../src/resource-state.ts";
@@ -478,4 +479,120 @@ it.each([
 	});
 	expect(presentation.runtime).toBe(expectedRuntime);
 	expect(pending.targetId).toBe(expectedTurnId);
+});
+
+it("presents quiet background execution separately from a stalled foreground agent", () => {
+	const data = {
+		...projection("running", true),
+		executionSteps: [
+			{
+				id: "background",
+				turnId: "turn-presentation",
+				attemptId: "attempt-presentation",
+				itemId: "launch",
+				parentItemId: null,
+				kind: "subagent" as const,
+				label: "Review",
+				status: "running" as const,
+				childSessionId: null,
+				nativeChildId: "native",
+				rootCompletedAt: 1,
+				createdAt: 0,
+				updatedAt: 1,
+				checkpointCapability: "unsupported" as const,
+			},
+		] as const,
+		runtimeObservation: {
+			state: "stalled" as const,
+			observedAt: 120000,
+			attemptId: "attempt-presentation",
+			lastProviderActivityAt: 0,
+		},
+	};
+	const background = deriveSessionPresentation({ view: view(data) });
+	expect(background).toMatchObject({ backgroundOnly: true, health: "healthy" });
+	expect(runningBackgroundAgents(view(data))).toEqual([
+		{ id: "launch", description: "Review", startedAtMs: 0 },
+	]);
+	expect(
+		runningBackgroundAgents(
+			view({
+				...data,
+				executionSteps: data.executionSteps.map((step) => ({
+					...step,
+					status: "completed" as const,
+				})),
+			}),
+		),
+	).toEqual([]);
+	for (const step of [
+		{ ...data.executionSteps[0], rootCompletedAt: null },
+		{ ...data.executionSteps[0], attemptId: "older-attempt" },
+		{ ...data.executionSteps[0], turnId: "older-turn" },
+		{ ...data.executionSteps[0], status: "completed" as const },
+	]) {
+		expect(
+			deriveSessionPresentation({
+				view: view({ ...data, executionSteps: [step] }),
+			}),
+		).toMatchObject({ backgroundOnly: false, health: "stalled" });
+	}
+	expect(
+		deriveSessionPresentation({
+			view: view({
+				...data,
+				runtimeObservation: {
+					...data.runtimeObservation,
+					state: "unavailable",
+				},
+			}),
+		}).health,
+	).toBe("unavailable");
+});
+
+it("classifies a durable background shell as a process, separate from the agent count", () => {
+	const data = {
+		...projection("running", true),
+		executionSteps: [
+			{
+				id: "shell",
+				turnId: "turn-presentation",
+				attemptId: "attempt-presentation",
+				itemId: "shell",
+				parentItemId: null,
+				kind: "background" as const,
+				label: "Watch build",
+				status: "running" as const,
+				childSessionId: null,
+				nativeChildId: "native-shell",
+				rootCompletedAt: 1,
+				createdAt: 0,
+				updatedAt: 1,
+				checkpointCapability: "unsupported" as const,
+			},
+		],
+	};
+	expect(runningBackgroundTasks(view(data))).toEqual([
+		{
+			id: "shell",
+			taskId: "native-shell",
+			kind: "process",
+			description: "Watch build",
+			startedAtMs: 0,
+			turnId: "turn-presentation",
+			attemptId: "attempt-presentation",
+		},
+	]);
+	expect(countRunningBackgroundAgents(view(data))).toBe(0);
+	expect(
+		runningBackgroundTasks(
+			view({
+				...data,
+				executionSteps: data.executionSteps.map((step) => ({
+					...step,
+					status: "cancelled" as const,
+				})),
+			}),
+		),
+	).toEqual([]);
 });

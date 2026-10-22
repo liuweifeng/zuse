@@ -1405,6 +1405,15 @@ export const ProviderServiceLive = Layer.effect(
 						}),
 					),
 				),
+			stopBackgroundTask: (sessionId, turnId, attemptId, taskId) =>
+				Effect.flatMap(lookup(sessionId), (entry) =>
+					Effect.suspend(() =>
+						entry.ownership?.attemptId !== attemptId ||
+						entry.ownership.turnId !== turnId
+							? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+							: entry.handle.stopBackgroundTask(turnId, taskId),
+					),
+				),
 			interrupt: (sessionId, turnId, attemptId) =>
 				Effect.flatMap(lookup(sessionId), (entry) =>
 					Effect.suspend(

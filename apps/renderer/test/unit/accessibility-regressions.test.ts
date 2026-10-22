@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import chatViewSource from "../../src/components/chat-view.tsx?raw";
+import questionCardSource from "../../src/components/composer/question-tray.tsx?raw";
 import environmentSummarySource from "../../src/components/environment-summary.tsx?raw";
 import permissionCardSource from "../../src/components/permission-card.tsx?raw";
 import projectsSidebarSource from "../../src/components/projects-sidebar.tsx?raw";
-import questionCardSource from "../../src/components/question-card.tsx?raw";
 import rightPaneSource from "../../src/components/right-pane.tsx?raw";
 import sidebarActionRowSource from "../../src/components/sidebar-action-row.tsx?raw";
 import topBarSource from "../../src/components/top-bar.tsx?raw";

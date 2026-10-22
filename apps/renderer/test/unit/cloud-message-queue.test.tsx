@@ -72,6 +72,7 @@ it.each([
 			runtime: "idle",
 			health: "unknown",
 			busy: false,
+			backgroundOnly: false,
 			turnActive: false,
 			turnInFlight: false,
 			attention: "idle",

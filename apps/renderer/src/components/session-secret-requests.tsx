@@ -6,11 +6,12 @@ import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { SecretRequest } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
 import { Effect, Redacted } from "effect";
-import { KeyRound } from "lucide-react";
+import { KeyRound, Lock, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { getVerifiedRpcClient } from "../lib/rpc-client.ts";
 import { startVisibleInterval } from "../lib/visible-interval.ts";
 import { Button } from "./ui/button.tsx";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 /** Secret values live only in the password input and the private response RPC. */
 export function SessionSecretRequests({
@@ -123,52 +124,91 @@ function SecretRequestCard({
 			setBusy(false);
 		}
 	};
+	const noteId = `secret-note-${request.id}`;
 	return (
 		<form
-			className="mx-3 my-2 rounded-md bg-muted/40 px-3 py-2 text-xs"
+			aria-busy={busy || undefined}
+			aria-describedby={noteId}
+			className="border-b border-border/35 py-2 pl-3 pr-2 text-xs last:border-b-0"
 			onSubmit={(event) => {
 				event.preventDefault();
 				void submit(false);
 			}}
 		>
-			<div className="flex items-center gap-2 font-medium">
-				<KeyRound className="size-3.5" aria-hidden="true" />
-				<label htmlFor={`secret-${request.id}`}>{request.label}</label>
+			<div className="flex min-w-0 items-center gap-2">
+				<KeyRound
+					className="size-3.5 shrink-0 text-muted-foreground"
+					aria-hidden="true"
+				/>
+				<label
+					className="min-w-0 flex-1 truncate"
+					htmlFor={`secret-${request.id}`}
+				>
+					<span className="font-medium text-foreground">{request.label}</span>
+					{request.reason ? (
+						<span className="text-muted-foreground"> · {request.reason}</span>
+					) : null}
+				</label>
+				<button
+					type="button"
+					aria-label={message("common:cancel")}
+					disabled={busy}
+					className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-40"
+					onClick={() => void submit(true)}
+				>
+					<X size={14} />
+				</button>
 			</div>
-			{request.reason && (
-				<p className="mt-1 text-muted-foreground">{request.reason}</p>
-			)}
-			<p className="mt-1 text-muted-foreground">
+			<div className="mt-1 flex items-center gap-1.5">
+				<div className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-md bg-muted/50 px-2 focus-within:ring-1 focus-within:ring-ring/50">
+					<Tooltip>
+						<TooltipTrigger
+							render={<span />}
+							className="shrink-0 text-muted-foreground"
+						>
+							<Lock className="size-3" aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipPopup className="max-w-64">
+							{message("chat:secret_request_availability", {
+								name: request.environmentVariable,
+							})}
+						</TooltipPopup>
+					</Tooltip>
+					<input
+						id={`secret-${request.id}`}
+						ref={input}
+						type="password"
+						autoComplete="off"
+						autoCapitalize="none"
+						autoCorrect="off"
+						data-1p-ignore
+						data-lpignore="true"
+						data-bwignore
+						aria-invalid={error !== null || undefined}
+						aria-describedby={noteId}
+						placeholder={message("chat:secret_request_placeholder")}
+						spellCheck={false}
+						disabled={busy}
+						required
+						className="h-full min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground/60"
+					/>
+				</div>
+				<Button
+					type="submit"
+					disabled={busy}
+					loading={busy}
+					className="h-7 px-2.5 text-xs"
+				>
+					{message("common:save")}
+				</Button>
+			</div>
+			<span id={noteId} className="sr-only">
 				{message("chat:secret_request_availability", {
 					name: request.environmentVariable,
 				})}
-			</p>
-			<div className="mt-2 flex items-center gap-2">
-				<input
-					id={`secret-${request.id}`}
-					ref={input}
-					type="password"
-					autoComplete="off"
-					spellCheck={false}
-					disabled={busy}
-					required
-					className="h-7 min-w-0 flex-1 rounded bg-background px-2 outline-none focus:ring-1 focus:ring-ring"
-				/>
-				<Button type="submit" disabled={busy} className="h-7 px-2 text-xs">
-					{message("common:save")}
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					disabled={busy}
-					className="h-7 px-2 text-xs"
-					onClick={() => void submit(true)}
-				>
-					{message("common:cancel")}
-				</Button>
-			</div>
+			</span>
 			{error && (
-				<p role="alert" className="mt-1 text-destructive">
+				<p role="alert" className="mt-1 text-[11px] text-danger-text">
 					{error}
 				</p>
 			)}

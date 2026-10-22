@@ -1,4 +1,3 @@
-import { nativeBackgroundChildren } from "@zuse/client-runtime/native-background";
 import "@zuse/i18n/english/chat";
 import type { PendingCommand } from "@zuse/client-runtime/resource-state";
 import type { SessionRuntimeState } from "@zuse/client-runtime/session-presentation";
@@ -92,10 +91,6 @@ export function ChatWorkingRow({
 
 	const elapsed = anchorMs === null ? 0 : Math.max(0, now - anchorMs);
 	const activityState = deriveAgentActivityState(messages, interactions);
-	const background = useMemo(
-		() => nativeBackgroundChildren(messages),
-		[messages],
-	);
 
 	return (
 		<div
@@ -112,57 +107,21 @@ export function ChatWorkingRow({
 					? uiMessage("chat:checkpoints_saving")
 					: runtimeState === "stopping"
 						? uiMessage("chat:chat_composer_stopping")
-						: background.size > 0
-							? uiMessage("chat:native_background_running")
-							: waitingCommand !== null
-								? waitingCommand.label
-								: showStartup
-									? providerStartupLabel({
-											providerLabel,
-											failed: false,
-											delayed,
-										})
-									: uiMessage("chat:chat_working_row_is_working", {
-											providerLabel: String(providerLabel),
-										})}
+						: waitingCommand !== null
+							? waitingCommand.label
+							: showStartup
+								? providerStartupLabel({
+										providerLabel,
+										failed: false,
+										delayed,
+									})
+								: uiMessage("chat:chat_working_row_is_working", {
+										providerLabel: String(providerLabel),
+									})}
 			</span>
 			<ShimmerText tone="lime" className="tabular-nums">
 				{formatElapsed(elapsed)}
 			</ShimmerText>
 		</div>
 	);
-}
-
-/** One quiet waiting row per background reviewer, even between parent turns. */
-export function BackgroundAgentWorkingRows({
-	agents,
-}: {
-	readonly agents: ReadonlyArray<{
-		readonly id: string;
-		readonly description: string;
-		readonly startedAtMs: number;
-	}>;
-}) {
-	const { message } = useUiMessages(["chat"]);
-	const now = useRelativeTimeTick(1_000);
-	return agents.map((agent) => (
-		<div
-			key={agent.id}
-			className="flex h-7 min-w-0 items-center gap-2 px-4 text-xs text-muted-foreground"
-		>
-			<AgentActivityOrb state="delegating" />
-			<span role="status" className="truncate" title={agent.description}>
-				{message("chat:chat_working_row_waiting_for_task", {
-					task: agent.description || message("chat:subagent_row_agent_running"),
-				})}
-			</span>
-			<span
-				role="timer"
-				aria-live="off"
-				className="shrink-0 font-mono tabular-nums"
-			>
-				{formatElapsed(Math.max(0, now - agent.startedAtMs))}
-			</span>
-		</div>
-	));
 }

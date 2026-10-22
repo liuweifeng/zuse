@@ -117,6 +117,7 @@ register("session", true, [
 	"session.goal.clear",
 	"messages.send",
 	"messages.interrupt",
+	"messages.background.stop",
 	"messages.queue.add",
 	"messages.queue.update",
 	"messages.queue.delete",

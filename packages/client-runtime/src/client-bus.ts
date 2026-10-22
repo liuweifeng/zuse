@@ -939,7 +939,8 @@ export class ClientBus<Client> {
 			command.kind.startsWith("messages.queue.")
 				? `${resourceLane}:queue`
 				: command.resource?.kind === "session-timeline" &&
-						command.kind === "messages.interrupt"
+						(command.kind === "messages.interrupt" ||
+							command.kind === "messages.background.stop")
 					? `${resourceLane}:interrupt:${command.commandId}`
 					: resourceLane;
 		const waitForTurn = (

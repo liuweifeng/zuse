@@ -1483,6 +1483,23 @@ export const MessagesInterruptRpc = Rpc.make("messages.interrupt", {
 	error: SessionNotFoundError,
 });
 
+export class BackgroundTaskStopError extends Schema.TaggedErrorClass<BackgroundTaskStopError>()(
+	"BackgroundTaskStopError",
+	{ reason: Schema.String },
+) {}
+
+export const MessagesBackgroundStopRpc = Rpc.make("messages.background.stop", {
+	payload: Schema.Struct({
+		commandId: CommandId,
+		sessionId: SessionId,
+		turnId: AgentTurnId,
+		attemptId: AttemptId,
+		taskId: Schema.String,
+	}),
+	success: Schema.Void,
+	error: Schema.Union([SessionNotFoundError, BackgroundTaskStopError]),
+});
+
 export const MessagesQueueListRpc = Rpc.make("messages.queue.list", {
 	payload: Schema.Struct({ sessionId: SessionId }),
 	success: QueueState,

@@ -1079,3 +1079,119 @@ it("still sends an admitted attempt when a provider-only turn finishes before de
 	);
 	expect(sends).toBe(1);
 });
+
+it.each([
+	"agent",
+	"process",
+] as const)("stops one owned background %s without interrupting its parent or peers", async (kind) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const events = yield* Queue.unbounded<AgentEvent>();
+			const rootFinished = yield* Deferred.make<void>();
+			const taskFinished = yield* Deferred.make<void>();
+			const stop = vi.fn(() => Effect.void);
+			const interrupt = vi.fn(() => Effect.void);
+			const scoped = yield* makeTurnScopedSessionHandle(
+				{
+					...handleWithEvents([]),
+					events: Stream.fromQueue(events),
+					stopBackgroundTask: stop,
+					interrupt,
+				},
+				turnId,
+			);
+			const fiber = yield* scoped.events.pipe(
+				Stream.tap((envelope) => {
+					if (envelope.event._tag === "SubagentProgress")
+						return Deferred.succeed(rootFinished, undefined);
+					if (envelope.event._tag === "Completed")
+						return Deferred.succeed(taskFinished, undefined);
+					return Effect.void;
+				}),
+				Stream.runDrain,
+				Effect.forkChild,
+			);
+			const spawn: AgentEvent =
+				kind === "agent"
+					? childSpawn
+					: {
+							_tag: "ToolUse",
+							itemId,
+							tool: "Bash",
+							input: {},
+							backgroundTask: { taskId: "native-child" },
+						};
+			yield* Queue.offer(events, spawn);
+			yield* Queue.offer(events, { _tag: "Completed", reason: "ended" });
+			yield* Deferred.await(rootFinished);
+			const stale = yield* scoped
+				.stopBackgroundTask("another-turn" as AgentTurnId, "native-child")
+				.pipe(Effect.result);
+			expect(stale._tag).toBe("Failure");
+			yield* scoped.stopBackgroundTask(turnId, "unrelated-task");
+			expect(stop).not.toHaveBeenCalled();
+			yield* scoped.stopBackgroundTask(turnId, "native-child");
+			expect(stop).toHaveBeenCalledExactlyOnceWith("native-child");
+			expect(interrupt).not.toHaveBeenCalled();
+			// A successful stop request is not a terminal event. The native outcome settles the task.
+			expect(yield* Deferred.isDone(taskFinished)).toBe(false);
+			yield* Queue.offer(
+				events,
+				kind === "agent"
+					? childSummary
+					: { _tag: "ToolResult", itemId, output: "Stopped", isError: true },
+			);
+			yield* Deferred.await(taskFinished);
+			yield* Fiber.interrupt(fiber);
+		}),
+	);
+});
+
+it.each([
+	"unsupported",
+	"provider-error",
+	"foreground",
+] as const)("reports %s task stop failures without claiming completion", async (reason) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const events = yield* Queue.unbounded<AgentEvent>();
+			const launched = yield* Deferred.make<void>();
+			const stop = vi.fn(() =>
+				reason === "provider-error"
+					? Effect.fail(new Error("Stop rejected"))
+					: Effect.void,
+			);
+			const scoped = yield* makeTurnScopedSessionHandle(
+				{
+					...handleWithEvents([]),
+					events: Stream.fromQueue(events),
+					...(reason === "unsupported" ? {} : { stopBackgroundTask: stop }),
+				},
+				turnId,
+			);
+			const fiber = yield* scoped.events.pipe(
+				Stream.tap((envelope) =>
+					envelope.event._tag === "ToolUse"
+						? Deferred.succeed(launched, undefined)
+						: Effect.void,
+				),
+				Stream.runDrain,
+				Effect.forkChild,
+			);
+			yield* Queue.offer(events, {
+				...childSpawn,
+				subagent: {
+					childSessionId: "native-child",
+					presentation: reason === "foreground" ? "inline" : "detached",
+				},
+			} as AgentEvent);
+			yield* Deferred.await(launched);
+			const result = yield* scoped
+				.stopBackgroundTask(turnId, "native-child")
+				.pipe(Effect.result);
+			expect(result._tag).toBe("Failure");
+			if (reason !== "provider-error") expect(stop).not.toHaveBeenCalled();
+			yield* Fiber.interrupt(fiber);
+		}),
+	);
+});
