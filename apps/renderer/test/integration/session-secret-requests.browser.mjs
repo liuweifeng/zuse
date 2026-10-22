@@ -28,7 +28,7 @@ const server = await createServer({
 					res.end(
 						await server.transformIndexHtml(
 							"/__secrets.html",
-							'<div id="root"></div><script type="module" src="/@id/__x00__secret-request-probe"></script>',
+							'<html class="dark"><body style="padding:32px"><main style="max-width:760px;margin:auto"><div id="root"></div></main><script type="module" src="/@id/__x00__secret-request-probe"></script></body></html>',
 						),
 					);
 				});
@@ -37,11 +37,18 @@ const server = await createServer({
 				if (id === "\0secret-request-probe") return id;
 				if (
 					importer?.includes("session-secret-requests.tsx") &&
+					id === "@zuse/client-runtime/connection"
+				)
+					return "\0secret-protocol";
+				if (
+					importer?.includes("session-secret-requests.tsx") &&
 					id.endsWith("rpc-client.ts")
 				)
 					return "\0secret-rpc";
 			},
 			load(id) {
+				if (id === "\0secret-protocol")
+					return "export const getClientProtocolVersion=()=>7;";
 				if (id === "\0secret-rpc")
 					return `import {Effect,Redacted} from 'effect';
 export const getVerifiedRpcClient=async()=>({
@@ -49,9 +56,9 @@ export const getVerifiedRpcClient=async()=>({
  'secrets.respond':input=>Effect.suspend(()=>{window.responses.push({sessionId:input.sessionId,requestId:input.requestId,redacted:Redacted.isRedacted(input.value),value:input.value?Redacted.value(input.value):undefined});if(window.failSave)return Effect.fail(new Error('failed'));window.requests=window.requests.filter(r=>r.id!==input.requestId);return Effect.succeed({})})
 });`;
 				if (id === "\0secret-request-probe")
-					return `import '/src/styles.css';import React from 'react';import{createRoot}from'react-dom/client';import{SessionSecretRequests}from'/src/components/session-secret-requests.tsx';
+					return `import '/src/styles.css';import React from 'react';import{createRoot}from'react-dom/client';import{SessionSecretRequests}from'/src/components/session-secret-requests.tsx';import{composerTraySurfaceClass}from'/src/components/composer/tray-pill.tsx';
 window.listCalls=0;window.responses=[];window.requests=[{id:'r1',sessionId:'one',label:'API token',reason:'Upload files',environmentVariable:'UPLOAD_TOKEN',status:'pending',reference:null,createdAt:1}];
-const root=createRoot(document.getElementById('root'));window.renderSession=sessionId=>root.render(React.createElement(SessionSecretRequests,{sessionRef:{environmentId:'local',sessionId}}));window.renderSession('one');`;
+const root=createRoot(document.getElementById('root'));window.renderSession=sessionId=>root.render(React.createElement('div',{className:composerTraySurfaceClass+' rounded-t-[1.2rem]'},React.createElement(SessionSecretRequests,{sessionRef:{environmentId:'local',sessionId}})));window.renderSession('one');`;
 			},
 		},
 	],
@@ -63,14 +70,34 @@ try {
 		headless: true,
 		executablePath: process.env.CHROME_BIN,
 	});
-	const page = await browser.newPage();
+	const page = await browser.newPage({
+		viewport: { width: 900, height: 400 },
+		deviceScaleFactor: 2,
+	});
 	const errors = [];
 	page.on("pageerror", (error) => errors.push(error.message));
 	await page.goto(
 		`http://127.0.0.1:${server.httpServer.address().port}/__secrets`,
 	);
 	await page.getByLabel("API token").fill("private-fixture-token");
-	await page.screenshot({
+	assert.equal(
+		await page.getByLabel("API token").getAttribute("type"),
+		"password",
+	);
+	for (const control of [
+		page.getByLabel("API token"),
+		page.getByRole("button", { name: "Save", exact: true }),
+		page.getByRole("button", { name: "Cancel", exact: true }),
+	]) {
+		assert.equal(Math.round((await control.boundingBox()).height), 28);
+	}
+	const noteId = await page
+		.getByLabel("API token")
+		.getAttribute("aria-describedby");
+	const note = page.locator(`[id="${noteId}"]`);
+	assert.match(await note.textContent(), /Available after this session/);
+	assert.ok((await note.boundingBox()).width <= 1);
+	await page.locator(".composer-attached-rail").screenshot({
 		path: resolve(root, "../../.context/secret-request.png"),
 	});
 	await page.evaluate(() => {
@@ -116,6 +143,32 @@ try {
 	await page.getByLabel("Second token").fill("old-session-value");
 	await page.evaluate(() => window.renderSession("two"));
 	await page.getByLabel("Second token").waitFor({ state: "detached" });
+	await page.evaluate(() => {
+		window.requests = [
+			{
+				id: "r3",
+				sessionId: "two",
+				label: "Temporary token",
+				reason: "",
+				environmentVariable: "TEMP_TOKEN",
+				status: "pending",
+				reference: null,
+				createdAt: 3,
+			},
+		];
+		document.dispatchEvent(new Event("visibilitychange"));
+	});
+	await page.getByLabel("Temporary token").fill("discard-fixture-value");
+	await page.getByRole("button", { name: "Cancel", exact: true }).click();
+	await page.getByLabel("Temporary token").waitFor({ state: "detached" });
+	assert.equal(
+		await page.evaluate(() => window.responses.at(-1).value),
+		undefined,
+	);
+	assert.equal(
+		await page.evaluate(() => window.responses.at(-1).redacted),
+		false,
+	);
 	const visibleCalls = await page.evaluate(() => window.listCalls);
 	await page.evaluate(() => {
 		Object.defineProperty(document, "visibilityState", {

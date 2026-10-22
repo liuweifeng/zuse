@@ -1064,6 +1064,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["messages.send"](payload as never),
 				);
 				break;
+			case "messages.background.stop":
+				result = await Effect.runPromise(
+					client["messages.background.stop"](payload as never),
+				);
+				break;
 			case "messages.interrupt":
 				result = await Effect.runPromise(
 					client["messages.interrupt"](payload as never),

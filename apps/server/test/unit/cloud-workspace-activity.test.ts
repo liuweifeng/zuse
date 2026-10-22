@@ -66,6 +66,7 @@ describe("cloud workspace RPC activity", () => {
 
 	it.each([
 		"messages.send",
+		"messages.background.stop",
 		"session.answerQuestion",
 		"permission.decide",
 		"pty.write",

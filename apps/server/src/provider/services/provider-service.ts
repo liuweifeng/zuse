@@ -111,6 +111,13 @@ export interface ProviderServiceShape {
 		goal?: ThreadGoalSetInput,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
 
+	readonly stopBackgroundTask?: (
+		sessionId: AgentSessionId,
+		turnId: AgentTurnId,
+		attemptId: import("@zuse/contracts").AttemptId,
+		taskId: string,
+	) => Effect.Effect<void, AgentSessionNotFoundError | Error>;
+
 	readonly interrupt: (
 		sessionId: AgentSessionId,
 		turnId: AgentTurnId,

@@ -37,6 +37,8 @@ export type SessionPresentation = Readonly<{
 		| "healthy"
 		| "unavailable";
 	busy: boolean;
+	/** The provider root finished; only native background work remains. */
+	backgroundOnly: boolean;
 	turnActive: boolean;
 	/** A durable turn is active or a still-applicable start command bridges to it. */
 	turnInFlight: boolean;
@@ -219,12 +221,24 @@ export const deriveSessionPresentation = ({
 				: "idle";
 
 	const observation = view.data?.runtimeObservation;
+	const activeTurn = view.data?.activeTurn;
+	const backgroundOnly =
+		runtime === "running" &&
+		activeTurn != null &&
+		(view.data?.executionSteps ?? []).some(
+			(step) =>
+				step.turnId === activeTurn.id &&
+				step.attemptId === activeTurn.attempt?.id &&
+				step.nativeChildId !== null &&
+				step.status === "running" &&
+				step.rootCompletedAt !== null,
+		);
 	const health: SessionPresentation["health"] =
 		view.connection !== "connected"
 			? "disconnected"
 			: view.sync !== "live" || observation === undefined
 				? "unknown"
-				: observation.state === "stalled"
+				: observation.state === "stalled" && !backgroundOnly
 					? "stalled"
 					: observation.state === "unavailable"
 						? "unavailable"
@@ -232,6 +246,7 @@ export const deriveSessionPresentation = ({
 							? "blocked"
 							: "healthy";
 	return {
+		backgroundOnly,
 		health,
 		runtime,
 		busy: isSessionRuntimeBusy(runtime),

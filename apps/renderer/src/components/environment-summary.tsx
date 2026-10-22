@@ -1,5 +1,7 @@
+import { runningBackgroundTasks } from "@zuse/client-runtime/background-agent-presentation";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
+import { BackgroundTasks } from "./background-tasks.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
@@ -181,10 +183,19 @@ export function EnvironmentSummary() {
 			uiMessage,
 		],
 	);
-	const subagents = useMemo(
-		() => detachedSubagentGroups(messages, timeline.projection?.executionSteps),
-		[messages, timeline.projection?.executionSteps, uiMessage],
-	);
+	const subagents = useMemo(() => {
+		const backgroundIds = new Set(
+			runningBackgroundTasks(timeline.view).map((task) => task.id),
+		);
+		return detachedSubagentGroups(
+			messages,
+			timeline.projection?.executionSteps,
+		).filter(
+			(group) =>
+				group.parent.content._tag !== "tool_use" ||
+				!backgroundIds.has(group.parent.content.itemId),
+		);
+	}, [messages, timeline.view, timeline.projection?.executionSteps, uiMessage]);
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -571,6 +582,13 @@ export function EnvironmentSummary() {
 						{uiMessage("chat:environment_summary_plan")}
 					</span>
 				</button>
+			) : null}
+			{timeline.ref !== null && session !== null ? (
+				<BackgroundTasks
+					view={timeline.view}
+					sessionRef={timeline.ref}
+					providerId={session.providerId}
+				/>
 			) : null}
 			{chatRef !== null && session !== null ? (
 				<AgentsSummary

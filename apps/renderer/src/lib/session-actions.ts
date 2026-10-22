@@ -1,3 +1,4 @@
+import type { RunningBackgroundTask } from "@zuse/client-runtime/background-agent-presentation";
 import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
 	resourceRefKey,
@@ -382,6 +383,29 @@ export const sendSessionMessage = async (
 		setSessionError(ref, classifyError(cause, options?.providerId));
 		return false;
 	}
+};
+
+export const stopBackgroundTask = (
+	ref: SessionRef,
+	task: RunningBackgroundTask,
+) => {
+	if (task.turnId === null || task.attemptId === null)
+		return Promise.reject(
+			new Error("The task has no live execution identity."),
+		);
+	const commandId = CommandId.make(`background-stop:${crypto.randomUUID()}`);
+	return dispatchSessionCommand({
+		ref,
+		commandId,
+		kind: "messages.background.stop",
+		payload: {
+			commandId,
+			sessionId: ref.sessionId,
+			turnId: task.turnId,
+			attemptId: task.attemptId,
+			taskId: task.taskId,
+		},
+	});
 };
 
 export const interruptSession = async (

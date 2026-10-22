@@ -1,5 +1,12 @@
 {
-	"native_background_running": "⟦Mààïïn ààgëënt fïïnïïshëëd · chïïld wôôrk ïïs stïïll rüünnïïng⟧",
+	"question_card_multiple_choice_hint": "⟦Sëëlëëct ôônëë ôôr môôrëë ôôptïïôôns.⟧",
+	"question_card_continue": "⟦Côôntïïnüüëë⟧",
+	"secret_request_placeholder": "⟦ËËntëër àà prïïvààtëë vààlüüëë…⟧",
+	"background_tasks_title": "⟦Bààckgrôôüünd wôôrk⟧",
+	"background_process": "⟦Bààckgrôôüünd prôôcëëss⟧",
+	"background_agent": "⟦Bààckgrôôüünd ààgëënt⟧",
+	"background_stop_task": "⟦Stôôp {{task}}⟧",
+	"native_background_running": "⟦Bààckgrôôüünd wôôrk rüünnïïng⟧",
 	"terminal_bottom": "⟦Bôôttôôm tëërmïïnààl⟧",
 	"terminal_resize_bottom": "⟦Rëësïïzëë bôôttôôm tëërmïïnààl⟧",
 	"terminal_close": "⟦Clôôsëë {{title}}⟧",
@@ -402,11 +409,9 @@
 	"provider_updates_toast_update": "⟦ÜÜpdààtëë⟧",
 	"provider_updates_toast_hint": "⟦Nëëw môôdëëls ôôftëën nëëëëd thëë lààtëëst vëërsïïôôn.⟧",
 	"question_card_dismiss": "⟦Dïïsmïïss⟧",
-	"question_card_other_answer": "⟦ÔÔthëër àànswëër…⟧",
 	"question_card_previous_question": "⟦Prëëvïïôôüüs qüüëëstïïôôn⟧",
 	"question_card_next_question": "⟦Nëëxt qüüëëstïïôôn⟧",
 	"question_card_submit_answer": "⟦Süübmïït àànswëër⟧",
-	"question_card_cancelled": "⟦(cààncëëllëëd)⟧",
 	"rename_dialog_rename": "⟦Rëënààmëë⟧",
 	"review_annotation_chat_session_required": "⟦Chààt sëëssïïôôn rëëqüüïïrëëd⟧",
 	"review_annotation_post_a_review_comment": "⟦Pôôst àà rëëvïïëëw côômmëënt…⟧",
@@ -692,7 +697,7 @@
 	"chat_landing_choose_a_project_in_the_sidebar": "⟦Chôôôôsëë àà prôôjëëct ïïn thëë sïïdëëbààr tôô stààrt àà nëëw chààt.⟧",
 	"chat_landing_add_a_project_to_start": "⟦ÀÀdd àà prôôjëëct tôô stààrt yôôüür fïïrst chààt.⟧",
 	"chat_landing_add_project": "⟦ÀÀdd prôôjëëct⟧",
-	"chat_working_row_waiting_for_task": "⟦Wààïïtïïng fôôr tààsk {{task}}⟧",
+	"chat_working_row_waiting_for_task": "⟦Rüünnïïng {{task}}⟧",
 	"changes_review_viewed": "⟦Vïïëëwëëd⟧",
 	"delegation_group_count": "⟦{{count}} süübààgëënts⟧",
 	"delegation_group_count_one": "⟦{{count}} süübààgëënt⟧",
@@ -814,5 +819,6 @@
 	"voice_error_start_failed": "⟦Côôüüldn't stààrt dïïctààtïïôôn. Try ààgààïïn.⟧",
 	"startup_queue_preparing": "⟦ÀÀttààchïïng fïïlëës…⟧",
 	"startup_queue_failed": "⟦Fïïlëës wëërëën’t ààttààchëëd⟧",
-	"startup_queue_reattach": "⟦Rëëmôôvëë thïïs mëëssààgëë àànd ààttààch thëë fïïlëës ààgààïïn. Yôôüür prôômpt hààs nôôt bëëëën sëënt.⟧"
+	"startup_queue_reattach": "⟦Rëëmôôvëë thïïs mëëssààgëë àànd ààttààch thëë fïïlëës ààgààïïn. Yôôüür prôômpt hààs nôôt bëëëën sëënt.⟧",
+	"question_composer_placeholder": "⟦Typëë yôôüür ôôwn àànswëër…⟧"
 }

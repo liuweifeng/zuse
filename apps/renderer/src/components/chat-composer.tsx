@@ -4,9 +4,11 @@ import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
 import { GOAL_STATUS_MESSAGE } from "../lib/session-goal-presentation.ts";
+import { BackgroundTasks } from "./background-tasks.tsx";
 import { CloudDeviceSelector } from "./cloud-device-selector.tsx";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
+import { SessionSecretRequests } from "./session-secret-requests.tsx";
 import "@zuse/i18n/english/common";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import "@zuse/i18n/english/chat";
@@ -197,6 +199,7 @@ import {
 import { ProjectPlanTray } from "./composer/project-plan-tray.tsx";
 import { ProviderErrorTray } from "./composer/provider-error-tray.tsx";
 import { ProviderSignInTray } from "./composer/provider-sign-in-tray.tsx";
+import { QuestionTray, useQuestionAnswer } from "./composer/question-tray.tsx";
 import { QueueTray } from "./composer/queue-tray.tsx";
 import { SlashCommandPopover } from "./composer/slash-command-popover.tsx";
 import {
@@ -238,7 +241,6 @@ import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { DevicePermissionCard } from "./device-permission-card.tsx";
 import { PermissionCard } from "./permission-card.tsx";
-import { QuestionCard } from "./question-card.tsx";
 import { RuntimeAccessPicker } from "./runtime-access-picker.tsx";
 
 const EMPTY_QUESTION_ATTACHMENTS: QuestionAttachmentsByKey = {};
@@ -456,6 +458,21 @@ export function ChatComposer({
 		[questionAttachmentsByKey, sessionId, timeline.presentation.interactions],
 	);
 	const pendingQuestion = presentedQuestion?.question ?? null;
+	const questionAnswer = useQuestionAnswer(
+		pendingQuestion === null
+			? null
+			: {
+					environmentId: qualifiedEnvironmentId,
+					sessionId,
+					itemId: pendingQuestion.interaction.id,
+					questions: pendingQuestion.interaction.questions,
+					disabled: presentedQuestion?.actionable !== true,
+					expired: pendingQuestion.interaction.recoveryState === "expired",
+					submission: pendingQuestion.submission,
+					submissionError: pendingQuestion.error,
+				},
+	);
+	const answeringQuestion = questionAnswer !== null;
 
 	const requestsById =
 		useEnvironmentPermissions(qualifiedEnvironmentId).data?.requestsById ??
@@ -600,11 +617,17 @@ export function ChatComposer({
 		(s) => (s.bySession[sessionId] ?? []).length,
 	);
 
+	const questionPlaceholder = uiMessage("chat:question_composer_placeholder");
 	useEffect(() => {
 		const view = editorViewRef.current;
 		if (view !== null)
-			setComposerPlaceholder(view, placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER);
-	}, [placeholder]);
+			setComposerPlaceholder(
+				view,
+				answeringQuestion
+					? questionPlaceholder
+					: (placeholder ?? DEFAULT_COMPOSER_PLACEHOLDER),
+			);
+	}, [answeringQuestion, placeholder, questionPlaceholder]);
 
 	useEffect(() => {
 		if (
@@ -1203,7 +1226,27 @@ export function ChatComposer({
 			platformOffline: !platformOnline,
 		});
 
+	/** While a question is pending, the composer text is its free-text answer. */
+	const submitQuestionAnswer = (
+		answer: NonNullable<typeof questionAnswer>,
+	): boolean => {
+		const view = editorViewRef.current;
+		if (view === null || trigger !== null || modelPickerOpen) return false;
+		const text = composerDoc(view).trim();
+		if (!answer.canAnswer(text.length > 0)) return false;
+		const submittedDoc = view.state.doc;
+		void answer.answer(text).then((consumed) => {
+			if (!consumed || text.length === 0) return;
+			if (editorViewRef.current !== view || view.state.doc !== submittedDoc)
+				return;
+			clearComposer(view, { clearPendingAttachments: false });
+			clearComposerDraft(draftKey);
+		});
+		return true;
+	};
+
 	const submit = (): boolean => {
+		if (questionAnswer !== null) return submitQuestionAnswer(questionAnswer);
 		if (
 			composerSendBlocked(timeline.presentation.health, sendPlanFeedbackNow)
 		) {
@@ -1525,13 +1568,20 @@ export function ChatComposer({
 	};
 
 	const showCard =
-		headPermission !== undefined ||
-		headDeviceCommand !== undefined ||
-		pendingQuestion !== null;
+		headPermission !== undefined || headDeviceCommand !== undefined;
 
 	const composerTrays = (
 		<>
 			<NoConnectionTray />
+			{!isDraft ? <SessionSecretRequests sessionRef={timeline.ref} /> : null}
+			{!isDraft ? (
+				<BackgroundTasks
+					view={timeline.view}
+					sessionRef={timeline.ref}
+					providerId={session.providerId}
+					placement="composer"
+				/>
+			) : null}
 			{isDraft ? draftTray : null}
 			<ComposerAttachmentTray
 				draftKey={draftKey}
@@ -1611,6 +1661,9 @@ export function ChatComposer({
 					/>
 				</>
 			) : null}
+			{questionAnswer !== null ? (
+				<QuestionTray answer={questionAnswer} />
+			) : null}
 		</>
 	);
 
@@ -1651,19 +1704,6 @@ export function ChatComposer({
 								command={headDeviceCommand}
 								queueSize={deviceApproval.commands.length}
 								onDecision={deviceApproval.decide}
-							/>
-						) : pendingQuestion !== null ? (
-							<QuestionCard
-								environmentId={qualifiedEnvironmentId}
-								sessionId={sessionId}
-								itemId={pendingQuestion.interaction.id}
-								questions={pendingQuestion.interaction.questions}
-								disabled={presentedQuestion?.actionable !== true}
-								expired={
-									pendingQuestion.interaction.recoveryState === "expired"
-								}
-								submission={pendingQuestion.submission}
-								submissionError={pendingQuestion.error}
 							/>
 						) : null}
 					</div>
@@ -1893,7 +1933,28 @@ export function ChatComposer({
 											session={session}
 										/>
 									) : null}
-									{sendPlanFeedbackNow && hasText ? (
+									{questionAnswer !== null ? (
+										<DitherButton
+											variant="gradient"
+											className="size-6 border border-primary/40 text-white"
+											onClick={() => void submit()}
+											disabled={
+												questionAnswer.busy ||
+												!questionAnswer.canAnswer(hasText)
+											}
+											aria-label={uiMessage(
+												questionAnswer.last
+													? "chat:question_card_submit_answer"
+													: "chat:question_card_continue",
+											)}
+										>
+											{questionAnswer.busy ? (
+												<Spinner className="size-3.5" />
+											) : (
+												<HugeiconsIcon icon={SentIcon} className="size-3.5" />
+											)}
+										</DitherButton>
+									) : sendPlanFeedbackNow && hasText ? (
 										<Button
 											variant="default"
 											size="sm"

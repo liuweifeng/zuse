@@ -58,7 +58,10 @@ export class ProviderHandleUnavailable extends Schema.TaggedErrorClass<ProviderH
 ) {}
 
 export interface TurnScopedProviderSessionHandle
-	extends Omit<ProviderSessionHandle, "events" | "send" | "interrupt"> {
+	extends Omit<
+		ProviderSessionHandle,
+		"events" | "send" | "interrupt" | "stopBackgroundTask"
+	> {
 	readonly events: Stream.Stream<TurnScopedProviderEventEnvelope>;
 	readonly send: (
 		turnId: AgentTurnId,
@@ -69,6 +72,10 @@ export interface TurnScopedProviderSessionHandle
 		goal: ThreadGoalSetInput,
 		fallbackObjective?: string,
 	) => Effect.Effect<void, ProviderHandleUnavailable>;
+	readonly stopBackgroundTask: (
+		turnId: AgentTurnId,
+		taskId: string,
+	) => Effect.Effect<void, Error>;
 	readonly interrupt: (turnId: AgentTurnId) => Effect.Effect<void>;
 }
 
@@ -664,6 +671,32 @@ export const makeTurnScopedSessionHandle = (
 								});
 					}),
 				),
+			stopBackgroundTask: (turnId, taskId) =>
+				Effect.gen(function* () {
+					const active = yield* Ref.get(activeTurn);
+					if (active?.turnId !== turnId)
+						return yield* Effect.fail(
+							new Error("The background task's turn is no longer active."),
+						);
+					const child = [...active.children.values()].find(
+						(child) => child.nativeChildId === taskId,
+					);
+					if (child === undefined) return;
+					if (
+						child.childKind === "subagent" &&
+						child.subagent?.presentation !== "detached"
+					)
+						return yield* Effect.fail(
+							new Error("This task is foreground work."),
+						);
+					if (handle.stopBackgroundTask === undefined)
+						return yield* Effect.fail(
+							new Error(
+								"This provider does not support stopping individual background tasks.",
+							),
+						);
+					yield* handle.stopBackgroundTask(taskId);
+				}),
 			interrupt: (turnId) =>
 				Effect.gen(function* () {
 					const active = yield* Ref.get(activeTurn);
