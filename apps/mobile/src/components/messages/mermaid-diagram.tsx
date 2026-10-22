@@ -15,8 +15,10 @@ type MermaidDiagramProps = {
 };
 
 const disableNetworkAccess = (): void => {
-	globalThis.fetch = () =>
-		Promise.reject(new Error("Network access is disabled for diagrams"));
+	globalThis.fetch = Object.assign(
+		() => Promise.reject(new Error("Network access is disabled for diagrams")),
+		{ preconnect: () => {} },
+	);
 
 	if (typeof XMLHttpRequest !== "undefined") {
 		XMLHttpRequest.prototype.open = () => {

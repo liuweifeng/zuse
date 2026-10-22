@@ -120,7 +120,7 @@ type ModelPickerProps = {
 export function ModelPicker(props: ModelPickerProps) {
 	const { user } = useAuth();
 	const experimentalHarnessAllowed = canUseExperimentalHarness(user?.email);
-	const { message: uiMessage } = useUiMessages(["providers"]);
+	const { message: uiMessage } = useUiMessages(["providers", "chat"]);
 
 	const isDefault = props.mode === "default";
 	const isConfiguration = props.mode === "configuration";
@@ -592,7 +592,7 @@ export function ModelPicker(props: ModelPickerProps) {
 						icon={FlashIcon}
 						className="size-3 shrink-0 text-amber-700 dark:text-amber-200"
 						role="img"
-						aria-label="Fast mode"
+						aria-label={uiMessage("chat:chat_composer_fast")}
 					/>
 				) : null}
 			</span>
