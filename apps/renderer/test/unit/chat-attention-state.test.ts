@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	chatAttentionLabel,
+	chatRowIsUnread,
 	deriveChatAttentionState,
 	executionAttentionState,
 	mergeChatAttentionStates,
@@ -129,5 +130,17 @@ describe("chatAttentionLabel", () => {
 
 	it("reports a pending chat creation as starting", () => {
 		expect(chatAttentionLabel("running", true)).toBe("Starting agent");
+	});
+});
+
+describe("chatRowIsUnread", () => {
+	it("waits for all work to finish before showing unread output", () => {
+		expect(chatRowIsUnread(false, true, true, false)).toBe(false);
+		expect(chatRowIsUnread(false, true, false, false)).toBe(true);
+	});
+	it("keeps approval actionable during a turn and selected chats read", () => {
+		expect(chatRowIsUnread(false, false, true, true)).toBe(true);
+		expect(chatRowIsUnread(true, true, false, true)).toBe(false);
+		expect(chatRowIsUnread(false, false, false, false)).toBe(false);
 	});
 });

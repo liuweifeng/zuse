@@ -24,6 +24,7 @@ export type ChatAttention = {
 	readonly sessionIds: ReadonlyArray<SessionId>;
 	readonly attentionState: ChatAttentionState;
 	readonly permissionAttention: ChatAttentionState;
+	readonly busy: boolean;
 };
 
 /**
@@ -111,5 +112,13 @@ export function useChatAttention(
 		messageAttention,
 		permissionAttention,
 	]);
-	return { chatSessions, sessionIds, attentionState, permissionAttention };
+	return {
+		chatSessions,
+		sessionIds,
+		attentionState,
+		permissionAttention,
+		busy:
+			creationPending ||
+			timelines.some((timeline) => isSessionRuntimeBusy(timeline.runtime)),
+	};
 }
