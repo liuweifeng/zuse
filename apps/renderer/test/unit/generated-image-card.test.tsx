@@ -79,3 +79,10 @@ it("shows a failed status without an empty frame", () => {
 	expect(html).not.toContain('role="img"');
 	expect(html).toContain("Image generation failed");
 });
+
+it("offers the image viewer even without a filesystem path", () => {
+	const html = renderToStaticMarkup(
+		<GeneratedImageCard startedAt={new Date()} result={imageOutput()} />,
+	);
+	expect(html).toContain('aria-label="Open image"');
+});

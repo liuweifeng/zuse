@@ -21,7 +21,6 @@ import {
 } from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useUiStore } from "~/store/ui";
-import { useFileOpenTarget } from "./file-chip.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
 type GenerationStatus = "generating" | "complete" | "error";
@@ -228,10 +227,12 @@ function ImageActions({
 }) {
 	const { message } = useMessages(["common", "tools"]);
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
-	const { openTarget } = useFileOpenTarget({
-		relPath: path ?? "",
-		absPath: path ?? undefined,
-	});
+	const openTarget = {
+		kind: "image" as const,
+		src,
+		name:
+			path?.split(/[\\/]/).pop() || message("tools:tool_row_generated_image"),
+	};
 	const [copy, setCopy] = useState<"idle" | "copied" | "error">("idle");
 	useEffect(() => {
 		if (copy === "idle") return;
@@ -262,13 +263,11 @@ function ImageActions({
 				icon={copy === "copied" ? Tick02Icon : Copy01Icon}
 				onClick={onCopy}
 			/>
-			{path !== null && openTarget !== null ? (
-				<ImageAction
-					label={message("tools:tool_row_open_image")}
-					icon={LinkSquare02Icon}
-					onClick={() => openFileInTab(openTarget)}
-				/>
-			) : null}
+			<ImageAction
+				label={message("tools:tool_row_open_image")}
+				icon={LinkSquare02Icon}
+				onClick={() => openFileInTab(openTarget)}
+			/>
 		</div>
 	);
 }

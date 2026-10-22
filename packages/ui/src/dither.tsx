@@ -554,12 +554,12 @@ export function DitherDotField({
 		const context = canvas?.getContext("2d");
 		if (!canvas || !context) return;
 
-		const reduce = window.matchMedia(
+		const motionPreference = window.matchMedia(
 			"(prefers-reduced-motion: reduce)",
-		).matches;
+		);
+		let reduce = motionPreference.matches;
 		const followPointer =
 			interactive &&
-			!reduce &&
 			window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 		let frame = 0;
 		let width = 0;
@@ -624,6 +624,7 @@ export function DitherDotField({
 		};
 
 		const onPointerMove = (event: PointerEvent) => {
+			if (reduce) return;
 			const box = canvas.getBoundingClientRect();
 			pointer.inside = true;
 			pointer.targetX = event.clientX - box.left;
@@ -633,6 +634,14 @@ export function DitherDotField({
 			pointer.inside = false;
 		};
 
+		const onMotionChange = () => {
+			window.cancelAnimationFrame(frame);
+			reduce = motionPreference.matches;
+			pointer.inside = false;
+			draw(0);
+		};
+
+		motionPreference.addEventListener("change", onMotionChange);
 		const observer =
 			typeof ResizeObserver === "undefined" ? null : new ResizeObserver(resize);
 		resize();
@@ -645,6 +654,7 @@ export function DitherDotField({
 
 		return () => {
 			window.cancelAnimationFrame(frame);
+			motionPreference.removeEventListener("change", onMotionChange);
 			observer?.disconnect();
 			canvas.removeEventListener("pointermove", onPointerMove);
 			canvas.removeEventListener("pointerleave", onPointerLeave);
