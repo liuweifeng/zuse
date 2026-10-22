@@ -63,6 +63,7 @@ import {
 	MAIN_SOURCE,
 	type NewChatSource,
 	type NewChatSourceKind,
+	reconcileNewChatSource,
 	sourceOptionsForKind,
 	WORK_MODE_OPTIONS,
 	workModeLabel,
@@ -208,6 +209,8 @@ export default function NewChatScreen() {
 
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
+	// Which machine and project the branch and PR choices were loaded for.
+	const [sourcesLoadedFor, setSourcesLoadedFor] = useState<string | null>(null);
 
 	const allConnections = useAtomValue(connectionsAtom);
 	useAtomValue(activeModelCatalogAtom);
@@ -486,11 +489,14 @@ export default function NewChatScreen() {
 			if (cancelled) return;
 			setBranches(nextBranches);
 			setPrs(nextPrs);
+			setSourcesLoadedFor(`${effectiveConnectionKey}:${effectiveProjectId}`);
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedOptions, effectiveProjectId, threadMode]);
+	}, [selectedOptions, effectiveConnectionKey, effectiveProjectId, threadMode]);
+	const sourcesLoaded =
+		sourcesLoadedFor === `${effectiveConnectionKey}:${effectiveProjectId}`;
 
 	const loading = Object.values(loadingByConnection).some(Boolean);
 	const selectedProject =
@@ -655,19 +661,14 @@ export default function NewChatScreen() {
 		[branches, prs, sourceKind],
 	);
 	useEffect(() => {
-		if (sourceKind === "main") {
-			if (source.kind !== "main") setSource(MAIN_SOURCE);
-			return;
-		}
-		const sourceStillAvailable = sourceChoices.some(
-			(option) =>
-				option.source.kind === source.kind &&
-				option.source.label === source.label,
-		);
-		if (!sourceStillAvailable) {
-			setSource(sourceChoices[0]?.source ?? MAIN_SOURCE);
-		}
-	}, [source.kind, source.label, sourceChoices, sourceKind]);
+		const next = reconcileNewChatSource({
+			source,
+			sourceKind,
+			choices: sourceChoices,
+			choicesLoaded: sourcesLoaded,
+		});
+		if (next !== source) setSource(next);
+	}, [source, sourceChoices, sourceKind, sourcesLoaded]);
 	const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
 		key: option.kind,
 		label: option.label,
