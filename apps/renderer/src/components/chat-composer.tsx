@@ -2002,17 +2002,7 @@ export function ChatComposer({
 	);
 }
 
-function FastModeToggle({
-	sessionId,
-	environmentId,
-	compact = false,
-}: {
-	sessionId: SessionId;
-	environmentId: EnvironmentId;
-	compact?: boolean;
-}) {
-	const { message: uiMessage } = useUiMessages(["chat", "common"]);
-
+function useFastMode(environmentId: EnvironmentId, sessionId: SessionId) {
 	const storageKey = sessionModelOptionStorageKey(
 		{ environmentId, sessionId },
 		"fastMode",
@@ -2038,7 +2028,7 @@ function FastModeToggle({
 		);
 	}, [legacyStorageKey, storageKey]);
 
-	const onClick = () => {
+	const toggle = () => {
 		const next = !enabled;
 		setEnabled(next);
 		if (typeof window !== "undefined") {
@@ -2050,6 +2040,20 @@ function FastModeToggle({
 			}
 		}
 	};
+
+	return { enabled, toggle };
+}
+
+function FastModeToggle({
+	enabled,
+	onClick,
+	compact = false,
+}: {
+	enabled: boolean;
+	onClick: () => void;
+	compact?: boolean;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
 	return (
 		<Tooltip>
@@ -2518,6 +2522,7 @@ function ComposerModelPicker({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat", "common"]);
 
+	const fastMode = useFastMode(environmentId, session.id);
 	const sessionId = session.id;
 	const providerId = session.providerId;
 	const model = session.model;
@@ -2585,6 +2590,7 @@ function ComposerModelPicker({
 	const modelPickerProps = {
 		cloudProviderIds,
 		composer: true,
+		fastMode: fastModeAvailable && fastMode.enabled,
 		environmentId,
 		mode: "session" as const,
 		sessionId,
@@ -2626,8 +2632,8 @@ function ComposerModelPicker({
 						{fastModeAvailable ? (
 							<FastModeToggle
 								compact
-								environmentId={environmentId}
-								sessionId={sessionId}
+								enabled={fastMode.enabled}
+								onClick={fastMode.toggle}
 							/>
 						) : null}
 					</div>
