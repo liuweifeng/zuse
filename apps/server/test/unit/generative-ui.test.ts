@@ -91,6 +91,20 @@ describe("emit_ui persistence", () => {
 		expect(messageContentToText(replayed)).toBe(spec);
 		expect(transcriptToMarkdown("Health", saved)).toContain(spec);
 	});
+
+	it("persists canonical specs for recovered summary syntax", async () => {
+		const { tools, saved } = await setup();
+		const result = await tools.deps.emitUi({
+			spec: 'root = Card([CardHeader("Health"), KeyValue([["Build", "Passed"], {label: "Types", value: "Passed"}])])',
+		});
+		expect(result.ok).toBe(true);
+		const content = saved[0]?.content;
+		expect(content?._tag).toBe("ui_spec");
+		if (content?._tag !== "ui_spec") throw new Error("Expected UI spec");
+		expect(content.spec).not.toContain("CardHeader");
+		expect(content.spec).toContain('"key": "Build"');
+		expect(content.spec).toContain('"key": "Types"');
+	});
 	it("rejects bad specs without creating a timeline row", async () => {
 		const { tools, persistMessage } = await setup();
 		expect(

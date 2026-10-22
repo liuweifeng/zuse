@@ -16,7 +16,7 @@ import {
 	GENERATIVE_UI_FIELD_COMPONENTS,
 	type GenerativeUiComponentName,
 	generativeUiComponents,
-	validateGenerativeUiSpec,
+	prepareGenerativeUiSpec,
 } from "@zuse/utils/generative-ui";
 import { ArrowRight, Check, Circle, X } from "lucide-react";
 import {
@@ -981,7 +981,7 @@ export function UiSpecBlock({
 		[sessionRef, status],
 	);
 
-	const validation = useMemo(() => validateGenerativeUiSpec(spec), [spec]);
+	const validation = useMemo(() => prepareGenerativeUiSpec(spec), [spec]);
 	return (
 		<section
 			className="min-w-0"
@@ -994,7 +994,7 @@ export function UiSpecBlock({
 				>
 					<UiInteraction.Provider value={interaction}>
 						<Renderer
-							response={spec}
+							response={validation.spec}
 							library={generativeUiLibrary}
 							onAction={onAction}
 							publishObservability={false}

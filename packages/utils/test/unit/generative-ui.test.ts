@@ -5,12 +5,48 @@ import {
 	generativeUiComponentNames,
 	generativeUiJsonSchema,
 	parseGenerativeUiSpec,
+	prepareGenerativeUiSpec,
 	UI_SPEC_MAX_CHARS,
 	UI_SPEC_VERSION,
 	validateGenerativeUiSpec,
 } from "../../src/generative-ui.ts";
 
 describe("generative UI spec", () => {
+	it.each([
+		'root = Card([title, checks])\ntitle = CardHeader("Health")\nchecks = KeyValue([["Build", "Passed"]])',
+		'root = KeyValue([{label: "Build", value: "Passed"}])',
+	])("recovers common generated summary variants: %s", (spec) => {
+		expect(validateGenerativeUiSpec(spec)).toEqual({ ok: true });
+		const tree = parseGenerativeUiSpec(spec);
+		expect(JSON.stringify(tree)).not.toContain("CardHeader");
+		expect(JSON.stringify(tree)).toContain('"key":"Build"');
+	});
+
+	it("normalization preserves literal content and is idempotent", () => {
+		const source =
+			'root = Card([CardHeader("Health"), KeyValue([["Build", "CardHeader(\\"quoted\\")"]])])';
+		const prepared = prepareGenerativeUiSpec(source);
+		expect(prepared.ok).toBe(true);
+		if (!prepared.ok) throw new Error(prepared.error);
+		expect(prepareGenerativeUiSpec(prepared.spec)).toEqual(prepared);
+		expect(JSON.stringify(parseGenerativeUiSpec(source))).toContain("quoted");
+	});
+	it("leaves canonical specs and quoted source text unchanged", () => {
+		const spec = 'root = Text("CardHeader and KeyValue are literal text")';
+		expect(prepareGenerativeUiSpec(spec)).toEqual({ ok: true, spec });
+	});
+	it.each([
+		'root = Card([CardHeader("Health")',
+		'root = KeyValue([["Build"]])',
+		'root = KeyValue([["Build", "Passed", "extra"]])',
+		'root = KeyValue([{label: "Build", value: 42}])',
+		'root = Card([CardHeader("Health"), Input("secret", "Secret")])',
+		'root = Card([CardHeader("Health"), root])',
+		'root = Card([CardHeader("Health"), Query("data")])',
+		'root = CardHeader("A")\nroot = CardHeader("B")',
+	])("keeps rejecting unsafe or ambiguous variants: %s", (spec) => {
+		expect(prepareGenerativeUiSpec(spec).ok).toBe(false);
+	});
 	it("validates part-to-whole charts including zero totals", () => {
 		for (const values of ["80, 40", "0, 0"]) {
 			const [a, b] = values.split(", ");
