@@ -1,7 +1,8 @@
 import { type Folder, FolderId } from "@zuse/contracts";
 import * as SecureStore from "expo-secure-store";
 
-import type { NewChatSourceKind } from "~/lib/new-chat";
+import type { ModelModeValue } from "~/lib/model-options";
+import type { NewChatSource, NewChatSourceKind } from "~/lib/new-chat";
 
 const STORE_KEY = "zuse.new-chat-preferences.v1";
 
@@ -71,4 +72,37 @@ export const saveNewChatPreferences = (
 			SecureStore.setItemAsync(STORE_KEY, JSON.stringify(preferences)),
 		);
 	return writeTail;
+};
+
+/** A New Chat screen's in-progress choices. */
+export type NewChatScreenState = Readonly<{
+	connectionKey: string | null;
+	projectId: Folder["id"] | null;
+	source: NewChatSource;
+	sourceKind: NewChatSourceKind;
+	modelMode: ModelModeValue;
+	cloudSandbox: string | null;
+	cloudProjectId: string | null;
+}>;
+
+/**
+ * In-memory, keyed by navigation route key. A layout change (iPad resize or
+ * iPhone Duo fold) remounts the screen under the same route and restores these
+ * choices; a fresh New Chat gets a new route key and never sees stale ones.
+ */
+const screenStates = new Map<string, NewChatScreenState>();
+
+export const newChatScreenState = (
+	routeKey: string,
+): NewChatScreenState | undefined => screenStates.get(routeKey);
+
+export const saveNewChatScreenState = (
+	routeKey: string,
+	state: NewChatScreenState,
+): void => {
+	screenStates.set(routeKey, state);
+};
+
+export const clearNewChatScreenState = (routeKey: string): void => {
+	screenStates.delete(routeKey);
 };

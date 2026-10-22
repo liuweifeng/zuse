@@ -47,8 +47,8 @@ import {
 	onNearbyServicesChanged,
 	openLocalProxy,
 	startLocalDiscovery,
-} from "../../modules/local-connectivity";
-import { deviceModelName } from "../../modules/mobile-platform";
+} from "../../../modules/local-connectivity";
+import { deviceModelName } from "../../../modules/mobile-platform";
 
 type PendingApproval = {
 	readonly requestId: string;

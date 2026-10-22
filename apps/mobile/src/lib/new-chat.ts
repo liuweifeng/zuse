@@ -148,6 +148,28 @@ export const sourceOptionsForKind = (
 	}
 };
 
+/**
+ * The source to keep once branch and PR choices are known. A selection missing
+ * from the list is kept until the project's choices have loaded, so a restored
+ * branch or pull request is not replaced while they are still being fetched.
+ */
+export const reconcileNewChatSource = (input: {
+	readonly source: NewChatSource;
+	readonly sourceKind: NewChatSourceKind;
+	readonly choices: readonly NewChatSourceOption[];
+	readonly choicesLoaded: boolean;
+}): NewChatSource => {
+	if (input.sourceKind === "main")
+		return input.source.kind === "main" ? input.source : MAIN_SOURCE;
+	const available = input.choices.some(
+		(option) =>
+			option.source.kind === input.source.kind &&
+			option.source.label === input.source.label,
+	);
+	if (available || !input.choicesLoaded) return input.source;
+	return input.choices[0]?.source ?? MAIN_SOURCE;
+};
+
 export const buildNewChatCreatePayload = (
 	draft: NewChatDraft,
 ): NewChatCreatePayload | null => {

@@ -15,7 +15,13 @@ import type {
 	GitPrSummary,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import {
+	router,
+	Stack,
+	useLocalSearchParams,
+	useNavigation,
+	useRoute,
+} from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, Text, TextInput, View } from "react-native";
 import { KeyboardController } from "react-native-keyboard-controller";
@@ -45,6 +51,7 @@ import {
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
 import { availableConnections } from "~/lib/connection-records";
+import { useReadableInset } from "~/lib/form-factor";
 import {
 	availableProviderIds,
 	defaultModelForProvider,
@@ -56,6 +63,7 @@ import {
 	MAIN_SOURCE,
 	type NewChatSource,
 	type NewChatSourceKind,
+	reconcileNewChatSource,
 	sourceOptionsForKind,
 	WORK_MODE_OPTIONS,
 	workModeLabel,
@@ -105,8 +113,11 @@ import {
 	hydrateModelCatalog,
 } from "~/store/model-catalog";
 import {
+	clearNewChatScreenState,
+	newChatScreenState,
 	readNewChatPreferences,
 	saveNewChatPreferences,
+	saveNewChatScreenState,
 } from "~/store/new-chat-preferences";
 import {
 	bundlesByConnectionAtom,
@@ -122,6 +133,8 @@ export default function NewChatScreen() {
 	const keyboardOffset = useOpaqueHeaderHeight();
 	const toolbarIcon = useToolbarIcons();
 	const insets = useSafeAreaInsets();
+	// Full-bleed screen: the readable column is applied to the content and composer.
+	const readableInset = useReadableInset();
 	const {
 		conn,
 		chatId,
@@ -140,16 +153,20 @@ export default function NewChatScreen() {
 	const requestedChatId = (chatId?.trim() ?? "") as ChatId;
 	const draftKey = `new-chat:${requestedConnectionKey || "auto"}:${requestedChatId || "root"}`;
 	const [initialDraft] = useState(() => composerDraft(draftKey));
-	const inheritedModel = useRef(false);
+	// Layout changes (iPad resize, iPhone Duo fold) remount this screen; restore its choices.
+	const routeKey = useRoute().key;
+	const navigation = useNavigation();
+	const [restored] = useState(() => newChatScreenState(routeKey));
+	const inheritedModel = useRef(restored !== undefined);
 	const submitGateRef = useRef(false);
 	const [text, setText] = useState(requestedDraft ?? initialDraft.text);
 
 	const [cloudSandbox, setCloudSandbox] = useState<string | null>(
-		sandbox ?? null,
+		restored ? restored.cloudSandbox : (sandbox ?? null),
 	);
 	const cloudMode = cloudSandbox !== null;
 	const [cloudProjectId, setCloudProjectId] = useState<string | null>(
-		requestedCloudProjectId ?? null,
+		restored ? restored.cloudProjectId : (requestedCloudProjectId ?? null),
 	);
 	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [preferencesHydrated, setPreferencesHydrated] = useState(false);
@@ -162,27 +179,38 @@ export default function NewChatScreen() {
 	const [error, setError] = useState<string | null>(null);
 	const [selectedConnectionKey, setSelectedConnectionKey] = useState<
 		string | null
-	>(null);
+	>(restored ? restored.connectionKey : null);
 	const [selectedProjectId, setSelectedProjectId] = useState<
 		Folder["id"] | null
-	>(null);
-	const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
+	>(restored ? restored.projectId : null);
+	const [source, setSource] = useState<NewChatSource>(
+		restored ? restored.source : MAIN_SOURCE,
+	);
 
-	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
+	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>(
+		restored ? restored.sourceKind : "main",
+	);
 	const initialModel = defaultModelForProvider(activeModelCatalog(), "codex");
-	const [modelMode, setModelMode] = useState<ModelModeValue>({
-		providerId: "codex",
-		model: initialModel,
-		runtimeMode: "approval-required",
-		permissionMode: "default",
-		modelOptions: defaultModelOptions(
-			activeModelCatalog(),
-			"codex",
-			initialModel,
-		),
-	});
+	const [modelMode, setModelMode] = useState<ModelModeValue>(() =>
+		restored
+			? restored.modelMode
+			: {
+					providerId: "codex",
+					model: initialModel,
+					runtimeMode: "approval-required",
+					permissionMode: "default",
+					modelOptions: defaultModelOptions(
+						activeModelCatalog(),
+						"codex",
+						initialModel,
+					),
+				},
+	);
+
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
+	// Which machine and project the branch and PR choices were loaded for.
+	const [sourcesLoadedFor, setSourcesLoadedFor] = useState<string | null>(null);
 
 	const allConnections = useAtomValue(connectionsAtom);
 	useAtomValue(activeModelCatalogAtom);
@@ -276,7 +304,8 @@ export default function NewChatScreen() {
 	const threadMode = requestedChatId.length > 0;
 
 	useEffect(() => {
-		if (threadMode) {
+		// Restored choices already reflect the user's selection; preferences would overwrite them.
+		if (threadMode || restored !== undefined) {
 			setPreferencesHydrated(true);
 			return;
 		}
@@ -295,7 +324,40 @@ export default function NewChatScreen() {
 		return () => {
 			active = false;
 		};
-	}, [requestedConnectionKey, threadMode]);
+	}, [requestedConnectionKey, restored, threadMode]);
+
+	useEffect(() => {
+		// Saving before preferences load would restore defaults over them.
+		if (!preferencesHydrated) return;
+		saveNewChatScreenState(routeKey, {
+			connectionKey: selectedConnectionKey,
+			projectId: selectedProjectId,
+			source,
+			sourceKind,
+			modelMode,
+			cloudSandbox,
+			cloudProjectId,
+		});
+	}, [
+		cloudProjectId,
+		cloudSandbox,
+		modelMode,
+		preferencesHydrated,
+		routeKey,
+		selectedConnectionKey,
+		selectedProjectId,
+		source,
+		sourceKind,
+	]);
+
+	useEffect(() => {
+		// Fires only when the route is removed, not when a layout change remounts it.
+		const unsubscribe = navigation.addListener("removed", () =>
+			clearNewChatScreenState(routeKey),
+		);
+		// The event arrives after unmount, so unsubscribe on the next microtask.
+		return () => queueMicrotask(unsubscribe);
+	}, [navigation, routeKey]);
 
 	const projectChoices = useMemo(() => {
 		if (effectiveConnectionKey === null) return [];
@@ -427,11 +489,14 @@ export default function NewChatScreen() {
 			if (cancelled) return;
 			setBranches(nextBranches);
 			setPrs(nextPrs);
+			setSourcesLoadedFor(`${effectiveConnectionKey}:${effectiveProjectId}`);
 		});
 		return () => {
 			cancelled = true;
 		};
-	}, [selectedOptions, effectiveProjectId, threadMode]);
+	}, [selectedOptions, effectiveConnectionKey, effectiveProjectId, threadMode]);
+	const sourcesLoaded =
+		sourcesLoadedFor === `${effectiveConnectionKey}:${effectiveProjectId}`;
 
 	const loading = Object.values(loadingByConnection).some(Boolean);
 	const selectedProject =
@@ -596,19 +661,14 @@ export default function NewChatScreen() {
 		[branches, prs, sourceKind],
 	);
 	useEffect(() => {
-		if (sourceKind === "main") {
-			if (source.kind !== "main") setSource(MAIN_SOURCE);
-			return;
-		}
-		const sourceStillAvailable = sourceChoices.some(
-			(option) =>
-				option.source.kind === source.kind &&
-				option.source.label === source.label,
-		);
-		if (!sourceStillAvailable) {
-			setSource(sourceChoices[0]?.source ?? MAIN_SOURCE);
-		}
-	}, [source.kind, source.label, sourceChoices, sourceKind]);
+		const next = reconcileNewChatSource({
+			source,
+			sourceKind,
+			choices: sourceChoices,
+			choicesLoaded: sourcesLoaded,
+		});
+		if (next !== source) setSource(next);
+	}, [source, sourceChoices, sourceKind, sourcesLoaded]);
 	const workModeOptions = WORK_MODE_OPTIONS.map((option) => ({
 		key: option.kind,
 		label: option.label,
@@ -894,6 +954,7 @@ export default function NewChatScreen() {
 				keyboardShouldPersistTaps="handled"
 				contentContainerStyle={{
 					padding: 18,
+					paddingHorizontal: 18 + readableInset,
 					paddingBottom: 24,
 					gap: 18,
 					flexGrow: 1,
@@ -912,8 +973,11 @@ export default function NewChatScreen() {
 			</ScrollView>
 
 			<View
-				className="px-3 pt-2"
-				style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
+				className="pt-2"
+				style={{
+					paddingHorizontal: 12 + readableInset,
+					paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
+				}}
 			>
 				{threadMode && threadContext !== null ? (
 					<View className="mb-4 gap-1 px-2">

@@ -1,6 +1,6 @@
 import { useAtomValue } from "@effect/atom-react";
 import { Cancel01Icon } from "@zuse/icons/solid-rounded";
-import { router, Stack } from "expo-router";
+import { type Href, router, Stack, usePathname } from "expo-router";
 import { SymbolView } from "expo-symbols";
 import { Search } from "lucide-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,6 +17,7 @@ import {
 	useWindowDimensions,
 	View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ConnectionRecoveryBanner } from "~/components/connection-recovery-banner";
 import { HomeChatRow } from "~/components/home/home-chat-row";
@@ -77,7 +78,6 @@ import {
 	refreshEnvironments,
 } from "~/store/environments";
 import {
-	completeOnboarding,
 	hydrateOnboarding,
 	onboardingCompleteAtom,
 	onboardingHydratedAtom,
@@ -100,9 +100,9 @@ import {
 	statusBySessionAtom,
 } from "~/store/sessions";
 import { colors } from "~/theme";
-import { localConnectivityAvailable } from "../modules/local-connectivity";
+import { localConnectivityAvailable } from "../../../modules/local-connectivity";
 
-const LOGO = require("../assets/icon.png");
+const LOGO = require("../../../assets/icon.png");
 
 const HEADER_ACTION_STYLE = {
 	width: 40,
@@ -114,7 +114,19 @@ const HEADER_ACTION_STYLE = {
 
 type ChatFeedItem = HomeFeedItem & { type: "chat" };
 
-export default function HomeScreen() {
+/**
+ * The chat feed. `stack` renders it as the main stack's first screen with the
+ * native header and toolbar; `sidebar` renders it inside the iOS split view's
+ * sidebar, where the column header cannot be customized.
+ */
+export function HomeFeed({
+	placement,
+}: {
+	readonly placement: "stack" | "sidebar";
+}) {
+	const sidebar = placement === "sidebar";
+	const pathname = usePathname();
+	const insets = useSafeAreaInsets();
 	const toolbarIcon = useToolbarIcons();
 	const { width } = useWindowDimensions();
 	const [search, setSearch] = useState("");
@@ -172,25 +184,6 @@ export default function HomeScreen() {
 	useEffect(() => {
 		if (!onboardingHydrated) void hydrateOnboarding();
 	}, [onboardingHydrated]);
-
-	useEffect(() => {
-		if (busy || !onboardingHydrated || !authHydrated || !connectionsHydrated)
-			return;
-		if (onboardingComplete) return;
-		if (account !== null || connections.length > 0) {
-			void completeOnboarding();
-			return;
-		}
-		router.replace("/onboarding");
-	}, [
-		account,
-		authHydrated,
-		busy,
-		connections.length,
-		connectionsHydrated,
-		onboardingComplete,
-		onboardingHydrated,
-	]);
 
 	useEffect(() => {
 		if (account === null) return;
@@ -405,6 +398,12 @@ export default function HomeScreen() {
 		);
 	}, []);
 
+	// The sidebar replaces the open chat instead of stacking back history.
+	const openFromSidebar = useCallback((href: Href) => {
+		if (router.canDismiss()) router.dismissAll();
+		router.push(href);
+	}, []);
+
 	const renderItem = ({ item }: { item: HomeFeedItem }) => {
 		switch (item.type) {
 			case "section-header":
@@ -497,6 +496,8 @@ export default function HomeScreen() {
 						item={item}
 						onArchive={onArchiveRow}
 						onTogglePin={onTogglePinRow}
+						onOpen={sidebar ? openFromSidebar : undefined}
+						selectedPathname={sidebar ? pathname : undefined}
 					/>
 				);
 		}
@@ -543,53 +544,76 @@ export default function HomeScreen() {
 		</>
 	);
 
+	const headerActions = (
+		<View className="flex-row items-center gap-2">
+			{sidebar ? (
+				<Pressable
+					accessibilityRole="button"
+					accessibilityLabel="New chat"
+					hitSlop={4}
+					onPress={() => router.push("/new-chat")}
+					style={({ pressed }) => [
+						HEADER_ACTION_STYLE,
+						pressed && { opacity: 0.72 },
+					]}
+				>
+					<SymbolView
+						name={platformSymbolName("square.and.pencil")}
+						size={19}
+						weight="semibold"
+						tintColor={colors.fg}
+					/>
+				</Pressable>
+			) : null}
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel="Pair with desktop"
+				hitSlop={4}
+				onPress={() => router.push("/connect/scan")}
+				style={({ pressed }) => [
+					HEADER_ACTION_STYLE,
+					pressed && { opacity: 0.72 },
+				]}
+			>
+				<SymbolView
+					name={platformSymbolName("qrcode.viewfinder")}
+					size={19}
+					weight="semibold"
+					tintColor={colors.fg}
+				/>
+			</Pressable>
+			<Pressable
+				accessibilityRole="button"
+				accessibilityLabel="Open settings"
+				hitSlop={4}
+				onPress={() => router.push("/settings")}
+				style={({ pressed }) => [
+					HEADER_ACTION_STYLE,
+					pressed && { opacity: 0.72 },
+				]}
+			>
+				<SymbolView
+					name={platformSymbolName("gearshape.fill")}
+					size={20}
+					weight="medium"
+					tintColor={colors.fg}
+				/>
+			</Pressable>
+		</View>
+	);
+
 	return (
 		<>
-			<Stack.Screen
-				options={{
-					title: "Zuse",
-					headerLargeTitle: false,
-					headerTitle: () => <BrandTitle />,
-					headerRight: () => (
-						<View className="flex-row items-center gap-2">
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel="Pair with desktop"
-								hitSlop={4}
-								onPress={() => router.push("/connect/scan")}
-								style={({ pressed }) => [
-									HEADER_ACTION_STYLE,
-									pressed && { opacity: 0.72 },
-								]}
-							>
-								<SymbolView
-									name={platformSymbolName("qrcode.viewfinder")}
-									size={19}
-									weight="semibold"
-									tintColor={colors.fg}
-								/>
-							</Pressable>
-							<Pressable
-								accessibilityRole="button"
-								accessibilityLabel="Open settings"
-								hitSlop={4}
-								onPress={() => router.push("/settings")}
-								style={({ pressed }) => [
-									HEADER_ACTION_STYLE,
-									pressed && { opacity: 0.72 },
-								]}
-							>
-								<SymbolView
-									name={platformSymbolName("gearshape.fill")}
-									size={20}
-									weight="medium"
-									tintColor={colors.fg}
-								/>
-							</Pressable>
-						</View>
-					),
-				}}
-			/>
+			{sidebar ? null : (
+				<Stack.Screen
+					options={{
+						title: "Zuse",
+						headerLargeTitle: false,
+						headerTitle: () => <BrandTitle />,
+						headerRight: () => headerActions,
+					}}
+				/>
+			)}
 			<FlatList
 				scrollEnabled={!dragging}
 				className="flex-1 bg-background"
@@ -597,7 +621,9 @@ export default function HomeScreen() {
 				keyExtractor={(item) => item.key}
 				renderItem={renderItem}
 				contentInsetAdjustmentBehavior="automatic"
-				contentContainerClassName="px-4 pb-28 pt-1"
+				contentContainerClassName={
+					sidebar ? "px-2 pb-8 pt-1" : "px-4 pb-28 pt-1"
+				}
 				initialNumToRender={12}
 				windowSize={7}
 				removeClippedSubviews={!dragging}
@@ -612,7 +638,16 @@ export default function HomeScreen() {
 				}
 				ListHeaderComponent={
 					<>
-						{Platform.OS === "ios" ? null : (
+						{sidebar ? (
+							<View
+								className="mb-2 flex-row items-center justify-between pl-2"
+								style={{ paddingTop: insets.top > 0 ? 0 : 8 }}
+							>
+								<BrandTitle />
+								{headerActions}
+							</View>
+						) : null}
+						{Platform.OS === "ios" && !sidebar ? null : (
 							<View className="mb-3 h-14 flex-row items-center gap-3 rounded-full bg-card-elevated px-5">
 								{searchField}
 							</View>
@@ -765,7 +800,7 @@ export default function HomeScreen() {
 					)
 				}
 			/>
-			{Platform.OS === "ios" ? (
+			{sidebar ? null : Platform.OS === "ios" ? (
 				<Stack.Toolbar placement="bottom">
 					<Stack.Toolbar.View separateBackground>
 						<GlassSurface

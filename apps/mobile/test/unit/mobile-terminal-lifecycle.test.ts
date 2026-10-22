@@ -3,12 +3,12 @@ import { describe, expect, it } from "vitest";
 
 const screenSource = (): string =>
 	readFileSync(
-		`${process.cwd()}/app/c/[conn]/session/[sessionId]/terminal.tsx`,
+		`${process.cwd()}/app/(main)/c/[conn]/session/[sessionId]/terminal.tsx`,
 		"utf8",
 	);
 
 const developerToolsSource = (): string =>
-	readFileSync(`${process.cwd()}/app/developer-tools.tsx`, "utf8");
+	readFileSync(`${process.cwd()}/app/(main)/developer-tools.tsx`, "utf8");
 
 describe("mobile terminal lifecycle UI", () => {
 	it("exposes accessible rename and restart recovery controls", () => {
