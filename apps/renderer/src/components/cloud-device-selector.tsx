@@ -26,8 +26,9 @@ export function CloudDeviceSelector({ workspaceId }: { workspaceId: string }) {
 				list: () => {
 					if (rendererAccountSnapshot() !== account)
 						return Promise.reject(new Error("Account changed"));
-					return runCloudControl((client) =>
-						client["deviceBridge.devices"]({}),
+					return runCloudControl(
+						(client) => client["deviceBridge.devices"]({}),
+						{ scope: "account" },
 					);
 				},
 				status: () =>
@@ -85,7 +86,7 @@ export function CloudDeviceSelector({ workspaceId }: { workspaceId: string }) {
 				))}
 			</select>
 			{error && (
-				<span role="alert" className="text-destructive">
+				<span role="status" className="text-muted-foreground">
 					{error}
 				</span>
 			)}

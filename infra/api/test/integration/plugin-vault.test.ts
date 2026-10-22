@@ -296,6 +296,37 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 			(await bob.request(undefined, { action: "call", address, arguments: {} }))
 				.status,
 		).toBe(400);
+		expect(
+			(await bob.request({ action: "rename", connectionId, label: "Other" }))
+				.status,
+		).toBe(400);
+		for (const label of [" ", "x".repeat(81)])
+			expect(
+				(await a.request({ action: "rename", connectionId, label })).status,
+			).toBe(400);
+		expect(
+			(
+				await a.request({
+					action: "rename",
+					connectionId,
+					label: " Work docs ",
+				})
+			).status,
+		).toBe(200);
+		const second = await a.request({
+			action: "connect",
+			pluginId: "cloudflare",
+			label: "Personal",
+			requestId: crypto.randomUUID(),
+		});
+		expect(
+			(await a.request({ action: "rename", connectionId, label: " personal " }))
+				.status,
+		).toBe(400);
+		await a.request({
+			action: "disconnect",
+			connectionId: second.body.connectionId,
+		});
 		const other = await client(mf, "personal:other", "alice");
 		expect((await other.request({ action: "list" })).body.connections).toEqual(
 			[],
@@ -304,6 +335,9 @@ test("persists across Worker restarts and isolates subjects and tenants", async 
 		instances.delete(mf);
 		mf = create(directory);
 		a = await client(mf);
+		expect((await a.request({ action: "list" })).body.connections).toEqual([
+			expect.objectContaining({ label: "Work docs" }),
+		]);
 		expect((await a.request({ action: "list" })).body.connections).toHaveLength(
 			1,
 		);

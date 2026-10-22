@@ -52,7 +52,6 @@ import {
 	rendererWorkspaceSnapshot,
 	workspaceScopeKey,
 } from "./renderer-workspace.ts";
-import { instrumentRendererRpcClient } from "./rpc-stall-instrumentation.ts";
 import { withWorkspaceScope } from "./workspace-rpc-client.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
@@ -343,6 +342,9 @@ const makeRendererRpcSession = async (
 								: response,
 					},
 				);
+	const { instrumentRendererRpcClient } = await import(
+		"./rpc-stall-instrumentation.ts"
+	);
 	assertConnectionAccount(options);
 	const session = instrumentRendererRpcClient(
 		await makeRpcClientSession(

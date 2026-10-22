@@ -24,7 +24,6 @@ import {
 	type CloudFailurePresentation,
 	cloudFailurePresentation,
 } from "./cloud-failure-presentation.ts";
-import { bindCloudWorkspaceToLocalDevice } from "./device-bridge-binding.ts";
 import { formatError } from "./format-error.ts";
 import {
 	clearPendingSessionMessage,
@@ -345,7 +344,11 @@ export const sendSessionMessage = async (
 	const messageId = stageSessionMessage(ref, input, options);
 	setSessionError(ref, null);
 	if (isCloudWorkspaceEnvironment(ref.environmentId)) {
-		await bindCloudWorkspaceToLocalDevice(ref.environmentId);
+		await import("./device-bridge-binding.ts")
+			.then(({ bindCloudWorkspaceToLocalDevice }) =>
+				bindCloudWorkspaceToLocalDevice(ref.environmentId),
+			)
+			.catch(() => false);
 	}
 	const commandId = CommandId.make(`message-send:${messageId}`);
 	const modelOptions = readSessionModelOptions(ref);
