@@ -15,7 +15,13 @@ import type {
 	GitPrSummary,
 } from "@zuse/contracts";
 import { Effect } from "effect";
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import {
+	router,
+	Stack,
+	useLocalSearchParams,
+	useNavigation,
+	useRoute,
+} from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, ScrollView, Text, TextInput, View } from "react-native";
 import { KeyboardController } from "react-native-keyboard-controller";
@@ -106,8 +112,11 @@ import {
 	hydrateModelCatalog,
 } from "~/store/model-catalog";
 import {
+	clearNewChatScreenState,
+	newChatScreenState,
 	readNewChatPreferences,
 	saveNewChatPreferences,
+	saveNewChatScreenState,
 } from "~/store/new-chat-preferences";
 import {
 	bundlesByConnectionAtom,
@@ -143,16 +152,20 @@ export default function NewChatScreen() {
 	const requestedChatId = (chatId?.trim() ?? "") as ChatId;
 	const draftKey = `new-chat:${requestedConnectionKey || "auto"}:${requestedChatId || "root"}`;
 	const [initialDraft] = useState(() => composerDraft(draftKey));
-	const inheritedModel = useRef(false);
+	// Layout changes (iPad resize, iPhone Duo fold) remount this screen; restore its choices.
+	const routeKey = useRoute().key;
+	const navigation = useNavigation();
+	const [restored] = useState(() => newChatScreenState(routeKey));
+	const inheritedModel = useRef(restored !== undefined);
 	const submitGateRef = useRef(false);
 	const [text, setText] = useState(requestedDraft ?? initialDraft.text);
 
 	const [cloudSandbox, setCloudSandbox] = useState<string | null>(
-		sandbox ?? null,
+		restored ? restored.cloudSandbox : (sandbox ?? null),
 	);
 	const cloudMode = cloudSandbox !== null;
 	const [cloudProjectId, setCloudProjectId] = useState<string | null>(
-		requestedCloudProjectId ?? null,
+		restored ? restored.cloudProjectId : (requestedCloudProjectId ?? null),
 	);
 	const [draftHydrated, setDraftHydrated] = useState(false);
 	const [preferencesHydrated, setPreferencesHydrated] = useState(false);
@@ -165,25 +178,34 @@ export default function NewChatScreen() {
 	const [error, setError] = useState<string | null>(null);
 	const [selectedConnectionKey, setSelectedConnectionKey] = useState<
 		string | null
-	>(null);
+	>(restored ? restored.connectionKey : null);
 	const [selectedProjectId, setSelectedProjectId] = useState<
 		Folder["id"] | null
-	>(null);
-	const [source, setSource] = useState<NewChatSource>(MAIN_SOURCE);
+	>(restored ? restored.projectId : null);
+	const [source, setSource] = useState<NewChatSource>(
+		restored ? restored.source : MAIN_SOURCE,
+	);
 
-	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>("main");
+	const [sourceKind, setSourceKind] = useState<NewChatSourceKind>(
+		restored ? restored.sourceKind : "main",
+	);
 	const initialModel = defaultModelForProvider(activeModelCatalog(), "codex");
-	const [modelMode, setModelMode] = useState<ModelModeValue>({
-		providerId: "codex",
-		model: initialModel,
-		runtimeMode: "approval-required",
-		permissionMode: "default",
-		modelOptions: defaultModelOptions(
-			activeModelCatalog(),
-			"codex",
-			initialModel,
-		),
-	});
+	const [modelMode, setModelMode] = useState<ModelModeValue>(() =>
+		restored
+			? restored.modelMode
+			: {
+					providerId: "codex",
+					model: initialModel,
+					runtimeMode: "approval-required",
+					permissionMode: "default",
+					modelOptions: defaultModelOptions(
+						activeModelCatalog(),
+						"codex",
+						initialModel,
+					),
+				},
+	);
+
 	const [branches, setBranches] = useState<readonly GitBranchInfo[]>([]);
 	const [prs, setPrs] = useState<readonly GitPrSummary[]>([]);
 
@@ -279,7 +301,8 @@ export default function NewChatScreen() {
 	const threadMode = requestedChatId.length > 0;
 
 	useEffect(() => {
-		if (threadMode) {
+		// Restored choices already reflect the user's selection; preferences would overwrite them.
+		if (threadMode || restored !== undefined) {
 			setPreferencesHydrated(true);
 			return;
 		}
@@ -298,7 +321,40 @@ export default function NewChatScreen() {
 		return () => {
 			active = false;
 		};
-	}, [requestedConnectionKey, threadMode]);
+	}, [requestedConnectionKey, restored, threadMode]);
+
+	useEffect(() => {
+		// Saving before preferences load would restore defaults over them.
+		if (!preferencesHydrated) return;
+		saveNewChatScreenState(routeKey, {
+			connectionKey: selectedConnectionKey,
+			projectId: selectedProjectId,
+			source,
+			sourceKind,
+			modelMode,
+			cloudSandbox,
+			cloudProjectId,
+		});
+	}, [
+		cloudProjectId,
+		cloudSandbox,
+		modelMode,
+		preferencesHydrated,
+		routeKey,
+		selectedConnectionKey,
+		selectedProjectId,
+		source,
+		sourceKind,
+	]);
+
+	useEffect(() => {
+		// Fires only when the route is removed, not when a layout change remounts it.
+		const unsubscribe = navigation.addListener("removed", () =>
+			clearNewChatScreenState(routeKey),
+		);
+		// The event arrives after unmount, so unsubscribe on the next microtask.
+		return () => queueMicrotask(unsubscribe);
+	}, [navigation, routeKey]);
 
 	const projectChoices = useMemo(() => {
 		if (effectiveConnectionKey === null) return [];

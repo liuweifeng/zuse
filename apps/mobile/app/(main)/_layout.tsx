@@ -47,8 +47,12 @@ export default function MainLayout() {
 				const previous =
 					routes[routes.findIndex((entry) => entry.key === route.key) - 1];
 				// In the split view the stack's root is an empty placeholder, so a chat
-				// opened from the sidebar has nothing meaningful to go back to.
-				const splitRoot = expanded && previous?.name === "index";
+				// opened from the sidebar has nothing meaningful to go back to. Other
+				// screens (connection setup, New Chat) keep Back so they can be cancelled.
+				const splitRoot =
+					expanded &&
+					previous?.name === "index" &&
+					route.name === "c/[conn]/session/[sessionId]";
 				return {
 					...baseScreenOptions,
 					...(splitRoot

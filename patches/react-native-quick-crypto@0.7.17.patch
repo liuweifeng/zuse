@@ -1,6 +1,3 @@
-diff --git a/node_modules/react-native-quick-crypto/.bun-tag-6e8317a12ce1ee32 b/.bun-tag-6e8317a12ce1ee32
-new file mode 100644
-index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
 diff --git a/ios/QuickCryptoModule.mm b/ios/QuickCryptoModule.mm
 index cbe54819200e16b65a6a811f3f878e888044e0c9..598e1946706fb7e511c2a0047681c35e53e2400c 100644
 --- a/ios/QuickCryptoModule.mm
