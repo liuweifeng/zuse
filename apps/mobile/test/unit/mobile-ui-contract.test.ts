@@ -1,8 +1,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
-const appFile = (relativePath: string): string =>
-	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
+const source = (path: string): string =>
+	readFileSync(`${process.cwd()}/${path}`, "utf8");
+
+/** Route sources; the root layout and home screen span the files they were split into. */
+const appFile = (relativePath: string): string => {
+	if (relativePath === "_layout.tsx")
+		return source("app/_layout.tsx") + source("app/(main)/_layout.tsx");
+	if (relativePath === "index.tsx")
+		return (
+			source("app/(main)/index.tsx") +
+			source("src/components/home/home-feed.tsx") +
+			source("src/components/home/use-onboarding-gate.ts")
+		);
+	return source(`app/(main)/${relativePath}`);
+};
 
 describe("mobile UI contracts", () => {
 	test("project rows support direct hold-to-drag with rounded highlights", () => {
@@ -92,7 +105,7 @@ describe("mobile UI contracts", () => {
 			"onSelect: () => setCloudSandbox(provider.providerId)",
 		);
 		expect(newChat).not.toContain("/new-cloud-chat");
-		expect(existsSync(`${process.cwd()}/app/new-cloud-chat.tsx`)).toBe(false);
+		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(false);
 	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(

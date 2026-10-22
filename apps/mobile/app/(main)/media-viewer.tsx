@@ -17,7 +17,7 @@ import {
 	saveImageRefusedMessage,
 	saveImageToPhotos,
 	shareFile,
-} from "../modules/mobile-platform";
+} from "../../modules/mobile-platform";
 
 export default function MediaViewerScreen() {
 	const { width, height } = useWindowDimensions();

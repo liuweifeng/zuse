@@ -1,5 +1,5 @@
 import { ArchiveIcon, PinIcon, PinOffIcon } from "@zuse/icons/solid-rounded";
-import { Link } from "expo-router";
+import { type Href, Link } from "expo-router";
 import { Pressable, Text, View } from "react-native";
 import Swipeable from "react-native-gesture-handler/ReanimatedSwipeable";
 
@@ -16,10 +16,16 @@ export function HomeChatRow({
 	item,
 	onArchive,
 	onTogglePin,
+	onOpen,
+	selectedPathname,
 }: {
 	item: ChatItem;
 	onArchive: (item: ChatItem) => Promise<void>;
 	onTogglePin: (item: ChatItem) => void;
+	/** Replaces link navigation, e.g. the sidebar replacing the open chat. */
+	onOpen?: (href: Href) => void;
+	/** Highlights the row whose chat is currently open. */
+	selectedPathname?: string;
 }) {
 	const row = item.row;
 	const isActive = row.status === "running" || row.status === "booting";
@@ -33,6 +39,63 @@ export function HomeChatRow({
 			: (`/c/${encodeURIComponent(row.connectionKey)}/session/${encodeURIComponent(
 					row.session.id,
 				)}` as const);
+	const selected =
+		selectedPathname !== undefined &&
+		row.session !== null &&
+		safeDecode(selectedPathname).startsWith(
+			`/c/${row.connectionKey}/session/${row.session.id}`,
+		);
+
+	const label = `${row.title}, ${row.projectName}`;
+	const rowClassName = cn(
+		"mx-1 min-h-[46px] justify-center rounded-xl px-3 py-2 active:bg-muted",
+		selected && "bg-muted",
+	);
+	const rowBody = (
+		<View className="flex-row items-center gap-2.5">
+			<View
+				className="h-5 w-5 items-center justify-center"
+				style={{ marginTop: 2 }}
+			>
+				{row.connectionKey.startsWith("cloud:") ? (
+					<DitherCloudIcon />
+				) : (
+					<ProviderLogo
+						providerId={row.session?.providerId ?? "codex"}
+						size={17}
+						color={colors.secondaryFg}
+					/>
+				)}
+				{isActive || row.unread ? (
+					<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
+				) : null}
+			</View>
+			<Text
+				className={cn(
+					"min-w-0 flex-1 font-sans text-[16px] leading-5",
+					row.unread ? "text-foreground" : "text-foreground/90",
+				)}
+				numberOfLines={1}
+			>
+				{row.title}
+			</Text>
+			{item.showProject ? (
+				<Text
+					numberOfLines={1}
+					style={{ maxWidth: "28%" }}
+					className="rounded-full bg-muted px-2 py-0.5 font-sans text-[11px] text-muted-foreground"
+				>
+					{row.projectName}
+				</Text>
+			) : null}
+			<Text
+				className="font-sans text-[12px] text-muted-foreground"
+				style={{ fontVariant: ["tabular-nums"] }}
+			>
+				{row.subtitle}
+			</Text>
+		</View>
+	);
 
 	return (
 		<Swipeable
@@ -85,58 +148,32 @@ export function HomeChatRow({
 				</Pressable>
 			)}
 		>
-			<Link href={href} asChild>
-				<Link.Trigger>
-					<Pressable
-						accessibilityLabel={`${row.title}, ${row.projectName}`}
-						className="mx-1 min-h-[46px] justify-center rounded-xl px-3 py-2 active:bg-muted"
-					>
-						<View className="flex-row items-center gap-2.5">
-							<View
-								className="h-5 w-5 items-center justify-center"
-								style={{ marginTop: 2 }}
-							>
-								{row.connectionKey.startsWith("cloud:") ? (
-									<DitherCloudIcon />
-								) : (
-									<ProviderLogo
-										providerId={row.session?.providerId ?? "codex"}
-										size={17}
-										color={colors.secondaryFg}
-									/>
-								)}
-								{isActive || row.unread ? (
-									<View className="absolute -bottom-0.5 -right-0.5 h-1.5 w-1.5 rounded-full bg-primary" />
-								) : null}
-							</View>
-							<Text
-								className={cn(
-									"min-w-0 flex-1 font-sans text-[16px] leading-5",
-									row.unread ? "text-foreground" : "text-foreground/90",
-								)}
-								numberOfLines={1}
-							>
-								{row.title}
-							</Text>
-							{item.showProject ? (
-								<Text
-									numberOfLines={1}
-									style={{ maxWidth: "28%" }}
-									className="rounded-full bg-muted px-2 py-0.5 font-sans text-[11px] text-muted-foreground"
-								>
-									{row.projectName}
-								</Text>
-							) : null}
-							<Text
-								className="font-sans text-[12px] text-muted-foreground"
-								style={{ fontVariant: ["tabular-nums"] }}
-							>
-								{row.subtitle}
-							</Text>
-						</View>
-					</Pressable>
-				</Link.Trigger>
-			</Link>
+			{onOpen ? (
+				<Pressable
+					onPress={() => onOpen(href)}
+					accessibilityLabel={label}
+					accessibilityState={{ selected }}
+					className={rowClassName}
+				>
+					{rowBody}
+				</Pressable>
+			) : (
+				<Link href={href} asChild>
+					<Link.Trigger>
+						<Pressable accessibilityLabel={label} className={rowClassName}>
+							{rowBody}
+						</Pressable>
+					</Link.Trigger>
+				</Link>
+			)}
 		</Swipeable>
 	);
 }
+
+const safeDecode = (value: string): string => {
+	try {
+		return decodeURIComponent(value);
+	} catch {
+		return value;
+	}
+};

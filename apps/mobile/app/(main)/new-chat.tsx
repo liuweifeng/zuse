@@ -45,6 +45,7 @@ import {
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { optionsForConnection } from "~/lib/connection-params";
 import { availableConnections } from "~/lib/connection-records";
+import { useReadableInset } from "~/lib/form-factor";
 import {
 	availableProviderIds,
 	defaultModelForProvider,
@@ -122,6 +123,8 @@ export default function NewChatScreen() {
 	const keyboardOffset = useOpaqueHeaderHeight();
 	const toolbarIcon = useToolbarIcons();
 	const insets = useSafeAreaInsets();
+	// Full-bleed screen: the readable column is applied to the content and composer.
+	const readableInset = useReadableInset();
 	const {
 		conn,
 		chatId,
@@ -894,6 +897,7 @@ export default function NewChatScreen() {
 				keyboardShouldPersistTaps="handled"
 				contentContainerStyle={{
 					padding: 18,
+					paddingHorizontal: 18 + readableInset,
 					paddingBottom: 24,
 					gap: 18,
 					flexGrow: 1,
@@ -912,8 +916,11 @@ export default function NewChatScreen() {
 			</ScrollView>
 
 			<View
-				className="px-3 pt-2"
-				style={{ paddingBottom: insets.bottom > 0 ? insets.bottom : 12 }}
+				className="pt-2"
+				style={{
+					paddingHorizontal: 12 + readableInset,
+					paddingBottom: insets.bottom > 0 ? insets.bottom : 12,
+				}}
 			>
 				{threadMode && threadContext !== null ? (
 					<View className="mb-4 gap-1 px-2">

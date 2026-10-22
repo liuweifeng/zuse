@@ -80,6 +80,7 @@ import {
 } from "~/lib/connection-params";
 import { connectionSupports } from "~/lib/connection-records";
 import { captureMobileError } from "~/lib/crash-reporting";
+import { useReadableInset } from "~/lib/form-factor";
 import { scrollListToLatest } from "~/lib/legend-list-scroll";
 import { buildToolResultsByItemId } from "~/lib/message-presentation";
 import { sanitizeMessages } from "~/lib/message-safety";
@@ -205,6 +206,8 @@ export default function ThreadScreenRoute() {
 
 function ThreadScreen() {
 	const insets = useSafeAreaInsets();
+	// Full-bleed screen: the readable column is applied to the list and composer.
+	const readableInset = useReadableInset();
 	const headerHeight = useHeaderContentInset();
 	const { theme } = useUniwind();
 	const { conn, sessionId, openAtLatest } = useLocalSearchParams<{
@@ -1219,7 +1222,7 @@ function ThreadScreen() {
 				automaticallyAdjustsScrollIndicatorInsets={false}
 				contentContainerStyle={{
 					gap: 4,
-					paddingHorizontal: 16,
+					paddingHorizontal: 16 + readableInset,
 					paddingTop: headerHeight + 12,
 				}}
 				scrollIndicatorInsets={{
@@ -1441,6 +1444,7 @@ function ThreadScreen() {
 					ref={composerOverlayRef}
 					onLayout={onBottomAccessoryLayout}
 					pointerEvents="box-none"
+					style={{ marginHorizontal: readableInset }}
 				>
 					{executionHealth === "stalled" ||
 					executionHealth === "unavailable" ? (
