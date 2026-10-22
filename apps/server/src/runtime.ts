@@ -71,6 +71,11 @@ import {
 import { MachineResourceServiceLive } from "./machine/machine-resource-service.ts";
 import { MachineRuntimeRole } from "./machine/machine-runtime-role.ts";
 import { RuntimeCloudControl } from "./machine/runtime-cloud-control.ts";
+import { MasterMemoryDreamerLive } from "./master/memory-dreamer.ts";
+import { MasterPeersLive } from "./master/peers.ts";
+import { MasterServiceLive } from "./master/service.ts";
+import { MasterStoreLive } from "./master/store.ts";
+import { MasterToolRouterLive } from "./master/tool-router.ts";
 import { ModelCatalogPollerLive } from "./model-catalog/layers/model-catalog-poller.ts";
 import { ModelCatalogServiceLive } from "./model-catalog/layers/model-catalog-service.ts";
 import { RuntimePerformanceMonitorLive } from "./observability/runtime-performance-monitor.ts";
@@ -630,6 +635,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(MachineRuntimeRoleLayer),
 	);
 
+	const MasterRouterLayer = MasterToolRouterLive;
+	const MasterStoreLayer = MasterStoreLive.pipe(Layer.provide(MigratedSqlite));
 	const ExecutionPolicyLayer =
 		deps.cloudWorkspaceRuntime === undefined
 			? Layer.empty
@@ -637,6 +644,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
 		Layer.provide(AutomationLayer),
 		Layer.provide(ExecutionPolicyLayer),
+		Layer.provide(Layer.mergeAll(MasterRouterLayer, MasterStoreLayer)),
 		Layer.provide(ConversationState.layer),
 		Layer.provide(ProviderLayer),
 		Layer.provide(ModelCatalogLayer),
@@ -756,10 +764,27 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		Layer.provide(AuthLayer),
 	);
 
+	const MasterLayer = MasterServiceLive.pipe(
+		Layer.provide(MasterMemoryDreamerLive.pipe(Layer.provide(ProviderLayer))),
+		Layer.provide(MasterPeersLive.pipe(Layer.provide(ApiLinkLayer))),
+		Layer.provide(MasterStoreLayer),
+		Layer.provide(MasterRouterLayer),
+		Layer.provide(ConversationServicesLayer),
+		Layer.provide(WorkspaceLayer),
+		Layer.provide(WorktreeLayer),
+		Layer.provide(GitLayer),
+		Layer.provide(ApiLinkLayer),
+		Layer.provide(EnrolledLanAuthLayer),
+		Layer.provide(AppPathsLayer),
+		Layer.provide(MigratedSqlite),
+		Layer.provide(NodeServices.layer),
+	);
 	const HandlerDomainLayer = Layer.mergeAll(
 		AutomationLayer,
 		ProviderAccountsLayer,
 		AcpAgentLayer,
+		MasterLayer,
+		MasterRouterLayer,
 		DeviceBridgeLayer,
 		SimulatorLayer,
 		WorkspaceLayer,
@@ -829,6 +854,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 							EnrolledLanAuthLayer,
 							AuthLayer,
 							AttachmentLayer,
+							MasterLayer,
 							DeviceBridgeLayer,
 						),
 					),

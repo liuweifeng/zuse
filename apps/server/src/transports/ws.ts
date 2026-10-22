@@ -31,6 +31,8 @@ import {
 	type LanAuthServiceShape,
 	PairingRedeemError,
 } from "../lan-auth/services/lan-auth-service.ts";
+import { receiveMasterPeer } from "../master/peer-handler.ts";
+import { MasterService } from "../master/service.ts";
 import { hostRuntimeVersion } from "../runtime-version.ts";
 import {
 	BROWSER_SECURITY_HEADERS,
@@ -648,6 +650,29 @@ export const wsServerProtocolLayer = (
 			});
 
 			const router = yield* HttpRouter.make;
+			const master = yield* Effect.serviceOption(MasterService);
+			yield* router.add("POST", "/master-peer", (request) =>
+				Effect.gen(function* () {
+					if (master._tag === "None")
+						return yield* json({ error: "masters_unavailable" }, 503);
+					const body = yield* request.text.pipe(
+						Effect.provideService(
+							HttpIncomingMessage.MaxBodySize,
+							FileSystem.Size(32 * 1024 * 1024),
+						),
+						Effect.orElseSucceed(() => ""),
+					);
+					return yield* receiveMasterPeer(
+						(request.headers.authorization ?? "").replace(/^Bearer /, ""),
+						body,
+					).pipe(
+						Effect.provideService(MasterService, master.value),
+						Effect.provideService(LanAuthService, auth),
+						Effect.flatMap((result) => json(result, 200)),
+						Effect.catch(() => json({ error: "master_peer_rejected" }, 403)),
+					);
+				}),
+			);
 			yield* router.add("POST", "/device-bridge", (request) =>
 				Effect.gen(function* () {
 					if (bridge._tag === "None")

@@ -38,6 +38,7 @@ export type {
 	LocaleSnapshot,
 } from "./locale.ts";
 export * from "./machines.ts";
+export * from "./master.ts";
 export * from "./model-catalog/index.ts";
 export * from "./model-connections.ts";
 export * from "./naming.ts";

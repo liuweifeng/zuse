@@ -1,5 +1,7 @@
 # Self-Orchestrating Agents — control plane, loops & trustworthy autonomy
 
+> Coordination scope is superseded by [Masters](../../internal-docs/masters/README.md). Masters includes authenticated cross-environment workers and explicit home transfer; scheduling, automatic PR follow-up and external harness management remain separate. This older proposal is retained as historical design context.
+
 MVP 0.01–0.04 shipped a chat-first desktop app where a **human drives the
 loop**: you ask the agent for a plan, say "go", run it, file the PR, paste
 review comments back in, merge, then start the next thread by hand. Every

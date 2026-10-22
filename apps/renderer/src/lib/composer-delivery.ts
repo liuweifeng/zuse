@@ -85,6 +85,22 @@ export const shouldQueueComposerMessage = (input: {
 	input.runtimeStarting ||
 	(!input.isCloudSession && (!input.timelineLive || input.platformOffline));
 
+/** Clear synchronously; restore the captured draft if delivery is rejected. */
+export const submitComposerDelivery = async (
+	deliver: () => Promise<boolean>,
+	clear: () => void,
+	restore: () => void,
+): Promise<boolean> => {
+	clear();
+	let accepted = false;
+	try {
+		accepted = await deliver();
+		return accepted;
+	} finally {
+		if (!accepted) restore();
+	}
+};
+
 /** Keep the recoverable draft intact until the mailbox (or live runtime) acks. */
 export const commitAcceptedComposerDelivery = async (
 	delivery: Promise<boolean>,

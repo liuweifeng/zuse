@@ -9,6 +9,7 @@ import type {
 import { Context, type Effect, type Stream } from "effect";
 
 export interface WorkspaceAddOptions {
+	readonly privateId?: string;
 	/** Owning workspace for a new row. Defaults to Personal. */
 	readonly workspaceKey?: WorkspaceKey;
 	/** Reassign an existing row only while it still belongs to this workspace. */

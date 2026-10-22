@@ -380,6 +380,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				initialPrompt: input.initialPrompt,
 				actor: input.actor,
 				githubSlackMessageId: input.githubSlackMessageId,
+				origin: input.origin,
 				runtimeMode: input.runtimeMode,
 				agents: input.agents,
 				enableSubagents: input.enableSubagents,

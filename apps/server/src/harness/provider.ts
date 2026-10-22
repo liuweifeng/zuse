@@ -443,6 +443,7 @@ export const HarnessProviderLive = Layer.effect(
 						create: (callbacks) => {
 							listeners.set(rootId, callbacks.notify);
 							return createNativeHarness({
+								outputOnly: input.outputOnly,
 								rootId,
 								model: input.model ?? "",
 								dataDirectory: paths.userData,
@@ -492,12 +493,20 @@ export const HarnessProviderLive = Layer.effect(
 									model: (request) => broker.request(request),
 									automaticNotifications: false,
 									...context,
-									enableSubagents: input.enableSubagents,
+									enableSubagents: input.outputOnly
+										? false
+										: input.enableSubagents,
+									...(input.outputOnly ? { maxRequests: 1 } : {}),
 									reasoning:
 										typeof input.modelOptions?.reasoning === "string"
 											? input.modelOptions.reasoning
 											: undefined,
 									instructions: async () => {
+										if (input.outputOnly)
+											return (
+												input.workspaceInstructions ??
+												"Return only the requested text."
+											);
 										const sections = [
 											input.workspaceInstructions ?? "",
 											"Read applicable AGENTS.md files before editing. Child agents share this checkout; coordinate file ownership. Background process notices are delivered during active turns or on your next message.",

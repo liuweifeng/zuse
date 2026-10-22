@@ -1,5 +1,4 @@
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon } from "@zuse/icons/stroke-rounded";
+import { ChevronDown } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "~/lib/utils";
@@ -55,7 +54,7 @@ export function SplitButton({
 						"w-6 border-foreground/10 border-l text-muted-foreground hover:text-foreground",
 					)}
 				>
-					<HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
+					<ChevronDown className="size-3" />
 				</MenuTrigger>
 				<MenuPopup align="end" className="min-w-56">
 					{menu}

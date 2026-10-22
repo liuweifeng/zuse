@@ -1,4 +1,13 @@
+import { FloatingComposerLayout } from "../components/floating-composer-layout.tsx";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
+import { useMastersStore } from "../store/masters.ts";
+
+const MastersSurface = lazy(() =>
+	import("../components/masters/surface.tsx").then((module) => ({
+		default: module.MastersSurface,
+	})),
+);
+
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -12,7 +21,6 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
-	useState,
 } from "react";
 
 import {
@@ -492,8 +500,9 @@ export function MainShell() {
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
+	const masterSelection = useMastersStore((state) => state.selection);
 	const rightSidebarOpen = useUiStore((s) =>
-		selectedChatKey === null
+		masterSelection !== null || selectedChatKey === null
 			? false
 			: (s.rightPaneLayoutByChat[selectedChatKey]?.open ?? false),
 	);
@@ -592,20 +601,6 @@ export function MainShell() {
 	const rightPanelRef = usePanelRef();
 	const rightPanelElementRef = useRef<HTMLDivElement>(null);
 
-	const [composerNode, setComposerNode] = useState<HTMLDivElement | null>(null);
-	const [composerInset, setComposerInset] = useState(0);
-	useEffect(() => {
-		if (composerNode === null) {
-			setComposerInset(0);
-			return;
-		}
-		const ro = new ResizeObserver(() => {
-			setComposerInset(composerNode.offsetHeight);
-		});
-		ro.observe(composerNode);
-		setComposerInset(composerNode.offsetHeight);
-		return () => ro.disconnect();
-	}, [composerNode]);
 	useAnimatedPanelVisibility(
 		leftPanelRef,
 		leftPanelElementRef,
@@ -667,197 +662,216 @@ export function MainShell() {
 				<Panel id="main" minSize="30%">
 					<div className="workspace-column">
 						<main className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
-							{showMainChrome ? (
-								<Suspense fallback={<TopBarFallback />}>
-									<TopBarMain />
+							{masterSelection ? (
+								<Suspense fallback={<SurfaceFallback />}>
+									<MastersSurface
+										key={`${masterSelection.environmentId}:${masterSelection.masterId}`}
+										selection={masterSelection}
+									/>
 								</Suspense>
-							) : null}
-							<div className="workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
-								<Suspense fallback={null}>
-									<UpdateBanner />
-									<ProviderUpdatesToast />
-								</Suspense>
-								{showMainTabs ? (
-									<Suspense fallback={<TabsFallback />}>
-										<MainTabs
-											environmentId={selectedEnvironmentId}
-											projectId={selectedSession?.projectId ?? selectedFolderId}
-											emptyLabel={emptyTabLabel}
-										/>
-									</Suspense>
-								) : null}
-								<div
-									hidden={activeMainTab !== "chat"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{chatSurface === "session" &&
-									selectedSessionId !== null &&
-									selectedSession !== null ? (
-										<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
-											<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-												<Suspense fallback={<ChatLoadingFallback />}>
-													<ChatView
-														sessionId={selectedSessionId}
-														environmentId={selectedEnvironmentId}
-														session={selectedSession}
-														endInset={composerInset}
+							) : (
+								<>
+									{showMainChrome ? (
+										<Suspense fallback={<TopBarFallback />}>
+											<TopBarMain />
+										</Suspense>
+									) : null}
+									<div className="workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
+										<Suspense fallback={null}>
+											<UpdateBanner />
+											<ProviderUpdatesToast />
+										</Suspense>
+										{showMainTabs ? (
+											<Suspense fallback={<TabsFallback />}>
+												<MainTabs
+													environmentId={selectedEnvironmentId}
+													projectId={
+														selectedSession?.projectId ?? selectedFolderId
+													}
+													emptyLabel={emptyTabLabel}
+												/>
+											</Suspense>
+										) : null}
+										<div
+											hidden={activeMainTab !== "chat"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{chatSurface === "session" &&
+											selectedSessionId !== null &&
+											selectedSession !== null ? (
+												<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
+													<FloatingComposerLayout
+														transcript={(endInset) => (
+															<Suspense fallback={<ChatLoadingFallback />}>
+																<ChatView
+																	sessionId={selectedSessionId}
+																	environmentId={selectedEnvironmentId}
+																	session={selectedSession}
+																	endInset={endInset}
+																/>
+															</Suspense>
+														)}
+														composer={
+															<>
+																<Suspense fallback={null}>
+																	<CliUpgradeBanner
+																		providerId={selectedSession.providerId}
+																		constrain={false}
+																	/>
+																</Suspense>
+																{directoryUnavailable ? (
+																	<Suspense fallback={null}>
+																		<DirectoryUnavailableBanner />
+																	</Suspense>
+																) : null}
+																<Suspense fallback={<ComposerFallback />}>
+																	{selectedChat?.readOnly === true ? (
+																		<p
+																			role="status"
+																			className="py-3 text-center text-xs text-muted-foreground"
+																		>
+																			{uiMessage(
+																				"shell:shared_session_read_only",
+																			)}
+																		</p>
+																	) : (
+																		<ChatComposer
+																			key={selectedSession.id}
+																			session={selectedSession}
+																			environmentId={selectedEnvironmentId}
+																			constrain={false}
+																			directoryUnavailable={
+																				directoryUnavailable
+																			}
+																		/>
+																	)}
+																</Suspense>
+															</>
+														}
+													/>
+													{environmentSummaryAvailable ? (
+														<div
+															className={`pointer-events-none absolute right-2 -top-8 z-20 max-h-[calc(100%+2rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+																showEnvironmentSummary
+																	? "translate-x-0 opacity-100"
+																	: "translate-x-2 opacity-0"
+															}`}
+															aria-hidden={!showEnvironmentSummary}
+															inert={!showEnvironmentSummary}
+														>
+															<Suspense fallback={null}>
+																<EnvironmentSummary />
+															</Suspense>
+														</div>
+													) : null}
+												</div>
+											) : chatSurface === "pending" &&
+												pendingCreation !== null ? (
+												<PendingChatCreationSurface
+													creation={pendingCreation}
+												/>
+											) : chatSurface === "cloud-pending" ? (
+												<ChatLoadingFallback
+													footer={<CloudConnectionNotice />}
+												/>
+											) : (
+												<Suspense fallback={<SurfaceFallback />}>
+													<ChatLanding
+														key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
 													/>
 												</Suspense>
-												<div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-[var(--chat-row-gutter)]">
-													<div
-														data-chat-composer-fade
-														aria-hidden
-														className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
-													/>
-													<div
-														ref={setComposerNode}
-														className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
-													>
-														<Suspense fallback={null}>
-															<CliUpgradeBanner
-																providerId={selectedSession.providerId}
-																constrain={false}
-															/>
-														</Suspense>
-														{directoryUnavailable ? (
-															<Suspense fallback={null}>
-																<DirectoryUnavailableBanner />
-															</Suspense>
-														) : null}
-														<Suspense fallback={<ComposerFallback />}>
-															{selectedChat?.readOnly === true ? (
-																<p
-																	role="status"
-																	className="py-3 text-center text-xs text-muted-foreground"
-																>
-																	{uiMessage("shell:shared_session_read_only")}
-																</p>
-															) : (
-																<ChatComposer
-																	key={selectedSession.id}
-																	session={selectedSession}
-																	environmentId={selectedEnvironmentId}
-																	constrain={false}
-																	directoryUnavailable={directoryUnavailable}
-																/>
-															)}
-														</Suspense>
-													</div>
-												</div>
-											</div>
-											{environmentSummaryAvailable ? (
-												<div
-													className={`pointer-events-none absolute right-2 -top-8 z-20 max-h-[calc(100%+2rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
-														showEnvironmentSummary
-															? "translate-x-0 opacity-100"
-															: "translate-x-2 opacity-0"
-													}`}
-													aria-hidden={!showEnvironmentSummary}
-													inert={!showEnvironmentSummary}
-												>
-													<Suspense fallback={null}>
-														<EnvironmentSummary />
-													</Suspense>
-												</div>
-											) : null}
+											)}
 										</div>
-									) : chatSurface === "pending" && pendingCreation !== null ? (
-										<PendingChatCreationSurface creation={pendingCreation} />
-									) : chatSurface === "cloud-pending" ? (
-										<ChatLoadingFallback footer={<CloudConnectionNotice />} />
-									) : (
-										<Suspense fallback={<SurfaceFallback />}>
-											<ChatLanding
-												key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
-											/>
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "archives"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "archives" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<ArchivedChatsPage
-												projectId={selectedFolderId}
-												projectName={
-													selectedFolder?.name ?? "No repository selected"
-												}
-											/>
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "plugins"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "plugins" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<PluginsPage />
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "usage"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "usage" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<UsageDashboard
-												environmentId={EnvironmentId.make(activeEnvironmentId)}
-												projectId={
-													usageScope === "project" ? selectedFolderId : null
-												}
-												availableProjectId={selectedFolderId}
-												scopeLabel={
-													usageScope === "project"
-														? (selectedFolder?.name ?? "This project")
-														: "All projects"
-												}
-											/>
-										</Suspense>
-									)}
-								</div>
-								{openFile !== null && (
-									<div
-										hidden={activeMainTab !== "file"}
-										className="flex min-h-0 flex-1 flex-col"
-									>
-										<Suspense fallback={<SurfaceFallback />}>
-											{directoryUnavailable ? (
-												<DirectoryUnavailableSurface
-													label={uiMessage(
-														"shell:app_files_are_unavailable_because_this_directory_was_deleted",
-													)}
-												/>
-											) : (
-												<FileEditor />
+										<div
+											hidden={activeMainTab !== "archives"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "archives" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<ArchivedChatsPage
+														projectId={selectedFolderId}
+														projectName={
+															selectedFolder?.name ?? "No repository selected"
+														}
+													/>
+												</Suspense>
 											)}
-										</Suspense>
-									</div>
-								)}
-								{changesTabOpen ? (
-									<div
-										hidden={activeMainTab !== "changes"}
-										className="flex min-h-0 flex-1 flex-col"
-									>
-										<Suspense fallback={<SurfaceFallback />}>
-											{directoryUnavailable ? (
-												<DirectoryUnavailableSurface
-													label={uiMessage(
-														"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
-													)}
-												/>
-											) : (
-												<ChangesReview />
+										</div>
+										<div
+											hidden={activeMainTab !== "plugins"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "plugins" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<PluginsPage />
+												</Suspense>
 											)}
-										</Suspense>
+										</div>
+										<div
+											hidden={activeMainTab !== "usage"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "usage" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<UsageDashboard
+														environmentId={EnvironmentId.make(
+															activeEnvironmentId,
+														)}
+														projectId={
+															usageScope === "project" ? selectedFolderId : null
+														}
+														availableProjectId={selectedFolderId}
+														scopeLabel={
+															usageScope === "project"
+																? (selectedFolder?.name ?? "This project")
+																: "All projects"
+														}
+													/>
+												</Suspense>
+											)}
+										</div>
+										{openFile !== null && (
+											<div
+												hidden={activeMainTab !== "file"}
+												className="flex min-h-0 flex-1 flex-col"
+											>
+												<Suspense fallback={<SurfaceFallback />}>
+													{directoryUnavailable ? (
+														<DirectoryUnavailableSurface
+															label={uiMessage(
+																"shell:app_files_are_unavailable_because_this_directory_was_deleted",
+															)}
+														/>
+													) : (
+														<FileEditor />
+													)}
+												</Suspense>
+											</div>
+										)}
+										{changesTabOpen ? (
+											<div
+												hidden={activeMainTab !== "changes"}
+												className="flex min-h-0 flex-1 flex-col"
+											>
+												<Suspense fallback={<SurfaceFallback />}>
+													{directoryUnavailable ? (
+														<DirectoryUnavailableSurface
+															label={uiMessage(
+																"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
+															)}
+														/>
+													) : (
+														<ChangesReview />
+													)}
+												</Suspense>
+											</div>
+										) : null}
 									</div>
-								) : null}
-							</div>
+								</>
+							)}
 						</main>
 						{!fullWidthPage &&
+						!masterSelection &&
 						selectedChatRef !== null &&
 						activeContext.status === "ready" ? (
 							<Suspense fallback={null}>
@@ -901,8 +915,8 @@ export function MainShell() {
 				>
 					<div
 						className="workspace-column workspace-right-column"
-						hidden={fullWidthPage}
-						inert={fullWidthPage}
+						hidden={fullWidthPage || masterSelection !== null}
+						inert={fullWidthPage || masterSelection !== null}
 					>
 						<div className="workspace-surface flex min-h-0 flex-1 flex-col">
 							<div className="flex min-h-0 flex-1 flex-col">

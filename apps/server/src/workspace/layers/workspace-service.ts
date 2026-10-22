@@ -52,6 +52,7 @@ export const WorkspaceServiceLive = Layer.effect(
 				const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at, workspace_key, kind
           FROM projects
+          WHERE id NOT LIKE 'master-workspace-%'
           ORDER BY created_at ASC
         `.pipe(Effect.orDie);
 				return rows.map(rowToFolder);
@@ -133,7 +134,11 @@ export const WorkspaceServiceLive = Layer.effect(
 						}),
 				});
 
-				const id = FolderId.make(crypto.randomUUID());
+				const id = FolderId.make(
+					options?.privateId !== undefined
+						? `master-workspace-${options.privateId}`
+						: crypto.randomUUID(),
+				);
 				const name = Path.basename(resolved) || resolved;
 				const now = new Date();
 				const nowIso = now.toISOString();

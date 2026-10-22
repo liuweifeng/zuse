@@ -43,9 +43,22 @@ describe("resolveDesktopApiPort", () => {
 		expect(resolved.fellBack).toBe(true);
 	});
 
-	it("keeps an explicit api port unchanged", async () => {
+	it("resolves zero to a concrete available port for the independent engine", async () => {
+		const resolved = await resolveDesktopApiPort({ configuredPort: "0" });
+		expect(resolved.fellBack).toBe(false);
+		expect(resolved.port).toBeGreaterThan(0);
+		expect(resolved.port).toBeLessThanOrEqual(65535);
+		const listener = await listen(resolved.port);
+		expect(listener.listening).toBe(true);
+	});
+
+	it("keeps an explicit nonzero api port unchanged, even when occupied", async () => {
+		const occupied = await listen(0);
+		const address = occupied.address();
+		if (address === null || typeof address === "string")
+			throw new Error("Missing TCP address");
 		await expect(
-			resolveDesktopApiPort({ configuredPort: "0" }),
-		).resolves.toEqual({ port: 0, fellBack: false });
+			resolveDesktopApiPort({ configuredPort: String(address.port) }),
+		).resolves.toEqual({ port: address.port, fellBack: false });
 	});
 });

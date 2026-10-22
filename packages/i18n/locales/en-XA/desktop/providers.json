@@ -157,5 +157,9 @@
 	"accounts_rename": "⟦Rëënààmëë⟧",
 	"accounts_connect": "⟦Côônnëëct àànôôthëër ààccôôüünt⟧",
 	"accounts_use_for_new_chats": "⟦ÜÜsëë fôôr nëëw chààts⟧",
-	"accounts_default_badge": "⟦Dëëfààüült⟧"
+	"accounts_default_badge": "⟦Dëëfààüült⟧",
+	"accounts_add": "⟦ÀÀdd ààccôôüünt⟧",
+	"accounts_use": "⟦ÜÜsëë fôôr nëëw chààts⟧",
+	"accounts_selected": "⟦Sëëlëëctëëd⟧",
+	"model_picker_unavailable_selection": "⟦{{model}} (üünààvààïïlààblëë)⟧"
 }

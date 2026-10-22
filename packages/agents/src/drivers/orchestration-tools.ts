@@ -184,6 +184,10 @@ export interface OrchestrationToolDeps {
 	}) => Promise<
 		{ readonly ok: true } | { readonly ok: false; readonly error: string }
 	>;
+	readonly master?: (
+		commandJson?: string,
+		readOnly?: boolean,
+	) => Promise<unknown>;
 	readonly createWorktree: (input: {
 		readonly baseBranch?: string;
 	}) => Promise<CreateWorktreeResult>;
@@ -245,6 +249,7 @@ export interface OrchestrationPermissionOptions {
 }
 
 export interface OrchestrationSessionTools {
+	readonly instructions?: string;
 	readonly deps: OrchestrationToolDeps;
 	readonly claudeTools: ReturnType<typeof buildOrchestrationTools>;
 }
@@ -271,7 +276,9 @@ export type OrchestrationToolName =
 	| "list_threads"
 	| "list_models"
 	| "whoami"
-	| "emit_ui";
+	| "emit_ui"
+	| "master_state"
+	| "master_action";
 
 export type OrchestrationMcpToolDef = {
 	readonly name: OrchestrationToolName;
@@ -442,6 +449,29 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 		inputSchema: z.toJSONSchema(schema) as JsonObject,
 	})),
 	{
+		name: "master_state",
+		description:
+			"Read this Zot’s repositories, workers, durable notes and supported action schema. Read-only; available to Zot coordinators.",
+		inputSchema: objectSchema({
+			commandJson: stringProp(
+				"Optional query JSON from the state querySchema.",
+			),
+		}),
+	},
+	{
+		name: "master_action",
+		description:
+			"Execute a scoped Zot action. Read master_state first for the action schema. Use for delegation across repositories, worker messaging, notes, todos and versioned generated screens. Mutating; obeys current session permissions.",
+		inputSchema: objectSchema(
+			{
+				commandJson: stringProp(
+					"JSON matching the Zot action schema from master_state.",
+				),
+			},
+			["commandJson"],
+		),
+	},
+	{
 		name: "create_thread",
 		description: CREATE_THREAD_DESCRIPTION,
 		inputSchema: objectSchema(
@@ -560,6 +590,7 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"orchestrator_capabilities",
 	"task_status",
 	"wait_for_thread",
+	"master_state",
 	"read_thread",
 	"list_threads",
 	"list_models",
@@ -577,6 +608,7 @@ export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"delegate_task",
 	"task_cancel",
 	"interrupt_thread",
+	"master_action",
 	"create_thread",
 	"create_session",
 	"send_to_thread",
@@ -712,6 +744,24 @@ export const callOrchestrationTool = async (
 					: { ok: false, error: "Invalid or unavailable interruption." },
 			);
 		}
+		case "master_state":
+		case "master_action": {
+			const commandJson = asString(args, "commandJson");
+			const result =
+				name === "master_action" && commandJson === undefined
+					? { ok: false, error: "commandJson is required." }
+					: deps.master
+						? await deps.master(commandJson, name === "master_state")
+						: { ok: false, error: "This session has no Zot." };
+			return {
+				content: [{ type: "text", text: JSON.stringify(result) }],
+				isError:
+					typeof result === "object" &&
+					result !== null &&
+					"ok" in result &&
+					result.ok === false,
+			};
+		}
 		case "create_thread": {
 			const task = asString(args, "task");
 			if (task === undefined) {
@@ -826,6 +876,18 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
 		tool(name, description, schema.shape, async (args) =>
 			callOrchestrationTool(deps, name, args),
 		),
+	),
+	tool(
+		"master_state",
+		"Read scoped Zot state, worker progress, or an artifact version.",
+		{ commandJson: z.string().optional() },
+		async (args) => callOrchestrationTool(deps, "master_state", args),
+	),
+	tool(
+		"master_action",
+		"Execute a scoped Zot action using the schema from master_state.",
+		{ commandJson: z.string() },
+		async (args) => callOrchestrationTool(deps, "master_action", args),
 	),
 	tool(
 		"create_thread",

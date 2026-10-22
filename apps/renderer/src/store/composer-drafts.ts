@@ -18,6 +18,26 @@ export type ComposerContext = {
 	readonly text: string;
 };
 export const EMPTY_COMPOSER_CONTEXTS: readonly ComposerContext[] = [];
+/** Recover a failed send without replacing text typed while delivery was pending. */
+export const recoverComposerDraft = (
+	submitted: ComposerDraftSnapshot,
+	current?: ComposerDraftSnapshot | null,
+): ComposerDraftSnapshot => {
+	if (!current || (current.doc.length === 0 && current.chips.length === 0))
+		return submitted;
+	const prefix = `${submitted.doc}\n\n`;
+	return {
+		doc: prefix + current.doc,
+		chips: [
+			...submitted.chips,
+			...current.chips.map((chip) => ({
+				...chip,
+				from: chip.from + prefix.length,
+				to: chip.to + prefix.length,
+			})),
+		],
+	};
+};
 
 type ComposerDraftsState = {
 	readonly contextsByKey: Record<string, readonly ComposerContext[]>;

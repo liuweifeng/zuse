@@ -25,6 +25,7 @@ import {
 } from "./composer-triggers.ts";
 
 const composerKeymapCompartment = new WeakMap<EditorView, Compartment>();
+const composerPlaceholderCompartment = new WeakMap<EditorView, Compartment>();
 
 export type ComposerCallbacks = {
 	/**
@@ -91,12 +92,13 @@ export const createComposerView = ({
 	resolveChipToken,
 }: ComposerCreateParams): EditorView => {
 	const userKeymapCompartment = new Compartment();
+	const placeholderCompartment = new Compartment();
 	const buildUserKeymap = (): readonly KeyBinding[] =>
 		composerKeymap(callbacks);
 
 	const extensions: Extension[] = [
 		history(),
-		placeholder(placeholderText),
+		placeholderCompartment.of(placeholder(placeholderText)),
 		EditorView.contentAttributes.of({ "aria-label": "Message composer" }),
 		EditorView.lineWrapping,
 		composerTheme,
@@ -167,7 +169,20 @@ export const createComposerView = ({
 	});
 
 	composerKeymapCompartment.set(view, userKeymapCompartment);
+	composerPlaceholderCompartment.set(view, placeholderCompartment);
 	return view;
+};
+
+/** Swap the placeholder in place, keeping the draft, cursor and focus. */
+export const setComposerPlaceholder = (
+	view: EditorView,
+	placeholderText: string,
+): void => {
+	const compartment = composerPlaceholderCompartment.get(view);
+	if (compartment === undefined) return;
+	view.dispatch({
+		effects: compartment.reconfigure(placeholder(placeholderText)),
+	});
 };
 
 /**

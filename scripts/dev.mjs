@@ -186,6 +186,8 @@ const sharedEnv = {
 	ZUSE_DEV_STARTED_AT: String(devStartedAt),
 	ZUSE_DESKTOP_WS_PORT: String(instance.websocketPort),
 	ZUSE_DEV_CLI_ACCESS_FILE: instance.cliAccessFile,
+	// Agents run the CLI from this checkout, even inside private Master workspaces.
+	ZUSE_AGENT_CLI_COMMAND: `bun '${resolve(repoRoot, "packages/serve/src/bin.ts").replaceAll("'", "'\"'\"'")}'`,
 	...(instance.userDataDir ? { ZUSE_USER_DATA_DIR: instance.userDataDir } : {}),
 	ZUSE_DESKTOP_OUT_DIR: instance.packDir,
 	ZUSE_DESKTOP_DIR: resolve(repoRoot, "apps", "desktop"),

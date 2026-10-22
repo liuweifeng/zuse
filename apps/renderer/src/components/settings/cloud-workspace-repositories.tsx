@@ -3,6 +3,7 @@ import type { CloudProject, GithubRepoSummary } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Check, Lock, Plus, RefreshCw, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { githubAvatarUrl } from "~/lib/github-avatar.ts";
 
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar.tsx";
 import { Button } from "../ui/button.tsx";
@@ -29,9 +30,7 @@ export function RepositoryAvatar({
 	const { message: uiMessage } = useUiMessages(["settings"]);
 
 	const owner = name.split("/")[0] ?? name;
-	const avatarUrl =
-		repository?.ownerAvatarUrl ??
-		`https://github.com/${encodeURIComponent(owner)}.png?size=80`;
+	const avatarUrl = repository?.ownerAvatarUrl ?? githubAvatarUrl(owner);
 	return (
 		<Avatar
 			className="size-6 rounded-md"

@@ -534,17 +534,33 @@ export const ProviderServiceLive = Layer.effect(
 					: "custom";
 				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}\u0000${input.initialAttemptId ?? ""}\u0000${providerSessionId ?? ""}`;
 				const start = Effect.gen(function* () {
-					const execution = yield* Effect.tryPromise({
-						try: () => gitExecution.resolve(sessionId),
-						catch: (cause) =>
+					if (
+						input.outputOnly &&
+						input.providerId !== "claude" &&
+						input.providerId !== "zuse"
+					)
+						return yield* Effect.fail(
 							new AgentSessionStartError({
 								providerId: input.providerId,
 								reason:
-									cause instanceof Error
-										? cause.message
-										: "GitHub connection is unavailable.",
+									"This provider does not support isolated text-only turns. Choose Claude or Zuse for memory consolidation.",
 							}),
-					});
+						);
+					// Auxiliary text-only turns have no persisted execution actor and
+					// cannot use Git. Do not request repository credentials for them.
+					const execution = input.outputOnly
+						? undefined
+						: yield* Effect.tryPromise({
+								try: () => gitExecution.resolve(sessionId),
+								catch: (cause) =>
+									new AgentSessionStartError({
+										providerId: input.providerId,
+										reason:
+											cause instanceof Error
+												? cause.message
+												: "GitHub connection is unavailable.",
+									}),
+							});
 
 					const reservation = yield* reserveProviderStartup({
 						registry,
@@ -660,12 +676,17 @@ export const ProviderServiceLive = Layer.effect(
 						providerAccountHome: account?.home,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
-						workspaceInstructions: zuseWorkspaceInstructions({
-							projectPath: folder.path,
-							includeAppTools: providerCapabilities(input.providerId).appTools,
-							includeOrchestration: orchestrationTools !== null,
-							cwd,
-						}),
+						workspaceInstructions:
+							(input.outputOnly
+								? input.workspaceInstructions
+								: orchestrationTools?.instructions) ??
+							zuseWorkspaceInstructions({
+								projectPath: folder.path,
+								includeOrchestration: orchestrationTools !== null,
+								includeAppTools: providerCapabilities(input.providerId)
+									.appTools,
+								cwd,
+							}),
 					};
 					const brokeredCredential = yield* Effect.tryPromise({
 						try: () =>

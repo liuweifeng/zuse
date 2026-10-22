@@ -157,5 +157,9 @@
 	"accounts_rename": "重新命名",
 	"accounts_connect": "連接其他帳戶",
 	"accounts_use_for_new_chats": "用於新聊天",
-	"accounts_default_badge": "預設"
+	"accounts_default_badge": "預設",
+	"accounts_add": "新增帳號",
+	"accounts_use": "用於新聊天",
+	"accounts_selected": "已選取",
+	"model_picker_unavailable_selection": "{{model}}（無法使用）"
 }

@@ -15,8 +15,9 @@ import {
 	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
-import { Effect, Queue, Stream } from "effect";
+import { Deferred, Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { submitComposerDelivery } from "../../src/lib/composer-delivery.ts";
 import {
 	clearPendingSessionMessage,
 	mergePendingSessionMessages,
@@ -338,6 +339,95 @@ describe("session actions", () => {
 		clearPendingSessionMessage(ref, messageId);
 		expect(pendingSessionMessages(ref)).toHaveLength(0);
 		unregister();
+		retained.lease.release();
+	});
+
+	it("clears text and attachments before a slow live send receipt", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		const ack = Effect.runSync(Deferred.make<void>());
+		let sending = false;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => Stream.fromQueue(frames),
+					"messages.send": () =>
+						Effect.gen(function* () {
+							sending = true;
+							yield* Deferred.await(ack);
+						}),
+				}) as never,
+		);
+		const retained = retainSessionTimeline(ref, "connect");
+		let draft = ComposerInput.make({
+			text: "Delegate this fix",
+			attachments: [
+				{
+					id: "screenshot",
+					mimeType: "image/png",
+					originalName: "screenshot.png",
+				},
+			],
+			fileRefs: [],
+			skillRefs: [],
+		});
+		const input = draft;
+		let clears = 0;
+		const submission = submitComposerDelivery(
+			() => sendSessionMessage(ref, input),
+			() => {
+				draft = ComposerInput.make({
+					text: "",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+				});
+				clears += 1;
+			},
+			() => {
+				draft = input;
+			},
+		);
+		await waitUntil(() => sending);
+		expect(draft.text).toBe("");
+		expect(draft.attachments).toEqual([]);
+		await Effect.runPromise(Deferred.succeed(ack, undefined));
+		await waitUntil(() => clears === 1);
+		await expect(submission).resolves.toBe(true);
+		expect(draft.text).toBe("");
+		expect(draft.attachments).toEqual([]);
+		const pending = pendingSessionMessages(ref);
+		expect(pending).toHaveLength(1);
+		expect(pending[0]?.content).toMatchObject({
+			text: "Delegate this fix",
+			attachments: [{ id: "screenshot" }],
+		});
+		expect(
+			getRendererClientBus().snapshot(retained.key).pendingCommands,
+		).toHaveLength(1);
+		draft = ComposerInput.make({ ...draft, text: "Next instruction" });
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "accepted-turn", version: 2 },
+			projection: SessionTimelineProjection.make({
+				messages: pending,
+				status: "running",
+				activeTurn: null,
+				turnCount: 0,
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			cursor: { epoch: "accepted-turn", version: 2 },
+		});
+		await waitUntil(() => pendingSessionMessages(ref).length === 0);
+		expect(clears).toBe(1);
+		expect(draft.text).toBe("Next instruction");
 		retained.lease.release();
 	});
 

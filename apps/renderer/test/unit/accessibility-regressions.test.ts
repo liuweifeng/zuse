@@ -5,6 +5,7 @@ import permissionCardSource from "../../src/components/permission-card.tsx?raw";
 import projectsSidebarSource from "../../src/components/projects-sidebar.tsx?raw";
 import questionCardSource from "../../src/components/question-card.tsx?raw";
 import rightPaneSource from "../../src/components/right-pane.tsx?raw";
+import sidebarActionRowSource from "../../src/components/sidebar-action-row.tsx?raw";
 import topBarSource from "../../src/components/top-bar.tsx?raw";
 import composerSource from "../../src/lib/codemirror/composer.ts?raw";
 import { rendererStylesWithPalette } from "../support/renderer-styles.ts";
@@ -168,12 +169,10 @@ describe("renderer accessibility regressions", () => {
 	});
 
 	it("uses readable semantic text colors for compact sidebar metadata", () => {
-		const actionRow = sourceBetween(
-			projectsSidebarSource,
-			"function SidebarActionRow",
-			"function SidebarFooter",
+		expect(sidebarActionRowSource).toContain(
+			"export function SidebarActionRow",
 		);
-		expect(actionRow).not.toContain("text-muted-foreground/60");
+		expect(sidebarActionRowSource).not.toContain("text-muted-foreground/60");
 		expect(projectsSidebarSource).toContain('className="text-danger-text"');
 		expect(environmentSummarySource).toContain('className="text-danger-text"');
 		expect(questionCardSource).toContain("text-xs text-danger-text");

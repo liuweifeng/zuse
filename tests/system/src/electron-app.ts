@@ -115,7 +115,9 @@ export const launchElectronApp = async (options: {
 						"--enable-unsafe-swiftshader",
 					]
 				: []),
-			join(repoRoot, "apps/desktop/dist-electron/main.cjs"),
+			// Load package metadata: a bare main.cjs entry reports version "0.0",
+			// which makes electron-updater reject startup before the renderer loads.
+			join(repoRoot, "apps/desktop"),
 		],
 		cwd: repoRoot,
 		env: makeHermeticEnvironment({

@@ -152,6 +152,10 @@ export default defineConfig({
 		],
 	},
 	server: {
+		// Optimized entry URLs can survive while their React imports change.
+		// Revalidate dev modules so a cached ReactDOM entry cannot retain a
+		// previous React instance after an optimizer update or server restart.
+		headers: { "Cache-Control": "no-cache" },
 		host,
 		port,
 		strictPort: true,

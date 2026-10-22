@@ -1731,6 +1731,11 @@ export const startClaudeSession = (
 			env: env as Options["env"],
 
 			canUseTool: async (toolName, toolInput) => {
+				if (input.outputOnly)
+					return {
+						behavior: "deny",
+						message: "Tools are disabled for this auxiliary turn.",
+					};
 				const policy = claudeToolPermissionPolicy(
 					toolName,
 					toolInput,
@@ -1796,6 +1801,19 @@ export const startClaudeSession = (
 				}),
 		});
 		Object.assign(options, resumeOptions);
+
+		if (input.outputOnly) {
+			options.tools = [];
+			options.allowedTools = [];
+			options.agents = {};
+			options.mcpServers = {};
+			options.settingSources = [];
+			options.settings = { disableAllHooks: true };
+			options.maxTurns = 1;
+			options.persistSession = false;
+			options.systemPrompt =
+				input.workspaceInstructions ?? "Return only the requested text.";
+		}
 
 		let q: Query;
 		try {

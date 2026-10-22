@@ -337,6 +337,13 @@
 			"when": 1791746400000,
 			"tag": "0046_daytona_provider_connections",
 			"breakpoints": true
+		},
+		{
+			"idx": 48,
+			"version": "7",
+			"when": 1791840000000,
+			"tag": "0047_master_ownership",
+			"breakpoints": true
 		}
 	]
 }

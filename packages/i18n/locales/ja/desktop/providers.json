@@ -157,5 +157,9 @@
 	"accounts_rename": "名前を変更",
 	"accounts_connect": "別のアカウントを接続",
 	"accounts_use_for_new_chats": "新しいチャットで使用",
-	"accounts_default_badge": "デフォルト"
+	"accounts_default_badge": "デフォルト",
+	"accounts_add": "アカウントを追加",
+	"accounts_use": "新しいチャットに使用",
+	"accounts_selected": "選択中",
+	"model_picker_unavailable_selection": "{{model}}（利用不可）"
 }

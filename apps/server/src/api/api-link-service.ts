@@ -1,3 +1,8 @@
+import type {
+	MasterAuthorityCommand,
+	MasterOwnership,
+	MasterPeerGrant,
+} from "@zuse/contracts";
 import {
 	type ApiAccessToken,
 	type ApiAuthorizedClientList,
@@ -233,6 +238,14 @@ export class ApiLinkService extends Context.Service<
 			ApiEnvironmentList,
 			ApiLinkError
 		>;
+		readonly masterConnect: (
+			masterId: string,
+			destination: string,
+		) => Effect.Effect<MasterPeerGrant, ApiLinkError>;
+		readonly masterAuthority: (
+			masterId: string,
+			command: MasterAuthorityCommand,
+		) => Effect.Effect<MasterOwnership | null, ApiLinkError>;
 		readonly connectEnvironment: (
 			environmentId: EnvironmentId,
 		) => Effect.Effect<ApiConnectGrant, ApiLinkError>;
@@ -267,6 +280,8 @@ export const makeDisabledApiLinkService = (
 			retire: () => Effect.succeed(false),
 			listEnvironments: disabled,
 			connectEnvironment: disabled,
+			masterAuthority: disabled,
+			masterConnect: disabled,
 			listClients: disabled,
 			revokeClient: disabled,
 		}),
@@ -928,6 +943,29 @@ const makeApiLinkService = (options: {
 						`${cfg.apiUrl}${ApiPaths.environments}`,
 						{ bearer: token },
 					);
+				}),
+			masterConnect: (masterId, destination) =>
+				Effect.gen(function* () {
+					const cfg = yield* auth
+						.getApiConfig()
+						.pipe(Effect.mapError((error) => failApi(error.reason)));
+					if (!cfg) return yield* Effect.fail(failApi("not_linked"));
+					return yield* postJson<MasterPeerGrant>(
+						`${cfg.apiUrl}/v1/environments/${encodeURIComponent(cfg.environmentId)}/masters/${encodeURIComponent(masterId)}/connect`,
+						{ bearer: cfg.environmentCredential, body: { destination } },
+					);
+				}),
+			masterAuthority: (masterId, command) =>
+				Effect.gen(function* () {
+					const cfg = yield* auth
+						.getApiConfig()
+						.pipe(Effect.mapError((error) => failApi(error.reason)));
+					if (cfg === null) return yield* Effect.fail(failApi("not_linked"));
+					const result = yield* postJson<{ ownership: MasterOwnership | null }>(
+						`${cfg.apiUrl}/v1/environments/${encodeURIComponent(cfg.environmentId)}/masters/${encodeURIComponent(masterId)}/authority`,
+						{ bearer: cfg.environmentCredential, body: command },
+					);
+					return result.ownership;
 				}),
 			connectEnvironment: (environmentId) =>
 				Effect.tryPromise({
