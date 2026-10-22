@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
 	buildNewChatCreatePayload,
 	MAIN_SOURCE,
+	reconcileNewChatSource,
 	sourceOptionsForKind,
 } from "../../../src/lib/new-chat";
 
@@ -121,5 +122,59 @@ describe("new chat helper", () => {
 				createSource: { _tag: "pr", number: 7, headRefName: "fix-bug" },
 			},
 		});
+	});
+});
+
+describe("reconcileNewChatSource", () => {
+	const branches = [
+		{ kind: "local", name: "main", current: true, remote: null },
+		{ kind: "local", name: "feature-b", current: false, remote: "origin" },
+		{ kind: "local", name: "feature-c", current: false, remote: "origin" },
+	] as never;
+	const choices = sourceOptionsForKind("branch", branches, []);
+	const restored = choices[1]?.source ?? MAIN_SOURCE;
+
+	test("keeps a restored branch while choices are still loading", () => {
+		expect(
+			reconcileNewChatSource({
+				source: restored,
+				sourceKind: "branch",
+				choices: [],
+				choicesLoaded: false,
+			}),
+		).toBe(restored);
+	});
+
+	test("keeps the restored branch once it appears in the loaded choices", () => {
+		expect(
+			reconcileNewChatSource({
+				source: restored,
+				sourceKind: "branch",
+				choices,
+				choicesLoaded: true,
+			}),
+		).toBe(restored);
+	});
+
+	test("falls back to the first choice only when the branch is gone", () => {
+		expect(
+			reconcileNewChatSource({
+				source: restored,
+				sourceKind: "branch",
+				choices: choices.slice(0, 1),
+				choicesLoaded: true,
+			}),
+		).toBe(choices[0]?.source);
+	});
+
+	test("resets to the main checkout when local work is chosen", () => {
+		expect(
+			reconcileNewChatSource({
+				source: restored,
+				sourceKind: "main",
+				choices: [],
+				choicesLoaded: false,
+			}),
+		).toBe(MAIN_SOURCE);
 	});
 });

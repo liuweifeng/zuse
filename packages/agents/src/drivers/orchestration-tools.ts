@@ -361,6 +361,7 @@ Syntax rules:
 - root = ... is REQUIRED — it is the top-level component
 - Component arguments are POSITIONAL only: Stat("Downloads", "12k") — never name: value
 - Strings are double-quoted; nest components inside array args: Card([s1, s2])
+- Card title: Card([children], "Title"); do not use CardHeader. KeyValue entries are objects with key and value strings, never tuples or label fields.
 - Define parts on their own lines and reference them by name; every defined name (except root) must be reachable from root
 - Pass null for an optional arg you want to skip
 - Use literal data only. No reactive state, expressions, Query(), Mutation(), or actions.

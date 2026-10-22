@@ -41,7 +41,7 @@ import { colors } from "~/theme";
 import {
 	presentQuickLook,
 	shareFile,
-} from "../../../../../modules/mobile-platform";
+} from "../../../../../../modules/mobile-platform";
 
 export default function WorkspaceFileScreen() {
 	const { width } = useWindowDimensions();

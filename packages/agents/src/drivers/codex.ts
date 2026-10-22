@@ -926,6 +926,41 @@ export const translateCodexItem = (
 					input: { query: webSearchQueryFromAction(item), action: item.action },
 				},
 			];
+		case "imageGeneration": {
+			// Codex sends the prompt only on completion, so it travels with
+			// the result.
+			if (phase === "started") {
+				return [
+					{
+						_tag: "ToolUse",
+						itemId: item.id as AgentItemId,
+						tool: "GenerateImage",
+						input: {},
+					},
+				];
+			}
+			const failed = item.status === "failed" || item.result.length === 0;
+			return [
+				{
+					_tag: "ToolResult",
+					itemId: item.id as AgentItemId,
+					output: failed
+						? "Image generation failed."
+						: {
+								...(item.revisedPrompt === null
+									? {}
+									: { prompt: item.revisedPrompt }),
+								...(item.savedPath === undefined
+									? {}
+									: { path: item.savedPath }),
+								content: [
+									{ type: "image", data: item.result, mimeType: "image/png" },
+								],
+							},
+					isError: failed,
+				},
+			];
+		}
 		case "enteredReviewMode":
 		case "exitedReviewMode":
 			if (phase !== "completed") return [];

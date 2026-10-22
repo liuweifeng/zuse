@@ -1,5 +1,6 @@
 import { type SFSymbol, SymbolView } from "expo-symbols";
 import type { LucideIcon } from "lucide-react-native";
+import type { ReactNode } from "react";
 import { Text, View } from "react-native";
 import { platformSymbolName } from "~/lib/symbol-names";
 import { colors } from "~/theme";
@@ -9,11 +10,14 @@ export const EmptyState = ({
 	symbol,
 	title,
 	detail,
+	children,
 }: {
 	icon?: LucideIcon;
 	symbol?: SFSymbol;
 	title: string;
 	detail?: string;
+	/** Actions shown below the text, centered with it. */
+	children?: ReactNode;
 }) => (
 	<View className="flex-1 items-center justify-center gap-3 px-7">
 		<View
@@ -39,5 +43,6 @@ export const EmptyState = ({
 				{detail}
 			</Text>
 		) : null}
+		{children === undefined ? null : <View className="mt-3">{children}</View>}
 	</View>
 );

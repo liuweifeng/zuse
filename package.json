@@ -112,6 +112,7 @@
 		"@legendapp/list@3.3.3": "patches/@legendapp%2Flist@3.3.3.patch",
 		"@effect/platform-node@4.0.0-beta.102": "patches/@effect%2Fplatform-node@4.0.0-beta.102.patch",
 		"app-builder-lib@25.1.8": "patches/app-builder-lib@25.1.8.patch",
-		"@expo/ui@58.0.21": "patches/@expo%2Fui@58.0.21.patch"
+		"@expo/ui@58.0.21": "patches/@expo%2Fui@58.0.21.patch",
+		"react-native-quick-crypto@0.7.17": "patches/react-native-quick-crypto@0.7.17.patch"
 	}
 }
