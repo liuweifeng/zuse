@@ -219,6 +219,7 @@ function StartupReadySignal({
 	return null;
 }
 
+/** Runs application services after settings readiness, deferring desktop catalogs until onboarding completes. */
 function ReadyApp({
 	cloudOnboarding,
 	onboardingCompleted,
