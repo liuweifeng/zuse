@@ -57,7 +57,13 @@ export class DeviceBridgeCatalogController {
 						);
 				} catch {
 					if (revision === this.revision && !this.view.busy)
-						this.publish({ error: "Couldn’t load cloud devices" }, generation);
+						this.publish(
+							{
+								error:
+									"Computer access is unavailable. Cloud work can continue.",
+							},
+							generation,
+						);
 				}
 			}
 			if (generation === this.generation)
