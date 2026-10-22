@@ -80,8 +80,39 @@ it("upgrades main while preserving harness executions and encrypted model record
 						yield* sql`SELECT envelope FROM model_connection_secrets`,
 					).toEqual([{ envelope: "encrypted" }]);
 					expect(
-						yield* sql`SELECT name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
-					).toHaveLength(29);
+						yield* sql`SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 61 ORDER BY migration_id`,
+					).toEqual([
+						{ migration_id: 61, name: "harness_executions" },
+						{ migration_id: 62, name: "model_connections" },
+						{ migration_id: 63, name: "project_workspace_key" },
+						{ migration_id: 64, name: "provider_accounts" },
+						{ migration_id: 65, name: "jobs" },
+						{ migration_id: 66, name: "session_graph" },
+						{ migration_id: 67, name: "provider_thread_ownership" },
+						{ migration_id: 68, name: "job_attempt_ownership" },
+						{ migration_id: 69, name: "provider_reservations" },
+						{ migration_id: 70, name: "attempt_history" },
+						{ migration_id: 71, name: "attempt_provider_turn" },
+						{ migration_id: 72, name: "ingestion_leases" },
+						{ migration_id: 73, name: "session_inputs" },
+						{ migration_id: 74, name: "input_ownership" },
+						{ migration_id: 75, name: "question_expiry" },
+						{ migration_id: 76, name: "plan_deliveries" },
+						{ migration_id: 77, name: "context_handoffs" },
+						{ migration_id: 78, name: "turn_activity_index" },
+						{ migration_id: 79, name: "fork_constructions" },
+						{ migration_id: 80, name: "session_checkpoints" },
+						{ migration_id: 81, name: "context_links" },
+						{ migration_id: 82, name: "session_delegations" },
+						{ migration_id: 83, name: "provider_contexts" },
+						{ migration_id: 84, name: "execution_steps" },
+						{ migration_id: 85, name: "native_checkpoint_history" },
+						{ migration_id: 86, name: "automation" },
+						{ migration_id: 87, name: "scratch_folders" },
+						{ migration_id: 88, name: "scratch_folders_repair" },
+						{ migration_id: 89, name: "device_bridge_enrollment" },
+						{ migration_id: 90, name: "masters" },
+					]);
 					expect(yield* sql`SELECT * FROM device_bridge_enrollment`).toEqual(
 						[],
 					);

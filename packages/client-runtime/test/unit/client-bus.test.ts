@@ -1743,7 +1743,7 @@ describe("ClientBus", () => {
 			sync: "live",
 		});
 
-		const result = bus.dispatch({
+		const handle = bus.dispatchHandle({
 			kind: "messages.send",
 			commandId,
 			environmentId,
@@ -1754,11 +1754,23 @@ describe("ClientBus", () => {
 			awaitResourceReflection: true,
 		});
 
+		let accepted = false;
+		void handle.accepted.then(() => {
+			accepted = true;
+		});
+		let completed = false;
+		void handle.result.then(() => {
+			completed = true;
+		});
 		await waitUntil(
 			() =>
 				bus.snapshot(timelineKey).pendingCommands[0]?.deliveryPhase ===
 				"applied",
 		);
+		// Composer acceptance must not wait for a delayed timeline stream.
+		await waitUntil(() => accepted);
+		expect(completed).toBe(false);
+		expect(persistence.outbox.has(commandId)).toBe(true);
 		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
 			expect.objectContaining({
 				commandId,
@@ -1771,7 +1783,7 @@ describe("ClientBus", () => {
 			sync: "live",
 		});
 		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([]);
-		await expect(result).resolves.toMatchObject({ commandId });
+		await expect(handle.result).resolves.toMatchObject({ commandId });
 		await bus.dispose();
 	});
 

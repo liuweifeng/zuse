@@ -213,6 +213,7 @@ const withSession = async <A>(
 		readonly runtimeMode?: import("@zuse/contracts").RuntimeMode;
 		readonly resumeCursor?: string | null;
 		readonly apiKey?: string;
+		readonly workspaceInstructions?: string;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
 		readonly archivedInCodex?: boolean;
@@ -235,7 +236,10 @@ const withSession = async <A>(
 		);
 		const handle = await Effect.runPromise(
 			startCodexSession(
-				input({ forkFromResume: options.forkFromResume }),
+				input({
+					forkFromResume: options.forkFromResume,
+					workspaceInstructions: options.workspaceInstructions,
+				}),
 				cwd,
 				options.apiKey ?? null,
 				"fake-codex",
@@ -428,6 +432,38 @@ describe("Codex session cursor persistence", () => {
 				},
 			);
 		}
+	});
+
+	it.each([
+		null,
+		"existing-master-thread",
+	])("passes coordinator policy as native developer instructions on start/resume (%s)", async (resumeCursor) => {
+		const policy =
+			"You are the coordinator of the Zuse Master. Delegate repository implementation through the CLI.";
+		await withSession(
+			{ resumeCursor, workspaceInstructions: policy },
+			async (handle, appServer) => {
+				await Effect.runPromise(handle.send("Fix the composer"));
+				const setup = appServer.requests.find(
+					(request) =>
+						request.method ===
+						(resumeCursor ? "thread/resume" : "thread/start"),
+				);
+				expect(setup?.params).toMatchObject({ developerInstructions: policy });
+				await vi.waitFor(() =>
+					expect(
+						appServer.requests.some(
+							(request) => request.method === "turn/start",
+						),
+					).toBe(true),
+				);
+				const turn = appServer.requests.find(
+					(request) => request.method === "turn/start",
+				);
+				expect(JSON.stringify(turn?.params)).toContain("Fix the composer");
+				expect(JSON.stringify(turn?.params)).not.toContain(policy);
+			},
+		);
 	});
 
 	it("ends an idle stream once without inventing a turn failure", async () => {

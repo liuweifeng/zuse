@@ -840,13 +840,7 @@ export class ClientBus<Client> {
 		const result = this.dispatch(command);
 		void result.then(
 			(receipt) => {
-				acceptance.resolveAccepted({
-					commandId: command.commandId,
-					workspaceSequence: 0,
-					revision: 0,
-					acceptedAt: receipt.receivedAt,
-					state: "accepted",
-				} as CommandAcceptance);
+				this.acceptExecutedCommand(receipt);
 				this.commandAcceptances.delete(command.commandId);
 				this.commandCancels.delete(command.commandId);
 			},
@@ -2027,6 +2021,10 @@ export class ClientBus<Client> {
 					receivedAt: executionReceipt.receivedAt,
 					result: executionReceipt.result as Result,
 				};
+				// The live server receipt proves the input has a durable owner. Clear
+				// the composer now; keep the outbox and pending timeline handoff until
+				// reflection so a delayed stream cannot lose or duplicate the message.
+				this.acceptExecutedCommand(receipt);
 				await this.waitForResourceReflection(command, assertAuthority);
 				if (command.retry === "safe") {
 					await outbox?.completeOutbox(receipt);
@@ -2116,6 +2114,16 @@ export class ClientBus<Client> {
 				releaseCloudCommandAttempt?.();
 			}
 		})();
+	}
+
+	private acceptExecutedCommand(receipt: CommandReceipt<unknown>): void {
+		this.commandAcceptances.get(receipt.commandId)?.resolveAccepted({
+			commandId: receipt.commandId,
+			workspaceSequence: 0,
+			revision: 0,
+			acceptedAt: receipt.receivedAt,
+			state: "accepted",
+		} as CommandAcceptance);
 	}
 
 	private updateCommandResource(

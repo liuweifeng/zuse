@@ -264,11 +264,14 @@ export const makeSessionOperations = (options: SessionOperationsOptions) => {
 			const hasInitial =
 				input.initialPrompt !== undefined &&
 				input.initialPrompt.trim().length > 0;
-
-			let origin: MessageOrigin | undefined;
+			// Lineage: when this chat was spawned by another agent (orchestration
+			// sets chats.origin_session_id), stamp the initial user message with
+			// the origin so the renderer can attribute + link it. Skip silently
+			// if the origin session row is gone.
+			let origin: MessageOrigin | undefined = input.origin;
 			const originSessionId =
 				input.originSessionId ?? chatRow.origin_session_id;
-			if (hasInitial && originSessionId !== null) {
+			if (hasInitial && !origin && originSessionId !== null) {
 				const originRows = yield* sql<{
 					readonly chat_id: string;
 					readonly provider_id: string;

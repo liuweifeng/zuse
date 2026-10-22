@@ -39,7 +39,10 @@ import {
 	UI_SPEC_VERSION,
 	validateGenerativeUiSpec,
 } from "@zuse/utils/generative-ui";
-import { type Context, Effect } from "effect";
+import { Context, Effect, Option } from "effect";
+import { masterPrompt } from "../../master/state.ts";
+import { MasterStore } from "../../master/store.ts";
+import { MasterToolRouter } from "../../master/tool-router.ts";
 import {
 	messageContentToText,
 	orchestrationErrorText,
@@ -277,10 +280,32 @@ export const makeConversationOrchestration = (
 					),
 				);
 			});
+		const masterRouter = Context.getOption(
+			dependencies.runtime,
+			MasterToolRouter,
+		);
+		const masterStore = Context.getOption(dependencies.runtime, MasterStore);
+		const master = Option.isSome(masterStore)
+			? (yield* masterStore.value
+					.list()
+					.pipe(Effect.catch(() => Effect.succeed([])))).find(
+					(master) => master.workspaceId === context.projectId,
+				)
+			: undefined;
+		const privateWorkspaceError = {
+			ok: false as const,
+			error:
+				"Select an explicit managed repository with master_action delegate. The coordinator workspace is private.",
+		};
 		const automation = dependencies.automation;
 		const mutateAutomation = <A, E>(effect: Effect.Effect<A, E>) =>
 			run(dependencies.captureDelegation().pipe(Effect.flatMap(() => effect)));
 		const toolDependencies: OrchestrationToolDeps = {
+			master: Option.isSome(masterRouter)
+				? (commandJson, readOnly) =>
+						masterRouter.value.call(context.sessionId, commandJson, readOnly)
+				: undefined,
+
 			automation: automation
 				? {
 						create: (input) =>
@@ -317,6 +342,7 @@ export const makeConversationOrchestration = (
 			delegateTask: (input) =>
 				run(
 					Effect.gen(function* () {
+						if (master) return privateWorkspaceError;
 						const delegation = yield* dependencies.captureDelegation();
 						const identity = createHash("sha256")
 							.update(
@@ -452,25 +478,28 @@ export const makeConversationOrchestration = (
 					),
 				),
 			createWorktree: (input) =>
-				run(
-					createWorktree(input.baseBranch).pipe(
-						Effect.map((worktree) => ({
-							ok: true as const,
-							worktreeId: worktree.id as string,
-							path: worktree.path,
-							branch: worktree.branch,
-						})),
-						Effect.catch((error) =>
-							Effect.succeed({
-								ok: false as const,
-								error: orchestrationErrorText(error),
-							}),
+				master
+					? Promise.resolve(privateWorkspaceError)
+					: run(
+							createWorktree(input.baseBranch).pipe(
+								Effect.map((worktree) => ({
+									ok: true as const,
+									worktreeId: worktree.id as string,
+									path: worktree.path,
+									branch: worktree.branch,
+								})),
+								Effect.catch((error) =>
+									Effect.succeed({
+										ok: false as const,
+										error: orchestrationErrorText(error),
+									}),
+								),
+							),
 						),
-					),
-				),
 			createThread: (input) =>
 				run(
 					Effect.gen(function* () {
+						if (master) return privateWorkspaceError;
 						const worktree = yield* createWorktree(input.baseBranch);
 						const chat = yield* createChat({
 							task: input.task,
@@ -506,6 +535,7 @@ export const makeConversationOrchestration = (
 			createSession: (input) =>
 				run(
 					Effect.gen(function* () {
+						if (master) return privateWorkspaceError;
 						const chatId =
 							input.chatId !== undefined
 								? (input.chatId as ChatId)
@@ -806,6 +836,9 @@ export const makeConversationOrchestration = (
 			},
 		};
 		return {
+			instructions: master
+				? masterPrompt(master, context.sessionId)
+				: undefined,
 			deps: toolDependencies,
 			claudeTools: buildOrchestrationTools(toolDependencies),
 		};

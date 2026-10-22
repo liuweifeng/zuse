@@ -1584,3 +1584,15 @@ export const apiStripeSubscriptionMigrations = pgTable(
 		scheduleId: text("schedule_id").unique(),
 	},
 );
+
+export const apiMasterOwnership = pgTable(
+	"api_master_ownership",
+	{
+		accountId: text("account_id").notNull(),
+		masterId: text("master_id").notNull(),
+		homeEnvironmentId: text("home_environment_id").notNull(),
+		generation: integer("generation").notNull(),
+		repositoriesJson: text("repositories_json").notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.accountId, table.masterId] })],
+);
