@@ -1,6 +1,8 @@
 import "@zuse/i18n/english/projects";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { EnvironmentId, type MasterSnapshot } from "@zuse/contracts";
 import { useMessages } from "@zuse/i18n/react";
+import { Cancel01Icon } from "@zuse/icons/solid-rounded";
 import {
 	type ReactNode,
 	type RefObject,
@@ -9,6 +11,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { cn } from "~/lib/utils";
 import {
 	canInsertZotExample,
 	findZotGuideTarget,
@@ -16,7 +19,7 @@ import {
 	leaseDetailsPanel,
 	restoreZotGuideFocus,
 	ZOT_GUIDE_TARGETS,
-	zotGuideNeedsDetails,
+	type ZotExampleBrief,
 	zotGuideVisible,
 } from "../../lib/zot-guide.ts";
 import { useComposerBridge } from "../../store/composer-bridge.ts";
@@ -85,7 +88,7 @@ export function ZotGuide({
 	});
 	if (visible) settled.current = true;
 	const target = useGuideTarget(rootRef, visible ? step : null);
-	useDetailsLease(visible && zotGuideNeedsDetails(step));
+	useDetailsLease(visible);
 	useFocusReturn(rootRef, visible, draftKey);
 
 	if (!visible) return null;
@@ -166,7 +169,7 @@ function useGuideTarget(
 	return element;
 }
 
-/** Shows Details while a step needs it; restores it if the guide opened it. */
+/** Shows Details for the whole guide; restores it if the guide opened it. */
 function useDetailsLease(active: boolean) {
 	useEffect(() => {
 		if (!active) return;
@@ -191,6 +194,26 @@ const fallbackAnchor = (rootRef: RefObject<HTMLElement | null>) => ({
 	},
 });
 
+/**
+ * Inserts an example brief into this Zot's own composer as editable text, or
+ * `null` when that composer isn't mounted. Nothing is ever sent.
+ */
+export function useZotExample(
+	draftKey: string | null,
+): ((example: ZotExampleBrief) => void) | null {
+	const { message } = useMessages("projects");
+	const bridge = useComposerBridge();
+	if (!canInsertZotExample(bridge, draftKey)) return null;
+	return (example) => {
+		insertZotExample(
+			bridge,
+			draftKey,
+			message(`projects:masters_guide_example_${example}_text`),
+		);
+		bridge.focus?.();
+	};
+}
+
 function ZotGuideCard({
 	step,
 	snapshot,
@@ -206,9 +229,8 @@ function ZotGuideCard({
 	/** Whether `anchor` is the step's own control rather than the fallback. */
 	readonly anchored: boolean;
 }) {
-	const { message } = useMessages("projects");
 	const guide = useZotOnboardingStore();
-	const bridge = useComposerBridge();
+	const tryExample = useZotExample(draftKey);
 	const primary = useRef<HTMLButtonElement>(null);
 	const placement = anchored ? PLACEMENT[step] : FALLBACK_PLACEMENT;
 	return (
@@ -236,26 +258,23 @@ function ZotGuideCard({
 				<ZotGuideBody
 					step={step}
 					hasRepositories={snapshot.master.repositories.length > 0}
-					onTryExample={
-						canInsertZotExample(bridge, draftKey)
-							? () =>
-									insertZotExample(
-										bridge,
-										draftKey,
-										message("projects:masters_guide_brief_example_text"),
-									)
-							: null
-					}
+					onTryExample={tryExample ? () => tryExample("delegate") : null}
 					targetHidden={!anchored}
 					primaryRef={primary}
 					onSkip={guide.dismiss}
 					onBack={guide.back}
 					onNext={guide.next}
+					onGoTo={guide.goTo}
 				/>
 			</PopoverPopup>
 		</Popover>
 	);
 }
+
+/** The steps after the welcome card; the welcome card lists them as a plan. */
+const TOUR_STEPS = ZOT_ONBOARDING_STEPS.filter(
+	(step): step is Exclude<ZotOnboardingStep, "welcome"> => step !== "welcome",
+);
 
 /** The card's content; explanation only, its sole effect is the callbacks. */
 export function ZotGuideBody({
@@ -267,6 +286,7 @@ export function ZotGuideBody({
 	onSkip,
 	onBack,
 	onNext,
+	onGoTo,
 }: {
 	readonly step: ZotOnboardingStep;
 	readonly hasRepositories: boolean;
@@ -277,21 +297,52 @@ export function ZotGuideBody({
 	readonly onSkip: () => void;
 	readonly onBack: () => void;
 	readonly onNext: () => void;
+	readonly onGoTo: (step: ZotOnboardingStep) => void;
 }) {
 	const { message } = useMessages("projects");
-	const index = ZOT_ONBOARDING_STEPS.indexOf(step);
-	const last = index === ZOT_ONBOARDING_STEPS.length - 1;
+	const welcome = step === "welcome";
+	const position = welcome ? -1 : TOUR_STEPS.indexOf(step);
+	const last = position === TOUR_STEPS.length - 1;
 	const content: Record<ZotOnboardingStep, ReactNode> = {
 		welcome: (
 			<>
-				<p>{message("projects:masters_guide_welcome_body")}</p>
-				<p>{message("projects:masters_guide_welcome_preview")}</p>
+				<p className="text-foreground/80">
+					{message("projects:masters_guide_welcome_body")}
+				</p>
+				<ol className="-mx-1.5 flex flex-col">
+					{TOUR_STEPS.map((item, index) => (
+						<li key={item}>
+							<button
+								type="button"
+								onClick={() => onGoTo(item)}
+								className="flex w-full items-start gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none"
+							>
+								<span className="mt-px flex size-[18px] shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-medium tabular-nums text-foreground">
+									{index + 1}
+								</span>
+								<span className="flex min-w-0 flex-col">
+									<span className="text-foreground">
+										{message(`projects:masters_guide_${item}_title`)}
+									</span>
+									<span className="text-[11px] leading-4">
+										{message(`projects:masters_guide_${item}_summary`)}
+									</span>
+								</span>
+							</button>
+						</li>
+					))}
+				</ol>
+				<p className="text-[11px] leading-4">
+					{message("projects:masters_guide_welcome_preview")}
+				</p>
 			</>
 		),
 		repositories: (
 			<>
-				<p>{message("projects:masters_guide_repositories_body")}</p>
-				<p>
+				<p className="text-foreground/80">
+					{message("projects:masters_guide_repositories_body")}
+				</p>
+				<p className="text-[11px] leading-4">
 					{hasRepositories
 						? message("projects:masters_guide_repositories_optional")
 						: message("projects:masters_guide_repositories_empty")}
@@ -300,13 +351,18 @@ export function ZotGuideBody({
 		),
 		brief: (
 			<>
-				<p>{message("projects:masters_guide_brief_body")}</p>
+				<p className="text-foreground/80">
+					{message("projects:masters_guide_brief_body")}
+				</p>
+				<p className="text-[11px] leading-4">
+					{message("projects:masters_guide_brief_model")}
+				</p>
 				{onTryExample ? (
 					<div className="flex items-center gap-2">
-						<Button variant="secondary" onClick={onTryExample}>
+						<Button variant="secondary" size="sm" onClick={onTryExample}>
 							{message("projects:masters_guide_brief_example")}
 						</Button>
-						<span className="text-[11px]">
+						<span className="text-[11px] leading-4">
 							{message("projects:masters_guide_brief_example_hint")}
 						</span>
 					</div>
@@ -315,14 +371,22 @@ export function ZotGuideBody({
 		),
 		slaves: (
 			<>
-				<p>{message("projects:masters_guide_slaves_body")}</p>
-				<p>{message("projects:masters_guide_slaves_controls")}</p>
+				<p className="text-foreground/80">
+					{message("projects:masters_guide_slaves_body")}
+				</p>
+				<p className="text-[11px] leading-4">
+					{message("projects:masters_guide_slaves_controls")}
+				</p>
 			</>
 		),
 		continuity: (
 			<>
-				<p>{message("projects:masters_guide_continuity_body")}</p>
-				<p>{message("projects:masters_guide_continuity_memory")}</p>
+				<p className="text-foreground/80">
+					{message("projects:masters_guide_continuity_body")}
+				</p>
+				<p className="text-[11px] leading-4">
+					{message("projects:masters_guide_continuity_memory")}
+				</p>
 			</>
 		),
 	};
@@ -332,39 +396,76 @@ export function ZotGuideBody({
 				<PopoverTitle className="min-w-0 flex-1 text-[13px] leading-5 font-medium">
 					{message(`projects:masters_guide_${step}_title`)}
 				</PopoverTitle>
-				<span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
-					{message("projects:masters_guide_step_count", {
-						current: index + 1,
-						total: ZOT_ONBOARDING_STEPS.length,
-					})}
-				</span>
+				{welcome ? null : (
+					<span className="shrink-0 tabular-nums text-[11px] text-muted-foreground">
+						{message("projects:masters_guide_step_count", {
+							current: position + 1,
+							total: TOUR_STEPS.length,
+						})}
+					</span>
+				)}
+				<Button
+					variant="ghost"
+					size="icon-sm"
+					className="-mr-1 shrink-0 text-muted-foreground"
+					aria-label={message("projects:masters_guide_skip")}
+					onClick={onSkip}
+				>
+					<HugeiconsIcon icon={Cancel01Icon} className="size-3.5" />
+				</Button>
 			</div>
 			<div className="flex flex-col gap-1.5 text-muted-foreground">
 				{content[step]}
 				{targetHidden ? (
-					<p className="text-[11px]">
+					<p className="text-[11px] leading-4">
 						{message("projects:masters_guide_target_hidden")}
 					</p>
 				) : null}
 			</div>
 			<div className="flex items-center gap-1 pt-0.5">
-				<Button
-					variant="ghost"
-					className="text-muted-foreground"
-					onClick={onSkip}
-				>
-					{message("projects:masters_guide_skip")}
-				</Button>
+				{welcome ? (
+					<Button
+						variant="ghost"
+						className="text-muted-foreground"
+						onClick={onSkip}
+					>
+						{message("projects:masters_guide_not_now")}
+					</Button>
+				) : (
+					<ol
+						className="flex items-center gap-1"
+						aria-label={message("projects:masters_guide_step_count", {
+							current: position + 1,
+							total: TOUR_STEPS.length,
+						})}
+					>
+						{TOUR_STEPS.map((item, index) => (
+							<li
+								key={item}
+								className={cn(
+									"h-1 rounded-full transition-[width,background-color]",
+									index === position
+										? "w-4 bg-primary"
+										: index < position
+											? "w-1.5 bg-foreground/40"
+											: "w-1.5 bg-muted-foreground/25",
+								)}
+							/>
+						))}
+					</ol>
+				)}
 				<span className="flex-1" />
-				{index > 0 ? (
+				{welcome ? null : (
 					<Button variant="ghost" onClick={onBack}>
 						{message("projects:masters_guide_back")}
 					</Button>
-				) : null}
+				)}
 				<Button ref={primaryRef} onClick={onNext}>
-					{last
-						? message("projects:masters_guide_done")
-						: message("projects:masters_guide_next")}
+					{welcome
+						? message("projects:masters_guide_start")
+						: last
+							? message("projects:masters_guide_done")
+							: message("projects:masters_guide_next")}
 				</Button>
 			</div>
 		</div>

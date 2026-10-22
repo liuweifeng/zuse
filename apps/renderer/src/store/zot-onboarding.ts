@@ -57,6 +57,7 @@ export const createZotOnboardingStore = (
 			next: () => void;
 			back: () => void;
 			dismiss: () => void;
+			goTo: (step: ZotOnboardingStep) => void;
 		}
 	>((set, get) => {
 		const update = (progress: GuideProgress) => {
@@ -78,6 +79,9 @@ export const createZotOnboardingStore = (
 			open: initial.status === "new" || initial.status === "in-progress",
 			start: () => update({ step: "welcome", status: "in-progress" }),
 			dismiss: () => update({ step: get().step, status: "dismissed" }),
+			goTo: (step) => {
+				if (get().open) update({ step, status: "in-progress" });
+			},
 			next: () => {
 				if (!get().open) return;
 				const index = ZOT_ONBOARDING_STEPS.indexOf(get().step);

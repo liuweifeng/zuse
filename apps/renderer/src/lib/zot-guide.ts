@@ -21,9 +21,9 @@ export const ZOT_GUIDE_TARGETS: Readonly<
 	continuity: "continuity",
 };
 
-/** Steps whose target lives in the Details panel. */
-export const zotGuideNeedsDetails = (step: ZotOnboardingStep): boolean =>
-	step === "repositories" || step === "slaves";
+/** Example briefs offered in the empty Zot and on the brief step. */
+export const ZOT_EXAMPLE_BRIEFS = ["delegate", "tests", "reviews"] as const;
+export type ZotExampleBrief = (typeof ZOT_EXAMPLE_BRIEFS)[number];
 
 type GuideElement = Pick<HTMLElement, "closest" | "getClientRects">;
 
@@ -53,7 +53,8 @@ type RailStore = {
 };
 
 /**
- * Opens a closed Details panel for the guide. `release` closes it again only
+ * Opens a closed Details panel for the whole guide, so the layout doesn't
+ * shift between steps. `release` closes it again only
  * if the guide opened it and nobody has changed it since. Ownership is judged
  * by value, so it holds whether the store notifies synchronously or later.
  */

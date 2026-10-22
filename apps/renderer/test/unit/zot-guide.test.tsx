@@ -147,7 +147,12 @@ describe("Zot guide card", () => {
 			targetHidden?: boolean;
 		} = {},
 	) => {
-		const callbacks = { onSkip: vi.fn(), onBack: vi.fn(), onNext: vi.fn() };
+		const callbacks = {
+			onSkip: vi.fn(),
+			onBack: vi.fn(),
+			onNext: vi.fn(),
+			onGoTo: vi.fn(),
+		};
 		const markup = renderToStaticMarkup(
 			<Popover open>
 				<ZotGuideBody
@@ -162,13 +167,24 @@ describe("Zot guide card", () => {
 		return { markup, callbacks };
 	};
 
-	it("walks five steps with Back from the second and Done on the last", () => {
-		for (const [index, step] of ZOT_ONBOARDING_STEPS.entries()) {
+	it("opens with the plan, then walks four steps with Back and Done", () => {
+		const welcome = render("welcome").markup;
+		expect(welcome).toContain("Show me around");
+		expect(welcome).toContain("Not now");
+		expect(welcome.includes(">Back<")).toBe(false);
+		for (const title of [
+			"Choose repositories",
+			"Write a brief",
+			"Follow its slaves",
+			"Start fresh, keep context",
+		])
+			expect(welcome).toContain(title);
+		for (const [index, step] of ZOT_ONBOARDING_STEPS.slice(1).entries()) {
 			const { markup } = render(step);
-			expect(markup).toContain(`${index + 1} of 5`);
-			expect(markup).toContain("Skip");
-			expect(markup.includes(">Back<")).toBe(index > 0);
-			expect(markup).toContain(index === 4 ? "Done" : "Next");
+			expect(markup).toContain(`${index + 1} of 4`);
+			expect(markup).toContain('aria-label="Skip guide"');
+			expect(markup).toContain(">Back<");
+			expect(markup).toContain(index === 3 ? "Done" : "Next");
 		}
 	});
 

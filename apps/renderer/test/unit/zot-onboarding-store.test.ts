@@ -115,4 +115,20 @@ describe("Zot onboarding progress", () => {
 			status: "completed",
 		});
 	});
+	it("jumps to a step from the plan only while the guide is open", () => {
+		const storage = memoryStorage();
+		const store = createZotOnboardingStore(() => storage);
+		store.getState().goTo("slaves");
+		expect(createZotOnboardingStore(() => storage).getState()).toMatchObject({
+			step: "slaves",
+			status: "in-progress",
+		});
+		store.getState().dismiss();
+		store.getState().goTo("brief");
+		expect(store.getState()).toMatchObject({
+			step: "slaves",
+			status: "dismissed",
+			open: false,
+		});
+	});
 });
