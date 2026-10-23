@@ -102,6 +102,33 @@ describe("mechanical hunks", () => {
 		expect(hunk && isWhitespaceOnlyHunk(hunk)).toBe(true);
 	});
 
+	it("recognizes re-wrapping", () => {
+		const [hunk] = splitPatchHunks(
+			patchOf("a.ts", [
+				"@@ -1 +1,3 @@",
+				"-call(a, b);",
+				"+call(",
+				"+  a,",
+				"+  b);",
+			]),
+		).hunks;
+		expect(hunk && isWhitespaceOnlyHunk(hunk)).toBe(true);
+	});
+
+	it("does not call reordered lines whitespace-only", () => {
+		const [hunk] = splitPatchHunks(
+			patchOf("a.ts", ["@@ -1,2 +1,2 @@", "-a();", "-b();", "+b();", "+a();"]),
+		).hunks;
+		expect(hunk && isWhitespaceOnlyHunk(hunk)).toBe(false);
+	});
+
+	it("keeps whitespace inside strings meaningful", () => {
+		const [hunk] = splitPatchHunks(
+			patchOf("a.ts", ["@@ -1 +1 @@", '-send("a  b");', '+send("a b");']),
+		).hunks;
+		expect(hunk && isWhitespaceOnlyHunk(hunk)).toBe(false);
+	});
+
 	it("does not call a real edit whitespace-only", () => {
 		const [hunk] = splitPatchHunks(
 			patchOf("a.ts", ["@@ -1 +1 @@", "-a()", "+b()"]),

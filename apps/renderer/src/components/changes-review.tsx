@@ -27,7 +27,10 @@ import {
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import {
 	type GuideViewChapter,
+	isChapterReviewed,
+	liveHunkIds,
 	projectGuide,
+	reviewChapter,
 } from "@zuse/client-runtime/review-guide-view";
 import {
 	detectMoves,
@@ -200,6 +203,34 @@ const loadPreferences = (): ReviewPreferences => {
 		};
 	} catch {
 		return DEFAULT_PREFERENCES;
+	}
+};
+
+/** Hunks checked off in guide chapters, per workspace. */
+const REVIEWED_HUNKS_STORAGE_KEY = "zuse.review.hunks.v1";
+const loadReviewedHunks = (workspace: string): ReadonlySet<string> => {
+	try {
+		const all = JSON.parse(
+			localStorage.getItem(REVIEWED_HUNKS_STORAGE_KEY) ?? "{}",
+		) as Record<string, ReadonlyArray<string>>;
+		return new Set(all[workspace] ?? []);
+	} catch {
+		return new Set();
+	}
+};
+const saveReviewedHunks = (
+	workspace: string,
+	hunks: ReadonlyArray<string>,
+): void => {
+	try {
+		const all = JSON.parse(
+			localStorage.getItem(REVIEWED_HUNKS_STORAGE_KEY) ?? "{}",
+		) as Record<string, ReadonlyArray<string>>;
+		if (hunks.length === 0) delete all[workspace];
+		else all[workspace] = hunks;
+		localStorage.setItem(REVIEWED_HUNKS_STORAGE_KEY, JSON.stringify(all));
+	} catch {
+		// Storage is optional; the state still holds for this session.
 	}
 };
 
@@ -578,29 +609,6 @@ function ChangesReviewReady({
 		uiMessage,
 	]);
 
-	useEffect(() => {
-		if (navigation?.path === null || navigation?.path === undefined) return;
-		if (lastNavigationTokenRef.current === navigation.token) return;
-		if (!items.some((item) => item.id === navigation.path)) return;
-		const target =
-			navigation.line === null
-				? {
-						type: "item" as const,
-						id: navigation.path,
-						behavior: "smooth-auto" as const,
-					}
-				: {
-						type: "line" as const,
-						id: navigation.path,
-						lineNumber: navigation.line,
-						side: navigation.side ?? undefined,
-						align: "center" as const,
-						behavior: "smooth-auto" as const,
-					};
-		viewerRef.current?.scrollTo(target);
-		lastNavigationTokenRef.current = navigation.token;
-	}, [items, navigation]);
-
 	const fileByPath = useMemo(
 		() => new Map(summary?.files.map((file) => [file.path, file]) ?? []),
 		[summary, uiMessage],
@@ -663,12 +671,69 @@ function ChangesReviewReady({
 			},
 		);
 	}, [guideChapters, guidesEnabled, patches, summary, uiMessage]);
+	useEffect(() => {
+		if (navigation?.path === null || navigation?.path === undefined) return;
+		if (lastNavigationTokenRef.current === navigation.token) return;
+		if (!items.some((item) => item.id === navigation.path)) return;
+		// Links to a file or line land in the plain diff. Keep the request
+		// until that view's viewer exists, so it is never spent on nothing.
+		if (reviewMode !== "files") {
+			updatePreferences({ view: "files" });
+			return;
+		}
+		if (viewerRef.current === null) return;
+		const target =
+			navigation.line === null
+				? {
+						type: "item" as const,
+						id: navigation.path,
+						behavior: "smooth-auto" as const,
+					}
+				: {
+						type: "line" as const,
+						id: navigation.path,
+						lineNumber: navigation.line,
+						side: navigation.side ?? undefined,
+						align: "center" as const,
+						behavior: "smooth-auto" as const,
+					};
+		viewerRef.current?.scrollTo(target);
+		lastNavigationTokenRef.current = navigation.token;
+	}, [items, navigation, reviewMode]);
+	const [reviewedHunks, setReviewedHunks] = useState(() =>
+		loadReviewedHunks(key),
+	);
+	useEffect(() => setReviewedHunks(loadReviewedHunks(key)), [key]);
+	const fileHunks = useMemo(
+		() =>
+			new Map(
+				Object.values(patches).map((patch) => [
+					patch.path,
+					liveHunkIds([{ path: patch.path, patch: patch.result.patch }]),
+				]),
+			),
+		[patches],
+	);
+	const chapterReviewed = useCallback(
+		(chapter: GuideViewChapter) =>
+			isChapterReviewed(chapter, reviewedHunks, isViewed),
+		[isViewed, reviewedHunks],
+	);
 	const setChapterReviewed = useCallback(
 		(chapter: GuideViewChapter, reviewed: boolean) => {
-			for (const path of chapter.files)
-				if (isViewed(path) !== reviewed) toggleViewed(path);
+			const next = reviewChapter(chapter, reviewed, {
+				reviewedHunks,
+				fileHunks,
+				isFileViewed: isViewed,
+			});
+			for (const path of next.toggleFiles) toggleViewed(path);
+			// Only hunks still in the change are worth remembering.
+			const live = [...fileHunks.values()].flat();
+			const kept = live.filter((id) => next.reviewedHunks.has(id));
+			setReviewedHunks(new Set(kept));
+			saveReviewedHunks(key, kept);
 		},
-		[isViewed, toggleViewed],
+		[fileHunks, isViewed, key, reviewedHunks, toggleViewed],
 	);
 	const askAboutChapter = useCallback(
 		(chapter: GuideViewChapter, question: string) => {
@@ -1345,6 +1410,7 @@ function ChangesReviewReady({
 						files={fileByPath}
 						patches={patches}
 						isFileViewed={isViewed}
+						isChapterReviewed={chapterReviewed}
 						onChapterReviewed={setChapterReviewed}
 						onGenerate={writeGuide}
 						onCancel={stopGuide}

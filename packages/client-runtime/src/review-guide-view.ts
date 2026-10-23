@@ -57,6 +57,67 @@ export const liveHunkIds = (
 			: hunkIds(entry.path, hunks);
 	});
 
+/**
+ * Chapters split files by hunk, so a chapter is reviewed hunk by hunk: each
+ * of its hunks was checked off in a chapter, or its whole file was viewed.
+ * Hunk ids follow the code, so a hunk that changes is unreviewed again.
+ */
+export const isChapterReviewed = (
+	chapter: Pick<GuideViewChapter, "hunkIds">,
+	reviewedHunks: ReadonlySet<string>,
+	isFileViewed: (path: string) => boolean,
+): boolean =>
+	chapter.hunkIds.length > 0 &&
+	chapter.hunkIds.every(
+		(id) => reviewedHunks.has(id) || isFileViewed(pathOfHunkId(id)),
+	);
+
+/**
+ * Review state after checking a chapter on or off. A file is viewed once all
+ * of its hunks are reviewed. Unchecking keeps the file's other hunks
+ * reviewed, so one chapter never unreviews another.
+ */
+export const reviewChapter = (
+	chapter: Pick<GuideViewChapter, "hunkIds">,
+	reviewed: boolean,
+	state: {
+		readonly reviewedHunks: ReadonlySet<string>;
+		/** Live hunk ids of each file in the change. */
+		readonly fileHunks: ReadonlyMap<string, ReadonlyArray<string>>;
+		readonly isFileViewed: (path: string) => boolean;
+	},
+): {
+	readonly reviewedHunks: ReadonlySet<string>;
+	/** Files whose viewed state should flip to match `reviewed`. */
+	readonly toggleFiles: ReadonlyArray<string>;
+} => {
+	const next = new Set(state.reviewedHunks);
+	const paths = unique(chapter.hunkIds.map(pathOfHunkId));
+	const toggleFiles: string[] = [];
+	if (reviewed) {
+		for (const id of chapter.hunkIds) next.add(id);
+		for (const path of paths) {
+			const all = state.fileHunks.get(path) ?? [];
+			if (
+				!state.isFileViewed(path) &&
+				all.length > 0 &&
+				all.every((id) => next.has(id))
+			)
+				toggleFiles.push(path);
+		}
+	} else {
+		const own = new Set(chapter.hunkIds);
+		for (const path of paths) {
+			if (!state.isFileViewed(path)) continue;
+			for (const id of state.fileHunks.get(path) ?? [])
+				if (!own.has(id)) next.add(id);
+			toggleFiles.push(path);
+		}
+		for (const id of own) next.delete(id);
+	}
+	return { reviewedHunks: next, toggleFiles };
+};
+
 const unique = <A>(values: ReadonlyArray<A>): ReadonlyArray<A> => [
 	...new Set(values),
 ];

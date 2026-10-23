@@ -161,12 +161,37 @@ export const classifyReviewFile = (path: string): ReviewFileKind =>
 const normalize = (line: string): string =>
 	line.slice(1).trim().replace(/\s+/g, " ");
 
-const sortedNonBlank = (lines: ReadonlyArray<string>): string =>
-	lines
-		.map(normalize)
-		.filter((line) => line !== "")
-		.sort()
-		.join("\n");
+/**
+ * Changed code without its layout, in order: whitespace outside string
+ * literals only separates words. Re-indenting or re-wrapping keeps this the
+ * same; reordering lines or editing text inside a string does not.
+ */
+const withoutLayout = (lines: ReadonlyArray<string>): string => {
+	const text = lines.map((line) => line.slice(1)).join("\n");
+	let out = "";
+	let quote: string | null = null;
+	let gap = false;
+	for (let index = 0; index < text.length; index += 1) {
+		const char = text[index] ?? "";
+		if (quote !== null) {
+			out += char;
+			if (char === "\\") {
+				out += text[index + 1] ?? "";
+				index += 1;
+			} else if (char === quote) quote = null;
+			continue;
+		}
+		if (/\s/.test(char)) {
+			gap = true;
+			continue;
+		}
+		if (gap && /\w/.test(char) && /\w$/.test(out)) out += " ";
+		gap = false;
+		if (char === '"' || char === "'" || char === "`") quote = char;
+		out += char;
+	}
+	return out;
+};
 
 /** True when the hunk only re-indents or re-wraps lines. */
 export const isWhitespaceOnlyHunk = (hunk: PatchHunk): boolean => {
@@ -174,7 +199,7 @@ export const isWhitespaceOnlyHunk = (hunk: PatchHunk): boolean => {
 	const added = hunk.lines.filter((line) => line.startsWith("+"));
 	return (
 		removed.length + added.length > 0 &&
-		sortedNonBlank(removed) === sortedNonBlank(added)
+		withoutLayout(removed) === withoutLayout(added)
 	);
 };
 

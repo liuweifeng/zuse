@@ -53,7 +53,7 @@ interface Harness {
 	readonly prompts: string[];
 	setPatches(next: ReadonlyArray<GitReviewPatch>): void;
 	setEnabled(enabled: boolean): void;
-	setRunner(behavior: "write" | "hang" | "signed-out"): void;
+	setRunner(behavior: "write" | "hang" | "signed-out" | "finish-only"): void;
 	readonly dispose: () => Promise<void>;
 }
 
@@ -68,7 +68,7 @@ const makeHarness = async (provider = "claude"): Promise<Harness> => {
 	directories.push(directory);
 	let patches: ReadonlyArray<GitReviewPatch> = firstChange;
 	let enabled = true;
-	let behavior: "write" | "hang" | "signed-out" = "write";
+	let behavior: "write" | "hang" | "signed-out" | "finish-only" = "write";
 	const prompts: string[] = [];
 
 	const git = {
@@ -102,6 +102,10 @@ const makeHarness = async (provider = "claude"): Promise<Harness> => {
 				if (input.access._tag !== "ReadOnly") return yield* Effect.die("text");
 				const tools = input.access.toolsets[0];
 				if (tools === undefined) return yield* Effect.die("no tools");
+				if (behavior === "finish-only") {
+					yield* Effect.promise(() => tools.call("guide_finish", {}));
+					return yield* consume(Stream.empty);
+				}
 				const handles = [...input.prompt.matchAll(/^(h\d+) src\/store\.ts/gm)]
 					.map((match) => match[1] as string)
 					.filter((handle, index, all) => all.indexOf(handle) === index);
@@ -307,6 +311,40 @@ describe("ReviewGuideService", () => {
 			const state = failed._tag === "Some" ? failed.value : null;
 			expect(state?.lastError).toBe("You're signed out of Claude Code.");
 			expect(state?.guide?.id).toBe(stored?.id);
+			expect(state?.guide?.overview?.context).toBe("Loads are cached.");
+		} finally {
+			await harness.dispose();
+		}
+	});
+
+	it("accepts an update that only finishes over kept chapters", async () => {
+		const harness = await makeHarness();
+		try {
+			await generate(harness);
+			await waitFor(
+				harness,
+				(state) => state.guide !== null && state.run === null,
+			);
+			// Only the test file changes: every core chapter and the overview
+			// carry over, and finishing is the whole job.
+			harness.setRunner("finish-only");
+			harness.setPatches([
+				firstChange[0] as GitReviewPatch,
+				patch("src/store.test.ts", [
+					"@@ -1 +1,3 @@",
+					" it()",
+					"+it('caches')",
+					"+it('clears')",
+				]),
+			]);
+			await generate(harness);
+			const done = await waitFor(
+				harness,
+				(state) => state.run === null && harness.prompts.length === 2,
+			);
+			const state = done._tag === "Some" ? done.value : null;
+			expect(state?.lastError).toBeNull();
+			expect(state?.guide?.chapters[0]?.id).toBe("cache-1");
 			expect(state?.guide?.overview?.context).toBe("Loads are cached.");
 		} finally {
 			await harness.dispose();

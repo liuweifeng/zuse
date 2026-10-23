@@ -186,6 +186,11 @@ describe("GuideDraft", () => {
 		const draft = new GuideDraft(buildOutline(change));
 		expect(draft.addChapter({ id: "x" }).isError).toBe(true);
 		expect(draft.setOverview({ context: "" }).isError).toBe(true);
+		for (const id of ["other-changes", "auto-tests", "new-since-guide"])
+			expect(
+				draft.addChapter({ id, title: "T", summary: "S.", hunks: ["h1"] })
+					.isError,
+			).toBe(true);
 	});
 
 	it("keeps chapters whose hunks are all still there", () => {

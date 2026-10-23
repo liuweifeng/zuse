@@ -12,6 +12,8 @@ import { z } from "zod";
 
 import {
 	type ChangeOutline,
+	isReservedChapterId,
+	OTHER_CHANGES_CHAPTER_ID,
 	type OutlineHunkKind,
 	resolveHandles,
 } from "./outline.ts";
@@ -84,6 +86,9 @@ const chapterSchema = z.object({
 		.string()
 		.min(1)
 		.max(40)
+		.refine((id) => !isReservedChapterId(id), {
+			message: "This id is reserved for chapters the guide adds itself.",
+		})
 		.describe("Short slug. Reusing an id revises that chapter."),
 	title: z
 		.string()
@@ -367,9 +372,9 @@ export class GuideDraft {
 		}
 		if (unplaced.length > 0) {
 			this.chapters.set(
-				"other-changes",
+				OTHER_CHANGES_CHAPTER_ID,
 				new ReviewGuideChapter({
-					id: "other-changes",
+					id: OTHER_CHANGES_CHAPTER_ID,
 					ordinal: this.chapters.size,
 					kind: "core",
 					title: "Other changes",
@@ -380,7 +385,7 @@ export class GuideDraft {
 					auto: true,
 				}),
 			);
-			for (const id of unplaced) this.owner.set(id, "other-changes");
+			for (const id of unplaced) this.owner.set(id, OTHER_CHANGES_CHAPTER_ID);
 		}
 		this.finished = true;
 		return reply({ ok: true });

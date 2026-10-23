@@ -118,6 +118,7 @@ export interface GuideDocumentProps<A> {
 	readonly files: ReadonlyMap<string, GitReviewFile>;
 	readonly patches: Readonly<Record<string, GitReviewPatch>>;
 	readonly isFileViewed: (path: string) => boolean;
+	readonly isChapterReviewed: (chapter: GuideViewChapter) => boolean;
 	readonly onChapterReviewed: (
 		chapter: GuideViewChapter,
 		reviewed: boolean,
@@ -156,6 +157,7 @@ export function GuideDocument<A>({
 	files,
 	patches,
 	isFileViewed,
+	isChapterReviewed,
 	onChapterReviewed,
 	onGenerate,
 	onCancel,
@@ -251,7 +253,12 @@ export function GuideDocument<A>({
 		return () => window.removeEventListener("keydown", onKeyDown);
 	}, [mode, reading, scrollTo]);
 
-	const unavailable = state?.unavailable ?? null;
+	// "No changes" is saved when a refresh found none; once there are changes
+	// again it must not keep the reader from writing a guide.
+	const unavailable =
+		state?.unavailable === "no-changes" && heading.fileCount > 0
+			? null
+			: (state?.unavailable ?? null);
 	const status =
 		run !== null
 			? guide === null
@@ -363,7 +370,7 @@ export function GuideDocument<A>({
 								chapters={reading}
 								total={core.length}
 								files={files}
-								isFileViewed={isFileViewed}
+								isChapterReviewed={isChapterReviewed}
 								onOpen={openChapter}
 							/>
 						) : null}
@@ -380,6 +387,7 @@ export function GuideDocument<A>({
 								files={files}
 								patches={patches}
 								isFileViewed={isFileViewed}
+								reviewed={isChapterReviewed(chapter)}
 								onFileReviewed={onFileReviewed}
 								next={reading[index + 1] ?? null}
 								onReviewed={(reviewed) => onChapterReviewed(chapter, reviewed)}
@@ -421,13 +429,13 @@ function InThisGuide({
 	chapters,
 	total,
 	files,
-	isFileViewed,
+	isChapterReviewed,
 	onOpen,
 }: {
 	readonly chapters: ReadonlyArray<GuideViewChapter>;
 	readonly total: number;
 	readonly files: ReadonlyMap<string, GitReviewFile>;
-	readonly isFileViewed: (path: string) => boolean;
+	readonly isChapterReviewed: (chapter: GuideViewChapter) => boolean;
 	readonly onOpen: (id: string) => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -438,8 +446,7 @@ function InThisGuide({
 			</h2>
 			<div className="mt-4 grid grid-cols-[repeat(auto-fill,minmax(14rem,1fr))] gap-3">
 				{chapters.map((chapter) => {
-					const reviewed =
-						chapter.files.length > 0 && chapter.files.every(isFileViewed);
+					const reviewed = isChapterReviewed(chapter);
 					const additions = chapter.files.reduce(
 						(sum, path) => sum + (files.get(path)?.additions ?? 0),
 						0,
@@ -685,6 +692,7 @@ function ChapterSection<A>({
 	files,
 	patches,
 	isFileViewed,
+	reviewed,
 	onFileReviewed,
 	next,
 	onReviewed,
@@ -701,6 +709,7 @@ function ChapterSection<A>({
 	readonly files: ReadonlyMap<string, GitReviewFile>;
 	readonly patches: Readonly<Record<string, GitReviewPatch>>;
 	readonly isFileViewed: (path: string) => boolean;
+	readonly reviewed: boolean;
 	readonly next: GuideViewChapter | null;
 	readonly onReviewed: (reviewed: boolean) => void;
 	readonly onNext: (next: GuideViewChapter) => void;
@@ -709,8 +718,6 @@ function ChapterSection<A>({
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 	const group = chapter.number === null;
-	const reviewed =
-		chapter.files.length > 0 && chapter.files.every(isFileViewed);
 	const ids = useMemo(() => new Set(chapter.hunkIds), [chapter.hunkIds]);
 	const paragraphs = chapter.summary
 		.split(/\n\s*\n/)
@@ -879,7 +886,9 @@ function LazyChapterDiff<A>(props: {
 	const [open, setOpen] = useState(!props.collapsed);
 	useEffect(() => {
 		const element = ref.current;
-		if (element === null || near) return;
+		// The wrapper only exists while the file is open, so look again
+		// whenever it opens.
+		if (!open || element === null || near) return;
 		const observer = new IntersectionObserver(
 			(entries) => {
 				if (entries.some((entry) => entry.isIntersecting)) setNear(true);
@@ -888,7 +897,7 @@ function LazyChapterDiff<A>(props: {
 		);
 		observer.observe(element);
 		return () => observer.disconnect();
-	}, [near]);
+	}, [near, open]);
 
 	const { name, dir } = splitPath(props.path);
 	if (!open)

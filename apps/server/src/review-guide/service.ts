@@ -265,6 +265,10 @@ export const ReviewGuideServiceLive = Layer.effect(
 				const current = yield* settings;
 				if (current.reviewGuidesEnabled === false)
 					return yield* failure("Guided reviews are turned off in Settings.");
+				// Automatic refreshes wait out a debounce; the setting may have been
+				// turned off since they were queued.
+				if (options.automatic && current.reviewGuidesAutoGenerate === false)
+					return;
 				const writer = yield* findWriter(ref, options.originSessionId);
 				if (writer === null)
 					return yield* failure(
@@ -387,8 +391,12 @@ export const ReviewGuideServiceLive = Layer.effect(
 						Effect.catch((error) => Effect.succeed(error.message)),
 					);
 				// A run that wrote some of the guide before stopping still leaves a
-				// useful guide; one that wrote nothing is a failure.
-				if (draft.writes === 0)
+				// useful guide; one that wrote nothing is a failure. An update can
+				// rightly write nothing new: it kept every chapter and the overview,
+				// and only finished.
+				const carriedOver =
+					draft.finished && (update.kept.length > 0 || update.keepOverview);
+				if (draft.writes === 0 && !carriedOver)
 					return yield* failure(
 						agentError ?? runError ?? "The agent did not write the guide.",
 					);
@@ -411,7 +419,9 @@ export const ReviewGuideServiceLive = Layer.effect(
 							model: writer.model,
 							baseSha,
 							headSha,
-							overview: draft.overview,
+							// Keep the last overview rather than none if this run wrote
+							// no new one.
+							overview: draft.overview ?? previous?.overview ?? null,
 							chapters: [...core, ...autoChapters(outline, core.length)],
 							error: null,
 							createdAt: previous?.createdAt ?? now,

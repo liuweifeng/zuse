@@ -2,9 +2,11 @@ import { ReviewGuideChapter } from "@zuse/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
+	isChapterReviewed,
 	liveHunkIds,
 	NEW_SINCE_GUIDE_ID,
 	projectGuide,
+	reviewChapter,
 } from "../../src/review-guide-view.ts";
 
 const patch = (path: string, body: ReadonlyArray<string>) => ({
@@ -84,5 +86,49 @@ describe("projectGuide", () => {
 		]);
 		expect(view.chapters[1]?.changed).toBe(true);
 		expect(view.chapters[0]?.hunkCount).toBe(4);
+	});
+});
+
+describe("chapter review", () => {
+	const fileHunks = new Map([
+		["a.ts", ["a.ts@1", "a.ts@2"]],
+		["b.ts", ["b.ts@1"]],
+	]);
+	const first = { hunkIds: ["a.ts@1", "b.ts@1"] };
+	const second = { hunkIds: ["a.ts@2"] };
+
+	it("reviews only the chapter's own hunks of a shared file", () => {
+		const viewed = new Set<string>();
+		const result = reviewChapter(first, true, {
+			reviewedHunks: new Set(),
+			fileHunks,
+			isFileViewed: (path) => viewed.has(path),
+		});
+		expect(result.toggleFiles).toEqual(["b.ts"]);
+		for (const path of result.toggleFiles) viewed.add(path);
+		const isViewed = (path: string) => viewed.has(path);
+		expect(isChapterReviewed(first, result.reviewedHunks, isViewed)).toBe(true);
+		expect(isChapterReviewed(second, result.reviewedHunks, isViewed)).toBe(
+			false,
+		);
+	});
+
+	it("views a file once all of its hunks are reviewed", () => {
+		const result = reviewChapter(second, true, {
+			reviewedHunks: new Set(["a.ts@1", "b.ts@1"]),
+			fileHunks,
+			isFileViewed: (path) => path === "b.ts",
+		});
+		expect(result.toggleFiles).toEqual(["a.ts"]);
+	});
+
+	it("unchecking one chapter keeps the other reviewed", () => {
+		const result = reviewChapter(second, false, {
+			reviewedHunks: new Set(),
+			fileHunks,
+			isFileViewed: (path) => path === "a.ts",
+		});
+		expect(result.toggleFiles).toEqual(["a.ts"]);
+		expect([...result.reviewedHunks]).toEqual(["a.ts@1"]);
 	});
 });

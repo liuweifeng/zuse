@@ -6,6 +6,8 @@
  *
  * @module review-guide/outline
  */
+
+import { NEW_SINCE_GUIDE_ID } from "@zuse/client-runtime/review-guide-view";
 import {
 	classifyReviewFile,
 	detectMoves,
@@ -195,6 +197,14 @@ const AUTO_CHAPTERS: ReadonlyArray<{
 	},
 ];
 
+/** Chapters the server writes itself; the agent can't take these ids. */
+export const OTHER_CHANGES_CHAPTER_ID = "other-changes";
+const AUTO_CHAPTER_PREFIX = "auto-";
+export const isReservedChapterId = (id: string): boolean =>
+	id === OTHER_CHANGES_CHAPTER_ID ||
+	id === NEW_SINCE_GUIDE_ID ||
+	id.startsWith(AUTO_CHAPTER_PREFIX);
+
 /** The collapsed groups at the end of every guide, in a fixed order. */
 export const autoChapters = (
 	outline: ChangeOutline,
@@ -208,7 +218,7 @@ export const autoChapters = (
 		if (ids.length === 0) return [];
 		return [
 			new ReviewGuideChapter({
-				id: `auto-${group.kind}`,
+				id: `${AUTO_CHAPTER_PREFIX}${group.kind}`,
 				ordinal: ordinal++,
 				kind: group.kind,
 				title: group.title,

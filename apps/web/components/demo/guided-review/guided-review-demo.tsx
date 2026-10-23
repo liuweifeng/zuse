@@ -292,7 +292,9 @@ function FileDiffCard({
 	const open = expanded ?? !(reviewed || startCollapsed);
 	useEffect(() => {
 		const element = ref.current;
-		if (element === null || near) return;
+		// The wrapper only exists while the file is open, so look again
+		// whenever it opens.
+		if (!open || element === null || near) return;
 		const observer = new IntersectionObserver(
 			(entries) => {
 				if (entries.some((entry) => entry.isIntersecting)) setNear(true);
@@ -301,7 +303,7 @@ function FileDiffCard({
 		);
 		observer.observe(element);
 		return () => observer.disconnect();
-	}, [near]);
+	}, [near, open]);
 	const { name, dir } = splitPath(path);
 	const options = useMemo(
 		() => ({ ...BASE_DIFF_OPTIONS, onGutterUtilityClick: onStartComment }),
@@ -477,7 +479,11 @@ export function GuidedReviewDemo() {
 		(update: (current: DemoComment[]) => DemoComment[]) =>
 			setComments((current) => {
 				const next = update(current);
-				localStorage.setItem(COMMENTS_KEY, JSON.stringify(next));
+				try {
+					localStorage.setItem(COMMENTS_KEY, JSON.stringify(next));
+				} catch {
+					// Blocked or full storage: comments still work for this visit.
+				}
 				return next;
 			}),
 		[],
