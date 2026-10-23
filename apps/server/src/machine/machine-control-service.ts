@@ -9,7 +9,19 @@ import {
 } from "@zuse/client-runtime/cloud-control-client";
 import { controlApiErrorCode } from "@zuse/client-runtime/control-api-error";
 import { makeOrganizationAutoJoinControlClient } from "@zuse/client-runtime/organization-control-client";
-import { BridgeDeviceList, DEVICE_BRIDGE_API_PATH } from "@zuse/contracts";
+
+import {
+	BridgeDeviceList,
+	DEVICE_BRIDGE_API_PATH,
+	UsageHistoryAccepted,
+	UsageHistoryKey,
+	UsageHistoryPage,
+	type UsageHistoryRow,
+	UsageHistorySettings,
+	type UsageProfileInput,
+	UsageProfileState,
+} from "@zuse/contracts";
+
 import { resolveAccountApiUrl } from "../api/api-url.ts";
 import { AppPaths } from "../app-paths.ts";
 import { LocalPlugins, withLocalPlugins } from "./local-plugins.ts";
@@ -339,6 +351,38 @@ export interface MachineControlServiceShape {
 		workspaceId: string,
 		port?: number,
 	) => Effect.Effect<CloudWorkspacePreviewRevoked, MachineControlError>;
+	readonly getUsageProfile: () => Effect.Effect<
+		UsageProfileState,
+		MachineControlError
+	>;
+	readonly publishUsageProfile: (
+		input: UsageProfileInput,
+	) => Effect.Effect<UsageProfileState, MachineControlError>;
+	readonly unpublishUsageProfile: () => Effect.Effect<
+		UsageProfileState,
+		MachineControlError
+	>;
+	readonly usageHistoryKey: () => Effect.Effect<
+		UsageHistoryKey,
+		MachineControlError
+	>;
+	readonly uploadUsageHistory: (
+		rows: ReadonlyArray<UsageHistoryRow>,
+	) => Effect.Effect<UsageHistoryAccepted, MachineControlError>;
+	readonly usageHistoryPage: (
+		cursor: string | null,
+	) => Effect.Effect<UsageHistoryPage, MachineControlError>;
+	readonly deleteUsageHistory: () => Effect.Effect<
+		UsageHistoryAccepted,
+		MachineControlError
+	>;
+	readonly usageHistorySettings: () => Effect.Effect<
+		UsageHistorySettings,
+		MachineControlError
+	>;
+	readonly setUsageHistorySettings: (
+		enabled: boolean,
+	) => Effect.Effect<UsageHistorySettings, MachineControlError>;
 	readonly listCloudApiKeys: () => Effect.Effect<
 		CloudApiKeyList,
 		MachineControlError
@@ -873,6 +917,29 @@ export const MachineControlServiceLive: Layer.Layer<
 					"POST",
 					{ workspaceId, ...options },
 				),
+			getUsageProfile: () => request(ApiPaths.usageProfile, UsageProfileState),
+			publishUsageProfile: (input) =>
+				request(ApiPaths.usageProfile, UsageProfileState, "PUT", input),
+			unpublishUsageProfile: () =>
+				request(ApiPaths.usageProfile, UsageProfileState, "DELETE"),
+			usageHistoryKey: () => request(ApiPaths.usageHistoryKey, UsageHistoryKey),
+			uploadUsageHistory: (rows) =>
+				request(ApiPaths.usageHistory, UsageHistoryAccepted, "PUT", { rows }),
+			usageHistoryPage: (cursor) =>
+				request(
+					cursor === null
+						? ApiPaths.usageHistory
+						: `${ApiPaths.usageHistory}?${new URLSearchParams({ cursor })}`,
+					UsageHistoryPage,
+				),
+			deleteUsageHistory: () =>
+				request(ApiPaths.usageHistory, UsageHistoryAccepted, "DELETE"),
+			usageHistorySettings: () =>
+				request(ApiPaths.usageHistorySettings, UsageHistorySettings),
+			setUsageHistorySettings: (enabled) =>
+				request(ApiPaths.usageHistorySettings, UsageHistorySettings, "PUT", {
+					enabled,
+				}),
 			listCloudApiKeys: () => request(ApiPaths.cloudApiKeys, CloudApiKeyList),
 			createCloudApiKey: (name) =>
 				request(ApiPaths.cloudApiKeys, CloudApiKeyCreated, "POST", { name }),
