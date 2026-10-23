@@ -723,17 +723,30 @@ export const takeQueuedMessageForEdit = async (
 };
 
 /** Keeps queue controls locked while delivery is pending or scheduled for retry. */
-export const queuedMessageRunPending = (
-	view: Pick<ResourceView<unknown>, "pendingCommands" | "failedCommands">,
-	queueId: string,
-): boolean => {
-	const matches = (command: { kind: string; targetId: string | null }) =>
-		command.kind === "messages.queue.runNext" && command.targetId === queueId;
-	return (
-		view.pendingCommands.some(matches) ||
-		view.failedCommands.some((command) => command.retryable && matches(command))
-	);
-};
+/** Whether a `kind` command for this queued message is in flight or retrying. */
+const queuedMessageCommandPending =
+	(kind: "messages.queue.add" | "messages.queue.runNext") =>
+	(
+		view: Pick<ResourceView<unknown>, "pendingCommands" | "failedCommands">,
+		queueId: string,
+	): boolean => {
+		const matches = (command: { kind: string; targetId: string | null }) =>
+			command.kind === kind && command.targetId === queueId;
+		return (
+			view.pendingCommands.some(matches) ||
+			view.failedCommands.some(
+				(command) => command.retryable && matches(command),
+			)
+		);
+	};
+
+export const queuedMessageRunPending = queuedMessageCommandPending(
+	"messages.queue.runNext",
+);
+
+/** A message queued during a turn stays unready until this save completes. */
+export const queuedMessageSavePending =
+	queuedMessageCommandPending("messages.queue.add");
 
 export const runQueuedMessageNext = async (
 	ref: SessionRef,

@@ -302,8 +302,16 @@ export const makeConversationOrchestration = (
 			run(dependencies.captureDelegation().pipe(Effect.flatMap(() => effect)));
 		const toolDependencies: OrchestrationToolDeps = {
 			master: Option.isSome(masterRouter)
-				? (commandJson, readOnly) =>
-						masterRouter.value.call(context.sessionId, commandJson, readOnly)
+				? (commandJson, readOnly, commandId) =>
+						masterRouter.value.call(
+							context.sessionId,
+							commandJson,
+							readOnly,
+							// Scoped so IDs chosen by different agents never collide.
+							commandId === undefined
+								? undefined
+								: `mcp:${context.sessionId}:${commandId}`,
+						)
 				: undefined,
 
 			automation: automation

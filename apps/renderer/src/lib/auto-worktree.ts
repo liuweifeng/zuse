@@ -1,3 +1,4 @@
+import { effectiveChatRuntimeMode } from "@zuse/client-runtime/chat-runtime-mode";
 import {
 	EnvironmentId,
 	type FolderId,
@@ -25,11 +26,6 @@ const repositorySettingsFor = async (
 		] ?? (await repositorySettings.refresh(environmentId, projectId))
 	);
 };
-
-export const effectiveChatRuntimeMode = (
-	globalDefault: RuntimeMode,
-	repositorySettings: Pick<RepositorySettings, "defaultRuntimeMode"> | null,
-): RuntimeMode => repositorySettings?.defaultRuntimeMode ?? globalDefault;
 
 /** Resolve the repository override before creating a new chat/session. */
 export async function resolveChatRuntimeMode(

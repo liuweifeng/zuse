@@ -34,12 +34,15 @@ export function MasterConversation({
 	environmentId,
 	mascotState,
 	onResume,
+	busy,
 }: {
 	readonly snapshot: MasterSnapshot;
 	readonly session: Session;
 	readonly environmentId: string;
 	readonly mascotState: MascotState;
 	readonly onResume: () => void;
+	/** A Zot action is in flight; Resume waits so it can't be sent twice. */
+	readonly busy: boolean;
 }) {
 	const { message } = useMessages("projects");
 	const environment = EnvironmentId.make(environmentId);
@@ -70,7 +73,7 @@ export function MasterConversation({
 					<p className="min-w-0 flex-1">
 						{message(`projects:masters_${status}_notice`)}
 					</p>
-					<Button size="xs" variant="ghost" onClick={onResume}>
+					<Button size="xs" variant="ghost" disabled={busy} onClick={onResume}>
 						{message("projects:masters_resume")}
 					</Button>
 				</div>

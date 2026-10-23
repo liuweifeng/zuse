@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
+import { effectiveChatRuntimeMode } from "@zuse/client-runtime/chat-runtime-mode";
 import { canonicalClientCommandJson } from "@zuse/client-runtime/client-persistence";
 import {
 	ChatId,
@@ -126,10 +127,10 @@ export const makeMasterService = Effect.gen(function* () {
 	 */
 	const runtimeModeFor = (folderId: FolderId | null) =>
 		Effect.gen(function* () {
-			const fallback = (yield* configStore.getSettings()).defaultRuntimeMode;
-			if (folderId === null) return fallback;
-			return (
-				(yield* repositorySettings.get(folderId)).defaultRuntimeMode ?? fallback
+			const global = (yield* configStore.getSettings()).defaultRuntimeMode;
+			return effectiveChatRuntimeMode(
+				global,
+				folderId === null ? null : yield* repositorySettings.get(folderId),
 			);
 		});
 	const router = yield* MasterToolRouter;
@@ -2196,11 +2197,14 @@ export const makeMasterService = Effect.gen(function* () {
 			const sessionId = SessionId.make(master.activeSessionId);
 			const session = yield* sessions.getSession(sessionId);
 			const desired = yield* runtimeModeFor(null);
+			// A fresh ID per attempt: commands are deduplicated by ID, so reusing
+			// one when the default returns to an earlier mode would replay the
+			// old receipt and never apply. Re-applying a mode is harmless.
 			if (session.runtimeMode !== desired)
 				yield* sessions.setRuntimeMode(
 					sessionId,
 					desired,
-					`zot-runtime-mode:${sessionId}:${desired}`,
+					`zot-runtime-mode:${sessionId}:${desired}:${crypto.randomUUID()}`,
 				);
 		}).pipe(Effect.catch(() => Effect.void));
 	const supervise = mutationLock.withPermits(1)(

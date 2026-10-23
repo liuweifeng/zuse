@@ -187,6 +187,8 @@ export interface OrchestrationToolDeps {
 	readonly master?: (
 		commandJson?: string,
 		readOnly?: boolean,
+		/** Stable per operation so a retried action returns its first result. */
+		commandId?: string,
 	) => Promise<unknown>;
 	readonly createWorktree: (input: {
 		readonly baseBranch?: string;
@@ -468,8 +470,11 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 				commandJson: stringProp(
 					"JSON matching the Zot action schema from master_state.",
 				),
+				commandId: stringProp(
+					"A unique ID for this operation. Reuse it, with identical commandJson, when retrying so the action runs once.",
+				),
 			},
-			["commandJson"],
+			["commandJson", "commandId"],
 		),
 	},
 	{
@@ -748,12 +753,23 @@ export const callOrchestrationTool = async (
 		case "master_state":
 		case "master_action": {
 			const commandJson = asString(args, "commandJson");
+			const commandId = asString(args, "commandId")?.trim() || undefined;
 			const result =
 				name === "master_action" && commandJson === undefined
 					? { ok: false, error: "commandJson is required." }
-					: deps.master
-						? await deps.master(commandJson, name === "master_state")
-						: { ok: false, error: "This session has no Zot." };
+					: name === "master_action" && commandId === undefined
+						? {
+								ok: false,
+								error:
+									"commandId is required. Use a unique ID per operation and reuse it when retrying.",
+							}
+						: deps.master
+							? await deps.master(
+									commandJson,
+									name === "master_state",
+									commandId,
+								)
+							: { ok: false, error: "This session has no Zot." };
 			return {
 				content: [{ type: "text", text: JSON.stringify(result) }],
 				isError:

@@ -129,6 +129,10 @@ const cluster = () => {
 	) => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-master-test-"));
 		const repositoryRuntimeModes = new Map<string, RuntimeMode>();
+		const runtimeModeCommands = new Set<string>();
+		const defaults: { runtimeMode: RuntimeMode } = {
+			runtimeMode: "full-access",
+		};
 		let catalogDefect = false;
 		const folders = new Map<string, Folder>();
 		const chats = new Map<string, Chat>();
@@ -246,7 +250,7 @@ const cluster = () => {
 								Effect.Success<
 									ReturnType<typeof ConfigStoreService.Service.getSettings>
 								>
-							>({ defaultRuntimeMode: "full-access" }),
+							>({ defaultRuntimeMode: defaults.runtimeMode }),
 						),
 				}),
 			),
@@ -280,8 +284,11 @@ const cluster = () => {
 										(session) => session.projectId === folderId,
 									),
 								),
-					setRuntimeMode: (sessionId, runtimeMode) =>
+					// Like the session domain, a repeated command ID replays its receipt.
+					setRuntimeMode: (sessionId, runtimeMode, commandId) =>
 						Effect.sync(() => {
+							if (runtimeModeCommands.has(commandId)) return;
+							runtimeModeCommands.add(commandId);
 							const session = required(sessions.get(sessionId));
 							sessions.set(
 								sessionId,
@@ -504,6 +511,7 @@ const cluster = () => {
 			repository,
 			fakeChat,
 			repositoryRuntimeModes,
+			defaults,
 		};
 	};
 	return {
@@ -692,7 +700,16 @@ describe("Master coordination across environment boundaries", () => {
 				),
 			{ timeout: 5_000, interval: 50 },
 		);
-	});
+
+		// Back to a mode used before, then forward again: each change applies.
+		for (const mode of ["approval-required", "full-access"] as const) {
+			home.defaults.runtimeMode = mode;
+			await vi.waitFor(
+				() => expect(home.sessions.get(coordinator.id)?.runtimeMode).toBe(mode),
+				{ timeout: 5_000, interval: 50 },
+			);
+		}
+	}, 20_000);
 
 	it("writes delegation-only coordinator instructions on creation and renewal", async () => {
 		const home = await cluster().createHome("local");

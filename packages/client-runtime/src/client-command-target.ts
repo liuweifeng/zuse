@@ -19,6 +19,7 @@ export const clientCommandTargetId = (
 			return stringField(command.payload, "taskId");
 		case "messages.interrupt":
 			return stringField(command.payload, "expectedTurnId");
+		case "messages.queue.add":
 		case "messages.queue.runNext":
 			return stringField(command.payload, "queueId");
 		case "session.answerQuestion":
