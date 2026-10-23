@@ -31,6 +31,7 @@ import {
 	liveHunkIds,
 	projectGuide,
 	reviewChapter,
+	withoutFileHunks,
 } from "@zuse/client-runtime/review-guide-view";
 import {
 	detectMoves,
@@ -622,10 +623,40 @@ function ChangesReviewReady({
 		},
 		[patches, viewed, viewedKey],
 	);
+	// Hunks checked off in guide chapters. The state names its workspace, so
+	// saving never writes one workspace's hunks under another's key.
+	const [hunkReview, setHunkReview] = useState(() => ({
+		workspace: key,
+		hunks: loadReviewedHunks(key),
+	}));
+	useEffect(() => {
+		setHunkReview((current) =>
+			current.workspace === key
+				? current
+				: { workspace: key, hunks: loadReviewedHunks(key) },
+		);
+	}, [key]);
+	useEffect(() => {
+		saveReviewedHunks(hunkReview.workspace, [...hunkReview.hunks]);
+	}, [hunkReview]);
+	const reviewedHunks = hunkReview.hunks;
+	const updateReviewedHunks = useCallback(
+		(update: (current: ReadonlySet<string>) => ReadonlySet<string>) =>
+			setHunkReview((current) => ({
+				...current,
+				hunks: update(current.hunks),
+			})),
+		[],
+	);
 	const toggleViewed = useCallback(
 		(path: string) => {
 			const storageKey = viewedKey(path);
 			const fingerprint = reviewFingerprint(patches[path]?.result.patch ?? "");
+			const unviewing = viewed[storageKey] === fingerprint;
+			// A file unchecked is unreviewed everywhere, including the hunks
+			// its chapters checked off.
+			if (unviewing)
+				updateReviewedHunks((current) => withoutFileHunks(current, path));
 			setViewed((current) => {
 				const next = { ...current };
 				if (next[storageKey] === fingerprint) delete next[storageKey];
@@ -635,7 +666,7 @@ function ChangesReviewReady({
 				return next;
 			});
 		},
-		[patches, viewedKey],
+		[patches, updateReviewedHunks, viewed, viewedKey],
 	);
 	const toggleCollapsed = useCallback((path: string) => {
 		setCollapsed((current) => {
@@ -700,10 +731,6 @@ function ChangesReviewReady({
 		viewerRef.current?.scrollTo(target);
 		lastNavigationTokenRef.current = navigation.token;
 	}, [items, navigation, reviewMode]);
-	const [reviewedHunks, setReviewedHunks] = useState(() =>
-		loadReviewedHunks(key),
-	);
-	useEffect(() => setReviewedHunks(loadReviewedHunks(key)), [key]);
 	const fileHunks = useMemo(
 		() =>
 			new Map(
@@ -729,11 +756,11 @@ function ChangesReviewReady({
 			for (const path of next.toggleFiles) toggleViewed(path);
 			// Only hunks still in the change are worth remembering.
 			const live = [...fileHunks.values()].flat();
-			const kept = live.filter((id) => next.reviewedHunks.has(id));
-			setReviewedHunks(new Set(kept));
-			saveReviewedHunks(key, kept);
+			updateReviewedHunks(
+				() => new Set(live.filter((id) => next.reviewedHunks.has(id))),
+			);
 		},
-		[fileHunks, isViewed, key, reviewedHunks, toggleViewed],
+		[fileHunks, isViewed, reviewedHunks, toggleViewed, updateReviewedHunks],
 	);
 	const askAboutChapter = useCallback(
 		(chapter: GuideViewChapter, question: string) => {

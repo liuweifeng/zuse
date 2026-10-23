@@ -419,9 +419,9 @@ export const ReviewGuideServiceLive = Layer.effect(
 							model: writer.model,
 							baseSha,
 							headSha,
-							// Keep the last overview rather than none if this run wrote
-							// no new one.
-							overview: draft.overview ?? previous?.overview ?? null,
+							// Already the previous overview when the update could reuse
+							// it; a stale one never sits above rewritten chapters.
+							overview: draft.overview,
 							chapters: [...core, ...autoChapters(outline, core.length)],
 							error: null,
 							createdAt: previous?.createdAt ?? now,

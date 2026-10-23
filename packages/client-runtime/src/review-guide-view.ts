@@ -72,6 +72,13 @@ export const isChapterReviewed = (
 		(id) => reviewedHunks.has(id) || isFileViewed(pathOfHunkId(id)),
 	);
 
+/** Reviewed hunks without any of one file's, for when the file is unchecked. */
+export const withoutFileHunks = (
+	reviewedHunks: ReadonlySet<string>,
+	path: string,
+): ReadonlySet<string> =>
+	new Set([...reviewedHunks].filter((id) => pathOfHunkId(id) !== path));
+
 /**
  * Review state after checking a chapter on or off. A file is viewed once all
  * of its hunks are reviewed. Unchecking keeps the file's other hunks

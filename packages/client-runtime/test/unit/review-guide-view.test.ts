@@ -7,6 +7,7 @@ import {
 	NEW_SINCE_GUIDE_ID,
 	projectGuide,
 	reviewChapter,
+	withoutFileHunks,
 } from "../../src/review-guide-view.ts";
 
 const patch = (path: string, body: ReadonlyArray<string>) => ({
@@ -120,6 +121,12 @@ describe("chapter review", () => {
 			isFileViewed: (path) => path === "b.ts",
 		});
 		expect(result.toggleFiles).toEqual(["a.ts"]);
+	});
+
+	it("unchecking a file unreviews the chapters that share it", () => {
+		const reviewed = withoutFileHunks(new Set(["a.ts@1", "b.ts@1"]), "a.ts");
+		expect([...reviewed]).toEqual(["b.ts@1"]);
+		expect(isChapterReviewed(first, reviewed, () => false)).toBe(false);
 	});
 
 	it("unchecking one chapter keeps the other reviewed", () => {

@@ -345,7 +345,9 @@ describe("ReviewGuideService", () => {
 			const state = done._tag === "Some" ? done.value : null;
 			expect(state?.lastError).toBeNull();
 			expect(state?.guide?.chapters[0]?.id).toBe("cache-1");
-			expect(state?.guide?.overview?.context).toBe("Loads are cached.");
+			// A third of the hunks changed, so the old overview was not reused;
+			// this run wrote no new one, and a stale one is not kept.
+			expect(state?.guide?.overview).toBeNull();
 		} finally {
 			await harness.dispose();
 		}
