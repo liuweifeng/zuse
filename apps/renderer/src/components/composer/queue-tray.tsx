@@ -149,6 +149,7 @@ export function QueueTray({
 						<StartupQueueStatus
 							sessionRef={ref}
 							queueId={item.id}
+							input={item.input}
 							creating={preparing}
 						/>
 					) : null}

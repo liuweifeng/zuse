@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/chat";
 import type { SessionRef } from "@zuse/client-runtime/resource-ref";
+import type { ComposerInput } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	startupQueueKey,
@@ -10,10 +11,12 @@ import { TrayPill, trayPillTextActionClass } from "./tray-pill.tsx";
 export function StartupQueueStatus({
 	sessionRef,
 	queueId,
+	input,
 	creating,
 }: {
 	readonly sessionRef: SessionRef;
 	readonly queueId: string;
+	readonly input: ComposerInput;
 	readonly creating: boolean;
 }) {
 	const { message } = useUiMessages(["chat", "common"]);
@@ -22,6 +25,10 @@ export function StartupQueueStatus({
 	);
 	const preparing =
 		job?.status === "preparing" || (job === undefined && creating);
+	// A message queued during a turn is briefly unready while it is saved.
+	// Without uploaded files there is nothing to reattach: not a failure.
+	if (job === undefined && !creating && input.attachments.length === 0)
+		return null;
 	return (
 		<TrayPill
 			flush

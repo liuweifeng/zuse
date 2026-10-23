@@ -23,7 +23,24 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", () => ({
 	useRendererSessionTimeline: () => ({
 		projection: {
 			queue: {
-				items: [{ id: "startup-queue", ready: state.ready }],
+				items: [
+					{
+						id: "startup-queue",
+						ready: state.ready,
+						input: {
+							text: "",
+							attachments: [
+								{
+									id: "a",
+									mimeType: "text/markdown",
+									originalName: "paste.md",
+								},
+							],
+							fileRefs: [],
+							skillRefs: [],
+						},
+					},
+				],
 				paused: state.paused,
 			},
 		},
