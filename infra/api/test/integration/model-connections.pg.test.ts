@@ -144,7 +144,7 @@ it.skipIf(!connectionString)(
 			);
 			expect(reply?.headers.get("cache-control")).toBe("no-store");
 			expect(await reply?.json()).toEqual({ value: false });
-			// The body cannot choose an account; the verified bearer owns this lease.
+
 			const other = await runtime.runPromise(
 				routeModelConnectionRequest(
 					new Request("https://api.test/v1/model-connections/storage", {

@@ -79,8 +79,7 @@ export type ActiveContext =
 
 const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 	const selectedFolderId = useWorkspaceStore((s) => s.selectedFolderId);
-	// The current panels must follow the same session selection as the transcript.
-	// The per-project slot is navigation history and can lag a newly selected tab.
+
 	const sessionId = useSessionsStore((s) =>
 		folderId === selectedFolderId
 			? s.selectedSessionId
@@ -112,8 +111,7 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 			: chatsByProject[folderId]?.find(
 					(row) => row.id === (selectedChatId ?? session?.chatId),
 				);
-	// Keep the completed reservation until entity summaries catch up. A later
-	// explicit chat binding supersedes it, including a switch to main.
+
 	const creation =
 		folderId === null
 			? null
@@ -127,8 +125,7 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 				);
 	const pending =
 		pendingCreation?.projectId === folderId ? pendingCreation : null;
-	// The chat owns the binding. Its session summary and creation receipt can
-	// arrive independently; neither may erase a newer durable workspace intent.
+
 	const selectedSession =
 		selectedChatId === null || session?.chatId === selectedChatId
 			? session
@@ -143,8 +140,6 @@ const useSelectedWorkspaceBinding = (folderId: FolderId | null) => {
 		worktreeId !== null ||
 		(creation != null && creation.workspacePolicy._tag !== "main") ||
 		pending?.workspaceRequested === true ||
-		// Missing summaries do not establish that a selected chat uses main.
-		// Opening a PTY here would permanently pin that terminal to the wrong cwd.
 		(chat == null &&
 			selectedSession == null &&
 			(selectedChatId !== null || sessionId !== null));
@@ -184,8 +179,7 @@ export const useActiveContext = (): ActiveContext => {
 		sessionId,
 	});
 	const cloudWorkspaceId = cloudSummary?.workspaceId ?? null;
-	// This desktop serves every workspace; a selection from another workspace
-	// must not expose its checkout before the store is re-projected.
+
 	const { folders: scopedFolders } = useActiveEnvironmentEntities();
 	const visible =
 		environmentBelongsToWorkspace(
@@ -210,10 +204,7 @@ export const useActiveContext = (): ActiveContext => {
 			worktreePath !== null
 		)
 			return;
-		// A session and its worktree are committed by the same server command, but
-		// their renderer projections are hydrated independently. Reconcile the
-		// worktree row as soon as the selected session names it so the canonical
-		// context cannot remain stuck in `worktree-pending` after creation settles.
+
 		void refreshWorktrees(selectedFolderId);
 	}, [
 		visible,

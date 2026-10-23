@@ -163,8 +163,7 @@ export const makeGithubJoiningSql = (
 					Effect.map((rows) => decode(GithubIdentity, rows)[0] ?? null),
 				),
 			),
-		// An account may switch GitHub accounts; one GitHub account never links to
-		// two Zuse accounts (the unique github_user_id index enforces races).
+
 		saveIdentity: (i) =>
 			sql<{
 				account_id: string;

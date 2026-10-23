@@ -81,7 +81,7 @@ export const forkCloudMachine = async (input: {
 				update: (current) =>
 					current.messages.length === 0 ? preview : current,
 			});
-			// Persist before selection so reopening a failed/starting fork remains readable.
+
 			await sessionTimelineCache
 				?.save(
 					makeSessionTimelineCacheEntry({

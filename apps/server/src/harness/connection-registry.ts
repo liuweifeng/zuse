@@ -41,7 +41,7 @@ export class ConnectionRegistry {
 				...value,
 				refreshToken: value.refreshToken,
 			});
-			// Persist rotating tokens even if the granted scope was narrowed.
+
 			await this.vault.write(updated);
 			if (!updated.accessToken || !authorized(updated))
 				throw new ModelAuthError("reauthorization_required");

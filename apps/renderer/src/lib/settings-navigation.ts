@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import type { WorkspaceScope } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
@@ -14,8 +15,8 @@ import {
 	PuzzleIcon,
 	Settings01Icon,
 	SmartPhone01Icon,
+	SmartPhone02Icon,
 	TaskDone01Icon,
-	TestTubeIcon,
 	UserGroupIcon,
 } from "@zuse/icons/solid-rounded";
 import type { SettingsSection } from "../store/ui.ts";
@@ -86,6 +87,14 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		section: { kind: "browser" },
 	},
 	{
+		id: "simulator",
+		get label() {
+			return uiMessage("simulators:settings_title");
+		},
+		Icon: SmartPhone02Icon,
+		section: { kind: "simulator" },
+	},
+	{
 		id: "pokedex",
 		get label() {
 			return uiMessage("settings:settings_navigation_pokedex");
@@ -117,16 +126,6 @@ const TOP_RAIL: ReadonlyArray<SettingsNavigationItem> = [
 		Icon: DocumentAttachmentIcon,
 		section: { kind: "diagnostics" },
 	},
-	// Dev-only visual playground (accent swatches + workflow chip/button
-	// showcase). Filtered out of production bundles below.
-	{
-		id: "developer",
-		get label() {
-			return uiMessage("settings:settings_navigation_developer");
-		},
-		Icon: TestTubeIcon,
-		section: { kind: "developer" },
-	},
 ];
 
 const CLOUD_MACHINES_AVAILABLE = cloudWorkspaceBetaAvailable();
@@ -142,7 +141,9 @@ export function settingsNavigationFor(
 ) {
 	if (scope?.kind === "organization") return ORGANIZATION_NAVIGATION;
 	return SETTINGS_NAVIGATION.filter(
-		(item) => desktop || item.section.kind !== "machines",
+		(item) =>
+			desktop ||
+			(item.section.kind !== "machines" && item.section.kind !== "simulator"),
 	);
 }
 
@@ -195,8 +196,4 @@ export const ORGANIZATION_NAVIGATION: ReadonlyArray<SettingsNavigationItem> = [
 ];
 
 export const SETTINGS_NAVIGATION: ReadonlyArray<SettingsNavigationItem> =
-	TOP_RAIL.filter(
-		(item) =>
-			(item.id !== "developer" || import.meta.env.DEV) &&
-			(item.id !== "machines" || CLOUD_MACHINES_AVAILABLE),
-	);
+	TOP_RAIL.filter((item) => item.id !== "machines" || CLOUD_MACHINES_AVAILABLE);

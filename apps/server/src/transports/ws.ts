@@ -31,6 +31,8 @@ import {
 	type LanAuthServiceShape,
 	PairingRedeemError,
 } from "../lan-auth/services/lan-auth-service.ts";
+import { receiveMasterPeer } from "../master/peer-handler.ts";
+import { MasterService } from "../master/service.ts";
 import { hostRuntimeVersion } from "../runtime-version.ts";
 import {
 	BROWSER_SECURITY_HEADERS,
@@ -528,8 +530,7 @@ export const wsServerProtocolLayer = (
 					: yield* auth.getApiConfig().pipe(Effect.orElseSucceed(() => null));
 			const browserSecurity: BrowserRequestSecurity = {
 				tls: opts.tls !== undefined,
-				// Forwarding headers are security-sensitive and are honored only for
-				// the managed api connection configured by this environment.
+
 				trustProxy: opts.trustProxy ?? api?.tunnelHostname !== undefined,
 			};
 			const cookieName = browserCookieName(environmentId);
@@ -626,9 +627,7 @@ export const wsServerProtocolLayer = (
 						426,
 					);
 				}
-				// Upgrade here so lifecycle accounting starts only after Node has
-				// accepted the WebSocket. The RPC helper receives the already-created
-				// socket through a request view and continues to own its full lifetime.
+
 				const socket = yield* Effect.orDie(request.upgrade);
 				const upgradedRequest = new Proxy(request, {
 					get(target, property) {
@@ -651,6 +650,29 @@ export const wsServerProtocolLayer = (
 			});
 
 			const router = yield* HttpRouter.make;
+			const master = yield* Effect.serviceOption(MasterService);
+			yield* router.add("POST", "/master-peer", (request) =>
+				Effect.gen(function* () {
+					if (master._tag === "None")
+						return yield* json({ error: "masters_unavailable" }, 503);
+					const body = yield* request.text.pipe(
+						Effect.provideService(
+							HttpIncomingMessage.MaxBodySize,
+							FileSystem.Size(32 * 1024 * 1024),
+						),
+						Effect.orElseSucceed(() => ""),
+					);
+					return yield* receiveMasterPeer(
+						(request.headers.authorization ?? "").replace(/^Bearer /, ""),
+						body,
+					).pipe(
+						Effect.provideService(MasterService, master.value),
+						Effect.provideService(LanAuthService, auth),
+						Effect.flatMap((result) => json(result, 200)),
+						Effect.catch(() => json({ error: "master_peer_rejected" }, 403)),
+					);
+				}),
+			);
 			yield* router.add("POST", "/device-bridge", (request) =>
 				Effect.gen(function* () {
 					if (bridge._tag === "None")
@@ -688,8 +710,7 @@ export const wsServerProtocolLayer = (
 				),
 			);
 			yield* router.add("GET", "/", guarded);
-			// Existing api deployments and previously linked environments may
-			// still advertise `/rpc`. Keep accepting it while newer links use `/`.
+
 			yield* router.add("GET", "/rpc", guarded);
 			yield* router.add("POST", "/pair", pairApp(auth, log));
 			yield* router.add(
@@ -783,9 +804,7 @@ export const wsServerProtocolLayer = (
 						if (identity === null) {
 							return yield* json({ error: "unauthorized" }, 401);
 						}
-						// This legacy URL has no session scope. A teammate must use
-						// attachments.read, which verifies both workspace access and
-						// the attachment's session, rather than an unscoped ID lookup.
+
 						if (identity.kind === "workspace")
 							return yield* json({ error: "forbidden" }, 403);
 						if (identity.kind === "account") {
@@ -857,10 +876,6 @@ export const wsServerProtocolLayer = (
 				(auth.policy === "protected" || api?.tunnelHostname !== undefined) &&
 				auth.pairingBootstrap
 			) {
-				// One reachable origin drives every printed link: explicit public
-				// origin > managed tunnel > actual listener (ephemeral port) >
-				// the server-issued LAN pairing. Browser URL, deep link, and the
-				// redeem endpoint must never point at different hosts.
 				const publicBaseUrl = opts.pairingPublicBaseUrl?.replace(/\/$/u, "");
 				const httpBaseUrl =
 					publicBaseUrl ??

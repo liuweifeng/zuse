@@ -1,12 +1,9 @@
-// Verify: E2B can start a live-fork (create-from-snapshot) with networking
-// blocked, and open it on command (ADR 0033 quarantine requirement).
 import { Sandbox } from "e2b";
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const results = {};
 const cleanup = { sandboxes: [], snapshotId: null };
 
-// Egress probe from inside a sandbox: raw IP (no DNS) + domain, short timeouts.
 async function probeEgress(sbx, label) {
 	const ip = await sbx.commands.run(
 		"curl -s -o /dev/null -m 6 -w '%{http_code}' https://1.1.1.1/ || echo FAIL",
@@ -31,7 +28,6 @@ async function counterState(sbx) {
 }
 
 try {
-	// 1. Source sandbox with a live stateful process.
 	let t = Date.now();
 	const src = await Sandbox.create("base", {
 		timeoutMs: 30 * 60_000,
@@ -46,14 +42,12 @@ try {
 	const srcState = await counterState(src);
 	log("source process", JSON.stringify(srcState));
 
-	// 2. Live snapshot (no pause of source).
 	t = Date.now();
 	const snap = await src.createSnapshot({ name: "zuse-372-quarantine" });
 	cleanup.snapshotId = snap.snapshotId;
 	results.snapshotMs = Date.now() - t;
 	log("snapshot", snap.snapshotId, results.snapshotMs, "ms");
 
-	// 3a. QUARANTINED fork: allowInternetAccess: false at create-from-snapshot.
 	t = Date.now();
 	const fork = await Sandbox.create(snap.snapshotId, {
 		timeoutMs: 30 * 60_000,
@@ -89,18 +83,15 @@ try {
 		c2.count,
 	);
 
-	// 4. Open the network on command.
 	t = Date.now();
 	await fork.updateNetwork({ allowInternetAccess: true });
 	results.openCommandMs = Date.now() - t;
 	log("updateNetwork(open) returned in", results.openCommandMs, "ms");
 	results.postOpenEgress = await probeEgress(fork, "fork-opened");
 
-	// 5. Re-close (defense check: can we also re-block a running fork?)
 	await fork.updateNetwork({ allowInternetAccess: false });
 	results.recloseEgress = await probeEgress(fork, "fork-reclosed");
 
-	// 6. Control fork: no flag — confirms quarantine came from the flag, not the snapshot.
 	const ctrl = await Sandbox.create(snap.snapshotId, {
 		timeoutMs: 10 * 60_000,
 		metadata: { spike: "372-quarantine-ctrl" },
@@ -131,7 +122,6 @@ try {
 }
 
 async function sbxWrite(sbx) {
-	// Live stateful process: counter loop with an in-memory increment + file mirror.
 	await sbx.commands.run(
 		`nohup bash -c 'exec -a counter-loop bash -c "n=0; while true; do n=$((n+1)); echo $n > /tmp/counter.txt; sleep 0.5; done"' >/dev/null 2>&1 &`,
 		{ timeoutMs: 10_000 },

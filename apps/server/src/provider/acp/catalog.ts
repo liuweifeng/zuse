@@ -70,7 +70,7 @@ export const distributionFor = (
 ) => {
 	const binary = agent.distribution.binary?.[target];
 	const windows = target.startsWith("windows-");
-	// Node refuses to spawn batch files without a shell, and agents never get one.
+
 	if (binary && !(windows && /\.(cmd|bat)$/i.test(binary.cmd)))
 		return {
 			kind: "binary" as const,
@@ -96,9 +96,7 @@ export const readCatalog = async (
 	let cached: Registry | undefined;
 	try {
 		cached = decode(JSON.parse(await readFile(file, "utf8")));
-	} catch {
-		/* Bundled fallback below. */
-	}
+	} catch {}
 	try {
 		const response = await fetcher(
 			"https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json",
@@ -127,7 +125,6 @@ const run = promisify(execFile);
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const MAX_EXPANDED_BYTES = 1024 * 1024 * 1024;
 
-/** Streams the archive to disk so large agents never sit in server memory. */
 const downloadArchive = async (
 	url: URL,
 	file: string,
@@ -140,7 +137,7 @@ const downloadArchive = async (
 	const hash = createHash("sha256");
 	const out = createWriteStream(file, { mode: 0o600 });
 	const finished = once(out, "finish");
-	// The stream can fail while a read is pending; settle it until awaited below.
+
 	finished.catch(() => {});
 	let downloaded = 0;
 	try {
@@ -165,11 +162,10 @@ const downloadArchive = async (
 interface ZipEntry {
 	readonly name: string;
 	readonly size: number;
-	/** Unix mode from the central directory, or 0 when the archive has none. */
+
 	readonly mode: number;
 }
 
-/** Reads the central directory, which carries the sizes and Unix modes. */
 const readZipEntries = async (file: string): Promise<ZipEntry[]> => {
 	const handle = await open(file, "r");
 	try {
@@ -196,7 +192,7 @@ const readZipEntries = async (file: string): Promise<ZipEntry[]> => {
 			entries.push({
 				name: directory.toString("utf8", nameStart, nameStart + nameLength),
 				size: directory.readUInt32LE(offset + 24),
-				// Host system 3 is Unix; its mode lives in the high external bits.
+
 				mode:
 					directory.readUInt8(offset + 5) === 3
 						? directory.readUInt32LE(offset + 38) >>> 16
@@ -214,10 +210,6 @@ const readZipEntries = async (file: string): Promise<ZipEntry[]> => {
 	}
 };
 
-/**
- * Validates every entry before extracting, then inflates straight to disk and
- * restores executable bits: agents often ship helper binaries beside `cmd`.
- */
 const extractZip = async (file: string, directory: string) => {
 	const entries = await readZipEntries(file);
 	let expanded = 0;
@@ -256,7 +248,6 @@ const extractZip = async (file: string, directory: string) => {
 			}),
 		);
 		entry.ondata = (error, chunk, final) => {
-			// fflate reports errors (e.g. unsupported compression) without a chunk.
 			if (error) failure ??= error;
 			if (chunk) written += chunk.byteLength;
 			if (written > MAX_EXPANDED_BYTES)
@@ -281,7 +272,6 @@ const extractZip = async (file: string, directory: string) => {
 		await Promise.all(writes);
 		if (failure) throw failure;
 	} catch (error) {
-		// Never leave a stream open: install runs inside the store's write lock.
 		for (const output of outputs) output.destroy();
 		throw error;
 	}
@@ -298,7 +288,7 @@ export const installCatalogAgent = async (
 	directory: string,
 	fetcher: typeof fetch = fetch,
 	resolveExecutable: (name: string) => Promise<string> = async (name) => name,
-	/** Shared across installs so updates and re-adds reuse downloaded packages. */
+
 	cacheDirectory = directory,
 ) => {
 	const distribution = distributionFor(agent);
@@ -328,7 +318,7 @@ export const installCatalogAgent = async (
 			distribution.kind === "uvx"
 				? distribution.value.package.replace(/@(?=[^@]+$)/, "==")
 				: distribution.value.package;
-		// Registry packages are normally pinned; pin unversioned entries to the manifest version.
+
 		const pinned =
 			distribution.kind === "npx"
 				? /@\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(spec)
@@ -370,7 +360,7 @@ export const installCatalogAgent = async (
 				});
 				await writeFile(archive, result.stdout);
 			}
-			// Validate the complete archive before extracting any entry. Links are not allowed.
+
 			let invalid: Error | undefined;
 			let expanded = 0;
 			await tar.t({

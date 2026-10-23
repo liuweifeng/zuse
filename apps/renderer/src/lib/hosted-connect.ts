@@ -155,7 +155,6 @@ const sha256 = async (value: string): Promise<string> =>
 export const hostedAuthTokenEndpoint = (baseUrl = rendererApiUrl()): string =>
 	`${baseUrl.replace(/\/$/u, "")}${ApiPaths.authToken}`;
 
-/** Only authoritative credential rejection invalidates the persisted login. */
 class HostedAuthRejection extends Error {
 	constructor(
 		readonly status: number,
@@ -165,7 +164,6 @@ class HostedAuthRejection extends Error {
 	}
 }
 const clearHostedSession = (): void => {
-	// A tombstone also prevents a still-open legacy tab from migrating old tokens.
 	localStorage.setItem(SESSION_KEY, "null");
 	sessionStorage.removeItem(SESSION_KEY);
 	publishHostedAuth();
@@ -323,7 +321,6 @@ export const hostedAccessToken = async (): Promise<string | null> => {
 	if (tokenRefresh !== null) return tokenRefresh;
 	const epoch = sessionEpoch;
 	const refresh = async (): Promise<string | null> => {
-		// Re-read after acquiring the origin-wide lock: another tab may have rotated it.
 		const session = readSession();
 		if (epoch !== sessionEpoch || session === null) return null;
 		if (session.expiresAt - Date.now() > 60_000 && session.user !== undefined)
@@ -354,7 +351,7 @@ export const hostedAccessToken = async (): Promise<string | null> => {
 				clearHostedSession();
 				return null;
 			}
-			// Network errors, rate limits, and server failures are retryable, not sign-out.
+
 			throw cause;
 		}
 	};

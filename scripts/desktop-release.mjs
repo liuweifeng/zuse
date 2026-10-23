@@ -29,7 +29,12 @@ const command = (bin, args) =>
 		maxBuffer: 16 * 1024 * 1024,
 	}).trim();
 const git = (...args) => command("git", args);
-const gh = (...args) => command("gh", args);
+const gh = (...args) => {
+	const testScript = process.env.ZUSE_RELEASE_GH_SCRIPT?.trim();
+	return testScript
+		? command(process.execPath, [testScript, ...args])
+		: command("gh", args);
+};
 
 export function validateNotes(notes) {
 	if (!/^### (Added|Changed|Fixed)$/m.test(notes) || !/^[-*] \S/m.test(notes)) {
@@ -255,16 +260,13 @@ export function publishRelease(directory, metadata, github = gh) {
 	const assets = verifyReleaseAssets(directory, metadata);
 	const notesFile = join(directory, "release-notes.md");
 	writeFileSync(notesFile, validateNotes(metadata.notes));
-	// Create a draft only after all platform artifacts pass validation. Failed
-	// uploads stay invisible to updaters; retrying never publishes half a build.
+
 	let existing;
 	try {
 		existing = JSON.parse(
 			github("release", "view", metadata.tag, "--json", "isDraft"),
 		);
-	} catch {
-		/* first attempt */
-	}
+	} catch {}
 	if (existing && !existing.isDraft)
 		throw new Error("Refusing to overwrite a published release");
 	if (!existing)

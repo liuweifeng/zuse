@@ -107,7 +107,7 @@ describe("buildHomeFeed", () => {
 			"chat:conn:active",
 			"chat:conn:idle",
 		]);
-		// Duplicated rows carry unique keys.
+
 		const keys = feed.map((item) => item.key);
 		expect(new Set(keys).size).toBe(keys.length);
 	});

@@ -7,12 +7,6 @@ import type { ProviderUsageLimits, UsageLimitWindow } from "@zuse/contracts";
 
 import { unavailable } from "./shared.ts";
 
-/**
- * Kiro credit limits via the control-plane `GetUsageLimits` API
- * (`https://management.<region>.kiro.dev`). Auth is the OIDC token the CLI
- * keeps in its app-support SQLite DB after `kiro-cli login`.
- */
-
 interface UsageBreakdown {
 	readonly resourceType?: string;
 	readonly displayName?: string;
@@ -39,7 +33,7 @@ const NO_LIMIT_SENTINEL = 999_999;
 
 const resetIsoFromEpochSeconds = (value: unknown): string | null => {
 	if (typeof value !== "number" || !Number.isFinite(value)) return null;
-	// API returns epoch seconds (sometimes scientific notation in JSON).
+
 	const ms = value < 10_000_000_000 ? value * 1_000 : value;
 	const date = new Date(ms);
 	return Number.isNaN(date.getTime()) ? null : date.toISOString();
@@ -78,7 +72,7 @@ export const mapKiroUsageLimits = (
 			scope: "overall",
 			usedPercent,
 			resetsAt: resetIsoFromEpochSeconds(item.nextDateReset) ?? globalReset,
-			// Monthly cycle — approximate; exact day comes from resetsAt.
+
 			windowMinutes: 43_200,
 		});
 		if (
@@ -105,8 +99,7 @@ export const fetchKiroUsage = async (
 	signal?: AbortSignal,
 ): Promise<ProviderUsageLimits> => {
 	const kiroPath = resolveKiroCliPath();
-	// Always allow a CLI refresh — short-lived OIDC tokens expire while the
-	// desktop still shows "authenticated" from the last availability probe.
+
 	const auth = await readKiroAuthContextAsync({
 		signal,
 		kiroPath,
@@ -146,7 +139,6 @@ export const fetchKiroUsage = async (
 		const message = cause instanceof Error ? cause.message : String(cause);
 		console.warn(`[kiro-usage] GetUsageLimits failed: ${message}`);
 		if (/invalid token|unauthori[sz]ed|access denied|expired/i.test(message)) {
-			// One more refresh + retry — common when the token expired mid-request.
 			const retried = await readKiroAuthContextAsync({
 				signal,
 				kiroPath,

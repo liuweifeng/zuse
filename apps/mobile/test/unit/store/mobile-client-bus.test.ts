@@ -64,6 +64,11 @@ vi.mock("~/rpc/connection-failures", () => ({
 	isRetryableClientError: () => false,
 }));
 
+// Command tests do not use account-backed GitHub reads or native authentication.
+vi.mock("../../../src/rpc/github", () => ({
+	loadGithubObservation: vi.fn(),
+}));
+
 import { cancelQuestion } from "../../../src/rpc/actions";
 import {
 	MobileCommandOutbox,

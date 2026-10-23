@@ -38,8 +38,6 @@ const installAppStateOnlineBridge = () => {
 		setMobileClientBusOnline(false);
 	}
 	AppState.addEventListener("change", (next) => {
-		// Treat background as offline for transport ownership: active screens keep
-		// cached data, and the supervisor reconnects when the app wakes.
 		if (next === "background") {
 			wasBackgrounded = true;
 			setConnectionOnline(false);

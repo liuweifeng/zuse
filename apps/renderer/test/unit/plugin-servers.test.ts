@@ -3,6 +3,7 @@ import {
 	apiKeyValue,
 	type CustomServerDraft,
 	customServerAuthOf,
+	parseLocalServerConfig,
 	pluginConnectErrorKey,
 	pluginDomain,
 	validateCustomServer,
@@ -102,5 +103,41 @@ describe("custom MCP servers", () => {
 		expect(pluginConnectErrorKey(null, false)).toBe(
 			"plugins:plugins_connect_failed_detail",
 		);
+	});
+});
+
+describe("local MCP configuration", () => {
+	it("accepts Paper's standard MCP wrapper and direct stdio configs", () => {
+		expect(
+			parseLocalServerConfig(
+				JSON.stringify({
+					mcpServers: {
+						paper: {
+							type: "stdio",
+							command: "/Users/me/.paper/bin/paper",
+							args: ["mcp"],
+						},
+					},
+				}),
+			),
+		).toEqual({
+			command: "/Users/me/.paper/bin/paper",
+			args: ["mcp"],
+			env: {},
+		});
+		expect(
+			parseLocalServerConfig('{"command":"node","env":{"TOKEN":"value"}}'),
+		).toEqual({ command: "node", args: [], env: { TOKEN: "value" } });
+	});
+	it.each([
+		"null",
+		"{}",
+		'{"command":""}',
+		'{"command":"node","type":"http"}',
+		'{"command":"node","args":[1]}',
+		'{"command":"node","env":{"TOKEN":1}}',
+		'{"mcpServers":{"a":{},"b":{}}}',
+	])("rejects invalid config %s", (config) => {
+		expect(() => parseLocalServerConfig(config)).toThrow();
 	});
 });

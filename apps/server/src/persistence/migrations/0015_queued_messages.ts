@@ -21,9 +21,6 @@ export const Migration0015QueuedMessages = Effect.gen(function* () {
   const hasColumn = (name: string): boolean =>
     columns.some((column) => column.name === name);
 
-  // A previous failed app boot may have created the first draft of this table
-  // with a `position` column before failing later in the migration. Keep that
-  // database recoverable by adding the non-keyword column and copying values.
   if (!hasColumn("queue_order")) {
     yield* sql`
       ALTER TABLE queued_messages

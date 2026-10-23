@@ -573,13 +573,16 @@ it("keeps tools together across invisible status and empty assistant rows", () =
 	);
 });
 
-it("keeps inline visuals outside collapsed activity with stable identities after settling", () => {
+it.each([
+	"mcp__zuse__html_render",
+	"GenerateImage",
+])("keeps inline %s visuals outside collapsed activity with stable identities after settling", (visualTool) => {
 	const content = (itemId: string, tool: string) =>
 		({ _tag: "tool_use", itemId, tool, input: {} }) as Message["content"];
 	const messages = [
 		message("u", { _tag: "user", text: "Compare" }),
 		message("tool", content("shell", "Bash")),
-		message("visual", content("visual", "mcp__zuse__html_render")),
+		message("visual", content("visual", visualTool)),
 		message("a", { _tag: "assistant", text: "Analysis" }),
 	];
 	for (const inFlight of [true, false]) {
@@ -655,7 +658,6 @@ it("draws orchestration spawns and subagents as one delegation group, outside to
 		fleet?.kind === "delegation" && fleet.members.map((member) => member.id),
 	).toEqual(["one", "two", "agent"]);
 
-	// Settled turns keep delegations visible and out of the summary counts.
 	const settled = deriveChatTimelineRows({
 		messages,
 		inFlight: false,
@@ -777,7 +779,7 @@ it("shows generated UI inline instead of under its tool call", () => {
 						.map((m) => m.id)
 				: [],
 	);
-	// The failed call stays visible; the successful one is the block itself.
+
 	expect(tools).toEqual(["tool-bad", "result-bad"]);
 	const interactive = (id: string) => {
 		const row = rows.find((candidate) => candidate.id === `message:${id}`);

@@ -74,7 +74,6 @@ test("sync phases share verified bytes but recheck local edits and corrupt objec
 		expect(await localBaseline(root, [file], verifier)).toEqual([file]);
 		expect(read).toHaveBeenCalledTimes(1);
 
-		// Same size and restored mtime must still invalidate through ctime.
 		await writeFile(path, "modified");
 		await utimes(path, info.atime, info.mtime);
 		expect(await localBaseline(root, [file], verifier)).toEqual([]);

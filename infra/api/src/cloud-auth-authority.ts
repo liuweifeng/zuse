@@ -54,8 +54,6 @@ export const canSeedCloudAuthSnapshot = (
 	targetProviderId === authorityProviderId &&
 	authorityProviderId === CLOUD_AUTH_AUTHORITY_PROVIDER_ID;
 
-// Shared across real operations so a broker request cannot shorten a concurrent
-// device login's window. Passive status/login polling never extends this lease.
 const AUTH_TIMEOUT_SECONDS = 15 * 60;
 const AUTH_PROVISIONING_LEASE_MS = 2 * 60 * 1000;
 const PROVIDERS = ["claude", "codex", "cursor", "grok"] as const;
@@ -99,8 +97,6 @@ export const parseDeviceLoginOutput = (
 	};
 };
 
-// Retained authentication machines outlive template updates. Every auth operation
-// must use the same validated CLI without changing the account's credential home.
 const AUTH_CODEX_PATH_SOURCE = `const authCodexPrefix = (process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth") + "/toolchains/codex-${CODEX_EXTERNAL_AUTH_TOOLCHAIN_VERSION}";
 process.env.PATH = authCodexPrefix + "/node_modules/.bin:" + (process.env.PATH ?? "");
 `;
@@ -229,6 +225,32 @@ await writeFile(home + "/status/" + input.providerId + ".json", JSON.stringify(r
 await writeFile(resultPath, JSON.stringify(result), { mode: 0o600 });
 `;
 
+const GROK_AUTH_SOURCE = `const grokAuthFile = process.env.ZUSE_GROK_AUTH_FILE ?? "/home/zuse/.grok/auth.json";
+const readGrokAuth = async () => {
+  const record = (value) => typeof value === "object" && value !== null ? value : {};
+  const string = (value) => typeof value === "string" && value.length > 0 ? value : null;
+  const entries = Object.entries(record(JSON.parse(await readFile(grokAuthFile, "utf8"))));
+  const preferred = entries.find(([scope]) => scope.startsWith("https://auth.x.ai::")) ?? entries.find(([, value]) => string(record(value).key) !== null);
+  if (preferred === undefined) throw new Error("managed_auth_unavailable");
+  const [scope, raw] = preferred;
+  const auth = record(raw);
+  const accessToken = string(auth.key);
+  const refreshToken = string(auth.refresh_token);
+  if (accessToken === null || refreshToken === null) throw new Error("managed_auth_unavailable");
+  const parsedExpiry = typeof auth.expires_at === "string" ? Date.parse(auth.expires_at) : Number.NaN;
+  const parsedCreated = typeof auth.create_time === "string" ? Date.parse(auth.create_time) : Number.NaN;
+  const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Number.isFinite(parsedCreated) ? parsedCreated + 30 * 24 * 60 * 60 * 1000 : 0;
+  return {
+    method: "subscription",
+    credentialKind: "oauth-token",
+    secret: accessToken,
+    providerAccountId: string(auth.user_id) ?? string(auth.email),
+    issuer: string(auth.oidc_issuer) ?? scope.split("::")[0] ?? null,
+    expiresAt,
+  };
+};
+`;
+
 const LOGIN_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
 	`import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -240,6 +262,7 @@ const operationId = process.argv[3];
 const operationPath = home + "/operations/" + operationId + ".json";
 await mkdir(home + "/operations", { recursive: true, mode: 0o700 });
 const command = providerId === "cursor" ? "cursor-agent" : providerId === "grok" ? "/home/zuse/.local/bin/grok" : providerId;
+${GROK_AUTH_SOURCE}
 const args = ["login", "--device-auth"];
 const child = spawn(command, args, { cwd: "/home/zuse", env: process.env, stdio: ["ignore", "pipe", "pipe"] });
 await writeFile(operationPath, JSON.stringify({ providerId, state: "authorizing", pid: child.pid }), { mode: 0o600 });
@@ -251,6 +274,9 @@ const update = async () => {
 for (const stream of [child.stdout, child.stderr]) stream.on("data", (chunk) => { output = (output + chunk.toString()).slice(-8192); void update(); });
 child.once("error", async (error) => { await writeFile(operationPath, JSON.stringify({ providerId, state: "error", errorCode: error.code === "ENOENT" ? "missing-tool" : "login-failed" }), { mode: 0o600 }); });
 child.once("exit", async (code) => {
+  if (code === 0 && providerId === "grok") {
+    try { await readGrokAuth(); } catch { code = 1; }
+  }
   if (code === 0) {
     await mkdir(home + "/providers", { recursive: true, mode: 0o700 });
     await writeFile(home + "/providers/" + providerId + ".json", JSON.stringify({ providerId, method: "subscription", native: true, updatedAt: Date.now() }), { mode: 0o600 });
@@ -269,7 +295,7 @@ if (typeof current.pid === "number") { try { process.kill(current.pid, "SIGTERM"
 await writeFile(path, JSON.stringify({ providerId: current.providerId, state: "cancelled" }), { mode: 0o600 });
 `;
 
-const VERIFY_SOURCE =
+export const AUTH_VERIFY_SOURCE =
 	AUTH_CODEX_PATH_SOURCE +
 	CLAUDE_AUTH_VALIDATION_SOURCE +
 	`import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -277,6 +303,7 @@ import { spawn } from "node:child_process";
 import readline from "node:readline";
 const home = "/home/zuse/.zuse/cloud-auth";
 const markerPath = process.argv[2];
+${GROK_AUTH_SOURCE}
 const providers = ["claude", "codex", "cursor", "grok"];
 const verify = async (providerId) => {
   let credential;
@@ -318,7 +345,11 @@ const verify = async (providerId) => {
     });
     child.stdin.write(JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "zuse-cloud-auth", version: "1" }, capabilities: { experimentalApi: true } } }) + "\\n");
   });
-  const result = providerId === "claude" && credential.native !== true ? await verifyClaudeCredential(credential) : providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
+  const verifyNativeGrok = async () => {
+    try { await readGrokAuth(); } catch { return { code: 1, error: "authentication-required" }; }
+    return await runStatus();
+  };
+  const result = providerId === "grok" && credential.native === true ? await verifyNativeGrok() : providerId === "claude" && credential.native !== true ? await verifyClaudeCredential(credential) : providerId === "codex" && credential.native === true ? await readManagedCodexAccount() : await runStatus();
   const state = result.code === 0 ? "connected" : result.error === "missing-tool" ? "missing-tool" : providerId === "claude" && result.error !== "authentication-required" ? "error" : "expired";
   await writeFile(home + "/status/" + providerId + ".json", JSON.stringify({ providerId, method: credential.method, native: credential.native === true, state, verifiedAt: result.code === 0 ? (providerId === "claude" ? Date.now() : credential.updatedAt ?? Date.now()) : undefined, errorCode: result.code === 0 ? undefined : result.error ?? "verification-failed" }), { mode: 0o600 });
 };
@@ -336,7 +367,6 @@ import { dirname } from "node:path";
 import readline from "node:readline";
 const home = process.env.ZUSE_CLOUD_AUTH_HOME ?? "/home/zuse/.zuse/cloud-auth";
 const codexAuthFile = process.env.ZUSE_CODEX_AUTH_FILE ?? "/home/zuse/.codex/auth.json";
-const grokAuthFile = process.env.ZUSE_GROK_AUTH_FILE ?? "/home/zuse/.grok/auth.json";
 const grokBinary = process.env.ZUSE_GROK_BINARY ?? "/home/zuse/.local/bin/grok";
 const requestPath = process.argv[2];
 const resultPath = process.argv[3];
@@ -438,27 +468,7 @@ const readProviderCredential = async () => {
     expiresAt: Date.now() + 30 * 60 * 1000,
   };
 };
-const readGrokAuth = async () => {
-  const entries = Object.entries(record(JSON.parse(await readFile(grokAuthFile, "utf8"))));
-  const preferred = entries.find(([scope]) => scope.startsWith("https://auth.x.ai::")) ?? entries.find(([, value]) => string(record(value).key) !== null);
-  if (preferred === undefined) throw new Error("managed_auth_unavailable");
-  const [scope, raw] = preferred;
-  const auth = record(raw);
-  const accessToken = string(auth.key);
-  const refreshToken = string(auth.refresh_token);
-  if (accessToken === null || refreshToken === null) throw new Error("managed_auth_unavailable");
-  const parsedExpiry = typeof auth.expires_at === "string" ? Date.parse(auth.expires_at) : Number.NaN;
-  const parsedCreated = typeof auth.create_time === "string" ? Date.parse(auth.create_time) : Number.NaN;
-  const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : Number.isFinite(parsedCreated) ? parsedCreated + 30 * 24 * 60 * 60 * 1000 : 0;
-  return {
-    method: "subscription",
-    credentialKind: "oauth-token",
-    secret: accessToken,
-    providerAccountId: string(auth.user_id) ?? string(auth.email),
-    issuer: string(auth.oidc_issuer) ?? scope.split("::")[0] ?? null,
-    expiresAt,
-  };
-};
+${GROK_AUTH_SOURCE}
 const refreshGrokAuth = (force) => new Promise((resolve, reject) => {
   const child = spawn(grokBinary, ["--trust", "agent", "--no-leader", "stdio"], {
     env: {
@@ -562,7 +572,6 @@ emitTiming();
 /** Compatibility name retained for the Codex-only grant contract test. */
 export const CODEX_GRANT_SOURCE = AUTH_GRANT_SOURCE;
 
-/** Where a persisted authority lives; carries no observed power state. */
 type AuthorityLocation = {
 	readonly provider: SandboxProviderAdapter;
 	readonly sandboxId: string;
@@ -630,10 +639,6 @@ const authorityProvider = Effect.gen(function* () {
 		);
 });
 
-// A persisted authority stays on the provider that hosts it. Changing the
-// configured authority provider moves new authorities only; an existing one
-// whose provider is no longer registered fails loudly instead of being
-// mistaken for a lost sandbox and forcing the account to reconnect.
 const providerForAuthority = (locator: { readonly provider: string } | null) =>
 	Effect.gen(function* () {
 		if (locator === null) return yield* authorityProvider;
@@ -650,7 +655,6 @@ const providerForAuthority = (locator: { readonly provider: string } | null) =>
 const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 	accountId: string,
 	options?: {
-		/** Only a persisted ready locator qualifies; never adopt a sandbox by label. */
 		readonly existingOnly?: boolean;
 	},
 ) {
@@ -676,8 +680,7 @@ const recoverAuthority = Effect.fn("recoverCloudAuthAuthority")(function* (
 				storageIncarnationId: locator.storageIncarnationId,
 				authEpoch: locator.authEpoch,
 			} satisfies Authority;
-		// A persisted locator is authoritative. Never guess after its storage is
-		// lost; the account must explicitly reconnect Codex.
+
 		return null;
 	}
 	const stable = yield* provider
@@ -753,14 +756,12 @@ const waitForFile = Effect.fn("waitForCloudAuthFile")(function* (
 	return yield* Effect.fail(serviceUnavailable("cloud_auth_operation_timeout"));
 });
 
-// The version covers every uploaded program, including pinned CLI versions.
-// Keep readiness on the sandbox so API restarts do not repeat initialization.
 const AUTH_BOOTSTRAP_FILES = [
 	[AUTH_INITIALIZER, AUTH_INITIALIZER_SOURCE],
 	[AUTH_CONFIGURATOR, CONFIGURATOR_SOURCE],
 	[AUTH_LOGIN, LOGIN_SOURCE],
 	[AUTH_CANCEL, CANCEL_SOURCE],
-	[AUTH_VERIFY, VERIFY_SOURCE],
+	[AUTH_VERIFY, AUTH_VERIFY_SOURCE],
 	[AUTH_CODEX_GRANT, CODEX_GRANT_SOURCE],
 ] as const;
 const AUTH_BOOTSTRAP_VERSION = `${AUTH_HOME}/bootstrap-version`;
@@ -839,7 +840,7 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 			);
 		});
 		if (ready) return authority;
-		// A failed repair must not leave a previously valid readiness marker behind.
+
 		yield* authority.provider
 			.writeTextFile(authority.sandboxId, AUTH_BOOTSTRAP_VERSION, "", "zuse")
 			.pipe(
@@ -917,13 +918,12 @@ const initializeAuthority = Effect.fn("initializeCloudAuthAuthority")(
 				serviceUnavailable("codex-auth-update-required"),
 			);
 		}
-		// Failed Grok installs must remain repairable on the next request.
+
 		const grokVersion = yield* readOptional(
 			authority,
 			`${AUTH_HOME}/grok-toolchain-version`,
 		);
 		if (grokVersion?.includes(GROK_EXTERNAL_AUTH_TOOLCHAIN_VERSION)) {
-			// Publish readiness only after initialization and toolchain validation succeed.
 			yield* authority.provider
 				.writeTextFile(
 					authority.sandboxId,
@@ -1139,7 +1139,7 @@ const readCloudAuthStatus = Effect.fn("readCloudAuthStatus")(function* (
 ) {
 	const store = yield* CloudWorkspaceStore;
 	const locator = yield* store.getCloudAuthAuthority(accountId);
-	// Passive reads must not perform legacy discovery/initialization either.
+
 	if (!wake && locator === null)
 		return new CloudAuthStatus({
 			authorityState: "not-created",
@@ -1249,8 +1249,7 @@ export const cloudAuthStatus = Effect.fn("cloudAuthStatus")(function* (
 	);
 	if (locator?.state === "ready" && locator.status !== undefined)
 		return locator.status;
-	// Even provider file reads can auto-wake an idle VM. Never contact the
-	// provider here, including on a cold cache after upgrading an old account.
+
 	return new CloudAuthStatus({
 		authorityState: locator === null ? "not-created" : "error",
 		providers: PROVIDERS.map(
@@ -1270,8 +1269,6 @@ export const cloudAuthStatus = Effect.fn("cloudAuthStatus")(function* (
 export const provisionCloudAuth = Effect.fn("provisionCloudAuth")(function* (
 	accountId: string,
 ) {
-	// This RPC is an explicit account action, so it may replace a persisted
-	// authority locator only after the provider proves its storage is gone.
 	yield* provisionAuthority(accountId, true);
 	return yield* readCloudAuthStatus(accountId, false, false);
 });
@@ -1549,7 +1546,6 @@ export interface IssueProviderGrantInput {
 
 type IssueAuthorityGrantInput = AuthorityGrantRequest;
 
-/** The durable request, lock, and cache identity shared by every grant attempt. */
 const grantPaths = (input: IssueAuthorityGrantInput, operationId: string) => ({
 	requestPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.request.json`,
 	resultPath: `${AUTH_HOME}/operations/${input.providerId}-grant-${operationId}.result.json`,
@@ -1584,15 +1580,9 @@ const grantRequestJson = (
 		authorityEpoch: authority.authEpoch,
 	});
 
-// Keep the same durable request/cache and refresh lock, but execute the
-// short operation directly instead of installing a service and polling.
-// Guest timing rides on stdout as sentinel lines the control plane strips and
-// allowlists before the existing JSON parse; the result value and exit status
-// are unchanged. Numbers only; the adapter returns no stderr.
 const GUEST_TIMING_PREFIX = "@zuse-auth-timing ";
 const GRANT_SHELL = `umask 077; printf %s "$1" > "$2" || exit $?; g0=$(date +%s%3N); flock -x "$3" node "$4" "$2" "$5" "$6"; code=$?; g1=$(date +%s%3N); printf '\n${GUEST_TIMING_PREFIX}{"grantNodeMs":%s}\n' "$((g1-g0))"; [ "$code" -eq 0 ] || exit "$code"; cat "$5"`;
-// Readiness is proven in the same guest run; a stale or missing bootstrap
-// reports "repair" and exits before any request is written or lock taken.
+
 const READINESS_REPAIR_EXIT = 75;
 const READINESS_CHECK_FAILED_EXIT = 70;
 const READY_GRANT_SHELL = `r0=$(date +%s%3N); state=$(node -e "$7" "$8" "$9" "\${10}") || { printf %s readiness-failed; exit ${READINESS_CHECK_FAILED_EXIT}; }; r1=$(date +%s%3N); printf '${GUEST_TIMING_PREFIX}{"readinessNodeMs":%s}\n' "$((r1-r0))"; [ "$state" = ready ] || { printf %s "$state"; exit ${READINESS_REPAIR_EXIT}; }; ${GRANT_SHELL}`;
@@ -1695,13 +1685,6 @@ const grantShellArgs = (
 	paths.cachePath,
 ];
 
-/**
- * One guest run for a persisted ready authority: verify the exact bootstrap,
- * incarnation and keys, then execute the grant, while the idle timeout is
- * extended concurrently. Anything short of a proven-ready execution returns
- * null so the caller takes the existing provisioning path with the same
- * request identity; the grant cache makes a lost response idempotent.
- */
 const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 	input: IssueAuthorityGrantInput,
 	operationId: string,
@@ -1777,8 +1760,7 @@ const fastAuthorityGrant = Effect.fn("fastCloudAuthGrant")(function* (
 		console.warn("[cloud-auth] authority timeout extension failed", {
 			sandboxId: location.sandboxId,
 		});
-	// Readiness was proven, so a failing grant is this attempt's answer, never a
-	// reason to run a second refresh through the provisioning path.
+
 	if (result.exitCode !== 0)
 		return yield* serviceUnavailable(`${input.providerId}-auth-reconnecting`);
 	return { authority: location, value };
@@ -1923,8 +1905,43 @@ const parseSealedGrant = Effect.fn("parseSealedGrant")(function* (
 			serviceUnavailable(`${input.providerId}_grant_invalid`),
 		);
 	}
-	if (typeof parsed.errorCode === "string")
+	if (typeof parsed.errorCode === "string") {
+		const errorCode = parsed.errorCode;
+		if (errorCode === `${input.providerId}-auth-reconnect-required`) {
+			const store = yield* CloudWorkspaceStore;
+			const locator = yield* store.getCloudAuthAuthority(input.accountId);
+			if (
+				locator?.status &&
+				locator.storageIncarnationId === authority.storageIncarnationId &&
+				locator.authEpoch === authority.authEpoch &&
+				locator.status.providers.some(
+					(provider) =>
+						provider.providerId === input.providerId &&
+						(provider.state !== "expired" || provider.errorCode !== errorCode),
+				)
+			) {
+				yield* store.saveCloudAuthStatus({
+					accountId: input.accountId,
+					expectedRevision: locator.revision,
+					status: new CloudAuthStatus({
+						...locator.status,
+						updatedAt: Date.now(),
+						providers: locator.status.providers.map((provider) =>
+							provider.providerId === input.providerId
+								? new CloudAuthProviderStatus({
+										providerId: input.providerId,
+										state: "expired",
+										method: provider.method,
+										errorCode,
+									})
+								: provider,
+						),
+					}),
+				});
+			}
+		}
 		return yield* Effect.fail(serviceUnavailable(parsed.errorCode));
+	}
 	const sealed = parsed.sealed as Record<string, unknown>;
 	const sealedString = (key: string, maxLength: number): string | null => {
 		const value = sealed?.[key];
@@ -2008,8 +2025,6 @@ export const issueProviderGrant = Effect.fn("issueProviderGrant")(function* (
 export const snapshotCloudAuthAuthority = Effect.fn(
 	"snapshotCloudAuthAuthority",
 )(function* (accountId: string, name: string, targetProviderId: string) {
-	// The pure check first: a target off E2B never seeds, whichever provider
-	// the authority runs on, and answering that needs no configuration.
 	if (!canSeedCloudAuthSnapshot(targetProviderId)) return undefined;
 	const recovered = yield* recoverAuthority(accountId);
 	if (recovered === null) return undefined;

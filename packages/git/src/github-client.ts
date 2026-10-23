@@ -120,7 +120,9 @@ export const desktopGitHubCredential: GitHubCredentialResolver = async (
 	const publicHost = host === "github.com" || host.endsWith(".ghe.com");
 	const token = publicHost
 		? process.env.GH_TOKEN || process.env.GITHUB_TOKEN
-		: process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN;
+		: process.env.GH_HOST?.toLowerCase() === host.toLowerCase()
+			? process.env.GH_ENTERPRISE_TOKEN || process.env.GITHUB_ENTERPRISE_TOKEN
+			: undefined;
 	if (token) return { token };
 	try {
 		const result = await execute("gh", ["auth", "token", "--hostname", host], {
@@ -331,6 +333,7 @@ export class GitHubClient {
 		]);
 		let release: (() => void) | undefined;
 		let reserved = false;
+		let quotaObserved = false;
 		const budget = this.budget(input.credential, input.api);
 		const estimate = input.estimatedCost ?? budget.estimatedCost;
 		try {
@@ -349,7 +352,6 @@ export class GitHubClient {
 					Math.max(budget.pauseUntil, budget.resetAt),
 				);
 			budget.reserved += estimate;
-			if (Number.isFinite(budget.remaining)) budget.remaining -= estimate;
 			reserved = true;
 			const root = githubApiRoot(input.credential.host);
 			const url =
@@ -375,7 +377,7 @@ export class GitHubClient {
 					: { body: JSON.stringify(input.body) }),
 			});
 			const quotaHeaders = response.headers;
-			// Actions log URLs are signed storage links. Never forward the GitHub token.
+
 			if (input.path.endsWith("/logs") && response.status === 302) {
 				const location = response.headers.get("location");
 				if (!location || new URL(location).protocol !== "https:")
@@ -392,6 +394,7 @@ export class GitHubClient {
 			const resetAt = Number(quotaHeaders.get("x-ratelimit-reset")) * 1000;
 			const remaining = quotaHeaders.get("x-ratelimit-remaining");
 			if (remaining !== null && Number.isFinite(Number(remaining))) {
+				quotaObserved = true;
 				const newWindow =
 					resetAt > budget.resetAt && this.now >= budget.resetAt;
 				budget.remaining = newWindow
@@ -438,11 +441,10 @@ export class GitHubClient {
 			try {
 				const decoded = JSON.parse(body);
 				if (decoded && typeof decoded === "object") payload = decoded;
-			} catch {
-				/* Non-JSON logs/diffs and 304 are expected. */
-			}
+			} catch {}
 			const rate = payload.data?.rateLimit;
 			if (rate) {
+				quotaObserved = true;
 				budget.remaining = Math.min(budget.remaining, rate.remaining);
 				budget.limit = rate.limit;
 				budget.resetAt = Math.max(budget.resetAt, Date.parse(rate.resetAt));
@@ -476,7 +478,7 @@ export class GitHubClient {
 				);
 				budget.pauseUntil = pause;
 				if (primary && !budget.resetAt) budget.resetAt = pause;
-				// A secondary limit protects both APIs; primary quota buckets remain independent.
+
 				if (!primary)
 					this.budget(
 						input.credential,
@@ -552,7 +554,14 @@ export class GitHubClient {
 					: "Could not reach GitHub.",
 			);
 		} finally {
-			if (reserved) budget.reserved -= estimate;
+			if (reserved) {
+				budget.reserved -= estimate;
+				// Reserve estimates only while requests are in flight. GitHub's
+				// balance already accounts for completed work at its actual cost.
+				// Missing quota metadata still incurs a conservative local charge.
+				if (!quotaObserved && Number.isFinite(budget.remaining))
+					budget.remaining -= estimate;
+			}
 			release?.();
 			this.controllers.delete(controller);
 		}
@@ -585,7 +594,6 @@ export class GitHubClient {
 		interactive = true,
 		allowPartialGraphqlErrors = false,
 	): Promise<{ data: T; errors?: GitHubGraphQLError[] }> {
-		// All query documents in this package use an outer selection ending at the final brace.
 		const document = query.trimStart().startsWith("mutation")
 			? query
 			: query.replace(/}\s*$/, " rateLimit { cost limit remaining resetAt } }");

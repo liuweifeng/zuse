@@ -61,8 +61,6 @@ export const decidePermission = (input: PermissionInput): PermissionVerdict => {
 	}
 
 	switch (input.runtimeMode) {
-		// Native reviewers handle safe actions before invoking our approval hook.
-		// Requests reaching this layer must still ask, including unsupported providers.
 		case "auto":
 		case "approval-required":
 			return promptOrDeny(input.canPrompt);

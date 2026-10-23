@@ -1,1 +1,10 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
 *.patch -whitespace
+
+# Native bundles retain upstream template-literal whitespace.
+apps/ios/App/Mermaid.js linguist-vendored=true -whitespace
+apps/ios/App/UIParser.js linguist-generated=true -whitespace
+apps/ios/App/SettingsSchema.json linguist-generated=true
+apps/ios/App/ModelCatalog.json linguist-generated=true

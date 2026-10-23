@@ -37,6 +37,8 @@ export type SessionPresentation = Readonly<{
 		| "healthy"
 		| "unavailable";
 	busy: boolean;
+	/** The provider root finished; only native background work remains. */
+	backgroundOnly: boolean;
 	turnActive: boolean;
 	/** A durable turn is active or a still-applicable start command bridges to it. */
 	turnInFlight: boolean;
@@ -110,8 +112,7 @@ const pendingStartStillApplies = (
 ): boolean => {
 	if (!hasPendingTurnStart(view.pendingCommands)) return false;
 	if (view.data === null) return true;
-	// A later assistant frame proves the submitted turn already settled even if
-	// receipt persistence has not removed the client command overlay yet.
+
 	return latestConversationalRole(view.data) !== "assistant";
 };
 
@@ -187,7 +188,11 @@ export const deriveSessionPresentation = ({
 	let pendingStartApplied = false;
 	if (
 		view.pendingCommands.some(
-			(command) => command.kind === "messages.interrupt",
+			(command) =>
+				command.kind === "messages.interrupt" &&
+				(command.targetId === null ||
+					view.data?.activeTurn == null ||
+					command.targetId === view.data.activeTurn.id),
 		) &&
 		(view.data === null ||
 			view.data.activeTurn !== null ||
@@ -216,12 +221,24 @@ export const deriveSessionPresentation = ({
 				: "idle";
 
 	const observation = view.data?.runtimeObservation;
+	const activeTurn = view.data?.activeTurn;
+	const backgroundOnly =
+		runtime === "running" &&
+		activeTurn != null &&
+		(view.data?.executionSteps ?? []).some(
+			(step) =>
+				step.turnId === activeTurn.id &&
+				step.attemptId === activeTurn.attempt?.id &&
+				step.nativeChildId !== null &&
+				step.status === "running" &&
+				step.rootCompletedAt !== null,
+		);
 	const health: SessionPresentation["health"] =
 		view.connection !== "connected"
 			? "disconnected"
 			: view.sync !== "live" || observation === undefined
 				? "unknown"
-				: observation.state === "stalled"
+				: observation.state === "stalled" && !backgroundOnly
 					? "stalled"
 					: observation.state === "unavailable"
 						? "unavailable"
@@ -229,6 +246,7 @@ export const deriveSessionPresentation = ({
 							? "blocked"
 							: "healthy";
 	return {
+		backgroundOnly,
 		health,
 		runtime,
 		busy: isSessionRuntimeBusy(runtime),

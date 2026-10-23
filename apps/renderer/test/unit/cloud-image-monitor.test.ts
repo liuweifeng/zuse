@@ -12,6 +12,12 @@ vi.mock("../../src/lib/cloud-workspace-session-cache.ts", () => ({
 	})),
 	loadCloudImage: vi.fn(),
 }));
+vi.mock("../../src/lib/cloud-runtime-catch-up.ts", () => ({
+	catchUpCloudImageRuntimes: vi.fn(),
+}));
+const { catchUpCloudImageRuntimes } = await import(
+	"../../src/lib/cloud-runtime-catch-up.ts"
+);
 const { hasCloudEntitlement, loadCloudImage, loadCloudProviders } =
 	await import("../../src/lib/cloud-workspace-session-cache.ts");
 const { refreshCloudImages, resetCloudImageMonitor, subscribeCloudImages } =
@@ -58,6 +64,14 @@ it("refreshes the default and every provider through completion and failure", as
 	expect(loadCloudImage).toHaveBeenCalledWith(undefined, true);
 	expect(loadCloudImage).toHaveBeenCalledWith("boxd", true);
 	expect(loadCloudImage).toHaveBeenCalledWith("e2b", true);
+});
+
+it("offers every refreshed image to the background runtime catch-up", async () => {
+	vi.mocked(loadCloudImage).mockImplementation(async (providerId) =>
+		image(providerId ?? "boxd", "ready"),
+	);
+	const images = await refreshCloudImages();
+	expect(catchUpCloudImageRuntimes).toHaveBeenLastCalledWith(images);
 });
 
 it("retains the last known progress when a provider cannot be reached", async () => {
@@ -115,7 +129,7 @@ it("discovers a newly added provider and marks its missing image for rebuilding"
 			?.state,
 	).toBe("not-built");
 	expect(loadCloudProviders).toHaveBeenLastCalledWith(true);
-	// Another provider's image is ready, so leaving Settings is not blocked.
+
 	const confirm = vi.fn(() => false);
 	vi.stubGlobal("window", { confirm });
 	try {

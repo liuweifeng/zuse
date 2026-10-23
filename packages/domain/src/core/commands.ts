@@ -43,7 +43,7 @@ export const SessionCommand = Schema.Union([
 	}),
 	Schema.TaggedStruct("CreateSessionWithInitialTurn", {
 		...SessionCreatedFields,
-		/** Legacy startup options retained on the turn, never an eager-start signal. */
+
 		providerStartJson: Schema.optional(Schema.String),
 		providerThread: Schema.optional(ProviderThreadSeed),
 		turnId: Schema.String,
@@ -78,7 +78,7 @@ export const SessionCommand = Schema.Union([
 	Schema.TaggedStruct("SetWorktree", {
 		worktreeId: SessionCreatedFields.worktreeId,
 		updatedAt: Schema.Number,
-		/** Re-emit the projection when an external FK cascade drifted from state. */
+
 		forceProjection: Schema.optional(Schema.Boolean),
 	}),
 	Schema.TaggedStruct("SetStatus", {
@@ -95,17 +95,14 @@ export const SessionCommand = Schema.Union([
 		providerStartJson: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),
-	/**
-	 * Bind the provider-native thread the driver reported as the session's
-	 * active provider thread. Idempotent for the same native id and head.
-	 */
+
 	Schema.TaggedStruct("BindAttemptProviderTurn", AttemptProviderTurnFields),
 	Schema.TaggedStruct("BindProviderThread", {
 		nativeThreadId: Schema.String,
 		nativeHeadId: Schema.optional(Schema.NullOr(Schema.String)),
 		updatedAt: Schema.Number,
 	}),
-	/** Inspect a proven native execution in a fresh attempt, without resending. */
+
 	Schema.TaggedStruct("ExpireAttempt", {
 		turnId: Schema.String,
 		expectedAttemptId: Schema.String,
@@ -116,7 +113,7 @@ export const SessionCommand = Schema.Union([
 		expectedAttemptId: Schema.String,
 		requestedAt: Schema.Number,
 	}),
-	/** Intentional delivery retry. Historical recovery callers used this path. */
+
 	Schema.TaggedStruct("RetryTurn", {
 		turnId: Schema.String,
 		reason: Schema.Literals(["retry", "provider_recovery"]),

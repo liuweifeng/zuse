@@ -142,7 +142,7 @@ try {
 		"https://api-staging.zuse.sh/v1/cloud/github/callback?state=test",
 	);
 	assert.equal(await existing.count(), 0);
-	// Hold a refresh that captured the repository list before the mutation.
+
 	await page.evaluate(() => {
 		window.delayProjects = true;
 		window.dispatchEvent(new Event("focus"));

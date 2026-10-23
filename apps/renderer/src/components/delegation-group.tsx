@@ -46,7 +46,6 @@ const STATUS_COUNT_KEY = {
 	stopped: "chat:delegation_group_stopped",
 } as const;
 
-/** Live state for every orchestrated session in the group, in one subscription. */
 const useSpawnedSessions = (
 	members: ReadonlyArray<DelegationMember>,
 	explicitEnvironmentId: EnvironmentId | undefined,
@@ -105,7 +104,7 @@ export const DelegationGroup = memo(function DelegationGroup({
 	readOnly = false,
 }: {
 	readonly members: ReadonlyArray<DelegationMember>;
-	/** The parent session's provider; subagents run on it unless told otherwise. */
+
 	readonly providerId: ProviderId | null;
 	readonly parentLive: boolean;
 	readonly chatRef: ChatRef | null;
@@ -131,7 +130,10 @@ export const DelegationGroup = memo(function DelegationGroup({
 				view.open === null
 					? {
 							prompt: member.group.prompt,
+							parent: member.group.parent,
+							parentItemId: member.group.parentItemId,
 							children: member.group.children,
+							live: view.status === "working",
 							summaryText: member.group.summary?.text ?? null,
 							readOnly,
 							environmentId: environmentId ?? chatRef?.environmentId,

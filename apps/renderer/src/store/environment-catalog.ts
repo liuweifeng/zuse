@@ -1,7 +1,9 @@
 import type { ResourceLease } from "@zuse/client-runtime/client-bus";
-import type { ResourceView } from "@zuse/client-runtime/resource-state";
+import type {
+	ConnectionPhase,
+	ResourceView,
+} from "@zuse/client-runtime/resource-state";
 import {
-	type ApiConnectGrant,
 	type ApiEnvironmentRecord,
 	type Chat,
 	type ChatId,
@@ -14,9 +16,9 @@ import {
 	type SshEnvironmentTarget,
 	type TailnetEnvironmentConnection,
 	type TailnetEnvironmentProfile,
-	WIRE_PROTOCOL_VERSION,
 } from "@zuse/contracts";
 import { Effect } from "effect";
+import { chatCreationIsInProgress } from "../lib/chat-creation-lifecycle.ts";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
 import {
 	cloudSummaryActiveSessionId,
@@ -49,7 +51,7 @@ import {
 	environmentBelongsToWorkspace,
 	isDesktopLocalEnvironment,
 	LOCAL_ENVIRONMENT_KEY,
-	registerApiEnvironment,
+	registerApiEnvironmentRoutes,
 	registerLocalEnvironment,
 	registerWebSocketEnvironment,
 	removeRendererEnvironment,
@@ -70,6 +72,7 @@ import { useUiStore } from "./ui.ts";
 import { useWorkspaceStore } from "./workspace.ts";
 
 export type CatalogConnectionStatus =
+	| "not-connected"
 	| "connecting"
 	| "connected"
 	| "offline"
@@ -85,6 +88,9 @@ export type EnvironmentCatalogEntry = {
 	readonly status: CatalogConnectionStatus;
 	readonly error: string | null;
 	readonly lastHeartbeat?: number;
+	readonly connectionPhase?: ConnectionPhase;
+	readonly activeRoute?: string;
+	readonly routeAddresses?: readonly string[];
 };
 
 export type EnvironmentShellSeed = Readonly<{
@@ -169,12 +175,7 @@ export const projectEnvironmentShell = (
 	).flat();
 	const recoverableCreationOperationIds = new Set(
 		creationOperations
-			.filter(
-				(operation) =>
-					operation.phase !== "running" &&
-					operation.phase !== "failed" &&
-					operation.phase !== "cancelled",
-			)
+			.filter((operation) => chatCreationIsInProgress(operation.phase))
 			.map((operation) => operation.operationId),
 	);
 	for (const operationId of resumedCreationOperations) {
@@ -224,8 +225,7 @@ export const projectEnvironmentShell = (
 		optimisticChats.set(pending.chat.id, pending.chat);
 		optimisticSessions.set(pending.session.id, pending.session);
 	}
-	// ClientBus overlays already survive into `normalized`; pending metadata is
-	// retained below only to drive the creation progress surface.
+
 	if (options.seed !== undefined) {
 		optimisticChats.set(options.seed.chat.id, options.seed.chat);
 		optimisticSessions.set(
@@ -333,11 +333,7 @@ export const projectEnvironmentShell = (
 		error: null,
 	});
 	markRendererStartupMilestone("projects-visible");
-	// This function projects the canonical shell cell into compatibility stores.
-	// Never write the projection back into that same cell: ClientBus notifies its
-	// shell listener synchronously, so doing so recursively re-enters this
-	// projector until the JavaScript stack overflows. Optimistic mutations are
-	// applied at their command boundaries before this projection runs.
+
 	useChatsStore.setState({
 		selectedChatId,
 		selectedChatByProject:
@@ -345,12 +341,7 @@ export const projectEnvironmentShell = (
 		loadingByProject: {},
 		creatingByProject: Object.fromEntries(
 			creationOperations
-				.filter(
-					(operation) =>
-						operation.phase !== "running" &&
-						operation.phase !== "failed" &&
-						operation.phase !== "cancelled",
-				)
+				.filter((operation) => chatCreationIsInProgress(operation.phase))
 				.map((operation) => [operation.projectId, true] as const),
 		),
 		pendingCreationByChat: { ...pendingByChat, ...restoredPending },
@@ -367,13 +358,10 @@ export const projectEnvironmentShell = (
 		creatingByChat: {},
 		error: null,
 	});
-	// A creation can outlive the RPC scope that started it (app reload, HMR,
-	// laptop sleep, or a transport generation change). The canonical creation
-	// stream is therefore also the recovery trigger. `retryCreation` is keyed by
-	// operation id, so repeated snapshots cannot start competing attempts.
+
 	for (const [chatId, creation] of Object.entries(restoredPending)) {
 		if (
-			creation.phase !== "failed" &&
+			chatCreationIsInProgress(creation.phase) &&
 			!resumedCreationOperations.has(creation.operationId)
 		) {
 			resumedCreationOperations.add(creation.operationId);
@@ -396,7 +384,7 @@ type EnvironmentCatalogState = {
 	initialize: () => Promise<void>;
 	syncAccountEnvironments: () => Promise<void>;
 	add: (target: SshEnvironmentTarget, label?: string) => Promise<void>;
-	/** Resolves with the connected computer's label once the link settles. */
+
 	addTailnet: (pairingLink: string, label?: string) => Promise<string>;
 	retry: (profileId: string) => Promise<void>;
 	retryEnvironment: (environmentId: string) => Promise<void>;
@@ -448,13 +436,9 @@ const writeHiddenApiEnvironmentIds = (ids: ReadonlyArray<string>): void => {
 		} else {
 			window.localStorage.setItem(HIDDEN_API_STORAGE_KEY, JSON.stringify(ids));
 		}
-	} catch {
-		// Persisting hidden computers is best-effort.
-	}
+	} catch {}
 };
 
-// Everything stored in `entry.error` is user-facing (project picker, sidebar
-// notice, settings rows) — always humanize through the shared formatter.
 const errorMessage = (cause: unknown): string => formatError(cause);
 
 const profileEntry = (
@@ -466,7 +450,7 @@ const profileEntry = (
 	label: profile.label,
 	target: profile.target,
 	descriptor: null,
-	status: "offline",
+	status: "not-connected",
 	error: null,
 });
 
@@ -492,7 +476,7 @@ const apiEntry = (
 	label: environment.label ?? "Unnamed computer",
 	target: null,
 	descriptor: null,
-	status: "offline",
+	status: "not-connected",
 	error: null,
 	lastHeartbeat: environment.lastHeartbeat,
 });
@@ -590,13 +574,6 @@ const entryKey = (entry: EnvironmentCatalogEntry): string =>
 		? `${entry.connectionKind}:${entry.profileId}`
 		: `${entry.connectionKind}:${entry.environmentId}`;
 
-const apiGrantUrl = (grant: ApiConnectGrant): string => {
-	const url = new URL(grant.endpoint.wsBaseUrl);
-	url.searchParams.set("token", grant.connectToken);
-	url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
-	return url.toString();
-};
-
 export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 	(set, get) => {
 		const apiRecords = new Map<string, ApiEnvironmentRecord>();
@@ -616,7 +593,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			set((state) => ({
 				entries: orderEnvironmentCatalog(
 					state.entries.map((entry) =>
-						entryKey(entry) === key ? { ...entry, ...patch } : entry,
+						entryKey(entry) === key
+							? {
+									...entry,
+									...patch,
+									connectionPhase:
+										patch.connectionPhase ??
+										(patch.status === "not-connected"
+											? "dormant"
+											: patch.status === "error"
+												? "failed"
+												: (patch.status ?? entry.connectionPhase)),
+								}
+							: entry,
 					),
 				),
 			}));
@@ -628,16 +617,19 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			const status: CatalogConnectionStatus =
 				view.connection === "connected"
 					? "connected"
-					: view.connection === "dormant" || view.connection === "offline"
-						? "offline"
-						: view.connection === "failed" ||
-								view.connection === "blocked-auth" ||
-								view.connection === "update-required" ||
-								view.connection === "revoked"
-							? "error"
-							: "connecting";
+					: view.connection === "dormant"
+						? "not-connected"
+						: view.connection === "offline"
+							? "offline"
+							: view.connection === "failed" ||
+									view.connection === "blocked-auth" ||
+									view.connection === "update-required" ||
+									view.connection === "revoked"
+								? "error"
+								: "connecting";
 			patchEntry(catalogKey, {
 				status,
+				connectionPhase: view.connection,
 				error:
 					status === "error"
 						? getRendererClientBus().connection(
@@ -792,8 +784,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 			}
 		});
 		if (import.meta.hot) import.meta.hot.dispose(unsubscribeAccount);
-		// This desktop's projects are split by workspace at read time. Re-project
-		// on switch so stores never keep the previous workspace's projects.
+
 		const unsubscribeWorkspace = subscribeRendererWorkspace(() => {
 			const state = get();
 			if (
@@ -886,8 +877,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					return normalizeEnvironmentShellData(fallback);
 				throw cause;
 			});
-			// Connection work can finish after the user has opened another draft.
-			// Check before changing either the active environment or its selection.
+
 			if (
 				selection?.isCurrent?.() === false ||
 				rendererWorkspaceSnapshot() !== workspace
@@ -1057,24 +1047,34 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							}
 						})();
 						if (!isCurrent()) return;
-						registerApiEnvironment(
+						registerApiEnvironmentRoutes(
 							environment.environmentId,
-							apiGrantUrl(grant),
-							async () =>
-								apiGrantUrl(
-									await Effect.runPromise(
-										localClient["environments.connect"]({
-											environmentId: environment.environmentId,
-										}),
-									),
+							grant,
+							() =>
+								Effect.runPromise(
+									localClient["environments.connect"]({
+										environmentId: environment.environmentId,
+									}),
 								),
 							account,
+							(address) => {
+								if (isCurrent())
+									patchEntry(catalogKey, { activeRoute: address });
+							},
 						);
 						try {
 							await completeConnection({
 								catalogKey,
 								environmentId: environment.environmentId,
 								patch: {
+									routeAddresses: [
+										...new Set([
+											grant.endpoint.httpBaseUrl,
+											...(grant.endpointCandidates ?? []).map(
+												(candidate) => candidate.endpoint.httpBaseUrl,
+											),
+										]),
+									],
 									descriptor: {
 										...environment,
 										endpoint: grant.endpoint,
@@ -1107,8 +1107,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 					set({ initialized: true, initializing: false });
 					return Promise.resolve();
 				}
-				// Discovery can fail before a shell lease exists. The shared local
-				// transport still reconnects, so use that edge to resume discovery.
+
 				unsubscribeLocalRecovery ??= subscribeRendererRpcConnection(
 					(snapshot) => {
 						if (snapshot.status !== "connected" || get().initialized) return;
@@ -1157,8 +1156,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							localEntry.environmentId,
 							"cache-only",
 						);
-						// Discover the desktop in any workspace, but only activate its
-						// Personal shell while that workspace is selected.
+
 						if (environmentBelongsToWorkspace(localEntry.environmentId)) {
 							await activateRuntime(
 								entryKey(localEntry),
@@ -1171,8 +1169,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						}
 						set({ initialized: true, initializationError: null });
 
-						// Remote catalogs are optional. A corrupt saved profile or an
-						// unavailable account service must never hide the local workspace.
 						const account = rendererAccountSnapshot();
 						const revision = ++discoveryRevision;
 						const { profiles, tailnetProfiles, apiEnvironments, apiError } =
@@ -1192,8 +1188,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 							),
 						);
 						const hiddenApiIds = new Set(hiddenApiEnvironmentIds);
-						// A sign-in refresh can finish before saved device profiles load.
-						// Retire any API route before the same host becomes device-owned.
+
 						removeAccountEnvironments(profileEnvironmentIds);
 						const currentDiscovery =
 							rendererAccountSnapshot() === account &&
@@ -1243,8 +1238,6 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 						set({ initializing: false });
 					}
 				}).finally(() => {
-					// A new connection may arrive before the failed RPC settles.
-					// Wait for the initialization gate to release before retrying.
 					const retry = initializeAfterReconnect;
 					initializeAfterReconnect = false;
 					if (retry && !get().initialized && get().initializationError !== null)
@@ -1304,9 +1297,7 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 				for (const environment of accountEnvironments) {
 					apiRecords.set(environment.environmentId, environment);
 				}
-				// Refresh presence for computers already in the catalog. A computer
-				// whose heartbeat just turned fresh came back from sleep or a network
-				// drop: skip its retry backoff so it reconnects right away.
+
 				const now = Date.now();
 				const cameOnline: string[] = [];
 				set((state) => ({
@@ -1762,3 +1753,28 @@ export const useEnvironmentCatalogStore = create<EnvironmentCatalogState>(
 		};
 	},
 );
+
+/** Display label for a cataloged environment, or `null` when it isn't known. */
+export const environmentLabel = (
+	entries: ReadonlyArray<EnvironmentCatalogEntry>,
+	environmentId: string,
+): string | null =>
+	entries.find((entry) => entry.environmentId === environmentId)?.label ?? null;
+
+export const useEnvironmentLabel = (environmentId: string): string | null =>
+	useEnvironmentCatalogStore((state) =>
+		environmentLabel(state.entries, environmentId),
+	);
+
+/** `first`, then every connected environment, without duplicates. */
+export const withConnectedEnvironments = (
+	entries: ReadonlyArray<EnvironmentCatalogEntry>,
+	first: string,
+): readonly string[] => [
+	...new Set([
+		first,
+		...entries
+			.filter((entry) => entry.status === "connected")
+			.map((entry) => entry.environmentId),
+	]),
+];

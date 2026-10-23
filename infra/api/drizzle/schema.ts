@@ -142,9 +142,7 @@ export const apiEnvironments = pgTable(
 		privateHttpBaseUrl: text("private_http_base_url"),
 		privateWsBaseUrl: text("private_ws_base_url"),
 		tunnelHostname: text("tunnel_hostname"),
-		// Managed Cloudflare tunnel lifecycle. `tunnel_id`/`dns_record_id` are the
-		// Cloudflare resources to tear down on unlink; `tunnel_status` tracks the
-		// provisioning state machine (reserved → ready).
+
 		tunnelId: text("tunnel_id"),
 		dnsRecordId: text("dns_record_id"),
 		tunnelStatus: text("tunnel_status"),
@@ -1102,8 +1100,6 @@ export const apiProviderStatementTotals = pgTable(
 	],
 );
 
-// Webhook idempotency ledger: one row per billing-provider event id, so a
-// redelivered webhook is a no-op.
 export const apiBillingEvents = pgTable(
 	"api_billing_events",
 	{
@@ -1134,9 +1130,6 @@ export const apiApiKeys = pgTable(
 	],
 );
 
-// Outbound webhook endpoints registered through the public API. The signing
-// secret must be recoverable to sign deliveries, so it is stored sealed with
-// the api data-encryption key rather than hashed.
 export const apiApiWebhooks = pgTable(
 	"api_api_webhooks",
 	{
@@ -1536,7 +1529,7 @@ export const apiCloudProviderConnections = pgTable(
 	(table) => [
 		check(
 			"cloud_provider_connection_provider",
-			sql`${table.provider} IN ('e2b', 'boxd', 'box')`,
+			sql`${table.provider} IN ('e2b', 'boxd', 'box', 'daytona')`,
 		),
 		uniqueIndex("api_cloud_provider_connections_active")
 			.on(table.accountId, table.provider)
@@ -1590,4 +1583,16 @@ export const apiStripeSubscriptionMigrations = pgTable(
 		firstAttemptAt: bigint("first_attempt_at", { mode: "number" }).notNull(),
 		scheduleId: text("schedule_id").unique(),
 	},
+);
+
+export const apiMasterOwnership = pgTable(
+	"api_master_ownership",
+	{
+		accountId: text("account_id").notNull(),
+		masterId: text("master_id").notNull(),
+		homeEnvironmentId: text("home_environment_id").notNull(),
+		generation: integer("generation").notNull(),
+		repositoriesJson: text("repositories_json").notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.accountId, table.masterId] })],
 );

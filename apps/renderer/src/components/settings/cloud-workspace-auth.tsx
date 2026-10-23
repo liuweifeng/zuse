@@ -210,7 +210,7 @@ export function CloudWorkspaceAuth({
 	onConnectedCountChange,
 }: {
 	readonly providers?: readonly CloudAuthProvider[];
-	/** Render only the provider rows, inside a group owned by the caller. */
+
 	readonly embedded?: boolean;
 	readonly onConnectedCountChange?: (count: number | null) => void;
 }) {
@@ -234,8 +234,6 @@ export function CloudWorkspaceAuth({
 
 	const refresh = useCallback(async (force = true, restoreStatus = false) => {
 		try {
-			// An older, sleeping authority has no database status yet. Only the
-			// explicit retry action may wake it to read its existing credentials.
 			if (restoreStatus)
 				await runCloudControl((client) => client["cloud.auth.provision"]());
 			setStatus(await loadCloudAuth(force));

@@ -88,7 +88,7 @@ export class GitCheckoutProjectionState<Value> {
 		if (entry === undefined || entry.prRefreshAuthority !== token.authority) {
 			return false;
 		}
-		// Consume the token so one completed RPC can commit at most once.
+
 		entry.prRefreshAuthority = Symbol("git-pr-refresh-settled");
 		entry.prSnapshot = snapshot;
 		return true;

@@ -27,7 +27,7 @@ test("creates a fresh private directory and does not remove a contender's lock",
 		rmSync(root, { recursive: true, force: true });
 	}
 });
-/** Waits for readiness while bounding failures and preserving startup diagnostics. */
+
 function waitUntilReady(child, timeoutMs = 5000) {
 	return new Promise((resolve, reject) => {
 		let stdout = "";

@@ -1,6 +1,8 @@
 ---
 title: "Open Zuse in a local browser"
-description: "Enable local browser access, redeem a one-time link, verify the session, and revoke it safely."
+icon: Laptop
+navTitle: "Open in a local browser"
+description: "Turn on local network access, redeem a one-time link, verify the session, and revoke it safely."
 section: how-to
 order: 20
 platforms: [desktop, browser]
@@ -21,23 +23,23 @@ Use this guide when the browser can reach the Mac over the current network. Use 
 
 - Zuse is open on the Mac that owns the environment.
 - The target browser is on a network that permits device-to-device traffic.
-- You can restart Zuse if browser and device access is currently off.
+- You can restart Zuse if local network access is currently off.
 
 ## Steps
 
-1. In the desktop app, open **Settings → Devices**.
+1. In the desktop app, open **Settings → Remote access**.
 
-2. If **Browser and device access** is off, choose **Enable browser and device access**.
+2. Under **Connections**, find **Local network**. If it is not already available, choose **Turn on**.
 
 3. Confirm **Restart and turn on**.
 
-   Enabling the listener restarts Zuse and stops running agents. Reopen **Settings → Devices** after the app returns.
+   Enabling the listener restarts Zuse and stops running agents. Reopen **Settings → Remote access** after the app returns. **Local network** then shows **Available on this network** with its address.
 
-4. Choose **Create web link**.
+4. Under **Connect another device**, choose **Create link**. In **Connect through**, choose **Local network**.
 
-   Zuse displays a browser QR code, a one-time link, and a short pairing code. The link expires after five minutes.
+   Zuse displays a one-time link and a short pairing code. The link expires after five minutes.
 
-5. Choose **Open web app**, copy the link into the target browser, or scan the browser QR code.
+5. Choose **Copy link** and open it in the target browser, or choose **Show QR** and scan the code. If the browser asks for a code, choose **Copy code** or read the **Pairing code**.
 
 6. Let the browser finish authorization and load the environment.
 
@@ -45,13 +47,13 @@ Use this guide when the browser can reach the Mac over the current network. Use 
 
 ## Verification
 
-Confirm that the browser shows the same projects and chats as the Mac. Then return to **Settings → Devices** on the Mac and verify the browser appears under **Connected devices**, with its label and last-connected time.
+Confirm that the browser shows the same projects and chats as the Mac. Then return to **Settings → Remote access** on the Mac and verify the browser appears under **Connected devices**, with its label and last-connected time.
 
 The one-time link may now expire without ending the authorized browser session. The browser's device credential remains valid until you revoke it or disable local access.
 
 ## Revoke the browser
 
-1. Open **Settings → Devices** on the Mac.
+1. Open **Settings → Remote access** on the Mac.
 2. Find the browser under **Connected devices**.
 3. Choose **Revoke**.
 4. Reload the browser and confirm it shows **Pair this browser**.
@@ -62,7 +64,7 @@ Use **Revoke all** for the grouped **Older device access** credentials created b
 
 ### The link expired
 
-Choose **Create web link** again. Old links are not renewable.
+Choose **New link**, or **Create link** again. Old links are not renewable.
 
 ### The browser says the versions do not match
 
@@ -70,8 +72,8 @@ Update the environment, then reload the page. Incompatible clients are blocked i
 
 ### The browser cannot reach Zuse
 
-Confirm the Mac is awake, Zuse is open, and browser and device access shows **On**. Guest and corporate Wi-Fi often isolate clients; move both devices to a trusted network if necessary.
+Confirm the Mac is awake, Zuse is open, and **Local network** shows **Available on this network**. Guest and corporate Wi-Fi often isolate clients; move both devices to a trusted network if necessary.
 
 ### Authorization expired after a working session
 
-Revoke any stale entry, create a new web link, and authorize the browser again. See [connection recovery](/how-to/remote-recover-connection/) for the error-state decision tree.
+Revoke any stale entry, create a new link, and authorize the browser again. See [connection recovery](/how-to/remote-recover-connection/) for the error-state decision tree.

@@ -71,8 +71,6 @@ const ACCOUNT = "user_a";
 const WORKOS_HEADERS = { authorization: `Bearer test-token:${ACCOUNT}` };
 const PROVIDER_ID = "fake-cloud";
 
-// The default fake adapter is unadvertised; the public create path selects
-// among advertised providers, so register one the way api.test.ts does.
 const advertisedAdapter: SandboxProviderAdapter = {
 	providerId: PROVIDER_ID,
 	displayName: "Test cloud",
@@ -576,7 +574,7 @@ describe("public API (/v1/api)", () => {
 				-suffix(first.workspaceId).length - 1,
 			);
 			expect(second.branch).toBe(`${mascot}-${suffix(second.workspaceId)}`);
-			// A bare name may belong to an old/local PR unknown to this account.
+
 			const explicit = await create("branch-explicit", mascot);
 			expect(explicit.branch).toBe(mascot);
 			const replay = await create("branch-first");
@@ -729,13 +727,13 @@ describe("public API (/v1/api)", () => {
 			expect(checking?.requestConfig.runtimeSessionRecoveryPending).not.toBe(
 				true,
 			);
-			// Another client cannot extend the deadline or fence the same live turn.
+
 			expect((await recover("connection-recovery-2")).status).toBe(200);
 			expect(
 				(await runtime.runPromise(store.getWorkspace(workspaceId)))
 					?.nextActionAtMs,
 			).toBe(checking?.nextActionAtMs);
-			// A stored mailbox fence still requires recovery independently of the ignored hint.
+
 			const healthy = await runtime.runPromise(store.getWorkspace(workspaceId));
 			if (healthy === null) throw new Error("workspace missing");
 			await runtime.runPromise(
@@ -1138,8 +1136,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: project.updatedAtMs + 1,
 			}),
 		);
-		// Receipt replay is read-only and must not be blocked by project state
-		// changing after the original workspace was created.
+
 		expect(
 			(
 				await serve(runtime, "/v1/api/workspaces", {
@@ -1168,9 +1165,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: storedWorkspace.updatedAtMs + 1,
 			}),
 		);
-		// Workspaces written by the original public-API migration have no request
-		// digest. Their immutable launch prompt and any explicitly supplied config
-		// are the compatibility receipt.
+
 		expect(
 			(
 				await serve(runtime, "/v1/api/workspaces", {
@@ -1414,6 +1409,76 @@ describe("public API (/v1/api)", () => {
 		await runtime.dispose();
 	});
 
+	test("Slack repository setup authenticates before its first message exists", async () => {
+		const runtime = await makeRuntime();
+		try {
+			const store = await runtime.runPromise(CloudWorkspaceStore);
+			await seedReadyProject(runtime, store);
+			const response = await runtime.runPromise(
+				routeAccountWorkspaceRequest(
+					new Request(`${ISSUER}/v1/api/workspaces`, {
+						method: "POST",
+						headers: {
+							"content-type": "application/json",
+							"idempotency-key": "slack-idle-setup",
+						},
+						body: JSON.stringify({ agent: "codex", model: "gpt-5" }),
+					}),
+					ACCOUNT,
+					{ githubBot: true },
+				),
+			);
+			if (!response) throw new Error("missing workspace response");
+			const {
+				workspace: { workspaceId },
+			} = await json<{ workspace: { workspaceId: string } }>(response, 201);
+			expect(
+				await runtime.runPromise(store.listApiMessages(workspaceId, 0, 20)),
+			).toEqual([]);
+			await stageRuntimeCredential(
+				runtime,
+				store,
+				workspaceId,
+				"setup-runtime",
+			);
+			const request = (slackMessageId: string) =>
+				serve(
+					runtime,
+					`/v1/cloud/workspaces/${workspaceId}/runtime/github-credential`,
+					{
+						method: "POST",
+						headers: {
+							authorization: "Bearer setup-runtime",
+							"content-type": "application/json",
+						},
+						body: JSON.stringify({ slackMessageId }),
+					},
+				);
+			// This fixture has no GitHub App; reaching that check proves the trusted
+			// startup identity passed authorization without fabricating a chat message.
+			expect(
+				await json(await request(`msg_launch_${workspaceId}`), 503),
+			).toMatchObject({ error: "github_app_not_configured" });
+			expect(
+				await json(await request("msg_launch_other-workspace"), 403),
+			).toMatchObject({ error: "github_execution_identity_invalid" });
+			const saved = await runtime.runPromise(store.getWorkspace(workspaceId));
+			if (!saved) throw new Error("missing workspace");
+			await runtime.runPromise(
+				store.saveWorkspace({
+					...saved,
+					requestConfig: { ...saved.requestConfig, initialGithubContext: {} },
+					revision: saved.revision + 1,
+				}),
+			);
+			expect(
+				await json(await request(`msg_launch_${workspaceId}`), 403),
+			).toMatchObject({ error: "github_execution_identity_invalid" });
+		} finally {
+			await runtime.dispose();
+		}
+	});
+
 	test("creates an idle workspace and delivers sealed image attachments", async () => {
 		const runtime = await makeRuntime();
 		const store = await runtime.runPromise(CloudWorkspaceStore);
@@ -1492,6 +1557,20 @@ describe("public API (/v1/api)", () => {
 			).status,
 		).toBe(409);
 
+		// API keys cannot claim a Slack author; only the Slack integration can.
+		expect(
+			await json(
+				await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
+					method: "POST",
+					headers: { ...apiHeaders, "content-type": "application/json" },
+					body: JSON.stringify({
+						text: "Spoofed",
+						source: { _tag: "slack", text: "Spoofed", author: "CEO" },
+					}),
+				}),
+				400,
+			),
+		).toMatchObject({ error: "message_source_not_allowed" });
 		await json(
 			await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
 				method: "POST",
@@ -1540,8 +1619,7 @@ describe("public API (/v1/api)", () => {
 			attachments: [{ assetId: uploaded.asset.assetId }],
 		});
 		expect(commands.commands[0]).not.toHaveProperty("githubBot", true);
-		// Web/mobile mailbox ACKs share the URL but must reach their own receipt
-		// authority, even while the public API queue has an outstanding command.
+
 		const mailboxAck = await serve(
 			runtime,
 			`/v1/cloud/workspaces/${workspaceId}/runtime/commands/ack`,
@@ -1705,14 +1783,24 @@ describe("public API (/v1/api)", () => {
 				await call(`/v1/api/workspaces/${workspaceId}/messages`, {
 					method: "POST",
 					headers: { "content-type": "application/json" },
-					body: JSON.stringify({ text: "Follow up" }),
+					body: JSON.stringify({
+						text: "Follow up",
+						source: {
+							_tag: "slack",
+							text: "Follow up",
+							author: "Ada Lovelace",
+							channel: "eng-alerts",
+						},
+					}),
 				}),
 				200,
 			);
 			await stageRuntimeCredential(runtime, store, workspaceId, "org-runtime", [
 				CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY,
 			]);
-			const commands = await json<{ commands: { actor?: unknown }[] }>(
+			const commands = await json<{
+				commands: { actor?: unknown; source?: unknown }[];
+			}>(
 				await serve(
 					runtime,
 					`/v1/cloud/workspaces/${workspaceId}/runtime/commands`,
@@ -1723,6 +1811,12 @@ describe("public API (/v1/api)", () => {
 			expect(commands.commands[0]?.actor).toEqual({
 				subject: ACCOUNT,
 				membershipId: "om_actor",
+			});
+			expect(commands.commands[0]?.source).toEqual({
+				_tag: "slack",
+				text: "Follow up",
+				author: "Ada Lovelace",
+				channel: "eng-alerts",
 			});
 			await runtime.runPromise(
 				store.updateWorkspaceSharing({
@@ -2004,6 +2098,7 @@ describe("public API (/v1/api)", () => {
 			identity: {
 				clientId: "client_test",
 				exchange: async () => ({ accountId: ACCOUNT }),
+				organizations: async () => [],
 			},
 			cloud: (accountId) => ({
 				request: async (path, init) =>
@@ -2265,7 +2360,7 @@ describe("public API (/v1/api)", () => {
 				"Updated the button using your screenshot.",
 			),
 		});
-		// A duplicate alert must not submit a second turn or create a workspace.
+
 		expect(
 			(await slackModule.fetch(await signed("/slack/events", alert))).status,
 		).toBe(200);
@@ -2409,7 +2504,7 @@ describe("public API (/v1/api)", () => {
 				turnId: historicalTurn,
 				outcome: "completed",
 				status: "settled",
-				// The original API persisted receipt time, not domain settledAt.
+
 				createdAtMs: historicalSettledAt + 100,
 			}),
 		);
@@ -2492,7 +2587,6 @@ describe("public API (/v1/api)", () => {
 		expect(created.workspace.agentStatus).toBe("working");
 		expect(created.workspace.latestSeq).toBe(1);
 
-		// Same Idempotency-Key → the existing workspace, not a duplicate.
 		const replayed = await json<{ workspace: { workspaceId: string } }>(
 			await serve(runtime, "/v1/api/workspaces", {
 				method: "POST",
@@ -2507,7 +2601,6 @@ describe("public API (/v1/api)", () => {
 		);
 		expect(replayed.workspace.workspaceId).toBe(workspaceId);
 
-		// The launch turn settles before the runtime accepts FIFO follow-ups.
 		await stageRuntimeCredential(runtime, store, workspaceId, "runtime-secret");
 		const runtimeHeaders = {
 			authorization: "Bearer runtime-secret",
@@ -2565,7 +2658,6 @@ describe("public API (/v1/api)", () => {
 		expect(receiptReplay.messageId).toBe(receipt.messageId);
 		expect(receiptReplay.seq).toBe(receipt.seq);
 
-		// Simulate the in-sandbox runtime draining and acking the command.
 		const commands = await json<{
 			commands: ReadonlyArray<{
 				messageId: string;
@@ -2718,8 +2810,6 @@ describe("public API (/v1/api)", () => {
 		expect(status.workspace.agentStatus).toBe("idle");
 		expect(status.workspace.lastTurn?.turnId).toBe(commandTurnId);
 
-		// Retrying a terminal message after a later pause is a read-only receipt
-		// replay: it must not wake billable compute with no pending command.
 		const settledWorkspace = await runtime.runPromise(
 			store.getWorkspace(workspaceId),
 		);
@@ -2765,7 +2855,7 @@ describe("public API (/v1/api)", () => {
 				updatedAtMs: pausedWorkspace.updatedAtMs + 1,
 			}),
 		);
-		// A terminal workspace still permits replaying an already-settled receipt.
+
 		expect(
 			(
 				await serve(runtime, `/v1/api/workspaces/${workspaceId}/messages`, {
@@ -2776,7 +2866,6 @@ describe("public API (/v1/api)", () => {
 			).status,
 		).toBe(200);
 
-		// Deliver the enqueued webhook with a captured fetch and verify signing.
 		const deliveries: Array<{ url: string; body: string; headers: Headers }> =
 			[];
 		vi.stubGlobal(
@@ -2816,7 +2905,7 @@ describe("public API (/v1/api)", () => {
 			delivery.body,
 		);
 		expect(match?.[2]).toBe(expected);
-		// Delivered rows are not claimed again.
+
 		expect(await runtime.runPromise(deliverPendingApiWebhooks)).toBe(0);
 	});
 
@@ -3000,7 +3089,6 @@ describe("public API (/v1/api)", () => {
 		);
 		expect(conflict.status).toBe(409);
 
-		// Another account's key cannot see the workspace at all.
 		const foreignKey = await json<{ secret: string }>(
 			await serve(runtime, "/v1/cloud/api-keys", {
 				method: "POST",

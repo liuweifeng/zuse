@@ -1,5 +1,3 @@
-// SSH carries only setup and a small descriptor. Compressed bytes are read via
-// the existing authenticated workspace file RPC, in parts below its 5 MB cap.
 export const ARCHIVE_SNAPSHOT_SCRIPT = `
 import sys, json, subprocess, gzip, tempfile, os, signal, base64
 config = json.loads(sys.stdin.readline())

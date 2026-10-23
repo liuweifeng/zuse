@@ -55,8 +55,7 @@ export const ensurePortForward = async (
 			return forward.localPort;
 		} catch (cause) {
 			if (!cloudAccessForwardFailure(cause)) throw cause;
-			// A bridge can fail after its ticket was prepared (for example when the
-			// workspace paused between those operations). Refresh credentials once.
+
 			await prepareCloudWorkspaceSsh(environmentId);
 			const forward = await tunnels.open({
 				environmentId,
@@ -75,8 +74,6 @@ export const ensurePortForward = async (
 	return forward.localPort;
 };
 
-// Serialize control-panel operations so turning forwarding off also closes
-// tunnels whose asynchronous SSH preparation was already in flight.
 const previewForwardTasks = new Map<string, Promise<unknown>>();
 const queuePreviewForward = <T>(
 	environmentId: string,

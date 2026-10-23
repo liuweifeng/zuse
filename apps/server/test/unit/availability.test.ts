@@ -11,6 +11,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	buildUpdateCommand,
 	claudeAuthTestHelpers,
+	cliInvocationCommand,
+	cliLocatorCommand,
 	compareCliVersion,
 	deriveLatestAdvisory,
 	extraWellKnownCliPaths,
@@ -30,6 +32,35 @@ import {
 const { parseGrokModelsAuth, probeGrokAccount } = grokAuthTestHelpers;
 const { parseClaudeCredentials, probeNamedClaudeAccount } =
 	claudeAuthTestHelpers;
+
+describe("provider CLI locator", () => {
+	it("uses where.exe on Windows and which elsewhere", () => {
+		expect(cliLocatorCommand("win32", "codex")).toEqual({
+			command: "where.exe",
+			args: ["codex"],
+		});
+		expect(cliLocatorCommand("linux", "claude")).toEqual({
+			command: "which",
+			args: ["-a", "claude"],
+		});
+	});
+
+	it("launches Windows JavaScript CLI entrypoints through Node", () => {
+		expect(
+			cliInvocationCommand(
+				"C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js",
+				["--version"],
+				"win32",
+			),
+		).toEqual({
+			command: "node",
+			args: [
+				"C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js",
+				"--version",
+			],
+		});
+	});
+});
 
 describe("supported provider CLIs", () => {
 	it("exposes Serve detection from the provider availability registry", () => {
@@ -79,7 +110,7 @@ describe("parseCliVersion", () => {
 
 	it("returns null for output without a version triple", () => {
 		expect(parseCliVersion("no version here")).toBe(null);
-		expect(parseCliVersion("1.2")).toBe(null); // only a pair, not a triple
+		expect(parseCliVersion("1.2")).toBe(null);
 		expect(parseCliVersion("")).toBe(null);
 	});
 });
@@ -129,7 +160,6 @@ describe("resolveCodexCapabilities — version-gated feature floors", () => {
 	});
 
 	it("enables only goalMode at the SDK floor but below the fast floor", () => {
-		// 0.128.0 meets goalMode's 0.128.0 floor but is below fastMode's floor.
 		expect(resolveCodexCapabilities(parseCliVersion("0.128.0"))).toEqual([
 			"goalMode",
 		]);
@@ -238,51 +268,51 @@ describe.skipIf(process.platform === "win32")("Grok CLI probe", () => {
 	});
 });
 
-describe.skipIf(process.platform === "win32")(
-	"named Claude account probe",
-	() => {
-		it.each([
-			["free", "Requires Claude Pro"],
-			["Pro", "Claude Pro Subscription"],
-			["MAX", "Claude Max Subscription"],
-			["unknown-tier", "Claude subscription"],
-			[undefined, "Claude subscription"],
-		])("preserves subscription gating for %s", async (subscriptionType, authLabel) => {
-			const directory = await mkdtemp(
-				join(tmpdir(), "zuse-claude-account-probe-"),
+describe("named Claude account probe", () => {
+	it.each([
+		["free", "Requires Claude Pro"],
+		["Pro", "Claude Pro Subscription"],
+		["MAX", "Claude Max Subscription"],
+		["unknown-tier", "Claude subscription"],
+		[undefined, "Claude subscription"],
+	])("preserves subscription gating for %s", async (subscriptionType, authLabel) => {
+		const directory = await mkdtemp(
+			join(tmpdir(), "zuse-claude-account-probe-"),
+		);
+		try {
+			const cli = join(
+				directory,
+				process.platform === "win32" ? "claude.cjs" : "claude",
 			);
-			try {
-				const cli = join(directory, "claude");
-				await writeFile(
-					join(directory, "status.json"),
-					JSON.stringify({
-						loggedIn: true,
-						email: "named@example.com",
-						subscriptionType,
-					}),
-				);
-				await writeFile(
-					cli,
-					`#!${process.execPath}\nimport {readFileSync} from 'node:fs';\nif (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);\nconsole.log(readFileSync(process.env.CLAUDE_CONFIG_DIR + '/status.json', 'utf8'));\n`,
-					{ mode: 0o755 },
-				);
-				const info = await Effect.runPromise(
-					probeNamedClaudeAccount(cli, directory).pipe(
-						Effect.provide(NodeServices.layer),
-					),
-				);
-				expect(info).toEqual({
-					authStatus: "authenticated",
-					authType: "oauth",
-					authEmail: "named@example.com",
-					authLabel,
-				});
-			} finally {
-				await rm(directory, { recursive: true, force: true });
-			}
-		});
-	},
-);
+			await writeFile(
+				join(directory, "status.json"),
+				JSON.stringify({
+					loggedIn: true,
+					email: "named@example.com",
+					subscriptionType,
+				}),
+			);
+			await writeFile(
+				cli,
+				`#!${process.execPath}\nconst {readFileSync} = require('node:fs');\nif (process.argv.slice(2).join(' ') !== 'auth status --json') process.exit(2);\nconsole.log(readFileSync(process.env.CLAUDE_CONFIG_DIR + '/status.json', 'utf8'));\n`,
+				{ mode: 0o755 },
+			);
+			const info = await Effect.runPromise(
+				probeNamedClaudeAccount(cli, directory).pipe(
+					Effect.provide(NodeServices.layer),
+				),
+			);
+			expect(info).toEqual({
+				authStatus: "authenticated",
+				authType: "oauth",
+				authEmail: "named@example.com",
+				authLabel,
+			});
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+});
 
 describe("parseClaudeCredentials — subscription gating", () => {
 	const blob = (subscriptionType?: string, email = "user@anthropic.com") =>
@@ -314,9 +344,6 @@ describe("parseClaudeCredentials — subscription gating", () => {
 	});
 
 	it("does NOT gate an unknown/unmapped tier (a paid login is still valid)", () => {
-		// Regression: a base Pro user whose tier string we don't map (or whose blob
-		// omits it) must not be told to subscribe — the OAuth login proves a paid
-		// account and the runtime does the real entitlement check.
 		const info = parseClaudeCredentials(blob("max_5x_20250101"));
 		expect(info.authStatus).toBe("authenticated");
 		expect(info.authLabel?.toLowerCase()).not.toContain("require");
@@ -357,7 +384,6 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 	});
 
 	it("tolerates label-wrapped version strings (parser pulls the triple)", () => {
-		// `claude --version` prints "1.0.123 (Claude Code)"
 		expect(deriveLatestAdvisory("1.0.123 (Claude Code)", "1.0.140")).toBe(
 			"behind",
 		);
@@ -374,6 +400,35 @@ describe("deriveLatestAdvisory — update-available verdict", () => {
 });
 
 describe("selectCliPathCandidate", () => {
+	it("uses npm's JavaScript entrypoint instead of Windows Claude shims", () => {
+		const entrypoint =
+			"C:\\Users\\me\\AppData\\Roaming\\npm\\node_modules\\@anthropic-ai\\claude-code\\cli.js";
+		expect(
+			selectCliPathCandidate(
+				"claude",
+				[
+					"C:\\Users\\me\\AppData\\Roaming\\npm\\claude",
+					"C:\\Users\\me\\AppData\\Roaming\\npm\\claude.cmd",
+				],
+				"win32",
+				(candidate) => candidate === entrypoint,
+			),
+		).toBe(entrypoint);
+	});
+
+	it("prefers a native Windows Claude executable over npm shims", () => {
+		expect(
+			selectCliPathCandidate(
+				"claude",
+				[
+					"C:\\Users\\me\\AppData\\Roaming\\npm\\claude",
+					"C:\\Users\\me\\.local\\bin\\claude.exe",
+				],
+				"win32",
+			),
+		).toBe("C:\\Users\\me\\.local\\bin\\claude.exe");
+	});
+
 	it("prefers a user Codex install over a managed Codex shim", () => {
 		expect(
 			selectCliPathCandidate("codex", [
@@ -403,10 +458,11 @@ describe("selectCliPathCandidate", () => {
 
 	it("keeps first PATH match for non-Codex providers", () => {
 		expect(
-			selectCliPathCandidate("claude", [
-				"/opt/homebrew/bin/claude",
-				"/Users/me/.local/bin/claude",
-			]),
+			selectCliPathCandidate(
+				"claude",
+				["/opt/homebrew/bin/claude", "/Users/me/.local/bin/claude"],
+				"darwin",
+			),
 		).toBe("/opt/homebrew/bin/claude");
 	});
 });
@@ -503,18 +559,17 @@ describe("buildUpdateCommand — install-method detection", () => {
 				"/usr/local/lib/node_modules/@opencode/cli/bin/opencode2.exe",
 			]),
 		).toBe(
-			"npm uninstall -g @opencode/cli || true; npm install -g @opencode/cli@latest",
+			"npm uninstall -g @opencode/cli && npm install -g @opencode/cli@latest",
 		);
 	});
 
 	it("uses npm (uninstall-then-install) for an nvm/npm-global install", () => {
-		// `which` returns the bin symlink; realpath points into node_modules.
 		const cmd = buildUpdateCommand("codex", [
 			"/Users/me/.nvm/versions/node/v23.10.0/bin/codex",
 			"/Users/me/.nvm/versions/node/v23.10.0/lib/node_modules/@openai/codex/bin/codex.js",
 		]);
 		expect(cmd).toBe(
-			"npm uninstall -g @openai/codex || true; npm install -g @openai/codex@latest",
+			"npm uninstall -g @openai/codex && npm install -g @openai/codex@latest",
 		);
 	});
 
@@ -535,7 +590,7 @@ describe("buildUpdateCommand — install-method detection", () => {
 
 	it("defaults npm providers to npm when the path is unknown / absent", () => {
 		expect(buildUpdateCommand("gemini", [])).toBe(
-			"npm uninstall -g @google/gemini-cli || true; npm install -g @google/gemini-cli@latest",
+			"npm uninstall -g @google/gemini-cli && npm install -g @google/gemini-cli@latest",
 		);
 	});
 
@@ -547,6 +602,10 @@ describe("buildUpdateCommand — install-method detection", () => {
 		expect(buildUpdateCommand("grok", ["/Users/me/.local/bin/grok"])).toBe(
 			"curl -fsSL https://x.ai/cli/install.sh | bash",
 		);
+	});
+
+	it("does not offer POSIX curl installers on Windows", () => {
+		expect(buildUpdateCommand("grok", [], "win32")).toBeNull();
 	});
 });
 

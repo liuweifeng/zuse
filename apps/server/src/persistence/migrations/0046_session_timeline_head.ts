@@ -10,8 +10,7 @@ export const Migration0046SessionTimelineHead = Effect.gen(function* () {
 		INSERT OR IGNORE INTO app_state (key, value)
 		VALUES ('session_stream_epoch', lower(hex(randomblob(16))))
 	`;
-	// Preserve an in-flight turn across upgrade. The normal projector owns all
-	// subsequent transitions.
+
 	yield* sql`
 		UPDATE sessions
 		SET current_turn_id = (

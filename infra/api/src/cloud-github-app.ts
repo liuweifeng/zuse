@@ -139,7 +139,7 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 	const signature = request.headers.get("x-hub-signature-256") ?? "";
 	if (!/^sha256=[a-f0-9]{64}$/u.test(signature))
 		return yield* unauthorized("invalid_github_signature");
-	// Bound the body even when Content-Length is absent or dishonest.
+
 	const body = yield* Effect.tryPromise({
 		try: async () => {
 			const reader = request.body?.getReader();
@@ -218,13 +218,12 @@ export const githubWebhook = Effect.fn("githubWebhook")(function* (
 		payload.installation.id <= 0
 	)
 		return yield* badRequest("invalid_github_installation");
-	// No insert, tokens, or jobs: duplicate deliveries simply reconcile the same
-	// existing links. Failed requests return non-2xx and are safe to redeliver.
+
 	yield* invalidateGithubJoining(payload.installation.id);
 	yield* refreshGithubInstallation(payload.installation.id);
 	yield* reconcileGithubMemberships(payload.installation.id);
 	yield* refreshGithubRosters(payload.installation.id);
-	// Linked members newly added on GitHub join organizations with auto-join on.
+
 	yield* autoJoinInstallation(payload.installation.id).pipe(
 		Effect.catch(() => Effect.void),
 	);
@@ -359,7 +358,7 @@ export const completeGithubInstallation = Effect.fn(
 	"completeGithubInstallation",
 )(function* (state: string, installationId: number) {
 	const verified = yield* verifyGithubState(state);
-	// Only the OAuth-verified chooser can mint a state for a particular installation.
+
 	if (
 		verified.installationId !== installationId ||
 		verified.userAuthorization === undefined
@@ -432,13 +431,13 @@ export const completeGithubInstallation = Effect.fn(
 });
 
 const GITHUB_STATE_COOKIE = "__Host-zuse-github";
-/** Whether a GitHub user was previously linked by this Zuse account. */
+
 const isActorGithubUser = Effect.fn("isActorGithubUser")(function* (
 	actorId: string,
 	githubUserId: number,
 ) {
 	const stored = yield* (yield* CloudWorkspaceStore).getGithubUser(actorId);
-	// Stored commit emails are `${githubUserId}+${login}@users.noreply.github.com`.
+
 	if (stored && Number(stored.email.split("+")[0]) === githubUserId)
 		return true;
 	const identity = yield* (yield* ApiStore).githubJoining.getIdentity(actorId);
@@ -466,8 +465,7 @@ export const githubAuthorizationCallback = Effect.fn(
 	const config = yield* ApiConfiguration;
 	const url = new URL(request.url);
 	const stateHint = url.searchParams.get("state");
-	// GitHub-side requests and approvals may reach Setup URL without a Zuse
-	// connection link. They cannot select a workspace or authorize its actor.
+
 	if (
 		request.method === "GET" &&
 		stateHint === null &&
@@ -567,8 +565,6 @@ export const githubAuthorizationCallback = Effect.fn(
 	).toString();
 	const code = url.searchParams.get("code");
 	if (request.method === "GET" && code === null) {
-		// Returning from installing an account carries its installation id.
-		// Keep it through OAuth so that account links without another choice.
 		const pending =
 			typeof verified.installationId !== "number" &&
 			Number.isSafeInteger(installationHint) &&
@@ -765,16 +761,12 @@ export const githubAuthorizationCallback = Effect.fn(
 		if (result.installations.length < 100) break;
 	}
 	if (checkingApproval) return json({ ready: organizationReady });
-	// The person already chose this account (installed it, or approved it and
-	// came back): link it now instead of asking them to choose it again.
+
 	const chosen =
 		typeof verified.installationId === "number"
 			? verified.installationId
 			: undefined;
-	// The browser carries no Zuse session, so the chooser naming the workspace
-	// is the confirmation. Skip it only when this GitHub account is already
-	// known to be the actor's: a link minted for someone else's workspace then
-	// still stops at the chooser instead of attaching this account to it.
+
 	if (
 		chosen !== undefined &&
 		linkable.has(chosen) &&
@@ -932,8 +924,6 @@ export const githubInstallationGrants = Effect.fn("githubInstallationGrants")(
 									}),
 						},
 					).pipe(
-						// Uninstalled connections can remain until the user reconnects.
-						// They must not prevent other installations from granting access.
 						Effect.catch((error) =>
 							error.detail === "github_404"
 								? Effect.succeed(null)

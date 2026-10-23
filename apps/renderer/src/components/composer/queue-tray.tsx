@@ -1,8 +1,10 @@
+import { cancelStartupQueue } from "../../composer/startup-queue.ts";
 import {
 	useCloudMessageQueue,
 	useCloudQueueStatus,
 } from "../../lib/cloud-message-queue.ts";
 import { CloudMailboxQueue } from "./cloud-mailbox-queue.tsx";
+import { StartupQueueStatus } from "./startup-queue-status.tsx";
 import "@zuse/i18n/english/chat";
 import type {
 	CloudChatSummary,
@@ -10,7 +12,7 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useEnvironmentEntities } from "../../lib/environment-entity-hooks.ts";
 import { usePlatformOnline } from "../../lib/network-status.ts";
 import {
@@ -19,6 +21,7 @@ import {
 	queueHoldReason,
 } from "../../lib/queue-recovery.ts";
 import {
+	queuedMessageRunPending,
 	reorderSessionQueue,
 	resumeSessionQueue,
 } from "../../lib/session-actions.ts";
@@ -55,7 +58,7 @@ export function QueueTray({
 	const creation = Object.values(creationOperationsByProject)
 		.flat()
 		.find((operation) => operation.initialSessionId === sessionId);
-	// Startup deliberately pauses the queue until the workspace is ready. The
+	// Startup can hold the queue while the checkout is being created. The
 	// durable operation survives navigation and reconnects; the local optimistic
 	// creation entry does not always exist when this tray first renders.
 	const preparing = creation
@@ -65,8 +68,7 @@ export function QueueTray({
 		: creationInProgress;
 	const ref = { environmentId, sessionId };
 	const [dragIndex, setDragIndex] = useState<number | null>(null);
-	// Animate add / remove / reorder of queued rows. Clean default ease, no
-	// spring — keeps the tray feeling crisp rather than bouncy.
+
 	const listRef = useAutoAnimate<HTMLDivElement>();
 	const holdReason = queueHoldReason({ paused, runtime: timeline.runtime });
 	const resumable = canResumeQueue({
@@ -76,9 +78,7 @@ export function QueueTray({
 		creationInProgress: preparing,
 		waitingForSandbox,
 	});
-	// Messages queued while offline, or held by a turn that failed offline,
-	// should just go once the network is back. Register the queue with the
-	// shared recovery so it drains even after the user opens another chat.
+
 	const online = usePlatformOnline();
 	useEffect(() => {
 		if (!online && resumable)
@@ -113,7 +113,6 @@ export function QueueTray({
 		<div ref={listRef}>
 			{mailboxQueue}
 			<div className="border-b border-border/40 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
-				{/* The mailbox header above already narrates cloud startup. */}
 				{waitingForSandbox && mailbox.waiting.length === 0
 					? cloudStatus.label
 					: online
@@ -145,25 +144,35 @@ export function QueueTray({
 				/>
 			) : null}
 			{items.map((item, index) => (
-				<QueueChip
-					key={item.id}
-					sessionId={sessionId}
-					environmentId={environmentId}
-					item={item}
-					index={index}
-					count={items.length}
-					running={running}
-					dragging={dragIndex === index}
-					onMove={move}
-					onDragStart={() => setDragIndex(index)}
-					onDragOver={() => {
-						if (dragIndex !== null && dragIndex !== index) {
-							move(dragIndex, index);
-							setDragIndex(index);
-						}
-					}}
-					onDrop={() => setDragIndex(null)}
-				/>
+				<Fragment key={item.id}>
+					{item.ready === false ? (
+						<StartupQueueStatus
+							sessionRef={ref}
+							queueId={item.id}
+							creating={preparing}
+						/>
+					) : null}
+					<QueueChip
+						sessionId={sessionId}
+						environmentId={environmentId}
+						item={item}
+						index={index}
+						count={items.length}
+						running={running}
+						submitting={queuedMessageRunPending(timeline.view, item.id)}
+						dragging={dragIndex === index}
+						onMove={move}
+						onDragStart={() => setDragIndex(index)}
+						onDragOver={() => {
+							if (dragIndex !== null && dragIndex !== index) {
+								move(dragIndex, index);
+								setDragIndex(index);
+							}
+						}}
+						onDrop={() => setDragIndex(null)}
+						onRemove={() => cancelStartupQueue(ref, item.id)}
+					/>
+				</Fragment>
 			))}
 		</div>
 	);

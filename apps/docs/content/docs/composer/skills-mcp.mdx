@@ -1,5 +1,7 @@
 ---
 title: Skills, commands, and MCP servers
+icon: Sparkles
+navTitle: "Skills and MCP"
 description: Discover provider-native skills and commands, and how sessions get MCP tools.
 section: composer
 order: 54
@@ -16,17 +18,19 @@ Zuse keeps provider-native extensions visible without inventing a second configu
 
 ## Skills
 
-For Claude Code and Codex, the composer discovers global and project skills from the provider's native skill directories. Type `/` to search built-in commands and discovered skills. The list refreshes when relevant skill files change.
+For Claude Code and Codex, the composer discovers global and project skills from the provider's native skill directories, such as `.claude/skills` and `.codex/skills`, including skills from installed Claude Code plugins. Type `$` to search the skills available to the active session. The list refreshes when relevant skill files change.
 
 A selected skill is passed to the active provider with its name and arguments. Read a third-party skill before running it: skill instructions can ask the agent to use tools, access services, or modify files, and the session's permission posture still governs those actions.
+
+To turn skills on or off, open **Settings → Plugins** and choose the **Skills** tab. Each skill is labeled **Personal** or **Project**. Claude Code skill toggles are saved in Zuse. Codex toggles are saved in Codex's own config, so they also apply outside Zuse.
 
 Zuse also installs its own [bundled skill](/reference/bundled-skill) for configuration and troubleshooting help.
 
 ## Built-in commands
 
-Commands such as `/new`, `/model`, `/mode`, `/plan`, `/run`, and `/help` are handled by Zuse. The same picker can surface provider commands. Those commands are sent to the provider as written, so their exact behavior follows the installed provider version.
+Type `/` to search commands. Commands such as `/new`, `/clear`, `/model`, `/mode`, `/plan`, `/run`, and `/help` are handled by Zuse. The same picker surfaces provider commands, such as `/compact` for Claude Code. Those commands are sent to the provider as written, so their exact behavior follows the installed provider version.
 
-Only commands applicable to the active provider appear. Goal mode is exposed for supported Codex and Grok versions.
+Only commands applicable to the active provider appear. `/goal` is exposed for supported Codex and Grok versions.
 
 ## MCP servers
 

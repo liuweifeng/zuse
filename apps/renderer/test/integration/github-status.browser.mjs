@@ -30,22 +30,31 @@ export async function statusFixture() {
 						);
 					});
 				},
-				resolveId(id) {
+				resolveId(id, importer) {
+					if (
+						importer?.endsWith("/pr-pane.tsx") &&
+						id.endsWith("use-git-pr-state.ts")
+					)
+						return "\0paused-git-state";
 					if (id === "\0github-status-probe") return id;
 				},
 				load(id) {
+					if (id === "\0paused-git-state")
+						return `export const useGitPrState = () => ({ gitView: { data: { status: null, githubTarget: { branch: 'feature' } } }, prDetailsView: { sync: 'live', data: {} }, pr: window.__pausedPr, details: null });`;
 					if (id !== "\0github-status-probe") return;
 					return `
    import React from 'react'; import {createRoot} from 'react-dom/client';
    import {GitHubStatusNotice} from '/src/components/github-status-notice.tsx';
    import {PrActionsMenu} from '/src/components/pr-actions-menu.tsx';
+ import {PrPane} from '/src/components/pr-pane.tsx';
    import {resolveGitPrState} from '/src/lib/git-pr-state.ts';
    import '/src/styles.css';
    const base = {state:'open',branch:'feature',baseBranch:'main',number:1,url:'https://github.com/acme/app/pull/1',nodeId:'PR_1',isDraft:false,checks:'success',checksTotal:1,checksRunning:0,checksPassing:1,checksFailing:0,autoMergeEnabled:false,mergeable:'clean',additions:1,deletions:0,checkRuns:[{name:'build',status:'completed',conclusion:'success',url:null}],checksComplete:true,prCapability:'available',stale:false};
-   const states = [{name:'Fresh',pr:base},{name:'Loading',pr:{...base,state:'none',stale:true,checks:'none',checkRuns:[]}},{name:'Offline',pr:{...base,stale:true,prCapability:'offline'}},{name:'Authentication',pr:{...base,stale:true,prCapability:'authentication'}},{name:'Rate limited',pr:{...base,stale:true,prCapability:'rate_limited',retryAt:new Date(Date.now()+60000)}},{name:'Incomplete',pr:{...base,checksComplete:false}}];
+   window.__pausedPr = base;
+   const states = [{name:'Fresh',pr:base},{name:'Loading',pr:{...base,state:'none',stale:true,checks:'none',checkRuns:[]}},{name:'Offline',pr:{...base,stale:true,prCapability:'offline',observationError:'Could not reach GitHub.'}},{name:'Authentication',pr:{...base,stale:true,prCapability:'authentication'}},{name:'Rate limited',pr:{...base,stale:true,prCapability:'rate_limited',retryAt:new Date(Date.now()+60000)}},{name:'Incomplete',pr:{...base,checksComplete:false}}];
    const ref={environmentId:'local',folderId:'probe',worktreeId:null};
    document.documentElement.classList.add('dark');
-   createRoot(document.getElementById('root')).render(React.createElement('main',{style:{width:620,margin:'64px auto'},className:'text-foreground'},React.createElement('h1',{className:'mb-4 text-lg font-medium'},'GitHub status'),states.map(({name,pr})=>{const state=resolveGitPrState(pr,null,'feature');return React.createElement('section',{key:name,'data-state':name,className:'mb-2 flex h-10 items-center justify-between rounded-md bg-muted/20 px-3'},React.createElement('span',{className:'w-28 text-xs'},name),React.createElement('span',{className:'text-xs'},state.pr.checks),React.createElement(GitHubStatusNotice,{pr:state.pr,executionRef:ref}),React.createElement(PrActionsMenu,{pr:state.pr,executionRef:ref,className:'flex h-7 items-center gap-1 rounded px-1.5 text-xs',details:null,sessionId:null,onView:()=>{},onChat:()=>{}}));})));
+   createRoot(document.getElementById('root')).render(React.createElement('main',{style:{width:620,margin:'64px auto'},className:'text-foreground'},React.createElement('h1',{className:'mb-4 text-lg font-medium'},'GitHub status'),states.map(({name,pr})=>{const state=resolveGitPrState(pr,null,'feature');return React.createElement('section',{key:name,'data-state':name,className:'mb-2 flex h-10 items-center justify-between rounded-md bg-muted/20 px-3'},React.createElement('span',{className:'w-28 text-xs'},name),React.createElement('span',{className:'text-xs'},state.pr.checks),React.createElement(GitHubStatusNotice,{pr:state.pr,executionRef:ref,compact:true}),React.createElement(PrActionsMenu,{pr:state.pr,executionRef:ref,className:'flex h-7 items-center gap-1 rounded px-1.5 text-xs',details:null,sessionId:null,onView:()=>{},onChat:()=>{}}));}),React.createElement('section',{'data-state':'Paused',className:'mt-5'},React.createElement(PrPane,{executionRef:ref}))));
   `;
 				},
 			},
@@ -78,10 +87,44 @@ if (process.env.ZUSE_STATUS_PROBE === "1") {
 			.waitFor();
 		assert.equal(
 			await page
-				.getByRole("button", { name: "GitHub rate limited · Refresh paused" })
+				.locator('[data-state="Loading"] [data-slot="popover-trigger"]')
+				.count(),
+			0,
+		);
+		assert.equal(await page.locator(".animate-spin").count(), 0);
+		await page
+			.locator('[data-state="Paused"]')
+			.getByRole("heading", { name: "PR #1", exact: true })
+			.waitFor();
+		assert.equal(
+			(await page.locator('[data-state="Paused"]').textContent()).includes(
+				"Reading branch state",
+			),
+			false,
+		);
+		await page
+			.getByRole("button", { name: "GitHub offline · Cached status" })
+			.click();
+		await page.getByText("Could not reach GitHub.", { exact: true }).waitFor();
+		assert.equal(
+			await page
+				.locator('[data-slot="popover-popup"][data-open]')
+				.getByRole("button", { name: "Refresh", exact: true })
+				.isEnabled(),
+			true,
+		);
+		await page.keyboard.press("Escape");
+		await page
+			.getByRole("button", { name: "GitHub rate limited · Refresh paused" })
+			.click();
+		assert.equal(
+			await page
+				.locator('[data-slot="popover-popup"][data-open]')
+				.getByRole("button", { name: "Refresh", exact: true })
 				.isDisabled(),
 			true,
 		);
+		await page.keyboard.press("Escape");
 		assert.equal(
 			await page
 				.locator('[data-state="Incomplete"]')
@@ -117,12 +160,20 @@ if (process.env.ZUSE_STATUS_PROBE === "1") {
 		}
 
 		await page.clock.fastForward(60_001);
+		await page
+			.getByRole("button", { name: "GitHub rate limited · Refresh paused" })
+			.click();
 		assert.equal(
 			await page
-				.getByRole("button", { name: "GitHub rate limited · Refresh paused" })
+				.locator('[data-slot="popover-popup"][data-open]')
+				.getByRole("button", { name: "Refresh", exact: true })
 				.isDisabled(),
 			false,
 		);
+		await page.keyboard.press("Escape");
+		await page
+			.getByRole("button", { name: "GitHub offline · Cached status" })
+			.click();
 
 		assert.deepEqual(errors, []);
 		if (process.env.ZUSE_STATUS_SCREENSHOT)

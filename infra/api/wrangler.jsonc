@@ -1,7 +1,4 @@
 {
-	// Cloudflare Worker deploy config for the api control plane.
-	// This configuration is staging-only. Production uses the separately guarded
-	// wrangler.production.jsonc configuration.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "zuse-relay-staging",
 	"main": "src/worker.ts",
@@ -9,9 +6,7 @@
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"observability": { "enabled": true },
-	// The staging Hyperdrive Postgres origin is in AWS Seoul (ap-northeast-2). Cloud workspace startup
-	// performs ordered writes, so run API beside Hyperdrive's origin pool
-	// instead of paying a cross-Pacific round trip for every query.
+
 	"placement": { "region": "aws:ap-northeast-2" },
 	"rules": [
 		{
@@ -23,6 +18,7 @@
 				"**/install-grok.sh",
 				"**/workspace-bootstrap.sh",
 				"**/workspace-runtime.sh",
+				"**/workspace-archive.sh",
 				"**/github-auth.sh",
 				"**/workspace-repository.sh",
 				"**/workspace-fork-prepare.sh",
@@ -52,13 +48,11 @@
 		]
 	},
 	"vars": {
-		// Keep account execution near the staging database in Seoul.
 		"CLOUD_AUTH_EXECUTOR_LOCATION_HINT": "apac-ne",
-		// Staging test rollout; production remains disabled pending multi-user verification.
+
 		"ORGANIZATION_WORKSPACES_ENABLED": "true",
 		"PLUGIN_APP_ORIGIN": "https://code-staging.zuse.sh",
-		// Enable only after migration 0022, Slack/WorkOS setup, and queue provisioning.
-		// Queue bindings are documented in internal-docs/cloud/slack-app-operations.md.
+
 		"SLACK_ENABLED": "true",
 		"SLACK_APP_ID": "A0C28PUEJNL",
 		"SLACK_CLIENT_ID": "12048365003570.12076810494768",
@@ -68,8 +62,7 @@
 		"CLOUD_CODEX_AUTH_BROKER_SERVING_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_ENROLLMENT_ENABLED": "true",
 		"CLOUD_PROVIDER_AUTH_BROKER_SERVING_ENABLED": "true",
-		// Preserve existing runtime and broker credentials until the coordinated
-		// issuer cutover in internal-docs/cloud/api-domain-cutover.md is complete.
+
 		"API_ISSUER": "https://api-staging.stuff.md",
 		"API_PUBLIC_ORIGIN": "https://api-staging.zuse.sh",
 		"WORKOS_ISSUER": "https://api.workos.com",
@@ -89,8 +82,7 @@
 		"MACHINE_ALPHA_ALLOWLIST": "user_01KW7R9WGJFFSKDNESE7RN00N1,user_01M0HA239JJ7P73AA1X5M8KDHF",
 		"MACHINE_MANUAL_ENTITLEMENTS": "true",
 		"MACHINE_LIVE_CHECKOUT_ENABLED": "true",
-		// Staging is allowlisted and uses sandbox billing, but exercises the real
-		// payment-to-provisioning path end to end.
+
 		"MACHINE_PROVIDER": "hetzner",
 		"HETZNER_ADAPTER_ENABLED": "true",
 		"HETZNER_API_BASE_URL": "https://api.hetzner.cloud/v1",
@@ -102,13 +94,20 @@
 		"MACHINE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
 		"CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-staging/stable-manifest.json",
 		"CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"ODy1bBgW390GBMxIqn8wy2eO3C05kXdoPYk5JV09OZI\",\"kty\":\"OKP\"}",
+		// Published Zuse image verified with the staging Daytona organization.
+		// See internal-docs/cloud/daytona.md.
+		"DAYTONA_ADAPTER_ENABLED": "true",
+		"DAYTONA_TEMPLATE_ID": "1fc5f01c-8e00-4490-b8c4-228b86a424c5",
+		"DAYTONA_TEMPLATE_VERSION": "20261012-1",
+		"DAYTONA_VCPU_COUNT": "2",
+		"DAYTONA_MEMORY_MIB": "4096",
 		"E2B_ADAPTER_ENABLED": "true",
 		"BOAT_ADAPTER_ENABLED": "true",
 		"BOAT_TEMPLATE_SNAPSHOT": "zuse-base-v8",
 		"BOAT_TEMPLATE_VERSION": "8",
 		"BOAT_MACHINE_TYPE": "small",
 		"SANDBOX_DEFAULT_PROVIDER_ID": "box",
-		// Verified Boxd template; install BOXD_API_KEY before deploying staging.
+
 		"BOXD_ADAPTER_ENABLED": "true",
 		"CLOUD_BOXD_CUSTOM_SNAPSHOTS_ENABLED": "true",
 		"BOXD_BILLING_ENABLED": "true",
@@ -117,8 +116,8 @@
 		"BOXD_TEMPLATE_VERSION": "20260927-1",
 		"BOXD_MACHINE_SIZE": "default",
 		"BOXD_ORG": "zuse",
-		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox",
-		"E2B_TEMPLATE_VERSION": "53cfaaf2-09fb-45d3-af34-37edaf57fab0",
+		"E2B_TEMPLATE_ID": "ioeu6w9tn6l30781rikc",
+		"E2B_TEMPLATE_VERSION": "d5520ad2-383a-459d-bf39-9441f053bdcb",
 		"E2B_VCPU_COUNT": "2",
 		"E2B_MEMORY_MIB": "4096",
 		"CLOUD_BILLING_ENFORCEMENT_ENABLED": "false",
@@ -128,7 +127,6 @@
 		"CLOUD_WORKSPACE_IDLE_TIMEOUT_MS": "600000",
 		"CLOUD_REPOSITORY_CACHE_MAX_BYTES": "8589934592",
 
-		// Keep legacy checkout until Stripe prices, taxes and migration are verified.
 		"BILLING_DEFAULT_PROVIDER": "polar",
 		"STRIPE_ENVIRONMENT": "sandbox",
 		"STRIPE_PRICE_CLOUD_WORKSPACE_STANDARD_V1": "",
@@ -155,6 +153,7 @@
 	],
 	"durable_objects": {
 		"bindings": [
+			{ "name": "DEVICE_BRIDGE_GATEWAY", "class_name": "DeviceBridgeGateway" },
 			{ "name": "PLUGIN_VAULT", "class_name": "PluginVault" },
 			{ "name": "CLOUD_AUTH_EXECUTOR", "class_name": "CloudAuthExecutor" },
 			{ "name": "WORKSPACE_STARTUP", "class_name": "WorkspaceStartup" },
@@ -185,6 +184,7 @@
 		{
 			"tag": "cloud-auth-executor-v1",
 			"new_sqlite_classes": ["CloudAuthExecutor"]
-		}
+		},
+		{ "tag": "device-bridge-v1", "new_sqlite_classes": ["DeviceBridgeGateway"] }
 	]
 }

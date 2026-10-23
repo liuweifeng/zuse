@@ -38,8 +38,7 @@ export function useCloudRuntimeLifecycle(): void {
 			void refreshCloudCatalog();
 		};
 		refresh();
-		// Every 10s normally; every 2s while a workspace boots or resumes so
-		// the setup steps advance like desktop's live watch.
+
 		const timer = setInterval(() => {
 			const starting = appAtomRegistry
 				.get(cloudCatalogAtom)

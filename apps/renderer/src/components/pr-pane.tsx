@@ -22,7 +22,7 @@ import type {
 	GitPrReviewState,
 } from "@zuse/contracts";
 import { GitPrInfo } from "@zuse/contracts";
-import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
+import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	ArrowUpRight01Icon,
 	CommentAdd01Icon,
@@ -76,7 +76,6 @@ import { Spinner } from "./ui/spinner.tsx";
 import { toastManager } from "./ui/toast.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-/** Checks beyond this stay behind "Show all" so feedback remains reachable. */
 const VISIBLE_CHECK_LIMIT = 8;
 
 const formatRelative = (date: Date): string => {
@@ -209,7 +208,7 @@ export function PrPane({
 			</div>
 		);
 	}
-	if (status === null) {
+	if (status === null && !workspaceView.data?.githubTarget) {
 		return <Empty>{uiMessage("projects:pr_pane_reading_branch_state")}</Empty>;
 	}
 
@@ -248,9 +247,11 @@ export function PrPane({
 					</div>
 					{refreshError}
 					<NoPrState
-						branch={status.branch}
-						dirtyFiles={status.dirtyFiles}
-						ahead={status.ahead}
+						branch={
+							workspaceView.data?.githubTarget?.branch ?? status?.branch ?? null
+						}
+						dirtyFiles={status?.dirtyFiles ?? null}
+						ahead={status?.ahead ?? null}
 					/>
 				</div>
 			) : (
@@ -272,8 +273,8 @@ function NoPrState({
 	ahead,
 }: {
 	branch: string | null;
-	dirtyFiles: number;
-	ahead: number;
+	dirtyFiles: number | null;
+	ahead: number | null;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -294,34 +295,38 @@ function NoPrState({
 						{branch ?? uiMessage("projects:pr_pane_detached")}
 					</span>
 				</DockMetaRow>
-				<DockMetaRow label={uiMessage("projects:pr_pane_local_changes")}>
-					{dirtyFiles > 0 ? (
-						<span className="text-[var(--accent-amber)]">
-							{uiMessage("projects:pr_pane_file_plural0_sentence", {
-								dirtyFiles: dirtyFiles ?? "",
-								count: dirtyFiles,
-							})}
-						</span>
-					) : (
-						<span className="text-muted-foreground">
-							{uiMessage("projects:pr_pane_clean")}
-						</span>
-					)}
-				</DockMetaRow>
-				<DockMetaRow label={uiMessage("projects:pr_pane_ahead_of_upstream")}>
-					{ahead > 0 ? (
-						<span>
-							{uiMessage("projects:pr_pane_commit_plural0_sentence", {
-								ahead: ahead ?? "",
-								count: ahead,
-							})}
-						</span>
-					) : (
-						<span className="text-muted-foreground">
-							{uiMessage("projects:pr_pane_in_sync")}
-						</span>
-					)}
-				</DockMetaRow>
+				{dirtyFiles !== null ? (
+					<DockMetaRow label={uiMessage("projects:pr_pane_local_changes")}>
+						{dirtyFiles > 0 ? (
+							<span className="text-[var(--accent-amber)]">
+								{uiMessage("projects:pr_pane_file_plural0_sentence", {
+									dirtyFiles: dirtyFiles ?? "",
+									count: dirtyFiles,
+								})}
+							</span>
+						) : (
+							<span className="text-muted-foreground">
+								{uiMessage("projects:pr_pane_clean")}
+							</span>
+						)}
+					</DockMetaRow>
+				) : null}
+				{ahead !== null ? (
+					<DockMetaRow label={uiMessage("projects:pr_pane_ahead_of_upstream")}>
+						{ahead > 0 ? (
+							<span>
+								{uiMessage("projects:pr_pane_commit_plural0_sentence", {
+									ahead: ahead ?? "",
+									count: ahead,
+								})}
+							</span>
+						) : (
+							<span className="text-muted-foreground">
+								{uiMessage("projects:pr_pane_in_sync")}
+							</span>
+						)}
+					</DockMetaRow>
+				) : null}
 			</div>
 		</section>
 	);
@@ -373,7 +378,6 @@ export function PrOverview({
 		Record<string, string>
 	>({});
 
-	// Failing checks first — that's what the user opened the tab to investigate.
 	const orderedChecks = sortChecks(details?.checkRuns ?? pr.checkRuns ?? []);
 	const attachMarkdown = async (
 		markdown: string,
@@ -604,11 +608,7 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 				) : details === null ? (
 					<div className="border-t border-border/50 px-4 py-3">
 						<DockWarningNote>
-							<RichMessage
-								id="projects:pr_pane_gh_couldn_t_read_pr_details_sentence"
-								components={{ part0: <code className="font-mono" /> }}
-								values={{ code0: "gh" }}
-							/>
+							{uiMessage("projects:github_refresh_failed")}
 						</DockWarningNote>
 					</div>
 				) : (
@@ -737,7 +737,6 @@ Resolve this PR feedback. Make the necessary code changes, then summarize what c
 
 type UiMessage = ReturnType<typeof useUiMessages>["message"];
 
-/** Most decisive state wins the one-line rollup: failures, then progress. */
 function checkSummaryText(
 	counts: ReturnType<typeof countChecks>,
 	uiMessage: UiMessage,
@@ -762,7 +761,6 @@ function checkSummaryText(
 	return parts.join(" · ");
 }
 
-/** A reviewer's current stance is their latest submitted review. */
 function latestReviewByAuthor(reviews: readonly GitPrReview[]): GitPrReview[] {
 	const latest = new Map<string, GitPrReview>();
 	for (const review of reviews) {
@@ -895,7 +893,6 @@ function mergeBlockerMessage(
 	}
 }
 
-/** The one next step for an open PR: publish a draft, or merge. */
 function PrPrimaryAction({
 	pr,
 	commands,
@@ -966,7 +963,6 @@ function PrPrimaryAction({
 	);
 }
 
-/** Collapsed height for long PR descriptions; checks and feedback stay in view. */
 const DESCRIPTION_CLAMP_PX = 112;
 
 function ClampedDescription({ text }: { text: string }) {

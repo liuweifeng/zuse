@@ -153,8 +153,7 @@ export const filterSessionCatalog = <E, R>(
 								known.add(change.session.id);
 								return Result.succeed(change);
 							}
-							// If a previously visible session moves out of scope, remove its
-							// old row without revealing the destination or updated contents.
+
 							return known.delete(change.session.id)
 								? Result.succeed({
 										_tag: "remove",

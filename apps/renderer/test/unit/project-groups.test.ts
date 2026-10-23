@@ -242,7 +242,7 @@ describe("buildLogicalProjectGroups", () => {
 				"lf-1": [chat("local-mid", "lf-1", "2026-08-05T00:00:00Z")],
 			},
 		});
-		// The REMOTE environment is active — the app is looking at Studio's chat.
+
 		const groups = build({
 			entries: [localEntry, remoteEntry],
 			activeEnvironmentId: "env-remote",
@@ -255,13 +255,13 @@ describe("buildLogicalProjectGroups", () => {
 		});
 		const refs = groups[0]?.chats ?? [];
 		const byId = new Map(refs.map((ref) => [String(ref.chat.id), ref]));
-		// The active environment's live rows still read as remote…
+
 		expect(byId.get("remote-new")?.remote).toBe(true);
 		expect(byId.get("remote-new")?.live).toBe(true);
-		// …and this desktop's rows (fed from the catalog) never do.
+
 		expect(byId.get("local-mid")?.remote).toBe(false);
 		expect(byId.get("local-mid")?.live).toBe(false);
-		// Presence is desktop-anchored too — identical to when local is active.
+
 		expect(groups[0]?.environmentPresence).toBe("mixed");
 	});
 
@@ -511,7 +511,6 @@ describe("computerPickerItems", () => {
 	});
 
 	it("shows a static label for a single active member that is not this desktop", () => {
-		// The remote env is active and owns the only checkout of this repo.
 		const groups = build({
 			activeEnvironmentId: "env-remote",
 			localEnvironmentId: "env-local",

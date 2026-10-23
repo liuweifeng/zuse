@@ -8,6 +8,7 @@ import { commandFingerprint } from "@zuse/client-runtime/client-persistence";
 import {
 	CommandId,
 	EnvironmentId,
+	GitHubTarget,
 	MessageEnvelope,
 	ResolvedModelCatalog,
 	SessionStreamCursor,
@@ -29,6 +30,7 @@ export const clearOfflineCache = () => deletePath(ROOT);
 const downloadedPaths = (connectionRoot: string) => [
 	`${connectionRoot}/sessions.json`,
 	`${connectionRoot}/messages`,
+	`${connectionRoot}/github`,
 ];
 
 const pathSize = async (path: string): Promise<number> => {
@@ -326,8 +328,7 @@ export const readClientCommandOutbox = () =>
 							? [
 									{
 										command,
-										// Never drop opaque cloud identity on recovery. The shared transport
-										// validates the envelope before either replaying or reading a receipt.
+
 										...(Reflect.get(entry, "encryptedEnvelope") === undefined
 											? {}
 											: {
@@ -399,9 +400,6 @@ export const writeClientCommandOutbox = (
 	snapshot: ClientCommandOutboxSnapshot,
 ) =>
 	ensureDir(ROOT).pipe(
-		// Expo's iOS writeAsStringAsync uses Data.write(.atomic). moveAsync first
-		// deletes its destination, so a separate temporary/move would lose that
-		// native atomic-replacement guarantee on app termination.
 		Effect.andThen(writeJson(clientCommandOutboxPath(), snapshot)),
 	);
 
@@ -415,3 +413,16 @@ export const deletePath = (path: string) =>
 		},
 		catch: (cause) => cause,
 	});
+
+const githubTargetPath = (connection: string, checkout: string) =>
+	`${ROOT}/${slugConnectionKey(connection)}/github/${slugConnectionKey(checkout)}.json`;
+export const readGithubTarget = (connection: string, checkout: string) =>
+	readJson(
+		githubTargetPath(connection, checkout),
+		Schema.decodeUnknownSync(GitHubTarget),
+	).pipe(Effect.catch(() => Effect.succeed(null)));
+export const writeGithubTarget = (
+	connection: string,
+	checkout: string,
+	target: GitHubTarget,
+) => writeJson(githubTargetPath(connection, checkout), target);

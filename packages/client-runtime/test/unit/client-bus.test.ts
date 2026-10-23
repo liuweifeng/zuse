@@ -242,7 +242,7 @@ describe("ClientBus", () => {
 
 		namespace = "second";
 		const stale = bus.snapshot(timelineKey);
-		// No listener may run synchronously inside a React render read.
+
 		expect(notified).toEqual([]);
 		expect(stale.data).toBeNull();
 		expect(bus.snapshot(timelineKey)).toBe(stale);
@@ -693,8 +693,7 @@ describe("ClientBus", () => {
 				payload: { bytes: new Uint8Array([1, 2, 4]) },
 			}),
 		).not.toBe(commandFingerprint(binary));
-		// Uint8Array's enumerable shape is { "0": 1, ... }. It must retain a
-		// distinct identity from a real application object with those keys.
+
 		expect(
 			commandFingerprint({
 				...binary,
@@ -915,7 +914,7 @@ describe("ClientBus", () => {
 		});
 		expect(starts).toBe(1);
 		lease.release();
-		// Keep the denial marker until an authorized runtime frame replaces it.
+
 		expect(bus.forget(timelineKey)).toBe(false);
 		await bus.dispose();
 	});
@@ -1744,7 +1743,7 @@ describe("ClientBus", () => {
 			sync: "live",
 		});
 
-		const result = bus.dispatch({
+		const handle = bus.dispatchHandle({
 			kind: "messages.send",
 			commandId,
 			environmentId,
@@ -1755,11 +1754,23 @@ describe("ClientBus", () => {
 			awaitResourceReflection: true,
 		});
 
+		let accepted = false;
+		void handle.accepted.then(() => {
+			accepted = true;
+		});
+		let completed = false;
+		void handle.result.then(() => {
+			completed = true;
+		});
 		await waitUntil(
 			() =>
 				bus.snapshot(timelineKey).pendingCommands[0]?.deliveryPhase ===
 				"applied",
 		);
+		// Composer acceptance must not wait for a delayed timeline stream.
+		await waitUntil(() => accepted);
+		expect(completed).toBe(false);
+		expect(persistence.outbox.has(commandId)).toBe(true);
 		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([
 			expect.objectContaining({
 				commandId,
@@ -1772,7 +1783,7 @@ describe("ClientBus", () => {
 			sync: "live",
 		});
 		expect(bus.snapshot(timelineKey).pendingCommands).toEqual([]);
-		await expect(result).resolves.toMatchObject({ commandId });
+		await expect(handle.result).resolves.toMatchObject({ commandId });
 		await bus.dispose();
 	});
 
@@ -2003,8 +2014,6 @@ describe("ClientBus", () => {
 		await waitUntil(() => mailboxSelections.length === 2);
 		expect(mailboxSelections).toEqual(["fallback-first", "fallback-second"]);
 
-		// Even when the second capability check loses the race first, its live RPC
-		// cannot overtake the command submitted ahead of it.
 		secondFallback.resolve();
 		await Promise.resolve();
 		expect(liveExecutions).toEqual([]);
@@ -2681,7 +2690,7 @@ describe("ClientBus", () => {
 						};
 					}),
 			});
-			// Drain the constructor's empty startup scan before creating fresh work.
+
 			await vi.advanceTimersByTimeAsync(0);
 			const command = {
 				kind: "messages.send",
@@ -3019,8 +3028,6 @@ describe("ClientBus", () => {
 			]);
 			expect(bus.snapshot(timelineKey).failedCommands).toEqual([]);
 
-			// A catalog/reconnect scan must not create another attempt while the
-			// original dispatch promise owns its retry delay.
 			await bus.flushDurableOutbox(environmentId);
 			expect(mailboxDispatches).toBe(1);
 			expect(liveExecutions).toBe(0);
@@ -3128,7 +3135,6 @@ describe("ClientBus", () => {
 		let dispatches = 0;
 		let resumes = 0;
 		const transport: CloudCommandTransport = {
-			// Accepted rows remain drainable even after a rollout narrows support.
 			supports: () => false,
 			dispatch: () => {
 				dispatches += 1;
@@ -3208,8 +3214,6 @@ describe("ClientBus", () => {
 		let resumedEnvelope: unknown;
 		let resumedAcceptance: unknown = "not-called";
 		const transport: CloudCommandTransport = {
-			// Prepared rows remain owned by v3 even if a later rollout narrows new
-			// command eligibility; falling back would create a second execution path.
 			supports: () => false,
 			dispatch: () => {
 				dispatches += 1;
@@ -3327,7 +3331,6 @@ describe("ClientBus", () => {
 				persistedEnvelope,
 			);
 
-			// Discovery cannot create a second attempt while the original promise owns it.
 			await bus.flushDurableOutbox(environmentId);
 			expect(mailboxDispatches).toBe(1);
 			await bus.dispose();
@@ -3628,7 +3631,6 @@ describe("ClientBus", () => {
 			},
 		});
 
-		// Canonical key ordering and local scheduling time do not alter identity.
 		await expect(
 			bus.dispatch({
 				...original,
@@ -3981,4 +3983,113 @@ describe("ClientBus", () => {
 		expect(bus.snapshot(timelineKey).data).toBeNull();
 		await bus.dispose();
 	});
+});
+
+it("persists and steers queued feedback while a goal send is still pending", async () => {
+	const sendReply = deferred<void>();
+	const queueReply = deferred<void>();
+	const calls: string[] = [];
+	const bus = new ClientBus<Client>({
+		resolver: immediateResolver(),
+		persistence: new MemoryPersistence(),
+		commandExecutor: {
+			execute: async (_client, command) => {
+				calls.push(command.kind);
+				if (command.kind === "messages.send") await sendReply.promise;
+				if (command.kind === "messages.queue.add") await queueReply.promise;
+				return {
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				};
+			},
+		},
+	});
+	const command = (kind: string) => ({
+		kind,
+		commandId: CommandId.make(kind),
+		environmentId,
+		resource: timelineKey,
+		payload:
+			kind === "messages.send" ? { text: "finish the goal", asGoal: true } : {},
+		retry: "safe" as const,
+		createdAt: 1,
+	});
+	const send = bus.dispatch(command("messages.send"));
+	try {
+		await waitUntil(() => calls.length === 1);
+		const add = bus.dispatch(command("messages.queue.add"));
+		const steer = bus.dispatch(command("messages.queue.runNext"));
+		await waitUntil(() => calls.includes("messages.queue.add"));
+		expect(calls).toEqual(["messages.send", "messages.queue.add"]);
+		queueReply.resolve();
+		await waitUntil(() => calls.includes("messages.queue.runNext"));
+		await Promise.all([add, steer]);
+		expect(calls).toEqual([
+			"messages.send",
+			"messages.queue.add",
+			"messages.queue.runNext",
+		]);
+	} finally {
+		queueReply.resolve();
+		sendReply.resolve();
+		await send;
+		await bus.dispose();
+	}
+});
+
+it.each(
+	[
+		"messages.send",
+		"messages.queue.runNext",
+		"messages.interrupt",
+		"messages.background.stop",
+	].flatMap((previousKind) =>
+		["messages.interrupt", "messages.background.stop"].map((stopKind) => ({
+			previousKind,
+			stopKind,
+		})),
+	),
+)("sends $stopKind without waiting for a pending $previousKind command", async ({
+	previousKind,
+	stopKind,
+}) => {
+	const previousReply = deferred<void>();
+	const calls: string[] = [];
+	const bus = new ClientBus<Client>({
+		resolver: immediateResolver(),
+		persistence: new MemoryPersistence(),
+		commandExecutor: {
+			execute: async (_client, command) => {
+				calls.push(command.kind);
+				if (command.commandId === "previous") await previousReply.promise;
+				return {
+					commandId: command.commandId,
+					receivedAt: 2,
+					result: undefined,
+				};
+			},
+		},
+	});
+	const command = (kind: string, id: string) => ({
+		kind,
+		commandId: CommandId.make(id),
+		environmentId,
+		resource: timelineKey,
+		payload: { expectedTurnId: id },
+		retry: "safe" as const,
+		createdAt: 1,
+	});
+	const previous = bus.dispatch(command(previousKind, "previous"));
+	try {
+		await waitUntil(() => calls.length === 1);
+		const stopping = bus.dispatch(command(stopKind, "stop-current-turn"));
+		await waitUntil(() => calls.length === 2);
+		expect(calls[1]).toBe(stopKind);
+		await stopping;
+	} finally {
+		previousReply.resolve();
+		await previous;
+		await bus.dispose();
+	}
 });

@@ -56,8 +56,7 @@ describe("session-keyed composer drafts", () => {
 
 	it("only notifies subscribers of the session that changed", () => {
 		const onPlanning = vi.fn();
-		// immediate: true builds the node so the dependency edge to the base
-		// record exists — mirroring how the React hooks read atoms on mount.
+
 		const unsubscribe = appAtomRegistry.subscribe(
 			composerDraftAtom("connection:planning"),
 			onPlanning,

@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import http from "node:http";
@@ -22,6 +22,7 @@ import {
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
@@ -94,9 +95,7 @@ const writeLog = (line: string): void => {
 	process.stderr.write(line);
 	try {
 		appendFileSync(LOG_PATH, line);
-	} catch {
-		// best-effort
-	}
+	} catch {}
 };
 
 const dlog = (msg: string): void => {
@@ -334,7 +333,7 @@ const spawnOpencode2Server = (
 					}
 					if (readingPassword) return;
 					readingPassword = true;
-					// Newer v2 builds persist the daemon password instead of printing it.
+
 					const stateHome =
 						executionEnv?.XDG_STATE_HOME ?? process.env.XDG_STATE_HOME;
 					const home = executionEnv?.HOME ?? homedir();
@@ -350,7 +349,6 @@ const spawnOpencode2Server = (
 							finish(urlMatch[1]!, password);
 						})
 						.catch(() => {
-							// Older builds may print the password in a subsequent stdout chunk.
 							readingPassword = false;
 						});
 				};
@@ -519,9 +517,7 @@ const subscribeSse = (
 							if (parsed !== null && typeof parsed === "object") {
 								onEvent(parsed as Record<string, unknown>);
 							}
-						} catch {
-							// ignore malformed frames
-						}
+						} catch {}
 					}
 				}
 			});
@@ -594,9 +590,7 @@ const waitForCatalog = async (
 			body: {},
 			timeoutMs: 15_000,
 		});
-	} catch {
-		// activation wait is best-effort
-	}
+	} catch {}
 	const deadline = Date.now() + CATALOG_WAIT_MS;
 	while (Date.now() < deadline) {
 		try {
@@ -607,9 +601,7 @@ const waitForCatalog = async (
 			);
 			const data = unwrapData(raw);
 			if (Array.isArray(data) && data.length > 0) return;
-		} catch {
-			// retry
-		}
+		} catch {}
 		await sleep(250);
 	}
 };
@@ -694,9 +686,7 @@ const removeCustomProviderFromConfig = async (id: string): Promise<void> => {
 		delete providers[id];
 		json["providers"] = providers;
 		await writeFile(path, `${JSON.stringify(json, null, 2)}\n`);
-	} catch {
-		// missing / jsonc
-	}
+	} catch {}
 };
 
 interface InventoryIntegration {
@@ -776,7 +766,7 @@ export const collectOpencode2Inventory = (
 		const id = asNonEmptyString(p.id);
 		if (id === null) continue;
 		providerName.set(id, asNonEmptyString(p.name) ?? id);
-		// /api/provider lists available providers; current v2 has no activation field.
+
 		if (
 			p.disabled !== true &&
 			(p.activation === undefined ||
@@ -1799,9 +1789,7 @@ export const startOpencode2Session = (
 					closed = true;
 					try {
 						eventAbort.abort();
-					} catch {
-						// ignore
-					}
+					} catch {}
 					yield* Effect.promise(() =>
 						stopProviderProcess(server.child, { processGroup: true }),
 					);

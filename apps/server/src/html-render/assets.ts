@@ -36,8 +36,7 @@ export async function embedHtmlImages(
 		const copies = [...html.matchAll(pattern)].filter(
 			(match) => match[1] === path,
 		).length;
-		// Count every occurrence before allocating the expanded string. The
-		// document must also fit the authenticated cloud attachment-read response.
+
 		if (
 			Buffer.byteLength(html) +
 				copies * (Buffer.byteLength(url) - Buffer.byteLength(path)) >

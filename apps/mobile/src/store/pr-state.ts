@@ -2,7 +2,7 @@ import type { FolderId, GitPrInfo, WorktreeId } from "@zuse/contracts";
 import { Effect } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 
-import { getConnectionClient, reportConnectionFailure } from "~/rpc/connection";
+import { loadGithubObservation, resetGithubContext } from "~/rpc/github";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 
 import { appAtomRegistry, batchAtomUpdates } from "./registry";
@@ -25,6 +25,7 @@ export const prStateAtom = Atom.family((key: string) =>
 	Atom.make((get) => get(prStateByKeyAtom)[key]),
 );
 
+let epoch = 0;
 export const hydratePrState = async (
 	connKey: string,
 	options: WsProtocolOptions,
@@ -32,6 +33,7 @@ export const hydratePrState = async (
 	worktreeId: WorktreeId | null,
 ): Promise<void> => {
 	const key = prStateKey(connKey, folderId, worktreeId);
+	const generation = epoch;
 	if (
 		appAtomRegistry.get(prStateByKeyAtom)[key] !== undefined ||
 		appAtomRegistry.get(prStateLoadingByKeyAtom)[key]
@@ -45,10 +47,10 @@ export const hydratePrState = async (
 	}));
 
 	try {
-		const client = await Effect.runPromise(getConnectionClient(options));
-		const info = await Effect.runPromise(
-			client["git.prState"]({ folderId, worktreeId }),
+		const { pr: info } = await Effect.runPromise(
+			loadGithubObservation({ connection: options, folderId, worktreeId }),
 		);
+		if (generation !== epoch) return;
 		batchAtomUpdates(() => {
 			appAtomRegistry.update(prStateByKeyAtom, (state) => ({
 				...state,
@@ -59,12 +61,13 @@ export const hydratePrState = async (
 				[key]: false,
 			}));
 		});
-	} catch (cause) {
-		reportConnectionFailure(options, cause);
+	} catch {
+		if (generation !== epoch) return;
+		if (generation !== epoch) return;
 		batchAtomUpdates(() => {
 			appAtomRegistry.update(prStateByKeyAtom, (state) => ({
 				...state,
-				[key]: null,
+				[key]: state[key] ? { ...state[key], stale: true } : null,
 			}));
 			appAtomRegistry.update(prStateLoadingByKeyAtom, (state) => ({
 				...state,
@@ -75,6 +78,8 @@ export const hydratePrState = async (
 };
 
 export const resetPrStateRuntime = (): void => {
+	epoch++;
+	resetGithubContext();
 	batchAtomUpdates(() => {
 		appAtomRegistry.set(prStateByKeyAtom, {});
 		appAtomRegistry.set(prStateLoadingByKeyAtom, {});

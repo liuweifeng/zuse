@@ -27,11 +27,10 @@ import {
 
 describe("Cursor SDK lazy loading", () => {
 	test("importing the driver modules does not load the SDK; the first Cursor call does, once", async () => {
-		// The driver, the models helper and the loader are all imported above.
 		await import("../../../src/drivers/cursor.ts");
 		expect(sdkLoads.count).toBe(0);
 		expect(cursorSdkLoaded()).toBe(false);
-		// Classification before any load never touches the SDK.
+
 		expect(isCursorAuthenticationError(new Error("401"))).toBe(false);
 		expect(cursorSdkErrorOf(new Error("boom"))).toBeNull();
 		expect(cursorSdkLoaded()).toBe(false);

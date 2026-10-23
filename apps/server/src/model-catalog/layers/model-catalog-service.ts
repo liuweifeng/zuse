@@ -48,14 +48,13 @@ import { resolveCliPath } from "../../provider/availability.ts";
 import { CredentialsService } from "../../provider/services/credentials-service.ts";
 import { ModelCatalogService } from "../services/model-catalog-service.ts";
 
-/** Curated document: re-check zuse.sh every 6 hours (ETag makes it cheap). */
 const CURATED_TTL_MS = 6 * 60 * 60 * 1000;
 const CURATED_FETCH_TIMEOUT_MS = 5_000;
-/** Live inventories need a process/network round-trip; once a day is plenty. */
+
 const LIVE_TTL_MS = 24 * 60 * 60 * 1000;
 const LIVE_ERROR_TTL_MS = 5 * 60 * 1000;
 const LIVE_TIMEOUT_MS = 15_000;
-/** At most two provider processes spawn concurrently for listing. */
+
 const LIVE_CONCURRENCY = 2;
 
 const LIVE_PROVIDERS: ReadonlyArray<ProviderId> = [
@@ -101,7 +100,6 @@ const errorText = (cause: unknown): string =>
 const sha = (value: string): string =>
 	createHash("sha256").update(value).digest("hex").slice(0, 16);
 
-/** Cheap identity for an installed CLI: path + size + mtime, no spawn. */
 const cliFingerprint = (cliPath: string | null): string => {
 	if (cliPath === null) return "missing";
 	try {
@@ -161,9 +159,6 @@ export const ModelCatalogServiceLive = Layer.effect(
 				Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
 			);
 
-		// ---------------------------------------------------------------------
-		// Curated document: bundled ⟶ disk ⟶ zuse.sh, highest revision wins.
-		// ---------------------------------------------------------------------
 		let curatedSource: ResolvedCatalogSource = "bundled";
 		const curated = yield* makeSwrCache<ModelCatalog, Error>({
 			name: "model-catalog:curated",
@@ -210,7 +205,7 @@ export const ModelCatalogServiceLive = Layer.effect(
 							(cause) => new Error(`model catalog schema: ${errorText(cause)}`),
 						),
 					);
-					// Never downgrade: a stale CDN copy loses to what we ship.
+
 					const value = pickNewerModelCatalog(
 						normalizeModelCatalog(decoded),
 						BUNDLED_MODEL_CATALOG,
@@ -228,10 +223,6 @@ export const ModelCatalogServiceLive = Layer.effect(
 			if (initial.entry !== null) curatedSource = "cached";
 		}
 
-		// ---------------------------------------------------------------------
-		// Live inventories, one cache per provider, keyed by a fingerprint of
-		// the installed CLI / credential so upgrades and logins re-probe.
-		// ---------------------------------------------------------------------
 		const listCodex = (): Effect.Effect<LiveListingDocument> =>
 			Effect.gen(function* () {
 				const codexPath = yield* cliPath("codex");
@@ -579,9 +570,6 @@ export const ModelCatalogServiceLive = Layer.effect(
 					.pipe(Effect.map((value) => ({ _tag: "value" as const, value }))),
 		});
 
-		// ---------------------------------------------------------------------
-		// Resolved catalog: recomputed on every change, always in memory.
-		// ---------------------------------------------------------------------
 		const liveListings = (): Effect.Effect<LiveListingsByProvider> =>
 			Effect.gen(function* () {
 				const out: Partial<Record<ProviderId, LiveListing>> = {};
@@ -639,7 +627,7 @@ export const ModelCatalogServiceLive = Layer.effect(
 		): Effect.Effect<ResolvedModelCatalog> =>
 			Effect.gen(function* () {
 				if (acpAgents._tag === "None") return catalog;
-				// An unreadable ACP store must not take built-in providers down with it.
+
 				const definitions = yield* Effect.tryPromise(() =>
 					acpAgents.value.list(),
 				).pipe(

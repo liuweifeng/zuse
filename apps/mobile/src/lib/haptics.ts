@@ -1,6 +1,5 @@
-// Thin, crash-safe wrapper around expo-haptics. `require` (not static import) so
-// the app still runs in a dev client built *before* expo-haptics was linked —
-// the module simply resolves to null and every call becomes a no-op.
+
+
 type HapticsModule = typeof import("expo-haptics");
 
 let Haptics: HapticsModule | null = null;

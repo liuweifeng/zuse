@@ -18,9 +18,6 @@ const diagnosticErrorType = (value: unknown): string => {
 	return "RendererError";
 };
 
-// Tagged errors that carry only ids (no `reason`/`message`) would otherwise
-// fall through to a raw JSON dump like `{ "folderId": "…" }`. Map them to
-// human copy here so any surface that formats them stays readable.
 const TAG_MESSAGES: Record<string, string> = {
 	get RpcAccessDeniedError() {
 		return uiMessage("errors:format_error_access_denied");
@@ -53,8 +50,7 @@ const TAG_MESSAGES: Record<string, string> = {
 	get WorktreeNotFoundError() {
 		return uiMessage("errors:format_error_worktree_not_found");
 	},
-	// Transport failures ("SocketOpenError: An error occurred during Open")
-	// mean the computer on the other end is unreachable — say that instead.
+
 	get SocketOpenError() {
 		return uiMessage(
 			"errors:format_error_couldn_t_reach_the_computer_it_may_be_asleep_or_offline",
@@ -143,9 +139,6 @@ const CLOUD_WORKSPACE_CODE_MESSAGES: Readonly<Record<string, string>> = {
 	},
 };
 
-// `environments.list` / `environments.connect` surface api failures as
-// ConnectAuthError with a machine-readable reason. Map the reasons a user can
-// actually act on; unknown reasons fall through to the generic formatting.
 const CONNECT_AUTH_REASON_MESSAGES: Readonly<Record<string, string>> = {
 	get "tunnel-unavailable"() {
 		return uiMessage(
@@ -198,9 +191,6 @@ export const formatError = (err: unknown): string => {
 };
 
 const formatErrorInner = (err: unknown): string => {
-	// Plain strings (e.g. a connection supervisor's stored error text) still
-	// deserve the tag mapping: "SocketOpenError: An error occurred during
-	// Open" should read as human copy everywhere.
 	if (typeof err === "string") {
 		const stringTag = tagFromErrorName(err);
 		return stringTag !== null && TAG_MESSAGES[stringTag] !== undefined
@@ -297,10 +287,7 @@ const formatErrorInner = (err: unknown): string => {
 	if (tag !== null && TAG_MESSAGES[tag] !== undefined) {
 		return TAG_MESSAGES[tag];
 	}
-	// A wrapper error (connection layer, fiber failure) often carries the
-	// tagged error only as text — "SocketOpenError: An error occurred during
-	// Open". Map it when the embedded tag is a known one; never use the
-	// embedded tag for generic prefixing.
+
 	const messageTag = tagFromErrorName(message);
 	if (messageTag !== null && TAG_MESSAGES[messageTag] !== undefined) {
 		return TAG_MESSAGES[messageTag];

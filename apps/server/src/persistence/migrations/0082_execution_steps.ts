@@ -13,8 +13,7 @@ export const Migration0082ExecutionSteps = Effect.gen(function* () {
  )`;
 	yield* sql`CREATE INDEX session_execution_steps_turn ON session_execution_steps(session_id,turn_id,created_at,id)`;
 	yield* sql`CREATE INDEX session_execution_steps_active ON session_execution_steps(session_id,status) WHERE status='running'`;
-	// Existing canonical messages are paged; attempt ownership is reconstructed at
-	// each message's original event sequence, never guessed from the newest retry.
+
 	let after = 0;
 	while (true) {
 		const page = yield* sql<{
@@ -59,6 +58,6 @@ export const Migration0082ExecutionSteps = Effect.gen(function* () {
 			after = row.sequence;
 		}
 	}
-	// Historical open steps are not evidence of live processes after upgrade.
+
 	yield* sql`UPDATE session_execution_steps SET status=CASE WHEN (SELECT status FROM session_turns t WHERE t.id=session_execution_steps.turn_id AND t.session_id=session_execution_steps.session_id)='failed' THEN 'failed' ELSE 'cancelled' END,updated_at=COALESCE((SELECT CAST(ROUND((julianday(t.completed_at)-2440587.5)*86400000) AS INTEGER) FROM session_turns t WHERE t.id=session_execution_steps.turn_id AND t.session_id=session_execution_steps.session_id),updated_at) WHERE status='running' AND NOT EXISTS(SELECT 1 FROM session_turns t WHERE t.session_id=session_execution_steps.session_id AND t.id=session_execution_steps.turn_id AND t.active_attempt_id=session_execution_steps.attempt_id AND t.status IN ('starting','running'))`;
 });

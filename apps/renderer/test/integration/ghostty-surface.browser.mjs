@@ -204,8 +204,7 @@ try {
 		),
 		[],
 	);
-	// A narrow terminal cell can contain a wider fallback emoji. Erasing it
-	// must also clear its overhang into the right-hand margin.
+
 	const remainingPixels = await page.evaluate(async () => {
 		const paint = () =>
 			new Promise((resolve) =>

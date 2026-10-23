@@ -30,6 +30,10 @@ export interface ManagedTunnelConfig {
 }
 
 export interface ApiConfig {
+	readonly deviceBridgeGateway?: (
+		accountId: string,
+		request: Request,
+	) => Promise<Response>;
 	/** Global organization kill switch; targeted rollout can narrow enabled deployments. */
 	readonly organizationWorkspacesEnabled: boolean;
 	/** When enabled, PostHog must explicitly approve creation and team access. */
@@ -86,6 +90,9 @@ export interface ApiConfig {
 	readonly cloudProviderAuthBrokerEnrollmentEnabled: boolean;
 	/** Must remain enabled while any provider-broker-v1 workspace exists. */
 	readonly cloudProviderAuthBrokerServingEnabled: boolean;
+	/** Enable compute retirement only after populated archive/restore acceptance. */
+	readonly cloudWorkspaceRecoveryEnabled?: boolean;
+	readonly cloudWorkspaceRecoveryWorkspaceIds?: ReadonlyArray<string>;
 	readonly cloudTranscriptObjects?: CloudTranscriptObjectStore;
 	readonly challengeTtlMs: number;
 	readonly connectTokenTtlMs: number;

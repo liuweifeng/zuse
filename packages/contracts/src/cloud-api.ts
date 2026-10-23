@@ -9,18 +9,7 @@ import {
 	CloudWorkspaceState,
 } from "./cloud-workspaces.ts";
 import { WorkspaceActor } from "./collaboration.ts";
-import { TurnSettlementOutcome } from "./session.ts";
-
-// ---------------------------------------------------------------------------
-// Cloud Workspaces public API contract
-// ---------------------------------------------------------------------------
-//
-// The public API is the API's machine-caller surface (`/v1/api/**`) used by
-// external integrations (Slack bots, scripts, CI). Auth is an account-scoped
-// API key carried as `Authorization: Bearer zk_…`; keys are managed over the
-// WorkOS-gated `/v1/cloud/api-keys` routes and the `cloud.apiKeys.*` RPCs.
-// Replies flow back through the per-workspace conversation ledger (polling)
-// and signed `workspace.turn.completed` webhooks.
+import { MessageSource, TurnSettlementOutcome } from "./session.ts";
 
 export class CloudApiKey extends Schema.Class<CloudApiKey>("CloudApiKey")({
 	keyId: Schema.String,
@@ -67,10 +56,6 @@ export const CloudApiKeysRevokeRpc = Rpc.make("cloud.apiKeys.revoke", {
 	success: CloudApiKey,
 	error: CloudWorkspaceOpError,
 });
-
-// ---------------------------------------------------------------------------
-// `/v1/api/**` request/response shapes
-// ---------------------------------------------------------------------------
 
 export const ApiAgentStatus = Schema.Literals(["working", "idle", "unknown"]);
 
@@ -152,6 +137,8 @@ export class ApiSendMessageRequest extends Schema.Class<ApiSendMessageRequest>(
 )({
 	text: Schema.String,
 	attachments: Schema.optional(Schema.Array(Schema.String)),
+	/** Accepted only from Zuse's own chat integrations; rejected otherwise. */
+	source: Schema.optional(MessageSource),
 	/** Falls back to the `Idempotency-Key` header. */
 	idempotencyKey: Schema.optional(Schema.String),
 }) {}
@@ -243,10 +230,6 @@ export class ApiWebhookTurnCompletedEvent extends Schema.Class<ApiWebhookTurnCom
 	messageId: Schema.String,
 }) {}
 
-// ---------------------------------------------------------------------------
-// Runtime command-pump shapes (API ⇄ in-sandbox runtime)
-// ---------------------------------------------------------------------------
-
 /** Capabilities advertised by a workspace runtime during bootstrap. */
 export const CLOUD_RUNTIME_API_ASSETS_CAPABILITY = "api-assets-v1";
 
@@ -266,6 +249,7 @@ export class CloudRuntimeCommand extends Schema.Class<CloudRuntimeCommand>(
 	sessionId: Schema.String,
 	text: Schema.String,
 	attachments: Schema.optional(Schema.Array(ApiAsset)),
+	source: Schema.optional(MessageSource),
 	seq: Schema.Number,
 }) {}
 

@@ -37,7 +37,7 @@ const profile =
 	environment === "production"
 		? deploymentProfiles.production
 		: deploymentProfiles.staging;
-// Only this allowlist is compiled into the application. Secrets in .env stay out.
+
 const publicValues: Record<string, string> = {
 	NODE_ENV: environment,
 	WORKOS_CLIENT_ID:
@@ -68,7 +68,7 @@ const desktopDependencies: UserConfig["deps"] = {
 		"@zuse/ssh",
 		"fix-path",
 	],
-	// Electron and native loaders must resolve their installed runtime packages.
+
 	neverBundle: [
 		"playwright",
 		"playwright-core",
@@ -92,7 +92,6 @@ const bridgeDependencies: UserConfig["deps"] = {
 	],
 };
 
-// These filenames are the runtime entry points used by Electron and our child launchers.
 const targets = [
 	{ name: "main", source: "src/main.ts", bridge: false },
 	{ name: "engine-main", source: "src/engine-main.ts", bridge: false },
@@ -129,9 +128,15 @@ export default defineConfig(
 		(target): UserConfig => ({
 			entry: { [target.name]: target.source },
 			format: "cjs",
+			// Keep external loads lazy, but resolve their CommonJS entrypoints.
+			// The packaged Cursor SDK deliberately excludes its duplicate ESM tree.
+			outputOptions: { dynamicImportInCjs: false },
 			outDir: process.env.ZUSE_DESKTOP_OUT_DIR?.trim() || "dist-electron",
 			outExtensions: () => ({ js: ".cjs" }),
 			sourcemap: true,
+			// Electron entrypoints are executables, not libraries. Avoid eight
+			// parallel declaration generators during development/watch builds.
+			dts: false,
 			clean: target.name === "main",
 			define: definitions,
 			deps: target.bridge ? bridgeDependencies : desktopDependencies,

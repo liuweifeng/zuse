@@ -46,8 +46,7 @@ export const seedHostedProjects = (
 	});
 	if (useEnvironmentCatalogStore.getState().activeEnvironmentId === "local") {
 		const previous = useWorkspaceStore.getState().selectedFolderId;
-		// A workspace link waits for its runtime shell to supply the real folder.
-		// Selecting a default project here would clear that chat and session.
+
 		const pendingCloudSelection =
 			previous === null &&
 			cloudSummaryForSelection({

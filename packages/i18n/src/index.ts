@@ -43,8 +43,7 @@ void i18n.use(backend).init({
 	initImmediate: false,
 	keySeparator: false,
 	returnEmptyString: false,
-	// These are plain strings passed to React or native Electron labels. Both render text,
-	// not HTML. HTML escaping here would display literal entities in native controls.
+
 	interpolation: { escapeValue: false },
 });
 

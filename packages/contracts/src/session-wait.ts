@@ -6,7 +6,7 @@ import { AgentSessionId, AgentTurnId, AttemptId, CommandId } from "./ids.ts";
 export const SessionWaitTarget = Schema.Literals(["idle", "blocked", "done"]);
 export const SessionWaitOptions = Schema.Struct({
 	target: SessionWaitTarget,
-	/** Defaults to 30 seconds; the server clamps to 1–300000 milliseconds. */
+
 	timeoutMs: Schema.optional(Schema.Number),
 });
 export type SessionWaitOptions = typeof SessionWaitOptions.Type;

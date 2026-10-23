@@ -6,7 +6,7 @@ import type { FolderId, Message, SessionId } from "@zuse/contracts";
 
 import { AppPaths } from "../app-paths.ts";
 
-const ROTATE_BYTES = 100 * 1024 * 1024; // 100 MB per spec
+const ROTATE_BYTES = 100 * 1024 * 1024;
 
 interface SinkEntry {
   readonly path: string;
@@ -42,7 +42,7 @@ const ensureDir = (filePath: string): void => {
   try {
     mkdirSync(dirname(filePath), { recursive: true });
   } catch {
-    // best-effort
+
   }
 };
 
@@ -50,9 +50,7 @@ export const NdjsonLoggerLive = Layer.effect(
   NdjsonLogger,
   Effect.gen(function* () {
     const paths = yield* AppPaths;
-    // In-process per-session sink table. Effect.Ref offers no real benefit
-    // here — these handles are read-write from the same fiber that consumes
-    // the message stream — and would force unnecessary `runSync` ceremony.
+
     const sinks = new Map<SessionId, SinkEntry>();
 
     const filePathFor = (
@@ -114,7 +112,7 @@ export const NdjsonLoggerLive = Layer.effect(
             if (rotated !== null) sinks.set(sessionId, rotated);
           }
         } catch {
-          // swallow — best-effort sink
+
         }
       });
 
@@ -125,7 +123,7 @@ export const NdjsonLoggerLive = Layer.effect(
         try {
           entry.stream.end();
         } catch {
-          /* ignore */
+
         }
         sinks.delete(sessionId);
       });

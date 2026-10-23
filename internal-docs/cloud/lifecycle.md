@@ -98,35 +98,25 @@ Account-image and runtime releases follow
 [ADR 0002](../adr/0002-cloud-runtime-compatibility.md). A generation mismatch,
 runtime timeout, or stale gateway socket never replaces a retained sandbox.
 
-## Archive is 30-day trash
+## Archive preserves history independently of compute
 
-Archive is not a recovery-image operation and does not copy a complete machine.
-It is an idempotent lifecycle command with immediate optimistic UI behavior:
+Archive pauses the same sandbox and records a ten-day compute retention deadline.
+Unarchive clears that deadline and returns the chat to Active without starting
+compute; the first interactive action resumes it. Re-archiving starts a new window.
 
-1. The client persists the archive intent and removes the chat from Active.
-2. API records `archiveRequestedAt` and a deletion deadline 30 days later.
-3. Active work is stopped gracefully and its latest partial transcript is
-   committed.
-4. The runtime attempts a final encrypted R2 checkpoint.
-5. API pauses the same E2B sandbox and marks the workspace archived.
+Expiry no longer means permanent workspace deletion. Without a verified recovery
+archive, keep the original machine. The recovery implementation is gated by
+`CLOUD_WORKSPACE_RECOVERY_ENABLED` (off by default). Eligible managed workspaces
+can be backed up, verified and retired; reopening restores their original state
+on new compute before runtime enrollment. Custom snapshots and legacy native-auth
+workspaces currently retain their machine. See [archive recovery](workspace-archive-recovery.md)
+for captured roots, credentials, failure handling and rollout acceptance.
 
-Catalog refresh cannot return a pending archive to Active. A retriable failure
-stays in Archives and retries; a definitive rejection restores the row with one
-error. The archived transcript remains readable from local persistence or R2.
-
-Unarchive cancels the deletion deadline and returns the chat to Active without
-resuming compute. The first interactive action resumes the same paused sandbox.
-Re-archiving creates a fresh 30-day deadline.
-
-At the deadline, or on manual Delete, reconciliation idempotently kills the
-sandbox, deletes all workspace R2 objects, revokes runtime secrets and tickets,
-removes checkpoint and launch metadata, and marks the workspace deleted. A
-content-free tombstone remains for another 30 days so offline devices can
-remove local caches and outbox entries.
-
-There is currently no recovery image, staging restore sandbox, or warm fallback
-sandbox. During the archive window the paused E2B sandbox preserves the full
-filesystem; R2 preserves the transcript projection only.
+Explicit Delete remains permanent: it removes the machine, all workspace object
+storage (including recovery archives), checkpoint and launch metadata, and runtime
+secrets. A content-free tombstone remains for thirty days. Archived transcript
+projections remain readable independently of compute; full database restoration
+is separate from the existing transcript projection service.
 
 ## Reconciliation and failure rules
 

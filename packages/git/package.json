@@ -4,7 +4,10 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./github-shared-read": "./src/github-shared-read.ts",
+		"./github-pr-info": "./src/github-pr-info.ts",
 		"./workspace-change-streams": "./src/workspace-change-streams.ts",
+		"./github-observations": "./src/github-observations.ts",
 		"./github-client": "./src/github-client.ts",
 		"./checkpoints": "./src/checkpoints.ts",
 		"./check-runs": "./src/check-runs.ts",
@@ -24,6 +27,7 @@
 	},
 	"dependencies": {
 		"@zuse/contracts": "*",
+		"@zuse/utils": "*",
 		"effect": "catalog:"
 	},
 	"devDependencies": {

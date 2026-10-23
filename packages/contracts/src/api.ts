@@ -11,21 +11,6 @@ import {
 } from "./connect.ts";
 import { EnvironmentId } from "./ids.ts";
 
-// ---------------------------------------------------------------------------
-// API HTTP contract
-// ---------------------------------------------------------------------------
-//
-// The api is a thin control plane reached over HTTP (not the WS RPC surface):
-// it links a WorkOS account to the environments it controls, brokers short-lived
-// DPoP-bound connect tokens, and reports presence. It is never in the data path.
-//
-// These are the shared request/response shapes + path builders used by the
-// desktop (self-registration) and mobile (discovery) clients, and mirrored by
-// `@zuse/api`. Auth is carried in headers, not bodies:
-//   - WorkOS bearer:            `Authorization: Bearer <workos access token>`
-//   - DPoP-bound access token:  `Authorization: DPoP <token>` + `DPoP: <proof>`
-//   - environment credential:   `Authorization: Bearer zenv_…`
-
 /** Paths, centralised so client + api never drift. */
 export const ApiPaths = {
 	authToken: "/v1/auth/token",
@@ -50,7 +35,7 @@ export const ApiPaths = {
 	organizationRemoveMember: "/v1/organizations/remove-member",
 	linkChallenges: "/v1/client/environment-link-challenges",
 	links: "/v1/client/environment-links",
-	/** Unlink (WorkOS bearer): deprovisions the managed tunnel + removes the env. */
+
 	unlink: "/v1/client/environment-unlink",
 	environments: "/v1/environments",
 	dpopToken: "/v1/client/dpop-token",
@@ -104,6 +89,7 @@ export const ApiPaths = {
 		`/v1/cloud/auth/login/${encodeURIComponent(operationId)}/cancel`,
 	cloudAuthDisconnect: (providerId: string) =>
 		`/v1/cloud/auth/providers/${encodeURIComponent(providerId)}`,
+	cloudGithubObserve: "/v1/cloud/github/observe",
 	cloudGithub: "/v1/cloud/github",
 	cloudGithubInstall: "/v1/cloud/github/install",
 	cloudGithubCallback: "/v1/cloud/github/callback",
@@ -244,8 +230,6 @@ export const ApiScope = Schema.Literals([
 ]);
 export type ApiScope = typeof ApiScope.Type;
 
-// --- link challenge (desktop, WorkOS bearer) ---------------------------------
-
 export class ApiLinkChallenge extends Schema.Class<ApiLinkChallenge>(
 	"ApiLinkChallenge",
 )({
@@ -254,12 +238,6 @@ export class ApiLinkChallenge extends Schema.Class<ApiLinkChallenge>(
 	apiIssuer: Schema.String,
 	expiresAt: Schema.Number,
 }) {}
-
-// --- link (desktop, WorkOS bearer) -------------------------------------------
-//
-// The desktop signs an Ed25519 JWT over { challenge, environmentId } (aud =
-// apiIssuer, typ = "environment-link-proof+jwt") and sends its public key so
-// the api can verify this and every later proof.
 
 export class ApiLinkRequest extends Schema.Class<ApiLinkRequest>(
 	"ApiLinkRequest",
@@ -289,8 +267,6 @@ export class ApiLinkResponse extends Schema.Class<ApiLinkResponse>(
 	/** API Ed25519 public key (JWK JSON) for verifying minted tokens. */
 	mintPublicKey: Schema.String,
 }) {}
-
-// --- discovery (mobile/desktop, WorkOS bearer) -------------------------------
 
 /** Host-published discovery hints; never a substitute for workspace RPC authorization. */
 export const EnvironmentSharingAudience = Schema.Array(
@@ -336,16 +312,12 @@ export class ApiEnvironmentList extends Schema.Class<ApiEnvironmentList>(
 	environments: Schema.Array(ApiEnvironmentRecord),
 }) {}
 
-// --- dpop token exchange (WorkOS bearer + DPoP proof) ------------------------
-
 export class ApiAccessToken extends Schema.Class<ApiAccessToken>(
 	"ApiAccessToken",
 )({
 	accessToken: Schema.String,
 	expiresIn: Schema.Number,
 }) {}
-
-// --- presence (mobile, DPoP) -------------------------------------------------
 
 export const ApiPresence = Schema.Literals(["online", "offline"]);
 export type ApiPresence = typeof ApiPresence.Type;
@@ -365,8 +337,6 @@ export class ApiEnvironmentStatus extends Schema.Class<ApiEnvironmentStatus>(
 	),
 	checkedAt: Schema.Number,
 }) {}
-
-// --- connect (mobile, DPoP) --------------------------------------------------
 
 export class ApiConnectGrant extends Schema.Class<ApiConnectGrant>(
 	"ApiConnectGrant",
@@ -410,8 +380,6 @@ export const EnvironmentConnectRpc = Rpc.make("environments.connect", {
 	success: ApiConnectGrant,
 	error: ConnectAuthError,
 });
-
-// --- device registration (mobile, DPoP) --------------------------------------
 
 export class ApiDeviceRegistration extends Schema.Class<ApiDeviceRegistration>(
 	"ApiDeviceRegistration",

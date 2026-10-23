@@ -96,6 +96,17 @@ jobs:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile
 
+      - name: Verify production cloud bases before publication
+        if: steps.publication.outputs.target == 'production'
+        timeout-minutes: 10
+        working-directory: infra/api
+        env:
+          BOAT_API_KEY: ${{ secrets.ZUSE_PRODUCTION_BOAT_API_KEY }}
+          BOXD_API_KEY: ${{ secrets.ZUSE_PRODUCTION_BOXD_API_KEY }}
+          E2B_API_KEY: ${{ secrets.ZUSE_PRODUCTION_E2B_API_KEY }}
+          DAYTONA_API_KEY: ${{ secrets.ZUSE_PRODUCTION_DAYTONA_API_KEY }}
+        run: bun scripts/cloud-release-smoke.ts wrangler.production.jsonc
+
       - name: Generate ephemeral verification signing key
         if: steps.publication.outputs.enabled != 'true'
         run: |

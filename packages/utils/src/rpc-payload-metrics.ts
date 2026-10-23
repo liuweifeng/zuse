@@ -210,9 +210,7 @@ export const makeRpcPayloadReporter = (options: {
 					)
 					.slice(0, 20),
 			});
-		} catch {
-			// Diagnostics must never interrupt the transport they observe.
-		}
+		} catch {}
 		metrics.clear();
 		frames = 0;
 		uncompressedBytes = 0;

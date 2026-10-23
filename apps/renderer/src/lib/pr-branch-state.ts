@@ -20,8 +20,7 @@ export const branchStateFor = (
 				? "pr-merged"
 				: prInfo.state === "closed"
 					? "pr-closed"
-					: // open PR — reflect CI / conflict status
-						prInfo.checks === "failure" || prInfo.mergeable === "conflicting"
+					: prInfo.checks === "failure" || prInfo.mergeable === "conflicting"
 						? "pr-failing"
 						: prInfo.checks === "pending"
 							? "pr-pending"

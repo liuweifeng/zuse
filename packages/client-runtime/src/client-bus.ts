@@ -199,7 +199,7 @@ type ResourceEntry = {
 	runtimeUpdates: number;
 	synchronization: Promise<void> | null;
 	synchronizationEpoch: number;
-	/** Stable empty view served by `snapshot` while a namespace change is pending. */
+
 	staleView: ResourceView<unknown> | null;
 	namespaceRefreshQueued: boolean;
 };
@@ -232,7 +232,6 @@ type CommandReflectionWaiter = Readonly<{
 	reject: (cause: unknown) => void;
 }>;
 
-/** Internal attempt outcome; the original dispatch promise owns the retry. */
 class DurableCommandRetrySignal {
 	constructor(readonly cause: unknown) {}
 }
@@ -286,9 +285,7 @@ const messageOf = (cause: unknown): string => {
 		try {
 			const encoded = JSON.stringify(cause);
 			if (encoded !== undefined && encoded !== "{}") return encoded;
-		} catch {
-			// Fall through to the generic representation below.
-		}
+		} catch {}
 	}
 	const fallback = String(cause);
 	return fallback.trim().length > 0 ? fallback : "Unknown command failure";
@@ -786,9 +783,7 @@ export class ClientBus<Client> {
 			if (terminal !== null) return Promise.reject(terminal);
 			return Promise.resolve(completed as CommandReceipt<Result>);
 		}
-		// The durable mailbox owns per-session ordering, so cloud commands must be
-		// accepted concurrently instead of waiting for an earlier command's final
-		// result in the local live-RPC lane.
+
 		const durable = this.cloudTransport(effectiveCommand) !== undefined;
 		const liveFallbackReservation = durable
 			? this.reserveCommandLane(effectiveCommand)
@@ -845,13 +840,7 @@ export class ClientBus<Client> {
 		const result = this.dispatch(command);
 		void result.then(
 			(receipt) => {
-				acceptance.resolveAccepted({
-					commandId: command.commandId,
-					workspaceSequence: 0,
-					revision: 0,
-					acceptedAt: receipt.receivedAt,
-					state: "accepted",
-				} as CommandAcceptance);
+				this.acceptExecutedCommand(receipt);
 				this.commandAcceptances.delete(command.commandId);
 				this.commandCancels.delete(command.commandId);
 			},
@@ -902,9 +891,7 @@ export class ClientBus<Client> {
 			this.cloudCommandAttemptDisposers.delete(release);
 			try {
 				handle.dispose();
-			} catch {
-				// Attempt cleanup must never replace an authoritative command outcome.
-			}
+			} catch {}
 		};
 		this.cloudCommandAttemptDisposers.add(release);
 		if (this.disposed) release();
@@ -922,8 +909,10 @@ export class ClientBus<Client> {
 
 	/**
 	 * Commands which mutate the same qualified resource execute in submission
-	 * order. Different resources retain independent lanes, so a slow Git command
-	 * cannot delay terminal input or another session.
+	 * order. Session queue mutations have their own ordered lane: an in-flight
+	 * send can wait on provider startup or timeline reflection while the user
+	 * still needs to enqueue and steer feedback. Different resources retain
+	 * independent lanes, so a slow Git command cannot delay another session.
 	 */
 	private enqueueCommand<Result>(
 		command: ClientCommand<unknown, Result>,
@@ -939,10 +928,21 @@ export class ClientBus<Client> {
 	}
 
 	private reserveCommandLane(command: ClientCommand): CommandLaneReservation {
-		const lane =
+		const resourceLane =
 			command.resource === null
 				? `environment:${command.environmentId}:command:${command.kind}`
 				: resourceKeyId(command.resource);
+		// Stop must reach the server even while a send, steer, or earlier stop is
+		// waiting for its receipt. expectedTurnId fences it to the intended turn.
+		const lane =
+			command.resource?.kind === "session-timeline" &&
+			command.kind.startsWith("messages.queue.")
+				? `${resourceLane}:queue`
+				: command.resource?.kind === "session-timeline" &&
+						(command.kind === "messages.interrupt" ||
+							command.kind === "messages.background.stop")
+					? `${resourceLane}:interrupt:${command.commandId}`
+					: resourceLane;
 		const waitForTurn = (
 			this.commandLanes.get(lane) ?? Promise.resolve()
 		).catch(() => undefined);
@@ -1204,7 +1204,7 @@ export class ClientBus<Client> {
 		entry.synchronization = null;
 		entry.hydration = null;
 		entry.hydrated = this.options.persistence === undefined;
-		// A new cache owner must not reuse the previous owner's live client.
+
 		entry.deniedGeneration = entry.view.generation;
 		this.stopDriver(entry);
 		this.setView(entry, {
@@ -1586,9 +1586,7 @@ export class ClientBus<Client> {
 	private stopDriver(entry: ResourceEntry): void {
 		const cleanup = entry.driverCleanup;
 		entry.driverCleanup = null;
-		// Give a synchronous driver cleanup one final chance to checkpoint while
-		// its generation is still current. The epoch fence closes immediately
-		// after cleanup returns, so late stream callbacks remain rejected.
+
 		cleanup?.();
 		entry.driverEpoch += 1;
 		entry.driverGeneration = 0;
@@ -1618,7 +1616,7 @@ export class ClientBus<Client> {
 			const namespace = this.options.resourceCacheNamespaceFor?.(entry.key);
 			entry.deniedGeneration = generation;
 			entry.synchronizationEpoch += 1;
-			// Fence cleanup checkpoints and late callbacks before stopping the driver.
+
 			entry.driverEpoch += 1;
 			this.stopDriver(entry);
 			this.setView(entry, {
@@ -1628,7 +1626,7 @@ export class ClientBus<Client> {
 				origin: "none",
 				sync: "failed",
 			});
-			// Delete after any queued writes, so an older checkpoint cannot restore it.
+
 			entry.persistenceTail = entry.persistenceTail
 				.then(() =>
 					namespace === null
@@ -1733,10 +1731,6 @@ export class ClientBus<Client> {
 			),
 		}));
 		return (async () => {
-			// Once the command is durably in the outbox, keep it there until the
-			// server returns either a receipt or an authoritative domain rejection.
-			// Transport loss and failures after a successful response are ambiguous:
-			// replaying the same command ID is the only safe recovery.
 			let retainForRetry = false;
 			let durableDeliveryPending = false;
 			let mailboxEnvelopePersisted = false;
@@ -1776,9 +1770,6 @@ export class ClientBus<Client> {
 					? this.configuredCloudTransport(command)
 					: this.cloudTransport(command);
 				if (hasPersistedMailboxIdentity && durableTransport === undefined) {
-					// Once opaque mailbox identity exists, live RPC is no longer a safe
-					// fallback: a lost response may hide an accepted server row. Catalog
-					// hydration will register the transport and resume these exact bytes.
 					durableDeliveryPending = true;
 					throw new Error(
 						"Durable cloud command transport is not available yet",
@@ -1812,9 +1803,7 @@ export class ClientBus<Client> {
 										: { deliveryStatus: previous.deliveryStatus }),
 								});
 						releaseCloudCommandAttempt = this.ownCloudCommandAttempt(handle);
-						// Delivery promises can settle while local persistence is still running.
-						// Mark every branch handled immediately; callers still await the original
-						// promises and receive the same result or rejection.
+
 						void handle.accepted.catch(() => undefined);
 						void handle.result.catch(() => undefined);
 						void handle.encryptedEnvelope.catch(() => undefined);
@@ -1840,8 +1829,7 @@ export class ClientBus<Client> {
 							});
 							mailboxEnvelopePersisted = true;
 						}
-						// Fresh commands cannot leave the client until their opaque envelope is
-						// durable. Resumed commands use the same gate but never enqueue again.
+
 						this.assertActive();
 						assertAuthority();
 						handle.start();
@@ -1896,8 +1884,7 @@ export class ClientBus<Client> {
 								});
 							}
 						}
-						// The UI may clear its draft only after both sides have recorded the
-						// durable acceptance.
+
 						assertAuthority();
 						this.commandAcceptances
 							.get(command.commandId)
@@ -1967,10 +1954,7 @@ export class ClientBus<Client> {
 							throw cause;
 						} finally {
 							unsubscribeStatus?.();
-							// A status callback can still have an IndexedDB write queued when the
-							// terminal result settles. Drain that serialized tail before atomically
-							// completing or removing the outbox row, otherwise the late write can
-							// resurrect a command that is already terminal.
+
 							await statusPersistence;
 						}
 						await this.waitForResourceReflection(command, assertAuthority);
@@ -2022,8 +2006,6 @@ export class ClientBus<Client> {
 						if (fault !== null) {
 							binding.runtime.reportFault(fault, generation);
 						} else {
-							// A typed application/domain rejection is definitive. Retrying it on
-							// every reconnect would leave a poisoned outbox entry forever.
 							retainForRetry = false;
 						}
 						throw cause;
@@ -2040,6 +2022,10 @@ export class ClientBus<Client> {
 					receivedAt: executionReceipt.receivedAt,
 					result: executionReceipt.result as Result,
 				};
+				// The live server receipt proves the input has a durable owner. Clear
+				// the composer now; keep the outbox and pending timeline handoff until
+				// reflection so a delayed stream cannot lose or duplicate the message.
+				this.acceptExecutedCommand(receipt);
 				await this.waitForResourceReflection(command, assertAuthority);
 				if (command.retry === "safe") {
 					await outbox?.completeOutbox(receipt);
@@ -2080,9 +2066,6 @@ export class ClientBus<Client> {
 						terminalPersisted = true;
 						retainForRetry = false;
 					} catch {
-						// Never discard the accepted row if its terminal receipt could not be
-						// committed atomically. Re-observe the same mailbox identity and retry
-						// the local transaction instead.
 						retainForRetry = true;
 						durableDeliveryPending = true;
 					}
@@ -2095,8 +2078,6 @@ export class ClientBus<Client> {
 						.catch(() => undefined);
 				}
 				if (awaitingDurableRetry) {
-					// Preserve the same public promise, lane reservation, and pending UI
-					// while the durable owner retries this exact command identity.
 					throw new DurableCommandRetrySignal(cause);
 				}
 				const failed: FailedCommand = {
@@ -2134,6 +2115,16 @@ export class ClientBus<Client> {
 				releaseCloudCommandAttempt?.();
 			}
 		})();
+	}
+
+	private acceptExecutedCommand(receipt: CommandReceipt<unknown>): void {
+		this.commandAcceptances.get(receipt.commandId)?.resolveAccepted({
+			commandId: receipt.commandId,
+			workspaceSequence: 0,
+			revision: 0,
+			acceptedAt: receipt.receivedAt,
+			state: "accepted",
+		} as CommandAcceptance);
 	}
 
 	private updateCommandResource(

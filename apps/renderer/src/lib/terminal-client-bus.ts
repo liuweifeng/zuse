@@ -170,8 +170,7 @@ export const terminalRestartCommand = (input: {
 			expectedProcessEpoch: input.expectedProcessEpoch,
 		},
 		commandId: input.commandId,
-		// Restart is idempotent only as a compare-and-set operation. A legacy
-		// request without an epoch still means "spawn again" on every application.
+
 		retry: input.expectedProcessEpoch === undefined ? "never" : "safe",
 	});
 
@@ -345,8 +344,7 @@ export const dispatchTerminalRestart = async (
 	const receipt = await bus.dispatch(
 		terminalRestartCommand({ ref, ownerId, expectedProcessEpoch }),
 	);
-	// An exited terminal's old stream has already completed. Restart its retained
-	// driver so it can observe the replacement epoch and replay from sequence 0.
+
 	bus.restart(terminalResourceKey(ref));
 	return receipt.result;
 };

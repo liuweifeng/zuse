@@ -4,6 +4,7 @@ import type {
 } from "@zuse/contracts";
 
 export type CloudFailureKind =
+	| "github-auth-required"
 	| "sign-in-required"
 	| "billing-blocked"
 	| "update-required"
@@ -56,6 +57,8 @@ const WORKSPACE_CHANGED_AFTER_LEASE_CATEGORIES = new Set([
 ]);
 
 const CATEGORY_KIND: Readonly<Record<string, CloudFailureKind>> = {
+	github_user_connection_required: "github-auth-required",
+	github_user_reconnect_required: "github-auth-required",
 	"sign-in-required": "sign-in-required",
 	"auth-required": "sign-in-required",
 	"authentication-required": "sign-in-required",
@@ -165,6 +168,10 @@ const causeKind = (cause: unknown): CloudFailureKind | null => {
 			return "session-unavailable";
 	}
 	const text = details.text;
+	if (
+		/GitHub authentication required|GitHub credential has expired/i.test(text)
+	)
+		return "github-auth-required";
 	const exactText = categoryKind(text.trim(), undefined);
 	if (exactText !== null) return exactText;
 	if (
@@ -217,6 +224,12 @@ const outcomeUnknownMessage = (category: string | undefined): string => {
 type FailureCopy = Omit<CloudFailurePresentation, "kind">;
 
 const FAILURE_COPY: Readonly<Record<CloudFailureKind, FailureCopy>> = {
+	"github-auth-required": {
+		label: "GitHub connection required",
+		headline: "Connect GitHub to continue",
+		message:
+			"Connect your own GitHub account in Cloud Workspace settings, then retry this message.",
+	},
 	"sign-in-required": {
 		label: "Sign in required",
 		headline: "Sign in required",

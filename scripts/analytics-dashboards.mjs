@@ -324,8 +324,6 @@ export const analyticsDashboards = [
 	},
 ];
 
-// These period totals count each identity once across the entire window, rather
-// than adding daily unique counts. One event scan produces each summary table.
 const totals = [
 	[
 		"website",

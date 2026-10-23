@@ -45,6 +45,11 @@ import {
 	type PluginClient,
 	type PluginPermissionOptions,
 } from "../drivers/plugin-tools.ts";
+import {
+	handleSimulatorTool,
+	SIMULATOR_MCP_TOOLS,
+	type SimulatorToolOptions,
+} from "../drivers/simulator-tools.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -90,6 +95,7 @@ export interface McpGatewaySessionContext {
 		readonly client: PluginClient;
 	};
 	readonly deviceCommands?: DeviceCommandClient;
+	readonly simulators?: SimulatorToolOptions;
 	readonly getPermissionMode?: () => string;
 	readonly browser?: BrowserMcpToolOptions;
 	readonly orchestration?: OrchestrationPermissionOptions & {
@@ -109,6 +115,7 @@ export interface McpGatewayIssueInput {
 		readonly images?: boolean;
 		readonly html?: boolean;
 		readonly deviceCommands?: boolean;
+		readonly simulators?: boolean;
 		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
@@ -156,6 +163,7 @@ interface RegistryRecord {
 		readonly images?: boolean;
 		readonly html?: boolean;
 		readonly deviceCommands?: boolean;
+		readonly simulators?: boolean;
 		readonly interaction?: boolean;
 	};
 	readonly ctx: McpGatewaySessionContext;
@@ -165,10 +173,7 @@ let serverPromise: Promise<{
 	readonly server: HttpServer;
 	readonly port: number;
 }> | null = null;
-// Credentials belong to the live provider handle, including idle time between
-// turns. Drivers close that handle on disposal or transport loss; replacement
-// also revokes its token. A wall-clock expiry strands long-lived clients because
-// their bearer token is fixed at process startup and cannot be refreshed.
+
 const recordsBySession = new Map<string, RegistryRecord>();
 const recordsByHash = new Map<string, RegistryRecord>();
 
@@ -338,6 +343,9 @@ export type AppToolDefinition = {
 
 const buildAppServer = (record: RegistryRecord): Server => {
 	const definitions: AppToolDefinition[] = [
+		...(record.scopes.simulators && record.ctx.simulators
+			? SIMULATOR_MCP_TOOLS
+			: []),
 		...(record.scopes.html && record.ctx.html ? HTML_MCP_TOOLS : []),
 		...(record.scopes.plugins && record.ctx.plugins ? PLUGIN_TOOLS : []),
 		...(record.scopes.deviceCommands && record.ctx.deviceCommands
@@ -389,6 +397,17 @@ const buildAppServer = (record: RegistryRecord): Server => {
 			};
 		}
 		try {
+			if (
+				SIMULATOR_MCP_TOOLS.some((tool) => tool.name === name) &&
+				record.ctx.simulators
+			)
+				return await handleSimulatorTool(
+					name,
+					args,
+					record.ctx.simulators,
+					record.sessionId,
+					extra.signal,
+				);
 			const toolset = record.ctx.toolsets?.find((candidate) =>
 				candidate.definitions.some((definition) => definition.name === name),
 			);
@@ -608,8 +627,7 @@ const ensureServer = async (): Promise<{
 				reject(new Error("Could not bind MCP gateway."));
 				return;
 			}
-			// Provider handles and active requests own execution lifetime. The shared
-			// listener must not keep an otherwise fully shut-down engine alive.
+
 			server.unref();
 			console.info(`[mcp-gateway] listening on 127.0.0.1:${address.port}`);
 			resolve({ server, port: address.port });

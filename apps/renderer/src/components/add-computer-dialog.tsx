@@ -1,9 +1,6 @@
+import { remoteConnectionPresentation } from "@zuse/client-runtime/remote-connection-presentation";
 import "@zuse/i18n/english/providers";
-import {
-	type DiscoveredSshHost,
-	isEnvironmentPresenceFresh,
-	type SshEnvironmentTarget,
-} from "@zuse/contracts";
+import type { DiscoveredSshHost, SshEnvironmentTarget } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import { Pencil, RotateCw, Unplug } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
@@ -116,16 +113,12 @@ const LINK_KIND_SUBTEXT: Record<
 };
 
 export const apiStatusText = (entry: EnvironmentCatalogEntry): string => {
+	if (entry.connectionPhase)
+		return remoteConnectionPresentation(entry.connectionPhase).label;
 	if (entry.status === "connected") return "Connected";
 	if (entry.status === "connecting") return "Connecting…";
-	if (entry.status === "error") return entry.error ?? "Connection failed";
-	if (
-		entry.connectionKind === "api" &&
-		isEnvironmentPresenceFresh(entry.lastHeartbeat)
-	) {
-		return "Online";
-	}
-	return "Offline";
+	if (entry.status === "error") return "Couldn’t connect";
+	return entry.status === "not-connected" ? "Not connected" : "Connection lost";
 };
 
 export function StatusDot({
@@ -198,8 +191,6 @@ export function AddComputerDialog({
 	const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
 	const [editedLabel, setEditedLabel] = useState("");
 
-	// Fresh dialog on every open: reset to the link view, prefill a deep link
-	// when one arrived, and make sure the catalog is hydrated.
 	useEffect(() => {
 		if (!open) return;
 		setView(initialView ?? "link");
@@ -213,8 +204,6 @@ export function AddComputerDialog({
 		void initialize().catch((cause) => setLinkError(errorText(cause)));
 	}, [open, initialLink, initialView, initialize]);
 
-	// SSH host discovery is advanced-mode only; its failures never leak into
-	// the pairing-link flow.
 	useEffect(() => {
 		if (!open || view !== "ssh") return;
 		let cancelled = false;

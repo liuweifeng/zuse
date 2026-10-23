@@ -11,13 +11,12 @@ export type CustomServerAuth = "auto" | "bearer" | "header";
 
 export const CUSTOM_SERVER_NAME_LIMIT = 60;
 const BEARER_HEADER = "Authorization";
-// RFC 9110 field-name token characters.
+
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
 const BEARER_PREFIX = /^bearer\s+/i;
-// Display-only: strip well-known service prefixes so the logo lookup finds the brand.
+
 const SERVICE_PREFIX = /^(?:www|mcp|api|server)\./i;
 
-/** Host of an http(s) URL, or null when it doesn't parse. */
 const hostOf = (url: string | null): string | null => {
 	if (url === null) return null;
 	try {
@@ -197,3 +196,37 @@ export const pluginTenantOf = (
 	snapshot: Pick<PluginSnapshot, "tenants" | "tenantId">,
 ): PluginTenant | null =>
 	snapshot.tenants.find((tenant) => tenant.id === snapshot.tenantId) ?? null;
+
+/** Accept the standard single-server MCP JSON shown by desktop integrations. */
+export function parseLocalServerConfig(text: string): {
+	command: string;
+	args: string[];
+	env: Record<string, string>;
+} {
+	let value = JSON.parse(text);
+	if (value.mcpServers) {
+		const servers = Object.values(value.mcpServers);
+		if (servers.length !== 1) throw new Error("Expected one MCP server");
+		value = servers[0];
+	}
+	if (
+		!value ||
+		typeof value.command !== "string" ||
+		!value.command.trim() ||
+		(value.type !== undefined && value.type !== "stdio") ||
+		(value.args !== undefined &&
+			(!Array.isArray(value.args) ||
+				!value.args.every((arg: unknown) => typeof arg === "string"))) ||
+		(value.env !== undefined &&
+			(value.env === null ||
+				typeof value.env !== "object" ||
+				Array.isArray(value.env) ||
+				!Object.values(value.env).every((item) => typeof item === "string")))
+	)
+		throw new Error("Invalid stdio configuration");
+	return {
+		command: value.command.trim(),
+		args: value.args ?? [],
+		env: value.env ?? {},
+	};
+}

@@ -15,8 +15,7 @@ export const quiesceAndDetachProvider = (
 			.providerReservation(sessionId)
 			.pipe(Effect.orDie);
 		yield* provider.quiesce(sessionId, expectedProviderSessionId);
-		// Each retry checks current residency afresh. A distinct command receipt avoids
-		// changing a previous receipt's timestamp; exact ownership makes repeats harmless.
+
 		yield* domain
 			.dispatch({
 				streamId: sessionId,

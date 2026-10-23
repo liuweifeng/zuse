@@ -3,8 +3,6 @@ import { Effect, Layer, Stream } from "effect";
 
 import { ConfigStoreService } from "./services/config-store-service.ts";
 
-/* ───────── settings.* ───────── */
-
 const SettingsGet = MemoizeRpcs.toLayerHandler("settings.get", () =>
   Effect.flatMap(ConfigStoreService, (svc) => svc.getSettings()),
 );
@@ -28,8 +26,6 @@ const SettingsMigrate = MemoizeRpcs.toLayerHandler(
       svc.migrateLocalStorage(payload),
     ),
 );
-
-/* ───────── keybindings.* ───────── */
 
 const KeybindingsGet = MemoizeRpcs.toLayerHandler("keybindings.get", () =>
   Effect.flatMap(ConfigStoreService, (svc) => svc.getKeybindings()),

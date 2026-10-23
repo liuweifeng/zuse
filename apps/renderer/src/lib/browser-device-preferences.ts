@@ -8,13 +8,9 @@ const STORAGE_KEY = "zuse.browser.device-preferences.v1";
 const BrowserPreferences = Schema.Struct({
 	...DevicePreferences.fields,
 	keybindings: Schema.optional(KeybindingsFile.fields.rules),
-	/**
-	 * Experimental thread list sidebar. A layout choice for this app window
-	 * only: the sidebar shows chats from every computer and the cloud, so the
-	 * setting must not live in (or follow) any computer's settings file.
-	 */
+
 	experimentalThreadListSidebar: Schema.optional(Schema.Boolean),
-	/** Whether this install has dismissed the sidebar GitHub star prompt. */
+
 	githubStarPromptDismissed: Schema.optional(Schema.Boolean),
 });
 const storage = () =>

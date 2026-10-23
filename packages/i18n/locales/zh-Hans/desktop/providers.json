@@ -157,5 +157,9 @@
 	"accounts_rename": "重命名",
 	"accounts_connect": "连接其他账户",
 	"accounts_use_for_new_chats": "用于新聊天",
-	"accounts_default_badge": "默认"
+	"accounts_default_badge": "默认",
+	"accounts_add": "添加账号",
+	"accounts_use": "用于新聊天",
+	"accounts_selected": "已选择",
+	"model_picker_unavailable_selection": "{{model}}（不可用）"
 }

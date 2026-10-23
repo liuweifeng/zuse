@@ -62,7 +62,7 @@ describe("cloudSessionPlaceholder", () => {
 			error: "closed socket",
 		};
 
-		expect(cloudConnectionRearmKey(summary, failed)).toBe("workspace-1:7:3");
+		expect(cloudConnectionRearmKey(summary, failed)).toBe("workspace-1:7");
 		expect(
 			cloudConnectionRearmKey(summary, {
 				...failed,
@@ -90,7 +90,24 @@ describe("cloudSessionPlaceholder", () => {
 		expect(rearmReadyCloudConnection(summary, failed, attempts, retry)).toBe(
 			false,
 		);
+		expect(
+			rearmReadyCloudConnection(
+				summary,
+				{ ...failed, generation: 4 },
+				attempts,
+				retry,
+			),
+		).toBe(false);
 		expect(retry).toHaveBeenCalledTimes(1);
+		expect(
+			rearmReadyCloudConnection(
+				readySummary(8),
+				{ ...failed, generation: 4 },
+				attempts,
+				retry,
+			),
+		).toBe(true);
+		expect(retry).toHaveBeenCalledTimes(2);
 	});
 });
 

@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn } from "@zuse/utils/spawn-command";
 import {
 	stopProviderProcess,
 	watchProviderProcess,
@@ -57,7 +57,7 @@ export class PiRpcClient {
 		};
 		this.child.on("error", (error) => fail(error));
 		this.child.stdin.on("error", (error) => fail(error));
-		// Classify bounded diagnostics without exposing credential or prompt payloads.
+
 		let stderrTail = "";
 		this.child.stderr.setEncoding("utf8");
 		this.child.stderr.on("data", (chunk: string) => {

@@ -4,12 +4,10 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-// Run with `xvfb-run -a node apps/desktop/test/integration/html-visual-network.mjs` on Linux.
 const temporary = await mkdtemp(join(tmpdir(), "zuse-visual-network-"));
 const entry = join(temporary, "test.cjs");
 const require = createRequire(import.meta.url);
 try {
-	// Electron's package is external so the test runs against the installed desktop runtime.
 	execFileSync(
 		"bun",
 		[

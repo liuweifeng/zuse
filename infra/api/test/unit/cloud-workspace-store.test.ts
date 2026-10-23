@@ -77,7 +77,7 @@ test("organization mailbox delivery requires a current author-aware runtime, whi
 	expect(workspaceSupportsCloudCommandMailbox(workspace)).toBe(true);
 	const organization = { ...workspace, accountId: "organization:org-a" };
 	expect(workspaceSupportsCloudCommandMailbox(organization)).toBe(false);
-	// Acceptance remains independent of delivery: first prompts may queue while booting.
+
 	expect(workspaceAcceptsCloudCommandMailbox(organization)).toBe(true);
 	const receipt = {
 		workspaceId: workspace.workspaceId,
@@ -313,7 +313,7 @@ describe("cloud workspace store", () => {
 			await runtime.runPromise(
 				store.createWorkspace(workspace, startCommand(workspace.workspaceId)),
 			);
-			// Activity can advance the lifecycle revision while the sharing menu is open.
+
 			await runtime.runPromise(
 				store.saveWorkspace({ ...workspace, revision: 20 }),
 			);
@@ -1235,9 +1235,6 @@ describe("cloud workspace store", () => {
 			).find((message) => message.messageId === "message-user-3"),
 		).toMatchObject({ turnId: "turn-3", status: "settled" });
 
-		// A launch turn may reach API before the public create response appends
-		// its mirror user row. The late append must converge immediately instead
-		// of leaving a permanently outstanding delivered command.
 		await runtime.runPromise(
 			store.recordApiTurnEvent({
 				messageId: "message-assistant-launch",
@@ -1399,9 +1396,6 @@ describe("cloud workspace store", () => {
 			turnId: "turn-generated-by-legacy-runtime",
 		});
 
-		// The event stream can beat an old runtime's message-id-only ACK. A prior
-		// human turn may also be published late, so only a turn settled and received
-		// inside the latest command-fetch attempt is claimable.
 		await runtime.runPromise(
 			store.appendApiMessage({
 				messageId: "legacy-racing-command",
@@ -1493,9 +1487,6 @@ describe("cloud workspace store", () => {
 			turnId: "turn_API-assigned-unrelated",
 		});
 
-		// A restarted upgraded runtime can recover an older domain turn for the
-		// same command. Rebinding is permitted only when the ACK echoes the exact
-		// provisional turn that API issued for this command.
 		await runtime.runPromise(
 			store.appendApiMessage({
 				messageId: "recovered-command",
@@ -1550,9 +1541,6 @@ describe("cloud workspace store", () => {
 			turnId: "turn_domain-recovered",
 		});
 
-		// Migration 0017 adds the compact receipt table after assistant rows may
-		// already exist. A verified historical replay adopts one receipt and also
-		// binds the unique delivered launch row that predated deterministic turns.
 		await runtime.runPromise(
 			store.appendApiMessage({
 				messageId: "legacy-launch",
@@ -2143,6 +2131,24 @@ describe("cloud workspace store", () => {
 		expect(connected?.requestConfig.startupTimings).toMatchObject({
 			connectedAt: 215,
 		});
+		const waitingForAuth = await runtime.runPromise(
+			store.markRuntimeRepositoryReady({
+				workspaceId: workspace.workspaceId,
+				currentCredentialHash: "runtime-hash",
+				repositoryReady: false,
+				preparationPhase: "grok-auth-reconnect-required",
+				nowMs: 216,
+				nextIdleAtMs: 2_000,
+			}),
+		);
+		expect(waitingForAuth).toMatchObject({
+			state: "setup",
+			desiredState: "ready",
+			runtimeState: "online",
+			runtimeCredentialHash: "runtime-hash",
+			statusCode: "grok-auth-reconnect-required",
+		});
+
 		const repositoryReady = await runtime.runPromise(
 			store.markRuntimeRepositoryReady({
 				workspaceId: workspace.workspaceId,
@@ -2513,8 +2519,7 @@ describe("cloud workspace store", () => {
 			credentialHash: "credential-new",
 			expiresAtMs: 10_000,
 		});
-		// Simulate losing the first HTTP response: the same old bearer/request id
-		// returns the same receipt after the atomic hash swap.
+
 		expect(await renew()).toEqual(first);
 		expect(
 			await renew({
@@ -3085,8 +3090,7 @@ describe("cloud workspace store", () => {
 				cloudMailboxRuntimeSeenAt: 600,
 			},
 		});
-		// Empty polls prove the consumer exists but are not progress: sliding this
-		// deadline would strand a lease whose response was lost.
+
 		expect(
 			await runtime.runPromise(
 				store.recordMailboxRuntimePoll(
@@ -3134,7 +3138,7 @@ describe("cloud workspace store", () => {
 				cloudMailboxProgressRevision: 10,
 			},
 		});
-		// An older empty lease response cannot clear the newer accepted wake.
+
 		expect(
 			await runtime.runPromise(
 				store.completeMailboxDrain(

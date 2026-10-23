@@ -17,6 +17,7 @@ import type {
 	PersistedResource,
 	ResourcePersistence,
 } from "@zuse/client-runtime/client-persistence";
+import { isRpcAccessDenied } from "@zuse/client-runtime/connection";
 import type {
 	EnvironmentFault,
 	EnvironmentResolver,
@@ -37,9 +38,12 @@ import { makeSessionTimelineCacheEntry } from "@zuse/client-runtime/session-time
 import { makeSessionTimelineResourceDriver } from "@zuse/client-runtime/session-timeline-driver";
 import { cloudCommandEligibility } from "@zuse/cloud-commands";
 import type { EnvironmentId, Message } from "@zuse/contracts";
-import { SessionTimelineProjection } from "@zuse/contracts";
+import {
+	CloudWorkspaceOpError,
+	SessionTimelineProjection,
+} from "@zuse/contracts";
 import { emptyTimelineProjection } from "@zuse/domain/projectors/timeline-reducer";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import {
 	createClientCommandOutbox,
@@ -202,11 +206,6 @@ export const registerRendererResourcePersistence = (
 	kind: string,
 	persistence: RendererResourcePersistence,
 ): (() => void) => {
-	// Registration is a single replaceable slot per resource kind. Vite HMR
-	// evaluates the replacement module before disposing the previous instance, so
-	// rejecting a new object here crashes the renderer during development. The
-	// identity-checked cleanup below prevents the old module from deleting the
-	// replacement when its dispose callback eventually runs.
 	registeredPersistence.set(kind, persistence);
 	return () => {
 		if (
@@ -244,6 +243,81 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 		);
 		let result: unknown;
 		switch (command.kind) {
+			case "deviceBridge.setEnabled":
+				result = await Effect.runPromise(
+					client["deviceBridge.setEnabled"](payload as never),
+				);
+				break;
+			case "simulators.configure":
+				result = await Effect.runPromise(
+					client["simulators.configure"](payload as never),
+				);
+				break;
+			case "simulators.fix":
+				result = await Effect.runPromise(
+					client["simulators.fix"](payload as never),
+				);
+				break;
+			case "simulators.refresh":
+				result = await Effect.runPromise(
+					client["simulators.refresh"](payload as never),
+				);
+				break;
+			case "simulators.open":
+				result = await Effect.runPromise(
+					client["simulators.open"](payload as never),
+				);
+				break;
+			case "simulators.close":
+				result = await Effect.runPromise(
+					client["simulators.close"](payload as never),
+				);
+				break;
+			case "simulators.input":
+				result = await Effect.runPromise(
+					client["simulators.input"](payload as never),
+				);
+				break;
+			case "simulators.screenshot":
+				result = await Effect.runPromise(
+					client["simulators.screenshot"](payload as never),
+				);
+				break;
+			case "masters.create":
+				result = await Effect.runPromise(
+					client["masters.create"](payload as never),
+				);
+				break;
+			case "masters.execute":
+				result = await Effect.runPromise(
+					client["masters.execute"](payload as never),
+				);
+				break;
+			case "masters.artifact":
+				result = await Effect.runPromise(
+					client["masters.artifact"](payload as never),
+				);
+				break;
+			case "masters.transcript":
+				result = await Effect.runPromise(
+					client["masters.transcript"](payload as never),
+				);
+				break;
+			case "masters.get":
+				result = await Effect.runPromise(
+					client["masters.get"](payload as never),
+				);
+				break;
+			case "masters.list":
+				result = await Effect.runPromise(
+					client["masters.list"](payload as never),
+				);
+				break;
+			case "workspace.list":
+				result = await Effect.runPromise(
+					client["workspace.list"](payload as never),
+				);
+				break;
 			case "deviceBridge.control":
 				result = await Effect.runPromise(
 					client["deviceBridge.control"](payload as never),
@@ -1000,6 +1074,11 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 					client["messages.send"](payload as never),
 				);
 				break;
+			case "messages.background.stop":
+				result = await Effect.runPromise(
+					client["messages.background.stop"](payload as never),
+				);
+				break;
 			case "messages.interrupt":
 				result = await Effect.runPromise(
 					client["messages.interrupt"](payload as never),
@@ -1054,7 +1133,6 @@ const executeSessionCommand: ClientCommandExecutor<MemoizeClient> = {
 let commandOutbox = createClientCommandOutbox();
 
 type EnvironmentActivation = Readonly<{
-	/** The catalog authority that registered this resolver. */
 	readonly environmentKind: "cloud-workspace" | "other";
 	readonly account?: RendererAccountSnapshot;
 	prepare: (
@@ -1097,9 +1175,6 @@ export const registerEnvironmentActivation = (
 	};
 	activationByEnvironment.set(environmentId, registration);
 	if (environmentKind === "cloud-workspace") {
-		// Catalog hydration can happen after ClientBus's initial outbox scan. Resume
-		// durable rows as soon as their stable environment identity is known; this
-		// does not acquire a gateway ticket or wake compute.
 		void rendererClientBus
 			.flushDurableOutbox(environmentId)
 			.catch(() => undefined);
@@ -1155,9 +1230,7 @@ const environmentResolver: EnvironmentResolver<MemoizeClient> = {
 		Effect.tryPromise({
 			try: async () => {
 				const registered = activationByEnvironment.get(environmentId);
-				// Cloud gateway discovery/ticket issuance must finish before socket
-				// acquisition. Keeping this inside the EnvironmentRuntime resolver
-				// prevents chat navigation and ClientBus from racing two attach paths.
+
 				await registered?.prepare(activation, wakeIntent);
 				let generation: number | null = null;
 				let pendingFault: Error | null = null;
@@ -1203,9 +1276,6 @@ const isCloudTimelineEnvironment = (environmentId: EnvironmentId): boolean =>
 	activationByEnvironment.get(environmentId)?.environmentKind ===
 	"cloud-workspace";
 
-// Cloud API failures remain bounded until terminal lifecycle errors can be
-// distinguished from transport outages. Wake intent has a separate acknowledgment.
-// Self-hosted computers retry until they come back from sleep.
 export const environmentRetryPolicy = (
 	environmentId: EnvironmentId,
 ): EnvironmentRetryPolicy =>
@@ -1249,10 +1319,6 @@ export const registerRendererResourceDriver = (
 	kind: string,
 	factory: RendererResourceDriverFactory,
 ): (() => void) => {
-	// One slot still means one owner: replacement changes which factory future
-	// resource activations use; it never starts a second driver for an existing
-	// resource. Identity-checked cleanup makes this safe when HMR installs the new
-	// module before disposing the old one.
 	registeredDriverFactories.set(kind, factory);
 	return () => {
 		if (registeredDriverFactories.get(kind) === factory) {
@@ -1375,30 +1441,56 @@ const olderSessionMessageLoads = makeSessionMessagePager({
 	readPage: async (ref, client, cursor, beforeSequence, signal) => {
 		const cloud = isCloudTimelineEnvironment(ref.environmentId);
 		const namespace = rendererResourceCacheNamespace(ref.environmentId);
-		// The synchronizer validates the authoritative head before history starts.
-		const cached =
-			cloud && cursor !== null && namespace !== null
-				? await sessionTimelineCache
-						?.loadHistoryPage(ref, cursor, beforeSequence, namespace)
+		const account = rendererAccountSnapshot();
+
+		const loadCachedPage = (allowEarlierVersion = false) =>
+			cloud &&
+			cursor !== null &&
+			namespace !== null &&
+			rendererAccountSnapshot() === account &&
+			rendererResourceCacheNamespace(ref.environmentId) === namespace
+				? sessionTimelineCache
+						?.loadHistoryPage(ref, cursor, beforeSequence, namespace, {
+							allowEarlierVersion,
+						})
 						.catch(() => null)
 				: null;
+		const cached = await loadCachedPage();
 		if (cached) return cached;
-		const page = await (client === null
-			? cursor === null
-				? null
-				: olderPageSynchronizers.get(ref.environmentId)?.(
-						ref,
-						cursor,
-						beforeSequence,
-					)
-			: Effect.runPromise(
-					client["session.messages.page"]({
-						sessionId: ref.sessionId,
-						beforeSequence,
-						limit: 100,
-					}),
-					{ signal },
-				));
+		const requestPage = () =>
+			client === null
+				? cursor === null
+					? null
+					: olderPageSynchronizers.get(ref.environmentId)?.(
+							ref,
+							cursor,
+							beforeSequence,
+						)
+				: Effect.runPromise(
+						client["session.messages.page"]({
+							sessionId: ref.sessionId,
+							beforeSequence,
+							limit: 100,
+						}),
+						{ signal },
+					);
+		let page: Awaited<ReturnType<typeof requestPage>>;
+		try {
+			page = await requestPage();
+		} catch (cause) {
+			const denied =
+				isRpcAccessDenied(cause) ||
+				(Schema.is(CloudWorkspaceOpError)(cause) &&
+					(cause.code === "access-denied" ||
+						cause.code === "not-allowed" ||
+						cause.code === "not-found"));
+			if (!signal?.aborted && !denied) {
+				const fallback = await loadCachedPage(true);
+				if (fallback) return fallback;
+			}
+			throw cause;
+		}
+		if (!page && !signal?.aborted) return await loadCachedPage(true);
 		if (
 			!signal?.aborted &&
 			cloud &&
@@ -1537,9 +1629,7 @@ export const addOptimisticSessionMessage = (
 	message: Message,
 ): boolean => {
 	const key = sessionTimelineResourceKey(ref);
-	// Cloud launches stage their durable chat before any transcript consumer is
-	// mounted. Materialize the canonical cell so their first optimistic message
-	// is not discarded during that handoff.
+
 	rendererClientBus.snapshot(key);
 	return rendererClientBus.overlay(key, {
 		initialData: emptyTimelineProjection(),

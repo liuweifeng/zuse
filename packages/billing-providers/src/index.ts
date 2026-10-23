@@ -135,8 +135,7 @@ export class BillingProviders extends Context.Service<
 export const BillingProviderManual: BillingProviderAdapter = {
 	providerId: "manual",
 	checkout: () => new BillingProviderError({ code: "checkout-disabled" }),
-	// Manual billing never creates checkout sessions, so there is nothing to
-	// look up — the post-purchase page falls back to the offer catalog.
+
 	getCheckout: () => Effect.succeed(null),
 	verifyEvent: () => new BillingProviderError({ code: "checkout-disabled" }),
 	reconcileSubscription: () =>

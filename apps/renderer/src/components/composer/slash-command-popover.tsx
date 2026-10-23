@@ -41,7 +41,6 @@ const filterSkills = (
 	all: ReadonlyArray<Skill>,
 	query: string,
 ): ReadonlyArray<Skill> => {
-	// Skills turned off in Settings → Plugins never appear in the menu.
 	const skills = all.filter((skill) => skill.enabled);
 	if (skills.length === 0) return skills;
 	if (!query) return skills;
@@ -129,8 +128,6 @@ export function SlashCommandPopover({
 		if (row.kind === "builtin") {
 			const cmd = row.command;
 			if (cmd.kind === "client") {
-				// Client-handled built-ins stay as plain text so submit's matchBuiltin
-				// path triggers (`/clear`, `/model`, etc.).
 				view.dispatch({
 					changes: {
 						from: trigger.from,
@@ -141,8 +138,6 @@ export function SlashCommandPopover({
 				});
 				view.focus();
 			} else {
-				// Provider built-ins are sent as plain leading slash text. The server
-				// provider intercepts them before the normal model-turn path.
 				view.dispatch({
 					changes: {
 						from: trigger.from,
@@ -198,8 +193,6 @@ export function SlashCommandPopover({
 
 	if (rows.length === 0 || anchor === null) return null;
 
-	// Portaled to body: inside the composer the glass blur can't sample the
-	// page (nested backdrop-filter roots), so the popup escapes it.
 	return createPortal(
 		<div
 			role="listbox"

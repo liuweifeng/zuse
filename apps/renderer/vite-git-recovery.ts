@@ -34,7 +34,6 @@ export async function watchGitRevision(
 	}
 	const revision = async (): Promise<string | null> => {
 		try {
-			// Do not reload half a checkout or an unresolved merge/rebase.
 			if (
 				(
 					await Promise.all(
@@ -84,7 +83,7 @@ export async function watchGitRevision(
 				candidate = null;
 				return;
 			}
-			// Two stable samples let atomic ref/index updates settle.
+
 			if (next !== candidate) {
 				candidate = next;
 				return;
@@ -122,8 +121,7 @@ export function gitRevisionRecovery(): Plugin {
 					);
 				}
 			});
-			// Bind cleanup to this server generation. Vite can reuse the plugin
-			// object while constructing the replacement before closing the old one.
+
 			httpServer.once("close", stop);
 		},
 	};

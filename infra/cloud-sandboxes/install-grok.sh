@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# Shared pinned installation for base templates and older account images.
-# Installs only the CLI; existing runtime databases and credentials are untouched.
-# Artifact generations and SHA-256 digests are pinned from upstream HTTPS downloads,
-# not upstream-signed checksums. See internal-docs/cloud/grok-cli-installation.md.
+
 install_grok() (
   set -euo pipefail
   case "$(uname -s):$(uname -m)" in

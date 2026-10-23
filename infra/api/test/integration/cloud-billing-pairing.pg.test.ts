@@ -30,7 +30,6 @@ it.skipIf(!connectionString)(
 		);
 		const resource = crypto.randomUUID();
 		try {
-			// This opt-in test requires a disposable, migrated PostgreSQL database.
 			await db.query(
 				"DROP INDEX CONCURRENTLY IF EXISTS api_provider_usage_events_resource_time_idx",
 			);

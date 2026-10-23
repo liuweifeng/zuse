@@ -11,6 +11,7 @@ import { __testing, isAgentCliCommand } from "../src/agent-cli.ts";
 describe("agent CLI", () => {
 	test("recognizes control-plane commands without stealing serve commands", () => {
 		expect(isAgentCliCommand(["chat", "list"])).toBe(true);
+		expect(isAgentCliCommand(["master", "state"])).toBe(true);
 		expect(isAgentCliCommand(["session", "send"])).toBe(true);
 		expect(isAgentCliCommand(["serve", "status"])).toBe(false);
 	});
@@ -36,6 +37,8 @@ describe("agent CLI", () => {
 		const manifest = __testing.commandManifest();
 		expect(manifest.schemaVersion).toBe(1);
 		expect(manifest.commands).toContain("chat create");
+		expect(manifest.commands).toContain("master state");
+		expect(manifest.commands).toContain("master action");
 		expect(manifest.commands).toContain("session mode");
 		expect(manifest.commands).toContain("session send");
 		expect(manifest.commands).toContain("session fork");

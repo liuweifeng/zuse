@@ -23,7 +23,7 @@ export const prMergeBlocker = (
 	if (pr.stale === true) return "stale";
 	if (pr.mergeable === "conflicting") return "conflicts";
 	if (pr.checks === "failure") return "checks-failing";
-	// Incomplete check data cannot prove the rollup is green yet.
+
 	if (pr.checks === "pending" || pr.checksComplete === false)
 		return "checks-running";
 	if (pr.mergeable !== "clean") return "not-mergeable";

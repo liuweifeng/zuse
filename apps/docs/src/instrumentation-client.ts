@@ -20,7 +20,5 @@ if (process.env.NODE_ENV === "production" && key && !privacySignal) {
 			);
 			installPublicSiteTracking(posthog, "docs");
 		})
-		.catch(() => {
-			// Analytics must never prevent the site from loading.
-		});
+		.catch(() => {});
 }

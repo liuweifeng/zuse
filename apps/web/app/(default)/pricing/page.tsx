@@ -9,8 +9,7 @@ export const metadata = getSEO({
 		"Use Zuse locally for free during beta. Cloud Workspace costs $40/month with $35 compute included. Bring your own agent subscriptions.",
 	path: "/pricing",
 });
-// Cloud pricing verified against infra/api/src/cloud-billing.ts.
-// Public offerings are Local and Cloud Workspace; internal machine offers are not sold.
+
 const plans = [
 	{
 		name: "Local",

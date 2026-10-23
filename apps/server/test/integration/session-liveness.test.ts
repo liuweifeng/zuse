@@ -50,7 +50,7 @@ it("distinguishes provider silence, pending input, expired ownership and provide
 					commandId: "start",
 					command: { _tag: "StartTurn", turnId: "turn-1", startedAt: 1 },
 				});
-				// Delivery publishes running before provider startup and listener acquisition.
+
 				yield* domain.dispatch({
 					streamId: "session-1",
 					commandId: "sending",
@@ -92,7 +92,7 @@ it("distinguishes provider silence, pending input, expired ownership and provide
 				expect(
 					(yield* observeSessionRuntime(sql, "session-1", now)).state,
 				).toBe("running");
-				// A status error cannot conceal evidence of a still-owned response listener.
+
 				yield* domain.dispatch({
 					streamId: "session-1",
 					commandId: "error-with-owner",
@@ -140,7 +140,7 @@ it("keeps startup failure distinct from lost ownership and gives a retry its own
 					status: "running",
 					updatedAt: 2,
 				});
-				// Startup failed before acquiring a response listener. Retain the turn for retry.
+
 				yield* dispatch("failed", {
 					_tag: "SetStatus",
 					status: "error",
@@ -159,7 +159,7 @@ it("keeps startup failure distinct from lost ownership and gives a retry its own
 				const retry = yield* observeSessionRuntime(sql, "session-1", 120_002);
 				expect(retry.attemptId).toBe(attemptIdFor("turn-1", 2));
 				expect(retry.state).toBe("starting");
-				// Missing ownership remains a real fault after the retry startup window.
+
 				expect(
 					(yield* observeSessionRuntime(sql, "session-1", 150_001)).state,
 				).toBe("unavailable");
@@ -236,7 +236,7 @@ it("uses only a live startup job for the current attempt to extend the listener 
 					).toBe("unavailable");
 					yield* sql`UPDATE jobs SET session_id='session-1',request_json=${request},kind='provider.turn.send',status='running',lease_owner='worker',lease_expires_at=${leaseExpiry} WHERE id='startup'`;
 				}
-				// Historical requests without an attempt can own only the first attempt.
+
 				yield* sql`UPDATE jobs SET request_json=${historicalRequest} WHERE id='startup'`;
 				yield* domain.dispatch({
 					streamId: "session-1",
@@ -253,7 +253,7 @@ it("uses only a live startup job for the current attempt to extend the listener 
 					(yield* observeSessionRuntime(sql, "session-1", now)).state,
 				).toBe("unavailable");
 				yield* sql`UPDATE jobs SET request_json=${JSON.stringify({ turnId: "turn-1", attemptId: attemptIdFor("turn-1", 2) })} WHERE id='startup'`;
-				// Once a response listener existed, job ownership cannot conceal its loss.
+
 				yield* sql`UPDATE sessions SET provider_reservation_id='owner' WHERE id='session-1'`;
 				const lease = yield* acquireIngestionLease(
 					sql,
@@ -302,7 +302,7 @@ it("observes held initial turns as preparation, not lost provider responses", as
 				});
 				yield* sql`UPDATE sessions SET status='booting', queue_paused=1 WHERE id='session-1'`;
 				yield* sql`INSERT INTO chat_creation_operations VALUES ('creation-1','session-1','creating_workspace')`;
-				// Slow worktree fetch exceeds admission grace before any provider job exists.
+
 				for (const phase of [
 					"persisted",
 					"creating_workspace",
@@ -347,7 +347,7 @@ it("observes held initial turns as preparation, not lost provider responses", as
 					{ now: () => 1, leaseMs: 1_000 },
 				);
 				if (lease === null) throw new Error("missing lease");
-				// A stale preparation receipt must not conceal a lost real listener.
+
 				yield* lease.expire;
 				expect(
 					(yield* observeSessionRuntime(sql, "session-1", 60_001)).state,

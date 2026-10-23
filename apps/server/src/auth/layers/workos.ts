@@ -40,7 +40,6 @@ export const authorizationUrl = (
 	return url.toString();
 };
 
-/** Raw REST shape (snake_case) returned by `/user_management/authenticate`. */
 interface WorkosAuthenticateResponse {
 	readonly access_token: string;
 	readonly refresh_token: string;
@@ -160,12 +159,6 @@ export const parseSessionBundle = (value: unknown): SessionBundle | null => {
 	};
 };
 
-/**
- * Read `exp` from a JWT access token without verifying the signature — we only
- * need it to schedule refresh-on-demand; the token's authority is enforced
- * server-side wherever it's later presented as a bearer. Falls back to a short
- * 5-minute window if the token can't be parsed.
- */
 const expiryFromJwt = (jwt: string): number => {
 	const fallback = Date.now() + 5 * 60_000;
 	const parts = jwt.split(".");

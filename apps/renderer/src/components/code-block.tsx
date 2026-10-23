@@ -112,9 +112,6 @@ const basename = (p: string): string => {
 	return i === -1 ? p : p.slice(i + 1);
 };
 
-/** Hard cap so a runaway agent reading a giant file doesn't lock the
- *  highlighter for seconds. The box has its own scrollbar; we just trim the
- *  text fed to Shiki. */
 const MAX_HIGHLIGHT_BYTES = 200_000;
 const HIGHLIGHT_IDLE_DELAY_MS = 120;
 
@@ -125,11 +122,7 @@ interface Props {
 	readonly title?: string;
 	readonly maxHeight?: number;
 	readonly isError?: boolean;
-	/**
-	 * "framed" (default) shows the filename header bar — right for tool-result
-	 * file viewers. "plain" is for markdown fences: no header, just a rounded
-	 * code surface with a copy button that appears on hover.
-	 */
+
 	readonly variant?: "framed" | "plain";
 }
 
@@ -152,8 +145,6 @@ export function CodeBlock({
 }: Props) {
 	const { message: uiMessage } = useUiMessages(["tools"]);
 
-	// This theme emits CSS variables, so appearance changes recolor existing
-	// markup immediately instead of replacing every code block asynchronously.
 	const theme = SHIKI_THEME;
 	const lang = useMemo(
 		() => langForLanguage(language) ?? langForFilename(filename),
@@ -256,7 +247,6 @@ export function CodeBlock({
 				<div
 					className="code-block-shiki"
 					data-highlighted={html === null ? undefined : true}
-					// Shiki escapes source and emits only its token span tree.
 					dangerouslySetInnerHTML={html === null ? undefined : { __html: html }}
 				>
 					{html === null ? (

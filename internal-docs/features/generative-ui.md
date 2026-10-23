@@ -13,8 +13,14 @@ invalid specs return an error the agent can correct.
 response guidance used by both the workspace prompt and tool description.
 Multi-part final answers lead with a short outcome and use one compact visual
 summary for changes, checks, findings, or options. Simple replies stay text.
-The guidance includes component selection, concise table cells, evidence and
-verification status, and a text fallback when the tool is unavailable.
+The guidance leads numerical comparisons with BarChart, trends with LineChart,
+and part-to-whole breakdowns with DonutChart. Flow and Steps explain relationships
+and sequences without requiring numerical data. Tables serve exact lookups and
+qualitative matrices; Callout is reserved for material warnings or caveats.
+Agents should avoid repetitive tables and callouts, and never invent measurements
+to add a graph. Tool examples demonstrate measured before/after bars, a standalone
+flow, and a usage dashboard. The guidance also covers concise table cells,
+evidence and verification status, and a text fallback when the tool is unavailable.
 
 ```text
 emit_ui → shared validation → persistMessage → ui_spec timeline row

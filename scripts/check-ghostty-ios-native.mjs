@@ -121,9 +121,7 @@ try {
 	if (bootedByScript && simulator) {
 		try {
 			run("xcrun", ["simctl", "shutdown", simulator.udid]);
-		} catch {
-			// Preserve the original build/test failure if simulator cleanup also fails.
-		}
+		} catch {}
 	}
 	rmSync(derivedData, { recursive: true, force: true });
 }

@@ -8,6 +8,7 @@ import { acquireProcessLock } from "../process/process-lock.ts";
 import { NativeHarnessTools, type NativeToolOptions } from "./native-tools.ts";
 
 export interface NativeRuntimeOptions {
+	readonly outputOnly?: boolean;
 	readonly rootId: string;
 	readonly model: string;
 	readonly dataDirectory: string;
@@ -20,6 +21,23 @@ export interface NativeRuntimeOptions {
 		NativeToolOptions,
 		"rootId" | "directory" | "lockDirectory" | "notify"
 	>;
+}
+type AppTools = Pick<HarnessHost, "tools" | "execute">;
+
+/** Merges app tool sets; each tool name is routed to the set that defines it. */
+export function combineAppTools(
+	...sets: ReadonlyArray<AppTools | undefined>
+): AppTools | undefined {
+	const present = sets.filter((set) => set !== undefined);
+	if (present.length <= 1) return present[0];
+	return {
+		tools: Object.assign({}, ...present.map((set) => set.tools)),
+		execute: (name, input, context) => {
+			const owner = present.find((set) => Object.hasOwn(set.tools, name));
+			if (!owner) throw new Error(`Unknown app tool: ${name}`);
+			return owner.execute(name, input, context);
+		},
+	};
 }
 /** Composition for server adapters. A root lease prevents two owners recovering the same processes. */
 export async function createNativeHarness(
@@ -47,11 +65,17 @@ export async function createNativeHarness(
 	engine = new HarnessEngine(
 		{
 			...options.host,
-			tools: { ...native.definitions, ...options.appTools?.tools },
-			execute: (name, input, context) =>
-				options.appTools && Object.hasOwn(options.appTools.tools, name)
+			...(options.outputOnly ? { enableSubagents: false, maxRequests: 1 } : {}),
+			tools: options.outputOnly
+				? {}
+				: { ...native.definitions, ...options.appTools?.tools },
+			execute: (name, input, context) => {
+				if (options.outputOnly)
+					throw new Error("Tools are disabled for this auxiliary turn.");
+				return options.appTools && Object.hasOwn(options.appTools.tools, name)
 					? options.appTools.execute(name, input, context)
-					: native.execute(name, input, context),
+					: native.execute(name, input, context);
+			},
 			interruptAgents: (ids) => native.processes.interruptAgents(ids),
 			close: async () => {
 				try {

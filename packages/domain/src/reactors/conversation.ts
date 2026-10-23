@@ -1,8 +1,3 @@
-/**
- * Reactors for derived conversation work that only reads committed events.
- * Provider-facing work is not a reactor: it is a durable job implied by the
- * event inside its own transaction (see `agent-engine/jobs`).
- */
 import { Effect } from "effect";
 
 import type { ChatEvent } from "../chat/events.js";

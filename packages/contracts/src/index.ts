@@ -20,6 +20,7 @@ export * from "./connect.ts";
 export * from "./connect-links.ts";
 export * from "./context.ts";
 export * from "./device-bridge.ts";
+export * from "./device-bridge-channel.ts";
 export * from "./diagnostics.ts";
 export * from "./external-thread.ts";
 export * from "./fs.ts";
@@ -37,6 +38,7 @@ export type {
 	LocaleSnapshot,
 } from "./locale.ts";
 export * from "./machines.ts";
+export * from "./master.ts";
 export * from "./model-catalog/index.ts";
 export * from "./model-connections.ts";
 export * from "./naming.ts";
@@ -66,6 +68,7 @@ export * from "./session-context.ts";
 export * from "./session-wait.ts";
 export * from "./settings.ts";
 export * from "./shell-display.ts";
+export * from "./simulators.ts";
 export * from "./skill.ts";
 export * from "./ssh.ts";
 export * from "./tailnet.ts";

@@ -12,7 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test, vi } from "vitest";
-import { WORKSPACE_RUNTIME_UPDATE_SCRIPT } from "../../src/cloud-workspace-runtime-update.ts";
+import {
+	imageBuildRuntime,
+	parseInstalledRuntime,
+	WORKSPACE_RUNTIME_UPDATE_SCRIPT,
+} from "../../src/cloud-workspace-runtime-update.ts";
 
 vi.mock("../../../cloud-sandboxes/install-grok.sh", () => ({
 	default: readFileSync(
@@ -84,7 +88,7 @@ test.each([
 		await writeFile(join(tools, "grok"), "#!/bin/sh\nexit 0\n", {
 			mode: 0o755,
 		});
-		// The compatibility gate must not initialize, move, or replace runtime data.
+
 		const database = join(status, "zuse.sqlite");
 		await writeFile(database, "existing chat and queued command");
 		await writeFile(key, "test key");
@@ -161,7 +165,6 @@ printf launched`;
 	expect(result.stdout).toBe("launched");
 });
 
-// Explicit error propagation must survive callers using `if ! install_grok`.
 test.each([
 	{ name: "verified x86_64", arch: "x86_64", success: true },
 	{ name: "verified aarch64", arch: "aarch64", success: true },
@@ -243,4 +246,25 @@ if ! install_grok; then exit 23; fi`,
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test("records only well-formed installed runtime metadata on image builds", () => {
+	const runtime = { appVersion: "0.24.0-preview.9", wireProtocolVersion: 7 };
+	expect(
+		parseInstalledRuntime(
+			JSON.stringify({ schemaVersion: 1, runtimeVersion: "x", ...runtime }),
+		),
+	).toEqual(runtime);
+	for (const text of [
+		"",
+		"not json",
+		"null",
+		JSON.stringify({ appVersion: "0.24.0" }),
+		JSON.stringify({ appVersion: 1, wireProtocolVersion: 7 }),
+		JSON.stringify({ appVersion: "0.24.0", wireProtocolVersion: 6.5 }),
+	])
+		expect(parseInstalledRuntime(text)).toBeUndefined();
+	expect(imageBuildRuntime({ settings: { runtime } })).toEqual(runtime);
+	expect(imageBuildRuntime({ settings: {} })).toBeUndefined();
+	expect(imageBuildRuntime({})).toBeUndefined();
 });

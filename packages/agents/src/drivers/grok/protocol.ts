@@ -250,8 +250,7 @@ const grokClientCapabilities = (runtimeMode: RuntimeMode) =>
 	runtimeMode === "auto"
 		? {
 				...ACP_CLIENT_CAPABILITIES,
-				// Grok's native classifier must own execution after approval. Delegating
-				// the same operation back to our raw FS/terminal gates would ask twice.
+
 				fs: { readTextFile: false, writeTextFile: false },
 				terminal: false,
 			}
@@ -261,8 +260,7 @@ export const grokInitializeParams = (runtimeMode: RuntimeMode) => ({
 	protocolVersion: 1,
 	clientCapabilities: grokClientCapabilities(runtimeMode),
 	clientInfo: { name: "zuse", version: "0.0.0" },
-	// Grok treats unidentified stdio clients as headless and denies classifier
-	// escalations. The extension client type supports interactive ACP approvals.
+
 	_meta: { clientIdentifier: "zuse", clientType: "extension" },
 });
 

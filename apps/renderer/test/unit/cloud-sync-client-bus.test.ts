@@ -125,7 +125,7 @@ test.each([
 	);
 	mocks.summaries = [{ workspaceId: "workspace", state }];
 	for (const listener of mocks.catalogListeners) listener();
-	// Reconnect before the queued stop even enters its body.
+
 	mocks.summaries = [{ workspaceId: "workspace", state: "ready" }];
 	for (const listener of mocks.catalogListeners) listener();
 	await vi.advanceTimersByTimeAsync(0);

@@ -289,8 +289,7 @@ test.each([
 					action: "check-approval",
 				}),
 			});
-			// An unrelated installation already available before requesting must
-			// not make a new owner-approval request appear complete.
+
 			expect(
 				await (
 					await runtime.runPromise(githubAuthorizationCallback(poll))

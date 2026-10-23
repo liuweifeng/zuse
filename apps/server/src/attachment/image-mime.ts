@@ -1,8 +1,5 @@
-/**
- * MIME → on-disk extension. Used so blobs land with a sensible extension for
- * human debuggability. Falls back to "bin" for unknown types — the original
- * filename's extension is preferred when available (see `extForUpload`).
- */
+
+
 const EXT_BY_MIME: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",

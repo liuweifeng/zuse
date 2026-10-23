@@ -139,8 +139,7 @@ export const recoverProviderTurn = (
 		const inspected = yield* inspect(request.reference).pipe(
 			Effect.catch(() => Effect.succeed(null)),
 		);
-		// Keep this guard at the write boundary too: injected readers and future transports
-		// must not silently drop child items while translating a terminal root.
+
 		const evidence: CodexTurnEvidence | null =
 			inspected?.kind === "terminal" &&
 			codexTurnRequiresChildRecovery(inspected.turn)

@@ -35,15 +35,12 @@ describe("indexer — blob dedup across branches", () => {
 			expect(first.newBlobs).toBeGreaterThanOrEqual(2);
 
 			const second = await run(indexRepo(db, root, "feature/x"));
-			// Re-indexing identical content under a different branch should dedup
-			// every file — no new blob rows.
+
 			expect(second.newBlobs).toBe(0);
 			expect(second.dedupedBlobs).toBe(second.processed);
 
 			const stats = await run(countAll(db));
-			// Two TS files = two source blobs minimum (other walked files like
-			// README, configs may exist depending on tmpdir contents — assert
-			// an upper-bound that proves no duplication happened).
+
 			expect(stats.blobs).toBe(first.processed);
 
 			await run(closeIndexDb(db));
@@ -65,7 +62,6 @@ describe("indexer — blob dedup across branches", () => {
 			const blobsAfterFirst = (await run(countAll(db))).blobs;
 			expect(first.newBlobs).toBe(first.processed);
 
-			// Modify exactly one file then index under a new branch.
 			writeFileSync(join(root, "shared.ts"), "export const shared = 'v2';\n");
 			const second = await run(indexRepo(db, root, "feature/y"));
 

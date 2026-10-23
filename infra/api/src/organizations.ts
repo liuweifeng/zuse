@@ -239,6 +239,8 @@ const listAccessibleOrganizations = Effect.fn("listAccessibleOrganizations")(
 	},
 );
 
+export { listAccessibleOrganizations };
+
 export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 	function* (request: Request) {
 		const path = new URL(request.url).pathname;
@@ -279,8 +281,6 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 			return yield* store.withOrganizationLock(
 				`creator:${userId}`,
 				Effect.gen(function* () {
-					// A retry can finish initial enrollment, but cannot re-enroll a removed admin.
-					// One durable provider identity per creator also covers failed enrollment.
 					const externalId = `zuse:${userId}:organization`;
 					const find = requestWorkos(
 						`/organizations/external_id/${encodeURIComponent(externalId)}`,
@@ -292,7 +292,6 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 						),
 					);
 					if (org === null) {
-						// Respect organizations created by earlier versions as well as invited teams.
 						const memberships = yield* listWorkos(
 							`/user_management/organization_memberships?user_id=${encodeURIComponent(userId)}`,
 							WorkosMember,
@@ -356,8 +355,7 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 						}
 						yield* requireOrganizationMember(userId, org.id, true);
 						const organizationId = org.id;
-						// Creation and sharing defaults must serialize metadata writes on
-						// the same organization key, using the latest provider snapshot.
+
 						yield* store.withOrganizationLock(
 							organizationId,
 							Effect.gen(function* () {
@@ -502,8 +500,7 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 				request,
 			);
 			const store = yield* ApiStore;
-			// Commit the self-service block before the external removal. If its
-			// response is lost, authorization still denies the removed member.
+
 			if (removing)
 				yield* store.withOrganizationLock(
 					input.organizationId,
@@ -532,7 +529,7 @@ export const routeOrganizationRequest = Effect.fn("routeOrganizationRequest")(
 								reservedUntil: 0,
 								revision: crypto.randomUUID(),
 							});
-						// Admin removal also stops email-domain auto-join from re-adding them.
+
 						const domainEnrollment = yield* store.domainJoining.getEnrollment(
 							input.organizationId,
 							target.user_id,

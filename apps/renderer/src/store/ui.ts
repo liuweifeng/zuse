@@ -49,11 +49,11 @@ export type SettingsSection =
 				| "sharing";
 	  }
 	| { readonly kind: "browser" }
+	| { readonly kind: "simulator" }
 	| { readonly kind: "pokedex" }
 	| { readonly kind: "diagnostics" }
 	| { readonly kind: "shortcuts" }
 	| { readonly kind: "experimental" }
-	| { readonly kind: "developer" }
 	| { readonly kind: "repository"; readonly projectId: FolderId };
 
 /**
@@ -90,6 +90,7 @@ export type PanelKind =
 	| "pr"
 	| "plan"
 	| "browser"
+	| "device"
 	| "subagents";
 
 /**
@@ -119,6 +120,11 @@ export type PanelInstance =
 	| { readonly id: string; readonly kind: "pr" }
 	| { readonly id: string; readonly kind: "plan" }
 	| { readonly id: string; readonly kind: "browser" }
+	| {
+			readonly id: string;
+			readonly kind: "device";
+			readonly deviceId?: string;
+	  }
 	| { readonly id: string; readonly kind: "subagents" }
 	| { readonly id: string; readonly kind: "terminal"; readonly slot: number };
 
@@ -217,35 +223,29 @@ type UiState = {
 	readonly changesTabOpen: boolean;
 	readonly reviewNavigation: ReviewNavigation | null;
 	readonly fileDirty: boolean;
-	// 0.02 hard-codes false. The future settings-page autosave toggle flips
-	// this to true and a debounced save kicks in inside FileEditor.
+
 	readonly autosave: boolean;
 	readonly leftSidebarOpen: boolean;
-	/**
-	 * Transient overlay-reveal of the left sidebar when the docked panel is
-	 * collapsed. Triggered by hovering the left edge of the window
-	 * (macOS Dock-style auto-reveal). Resets on reload — never persisted.
-	 */
+
 	readonly leftSidebarPeek: boolean;
-	/** Right-dock visibility and width, scoped per sidebar chat. */
+
 	readonly rightPaneLayoutByChat: Record<string, RightPaneLayout>;
-	/** Bottom-terminal visibility, scoped independently per sidebar chat. */
+
 	readonly bottomTerminalLayoutByChat: Record<string, BottomTerminalLayout>;
-	/** Whether the cross-project chat quick-switcher (Cmd+K) overlay is open. */
+
 	readonly chatSwitcherOpen: boolean;
 	readonly isFullScreen: boolean;
-	/** User preference for the fullscreen environment summary. The summary is
-	 * still gated by native fullscreen and available width at render time. */
+
 	readonly environmentSummaryOpen: boolean;
-	/** Changes dock file list layout; persisted across reloads. */
+
 	readonly changesListMode: ChangesListMode;
-	/** Right-dock tab layout, scoped per sidebar-chat. */
+
 	readonly rightPanelsByChat: Record<string, ReadonlyArray<PanelInstance>>;
 	readonly activeRightPanelByChat: Record<string, string | null>;
 	readonly selectedSubagentByChat: Record<string, string | null>;
 	readonly revealedAnnotation: RevealedAnnotation | null;
 	readonly setActiveMainTab: (tab: MainTab) => void;
-	/** Open the Usage dashboard in the main pane at the given scope. */
+
 	readonly openUsage: (scope: UsageScope) => void;
 	readonly openFileInTab: (
 		file:
@@ -268,7 +268,7 @@ type UiState = {
 	readonly setFileDirty: (dirty: boolean) => void;
 	readonly setLeftSidebarOpen: (open: boolean) => void;
 	readonly setLeftSidebarPeek: (peek: boolean) => void;
-	/** Set visibility for one explicitly qualified chat. */
+
 	readonly setRightSidebarOpenForChat: (ref: ChatRef, open: boolean) => void;
 	readonly setRightSidebarWidthForChat: (
 		ref: ChatRef,
@@ -289,32 +289,27 @@ type UiState = {
 	readonly setEnvironmentSummaryOpen: (open: boolean) => void;
 	readonly toggleEnvironmentSummary: () => void;
 	readonly setChangesListMode: (mode: ChangesListMode) => void;
-	/** Add a panel to the dock. Singletons that are already open are focused
-	 * instead of duplicated; terminals always append a new slot. */
+
 	readonly addPanel: (ref: ChatRef, kind: PanelKind) => void;
-	/** Add a terminal panel to a SPECIFIC chat's dock, pinned to a known
-	 * terminal-list slot (rather than the auto-computed next slot), and activate
-	 * it. Used to surface a command terminal (e.g. Run) whose instance lives at a
-	 * known list index — possibly in a chat that isn't currently selected. */
+	readonly openDevicePanel: (
+		ref: ChatRef,
+		deviceId: string,
+		panelId?: string,
+	) => void;
+	/** Return a simulator tab to its picker; the simulator session keeps running. */
+	readonly showDevicePicker: (ref: ChatRef, panelId: string) => void;
 	readonly addTerminalPanelForSlot: (ref: ChatRef, slot: number) => void;
-	/** Remove a dock panel by id from the active chat's layout. Layout-only:
-	 * callers that close a terminal panel must also drop its backing PTY
-	 * instance (`useTerminalsStore.remove`). Re-indexes remaining terminal
-	 * slots. */
+
 	readonly closePanel: (ref: ChatRef, id: string) => void;
-	/** Remove panels for catalog-pruned terminal slots and shift surviving slot
-	 * references by exactly the removed indices. */
+
 	readonly reconcileTerminalPanelSlots: (
 		ref: ChatRef,
 		removedSlots: ReadonlyArray<number>,
 	) => void;
 	readonly setActiveRightPanel: (ref: ChatRef, id: string) => void;
-	/** Drop a chat's entire dock layout (on archive/delete). Terminal PTYs are
-	 * disposed separately via `useTerminalsStore.disposeChat`. */
+
 	readonly clearChatPanels: (ref: ChatRef) => void;
-	/** Open the sidebar and ensure a panel of `kind` is present + active.
-	 * Replaces the old `setRightSidebarOpen(true) + setActiveRightTab(kind)`
-	 * pairs. For terminals, focuses an existing one or adds a new slot. */
+
 	readonly revealPanelForChat: (ref: ChatRef, kind: PanelKind) => void;
 	readonly revealSubagent: (ref: ChatRef, childSessionId: string) => void;
 	readonly selectSubagent: (
@@ -333,8 +328,7 @@ export const ENVIRONMENT_SUMMARY_STORAGE_KEY =
 	"zuse.environmentSummary.open.v1";
 export const CHANGES_LIST_MODE_STORAGE_KEY = "zuse.changes.listMode.v1";
 export type ChangesListMode = "list" | "tree";
-// v1 used unqualified chat ids, so it is intentionally not loaded: equal ids
-// from two environments could otherwise inherit each other's layout.
+
 export const RIGHT_PANE_WIDTHS_STORAGE_KEY = "zuse.rightPane.widths.v2";
 export const DEFAULT_RIGHT_PANE_WIDTH_PERCENT = 22;
 export const BOTTOM_TERMINAL_HEIGHTS_STORAGE_KEY =
@@ -419,9 +413,7 @@ const initialEnvironmentSummaryOpen = (): boolean => {
 const persistEnvironmentSummaryOpen = (open: boolean): void => {
 	try {
 		window.localStorage.setItem(ENVIRONMENT_SUMMARY_STORAGE_KEY, String(open));
-	} catch {
-		// The preference remains usable for this session when storage is blocked.
-	}
+	} catch {}
 };
 
 const initialChangesListMode = (): ChangesListMode => {
@@ -438,9 +430,7 @@ const initialChangesListMode = (): ChangesListMode => {
 const persistChangesListMode = (mode: ChangesListMode): void => {
 	try {
 		window.localStorage.setItem(CHANGES_LIST_MODE_STORAGE_KEY, mode);
-	} catch {
-		// The preference remains usable for this session when storage is blocked.
-	}
+	} catch {}
 };
 
 const initialRightPaneWidths = (): Record<string, number> => {
@@ -513,9 +503,7 @@ const persistRightPaneWidths = (
 				),
 			),
 		);
-	} catch {
-		// Pane sizing remains available for this renderer session.
-	}
+	} catch {}
 };
 
 const persistBottomTerminalHeights = (
@@ -533,14 +521,9 @@ const persistBottomTerminalHeights = (
 				),
 			),
 		);
-	} catch {
-		// Resizing remains available for this renderer session when storage fails.
-	}
+	} catch {}
 };
 
-/** Renumber terminal panels' slots to stay contiguous (0..n-1) in tab order
- * after one is removed, so they keep mapping to the owning chat's terminal
- * list without gaps. */
 const reindexTerminalSlots = (
 	panels: ReadonlyArray<PanelInstance>,
 ): ReadonlyArray<PanelInstance> => {
@@ -682,9 +665,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 			}),
 		),
 	setFileDirty: (dirty) => set({ fileDirty: dirty }),
-	// Opening the docked panel implicitly drops any peek state so the overlay
-	// doesn't sit on top of the docked panel. Closing it also clears peek so a
-	// stale hover doesn't immediately re-reveal the overlay.
+
 	setLeftSidebarOpen: (open) =>
 		set({ leftSidebarOpen: open, leftSidebarPeek: false }),
 	setLeftSidebarPeek: (peek) => set({ leftSidebarPeek: peek }),
@@ -785,6 +766,56 @@ export const useUiStore = create<UiState>((set, get) => ({
 		persistChangesListMode(mode);
 		set({ changesListMode: mode });
 	},
+	openDevicePanel: (ref, deviceId, panelId) => {
+		get().setRightSidebarOpenForChat(ref, true);
+		set((s) => {
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
+			const existing = panels.find(
+				(panel) => panel.kind === "device" && panel.deviceId === deviceId,
+			);
+			// A picker tab that resolves to an already-open simulator folds into it.
+			if (existing)
+				return writePanels(
+					s,
+					key,
+					panels.filter(
+						(p) =>
+							p.id === existing.id ||
+							p.id !== panelId ||
+							p.kind !== "device" ||
+							p.deviceId !== undefined,
+					),
+					existing.id,
+				);
+			const panel: PanelInstance = {
+				id: panelId ?? newPanelId(),
+				kind: "device",
+				deviceId,
+			};
+			return writePanels(
+				s,
+				key,
+				[...panels.filter((p) => p.id !== panelId), panel],
+				panel.id,
+			);
+		});
+	},
+	showDevicePicker: (ref, panelId) =>
+		set((s) => {
+			const key = rightPaneKey(ref);
+			const panels = s.rightPanelsByChat[key] ?? EMPTY_PANELS;
+			return writePanels(
+				s,
+				key,
+				panels.map((panel) =>
+					panel.id === panelId && panel.kind === "device"
+						? { id: panel.id, kind: "device" }
+						: panel,
+				),
+				panelId,
+			);
+		}),
 	addPanel: (ref, kind) =>
 		set((s) => {
 			const key = rightPaneKey(ref);
@@ -802,7 +833,10 @@ export const useUiStore = create<UiState>((set, get) => ({
 				const panel = { id: newPanelId(), kind } as PanelInstance;
 				return writePanels(s, key, [...panels, panel], panel.id);
 			}
-			// terminal: append a new slot at the next contiguous index.
+			if (kind === "device") {
+				const panel: PanelInstance = { id: newPanelId(), kind: "device" };
+				return writePanels(s, key, [...panels, panel], panel.id);
+			}
 			const slot = panels.filter((p) => p.kind === "terminal").length;
 			const panel: PanelInstance = { id: newPanelId(), kind: "terminal", slot };
 			return writePanels(s, key, [...panels, panel], panel.id);

@@ -31,32 +31,6 @@ import {
 	type OrchestrationReadInput,
 } from "./orchestration-discovery.ts";
 
-/**
- * In-process MCP "control-plane" tools — the primitives that let an agent
- * orchestrate its OWN work the way a human operator would: spin up a git
- * worktree, open a new chat/session ("thread"), hand that thread a task, and
- * read back its progress. This is the Layer-1 foundation the loop engine
- * (heartbeat / goal loops) builds on in a later phase.
- *
- * These mirror `buildIndexTools` / `buildBrowserTools`: the handlers are plain
- * async functions the Claude SDK invokes directly, kept free of any Effect
- * wiring. `ConversationServices` binds the deps below to its own Effect methods via
- * `Runtime.runPromise`, and — crucially — translates every failure into a
- * `{ ok: false, error }` result so these handlers never throw. That keeps the
- * tool surface free of raw try/catch and matches the `BrowserCommandResult`
- * convention.
- *
- * Registration is gated on autonomy: `ConversationServices` only builds + passes these
- * when the session's autonomy level is not `"off"`. The mutating tools
- * (create_thread / create_session / send_to_thread) fall through the driver's
- * permission policy to a prompt, which IS the approval gate for the
- * `approval-gated` level; the read-only tools (read_thread / list_threads /
- * list_models / whoami) are auto-allowed by the driver alongside the index
- * reads.
- */
-
-// ── Result contracts (set by ConversationServices, never thrown) ────────────────────
-
 export type CreateWorktreeResult =
 	| {
 			readonly ok: true;
@@ -210,6 +184,10 @@ export interface OrchestrationToolDeps {
 	}) => Promise<
 		{ readonly ok: true } | { readonly ok: false; readonly error: string }
 	>;
+	readonly master?: (
+		commandJson?: string,
+		readOnly?: boolean,
+	) => Promise<unknown>;
 	readonly createWorktree: (input: {
 		readonly baseBranch?: string;
 	}) => Promise<CreateWorktreeResult>;
@@ -271,11 +249,10 @@ export interface OrchestrationPermissionOptions {
 }
 
 export interface OrchestrationSessionTools {
+	readonly instructions?: string;
 	readonly deps: OrchestrationToolDeps;
 	readonly claudeTools: ReturnType<typeof buildOrchestrationTools>;
 }
-
-// ── MCP text-result helpers ─────────────────────────────────────────────────
 
 type JsonObject = JsonSchemaObject;
 
@@ -299,7 +276,9 @@ export type OrchestrationToolName =
 	| "list_threads"
 	| "list_models"
 	| "whoami"
-	| "emit_ui";
+	| "emit_ui"
+	| "master_state"
+	| "master_action";
 
 export type OrchestrationMcpToolDef = {
 	readonly name: OrchestrationToolName;
@@ -382,17 +361,18 @@ Syntax rules:
 - root = ... is REQUIRED — it is the top-level component
 - Component arguments are POSITIONAL only: Stat("Downloads", "12k") — never name: value
 - Strings are double-quoted; nest components inside array args: Card([s1, s2])
+- Card title: Card([children], "Title"); do not use CardHeader. KeyValue entries are objects with key and value strings, never tuples or label fields.
 - Define parts on their own lines and reference them by name; every defined name (except root) must be reachable from root
 - Pass null for an optional arg you want to skip
 - Use literal data only. No reactive state, expressions, Query(), Mutation(), or actions.
 - Fields (Input, TextArea, Select, RadioGroup, Checkbox, Slider) must be inside a Form, with unique names. Forms cannot nest.
 - Keep specs under 32,768 characters. Containers hold at most 64 components; charts hold 1-100 points; tables hold 1-20 columns and at most 200 rows.
 
-Example — an architecture comparison:
-root = Card([flow, compare, takeaway], "How a review runs")
-flow = Flow([{label: "GitHub webhook"}, {label: "Control plane", detail: "Leases, retries", highlight: true}, {label: "Isolated worker"}, {label: "Check + comments"}])
-compare = Table(["Area", "This PR", "Reference"], [["Trigger", "Webhook", "User session"], ["Execution", "Hosted workers", "Local machine"]])
-takeaway = Callout("The PR adds a hosted pipeline; the reference stays interactive and local.", "neutral", "Key difference")
+Example — measured before/after comparison (replace with actual measurements):
+root = BarChart("Page load · same fixture and environment", [{label: "Before", value: 820}, {label: "After", value: 540}], "ms")
+
+Example — an architecture explanation without numerical data:
+root = Flow([{label: "GitHub webhook"}, {label: "Control plane", detail: "Leases, retries", highlight: true}, {label: "Isolated worker"}, {label: "Check + comments"}], "The control plane dispatches reviews to isolated workers.")
 
 Example — a dashboard:
 root = Card([metrics, caveat, breakdown, trend], "Usage · Oct 1–2 · USD")
@@ -469,6 +449,29 @@ export const ORCHESTRATION_MCP_TOOLS: ReadonlyArray<OrchestrationMcpToolDef> = [
 		description,
 		inputSchema: z.toJSONSchema(schema) as JsonObject,
 	})),
+	{
+		name: "master_state",
+		description:
+			"Read this Zot’s repositories, workers, durable notes and supported action schema. Read-only; available to Zot coordinators.",
+		inputSchema: objectSchema({
+			commandJson: stringProp(
+				"Optional query JSON from the state querySchema.",
+			),
+		}),
+	},
+	{
+		name: "master_action",
+		description:
+			"Execute a scoped Zot action. Read master_state first for the action schema. Use for delegation across repositories, worker messaging, notes, todos and versioned generated screens. Mutating; obeys current session permissions.",
+		inputSchema: objectSchema(
+			{
+				commandJson: stringProp(
+					"JSON matching the Zot action schema from master_state.",
+				),
+			},
+			["commandJson"],
+		),
+	},
 	{
 		name: "create_thread",
 		description: CREATE_THREAD_DESCRIPTION,
@@ -588,12 +591,12 @@ export const READ_ONLY_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"orchestrator_capabilities",
 	"task_status",
 	"wait_for_thread",
+	"master_state",
 	"read_thread",
 	"list_threads",
 	"list_models",
 	"whoami",
-	// emit_ui is display-only: it appends a rendered spec block to the
-	// transcript and carries no callbacks — same blast radius as a read.
+
 	"emit_ui",
 ]);
 
@@ -606,6 +609,7 @@ export const MUTATING_ORCHESTRATION_TOOLS = new Set<OrchestrationToolName>([
 	"delegate_task",
 	"task_cancel",
 	"interrupt_thread",
+	"master_action",
 	"create_thread",
 	"create_session",
 	"send_to_thread",
@@ -741,6 +745,24 @@ export const callOrchestrationTool = async (
 					: { ok: false, error: "Invalid or unavailable interruption." },
 			);
 		}
+		case "master_state":
+		case "master_action": {
+			const commandJson = asString(args, "commandJson");
+			const result =
+				name === "master_action" && commandJson === undefined
+					? { ok: false, error: "commandJson is required." }
+					: deps.master
+						? await deps.master(commandJson, name === "master_state")
+						: { ok: false, error: "This session has no Zot." };
+			return {
+				content: [{ type: "text", text: JSON.stringify(result) }],
+				isError:
+					typeof result === "object" &&
+					result !== null &&
+					"ok" in result &&
+					result.ok === false,
+			};
+		}
 		case "create_thread": {
 			const task = asString(args, "task");
 			if (task === undefined) {
@@ -855,6 +877,18 @@ export const buildOrchestrationTools = (deps: OrchestrationToolDeps) => [
 		tool(name, description, schema.shape, async (args) =>
 			callOrchestrationTool(deps, name, args),
 		),
+	),
+	tool(
+		"master_state",
+		"Read scoped Zot state, worker progress, or an artifact version.",
+		{ commandJson: z.string().optional() },
+		async (args) => callOrchestrationTool(deps, "master_state", args),
+	),
+	tool(
+		"master_action",
+		"Execute a scoped Zot action using the schema from master_state.",
+		{ commandJson: z.string() },
+		async (args) => callOrchestrationTool(deps, "master_action", args),
 	),
 	tool(
 		"create_thread",

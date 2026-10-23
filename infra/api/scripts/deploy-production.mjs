@@ -77,7 +77,7 @@ const requiredValues = {
 				BOXD_TEMPLATE_VERSION: vars.BOXD_TEMPLATE_VERSION,
 			}
 		: {}),
-	// Plugin OAuth callbacks are built from it; without it every sign-in fails.
+
 	API_PUBLIC_ORIGIN: vars.API_PUBLIC_ORIGIN,
 	PLUGIN_APP_ORIGIN: vars.PLUGIN_APP_ORIGIN,
 	HYPERDRIVE: config.hyperdrive?.[0]?.id,
@@ -125,7 +125,7 @@ const requiredValues = {
 const missingValues = Object.entries(requiredValues)
 	.filter(([, value]) => typeof value !== "string" || value.trim() === "")
 	.map(([name]) => name);
-// Plugin OAuth redirects and returns must be HTTPS origins.
+
 for (const name of ["API_PUBLIC_ORIGIN", "PLUGIN_APP_ORIGIN"]) {
 	const value = vars[name];
 	if (
@@ -211,6 +211,14 @@ if (missingSecrets.length > 0) {
 	);
 	process.exit(1);
 }
+
+// Live allocation must pass before production bindings or code are changed.
+const smoke = spawnSync("bun", ["scripts/cloud-release-smoke.ts", configPath], {
+	stdio: "inherit",
+	timeout: 10 * 60 * 1000,
+});
+if (smoke.error !== undefined) throw smoke.error;
+if (smoke.status !== 0) process.exit(smoke.status ?? 1);
 
 const result = spawnSync(
 	"bunx",

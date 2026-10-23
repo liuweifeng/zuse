@@ -1,15 +1,3 @@
-/**
- * Shared spec for the `emit_ui` generative-UI surface. One module owns the
- * component catalogue — names, prop schemas, and descriptions — so the
- * orchestration tool description (packages/agents), the server-side
- * validator (apps/server), and the transcript renderer's component library
- * (apps/renderer) can never drift.
- *
- * Specs are OpenUI Lang text parsed by `@openuidev/lang-core`:
- * `root = Component(arg, ...)`, strictly positional arguments, children
- * nested via arrays or `name = ...` references.
- */
-
 import {
 	type ASTNode,
 	createParser,
@@ -27,7 +15,6 @@ export const UI_SPEC_VERSION = 1;
 /** Hard cap applied before parsing — specs are chat content, keep them small. */
 export const UI_SPEC_MAX_CHARS = 32 * 1024;
 
-/** Nested component calls or `name = ...` references, e.g. `[stat1, stat2]`. */
 const elementList = z.array(z.unknown()).max(64);
 const tone = z.enum(["neutral", "good", "warn", "bad"]);
 const fieldName = z
@@ -216,8 +203,6 @@ export const generativeUiComponents = {
 		}),
 	},
 	FollowUps: {
-		// Buttons that send a new message read as unclear actions; answers
-		// should end in prose or a visual instead.
 		advertised: false,
 		description:
 			"Suggested next steps as buttons. Clicking one sends its prompt as the user's next message. 1-6 items.",
@@ -329,7 +314,6 @@ const unwrapDef = (schema: z.core.$ZodType): Record<string, unknown> => {
 	return def;
 };
 
-/** Short type label for a prop, matching the syntax lang-core prompts use. */
 const propTypeLabel = (schema: z.core.$ZodType): string => {
 	const def = unwrapDef(schema);
 	switch (def.type) {
@@ -399,8 +383,6 @@ const uiSpecParser = createParser(
 	generativeUiJsonSchema() as Parameters<typeof createParser>[0],
 );
 
-/** Bound reference expansion BEFORE materialization, which otherwise duplicates
- * shared subtrees exponentially. Only the static language subset is supported. */
 const validateStaticProgram = (spec: string): void => {
 	const statements = split(tokenize(spec));
 	const expressions = new Map<string, ASTNode>();
@@ -476,11 +458,8 @@ const requireElement = (value: unknown, where: string): ElementNode => {
 	return value;
 };
 
-/** Fields in the enclosing Form, keyed by name; null outside a Form. */
 type FormScope = Set<string> | null;
 
-/** Apply the full Zod constraints plus structural rules lang-core does not
- * know: ranges, collection caps, table shape, and Form/field nesting. */
 const validateElement = (element: ElementNode, form: FormScope): void => {
 	const name = element.typeName;
 	if (!Object.hasOwn(generativeUiComponents, name))
@@ -554,6 +533,100 @@ const validateElement = (element: ElementNode, form: FormScope): void => {
 	}
 };
 
+/**
+ * Recover unambiguous model formatting variants at the AST boundary. Never
+ * rewrite source text with regexes: quoted content must remain untouched.
+ * Keep references intact so normal cycle, reachability and expansion checks run.
+ */
+const normalizeUiSpec = (spec: string): string => {
+	let changed = false;
+	let budget = 4096;
+	const print = (node: ASTNode, depth = 0): string => {
+		if (--budget < 0 || depth > 48)
+			throw new Error(
+				"UI spec is too complex; use fewer components or references.",
+			);
+		const child = (value: ASTNode) => print(value, depth + 1);
+		switch (node.k) {
+			case "Str":
+			case "Num":
+			case "Bool":
+				return JSON.stringify(node.v);
+			case "Null":
+				return "null";
+			case "Ref":
+				return node.n;
+			case "Arr":
+				return `[${node.els.map(child).join(", ")}]`;
+			case "Obj":
+				return `{${node.entries.map(([key, value]) => `${JSON.stringify(key)}: ${child(value)}`).join(", ")}}`;
+			case "Comp": {
+				let name = node.name;
+				let args = node.args;
+				if (name === "CardHeader" && args.length === 1) {
+					name = "Text";
+					changed = true;
+				}
+				if (name === "KeyValue" && args[0]?.k === "Arr") {
+					const pairs = args[0].els.map((pair): ASTNode => {
+						if (
+							pair.k === "Arr" &&
+							pair.els.length === 2 &&
+							pair.els[0] &&
+							pair.els[1]
+						) {
+							changed = true;
+							return {
+								k: "Obj",
+								entries: [
+									["key", pair.els[0]],
+									["value", pair.els[1]],
+								],
+							};
+						}
+						if (
+							pair.k === "Obj" &&
+							!pair.entries.some(([key]) => key === "key") &&
+							pair.entries.filter(([key]) => key === "label").length === 1
+						) {
+							changed = true;
+							return {
+								...pair,
+								entries: pair.entries.map(([key, value]) => [
+									key === "label" ? "key" : key,
+									value,
+								]),
+							};
+						}
+						return pair;
+					});
+					args = [{ k: "Arr", els: pairs }, ...args.slice(1)];
+				}
+				return `${name}(${args.map(child).join(", ")})`;
+			}
+			default:
+				throw new Error(
+					"Only literal values, components, and references are supported in saved UI blocks.",
+				);
+		}
+	};
+	const normalized = split(tokenize(spec))
+		.map(
+			(statement) =>
+				`${statement.id} = ${print(parseExpression(statement.tokens))}`,
+		)
+		.join("\n");
+	if (!changed) return spec;
+	validateStaticProgram(normalized);
+	if (uiSpecParser.parse(spec).meta.incomplete)
+		throw new Error("Spec looks truncated (incomplete input).");
+	return normalized;
+};
+
+export type PreparedGenerativeUiSpec =
+	| { readonly ok: true; readonly spec: string }
+	| { readonly ok: false; readonly error: string };
+
 export type GenerativeUiSpecValidation =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly error: string };
@@ -564,15 +637,16 @@ export type GenerativeUiSpecValidation =
  * unresolved references, and truncated input all fail so the model gets a
  * fixable error instead of a silently degraded render.
  */
-export const validateGenerativeUiSpec = (
-	spec: unknown,
-): GenerativeUiSpecValidation => {
-	if (typeof spec !== "string" || spec.trim().length === 0) {
+export const prepareGenerativeUiSpec = (
+	input: unknown,
+): PreparedGenerativeUiSpec => {
+	if (typeof input !== "string" || input.trim().length === 0) {
 		return {
 			ok: false,
 			error: "emit_ui requires a non-empty OpenUI Lang spec string.",
 		};
 	}
+	let spec = input;
 	if (spec.length > UI_SPEC_MAX_CHARS) {
 		return {
 			ok: false,
@@ -581,9 +655,10 @@ export const validateGenerativeUiSpec = (
 	}
 	let result: ParseResult;
 	try {
+		spec = normalizeUiSpec(spec);
 		validateStaticProgram(spec);
 		result = uiSpecParser.parse(spec);
-		// lang-core's own errors name the exact field; report them first.
+
 		if (result.root && result.meta.errors.length === 0)
 			validateElement(result.root, null);
 	} catch (error) {
@@ -606,8 +681,7 @@ export const validateGenerativeUiSpec = (
 	if (result.meta.incomplete) {
 		problems.push("Spec looks truncated (incomplete input).");
 	}
-	// Query()/Mutation() would call tools at render time; the renderer never
-	// wires a tool provider. The only interactions are user-sent messages.
+
 	if (
 		result.queryStatements.length > 0 ||
 		result.mutationStatements.length > 0
@@ -624,5 +698,21 @@ export const validateGenerativeUiSpec = (
 	if (result.root === null || problems.length > 0) {
 		return { ok: false, error: problems.join(" ") };
 	}
-	return { ok: true };
+	return { ok: true, spec };
+};
+
+export const validateGenerativeUiSpec = (
+	spec: unknown,
+): GenerativeUiSpecValidation => {
+	const result = prepareGenerativeUiSpec(spec);
+	return result.ok ? { ok: true } : result;
+};
+
+/** Validated render tree for native clients that share this component contract. */
+export const parseGenerativeUiSpec = (spec: string): ElementNode => {
+	const validation = prepareGenerativeUiSpec(spec);
+	if (!validation.ok) throw new Error(validation.error);
+	const root = uiSpecParser.parse(validation.spec).root;
+	if (!root) throw new Error("Spec has no root component.");
+	return root;
 };

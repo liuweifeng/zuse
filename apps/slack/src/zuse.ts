@@ -1,4 +1,4 @@
-// Account-scoped operations injected by the API. No loopback HTTP or API keys.
+import type { MessageSource } from "@zuse/contracts";
 
 export interface ZuseClientConfig {
 	readonly request: (path: string, init: RequestInit) => Promise<Response>;
@@ -64,9 +64,7 @@ export class ZuseApiError extends Error {
 					"code" in body ? body.code : "error" in body ? body.error : undefined,
 				);
 			}
-		} catch {
-			/* Never log raw response bodies. */
-		}
+		} catch {}
 	}
 
 	get retryable(): boolean {
@@ -240,6 +238,7 @@ export const sendMessage = (
 		readonly workspaceId: string;
 		readonly text: string;
 		readonly attachments?: ReadonlyArray<string>;
+		readonly source?: MessageSource;
 		readonly idempotencyKey: string;
 	},
 ): Promise<{
@@ -256,6 +255,7 @@ export const sendMessage = (
 				...(input.attachments === undefined
 					? {}
 					: { attachments: input.attachments }),
+				...(input.source === undefined ? {} : { source: input.source }),
 			}),
 			idempotencyKey: input.idempotencyKey,
 		},

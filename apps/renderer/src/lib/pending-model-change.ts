@@ -66,10 +66,11 @@ export function createPendingModelChanges(options: {
 			await options.apply(entry.ref, selection);
 			if (entry.selection === selection) clear(key, entry);
 		} catch (error) {
-			// Only a definite rejection for active work is safe to defer again. Other
-			// failures may have ambiguous delivery and must never be silently replayed.
 			if (isBusyModelChange(error)) {
 				entry.blockedCursor = cursor;
+			} else if (isRuntimeUpdatePending(error)) {
+				// Nothing was sent. The reconnect after the runtime restart (not a
+				// timeline cursor change) is what lets this selection apply.
 			} else {
 				clear(key, entry);
 				return { ok: false, reason: options.failed(error) };
@@ -139,6 +140,14 @@ export function createPendingModelChanges(options: {
 		},
 	};
 }
+
+/** The runtime is being replaced to support this selection; keep it pending. */
+export const RUNTIME_UPDATE_PENDING = "RuntimeUpdatePendingError";
+const isRuntimeUpdatePending = (error: unknown): boolean =>
+	typeof error === "object" &&
+	error !== null &&
+	"_tag" in error &&
+	error._tag === RUNTIME_UPDATE_PENDING;
 
 const BUSY_REASON =
 	"Finish or stop the active turn and clear queued messages before switching provider or model.";

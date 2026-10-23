@@ -7,6 +7,7 @@ import {
 	QueueState,
 	RpcAccessDeniedError,
 	SessionId,
+	SessionNotFoundError,
 	type SessionTimelineFrame,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
@@ -339,8 +340,7 @@ describe("shared session timeline resource driver", () => {
 			},
 		]);
 		expect(failures).toEqual([]);
-		// First paint is immediate; replay deltas still publish together at the
-		// synchronization barrier rather than animating historical tokens.
+
 		expect(test.updates).toHaveLength(2);
 		expect(test.updates.at(-1)).toMatchObject({
 			sync: "live",
@@ -646,6 +646,110 @@ it.each([
 		timers.find((t) => t.delay === 10_000)?.task();
 		expect(failures).toHaveLength(caughtUp ? 0 : 1);
 		expect(test.view().sync).toBe(caughtUp ? "live" : "failed");
+	} finally {
+		driver.stop();
+	}
+});
+
+it("resumes a complete active 10,000-message cache using only the event cursor", async () => {
+	const requests: unknown[] = [];
+	const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+	const messages = Array.from({ length: 10_000 }, (_, index) =>
+		Message.make({
+			id: MessageId.make(`large-${index}`),
+			sessionId,
+			role: "user",
+			content: { _tag: "user", text: `message ${index}` },
+			createdAt: new Date(index),
+		}),
+	);
+	const driver = makeSessionTimelineResourceDriver({
+		reportFailure: () => {},
+		backgroundHistory: () => true,
+	});
+	const test = harness({
+		key,
+		client: {
+			"session.events": (input) => {
+				requests.push(input);
+				return Stream.fromQueue(frames);
+			},
+		},
+		data: SessionTimelineProjection.make({
+			...projection,
+			messages,
+			olderMessageSequence: null,
+		}),
+		cursor: { epoch: "large", version: 50_000 },
+	});
+	try {
+		driver.start(test.context);
+		await waitUntil(() => requests.length === 1);
+		expect(requests[0]).toMatchObject({
+			afterVersion: 50_000,
+			streamEpoch: "large",
+			hasProjection: true,
+			includeRuntime: true,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "event",
+			sessionId,
+			streamVersion: 50_001,
+			cursor: { epoch: "large", version: 50_001 },
+			eventId: "settled-while-disconnected",
+			event: { _tag: "TurnSettled", turnId, outcome: "completed" },
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 50_001,
+			cursor: { epoch: "large", version: 50_001 },
+		});
+		await waitUntil(() => test.view().sync === "live");
+		expect(test.view().data).toMatchObject({
+			status: "idle",
+			activeTurn: null,
+		});
+		expect(test.view().data?.messages).toHaveLength(10_000);
+	} finally {
+		driver.stop();
+	}
+});
+
+it("recovers a session stream subscribed before chat creation persisted", async () => {
+	let attempts = 0;
+	const frames = Effect.runSync(Queue.unbounded<SessionTimelineFrame>());
+	const h = harness({
+		key,
+		data: null,
+		cursor: null,
+		client: {
+			"session.events": () => {
+				attempts++;
+				return attempts === 1
+					? Stream.fail(new SessionNotFoundError({ sessionId }))
+					: Stream.fromQueue(frames);
+			},
+		},
+	});
+	const driver = makeSessionTimelineResourceDriver({ reportFailure: () => {} });
+	driver.start(h.context);
+	try {
+		await expect.poll(() => attempts).toBe(2);
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "created", version: 1 },
+			projection,
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			throughVersion: 1,
+			cursor: { epoch: "created", version: 1 },
+		});
+		await expect.poll(() => h.view().sync).toBe("live");
 	} finally {
 		driver.stop();
 	}

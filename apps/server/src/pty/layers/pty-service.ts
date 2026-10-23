@@ -18,7 +18,10 @@ import {
 import { childProcessEnv } from "@zuse/utils/process-env";
 import { Effect, Layer, PubSub, Ref, Semaphore, Stream } from "effect";
 import * as pty from "node-pty";
-import { ensureNodePtySpawnHelperExecutable } from "../node-pty-helper.ts";
+import {
+	ensureNodePtySpawnHelperExecutable,
+	releaseWindowsPtyOnExit,
+} from "../node-pty-helper.ts";
 import { PtyEventJournal } from "../pty-event-journal.ts";
 import { PtyService } from "../services/pty-service.ts";
 
@@ -119,8 +122,7 @@ export const PtyServiceLive = Layer.effect(
 	PtyService,
 	Effect.gen(function* () {
 		const ref = yield* Ref.make<ReadonlyMap<PtyId, ActivePty>>(new Map());
-		// One gate makes owner admission and every catalog/process replacement
-		// atomic. PTY byte IO remains outside it and never waits on catalog work.
+
 		const lifecycle = yield* Semaphore.make(1);
 		let exitOrder = 0;
 
@@ -142,9 +144,7 @@ export const PtyServiceLive = Layer.effect(
 			for (const [, active] of retiring) {
 				try {
 					if (!active.exited) active.pty.kill();
-				} catch {
-					// Already dead.
-				}
+				} catch {}
 				yield* PubSub.shutdown(active.events);
 			}
 			return retiring.length;
@@ -196,9 +196,7 @@ export const PtyServiceLive = Layer.effect(
 						else consumer(event);
 					};
 					try {
-						// Attach inside the same synchronous spawn boundary. Effect may
-						// cooperatively yield before the catalog entry is ready, so callbacks
-						// must already have somewhere to wait.
+						releaseWindowsPtyOnExit(child);
 						child.onData((bytes) => capture({ _tag: "data", bytes }));
 						child.onExit(({ exitCode, signal }) =>
 							capture({
@@ -210,9 +208,7 @@ export const PtyServiceLive = Layer.effect(
 					} catch (cause) {
 						try {
 							child.kill();
-						} catch {
-							// Best effort after listener setup fails.
-						}
+						} catch {}
 						throw cause;
 					}
 					return {
@@ -322,9 +318,7 @@ export const PtyServiceLive = Layer.effect(
 								if (!active.exited) {
 									try {
 										active.pty.resize(nextCols, nextRows);
-									} catch {
-										// The process may exit while a lost acknowledgement is retried.
-									}
+									} catch {}
 								}
 								return { ptyId, processEpoch: active.processEpoch };
 							}
@@ -404,9 +398,7 @@ export const PtyServiceLive = Layer.effect(
 				const active = yield* getActive(ptyId, ownerId);
 				const child = active.pty;
 				const generation = active.generation;
-				// `getActive` and the native write are separate Effect operations. Close
-				// or restart may retire this entry between them, so validate both the
-				// catalog identity and the process lease before entering node-pty.
+
 				const current = yield* Ref.get(ref);
 				if (
 					current.get(ptyId) !== active ||
@@ -428,9 +420,6 @@ export const PtyServiceLive = Layer.effect(
 					try {
 						child.write(data);
 					} catch (cause) {
-						// node-pty can report a synchronous exit while attempting the
-						// write. Translate only that observable lifecycle race; unrelated
-						// native/programming failures remain defects instead of being hidden.
 						if (
 							active.exited ||
 							active.generation !== generation ||
@@ -465,9 +454,7 @@ export const PtyServiceLive = Layer.effect(
 								active.cols = Math.max(1, cols);
 								active.rows = Math.max(1, rows);
 								active.pty.resize(active.cols, active.rows);
-							} catch {
-								// The child may exit between the resource snapshot and resize.
-							}
+							} catch {}
 						}),
 			);
 
@@ -477,9 +464,6 @@ export const PtyServiceLive = Layer.effect(
 					const items = yield* Ref.get(ref);
 					const active = items.get(ptyId);
 					if (active === undefined) {
-						// An owner-qualified close is an idempotent desired-state command.
-						// Its first acknowledgement may be lost, so a replay after removal
-						// must still succeed. Legacy unowned callers retain not-found behavior.
 						if (ownerId !== undefined) return;
 						return yield* new PtyNotFoundError({ ptyId });
 					}
@@ -538,8 +522,7 @@ export const PtyServiceLive = Layer.effect(
 							});
 						}
 					}
-					// Spawn first. A spawn failure leaves the existing process and cursor
-					// completely untouched.
+
 					const spawned = yield* spawnChild(active);
 					const nextChild = spawned.child;
 					const previousChild = active.pty;
@@ -562,9 +545,7 @@ export const PtyServiceLive = Layer.effect(
 					activate();
 					try {
 						if (!previousExited) previousChild.kill();
-					} catch {
-						// Already dead. Its callbacks are generation-fenced either way.
-					}
+					} catch {}
 					return { ptyId, processEpoch };
 				}),
 			);

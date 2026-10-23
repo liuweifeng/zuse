@@ -83,7 +83,7 @@ export const exchangeGithubUserToken = Effect.fn("exchangeGithubUserToken")(
 			);
 		return {
 			accessToken: response.access_token,
-			// Non-expiring tokens are rechecked by the broker once an hour.
+
 			expiresAtMs:
 				response.expires_in === undefined
 					? Number.MAX_SAFE_INTEGER
@@ -147,8 +147,7 @@ export const prepareGithubUserAuthorization = Effect.fn(
 	)
 		return yield* Effect.fail(badRequest("github_user_identity_invalid"));
 	const displayName = user.name?.trim() || user.login;
-	// Git author identities cannot contain controls or angle brackets. A
-	// GitHub profile may, so use the verified login for those profiles.
+
 	const name =
 		[...displayName].some(
 			(character) =>
@@ -180,7 +179,6 @@ export const githubUserIdentity = Effect.fn("githubUserIdentity")(function* (
 		: { login: user.login, name: user.name, email: user.email };
 });
 
-/** Caller holds the account lock while reading or rotating credentials. */
 const readGithubUserCredentials = Effect.fn("readGithubUserCredentials")(
 	function* (accountId: string) {
 		const user = yield* (yield* CloudWorkspaceStore).getGithubUser(accountId);
@@ -227,15 +225,15 @@ const refreshGithubUserCredentials = Effect.fn("refreshGithubUserCredentials")(
 );
 
 /** A connected user never falls back to installation permissions after auth failure. */
-export const githubUserCredential = Effect.fn("githubUserCredential")(
+const resolveGithubUserCredential = Effect.fn("resolveGithubUserCredential")(
 	function* (
 		accountId: string,
 		repositoryIdentity: string,
 		installationOwnerId = accountId,
+		scopeToken = true,
 	) {
 		const store = yield* CloudWorkspaceStore;
-		// Commit rotated tokens before doing repository I/O: a later API error must not
-		// roll back a successfully consumed refresh token.
+
 		const credential = yield* store.withGithubUserLock(
 			accountId,
 			Effect.gen(function* () {
@@ -275,9 +273,10 @@ export const githubUserCredential = Effect.fn("githubUserCredential")(
 			return yield* Effect.fail(
 				serviceUnavailable("github_user_repository_access_required"),
 			);
+		// Account API requests retain the user credential on the control plane.
+		if (!scopeToken) return credential;
 		const config = yield* oauthConfig;
-		// GitHub enforces repository scope on the issued token. Never return the
-		// account's parent token to a sandbox, including on scoping failures.
+
 		const scoped = yield* Effect.tryPromise({
 			try: async () => {
 				const response = await fetch(
@@ -326,6 +325,31 @@ export const githubUserCredential = Effect.fn("githubUserCredential")(
 	},
 );
 
+/** Repository-scoped credentials for execution environments; never issue the parent token. */
+export const githubUserCredential = (
+	accountId: string,
+	repositoryIdentity: string,
+	installationOwnerId = accountId,
+) =>
+	resolveGithubUserCredential(
+		accountId,
+		repositoryIdentity,
+		installationOwnerId,
+		true,
+	);
+/** Control-plane API requests keep user tokens on the API and enforce linked repository access. */
+export const githubUserApiCredential = (
+	accountId: string,
+	repositoryIdentity: string,
+	installationOwnerId = accountId,
+) =>
+	resolveGithubUserCredential(
+		accountId,
+		repositoryIdentity,
+		installationOwnerId,
+		false,
+	);
+
 const disconnectGithubUserLocked = Effect.fn("disconnectGithubUserLocked")(
 	function* (accountId: string) {
 		const store = yield* CloudWorkspaceStore;
@@ -339,7 +363,7 @@ const disconnectGithubUserLocked = Effect.fn("disconnectGithubUserLocked")(
 			(credentials.refreshExpiresAtMs ?? 0) > nowMs
 		)
 			credentials = yield* refreshGithubUserCredentials(connection);
-		// An exhausted authorization has no usable credential to revoke remotely.
+
 		if (credentials.expiresAtMs > nowMs) {
 			const config = yield* oauthConfig;
 			yield* Effect.tryPromise({
@@ -367,7 +391,6 @@ const disconnectGithubUserLocked = Effect.fn("disconnectGithubUserLocked")(
 	},
 );
 
-/** Commit rotated credentials even if the subsequent remote revocation fails. */
 const withGithubDisconnectLock = Effect.fn("withGithubDisconnectLock")(
 	function* (accountId: string, installationId?: number) {
 		const store = yield* CloudWorkspaceStore;

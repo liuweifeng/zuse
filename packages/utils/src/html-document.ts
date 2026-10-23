@@ -16,7 +16,6 @@ export const defaultHtmlTheme = (appearance: "dark" | "light"): HtmlTheme => ({
 	},
 });
 
-// Frames have an opaque origin. Neither scripts nor remote assets inherit app authority.
 export const HTML_DOCUMENT_CSP =
 	"default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' https: http: zuse-visual-http: zuse-visual-https:; style-src 'unsafe-inline' https: http: zuse-visual-http: zuse-visual-https:; img-src data: blob: https: http: zuse-visual-http: zuse-visual-https:; font-src data: https: http: zuse-visual-http: zuse-visual-https:; media-src data: blob: https: http: zuse-visual-http: zuse-visual-https:; connect-src https: http: zuse-visual-http: zuse-visual-https:; frame-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 
@@ -24,8 +23,6 @@ export function prepareHtmlDocument(
 	html: string,
 	theme: HtmlTheme = defaultHtmlTheme("dark"),
 ): string {
-	// Prefix before any author-controlled markup: a fake <head> in a comment or
-	// raw-text element must never move the policy behind a script.
 	const initial = JSON.stringify(theme).replace(/</g, "\\u003c");
 	return `<!doctype html><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="${HTML_DOCUMENT_CSP}"><style id="zuse-visual-theme"></style><script>
 (() => {
@@ -65,7 +62,7 @@ export function prepareHtmlDisplayUrl(src: string): string {
 			c.charCodeAt(0),
 		),
 	);
-	// Upgrade the known bootstrap policy in memory; saved HTML remains unchanged.
+
 	const legacy = HTML_DOCUMENT_CSP.replaceAll(
 		" zuse-visual-http: zuse-visual-https:",
 		"",

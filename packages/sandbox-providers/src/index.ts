@@ -15,9 +15,9 @@ export class SandboxProviderError extends Schema.TaggedErrorClass<SandboxProvide
 	},
 ) {}
 
-// Egress policy for a sandbox. A fork always starts "quarantined" (ADR 0033:
-// the barrier must be provider-enforced, never a caller choice), and the
-// post-enrollment open step must write the final intended policy in one call.
+// Ordinary placements use open networking (ADR 0034). Native live-machine
+// forks require provider-enforced quarantine while copied identity is retired
+// (ADR 0033); restoring a prepared image is not a live-machine fork.
 export type SandboxNetworkPolicy =
 	| { readonly kind: "quarantined" }
 	| { readonly kind: "open" }
@@ -108,6 +108,8 @@ export interface SandboxProviderCredentials {
 }
 
 export interface SandboxProviderAdapter {
+	/** Read-only check that the configured base template is accessible. */
+	readonly validateTemplate?: () => Effect.Effect<void, SandboxProviderError>;
 	/** Rebind infrastructure access without changing the provider identity. */
 	readonly withCredentials?: (
 		credentials: SandboxProviderCredentials,
@@ -131,8 +133,7 @@ export interface SandboxProviderAdapter {
 	readonly supportsIdempotentAllocation?: boolean;
 	/** Create/restore configures the requested timeout, including adopted machines. */
 	readonly configuresAllocationTimeout?: boolean;
-	// The placement choices this provider advertises. Providers with one fixed
-	// profile expose a single entry matching `resources`.
+
 	readonly sizes: ReadonlyArray<SandboxProviderSize>;
 	readonly create: (input: {
 		readonly sandboxId: string;

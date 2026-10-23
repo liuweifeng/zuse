@@ -13,6 +13,7 @@ import {
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
+	cloudChatShowsLoading,
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../../src/lib/cloud-chat-activity.ts";
@@ -88,6 +89,31 @@ const summary = (input: {
 		updatedAt: input.updatedAt ?? input.revision,
 	});
 
+it("shows cloud startup and reconnect loading without animating idle or failed rows", () => {
+	const ready = summary({
+		workspaceId: "loading-workspace",
+		chatId: "loading-chat",
+		sessionId: "loading-session",
+		revision: 1,
+	});
+	const starting = CloudChatSummary.make({
+		...ready,
+		state: "setup",
+		runtimeState: "connecting",
+		startupPhase: "booting",
+	});
+	for (const connection of ["waking", "connecting", "reconnecting"] as const) {
+		expect(cloudChatShowsLoading("attaching", connection, ready)).toBe(true);
+	}
+	expect(cloudChatShowsLoading("resuming", "dormant", starting)).toBe(true);
+	for (const connection of ["dormant", "offline", "connected"] as const) {
+		expect(cloudChatShowsLoading("attaching", connection, ready)).toBe(false);
+	}
+	for (const activity of ["paused", "failed", "idle", "running"] as const) {
+		expect(cloudChatShowsLoading(activity, "connecting", starting)).toBe(false);
+	}
+});
+
 it.each([
 	"booting",
 	"running",
@@ -143,7 +169,7 @@ it.each([
 	});
 	expect(activity).toBe(status === "booting" ? "starting-agent" : "running");
 	expect(cloudChatShowsWorking(activity)).toBe(true);
-	// Cached turns cannot establish current work; explicit pause/failure still wins.
+
 	for (const origin of ["checkpoint", "cache"] as const)
 		expect(
 			cloudChatShowsWorking(
@@ -321,7 +347,9 @@ describe("cloud chat catalog", () => {
 					expect(activity).toBe(state);
 					expect(
 						cloudConnectionPresentation(workspace, activity, connection),
-					).toBe(state);
+					).toBe(
+						state === "resuming" && connection === "failed" ? "failed" : state,
+					);
 					expect(cloudChatShowsWorking(activity)).toBe(false);
 				}
 			}
@@ -445,6 +473,13 @@ describe("cloud chat catalog", () => {
 				timeline,
 			};
 			expect(deriveCloudChatActivity(input)).toBe("running");
+			// Lifecycle heartbeats can lag the live turn while its socket reconnects.
+			expect(
+				deriveCloudChatActivity({
+					...input,
+					summary: { ...row, state: "resuming", runtimeState: "offline" },
+				}),
+			).toBe("running");
 			expect(
 				deriveCloudChatActivity({
 					...input,
@@ -779,7 +814,6 @@ it("keeps the selected summary stable when binding its runtime project", () => {
 	expect(cloudSummaryForChat(row.chatId)).toBe(selected);
 });
 
-// Ownership must be known before the first gateway ticket has arrived.
 it("recognizes a cataloged organization environment before the first connection", async () => {
 	const { environmentBelongsToWorkspace, getCloudWorkspaceScope } =
 		await import("../../src/lib/rpc-client.ts");

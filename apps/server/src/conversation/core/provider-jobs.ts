@@ -37,15 +37,6 @@ import {
 	decodeQueuedTurnInput,
 } from "./provider-turn-request.ts";
 
-/**
- * Executes provider jobs from the durable ledger.
- *
- * Handlers re-read durable state before acting. Provider sends retain a durable
- * delivery fence across crashes; uncertain delivery requires explicit retry.
- * Handlers report
- * failures as `JobExecutionFailure`; the worker decides whether to retry.
- */
-
 const PROVIDER_DELIVERY_OUTCOME_UNKNOWN =
 	"Zuse could not confirm whether the agent received this message before the runtime stopped. Zuse did not send it again to avoid a duplicate. Retry the message if no response appears.";
 
@@ -229,8 +220,6 @@ export const makeProviderJobExecutor = (
 				attemptId: request.attemptId ?? attemptIdFor(turnId, 1),
 			};
 			return Effect.gen(function* () {
-				// Repository preparation is not an external delivery attempt. Wait before
-				// capturing files or fencing delivery, then re-read current ownership.
 				yield* options.awaitWorkspaceReady ?? Effect.void;
 				const session = yield* lookupSession(sessionId).pipe(
 					Effect.catch(() => Effect.succeed(null)),
@@ -238,8 +227,7 @@ export const makeProviderJobExecutor = (
 				const activeAttempt = yield* sessionDomain
 					.activeAttempt(sessionId)
 					.pipe(Effect.orDie);
-				// The turn settled, was superseded, or its session was archived or
-				// deleted while this job waited. Nothing to send.
+
 				if (
 					session === null ||
 					session.archivedAt !== null ||
@@ -293,7 +281,7 @@ export const makeProviderJobExecutor = (
 					);
 					return;
 				}
-				// A provider may finish before send returns. Publish running before sending.
+
 				yield* setStatus(sessionId, "running", expectedAttempt);
 
 				const sent = yield* provider
@@ -360,8 +348,7 @@ export const makeProviderJobExecutor = (
 					yield* delivery.complete(job.id);
 					return;
 				}
-				// A close or switch invalidated this startup while it awaited the
-				// provider. The newer lifecycle owner is responsible for settlement.
+
 				if (restarted.error === null) return;
 				const persistedError = yield* persistMessage(
 					sessionId,
@@ -374,11 +361,9 @@ export const makeProviderJobExecutor = (
 					expectedAttempt,
 				);
 				yield* ndjsonAppend(sessionId, persistedError);
-				// Keep the durable turn active for explicit Retry, which creates a new
-				// attempt with this exact request without reconstructing user input.
+
 				yield* setStatus(sessionId, "error", expectedAttempt);
-				// Known startup failures must not run again on boot or unrelated drains.
-				// Explicit resume creates a separate attempt and send job.
+
 				if (isProviderAuthenticationRequired(restarted.error.reason)) {
 					yield* delivery.complete(job.id);
 					return;
@@ -398,9 +383,7 @@ export const makeProviderJobExecutor = (
 						!Cause.hasInterrupts(exit.cause)
 					)
 						return Effect.void;
-					// Cancellation can bypass ordinary startup/send error handling. Record
-					// recovery or terminal failure before the worker retires this job;
-					// never leave its durable turn running without executable work.
+
 					return recoverUnknownDelivery(
 						job,
 						sessionId,

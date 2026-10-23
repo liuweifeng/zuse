@@ -113,7 +113,7 @@ test("closed admission rejects enqueues and does not claim existing jobs", async
 				correlationId: "correlation",
 			};
 			yield* domain.jobs.enqueue([job]);
-			// The caller supplies the shutdown policy; this test isolates the closed gate.
+
 			expect(yield* domain.admission.closeIf(Effect.succeed(true))).toBe(true);
 			expect(
 				yield* domain.jobs.claimNext({ workerId: "worker", leaseMs: 1000 }),
@@ -171,7 +171,7 @@ test("unfinished file restore fences execution across sessions until recovery co
 				failure: { _tag: "AdmissionClosed" },
 			});
 			expect(yield* domain.currentStreamVersion("session-1")).toBe(1);
-			// Administrative and recovery commands remain available while execution is fenced.
+
 			yield* domain.dispatch({
 				commandId: "pause",
 				streamId: "session-1",
@@ -200,7 +200,7 @@ test("live operation lease blocks shutdown without holding the database transact
 				.pipe(Effect.forkScoped);
 			yield* Deferred.await(entered);
 			expect(yield* domain.admission.activeOperations).toBe(1);
-			// A real unrelated transaction can commit while the native operation waits.
+
 			yield* sql.withTransaction(sql`SELECT 1`);
 			expect(yield* domain.admission.closeIf(Effect.succeed(true))).toBe(false);
 			yield* Deferred.succeed(release, undefined);

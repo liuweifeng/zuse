@@ -174,8 +174,6 @@ export class NotchTrayController {
 	}
 
 	private targetTop(display: Display): number {
-		// Anchor to the display top so the cap fills the notch. Subtracting
-		// workArea.y (the menu-bar inset) hid the tray behind the camera housing.
 		return display.bounds.y;
 	}
 

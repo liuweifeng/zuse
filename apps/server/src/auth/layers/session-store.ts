@@ -28,14 +28,7 @@ const LOCK_MAX_ATTEMPTS = 140;
 
 const authDir = (): string =>
 	process.env.ZUSE_AUTH_DIR?.trim() || join(homedir(), ".zuse");
-/**
- * The session store is partitioned by WorkOS client so builds signed into
- * different identity environments (staging dev builds vs the packaged
- * production app) never share — or clear — each other's session. One shared
- * file caused mutual sign-outs: a staging build refreshing a production
- * refresh token gets `invalid_grant` and wipes the production session (and
- * vice versa), killing both within one access-token lifetime.
- */
+
 const sessionClientId = (): string =>
 	(process.env.WORKOS_CLIENT_ID ?? "").trim() || WORKOS_PUBLIC_CLIENT_ID;
 const authFile = (): string =>
@@ -118,9 +111,7 @@ const readBundleFile = (): Effect.Effect<
 	Effect.gen(function* () {
 		const current = yield* readBundleAt(authFile());
 		if (current !== null) return current;
-		// One-time adoption from the legacy shared file: only a bundle minted by
-		// this build's WorkOS client moves over. A bundle from another identity
-		// environment is left in place for the build that owns it.
+
 		const legacy = yield* readBundleAt(legacyAuthFile()).pipe(
 			Effect.catch(() => Effect.succeed(null)),
 		);
@@ -160,8 +151,7 @@ const writeBundleFile = (
 			}
 			await rename(tmp, target);
 			await chmod(target, 0o600);
-			// Persist the rename itself so a power loss cannot resurrect the
-			// consumed refresh token after WorkOS has rotated it.
+
 			const directory = await open(authDir(), constants.O_RDONLY);
 			try {
 				await directory.sync();
@@ -202,28 +192,15 @@ export const sessionLockIsStale = (raw: string): boolean => {
 				? parsed.pid
 				: null;
 		if (pid === null || !Number.isFinite(createdAt) || createdAt <= 0) {
-			// Older clients expose partially written metadata. Missing ownership
-			// is not evidence of abandonment; wait or fail without stealing it.
 			return false;
 		}
-		// A slow or suspended owner still owns its lock. Reused PIDs may delay
-		// recovery, but cannot justify concurrent refresh-token use.
+
 		return !pidIsAlive(pid);
 	} catch {
 		return false;
 	}
 };
 
-/**
- * Serialize lock-file creation, stale recovery, and the protected operation
- * across runtimes and processes. A read/check/unlink sequence is not a filesystem
- * compare-and-swap, and O_EXCL exposes the file before its metadata is written.
- * SQLite supplies an OS-backed lock released on close or process death, without
- * stale-file cleanup. Never unlink this database: that would split ownership
- * between different inodes. It stores no session data.
- *
- * Keep the JSON lock inside this guard so older installations still see ownership.
- */
 const acquireProcessLock = (): Effect.Effect<ProcessLock, SessionStoreError> =>
 	Effect.gen(function* () {
 		yield* ensureAuthDir();
@@ -264,11 +241,9 @@ const acquireLock = (attempt = 0): Effect.Effect<string, SessionStoreError> =>
 						} finally {
 							await handle.close();
 						}
-						// Publish complete ownership metadata without replacing another owner.
-						// This also prevents older clients from mistaking a new lock for corrupt JSON.
+
 						await link(temporary, path);
 					} finally {
-						// Once linked, ownership must reach the caller even if temp cleanup fails.
 						await rm(temporary, { force: true }).catch(() => undefined);
 					}
 					return token;
@@ -313,11 +288,7 @@ const releaseLock = (token: string): Effect.Effect<void, never> =>
 		if (raw === null) return;
 		const parsed = JSON.parse(raw) as { token?: unknown };
 		if (parsed.token === token) await unlink(lockFile());
-	}).pipe(
-		// The outer SQLite transaction remains held throughout finalization.
-		Effect.retry({ times: 2 }),
-		Effect.orDie,
-	);
+	}).pipe(Effect.retry({ times: 2 }), Effect.orDie);
 
 export const SessionStoreLive = Layer.succeed(
 	SessionStore,

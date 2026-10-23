@@ -30,7 +30,7 @@ export function AccountGithubConnection() {
 				c["organizations.githubConnection"]({}),
 			);
 			if (!current()) return;
-			// Linking happens in the browser; organizations joined there show up now.
+
 			if (next.login !== undefined && next.login !== linkedLogin.current)
 				void loadOrganizationWorkspaces(true).catch(() => undefined);
 			linkedLogin.current = next.login;

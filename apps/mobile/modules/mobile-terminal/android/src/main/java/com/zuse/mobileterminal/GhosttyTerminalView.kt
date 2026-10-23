@@ -200,7 +200,6 @@ internal class GhosttyTerminalView @JvmOverloads constructor(
     return super.onKeyMultiple(keyCode, repeatCount, event)
   }
 
-  // GestureDetector dispatches real taps through onSingleTapConfirmed, which calls performClick.
   @SuppressLint("ClickableViewAccessibility")
   override fun onTouchEvent(event: MotionEvent): Boolean {
     if (mouseCaptured) {

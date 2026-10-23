@@ -24,12 +24,8 @@ import {
 	composerTriggerPlugin,
 } from "./composer-triggers.ts";
 
-/**
- * One compartment per view so the composer's keymap can be rebuilt when
- * the user edits keybindings — without re-mounting the editor or losing
- * its document / selection.
- */
 const composerKeymapCompartment = new WeakMap<EditorView, Compartment>();
+const composerPlaceholderCompartment = new WeakMap<EditorView, Compartment>();
 
 export type ComposerCallbacks = {
 	/**
@@ -96,12 +92,13 @@ export const createComposerView = ({
 	resolveChipToken,
 }: ComposerCreateParams): EditorView => {
 	const userKeymapCompartment = new Compartment();
+	const placeholderCompartment = new Compartment();
 	const buildUserKeymap = (): readonly KeyBinding[] =>
 		composerKeymap(callbacks);
 
 	const extensions: Extension[] = [
 		history(),
-		placeholder(placeholderText),
+		placeholderCompartment.of(placeholder(placeholderText)),
 		EditorView.contentAttributes.of({ "aria-label": "Message composer" }),
 		EditorView.lineWrapping,
 		composerTheme,
@@ -111,12 +108,11 @@ export const createComposerView = ({
 			? [chipResolverFacet.of(resolveChipToken)]
 			: []),
 		composerTriggerPlugin(callbacks.onTrigger),
-		// The user-bindable composer commands live in a compartment so
-		// `reconfigureComposerKeymap` can swap them without re-mounting.
+
 		userKeymapCompartment.of(keymap.of([...buildUserKeymap()])),
 		keymap.of([
 			...historyKeymap,
-			// `defaultKeymap` last so our composer-specific bindings win on overlap.
+
 			...defaultKeymap,
 		]),
 		EditorView.updateListener.of((u) => {
@@ -129,11 +125,7 @@ export const createComposerView = ({
 				callbacks.onSnapshotChange(u.state);
 			}
 		}),
-		// File drops: CodeMirror's default handler tries to paste the dropped
-		// payload as text. For image drops that turns into a `file://...`
-		// URL string in the doc — confusing and useless. Catch the drop here
-		// and forward to the host so it can run the same upload pipeline as
-		// paperclip / paste. Returning true tells CM we handled it.
+
 		EditorView.domEventHandlers({
 			dragover: (event) => {
 				if (event.dataTransfer?.types.includes("Files") === true) {
@@ -147,18 +139,12 @@ export const createComposerView = ({
 				const files = event.dataTransfer?.files;
 				if (files === undefined || files.length === 0) return false;
 				event.preventDefault();
-				// Stop propagation so the parent Card's React `onDrop` doesn't fire
-				// and double-attach. CM's `return true` only tells CM "handled"; the
-				// native event still bubbles otherwise.
+
 				event.stopPropagation();
 				callbacks.onFilesDropped(Array.from(files));
 				return true;
 			},
-			// Text pastes: give the host first refusal so a large paste can be
-			// diverted into a `.context/files` attachment. File pastes fall
-			// through to the parent Card's React `onPaste` (same upload pipeline
-			// as paperclip / drop). Returning true + preventDefault stops CM from
-			// inserting the raw text.
+
 			paste: (event) => {
 				const data = event.clipboardData;
 				if (data === null || data === undefined) return false;
@@ -181,10 +167,22 @@ export const createComposerView = ({
 			extensions,
 		}),
 	});
-	// Pin the compartment to the view so `reconfigureComposerKeymap` can find
-	// it. WeakMap means the entry vanishes with the view; no manual cleanup.
+
 	composerKeymapCompartment.set(view, userKeymapCompartment);
+	composerPlaceholderCompartment.set(view, placeholderCompartment);
 	return view;
+};
+
+/** Swap the placeholder in place, keeping the draft, cursor and focus. */
+export const setComposerPlaceholder = (
+	view: EditorView,
+	placeholderText: string,
+): void => {
+	const compartment = composerPlaceholderCompartment.get(view);
+	if (compartment === undefined) return;
+	view.dispatch({
+		effects: compartment.reconfigure(placeholder(placeholderText)),
+	});
 };
 
 /**

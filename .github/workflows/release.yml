@@ -26,7 +26,6 @@ on:
         type: string
         required: true
 
-# Serialize allocation and publication across channels. Do not interrupt uploads.
 concurrency:
   group: desktop-release
   cancel-in-progress: false
@@ -105,7 +104,7 @@ jobs:
         env:
           HUGEICONS_TOKEN: ${{ secrets.HUGEICONS_TOKEN }}
         run: bun install --frozen-lockfile
-      - name: Stable → Preview → Stable data compatibility
+      - name: Stable → Preview → Stable → Preview data compatibility
         if: needs.resolve.outputs.channel == 'preview'
         env:
           COMPAT_DATA: ${{ runner.temp }}/desktop-compatibility
@@ -118,6 +117,8 @@ jobs:
           node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" preview
           cd .compat-stable
           node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" stable-return
+          cd ..
+          node --import tsx apps/server/scripts/desktop-data-probe.ts "$COMPAT_DATA" preview-return
 
   build:
     needs: [resolve, verify]
@@ -213,6 +214,17 @@ jobs:
             dist/preview*.yml
             dist/*.blockmap
 
+  # Qualification lane only. Public Windows assets stay excluded from publish
+  # until signing, update migration, and constrained Windows 11 tests pass.
+  windows-candidate:
+    needs: [resolve, verify]
+    if: needs.resolve.outputs.channel == 'preview'
+    uses: ./.github/workflows/windows-tests.yml
+    secrets: inherit
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      release_metadata: true
+
   publish:
     needs: [resolve, build]
     runs-on: ubuntu-24.04
@@ -221,8 +233,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # Promotion builds the Preview source, but publication uses the
-          # current workflow tooling so older Preview tags can receive fixes.
+
           ref: ${{ github.sha }}
       - uses: oven-sh/setup-bun@v2
         with:

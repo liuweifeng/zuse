@@ -34,7 +34,7 @@ export function OrganizationAutoJoin({
 }) {
 	const { message } = useMessages(["settings"]);
 	const { busy, error, setError, guard, run } = useOrganizationAction();
-	// Open from the cached snapshot and revalidate in the background.
+
 	const [settings, setSettings] = useState<OrganizationAutoJoinSettings | null>(
 		() => peekOrganizationAutoJoin(organizationId) ?? null,
 	);
@@ -54,7 +54,7 @@ export function OrganizationAutoJoin({
 				if (current()) setError(organizationErrorMessage(cause));
 			});
 		void reload();
-		// Linking finishes in the browser; pick it up when Zuse regains focus.
+
 		window.addEventListener("focus", reload);
 		return () => window.removeEventListener("focus", reload);
 	}, [guard, load, setError]);
@@ -90,8 +90,7 @@ export function OrganizationAutoJoin({
 				),
 		})),
 	];
-	// One switch per domain: on means verified emails there auto-join; the
-	// admin's own unclaimed domain is offered switched off.
+
 	const suggested = settings?.domains.suggestedDomain ?? null;
 	const domainRows = [
 		...(settings?.domains.domains ?? []).map((domain) => ({

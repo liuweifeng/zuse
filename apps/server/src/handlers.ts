@@ -18,6 +18,7 @@ import { ModelConnectionsHandlersLayer } from "./harness/handlers.ts";
 import { HostHandlersLayer } from "./host/handlers.ts";
 import { LanAuthHandlersLayer } from "./lan-auth/handlers.ts";
 import { MachineHandlersLayer } from "./machine/handlers.ts";
+import { MasterHandlersLayer } from "./master/handlers.ts";
 import { ModelCatalogHandlersLayer } from "./model-catalog/handlers.ts";
 import { PingHandlersLayer } from "./ping/handlers.ts";
 import { PokemonHandlersLayer } from "./pokemon/handlers.ts";
@@ -26,6 +27,7 @@ import { ProviderHandlersLayer } from "./provider/handlers.ts";
 import { PtyHandlersLayer } from "./pty/handlers.ts";
 import { RepositorySettingsHandlersLayer } from "./repository-settings/handlers.ts";
 import { ReviewGuideHandlersLayer } from "./review-guide/handlers.ts";
+import { SimulatorHandlersLayer } from "./simulators/handlers.ts";
 import { SkillHandlersLayer } from "./skill/handlers.ts";
 import { UsageHandlersLayer } from "./usage/handlers.ts";
 import { VoiceHandlersLayer } from "./voice/handlers.ts";
@@ -43,7 +45,9 @@ export const HandlersLayer = Layer.mergeAll(
 	AutomationHandlersLayer,
 	ExecutionHistoryHandlersLayer,
 	CheckpointHandlersLayer,
+	SimulatorHandlersLayer,
 	ModelConnectionsHandlersLayer,
+	MasterHandlersLayer,
 	DeviceBridgeHandlersLayer,
 	PingHandlersLayer,
 	PreviewsHandlersLayer,

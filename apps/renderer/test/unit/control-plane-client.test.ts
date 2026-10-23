@@ -105,7 +105,7 @@ it("serves a cached read instantly and keeps it per account", async () => {
 	expect(
 		peekControlPlaneCache("organizations:test", decode, "account"),
 	).toEqual({ members: 2 });
-	// A background refresh replaces the snapshot without clearing it first.
+
 	read.mockResolvedValueOnce({ members: 3 });
 	await runCachedRead("organizations:test", read, {
 		decode,

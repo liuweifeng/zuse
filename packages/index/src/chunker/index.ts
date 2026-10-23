@@ -7,12 +7,6 @@ import { markdownChunker } from "./markdown.ts";
 import { treesitterChunker } from "./treesitter.ts";
 import { windowChunker } from "./window.ts";
 
-/**
- * For JS/TS we union the decl-anchored chunks (symbol-aware) with a
- * windowed pass (BM25-friendly). The two cover different retrieval modes:
- * the agent navigating to a function uses the decl chunk; the agent
- * searching for a string literal or a comment uses the window chunk.
- */
 const combineForCode = (source: string, language: LanguageId): ParseResult => {
   const ts = treesitterChunker(source, language);
   const windowed = windowChunker(source);

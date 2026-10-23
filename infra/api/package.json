@@ -58,7 +58,9 @@
 		"secret:stripe": "wrangler secret put STRIPE_SECRET_KEY --env=",
 		"secret:stripe-webhook": "wrangler secret put STRIPE_WEBHOOK_SECRET --env=",
 		"secret:stripe:production": "wrangler secret put STRIPE_SECRET_KEY --config wrangler.production.jsonc",
-		"secret:stripe-webhook:production": "wrangler secret put STRIPE_WEBHOOK_SECRET --config wrangler.production.jsonc"
+		"secret:stripe-webhook:production": "wrangler secret put STRIPE_WEBHOOK_SECRET --config wrangler.production.jsonc",
+		"secret:daytona": "wrangler secret put DAYTONA_API_KEY --env=",
+		"secret:daytona:production": "wrangler secret put DAYTONA_API_KEY --config wrangler.production.jsonc"
 	},
 	"dependencies": {
 		"@effect/sql-pg": "catalog:",
@@ -67,6 +69,7 @@
 		"@zuse/billing-providers": "*",
 		"@zuse/cloud-commands": "*",
 		"@zuse/contracts": "*",
+		"@zuse/git": "*",
 		"@zuse/machine-providers": "*",
 		"@zuse/pokemon-data": "*",
 		"@zuse/sandbox-providers": "*",

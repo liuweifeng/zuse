@@ -4,7 +4,9 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 
 export const ENGINE_TOOL_COMMAND =
-	"echo $$ > tool-pid.txt; printf 'started\\n' >> tool-started.txt; sleep 30; printf 'finished\\n' > tool-finished.txt";
+	process.platform === "win32"
+		? "$PID | Set-Content tool-pid.txt; Add-Content tool-started.txt started; Start-Sleep -Seconds 30; Set-Content tool-finished.txt finished"
+		: "echo $$ > tool-pid.txt; printf 'started\\n' >> tool-started.txt; sleep 30; printf 'finished\\n' > tool-finished.txt";
 
 /** Real provider executable and real shell tools; only model inference is scripted locally. */
 export const startEngineProviderFixture = async (directory: string) => {
@@ -29,8 +31,7 @@ export const startEngineProviderFixture = async (directory: string) => {
 			requests++;
 			assert(Array.isArray(body.input));
 			response.writeHead(200, { "content-type": "text/event-stream" });
-			// Once a command has run, keep inference pending until the crash closes it.
-			// A genuinely replayed fresh turn receives another command and fails the marker assertion.
+
 			if (
 				body.input.some(
 					(item: { type?: string }) =>

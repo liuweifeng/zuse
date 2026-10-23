@@ -34,7 +34,7 @@ export async function runPrWatchRepair(options: {
 		save({ ...watch, pending });
 	}
 	if (!isCurrent() || !options.canSend()) return;
-	// Save before dispatch, reuse after restart, and only acknowledge acceptance.
+
 	if (!(await options.send(pending.input, pending.messageId)))
 		throw new Error(
 			"Repair delivery could not be confirmed. Check the chat before resuming.",

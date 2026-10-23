@@ -31,14 +31,14 @@ describe("Phase D — rerank pipeline", () => {
 	it("Custom provider re-sorts by returned scores", async () => {
 		const swapping: RerankProvider = {
 			id: "swap",
-			// Reverse the order — last in becomes highest score.
+
 			rerank: async (_q, docs) => docs.map((_, i) => i),
 		};
 		setRerankProvider(swapping);
 		const hits = [mkHit(1, "a"), mkHit(2, "b"), mkHit(3, "c")];
 		const out = await applyRerank("q", hits, 3);
 		expect(out.map((h) => h.chunkId)).toEqual([3, 2, 1]);
-		// Restore default so other tests are unaffected.
+
 		setRerankProvider(new NullRerankProvider());
 	});
 

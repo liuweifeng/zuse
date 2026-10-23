@@ -88,11 +88,6 @@ const exit = (exitCode: number, stdout = "", stderr = ""): ExecResult => ({
 	success: exitCode === 0,
 });
 
-/**
- * In-memory stand-in for the SDK: records every call, keeps machines by id
- * and name, and lets a test script exec results or fail the next call of a
- * method with a real SDK error.
- */
 class FakeBoxd implements BoxdSandboxClient {
 	readonly calls: Call[] = [];
 	readonly store = new Map<string, Machine>();
@@ -104,7 +99,7 @@ class FakeBoxd implements BoxdSandboxClient {
 	execResults: ExecResult[] = [];
 	execHandler: ((params: ExecParams) => ExecResult) | undefined;
 	readonly failures = new Map<string, Error[]>();
-	/** Boot counter per machine; a resize reboot bumps it like a real VM. */
+
 	readonly bootIds = new Map<string, number>();
 	nextId = 1;
 	createdSnapshotNames: string[] = [];
@@ -549,7 +544,7 @@ describe("boxd sandbox provider", () => {
 	test("shares one SDK client per credential across adapter instances", () => {
 		const config = { apiKey: Redacted.make("bxd_cache_test") };
 		expect(boxdSandboxClientFor(config)).toBe(boxdSandboxClientFor(config));
-		// A trailing slash is the same endpoint, not a second client.
+
 		expect(boxdSandboxClientFor(config)).toBe(
 			boxdSandboxClientFor({ ...config, baseUrl: `${BOXD_BASE_URL}/` }),
 		);
@@ -725,6 +720,33 @@ describe("boxd sandbox provider", () => {
 		expect(client.store.has("vm_failed")).toBe(true);
 	});
 
+	test("rejects a missing base template before allocating a build machine", async () => {
+		const client = new FakeBoxd();
+		const provider = makeAdapter(client);
+		if (provider.validateTemplate === undefined)
+			throw new Error("missing template validation");
+		await expect(run(provider.validateTemplate())).rejects.toMatchObject({
+			code: "not-found",
+		});
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
+	test("accepts a ready base template and rejects an unfinished one", async () => {
+		const client = new FakeBoxd();
+		client.set(machineOf({ id: "source-vm" }));
+		await client.snapshots.create("source-vm", "zuse-base-v1");
+		const snapshot = await client.snapshots.get("zuse-base-v1");
+		const provider = makeAdapter(client);
+		if (provider.validateTemplate === undefined)
+			throw new Error("missing template validation");
+		await expect(run(provider.validateTemplate())).rejects.toMatchObject({
+			code: "rejected",
+		});
+		client.snapshotStore.set(snapshot.name, { ...snapshot, status: "ready" });
+		await expect(run(provider.validateTemplate())).resolves.toBeUndefined();
+		expect(client.methods("machines.create")).toHaveLength(0);
+	});
+
 	test("does not mask a missing template snapshot as a name conflict", async () => {
 		const client = new FakeBoxd();
 		client.fail("machines.create", new NotFoundError("snapshot not found", 5));
@@ -782,7 +804,7 @@ describe("boxd sandbox provider", () => {
 		const resize = client.machines.resize;
 		client.machines.resize = async (id, params) => {
 			const result = await resize(id, params);
-			// The old instance still answers for a while after `resize` returns.
+
 			client.bootIds.set(id, 1);
 			client.set({ ...client.byIdOrName(id), status: "running" });
 			return result;
@@ -1336,7 +1358,7 @@ describe("boxd sandbox provider", () => {
 			"p3000",
 			3000,
 		]);
-		// A second resolution finds the route without creating it again.
+
 		await run(adapter.resolveEndpoint("vm_1", 3000));
 		expect(client.methods("machines.proxies.create")).toHaveLength(1);
 	});
@@ -1610,8 +1632,7 @@ describe("boxd sandbox provider", () => {
 			"vm_1",
 			{ vcpu: 4 },
 		]);
-		// The resize rebooted the machine: the adapter waited for the new boot
-		// id, then prepared and primed the runtime again.
+
 		expect(client.execs.map((call) => call.params.command)).toEqual([
 			expect.stringContaining("boot_id"),
 			expect.stringContaining("boot_id"),

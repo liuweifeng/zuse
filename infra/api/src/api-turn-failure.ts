@@ -20,8 +20,6 @@ import {
 	CloudWorkspaceStore,
 } from "./cloud-workspace-store.ts";
 
-// Older runtimes can leave a turn running after agent execution fails. Use its
-// authenticated checkpoint as a diagnostic, never as a fabricated settlement.
 export const readApiTurnFailure = Effect.fn("readApiTurnFailure")(function* (
 	workspace: CloudWorkspaceRecord,
 	submitted: CloudWorkspaceApiMessageRecord,

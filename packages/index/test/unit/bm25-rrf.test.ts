@@ -18,9 +18,7 @@ describe("Phase C — BM25 + RRF + router", () => {
 		expect(route("IndexService")).toEqual(["symbol"]);
 		expect(route("addUser")).toEqual(["symbol"]);
 		expect(route("const x = () => {}")).toEqual(["symbol", "bm25"]);
-		// Vector tier is dropped under the default NullProvider — see router.ts
-		// for the kill-switch rationale. When a real embedding provider lands
-		// this assertion should become ["bm25", "vector"].
+
 		expect(route("where does the pty service stream output")).toEqual(["bm25"]);
 	});
 
@@ -28,9 +26,7 @@ describe("Phase C — BM25 + RRF + router", () => {
 		const a = [{ chunkId: 1 }, { chunkId: 2 }, { chunkId: 3 }];
 		const b = [{ chunkId: 3 }, { chunkId: 4 }, { chunkId: 1 }];
 		const fused = reciprocalRankFusion([a, b], { k: 60 });
-		// chunkId 1 appears at rank 1 in a, rank 3 in b → 1/61 + 1/63
-		// chunkId 3 appears at rank 3 in a, rank 1 in b → 1/63 + 1/61
-		// They should tie with the highest score.
+
 		expect(
 			fused
 				.slice(0, 2)

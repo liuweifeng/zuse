@@ -1,10 +1,5 @@
 import { useSyncExternalStore } from "react";
 
-/**
- * The renderer's single mirror of `navigator.onLine`. Connection supervisors
- * consult it only for transports that cross the network; the composer banner
- * renders from it directly.
- */
 let online = globalThis.navigator?.onLine ?? true;
 const listeners = new Set<() => void>();
 

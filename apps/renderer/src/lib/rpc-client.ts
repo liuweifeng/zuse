@@ -3,6 +3,10 @@ import {
 	makeRpcClientSession,
 	withWireProtocolVersion,
 } from "@zuse/client-runtime/connection";
+import {
+	grantRouteEndpoints,
+	raceConnectionRoutes,
+} from "@zuse/client-runtime/connection-routes";
 import { parseEnvironmentRoute } from "@zuse/client-runtime/environment-scope";
 import {
 	type ConnectionSnapshot,
@@ -11,6 +15,7 @@ import {
 	defaultClassifyError,
 } from "@zuse/client-runtime/supervisor";
 import type { WebSocketCloseInfo } from "@zuse/client-runtime/ws-protocol";
+import type { ApiConnectGrant } from "@zuse/contracts";
 import {
 	type CloudWorkspaceConnection,
 	MemoizeRpcs,
@@ -27,6 +32,7 @@ import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
 import type { RpcBridge } from "./bridge.ts";
 import { requestBrowserWebSocketUrl } from "./browser-session.ts";
 import { cloudFailurePresentation } from "./cloud-failure-presentation.ts";
+import { reportCloudRuntimeConnection } from "./cloud-runtime-bridge.ts";
 import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
 import { recordDiagnosticEvent } from "./diagnostics-recorder.ts";
 import { electronClientProtocolLayer } from "./electron-client-protocol.ts";
@@ -46,7 +52,6 @@ import {
 	rendererWorkspaceSnapshot,
 	workspaceScopeKey,
 } from "./renderer-workspace.ts";
-import { instrumentRendererRpcClient } from "./rpc-stall-instrumentation.ts";
 import { withWorkspaceScope } from "./workspace-rpc-client.ts";
 import { wsClientProtocolLayer } from "./ws-client-protocol.ts";
 
@@ -68,6 +73,10 @@ type RendererConnectionOptions =
 			readonly protocols?: ReadonlyArray<string>;
 			readonly account?: RendererAccountSnapshot;
 			readonly refreshWsUrl?: () => Promise<string>;
+			readonly routes?: readonly string[];
+			readonly expectedEnvironmentId?: string;
+			readonly onRouteSelected?: (url: string) => void;
+			readonly refreshRoutes?: () => Promise<readonly string[]>;
 			readonly refreshConnection?: () => Promise<CloudWorkspaceConnection>;
 	  };
 
@@ -111,8 +120,6 @@ const invalidateCloudWorkspaceTicket = (workspaceId: string): void => {
 	if (registration !== undefined) registration.connection = null;
 };
 
-// Tickets last roughly a minute. Keep only a short safety margin so one live
-// activation can reuse its freshly issued ticket without minting a second one.
 const CLOUD_TICKET_REUSE_WINDOW_MS = 10_000;
 
 export const canReuseCloudWorkspaceTicket = (
@@ -140,9 +147,7 @@ function resolveWebSocketUrl(): string {
 
 const browserWebSocketOptions = () => ({
 	wsUrl: resolveWebSocketUrl(),
-	// Browser sessions authenticate the HTTP request with their cookie, then use
-	// a fresh, single-use ticket for every WebSocket attempt. Refreshing here also
-	// prevents reconnects from reusing a consumed ticket after the socket closes.
+
 	refreshWsUrl: requestBrowserWebSocketUrl,
 });
 
@@ -210,6 +215,11 @@ const prepareRendererConnectionOptions = async (
 			protocols: [connection.protocol, connection.credential],
 		};
 	}
+	if (options.refreshRoutes) {
+		const routes = await options.refreshRoutes();
+		assertConnectionAccount(options);
+		return { ...options, routes, wsUrl: routes[0] ?? options.wsUrl };
+	}
 	const prepared =
 		options.refreshWsUrl === undefined
 			? options
@@ -226,8 +236,6 @@ const assertConnectionAccount = (options: RendererConnectionOptions): void => {
 export const RENDERER_WEBSOCKET_OPEN_TIMEOUT = "3 seconds" as const;
 export const CLOUD_WEBSOCKET_OPEN_TIMEOUT = "15 seconds" as const;
 
-// Cloud gateway opening includes the remote TLS/upgrade round trip. Keep
-// local failures fast without rejecting healthy, slower cloud connections.
 export const rendererWebSocketOpenTimeout = (key: string) =>
 	key.startsWith("workspace:")
 		? CLOUD_WEBSOCKET_OPEN_TIMEOUT
@@ -235,9 +243,6 @@ export const rendererWebSocketOpenTimeout = (key: string) =>
 
 const CLOUD_WORKSPACE_MAX_AUTOMATIC_ATTEMPTS = 6;
 
-// Retrying a cloud workspace can wake a billable machine, so its background
-// retries stop after a short ladder. A self-hosted computer that sleeps or
-// drops off the network must reconnect on its own when it comes back.
 export const rendererMaxAutomaticAttempts = (
 	options: Pick<RendererConnectionOptions, "key">,
 ): number =>
@@ -270,8 +275,36 @@ export const isAuthCodedConnectionError = (cause: unknown): boolean => {
 const makeRendererRpcSession = async (
 	options: RendererConnectionOptions,
 	onClose: (event: WebSocketCloseInfo) => void,
+	signal?: AbortSignal,
 ): Promise<RendererRpcSession> => {
 	assertConnectionAccount(options);
+	if (options.kind === "websocket" && options.routes) {
+		let selected: string | undefined;
+		const result = await raceConnectionRoutes(
+			options.routes,
+			(url, signal) =>
+				makeRendererRpcSession(
+					{ ...options, wsUrl: url, routes: undefined },
+					(event) => {
+						if (selected === url) onClose(event);
+					},
+					signal,
+				),
+			{ signal },
+		);
+		try {
+			assertConnectionAccount(options);
+		} catch (cause) {
+			await result.session.dispose();
+			throw cause;
+		}
+		selected = result.route;
+		const address = new URL(result.route);
+		address.search = "";
+		address.hash = "";
+		options.onRouteSelected?.(address.toString());
+		return result.session;
+	}
 	let closed = false;
 	const notifyClose = (event: WebSocketCloseInfo): void => {
 		if (closed) return;
@@ -309,19 +342,42 @@ const makeRendererRpcSession = async (
 								: response,
 					},
 				);
+	const { instrumentRendererRpcClient } = await import(
+		"./rpc-stall-instrumentation.ts"
+	);
 	assertConnectionAccount(options);
 	const session = instrumentRendererRpcClient(
-		await makeRpcClientSession(protocolLayer, MemoizeRpcs, {
-			protocolVersion: WIRE_PROTOCOL_VERSION,
-			allowLegacyCloud: legacyCloud,
-			onNegotiated: (version) => {
-				negotiatedVersion = version;
+		await makeRpcClientSession(
+			protocolLayer,
+			MemoizeRpcs,
+			{
+				protocolVersion: WIRE_PROTOCOL_VERSION,
+				allowLegacyCloud: legacyCloud,
+				onNegotiated: (version) => {
+					negotiatedVersion = version;
+					if (legacyCloud)
+						reportCloudRuntimeConnection(
+							options.key.slice("workspace:".length),
+							version,
+						);
+				},
+				perform: (client, hello) => client["connect.handshake"](hello),
 			},
-			perform: (client, hello) => client["connect.handshake"](hello),
-		}),
+			signal,
+		),
 	);
 	try {
 		assertConnectionAccount(options);
+		if (options.kind === "websocket" && options.expectedEnvironmentId) {
+			const descriptor = await Effect.runPromise(
+				session.client["connect.describe"](),
+				{ signal },
+			);
+			if (descriptor.environmentId !== options.expectedEnvironmentId)
+				throw new Error(
+					"This route belongs to another computer. Pair again to verify its identity.",
+				);
+		}
 	} catch (cause) {
 		await session.dispose();
 		throw cause;
@@ -360,24 +416,25 @@ const supervisor = createConnectionSupervisor<
 		const timer = setTimeout(reconnect, delayMs);
 		return () => clearTimeout(timer);
 	},
-	createClient: async (options) => {
+	createClient: async (options, signal) => {
 		try {
-			return await makeRendererRpcSession(options, (event) => {
-				if (options.key.startsWith("workspace:")) {
-					const workspaceId = options.key.slice("workspace:".length);
-					invalidateCloudWorkspaceTicket(workspaceId);
-				}
-				reportRendererEntryFailure(
-					options.key,
-					new Error(
-						`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
-					),
-				);
-			});
+			return await makeRendererRpcSession(
+				options,
+				(event) => {
+					if (options.key.startsWith("workspace:")) {
+						const workspaceId = options.key.slice("workspace:".length);
+						invalidateCloudWorkspaceTicket(workspaceId);
+					}
+					reportRendererEntryFailure(
+						options.key,
+						new Error(
+							`Connection closed (${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+						),
+					);
+				},
+				signal,
+			);
 		} catch (cause) {
-			// An HTTP rejection happens before WebSocket `close`, so the callback
-			// above never gets a chance to invalidate its one-time credential.
-			// Never let the supervisor retry the same rejected cloud ticket.
 			if (options.key.startsWith("workspace:")) {
 				const workspaceId = options.key.slice("workspace:".length);
 				invalidateCloudWorkspaceTicket(workspaceId);
@@ -521,9 +578,6 @@ export const acquireRendererRpcSession = async (
 			);
 		})
 		.catch((cause) => {
-			// HTTP 401/403 rejects the upgrade before `close` is observable. Clear
-			// the cached ticket here so EnvironmentRuntime's next acquisition mints
-			// a new credential instead of looping on the rejected one.
 			if (active && prepared.key.startsWith("workspace:")) {
 				hooks.invalidateCloudTicket(prepared.key.slice("workspace:".length));
 			}
@@ -665,6 +719,40 @@ export const registerApiEnvironment = (
 	});
 };
 
+export const registerApiEnvironmentRoutes = (
+	environmentId: string,
+	initial: ApiConnectGrant,
+	refresh: () => Promise<ApiConnectGrant>,
+	account: RendererAccountSnapshot,
+	onRouteSelected?: (url: string) => void,
+): void => {
+	assertRendererAccountCurrent(account);
+	const routes = (grant: ApiConnectGrant) =>
+		grantRouteEndpoints(grant, window.location.protocol === "https:").map(
+			(endpoint) => {
+				const url = new URL(endpoint.wsBaseUrl);
+				url.searchParams.set("token", grant.connectToken);
+				url.searchParams.set("wireVersion", String(WIRE_PROTOCOL_VERSION));
+				return url.toString();
+			},
+		);
+	let first: ApiConnectGrant | null = initial;
+	environmentConnections.set(environmentId, {
+		key: `environment:${environmentId}`,
+		kind: "websocket",
+		account,
+		wsUrl: initial.endpoint.wsBaseUrl,
+		expectedEnvironmentId: environmentId,
+		onRouteSelected,
+		refreshRoutes: async () => {
+			const grant = first ?? (await refresh());
+			first = null;
+			assertRendererAccountCurrent(account);
+			return routes(grant);
+		},
+	});
+};
+
 /** Register a cloud workspace directly against its stable gateway route. */
 export const registerCloudWorkspace = (
 	workspaceId: string,
@@ -719,16 +807,11 @@ export const registerCloudWorkspace = (
 		)
 			registration.connection = initial;
 	}
-	// Repeated live actions update the reusable ticket source but never replace
-	// a connected or in-flight client. Only a terminal supervisor failure gets a
-	// deliberate fresh-ticket retry.
+
 	if (
 		existingEntry !== undefined &&
 		shouldRestartCloudWorkspaceConnection(existingEntry.snapshot().status)
 	) {
-		// `initial` was minted by the live action that reached this retry path.
-		// Keep it so retryNow consumes that ticket instead of immediately minting
-		// a second one. Genuine socket closes invalidate the ticket in onClose.
 		existingEntry.retryNow();
 	}
 };

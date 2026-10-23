@@ -33,6 +33,7 @@ import {
 	AUTH_GRANT_SOURCE,
 	AUTH_INITIALIZER_SOURCE,
 	AUTH_READINESS_SOURCE,
+	AUTH_VERIFY_SOURCE,
 	CODEX_GRANT_SOURCE,
 	canSeedCloudAuthSnapshot,
 	cloudAuthAuthorityLabel,
@@ -151,7 +152,7 @@ describe("cloud auth setup reuse", () => {
 					expectedRevision: locator?.revision ?? -1,
 					status,
 				});
-				// No registry at all: cached reads must not touch the provider.
+
 				expect(yield* cloudAuthStatus("account")).toEqual(status);
 				yield* store.saveCloudAuthStatus({
 					accountId: "account",
@@ -369,7 +370,7 @@ describe("cloud auth authority identity", () => {
 				),
 			),
 		);
-		// Stop at resume: only the persisted E2B authority may reach snapshot preparation.
+
 		expect(resumed).toBe(providerId === "e2b");
 		expect(result._tag).toBe(providerId === "e2b" ? "Failure" : "Success");
 	});
@@ -481,7 +482,7 @@ describe("cloud auth authority Codex grants", () => {
 					},
 				);
 			const firstStdout = run();
-			// Guest timing is numeric only and never carries token or account data.
+
 			const firstTiming = parseAuthorityGrantOutput(firstStdout);
 			expect(firstTiming.value).toBe("");
 			expect(firstTiming.timing).toMatchObject({
@@ -751,6 +752,41 @@ chmod +x "$3/node_modules/.bin/codex"`
 		}
 	});
 
+	test("does not report native Grok connected when its auth file is missing", () => {
+		const directory = mkdtempSync(join(tmpdir(), "zuse-grok-status-"));
+		try {
+			mkdirSync(join(directory, "providers"));
+			mkdirSync(join(directory, "status"));
+			writeFileSync(
+				join(directory, "providers/grok.json"),
+				JSON.stringify({ native: true, method: "subscription" }),
+			);
+			const binary = join(directory, "grok");
+			writeFileSync(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			const script = join(directory, "verify.mjs");
+			writeFileSync(
+				script,
+				AUTH_VERIFY_SOURCE.replaceAll(
+					'"/home/zuse/.zuse/cloud-auth"',
+					JSON.stringify(directory),
+				).replaceAll('"/home/zuse/.local/bin/grok"', JSON.stringify(binary)),
+			);
+			execFileSync(process.execPath, [script, join(directory, "ready")], {
+				env: {
+					...process.env,
+					ZUSE_GROK_AUTH_FILE: join(directory, "missing-auth.json"),
+				},
+			});
+			expect(
+				JSON.parse(readFileSync(join(directory, "status/grok.json"), "utf8")),
+			).toMatchObject({
+				state: "expired",
+				errorCode: "authentication-required",
+			});
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
 	test("refreshes native Grok auth through initialize plus authenticate", () => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-grok-grant-"));
 		try {
@@ -997,6 +1033,19 @@ describe("cloud auth authority grant fast path", () => {
 				nowMs: 150,
 			});
 			const locator = yield* store.getCloudAuthAuthority("account");
+			if (locator)
+				yield* store.saveCloudAuthStatus({
+					accountId: "account",
+					expectedRevision: locator.revision,
+					status: new CloudAuthStatus({
+						authorityState: "ready",
+						providers: [
+							{ providerId: "claude", state: "connected" },
+							{ providerId: "grok", state: "connected" },
+						],
+					}),
+				});
+
 			const sealed = JSON.stringify({
 				sealed: {
 					protocolVersion: 1,
@@ -1096,7 +1145,12 @@ describe("cloud auth authority grant fast path", () => {
 				Effect.provideService(SandboxProviders, registry),
 				Effect.result,
 			);
-			return { result, calls, counters };
+			return {
+				result,
+				calls,
+				counters,
+				status: yield* cloudAuthStatus("account"),
+			};
 		}).pipe(
 			Effect.provide(
 				Layer.mergeAll(
@@ -1139,8 +1193,6 @@ describe("cloud auth authority grant fast path", () => {
 			});
 		const { result, calls, counters } = await Effect.runPromise(
 			harness({
-				// Guest timing lines surround the result, including malformed and
-				// hostile ones; only allowlisted numbers may reach the log.
 				readyGrant: (input) =>
 					Effect.succeed({
 						exitCode: 0,
@@ -1183,7 +1235,7 @@ describe("cloud auth authority grant fast path", () => {
 				authorityIncarnationId: "incarnation",
 			});
 		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
-		// The exact readiness program, bootstrap hash and incarnation ride along.
+
 		const args = calls[0]?.args ?? [];
 		expect(args).toContain(AUTH_READINESS_SOURCE);
 		expect(args.at(-1)).toBe("incarnation");
@@ -1229,7 +1281,7 @@ describe("cloud auth authority grant fast path", () => {
 			RunProcessInput,
 		];
 		expect(requestArg(retry).requestId).toBe(requestArg(first).requestId);
-		// Same cache path: the grant script serves the cached result if the first run completed.
+
 		expect(retry.args?.at(-1)).toBe(first.args?.[8]);
 	});
 
@@ -1245,6 +1297,32 @@ describe("cloud auth authority grant fast path", () => {
 		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
 	});
 
+	test("replaces stale connected status when a provider refuses its grant", async () => {
+		const { result, status, calls } = await Effect.runPromise(
+			harness({
+				readyGrant: () =>
+					Effect.succeed({
+						exitCode: 0,
+						stdout: JSON.stringify({
+							errorCode: "claude-auth-reconnect-required",
+						}),
+					}),
+			}),
+		);
+		expect(result).toMatchObject({
+			_tag: "Failure",
+			failure: { code: "claude-auth-reconnect-required" },
+		});
+		expect(status.providers).toEqual([
+			expect.objectContaining({
+				providerId: "claude",
+				state: "expired",
+				errorCode: "claude-auth-reconnect-required",
+			}),
+			expect.objectContaining({ providerId: "grok", state: "connected" }),
+		]);
+		expect(calls.map(scriptOf)).toEqual(["ready-grant"]);
+	});
 	test("a lost authority is never silently replaced from the fast path", async () => {
 		const { result, counters } = await Effect.runPromise(
 			harness({
@@ -1289,7 +1367,7 @@ describe("authority guest timing parsing", () => {
 			].join("\n"),
 		);
 		expect(parsed.value).toBe("value");
-		// Only the first eight sentinel lines are considered; all later ones are ignored.
+
 		expect(parsed.timing).toEqual({ sealMs: 103 });
 		expect(JSON.stringify(parsed.timing)).not.toContain("secret");
 	});

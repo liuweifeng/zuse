@@ -213,9 +213,7 @@ const clearManagedTunnelOwnership = async (
 				launchId?: unknown;
 			};
 			if (current.launchId !== launchId) return;
-		} catch {
-			// A missing or invalid ownership file is already unowned.
-		}
+		} catch {}
 	}
 	await fs.promises.rm(path, { force: true });
 };
@@ -295,13 +293,8 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 			return installed;
 		});
 
-		// Preflight: fail fast with a clear message if the binary is missing, so the
-		// link flow can surface an actionable error instead of a silent no-tunnel.
 		const ensureBinary = resolveBinary;
 
-		// One supervised run. The Scope kills the process on interrupt (stop/unlink
-		// or app shutdown). `exitCode` only resolves when cloudflared dies, so a
-		// healthy connector simply blocks here until interrupted.
 		const runOnce = () =>
 			Effect.scoped(
 				Effect.gen(function* () {
@@ -383,7 +376,7 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 								reason: "cloudflared_token_write_failed",
 							}),
 					});
-					// Restart on crash with a short backoff; a daemon fiber so link() returns.
+
 					yield* Effect.uninterruptible(
 						Effect.gen(function* () {
 							const fiber = yield* runOnce().pipe(
@@ -399,8 +392,6 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 				}),
 			);
 
-		// Recover connectors left behind when the previous app process could not
-		// run its finalizers. Exact token-path matching leaves all other tunnels alone.
 		const recovered = yield* Effect.tryPromise(async () => {
 			const terminated = await terminateManagedTunnelProcesses(tokenPath);
 			await clearManagedTunnelOwnership(ownershipPath);
@@ -417,7 +408,6 @@ export const ManagedTunnelRuntimeLive: Layer.Layer<
 				processCount: recovered.length,
 			});
 
-		// Ensure the connector is torn down when the runtime scope closes.
 		yield* Effect.addFinalizer(() =>
 			stop.pipe(
 				Effect.catch((error) =>

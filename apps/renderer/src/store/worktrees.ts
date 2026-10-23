@@ -6,10 +6,12 @@ import {
 	type WorktreeCreateSource,
 	type WorktreeId,
 } from "@zuse/contracts";
+import { scriptCommandForPlatform } from "@zuse/utils/shell-command";
 import { toastManager } from "../components/ui/toast.tsx";
 import { activeChatsByProject } from "../lib/environment-entities.ts";
 import { dispatchEnvironmentShellCommand } from "../lib/environment-shell-client-bus.ts";
 import { formatError } from "../lib/format-error.ts";
+import { hostDescriptor } from "../lib/host-platform.ts";
 import { openTerminalCommand } from "../lib/run-terminal.ts";
 import {
 	dispatchWorktreeCommand,
@@ -23,7 +25,6 @@ import {
 	useRepositorySettingsStore,
 } from "./repository-settings.ts";
 
-/** Rarities worth interrupting the user with a one-off unlock toast. */
 const NOTABLE_RARITIES: ReadonlySet<string> = new Set([
 	"rare",
 	"epic",
@@ -55,11 +56,7 @@ type WorktreesState = {
 		projectId: FolderId,
 		worktreeId: WorktreeId,
 	) => Promise<Worktree | null>;
-	/**
-	 * Drain a worktree's live `setupStream`, patching `setupStatus`/`setupOutput`
-	 * as events arrive. Idempotent; auto-stops when setup completes. On a
-	 * terminal status it kicks `maybeAutoRun`.
-	 */
+
 	readonly subscribeSetup: (
 		projectId: FolderId,
 		worktreeId: WorktreeId,
@@ -122,14 +119,14 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
 			.refresh(environmentId, projectId));
 	if (settings?.autoRunAfterSetup !== true) return;
 	if (wt.setupStatus !== "succeeded" && wt.setupStatus !== "skipped") return;
-	// Terminals are per chat — surface the auto-run in the chat that owns this
-	// worktree. Without one (none bound it), there's no dock to land it in.
+
 	const chat = (activeChatsByProject()[projectId] ?? []).find(
 		(c) => c.worktreeId === wt.id,
 	);
 	if (chat === undefined) return;
 	const run = await useWorktreesStore.getState().startRun(wt.id);
 	if (run === null) return;
+	const shell = scriptCommandForPlatform(hostDescriptor().platform, run.script);
 	await openTerminalCommand({
 		chatRef: {
 			environmentId,
@@ -137,7 +134,11 @@ const maybeAutoRun = async (projectId: FolderId, wt: Worktree) => {
 		},
 		cwd: run.cwd,
 		title: "Run",
-		command: { cmd: "/bin/zsh", args: ["-lc", run.script], env: run.env },
+		command: {
+			cmd: shell.command,
+			args: shell.args,
+			env: run.env,
+		},
 	});
 };
 
@@ -230,8 +231,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
 					type: "success",
 				});
 			}
-			// Setup now runs detached on the server; follow it live and let the
-			// stream's terminal-status handler fire maybeAutoRun.
+
 			get().subscribeSetup(projectId, wt.id);
 			return wt;
 		} catch (err) {
@@ -274,7 +274,7 @@ export const useWorktreesStore = create<WorktreesState>((set, get) => ({
 					error: null,
 				};
 			});
-			// Rerun is non-blocking server-side now; follow the fresh run live.
+
 			get().subscribeSetup(projectId, worktreeId);
 			return wt;
 		} catch (err) {

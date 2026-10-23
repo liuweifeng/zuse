@@ -18,7 +18,7 @@ export type TooltipItem = {
  * root. Each root publishes one of these alongside its family-specific context.
  */
 export type CommonChart = {
-	names: string[]; // legend entries — series keys (cartesian) or slice names (pie)
+	names: string[];
 	labelOf: (name: string) => string;
 	seedOf: (name: string) => Seed;
 	selectedDataKey: string | null;
@@ -31,8 +31,8 @@ export type CommonChart = {
 	heading: (index: number, labelKey?: string) => string | null;
 	itemsAt: (index: number) => TooltipItem[];
 	ready: boolean;
-	tooltipLeft: number; // clamped px for the floating tooltip
-	tooltipTop: number; // px — follows the hovered node (cartesian) / cursor (polar)
+	tooltipLeft: number;
+	tooltipTop: number;
 };
 
 export const CommonChartContext = createContext<CommonChart | null>(null);

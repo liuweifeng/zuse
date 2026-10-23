@@ -24,10 +24,7 @@ export function GitInitCta({
 }: {
 	executionRef: ExecutionRef;
 	compact?: boolean;
-	/**
-	 * Fired after `git init` succeeds. Surfaces for callers (e.g. the Diff
-	 * view) that fetch their own data in a local effect and need to re-run it.
-	 */
+
 	onInitialized?: () => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["projects"]);

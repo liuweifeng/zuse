@@ -10,22 +10,25 @@
 		"content:generate": "fumadocs-mdx",
 		"check-types": "bun run content:generate && tsc --noEmit",
 		"check-links": "node scripts/check-links.mjs",
-		"test": "bun run check-links",
-		"test:e2e": "playwright test"
+		"test": "bun run openapi:check && bun run check-links",
+		"test:e2e": "playwright test",
+		"openapi:generate": "bun scripts/generate-openapi.ts",
+		"openapi:check": "bun scripts/generate-openapi.ts --check"
 	},
 	"dependencies": {
 		"@fontsource-variable/geist-mono": "^5.3.0",
 		"@fontsource-variable/inter": "^5.3.0",
+		"@zuse/analytics": "workspace:*",
 		"fumadocs-core": "^16.10.4",
 		"fumadocs-mdx": "^15.0.12",
+		"fumadocs-openapi": "11.2.4",
 		"fumadocs-ui": "^16.10.4",
 		"lucide-react": "^1.20.0",
 		"next": "16.0.10",
-		"react": "19.2.3",
-		"react-dom": "19.2.3",
-		"zod": "^4.4.3",
-		"@zuse/analytics": "workspace:*",
-		"posthog-js": "^1.406.2"
+		"posthog-js": "^1.406.2",
+		"react": "19.3.0",
+		"react-dom": "19.3.0",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@axe-core/playwright": "^4.12.1",
@@ -35,6 +38,7 @@
 		"@types/node": "^24.0.0",
 		"@types/react": "^19.0.0",
 		"@types/react-dom": "^19.0.0",
+		"@zuse/contracts": "workspace:*",
 		"tailwindcss": "^4.1.18",
 		"typescript": "^5.9.0"
 	}

@@ -68,7 +68,7 @@ describe("built Electron terminal", () => {
 				(value) => value.close(),
 			);
 			const page = electron.page;
-			// Restoring 22% at this width used to collapse the 360px-minimum dock.
+
 			await page.setViewportSize({ width: 720, height: 600 });
 			const conversationLink = page
 				.getByText(conversation.chat.title, { exact: true })
@@ -189,8 +189,7 @@ describe("built Electron terminal", () => {
 					await electron.app.evaluate(({ clipboard }, text) => {
 						clipboard.writeText(text);
 					}, command);
-					// Real keyboard input must produce the native paste event; injecting
-					// ClipboardEvent here would bypass the menu accelerator regression.
+
 					await page.keyboard.press("Meta+v");
 					await page.keyboard.press("Enter");
 					await waitForFile(pasteMarker, 10_000);
@@ -205,8 +204,6 @@ describe("built Electron terminal", () => {
 				}
 			}
 
-			// An interactive startup/update prompt must accept a response after a
-			// normal canvas click, without reaching into the hidden input to focus it.
 			const promptMarker = join(scope.root, "interactive-prompt-ok");
 			await page.keyboard.type(
 				`printf 'Update now? [Y/n] '; read answer; test "$answer" = y && /usr/bin/touch ${shellQuote(promptMarker)}`,
@@ -261,9 +258,6 @@ describe("built Electron terminal", () => {
 			await page.keyboard.press("Escape");
 			await terminalName.waitFor({ state: "hidden" });
 
-			// The bottom dock owns a separate catalog and PTY collection. Hiding it
-			// must preserve the exact process, while closing one of multiple bottom
-			// tabs must terminate only that tab.
 			const openBottom = page.getByRole("button", {
 				name: "Toggle bottom terminal",
 			});
@@ -381,10 +375,7 @@ describe("built Electron terminal", () => {
 				try {
 					await waitForFile(offlineOutputStarted, 20_000);
 					arrivedAfterClientTimeout = true;
-				} catch {
-					// The original timeout remains the assertion failure. This longer
-					// observation distinguishes a delayed RPC receipt from a rejected write.
-				}
+				} catch {}
 				const artifact = await electron.captureFailure(
 					"electron-terminal-paste-command",
 				);
@@ -443,7 +434,7 @@ describe("built Electron terminal", () => {
 						.getAttribute("data-terminal-status"),
 				)
 				.toBe("running");
-			// Reload resets renderer RPC request IDs while server streams remain alive.
+
 			await page.reload({ waitUntil: "domcontentloaded" });
 			await conversationLink.waitFor({ state: "visible", timeout: 20_000 });
 			await conversationLink.click();

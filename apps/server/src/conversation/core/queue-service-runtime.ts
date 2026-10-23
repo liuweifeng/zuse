@@ -336,9 +336,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 														),
 													);
 												}
-												// An idempotent replay can arrive after the ready item was
-												// already claimed. The original command still succeeded, so
-												// return its convergent representation instead of a false error.
+
 												return Effect.succeed(
 													row === undefined
 														? QueuedMessage.make({
@@ -534,8 +532,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 					yield* setPaused(sessionId, true);
 					return null;
 				}
-				// Authorization can wait through an outage. An edit/delete made during
-				// that wait must not be replaced by this stale snapshot.
+
 				const current = (yield* read)[0];
 				if (current === undefined) return null;
 				if (current.input_json !== row.input_json) {
@@ -638,7 +635,6 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 		) =>
 			flushLock(sessionId).withPermits(1)(
 				Effect.gen(function* () {
-					// Explicit flush preserves recovery of an atomically restored item.
 					const session = yield* lookupSession(sessionId);
 					if (session.status === "running" || session.status === "booting")
 						return;
@@ -650,8 +646,7 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			flushLock(sessionId).withPermits(1)(
 				Effect.gen(function* () {
 					yield* lookupSession(sessionId);
-					// Automatic flushes use turn events as their authority. The session
-					// status projection can lag settlement in either direction.
+
 					if ((yield* resolveActiveTurn(sessionId)) !== undefined) return;
 					yield* flushHead(sessionId);
 				}),
@@ -664,9 +659,6 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			Effect.gen(function* () {
 				const session = yield* lookupSession(sessionId);
 				if (session.status === "error") {
-					// Failed provider effects are acknowledged to stop automatic replay.
-					// Resume the retained durable request through the same explicit Retry
-					// seam used by the session, before consuming any restored queue row.
 					yield* resumeFailedSession(sessionId);
 				}
 				yield* setPaused(sessionId, false, `${commandId}:unpause`);
@@ -746,9 +738,6 @@ export const makeQueueServiceRuntime = Effect.fn("QueueServiceRuntime.make")(
 			);
 		});
 
-		// One-time-compatible import: legacy rows become aggregate events before
-		// runtime mutations begin. The decider makes this restart-idempotent and
-		// the SQL table remains only the read projection.
 		const legacyRows = yield* sql<QueuedMessageRow>`
 			SELECT id, session_id, queue_order, input_json, created_at, updated_at, ready
 			FROM queued_messages

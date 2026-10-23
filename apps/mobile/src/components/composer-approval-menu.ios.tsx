@@ -1,9 +1,11 @@
 import { Host } from "@expo/ui";
-import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Image, Menu } from "@expo/ui/swift-ui";
 import { accessibilityLabel, frame } from "@expo/ui/swift-ui/modifiers";
 import type { RuntimeMode } from "@zuse/contracts";
 
-import { RUNTIME_OPTIONS, runtimeOptionFor } from "~/lib/model-options";
+import { approvalMenuItems } from "~/lib/action-menus";
+import { runtimeOptionFor } from "~/lib/model-options";
+import { SwiftMenuItems } from "./swift-menu-items";
 
 const sf = (name: string) => name as never;
 
@@ -35,19 +37,7 @@ export function ComposerApprovalMenu({
 				}
 				modifiers={[accessibilityLabel(`${selected.label} permissions`)]}
 			>
-				{RUNTIME_OPTIONS.map((option) => (
-					<NativeButton
-						key={option.value}
-						label={option.label}
-						systemImage={
-							runtimeMode === option.value
-								? sf("checkmark")
-								: sf(option.systemImage)
-						}
-						role={option.value === "full-access" ? "destructive" : undefined}
-						onPress={() => onChange(option.value)}
-					/>
-				))}
+				<SwiftMenuItems items={approvalMenuItems(runtimeMode, onChange)} />
 			</Menu>
 		</Host>
 	);

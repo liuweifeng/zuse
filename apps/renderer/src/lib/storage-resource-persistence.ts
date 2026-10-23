@@ -110,16 +110,12 @@ export const makeLocalStorageResourcePersistence = <Data>(
 						storageKey(key, namespace),
 						JSON.stringify({ version: options.version, resource }),
 					);
-			} catch {
-				// Cache persistence is best-effort and cannot block live settings.
-			}
+			} catch {}
 		},
 		removeResource: async (key, namespace) => {
 			try {
 				options.storage()?.removeItem(storageKey(key, namespace));
-			} catch {
-				// Storage can be unavailable under opaque hosted origins.
-			}
+			} catch {}
 		},
 	};
 };

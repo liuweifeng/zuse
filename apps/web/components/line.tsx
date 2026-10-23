@@ -3,9 +3,9 @@ import { cn } from "@/lib/utils";
 
 type LineCommonProps = {
 	className?: string;
-	/** Center-to-center spacing between dots (px) */
+
 	gap?: number;
-	/** Dot radius (px) */
+
 	dotRadius?: number;
 };
 
@@ -21,8 +21,6 @@ export type VerticalLineProps = LineCommonProps & {
 	fillClassName?: string;
 };
 
-// Dotted rules that frame the page and divide sections. The foreground tint
-// keeps them equally legible on light and dark canvases.
 export function HorizontalLine({
 	className,
 	gap = 8,

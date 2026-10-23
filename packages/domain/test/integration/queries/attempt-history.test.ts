@@ -84,7 +84,7 @@ test("projects and pages complete attempt history consistently with aggregate re
 				expect([...first.items, ...second.items]).toEqual([
 					...(state.turns.get("turn-1")?.attempts.values() ?? []),
 				]);
-				// Repeated migration/replay must preserve terminal and superseded rows.
+
 				for (const record of records) yield* projectSessionAttempt(sql, record);
 				expect(
 					(yield* queries.attemptHistory({

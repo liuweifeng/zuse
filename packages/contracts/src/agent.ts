@@ -148,12 +148,7 @@ export const SelectOptionDescriptor = Schema.Struct({
 		Schema.Struct({ id: Schema.String, label: Schema.String }),
 	),
 	defaultId: Schema.optional(Schema.String),
-	/**
-	 * Option ids in this list are *prompt-injected* rather than forwarded to
-	 * the SDK as a knob value. The driver prepends the option id (e.g. the
-	 * literal word for a prompt-only mode) to the user prompt and unsets the
-	 * underlying SDK field.
-	 */
+
 	promptInjectedValues: Schema.optional(Schema.Array(Schema.String)),
 });
 export type SelectOptionDescriptor = typeof SelectOptionDescriptor.Type;
@@ -273,92 +268,44 @@ export type ProviderRuntimeKind = typeof ProviderRuntimeKind.Type;
 export const AgentAvailability = Schema.Struct({
 	providerId: ProviderId,
 	displayName: Schema.String,
-	/** Runtime used to start this provider. Older clients may omit this field. */
+
 	runtimeKind: Schema.optional(ProviderRuntimeKind),
-	/** Provider-level runtime readiness, independent of authentication. */
+
 	runtimeAvailable: Schema.optional(Schema.Boolean),
 	cliInstalled: Schema.Boolean,
 	cliVersion: Schema.optional(Schema.String),
 	cliPath: Schema.optional(Schema.String),
 	cliLoggedIn: Schema.Boolean,
 	hasApiKey: Schema.Boolean,
-	/** Absent when no app-managed API key is configured. */
+
 	apiKeyStatus: Schema.optional(ProviderApiKeyStatus),
-	/**
-	 * Computed verdict on whether `cliVersion` meets the SDK's minimum. The
-	 * renderer renders an "Upgrade Codex" card when this is `"outdated"` so
-	 * the user sees the upgrade path *before* attempting to start a session.
-	 */
+
 	cliVersionStatus: Schema.optional(CliVersionStatus),
-	/**
-	 * Minimum CLI version the bundled SDK requires (e.g. `"0.128.0"`). Set in
-	 * tandem with `cliVersionStatus`; rendered inside the upgrade card.
-	 */
+
 	cliVersionMinRequired: Schema.optional(Schema.String),
-	/**
-	 * Version-gated features the *installed CLI* supports, computed by comparing
-	 * `cliVersion` against per-feature floors (see `CODEX_FEATURE_FLOORS` in
-	 * availability.ts). Values are {@link CodexFeature} ids. Empty/omitted when
-	 * the version is unknown or no features are gated for this provider. The
-	 * renderer reads this to show/hide feature controls *before* a session
-	 * exists (the live `model/list` `serviceTiers` refine it per-model once a
-	 * session is connected — see the `Capabilities` event).
-	 */
+
 	capabilities: Schema.optional(Schema.Array(Schema.String)),
-	/**
-	 * One-line shell command we recommend the user run to fix an outdated
-	 * CLI. Co-located with the version probe so renderer doesn't need its
-	 * own per-provider install lookup.
-	 */
+
 	cliUpgradeCommand: Schema.optional(Schema.String),
-	/**
-	 * Latest version published to the registry (e.g. `"1.0.140"`), when we were
-	 * able to resolve one. Set in tandem with `latestVersionStatus`.
-	 */
+
 	latestVersion: Schema.optional(Schema.String),
-	/**
-	 * Verdict on whether a newer published release exists. Drives the
-	 * informational "update available" UI (hover icon + launch toast) — never
-	 * blocks a session. `"unknown"` for providers we don't version-check (no
-	 * registry package) or when the registry lookup failed.
-	 */
+
 	latestVersionStatus: Schema.optional(LatestVersionStatus),
-	/**
-	 * Copy-able one-liner the user can run to update to the latest published
-	 * release (e.g. `"npm i -g @openai/codex@latest"`). Distinct from
-	 * `cliUpgradeCommand` (which targets the blocking SDK floor) — though they
-	 * often coincide.
-	 */
+
 	updateCommand: Schema.optional(Schema.String),
-	/**
-	 * Verified auth state. Distinct from `cliLoggedIn` (which only checks for
-	 * a credential file): set when an out-of-process probe (Codex
-	 * `account/read`, Claude credentials.json parse, etc.) confirmed the
-	 * credential is live.
-	 */
+
 	authStatus: Schema.optional(ProviderAuthStatus),
-	/** Account email pulled from the verified credential, when available. */
+
 	authEmail: Schema.optional(Schema.String),
-	/** Human-readable subscription label, e.g. "ChatGPT Plus Subscription". */
+
 	authLabel: Schema.optional(Schema.String),
-	/** Kind of credential, e.g. "chatgpt", "apiKey", "amazonBedrock". */
+
 	authType: Schema.optional(Schema.String),
-	/**
-	 * Rolled-up health verdict for the dot color in settings. Optional so
-	 * older clients without server-side classification just see a neutral
-	 * card — the renderer falls back to deriving from cliInstalled / login.
-	 */
+
 	status: Schema.optional(ProviderHealthStatus),
-	/**
-	 * One-line user-facing detail to render under the headline when status
-	 * is `warning` or `error` — typically the underlying probe error.
-	 */
+
 	statusMessage: Schema.optional(Schema.String),
-	/**
-	 * Wall-clock time of the most recent probe. Renderer renders this as
-	 * "Checked X ago" in the providers settings header. Encoded as an ISO
-	 * string over the wire so it survives the RPC's JSON hop.
-	 */
+
 	lastCheckedAt: Schema.optional(Schema.DateFromString),
 });
 export type AgentAvailability = typeof AgentAvailability.Type;
@@ -371,12 +318,6 @@ export type AgentAvailability = typeof AgentAvailability.Type;
  */
 export const AgentErrorKind = Schema.Literals(["auth", "network", "generic"]);
 export type AgentErrorKind = typeof AgentErrorKind.Type;
-
-// ---------------------------------------------------------------------------
-// Provider event union consumed by the conversation runtime. The split is
-// intentionally broad so ingestion can handle each kind without a giant
-// switch on payload shape.
-// ---------------------------------------------------------------------------
 
 const StartedEvent = Schema.TaggedStruct("Started", {
 	sessionId: AgentSessionId,
@@ -403,9 +344,8 @@ const CapabilitiesEvent = Schema.TaggedStruct("Capabilities", {
 
 /** Absolute, monotonically revised text emitted for one stable provider item. */
 export const ProviderMessageCheckpoint = Schema.Struct({
-	/** Revisions start at 1 and increase for every accepted cumulative value. */
 	revision: Schema.Number,
-	/** Final promotion is itself a strictly newer revision. */
+
 	final: Schema.Boolean,
 });
 export type ProviderMessageCheckpoint = typeof ProviderMessageCheckpoint.Type;
@@ -414,11 +354,9 @@ const AssistantMessageEvent = Schema.TaggedStruct("AssistantMessage", {
 	itemId: AgentItemId,
 	text: Schema.String,
 	checkpoint: Schema.optional(ProviderMessageCheckpoint),
-	/** True when the provider emitted a dedicated final plan item. */
+
 	isPlan: Schema.optional(Schema.Boolean),
-	// `parentItemId` is set when this message originated inside a sub-agent —
-	// the value is the parent's `Agent` tool_use itemId so the renderer can
-	// group nested rows under one collapsible wrapper. Absent for top-level.
+
 	parentItemId: Schema.optional(AgentItemId),
 });
 
@@ -430,41 +368,6 @@ const ThinkingEvent = Schema.TaggedStruct("Thinking", {
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * Normalized Tool-Call Contract
- * -----------------------------
- * All drivers emit `ToolUseEvent` / `ToolResultEvent` with the canonical
- * shape Claude produces. The renderer at
- * `apps/renderer/src/components/tool-row.tsx` switches on `tool` and reads
- * specific keys out of `input` — to keep every provider's row rendering
- * identical, ACP drivers translate native frames into these shapes
- * (`@zuse/agents/drivers/acp/translate`).
- *
- *   tool          input keys                              result `output`
- *   ---------     ------------------------------------    -------------------
- *   Edit          { file_path, old_string, new_string }   diff text or {}
- *   MultiEdit     { file_path, edits: [...] }             diff text or {}
- *   Write         { file_path, content }                  ""
- *   Read          { file_path, offset?, limit? }          file slice (string
- *                                                          or [{type:"text"}])
- *   ViewImage     { file_path }                           multimodal image block
- *   Bash          { command, description? }               stdout/stderr text
- *                 `description` only when it's a human-written summary
- *                 distinct from the command — drivers must not echo the
- *                 command / first line / title into it (see
- *                 `isRedundantShellDescription` in `shell-display.ts`).
- *   Grep          { pattern, path?, glob?, output_mode? } match listing
- *   Glob          { pattern, path? }                      file listing
- *   WebSearch     { query }                               result array (or
- *                                                          empty for
- *                                                          `queryOnly` models)
- *   WebFetch      { url, prompt? }                        page summary text
- *   TodoWrite     { todos: [...] }                        ""
- *
- * Adding a new tool: extend this block AND add a `case` in tool-row.tsx so
- * the renderer knows how to label/render it. Unknown tools fall through to
- * the default Wrench row, which is correct but unstyled.
- */
 const ToolUseEvent = Schema.TaggedStruct("ToolUse", {
 	itemId: AgentItemId,
 	tool: Schema.String,
@@ -490,27 +393,14 @@ const ToolResultEvent = Schema.TaggedStruct("ToolResult", {
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * Phase 3 surface — the SDK asks the user before doing something dangerous
- * (running a shell command, writing outside the workspace, etc.). v2 just
- * auto-denies and emits this so the UI can toast "Phase 3 will let you allow
- * this."
- */
 const PermissionRequestEvent = Schema.TaggedStruct("PermissionRequest", {
 	itemId: AgentItemId,
 	kind: Schema.String,
 	details: Schema.Unknown,
-	// Carries the parent Agent tool_use itemId when the requesting tool ran
-	// inside a sub-agent context. The toast prepends "via <name> · <model> ·"
-	// when set so the user sees who's actually asking.
+
 	parentItemId: Schema.optional(AgentItemId),
 });
 
-/**
- * Closing summary for a sub-agent run. Emitted when the parent's
- * `Agent` tool_result lands; the wrapper-row footer reads from this when
- * collapsed.
- */
 const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
 	itemId: AgentItemId,
 	agentName: Schema.String,
@@ -523,9 +413,7 @@ const SubagentSummaryEvent = Schema.TaggedStruct("SubagentSummary", {
 	presentation: Schema.optional(Schema.Literals(["inline", "detached"])),
 });
 
-/** Native provider progress for a running child agent. */
 const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
-	/** The native root finished while this child remains active. */
 	rootCompleted: Schema.optional(Schema.Boolean),
 	childId: Schema.String,
 	parentId: Schema.String,
@@ -540,11 +428,6 @@ const SubagentProgressEvent = Schema.TaggedStruct("SubagentProgress", {
 	errorCount: Schema.Number,
 });
 
-/**
- * Per-turn token usage. Emitted on every SDK `result` message; tagged with
- * `parentItemId` when the result belongs to a sub-agent. The renderer
- * accumulates these into the per-agent footer.
- */
 const UsageDeltaEvent = Schema.TaggedStruct("UsageDelta", {
 	parentItemId: Schema.optional(AgentItemId),
 	inputTokens: Schema.Number,
@@ -593,45 +476,24 @@ const UsageLimitEvent = Schema.TaggedStruct("UsageLimit", {
 	providerId: ProviderId,
 	label: Schema.String,
 	usedPercent: Schema.NullOr(Schema.Number),
-	// ISO-8601 string, not a `Date` schema: the value crosses IPC and the
-	// persistence layer as JSON, and a `DateFromString` transform trips the
-	// struct constructor (which validates against the decoded `Date` side).
+
 	resetsAt: Schema.NullOr(Schema.String),
 	windowMinutes: Schema.NullOr(Schema.Number),
 });
 
-/**
- * Emitted when the provider starts a top-level turn without an application
- * send — e.g. Claude Code waking its main agent when a background task
- * finishes. The kernel turn protocol opens an application turn for it so the
- * work persists and the session reads as running until the provider settles.
- */
 const ProviderTurnStartedEvent = Schema.TaggedStruct("ProviderTurnStarted", {});
 
 const CompletedEvent = Schema.TaggedStruct("Completed", {
 	reason: Schema.Literals(["ended", "interrupted", "error"]),
 });
 
-/**
- * Emitted when the user interrupts a running turn. Unlike `Error`, this is a
- * normal user action — the renderer shows a muted "Interrupted by user" badge
- * (no red error bubble) and the session stays out of the error state. Drivers
- * emit this in place of `Error` when they know the turn ended because of an
- * explicit interrupt (see the Claude driver, which otherwise surfaces the
- * SDK's `error_during_execution` result as a bogus error).
- */
 const InterruptedEvent = Schema.TaggedStruct("Interrupted", {});
 
 const ErrorEvent = Schema.TaggedStruct("Error", {
 	message: Schema.String,
-	/**
-	 * Optional classifier so the renderer can pick the right CTA without
-	 * regexing the message. Drivers set this when they have positive evidence
-	 * (e.g. Codex SDK reported a 401, or fetch threw ECONN). Absent → the
-	 * renderer falls back to its own heuristic classification.
-	 */
+
 	kind: Schema.optional(AgentErrorKind),
-	/** Provider that produced the error, when known. */
+
 	providerId: Schema.optional(ProviderId),
 });
 
@@ -702,12 +564,6 @@ export const UserQuestion = Schema.Struct({
 });
 export type UserQuestion = typeof UserQuestion.Type;
 
-/**
- * Emitted when the agent calls the in-process `AskUserQuestion` tool. The
- * renderer subscribes to this and renders a question card. `itemId` is the
- * SDK's `tool_use.id` so the eventual answer maps back to a single tool
- * call.
- */
 const UserQuestionResolvedEvent = Schema.TaggedStruct("UserQuestionResolved", {
 	itemId: AgentItemId,
 	resolution: Schema.Literals(["cancelled", "timed-out"]),
@@ -726,7 +582,6 @@ export const PlanApprovalOutcome = Schema.Literals([
 ]);
 export type PlanApprovalOutcome = typeof PlanApprovalOutcome.Type;
 
-/** Blocking native plan review request. */
 const PlanApprovalRequestedEvent = Schema.TaggedStruct(
 	"PlanApprovalRequested",
 	{
@@ -736,10 +591,6 @@ const PlanApprovalRequestedEvent = Schema.TaggedStruct(
 	},
 );
 
-/**
- * Emitted when `Query.setPermissionMode` succeeds. The renderer uses it to
- * keep the chat-header chip in sync without a round-trip.
- */
 const PermissionModeChangedEvent = Schema.TaggedStruct(
 	"PermissionModeChanged",
 	{ mode: PermissionMode },
@@ -831,10 +682,6 @@ export const ProviderEventEnvelope = Schema.Union([
 ]);
 export type ProviderEventEnvelope = typeof ProviderEventEnvelope.Type;
 
-// ---------------------------------------------------------------------------
-// RPC inputs
-// ---------------------------------------------------------------------------
-
 /**
  * Definition of a sub-agent that the main agent can delegate to. Mirror of
  * the Claude Agent SDK's `AgentDefinition` shape (subset we expose now —
@@ -875,17 +722,11 @@ export type AgentDefinition = typeof AgentDefinition.Type;
 export const ModelOption = Schema.Struct({
 	id: Schema.String,
 	label: Schema.String,
-	/** Optional small picker badge for launch/newness callouts. */
+
 	badgeLabel: Schema.optional(Schema.String),
-	/**
-	 * Preferred default for this provider. When omitted, the first visible model
-	 * remains the fallback default.
-	 */
+
 	defaultModel: Schema.optional(Schema.Boolean),
-	/**
-	 * Whether this model appears in normal picker/default selectors before the
-	 * user opts it back in from provider settings. Omitted means visible.
-	 */
+
 	defaultVisible: Schema.optional(Schema.Boolean),
 	optionDescriptors: Schema.optional(Schema.Array(OptionDescriptor)),
 	supportsPlanMode: Schema.optional(Schema.Boolean),
@@ -901,86 +742,40 @@ export type ModelOption = typeof ModelOption.Type;
  */
 
 export const StartSessionInput = Schema.Struct({
+	/** Internal auxiliary turn: supported adapters remove all tools and hooks. */
+	outputOnly: Schema.optional(Schema.Boolean),
 	folderId: FolderId,
 	providerId: ProviderId,
 	mode: SessionMode,
 	initialPrompt: Schema.optional(Schema.String),
-	/** Exact application turn correlated with `initialPrompt`. */
+
 	initialTurnId: Schema.optional(AgentTurnId),
 	initialAttemptId: Schema.optional(AttemptId),
-	/**
-	 * Internal Zuse-provided workspace context. The renderer does not set this;
-	 * ProviderService fills it after resolving the project/worktree cwd so
-	 * drivers can pass it through native system/developer instruction channels
-	 * where available.
-	 */
+
 	workspaceInstructions: Schema.optional(Schema.String),
-	/** Replaced by ProviderService from the trusted runtime hook before starting a driver. */
+
 	executionEnv: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-	/** Internal: isolated account home resolved by ProviderService. */
+
 	providerAccountHome: Schema.optional(Schema.String),
-	// Optional caller-supplied id. When omitted, ProviderService mints a fresh
-	// one. The conversation domain uses this to lazy-restart a closed session without
-	// moving its persisted history to a new row.
+
 	sessionId: Schema.optional(AgentSessionId),
-	// Optional provider-specific model id (e.g. "claude-opus-4-7"). Drivers
-	// forward it to the SDK; omitting it lets the SDK pick its own default.
+
 	model: Schema.optional(Schema.String),
-	// Sub-agents the main agent may delegate to. Keys are the `subagent_type`
-	// the SDK reports back on `Agent` tool_use blocks; values define each
-	// sub-agent's prompt, tool subset, model, and permission mode. Empty /
-	// omitted means no sub-agents — session behaves as before.
+
 	agents: Schema.optional(Schema.Record(Schema.String, AgentDefinition)),
-	// Master toggle. When the renderer wants to start a Claude session with
-	// sub-agents disabled even though presets exist, it sends this as false.
-	// Defaults true when `agents` is non-empty; the driver only adds `Agent`
-	// to `allowedTools` when the effective value is true.
+
 	enableSubagents: Schema.optional(Schema.Boolean),
-	/**
-	 * Optional absolute path the agent should run in. When omitted, the
-	 * provider resolves cwd from `folderId` (the project's main checkout).
-	 * The conversation domain populates this with a worktree path when a session was
-	 * created against a worktree, so the SDK runs in the worktree dir.
-	 */
+
 	cwdOverride: Schema.optional(Schema.String),
-	/**
-	 * SDK lifecycle mode passed to `Options.permissionMode`. Defaults to
-	 * `default`. Pass `plan` to start the session in plan mode — the agent
-	 * will explore read-only and propose a plan via `ExitPlanMode`.
-	 */
+
 	permissionMode: Schema.optional(PermissionMode),
-	/**
-	 * When true, future MCP servers register without `alwaysLoad`, letting
-	 * the SDK delegate to its built-in tool search instead of inflating the
-	 * tool list every turn. No-op today (no MCP tools shipped yet); ready
-	 * for 0.04.
-	 */
+
 	toolSearch: Schema.optional(Schema.Boolean),
-	/**
-	 * When true AND a resume cursor is supplied, the driver FORKS the resumed
-	 * transcript into a fresh provider session instead of continuing it
-	 * (Claude `Options.forkSession`, Codex `thread/fork`), leaving the source
-	 * transcript untouched. Ignored without a resume cursor, and by providers
-	 * that lack native fork support (they fall back to a transcript copy at a
-	 * higher layer). Backs the "Fork chat" feature.
-	 */
+
 	forkFromResume: Schema.optional(Schema.Boolean),
-	/**
-	 * Opaque per-model knob values. Keys map to
-	 * `ModelDescriptor.optionDescriptors[].id` (e.g. `"reasoning"`); values
-	 * are the selected option id (for example, `"low"` or `"ultra"`) for
-	 * selects or `"true" | "false"` for booleans. Drivers consume what they support
-	 * and ignore the rest — the FE composer renders only the descriptors
-	 * the current model declared, so no value should arrive that the driver
-	 * can't interpret.
-	 */
+
 	modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
-	/**
-	 * Internal: the resolved catalog entry for `model`. The renderer does not
-	 * set this; ProviderService looks it up in the resolved model catalog
-	 * (curated + live inventory) so drivers gate reasoning tiers / fast mode
-	 * without reading a static list. `undefined` for custom slugs.
-	 */
+
 	modelDescriptor: Schema.optional(ModelOption),
 	/**
 	 * Internal: narrows what a hidden server-run session may do. `read-only`
@@ -997,11 +792,7 @@ export type SessionToolPolicy = NonNullable<StartSessionInput["toolPolicy"]>;
 export const SendInput = Schema.Struct({
 	sessionId: AgentSessionId,
 	text: Schema.String,
-	/**
-	 * Per-turn override of the session's `modelOptions` (see
-	 * `StartSessionInput.modelOptions`). When omitted, drivers reuse the
-	 * value supplied at session start.
-	 */
+
 	modelOptions: Schema.optional(Schema.Record(Schema.String, Schema.String)),
 });
 export type SendInput = typeof SendInput.Type;
@@ -1029,10 +820,6 @@ export const CredentialSetResult = Schema.Struct({
 });
 export type CredentialSetResult = typeof CredentialSetResult.Type;
 
-// ---------------------------------------------------------------------------
-// Wire errors
-// ---------------------------------------------------------------------------
-
 export class ProviderNotAvailableError extends Schema.TaggedErrorClass<ProviderNotAvailableError>()(
 	"ProviderNotAvailableError",
 	{ providerId: ProviderId, reason: Schema.String },
@@ -1058,12 +845,6 @@ export class CredentialValidationError extends Schema.TaggedErrorClass<Credentia
 	{ providerId: ProviderId, reason: Schema.String },
 ) {}
 
-// ---------------------------------------------------------------------------
-// RPC definitions. Not yet registered in `MemoizeRpcs` — handlers come
-// online in PR 3 (availability), PR 4 (credentials), PR 5/6 (sessions). Each
-// of those PRs adds its RPC to the group when its handler exists.
-// ---------------------------------------------------------------------------
-
 export const ProviderAvailabilityRpc = Rpc.make("provider.availability", {
 	payload: Schema.Struct({ refresh: Schema.optional(Schema.Boolean) }),
 	success: Schema.Array(AgentAvailability),
@@ -1084,29 +865,10 @@ export const ProviderRemoveCredentialRpc = Rpc.make(
 	},
 );
 
-// ---------------------------------------------------------------------------
-// OpenCode dynamic inventory — single RPC the renderer calls when the user
-// opens the model picker for the opencode provider. Returns the
-// SDK-discovered set of connected providers + their models, and the set of
-// locally-defined agents (build, plan, plus any custom ones). The renderer
-// server merges this into the curated `opencode` catalog seed so the
-// picker reflects what the user actually has connected/configured.
-//
-// Lives next to the per-provider availability probe so it's discoverable
-// alongside the other agent.* RPCs; the handler short-lives an
-// `opencode serve` to make the SDK calls and tears it down on return.
-// ---------------------------------------------------------------------------
-
 export const OpencodeInventoryModel = Schema.Struct({
 	id: Schema.String,
 	label: Schema.String,
-	/**
-	 * Variant names exposed by this opencode model — e.g. `["high", "medium",
-	 * "low"]` for reasoning models, `["super-high"]` for some, or `[]` for
-	 * models without a variant axis. Sourced from `provider.list()`'s
-	 * per-model `variants` map. The renderer renders a "reasoning" picker
-	 * only when this array is non-empty.
-	 */
+
 	variants: Schema.Array(Schema.String),
 });
 export type OpencodeInventoryModel = typeof OpencodeInventoryModel.Type;
@@ -1115,30 +877,13 @@ export const OpencodeInventoryProvider = Schema.Struct({
 	id: Schema.String,
 	name: Schema.String,
 	models: Schema.Array(OpencodeInventoryModel),
-	/**
-	 * `true` when opencode reports this provider in `provider.list().connected`
-	 * — i.e. it has a stored credential (via `auth.set`) or an injected custom
-	 * definition — so its models are actually usable. The catalog now returns
-	 * every provider opencode knows about (~150), most of them unconnected; the
-	 * settings UI uses this flag to split "connected" from "available to add".
-	 */
+
 	connected: Schema.Boolean,
-	/**
-	 * `true` for user-defined OpenAI-compatible providers we inject via
-	 * `OPENCODE_CONFIG_CONTENT` (see `settings.opencodeCustomProviders`), as
-	 * opposed to entries from opencode's built-in models.dev catalog.
-	 */
+
 	custom: Schema.Boolean,
-	/**
-	 * Name of the environment variable this provider's key is read from
-	 * (`provider.list().env[0]`, e.g. `"OPENAI_API_KEY"`, `"GITHUB_TOKEN"`).
-	 * Used as the API-key input placeholder. Empty for oauth-only / custom.
-	 */
+
 	apiKeyEnv: Schema.String,
-	/**
-	 * models.dev doc URL for this provider (the "Get an API key" link).
-	 * Empty when unknown (custom providers, or if the catalog fetch failed).
-	 */
+
 	apiKeyUrl: Schema.String,
 });
 export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
@@ -1146,8 +891,7 @@ export type OpencodeInventoryProvider = typeof OpencodeInventoryProvider.Type;
 export const OpencodeInventoryAgent = Schema.Struct({
 	name: Schema.String,
 	mode: Schema.Literals(["primary", "all"]),
-	// OpenCode 1.18 serializes missing descriptions as JSON null. Optional
-	// string rejects that; NullOr lets encode/decode survive the wire shape.
+
 	description: Schema.optional(Schema.NullOr(Schema.String)),
 });
 export type OpencodeInventoryAgent = typeof OpencodeInventoryAgent.Type;
@@ -1157,13 +901,6 @@ export const OpencodeInventory = Schema.Struct({
 	agents: Schema.Array(OpencodeInventoryAgent),
 });
 export type OpencodeInventory = typeof OpencodeInventory.Type;
-
-// ---------------------------------------------------------------------------
-// Kiro live model inventory. Prefer control-plane ListAvailableModels; fall
-// back to `kiro-cli chat --list-models`. The renderer merges this into the
-// curated `kiro` catalog seed so the picker reflects the account's
-// currently-available catalog (which varies by tier / region).
-// ---------------------------------------------------------------------------
 
 export const KiroInventoryModel = Schema.Struct({
 	id: Schema.String,
@@ -1180,17 +917,6 @@ export const KiroInventory = Schema.Struct({
 	defaultModelId: Schema.String,
 });
 export type KiroInventory = typeof KiroInventory.Type;
-
-// ---------------------------------------------------------------------------
-// OpenCode provider management. The settings UI lets the user connect any of
-// opencode's ~150 catalog providers by pasting an API key, and define custom
-// OpenAI-compatible providers from a base URL. Keys are written through to
-// opencode's own persistent `auth.json` (via the SDK `auth.set`) so they also
-// work when the user runs `opencode` in a terminal; custom provider *shapes*
-// live in our settings.json and are injected at spawn. Each handler
-// short-lives an `opencode serve` to make the SDK call, mirroring
-// `agent.opencodeInventory`.
-// ---------------------------------------------------------------------------
 
 /** A single model exposed by a user-defined OpenAI-compatible provider. */
 export const OpencodeCustomModel = Schema.Struct({
@@ -1209,11 +935,7 @@ export const OpencodeCustomProvider = Schema.Struct({
 	id: Schema.String,
 	name: Schema.String,
 	baseURL: Schema.String,
-	/**
-	 * The AI-SDK provider package opencode loads for this endpoint (e.g.
-	 * `"@ai-sdk/openai-compatible"`, `"@openrouter/ai-sdk-provider"`). Picked
-	 * from a small preset list in the UI; defaults to OpenAI-compatible.
-	 */
+
 	npm: Schema.String,
 	models: Schema.Array(OpencodeCustomModel),
 });
@@ -1311,14 +1033,6 @@ export const ProviderOpencode2RemoveCustomRpc = Rpc.make(
 	},
 );
 
-// ---------------------------------------------------------------------------
-// One-click sign-in flow. The renderer subscribes to `provider.startLogin`,
-// which spawns the provider's `login` subcommand server-side, extracts the
-// OAuth URL the CLI prints, and reports progress back as a stream of
-// `LoginEvent`s. Supported providers have a real handler; other providers
-// resolve to an immediate `done(ok=false)`.
-// ---------------------------------------------------------------------------
-
 export const LoginEvent = Schema.Union([
 	Schema.TaggedStruct("url", { url: Schema.String }),
 	Schema.TaggedStruct("log", { text: Schema.String }),
@@ -1339,15 +1053,6 @@ export const ProviderStartLoginRpc = Rpc.make("provider.startLogin", {
 	error: AgentSessionStartError,
 	stream: true,
 });
-
-// ---------------------------------------------------------------------------
-// One-click provider CLI update. The renderer subscribes to
-// `agent.updateProvider`, which spawns the provider's install/upgrade command
-// in a login shell (so `npm`/`bun` are on PATH and `curl … | bash` installers
-// work), streams the command's output back as `log` lines, and ends with a
-// terminal `done`. On success the renderer re-probes availability so the new
-// version is reflected immediately.
-// ---------------------------------------------------------------------------
 
 export const ProviderUpdateEvent = Schema.Union([
 	Schema.TaggedStruct("log", { text: Schema.String }),

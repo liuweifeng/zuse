@@ -248,6 +248,31 @@ describe("GitServiceLive", () => {
 		}
 	});
 
+	test("a clean branch with thousands of stale file stats lists only its committed edit", async () => {
+		mkdirSync(join(repositoryRoot, "many"));
+		for (let i = 0; i < 5120; i++) {
+			writeFileSync(join(repositoryRoot, "many", `${i}.txt`), "unchanged\n");
+		}
+		git(repositoryRoot, "add", ".");
+		git(repositoryRoot, "commit", "-m", "base files");
+		git(repositoryRoot, "switch", "-c", "feature");
+		writeFileSync(join(repositoryRoot, "README.md"), "real branch edit\n");
+		git(repositoryRoot, "commit", "-am", "edit readme");
+		const index = readFileSync(join(repositoryRoot, ".git", "index"));
+		const later = new Date(Date.now() + 2_000);
+		for (let i = 0; i < 5120; i++) {
+			utimesSync(join(repositoryRoot, "many", `${i}.txt`), later, later);
+		}
+		const snapshot = await run((service) =>
+			service.workspaceSnapshot(folderId),
+		);
+		expect(snapshot.status.dirtyFiles).toBe(0);
+		expect(snapshot.reviewSummary.files.map((file) => file.path)).toEqual([
+			"README.md",
+		]);
+		expect(readFileSync(join(repositoryRoot, ".git", "index"))).toEqual(index);
+	});
+
 	test("keeps committed and staged binary edits while excluding unchanged binary files", async () => {
 		for (const name of ["committed.pdf", "unchanged.pdf"]) {
 			writeFileSync(join(repositoryRoot, name), Buffer.from([0, 1, 2, 3]));
@@ -642,8 +667,7 @@ describe("GitServiceLive", () => {
 						),
 					),
 				);
-				// Git path discovery uses real subprocesses; wait for their completion
-				// before advancing the virtual reconciliation clock.
+
 				yield* Effect.promise(async () => {
 					for (
 						let attempt = 0;
@@ -663,8 +687,7 @@ describe("GitServiceLive", () => {
 				}
 				yield* Effect.yieldNow;
 				yield* TestClock.adjust("100 millis");
-				// More edits arrive while the previous invalidation is rate-limited.
-				// The final observation must survive without queueing every refresh.
+
 				Queue.offerUnsafe(events, { _tag: "Update", path: "second.md" });
 				yield* Effect.yieldNow;
 				yield* TestClock.adjust("100 millis");
@@ -693,8 +716,7 @@ describe("GitServiceLive", () => {
 				.workspaceChanges(folderId)
 				.pipe(Stream.take(2), Stream.runCollect),
 		);
-		// Let the scoped watcher install before mutating the repository. The
-		// production stream also has a thirty-second reconciliation fallback.
+
 		await new Promise((resolve) => setTimeout(resolve, 25));
 		writeFileSync(join(repositoryRoot, "README.md"), "changed\n");
 		writeFileSync(join(repositoryRoot, "README.md"), "changed again\n");
@@ -838,8 +860,7 @@ describe("GitServiceLive", () => {
 			await new Promise((resolve) => setTimeout(resolve, 5));
 		}
 		expect(watchStarts).toBe(2);
-		// `watch` is called while constructing the streams; give their native
-		// subscriptions one turn to install before proving the fast path is live.
+
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		const changedAt = Date.now();
 		writeFileSync(join(recoveringRoot, "README.md"), "native watcher active\n");
@@ -971,8 +992,7 @@ describe("GitServiceLive", () => {
 
 		expect(watchedPaths.has(repositoryRoot)).toBe(true);
 		expect(watchedPaths.has(secondRepositoryRoot)).toBe(true);
-		// `watch` is invoked while building each stream; allow both native
-		// subscriptions to finish installing before generating their events.
+
 		await new Promise((resolve) => setTimeout(resolve, 50));
 		writeFileSync(join(repositoryRoot, "README.md"), "first changed\n");
 		writeFileSync(join(secondRepositoryRoot, "README.md"), "second changed\n");

@@ -114,8 +114,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				},
 				commandId,
 			);
-			// Push the new title to any renderer subscribed via
-			// `chat.streamChanges` so the sidebar updates without a refetch.
+
 			const updated = yield* lookupChat(chatId);
 			yield* broadcastChat(updated);
 			return updated;
@@ -174,8 +173,6 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				return;
 			}
 
-			// One naming turn covers both so a fresh worktree chat boots one
-			// throwaway provider session instead of two in sequence.
 			const names = yield* titleGen.generate({
 				folderId: chat.projectId,
 				providerId: session.providerId,
@@ -224,8 +221,7 @@ export const makeAutoNameOperations = (options: AutoNameOperationsOptions) => {
 				settings.branchNamingStyle,
 				settings.branchNamingPrefix,
 			);
-			// Rename the git branch, then mirror it onto the worktree row so the
-			// DB and git agree. updateBranch only runs if the rename succeeded.
+
 			yield* worktrees
 				.renameBranch(worktreeId, branch, "automatic")
 				.pipe(Effect.catch(() => Effect.void));

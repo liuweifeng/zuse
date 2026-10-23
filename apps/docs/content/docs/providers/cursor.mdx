@@ -1,5 +1,6 @@
 ---
 title: Cursor
+icon: logo:cursor
 description: Configure the bundled Cursor SDK with an API key and run sandboxed local-agent sessions.
 section: providers
 order: 36
@@ -15,7 +16,7 @@ Cursor runs through the SDK bundled with Zuse. It does not require a separate Cu
 
 ## Add an API key
 
-Open **Settings → Providers → Cursor**, enter a Cursor API key, and save it. The key is required and is stored in the macOS Keychain rather than `settings.json`.
+Open **Settings → Providers → Cursor**, enter a Cursor API key, and save it. The key is required. Zuse keeps it in an encrypted credential store whose key is held by your system keychain, not in `settings.json`.
 
 The account must include Cursor SDK access. [Cursor Start does not include the SDK](https://cursor.com/help/account-and-billing/cursor-start), even though it includes Composer 2.5 in Cursor itself. If Cursor reports **Model unavailable on Start**, use a key from an account with SDK access; retrying the same key or choosing another included model does not resolve the plan restriction.
 

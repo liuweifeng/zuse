@@ -178,9 +178,6 @@ const readDirectoryEntries = (directory: string): ReadonlyArray<Dirent> => {
 	try {
 		return readdirSync(directory, { withFileTypes: true });
 	} catch {
-		// Provider history is a live, optional data source. A directory may be
-		// rotated or lose access while discovery is running; keep the other
-		// providers and projects usable instead of failing the whole menu.
 		return [];
 	}
 };
@@ -202,7 +199,6 @@ export const discoverClaudeThreads = (
 			try {
 				updatedAt = statSync(sourcePath).mtime;
 			} catch {
-				// The transcript was removed between directory enumeration and read.
 				continue;
 			}
 			let sessionId = entry.name.replace(/\.jsonl$/, "");
@@ -673,9 +669,7 @@ export const codexRolloutTranscriptMessages = async (
 			if (message === null) continue;
 			messages.push(message);
 			if (messages.length > 2_000) messages.shift();
-		} catch {
-			// Ignore partial or non-JSON rows without discarding the rest of the rollout.
-		}
+		} catch {}
 	}
 	return messages;
 };

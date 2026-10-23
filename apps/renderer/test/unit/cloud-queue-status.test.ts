@@ -73,6 +73,10 @@ describe("cloud lifecycle label", () => {
 
 	it.each([
 		["preparing-credentials", "Preparing connected accounts…"],
+		[
+			"grok-auth-reconnect-required",
+			"Reconnect Grok in Cloud Workspaces to continue.",
+		],
 		["checking-repository", "Checking repository…"],
 		["switching-branch", "Switching branch…"],
 		["fetching-repository", "Fetching repository…"],
@@ -147,6 +151,20 @@ describe("cloud lifecycle label", () => {
 });
 
 describe("cloud queue status", () => {
+	it("stops animating a queued prompt after connection retries are exhausted", () => {
+		expect(
+			cloudQueueStatus({
+				summary: summary(),
+				activity: "failed",
+				connection: "failed",
+				pendingCommands: [],
+			}),
+		).toEqual({
+			label:
+				"Cloud connection failed. Retry to reconnect; your message is still queued.",
+			busy: false,
+		});
+	});
 	const send = {
 		commandId: CommandId.make("message-send:prompt"),
 		kind: "messages.send",

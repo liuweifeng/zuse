@@ -172,10 +172,10 @@ describe("cloud runtime assets", () => {
 			readWorkspaceFile("infra/cloud-sandboxes/provision.sh"),
 		]);
 		expect(dockerfile).toContain(
-			"RUN /tmp/zuse-provision/provision.sh globals",
+			"RUN /opt/zuse-provision/provision.sh globals",
 		);
 		expect(dockerfile).toContain(
-			"RUN /tmp/zuse-provision/provision.sh runtime layout",
+			"RUN /opt/zuse-provision/provision.sh runtime layout",
 		);
 		expect(boxInstall).not.toContain("zuse-host-ports.service");
 		expect(provision).toContain('source "$provision_dir/install-grok.sh"');
@@ -256,8 +256,6 @@ describe("cloud runtime assets", () => {
 			"infra/api/src/cloud-workspace-launch-assets.ts",
 		);
 
-		// The API ships the current auth script with the project build, so a base
-		// image older than the `gh` shim cannot strand a workspace.
 		expect(assets).toContain(
 			'GITHUB_AUTH_SOURCE from "../../cloud-sandboxes/github-auth.sh"',
 		);
@@ -274,28 +272,21 @@ describe("cloud runtime assets", () => {
 			'[[ -x "$github_auth" ]] || chmod u+x "$github_auth"',
 		);
 
-		// The shim has to win PATH resolution, and the credential helper has to be
-		// reinstalled in case a persisted home shadowed the image's git config.
 		expect(bootstrap).toContain(
 			'ln -sf "$github_auth" /home/zuse/.local/bin/gh',
 		);
 		expect(bootstrap).toContain('export PATH="/home/zuse/.local/bin:$PATH"');
 		expect(bootstrap).toContain('"$github_auth" install');
 
-		// A terminal opened over the SSH bridge reads the shell profile rather
-		// than the runtime's environment, and must resolve the same shim.
 		expect(bootstrap).toContain(
 			"for rc in /home/zuse/.profile /home/zuse/.bashrc; do",
 		);
 		expect(bootstrap).toContain("grep -qs 'zuse-github-auth shim' \"$rc\"");
 
-		// Agents inherit this environment from the runtime, so the repair must
-		// land before the runtime starts.
 		expect(bootstrap.indexOf('ln -sf "$github_auth"')).toBeLessThan(
 			bootstrap.indexOf("phase=starting-runtime"),
 		);
 
-		// `gh auth login` is never the fix in a cloud workspace.
 		expect(bootstrap).toContain("gh auth login is never the fix");
 		expect(bootstrap).not.toMatch(/run\s+`?gh auth login`?\.?$/mu);
 	});
@@ -306,8 +297,6 @@ describe("cloud runtime assets", () => {
 		);
 		const temporaryRoot = await mkdtemp(join(tmpdir(), "zuse-gh-shim-"));
 		try {
-			// Stands in for /home/zuse/.local/bin: the shim the bootstrap links
-			// ahead of a stale image's stock gh.
 			const shimDir = join(temporaryRoot, "local-bin");
 			const tokenFile = join(temporaryRoot, "token");
 			const stockGh = join(temporaryRoot, "stock-gh");

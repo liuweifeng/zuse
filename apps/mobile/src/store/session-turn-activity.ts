@@ -50,9 +50,7 @@ export const syncSessionTurnActivity = (
 		setSessionTurnActivity(sessionKey, "running");
 		return;
 	}
-	// A retained timeline may emit an idle snapshot after submit but before the
-	// new turn-start frame. The explicit failure callback owns cancelling this
-	// optimistic bridge; a stale idle frame must not erase it.
+
 	if (
 		appAtomRegistry.get(sessionTurnActivityBySessionAtom)[sessionKey] ===
 		"starting"

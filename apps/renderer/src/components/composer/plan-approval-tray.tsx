@@ -138,9 +138,6 @@ export function PlanApprovalTray({
 		queueMicrotask(() => useComposerBridge.getState().focus?.());
 	};
 
-	// Hand the proposed plan off to a fresh build-mode session in the same chat.
-	// The current plan-mode session is left untouched (its ExitPlanMode prompt
-	// stays open), so the user can keep iterating on the plan or discard it.
 	const handoff = async () => {
 		if (submitting) return;
 		setSubmitting(true);

@@ -117,8 +117,6 @@ export function PermissionsInspector({
 	const decisions = decisionsByProject[projectId] ?? [];
 	const loading = loadingByProject[projectId] === true;
 
-	// Reload every time the modal opens — the user may have hit a prompt
-	// outside this surface and we want fresh state.
 	useEffect(() => {
 		if (open) void loadEnvironmentPermissionDecisions(projectId);
 	}, [open, projectId]);

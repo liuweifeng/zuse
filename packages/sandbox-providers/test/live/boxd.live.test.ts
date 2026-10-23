@@ -3,12 +3,6 @@ import { describe, expect, test } from "vitest";
 import { makeBoxdSandboxProvider } from "../../src/boxd.ts";
 import type { ProviderSandbox } from "../../src/index.ts";
 
-// Live verification against production boxd (boxd.sh). Runs only when
-// BOXD_API_KEY and BOXD_TEMPLATE_SNAPSHOT are set; the template snapshot must
-// be a published zuse base template (infra/cloud-sandboxes/boxd-publish.sh)
-// because the runtime checks exercise the installed CLI as the zuse user.
-// Costs a few cents of machine time per run. BOXD_ORG selects the org the
-// key is fenced to.
 const apiKey = process.env.BOXD_API_KEY;
 const templateSnapshot = process.env.BOXD_TEMPLATE_SNAPSHOT;
 const org = process.env.BOXD_ORG;
@@ -29,8 +23,6 @@ const pollUntil = async <A>(
 	return value;
 };
 
-// A minimal WebSocket echo server on Node's http module: the SSH bridge and
-// the desktop's live connection both ride WebSockets through the proxy.
 const WS_ECHO_SERVER = `
 const http = require('node:http'); const crypto = require('node:crypto');
 const server = http.createServer((request, response) => { response.writeHead(200, { 'content-type': 'text/plain' }); response.end('ok'); });
@@ -91,7 +83,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				createdIds.push(created.providerSandboxId);
 				expect(created.state).toBe("running");
 
-				// Egress and the runtime user, straight after creation.
 				await Effect.runPromise(
 					adapter.startProcess(created.providerSandboxId, {
 						command: "/bin/bash",
@@ -112,7 +103,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				expect(inspected?.state).toBe("running");
 				expect(inspected?.providerLabel).toBe(label);
 
-				// The published runtime loads as its unprivileged user.
 				await Effect.runPromise(
 					adapter.startProcess(created.providerSandboxId, {
 						command: "/bin/bash",
@@ -127,8 +117,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					await canary(created.providerSandboxId, "/tmp/zuse-runtime-smoke-ok"),
 				).toBe(true);
 
-				// A tagged (systemd) process on the runtime port, bound to loopback
-				// like the real runtime, reachable over HTTPS and WebSocket.
 				await Effect.runPromise(
 					adapter.writeTextFile(
 						created.providerSandboxId,
@@ -191,7 +179,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				});
 				expect(echoed).toBe("echo:ping");
 
-				// File round trip with owner-only permissions.
 				await Effect.runPromise(
 					adapter.writeTextFile(
 						created.providerSandboxId,
@@ -209,14 +196,12 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					),
 				).resolves.toBe("live-contents");
 
-				// Label recovery must find exactly this machine.
 				const recovered = await pollUntil(
 					() => Effect.runPromise(adapter.recoverByLabel(label)),
 					(value): value is ProviderSandbox => value !== null,
 				);
 				expect(recovered?.providerSandboxId).toBe(created.providerSandboxId);
 
-				// Hibernate, hibernate again (tolerated), wake with the runtime intact.
 				await timed("pause", () =>
 					Effect.runPromise(adapter.pause(created.providerSandboxId)),
 				);
@@ -236,7 +221,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					),
 				);
 				expect(resumed.state).toBe("running");
-				// The tagged echo server survived the pause: warm resume semantics.
+
 				await Effect.runPromise(
 					adapter.startProcess(created.providerSandboxId, {
 						command: "/bin/bash",
@@ -250,7 +235,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				expect(
 					await canary(created.providerSandboxId, "/tmp/zuse-live-warm-ok"),
 				).toBe(true);
-				// The fenced restart path must still be able to replace it.
+
 				await Effect.runPromise(
 					adapter.replaceProcess(
 						created.providerSandboxId,
@@ -269,8 +254,6 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 					await canary(created.providerSandboxId, "/tmp/zuse-live-replaced-ok"),
 				).toBe(true);
 
-				// Exercise the actual installed server, including its protected HTTP
-				// surface, through the same proxy used by cloud workspaces.
 				await Effect.runPromise(
 					adapter.replaceProcess(
 						created.providerSandboxId,
@@ -352,8 +335,7 @@ describe.skipIf(apiKey === undefined || templateSnapshot === undefined)(
 				createdIds.push(forked.providerSandboxId);
 				expect(forked.state).toBe("running");
 				expect(forked.providerSandboxId).not.toBe(created.providerSandboxId);
-				// The fork restored the captured memory: the replaced process is
-				// already running and the file written before the capture exists.
+
 				await expect(
 					Effect.runPromise(
 						adapter.readTextFile(

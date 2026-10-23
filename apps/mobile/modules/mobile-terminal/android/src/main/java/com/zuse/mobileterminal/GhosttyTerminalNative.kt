@@ -2,7 +2,6 @@ package com.zuse.mobileterminal
 
 import androidx.annotation.Keep
 
-/** The only Kotlin/JNI seam for the pinned libghostty-vt implementation. */
 @Keep
 internal object GhosttyTerminalNative {
   init {

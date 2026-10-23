@@ -13,7 +13,6 @@ import {
 } from "./process-activation.ts";
 import { PROCESS_SUPERVISOR } from "./process-supervisor.ts";
 
-// Read identity without exposing argv or environment. A PID alone is reusable.
 const processTiming = (stage: string) =>
 	`printf 'zuse-process-stage=${stage} atMs=%s\\n' "$(date +%s%3N)"`;
 
@@ -25,8 +24,7 @@ const processIdentity = [
 	'  read -r process_boot process_pid process_start process_generation process_operation < "$process_file" || return 2',
 	'  [[ "$process_pid" =~ ^[0-9]+$ ]] && [ "$process_pid" -gt 1 ] || return 2',
 	'  [ "$process_boot" = "$current_boot" ] || return 1',
-	// A normal supervisor exit proves the entire descendant tree retired. A
-	// missing same-boot supervisor alone cannot exclude escaped agent children.
+
 	'  if [ -f "$activation_dir/retired" ] && [ "$(cat "$activation_dir/retired")" = "$process_boot $process_pid $process_start $process_generation $process_operation" ]; then return 1; fi',
 	'  if [ -r "/proc/$process_pid/stat" ]; then',
 	'  actual_start=$(sed "s/.*) //" "/proc/$process_pid/stat" | awk \'{print $20}\') || return 2',
@@ -60,8 +58,7 @@ export const processGroupCommand = (
 		'sync -- "$activation_dir/process.next"',
 		'mv -f "$activation_dir/process.next" "$activation_dir/process"',
 		'sync -- "$activation_dir"',
-		// The child shares the launch lock until its identity is durable. Even
-		// if envd/parent dies here, another launch cannot miss this process.
+
 		"exec 9>&-",
 		`exec python3 -c ${quote(PROCESS_SUPERVISOR)} "$activation_dir/retired" "$boot" "$start" ${input.activation?.generation ?? 0} ${quote(input.activation?.operationId ?? "legacy")} sudo -n -E -H -u ${quote(user)} bash -c ${quote(boxProcessScript(input))}`,
 	].join("\n");
@@ -83,7 +80,7 @@ export const processGroupCommand = (
 						...boxProcessStoppedChecks(selector),
 					]),
 			processTiming("previous-process-retired"),
-			// A live group may not be overwritten by a start-only call.
+
 			'if process_alive; then exit 1; else [ "$?" = 1 ]; fi',
 			'rm -f -- "$process_file"',
 			`/usr/bin/setsid /bin/bash -c ${quote(child)} >"$activation_dir/output.log" 2>&1 </dev/null &`,

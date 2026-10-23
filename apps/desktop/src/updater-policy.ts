@@ -3,7 +3,6 @@ import type { UpdateStatus } from "@zuse/contracts";
 export function shouldAutoInstallUpdateOnQuit(
 	_platform: NodeJS.Platform,
 ): boolean {
-	// Every platform must first drain the independent engine through our install path.
 	return false;
 }
 

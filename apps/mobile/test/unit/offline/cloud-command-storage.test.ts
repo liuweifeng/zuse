@@ -66,7 +66,7 @@ describe("mobile durable cloud command disk codec", () => {
 				},
 			],
 		};
-		// Storage is deliberately opaque; transport schemas validate before replay.
+
 		await Effect.runPromise(writeClientCommandOutbox(snapshot as never));
 		expect(await Effect.runPromise(readClientCommandOutbox())).toEqual(
 			snapshot,

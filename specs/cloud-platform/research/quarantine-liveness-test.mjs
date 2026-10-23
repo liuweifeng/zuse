@@ -1,4 +1,3 @@
-// Focused rerun: does a live process keep advancing INSIDE the network quarantine?
 import { Sandbox } from "e2b";
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);

@@ -60,9 +60,7 @@ const fetchGrokCliBilling = async (
 					cleanup();
 					if (message.error) reject(new Error(message.error.message ?? method));
 					else resolve(message.result);
-				} catch {
-					// The CLI may write non-protocol diagnostics to stdout. Ignore them.
-				}
+				} catch {}
 			};
 			const onExit = () => {
 				cleanup();
@@ -117,9 +115,7 @@ export const fetchGrokCreditsWithRetry = async (
 	try {
 		const first = await fetcher(input, init);
 		if (!RETRYABLE_STATUS.has(first.status)) return first;
-	} catch {
-		// A single retry handles transient network and timeout failures.
-	}
+	} catch {}
 	signal?.throwIfAborted();
 	return fetcher(input, {
 		...init,

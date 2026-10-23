@@ -53,7 +53,10 @@ export type ConnectionSupervisorEntry<Client> = {
 export type ConnectionSupervisorDeps<Options, Client> = {
 	readonly keyOf: (options: Options) => string;
 	readonly prepareOptions?: (options: Options) => Promise<Options>;
-	readonly createClient: (options: Options) => Promise<ClientSession<Client>>;
+	readonly createClient: (
+		options: Options,
+		signal: AbortSignal,
+	) => Promise<ClientSession<Client>>;
 	readonly validateClient?: (client: Client) => Promise<void>;
 	readonly isOnline: () => boolean;
 	/**
@@ -139,6 +142,7 @@ class SupervisorEntryImpl<Options, Client>
 	private client: Client | null = null;
 	private disposeClient: (() => Promise<void>) | null = null;
 	private inFlight: Promise<Client> | null = null;
+	private attemptController: AbortController | null = null;
 	private closeInFlight: Promise<void> = Promise.resolve();
 	private retryCancel: (() => void) | null = null;
 	private readonly commandDispatcher = new CommandDispatcher();
@@ -290,10 +294,12 @@ class SupervisorEntryImpl<Options, Client>
 		if (this.removed) return;
 		this.removed = true;
 		this.epoch += 1;
+		this.attemptController?.abort();
+		this.attemptController = null;
 		this.clearRetry();
 		this.inFlight = null;
 		this.commandDispatcher.failPending(new Error("connection removed"));
-		// Retire the entry before asynchronous shutdown so a new scope can reconnect.
+
 		this.onRemove();
 		await this.closeCurrent();
 		this.listeners.clear();
@@ -311,7 +317,6 @@ class SupervisorEntryImpl<Options, Client>
 			: (limit ?? Number.POSITIVE_INFINITY);
 	}
 
-	/** Platform connectivity only gates transports that cross the network. */
 	private isOnline(): boolean {
 		return !this.needsNetwork() || this.deps.isOnline();
 	}
@@ -338,10 +343,14 @@ class SupervisorEntryImpl<Options, Client>
 			error: null,
 		});
 		const epoch = this.epoch;
-		const pending = this.connectOnce(epoch);
+		const controller = new AbortController();
+		this.attemptController = controller;
+		const pending = this.connectOnce(epoch, controller.signal);
 		this.inFlight = pending;
 		try {
 			const client = await pending;
+			if (this.removed || epoch !== this.epoch)
+				throw new Error("connection superseded");
 			if (this.inFlight === pending) this.inFlight = null;
 			this.client = client;
 			const reconnect = this.state.generation > 0;
@@ -360,10 +369,15 @@ class SupervisorEntryImpl<Options, Client>
 			if (this.inFlight === pending) this.inFlight = null;
 			if (!this.removed && epoch === this.epoch) this.markFailure(cause);
 			throw cause;
+		} finally {
+			if (this.attemptController === controller) this.attemptController = null;
 		}
 	}
 
-	private async connectOnce(epoch: number): Promise<Client> {
+	private async connectOnce(
+		epoch: number,
+		signal: AbortSignal,
+	): Promise<Client> {
 		await this.closeInFlight;
 		const prepare =
 			this.deps.prepareOptions ??
@@ -371,17 +385,18 @@ class SupervisorEntryImpl<Options, Client>
 		const prepared = await prepare(this.options);
 		if (this.removed || epoch !== this.epoch)
 			throw new Error("connection superseded");
-		const session = await this.deps.createClient(prepared);
+		const session = await this.deps.createClient(prepared, signal);
 		if (this.removed || epoch !== this.epoch) {
 			await session.dispose().catch(() => undefined);
 			throw new Error("connection superseded");
 		}
-		this.disposeClient = session.dispose;
 		try {
 			await this.deps.validateClient?.(session.client);
+			if (this.removed || epoch !== this.epoch)
+				throw new Error("connection superseded");
+			this.disposeClient = session.dispose;
 			return session.client;
 		} catch (cause) {
-			this.disposeClient = null;
 			await session.dispose().catch(() => undefined);
 			throw cause;
 		}
@@ -424,6 +439,8 @@ class SupervisorEntryImpl<Options, Client>
 
 	private invalidateClient(): void {
 		this.epoch += 1;
+		this.attemptController?.abort();
+		this.attemptController = null;
 		this.inFlight = null;
 		void this.closeCurrent();
 	}

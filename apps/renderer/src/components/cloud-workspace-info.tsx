@@ -1,4 +1,5 @@
 import "@zuse/i18n/english/connections";
+import { ChevronDown } from "lucide-react";
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -7,7 +8,6 @@ import { formatDate, message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Activity01Icon,
-	ArrowDown01Icon,
 	Calendar03Icon,
 	CloudIcon,
 	Copy01Icon,
@@ -73,6 +73,10 @@ import { toastManager } from "./ui/toast.tsx";
 /** Shared row idiom for the Summary aside (also used by EnvironmentSummary). */
 export const summaryRowClass =
 	"group flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60";
+
+/** Trailing status text on a summary row (counts, states, elapsed time). */
+export const summaryMetaClass =
+	"flex shrink-0 items-center gap-1.5 text-[11px] tabular-nums text-muted-foreground";
 
 const workspaceMenuRowClass = `flex w-full min-w-0 items-center ${compactMenuItemClass}`;
 
@@ -356,10 +360,7 @@ export function CloudWorkspaceMenu({
 										{uiMessage("connections:cloud_workspace_info_open_via_ssh")}
 									</span>
 									<span className="flex h-7 w-7 shrink-0 items-center justify-center border-l border-foreground/15">
-										<HugeiconsIcon
-											icon={ArrowDown01Icon}
-											className="size-3.5"
-										/>
+										<ChevronDown className="size-3.5" />
 									</span>
 								</MenuSubTrigger>
 								<MenuSubPopup className="w-52">
@@ -444,10 +445,7 @@ export function CloudWorkspaceMenu({
 													{syncStatus.localPath}
 												</span>
 												<span className="flex h-7 w-7 shrink-0 items-center justify-center border-l border-foreground/15">
-													<HugeiconsIcon
-														icon={ArrowDown01Icon}
-														className="size-3.5"
-													/>
+													<ChevronDown className="size-3.5" />
 												</span>
 											</MenuSubTrigger>
 											<MenuSubPopup className="w-52">
@@ -544,9 +542,7 @@ export function CloudWorkspaceInfo({
 	const summary = useCloudSummary(workspaceId);
 	const running = summary?.state === "ready";
 	const [menuOpen, setMenuOpen] = useState(false);
-	// Stream stats only while the menu is open and the runtime is online: the
-	// stream itself counts as workspace activity, and retaining it against a
-	// pausing workspace would race its shutdown.
+
 	const resources = useMachineResources(
 		menuOpen && running && summary.runtimeState === "online"
 			? { environmentId: workspaceId as never }
@@ -600,14 +596,11 @@ export function CloudWorkspaceInfo({
 				<MenuTrigger
 					className={`${summaryRowClass} hover:bg-muted/60 data-[popup-open]:bg-muted/60`}
 				>
-					<HugeiconsIcon
-						icon={CloudIcon}
-						className="size-4 shrink-0 text-muted-foreground"
-					/>
+					<DitherCloudIcon className="text-muted-foreground" />
 					<span className="min-w-0 flex-1 truncate">
 						{cloudProviderLabel(summary.providerId)}
 					</span>
-					<span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+					<span className={summaryMetaClass}>
 						{workspaceStateLabel(summary)}
 						<span
 							className={`size-1.5 rounded-full ${workspaceStateDotClass(summary)}`}

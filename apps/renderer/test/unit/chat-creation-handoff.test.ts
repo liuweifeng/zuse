@@ -337,10 +337,10 @@ it("advances setup progress from the durable phase before the worktree row hydra
 it.each([
 	["creating_workspace", "Creating worktree for zuse"],
 	["running_setup", "Running environment setup"],
-	["starting_agent", "Workspace ready"],
-	["running", "Workspace ready"],
+	["starting_agent", "Creating worktree for zuse"],
+	["running", "Creating worktree for zuse"],
 	["failed", "Worktree creation failed"],
-] as const)("renders the actual %s stage even before hydration", (creationPhase, label) => {
+] as const)("renders available workspace progress during %s before hydration", (creationPhase, label) => {
 	const html = renderToStaticMarkup(
 		createElement(SetupCardView, {
 			data: {

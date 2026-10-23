@@ -28,7 +28,7 @@ const makeMember = (user: string, org = "org-a", role = "member"): Member => ({
 	status: "active",
 	role: { slug: role },
 });
-/** WorkOS users: verified company emails, an unverified one and a personal one. */
+
 const users: Record<string, { email: string; email_verified: boolean }> = {
 	user_owner: { email: "owner@acme.dev", email_verified: true },
 	user_other_admin: { email: "admin@acme.dev", email_verified: true },

@@ -32,17 +32,13 @@ type ActiveTurn = {
 	readonly turnId: AgentTurnId;
 	readonly released: Deferred.Deferred<void>;
 	readonly sent: boolean;
-	/** `provider` turns were opened by `ProviderTurnStarted`, not by `send`. */
+
 	readonly origin: "application" | "provider";
 	readonly children: ReadonlyMap<string, NativeChild>;
 	readonly completedChildren: ReadonlySet<string>;
 	readonly pendingCompletion?: Extract<AgentEvent, { _tag: "Completed" }>;
 };
 
-/**
- * Upper bound on remembered tool-use origins. Background work only needs the
- * anchors of recent turns; the oldest entries are evicted first.
- */
 const MAX_ITEM_TURNS = 4096;
 
 const terminalEventTags = new Set<AgentEvent["_tag"]>([
@@ -62,7 +58,10 @@ export class ProviderHandleUnavailable extends Schema.TaggedErrorClass<ProviderH
 ) {}
 
 export interface TurnScopedProviderSessionHandle
-	extends Omit<ProviderSessionHandle, "events" | "send" | "interrupt"> {
+	extends Omit<
+		ProviderSessionHandle,
+		"events" | "send" | "interrupt" | "stopBackgroundTask"
+	> {
 	readonly events: Stream.Stream<TurnScopedProviderEventEnvelope>;
 	readonly send: (
 		turnId: AgentTurnId,
@@ -73,6 +72,10 @@ export interface TurnScopedProviderSessionHandle
 		goal: ThreadGoalSetInput,
 		fallbackObjective?: string,
 	) => Effect.Effect<void, ProviderHandleUnavailable>;
+	readonly stopBackgroundTask: (
+		turnId: AgentTurnId,
+		taskId: string,
+	) => Effect.Effect<void, Error>;
 	readonly interrupt: (turnId: AgentTurnId) => Effect.Effect<void>;
 }
 
@@ -108,7 +111,6 @@ const parentItemIdOf = (event: AgentEvent): string | undefined =>
 		? event.parentItemId
 		: undefined;
 
-/** Events whose own `itemId` refers back to an earlier `ToolUse`. */
 const referencesToolUse = (
 	event: AgentEvent,
 ): event is Extract<AgentEvent, { readonly itemId: AgentItemId }> =>
@@ -116,7 +118,6 @@ const referencesToolUse = (
 	event._tag === "ToolResult" ||
 	event._tag === "SubagentSummary";
 
-/** Emitted only after close confirms native child processes have stopped. */
 const stoppedChildren = (
 	active: ActiveTurn,
 ): ReadonlyArray<ProviderEventEnvelope> =>
@@ -182,8 +183,7 @@ export const makeTurnScopedSessionHandle = (
 						completedChildren: new Set<string>(),
 					},
 		);
-		// Tool-use item id → the turn that emitted it. Insertion order doubles as
-		// eviction order.
+
 		const itemTurns = new Map<string, AgentTurnId>();
 		const rememberItem = (event: AgentEvent, turnId: AgentTurnId) => {
 			if (event._tag !== "ToolUse") return;
@@ -234,9 +234,6 @@ export const makeTurnScopedSessionHandle = (
 		const normalize = (
 			event: ProviderDriverEvent,
 		): Effect.Effect<ReadonlyArray<TurnScopedProviderEventEnvelope>> => {
-			// A native goal can span many native turns. Until the provider exposes a
-			// recoverable goal-level execution reference, no single native turn may
-			// stand in for this application attempt during crash recovery.
 			if (goalOwned && event._tag === "NativeTurnStarted")
 				return Effect.succeed([]);
 			if (event._tag === "QuestionCallbackReleased") {
@@ -246,7 +243,6 @@ export const makeTurnScopedSessionHandle = (
 				return Ref.modify(
 					activeTurn,
 					(active): readonly [NormalizedBatch, ActiveTurn | null] => {
-						// Already inside a turn: the provider is continuing it.
 						if (active !== null) return [{ events: [] }, active] as const;
 						const turnId = `turn_${crypto.randomUUID()}` as AgentTurnId;
 						return [
@@ -275,8 +271,6 @@ export const makeTurnScopedSessionHandle = (
 						(event._tag === "Completed" &&
 							(event.reason === "error" || event.reason === "interrupted")))
 				) {
-					// Native terminal signals may precede detached process exit. Do not
-					// publish terminal ownership or allow checkpoints until close joins it.
 					yield* handle.close();
 				}
 			});
@@ -448,10 +442,6 @@ export const makeTurnScopedSessionHandle = (
 							}
 
 							if (active === null) {
-								// A provider may reissue a durable blocking question while restoring
-								// its own cursor after the application turn was settled during process
-								// recovery. Keep both request and resolution session-scoped so the
-								// runtime can persist their lifecycle without inventing a turn.
 								return event._tag === "UserQuestion" ||
 									event._tag === "UserQuestionResolved"
 									? [{ events: [sessionEnvelope(event)] }, null]
@@ -592,11 +582,6 @@ export const makeTurnScopedSessionHandle = (
 								: ([operation, { ...active, sent: true }] as const);
 						}
 						if (active.origin === "provider") {
-							// The provider opened its own turn while the application was
-							// admitting this one. The server resolves that provider turn
-							// onto this application turn, so adopt it: the provider queues
-							// this input behind its current work, and everything it emits
-							// from here belongs to the application turn.
 							return [
 								Deferred.succeed(active.released, undefined).pipe(
 									Effect.andThen(operation),
@@ -686,6 +671,32 @@ export const makeTurnScopedSessionHandle = (
 								});
 					}),
 				),
+			stopBackgroundTask: (turnId, taskId) =>
+				Effect.gen(function* () {
+					const active = yield* Ref.get(activeTurn);
+					if (active?.turnId !== turnId)
+						return yield* Effect.fail(
+							new Error("The background task's turn is no longer active."),
+						);
+					const child = [...active.children.values()].find(
+						(child) => child.nativeChildId === taskId,
+					);
+					if (child === undefined) return;
+					if (
+						child.childKind === "subagent" &&
+						child.subagent?.presentation !== "detached"
+					)
+						return yield* Effect.fail(
+							new Error("This task is foreground work."),
+						);
+					if (handle.stopBackgroundTask === undefined)
+						return yield* Effect.fail(
+							new Error(
+								"This provider does not support stopping individual background tasks.",
+							),
+						);
+					yield* handle.stopBackgroundTask(taskId);
+				}),
 			interrupt: (turnId) =>
 				Effect.gen(function* () {
 					const active = yield* Ref.get(activeTurn);

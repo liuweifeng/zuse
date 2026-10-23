@@ -89,7 +89,7 @@ describe("durable workspace startup", () => {
 		await h.schedule();
 		expect(h.alarm()).not.toBeNull();
 		expect(reconcile).not.toHaveBeenCalled();
-		// A new instance can recover the persisted request after eviction.
+
 		await new WorkspaceStartupTask(h.state, reconcile).alarm();
 		expect(reconcile).toHaveBeenCalledWith("workspace-test");
 		expect(h.values.has("pending")).toBe(false);

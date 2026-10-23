@@ -232,6 +232,10 @@ describe("queued image builds that cannot start", () => {
 	const reconcileQueued = (
 		workspaceId: string,
 		override: {
+			readonly validateTemplate?: () => Effect.Effect<
+				void,
+				SandboxProviderError
+			>;
 			readonly recoverByLabel?: (
 				label: string,
 			) => Effect.Effect<null, SandboxProviderError>;
@@ -268,6 +272,7 @@ describe("queued image builds that cannot start", () => {
 					get: () =>
 						Effect.succeed({
 							...provider,
+							validateTemplate: override.validateTemplate,
 							...(override.recoverByLabel === undefined
 								? {}
 								: { recoverByLabel: override.recoverByLabel }),
@@ -280,6 +285,20 @@ describe("queued image builds that cannot start", () => {
 			);
 			return { exit, build: yield* store.getBuild(build.buildId) };
 		});
+
+	test("fails immediately when the configured template is inaccessible", async () => {
+		const { build } = await Effect.runPromise(
+			reconcileQueued("queued-template-missing", {
+				validateTemplate: () =>
+					Effect.fail(new SandboxProviderError({ code: "not-found" })),
+				recoverByLabel: () =>
+					Effect.die("must not allocate after a failed template check"),
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(build?.state).toBe("failed");
+		expect(build?.lastErrorCode).toBe("provider-template-unavailable");
+		expect(build?.logText).toContain("accessible template");
+	});
 
 	test("fails visibly when the provider refuses the machine lookup", async () => {
 		const { build } = await Effect.runPromise(
@@ -470,6 +489,7 @@ const seedWorkspace = Effect.fn("seedArchiveWorkspace")(function* (
 		providerSandboxId,
 		runtimeState: input.runtimeState ?? "offline",
 		runtimeCredentialHash: input.runtimeCredentialHash,
+		wrappedTranscriptKey: input.wrappedTranscriptKey,
 		chatId: `chat-${workspaceId}`,
 		initialSessionId: `session-${workspaceId}`,
 		branch: `task/${workspaceId}`,
@@ -616,8 +636,7 @@ describe("cloud workspace reconciler", () => {
 				).toBeUndefined();
 				const launched = yield* store.getWorkspace(seeded.workspaceId);
 				if (launched === null) throw new Error("Fork workspace missing");
-				// The runtime can consume enrollment before its launch response reaches
-				// the API. The durable operation must adopt that owner on retry.
+
 				yield* store.saveWorkspace({
 					...launched,
 					runtimeBootTokenHash: undefined,
@@ -771,7 +790,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result?.runtimeCredentialHash).toBeUndefined();
 	});
 
-	test("an online runtime still preparing is never timed out; it follows the idle policy", async () => {
+	test("a preparing runtime with a valid credential follows the idle policy and rechecks expiry", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -818,9 +837,47 @@ describe("cloud workspace reconciler", () => {
 			runtimeCredentialHash: "live-runtime",
 		});
 		expect(result.preparing?.nextActionAtMs).toBeGreaterThan(Date.now());
+		expect(result.preparing?.nextActionAtMs).toBe(
+			result.preparing?.requestConfig.runtimeCredentialExpiresAtMs,
+		);
 		expect(result.idle).toMatchObject({
 			state: "paused",
 			statusCode: "paused",
+		});
+	});
+
+	test("expires stale online startup evidence without replacing retained data", async () => {
+		const result = await Effect.runPromise(
+			Effect.gen(function* () {
+				const store = yield* CloudWorkspaceStore;
+				const now = Date.now();
+				const workspace = yield* seedWorkspace({
+					workspaceId: "preparing-expired",
+					state: "setup",
+					desiredState: "ready",
+					statusCode: "preparing-credentials",
+					runtimeState: "online",
+					lastActivityAtMs: now,
+					requestConfig: {
+						startupTimings: { enrolledAt: now - 60_000 },
+						runtimeCredentialExpiresAtMs: now - 1,
+						sessionHeadVersion: 1,
+					},
+				});
+				yield* reconcileCloudWorkspace(workspace.workspaceId);
+				return {
+					before: workspace,
+					after: yield* store.getWorkspace(workspace.workspaceId),
+				};
+			}).pipe(Effect.provide(testLayer)),
+		);
+		expect(result.after).toMatchObject({
+			state: "failed",
+			runtimeState: "offline",
+			statusCode: "runtime-connection-timeout",
+			providerSandboxId: result.before.providerSandboxId,
+			chatId: result.before.chatId,
+			initialSessionId: result.before.initialSessionId,
 		});
 	});
 
@@ -969,7 +1026,7 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "resume-runtime-restarting",
 					requestConfig: {
 						runtimeInstallPending: true,
-						// Deadline remains terminal once bounded replacement retries are exhausted.
+
 						runtimeLaunchRecoveryAttempts: 2,
 						startupTimings: {
 							allocatedAt: now - age,
@@ -1292,8 +1349,7 @@ describe("cloud workspace reconciler", () => {
 				extend.mockClear();
 				const allocated = yield* store.getWorkspace(workspace.workspaceId);
 				if (allocated === null) throw new Error("workspace missing");
-				// Retry a queued allocation after the provider succeeded but its
-				// response was lost: recover by workspace label instead of forking again.
+
 				yield* Ref.update(control.sandboxes, (sandboxes) => {
 					const updated = new Map(sandboxes);
 					const sandbox = updated.get("fake-workspace-on-demand");
@@ -1334,7 +1390,10 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("allocates only the requested replacement sandbox", async () => {
+	test.each([
+		"resume-queued",
+		"resume-runtime-recovery-queued",
+	])("allocates only the requested replacement sandbox (%s)", async (statusCode) => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1343,8 +1402,11 @@ describe("cloud workspace reconciler", () => {
 					workspaceId: "workspace-incomplete-retry",
 					state: "queued",
 					desiredState: "ready",
-					statusCode: "resume-queued",
-					requestConfig: { startupTimings: { requestedAt: Date.now() } },
+					statusCode,
+					requestConfig: {
+						runtimeGeneration: 1,
+						startupTimings: { requestedAt: Date.now() },
+					},
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
@@ -1439,12 +1501,12 @@ describe("cloud workspace reconciler", () => {
 		);
 	});
 
-	test("archives by pausing the same sandbox for 30 days", async () => {
+	test("archives by pausing the same sandbox for 10 days", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
 				const control = yield* FakeSandboxProviderControlService;
-				const deleteAt = Date.now() + ARCHIVED_WORKSPACE_RETENTION_MS;
+				const deleteAt = Date.now() - 2_000 + ARCHIVED_WORKSPACE_RETENTION_MS;
 				const workspace = yield* seedWorkspace({
 					workspaceId: "archive-paused",
 					state: "ready",
@@ -1481,7 +1543,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.sandboxes.has("source-archive-paused")).toBe(true);
 	});
 
-	test("permanently deletes an archived sandbox after 30 days", async () => {
+	test("keeps expired archives and their history when no verified recovery point exists", async () => {
 		const result = await Effect.runPromise(
 			Effect.gen(function* () {
 				const store = yield* CloudWorkspaceStore;
@@ -1493,42 +1555,24 @@ describe("cloud workspace reconciler", () => {
 					statusCode: "archived",
 					requestConfig: {},
 					archiveDeleteAtMs: Date.now() - 1,
+					wrappedTranscriptKey: "preserved-key",
 				});
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
-				const expiring = yield* store.getWorkspace(workspace.workspaceId);
-				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				return {
-					expiring,
-					deleted: yield* store.getWorkspace(workspace.workspaceId),
+					workspace: yield* store.getWorkspace(workspace.workspaceId),
 					sandboxes: yield* Ref.get(control.sandboxes),
 				};
 			}).pipe(Effect.provide(testLayer)),
 		);
-
-		expect(ARCHIVED_WORKSPACE_RETENTION_MS).toBe(30 * 24 * 60 * 60 * 1_000);
-		expect(result.expiring).toMatchObject({
-			desiredState: "deleted",
-			statusCode: "archive-retention-expired",
-			requestConfig: {
-				destructionFence: 2,
-				cloudMailboxLifecyclePending: {
-					action: "delete",
-					destructionFence: 2,
-				},
-			},
+		expect(ARCHIVED_WORKSPACE_RETENTION_MS).toBe(10 * 24 * 60 * 60 * 1_000);
+		expect(result.workspace).toMatchObject({
+			state: "archived",
+			desiredState: "archived",
+			statusCode: "archive-backup-required",
+			providerSandboxId: "source-expired-archive",
+			wrappedTranscriptKey: "preserved-key",
 		});
-		expect(result.deleted).toMatchObject({
-			state: "deleted",
-			providerSandboxId: undefined,
-			requestConfig: {
-				destructionFence: 2,
-				cloudMailboxLifecyclePending: {
-					action: "delete",
-					destructionFence: 2,
-				},
-			},
-		});
-		expect(result.sandboxes.has("source-expired-archive")).toBe(false);
+		expect(result.sandboxes.has("source-expired-archive")).toBe(true);
 	});
 
 	test("preserves a paused runtime and refuses a storage-destructive replacement", async () => {
@@ -1625,8 +1669,7 @@ describe("cloud workspace reconciler", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				const warming = yield* store.getWorkspace(workspace.workspaceId);
 				const callsBeforeFallback = yield* Ref.get(control.startProcessCalls);
-				// Missing callbacks do not establish process death. The provider must
-				// prove no managed or legacy runtime remains before replacement.
+
 				yield* reconcileCloudWorkspace(workspace.workspaceId);
 				if ((yield* Ref.get(control.startProcessCalls)).length !== 0)
 					return yield* Effect.die(
@@ -1697,8 +1740,7 @@ describe("cloud workspace reconciler", () => {
 			statusCode: "resume-runtime-waking",
 			runtimeState: "connecting",
 		});
-		// The boot token travels directly to the runtime process. Resume must not
-		// serialize a remote file write and chmod before starting it.
+
 		expect(result.startProcessCalls).toHaveLength(1);
 		expect(result.workspace).toMatchObject({
 			state: "provisioning",
@@ -1952,8 +1994,7 @@ describe("cloud workspace reconciler", () => {
 		expect(result.workspace?.requestConfig.runtimeLaunchRecoveryAttempts).toBe(
 			0,
 		);
-		// The sandbox is already running, so restart must not call provider
-		// resume — it relaunches the runtime with a fresh in-memory boot token.
+
 		expect(result.resumeInputs).toHaveLength(0);
 		expect(result.startProcessCalls).toHaveLength(1);
 		expect(result.workspace).toMatchObject({
@@ -2787,7 +2828,7 @@ describe("memory-aware runtime recovery", () => {
 				yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
 					Effect.provideService(SandboxProviders, replacement),
 				);
-				// A fast observer must respect the pressure backoff and not launch anything.
+
 				if (input.status === "runtime-memory-pressure")
 					yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
 						Effect.provideService(SandboxProviders, replacement),
@@ -2810,6 +2851,55 @@ describe("memory-aware runtime recovery", () => {
 		expect(result.workspace?.providerSandboxId).toBe("source-memory-check");
 		expect(result.after).toEqual(result.before);
 	});
+});
+
+test("retries an enrolled workspace on its existing machine without its old image", async () => {
+	const result = await Effect.runPromise(
+		Effect.gen(function* () {
+			const store = yield* CloudWorkspaceStore;
+			const control = yield* FakeSandboxProviderControlService;
+			const workspace = yield* seedWorkspace({
+				workspaceId: "retry-existing",
+				state: "queued",
+				desiredState: "ready",
+				statusCode: "provider-connection-unavailable",
+				requestConfig: { runtimeGeneration: 1 },
+			});
+			const providers = yield* SandboxProviders;
+			const replacement = {
+				...providers,
+				get: (id: string) =>
+					providers.get(id).pipe(
+						Effect.map((adapter) => ({
+							...adapter,
+							kill: () => Effect.die("must not delete the existing machine"),
+							fork: () => Effect.die("must not consume the deleted image"),
+							create: () => Effect.die("must not allocate a replacement"),
+						})),
+					),
+			};
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build)
+				yield* store.saveBuild({
+					...build,
+					snapshotId: undefined,
+					state: "failed",
+				});
+			yield* reconcileCloudWorkspace(workspace.workspaceId).pipe(
+				Effect.provideService(SandboxProviders, replacement),
+			);
+			return {
+				workspace: yield* store.getWorkspace(workspace.workspaceId),
+				calls: yield* Ref.get(control.startProcessCalls),
+			};
+		}).pipe(Effect.provide(testLayer)),
+	);
+	expect(result.workspace).toMatchObject({
+		providerSandboxId: "source-retry-existing",
+		state: "provisioning",
+		statusCode: "resume-runtime-restarting",
+	});
+	expect(result.calls).toHaveLength(1);
 });
 
 test("automatically restarts the retained runtime once memory pressure clears", async () => {
@@ -2849,7 +2939,7 @@ test("automatically restarts the retained runtime once memory pressure clears", 
 			expect(waiting?.statusCode).toBe("runtime-memory-pressure");
 			expect(yield* Ref.get(control.startProcessCalls)).toHaveLength(0);
 			if (!waiting) throw new Error("workspace missing");
-			// Simulate the next scheduled check, without sleeping or changing the queue.
+
 			available = 2000000;
 			yield* store.saveWorkspace({
 				...waiting,
@@ -3008,6 +3098,80 @@ test.each([
 });
 
 test.each([
+	{
+		metadata: JSON.stringify({
+			schemaVersion: 1,
+			appVersion: "0.24.0-preview.9",
+			runtimeVersion: "runtime-9",
+			wireProtocolVersion: 7,
+		}),
+		runtime: { appVersion: "0.24.0-preview.9", wireProtocolVersion: 7 },
+	},
+	{ metadata: null, runtime: undefined },
+])("a published image records the runtime release it installed ($runtime)", async ({
+	metadata,
+	runtime,
+}) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const workspace = yield* seedWorkspace({
+				workspaceId: `image-runtime-${runtime === undefined ? "unknown" : "known"}`,
+				requestConfig: {},
+				state: "ready",
+				desiredState: "ready",
+				statusCode: "ready",
+			});
+			const store = yield* CloudWorkspaceStore;
+			const build = yield* store.getBuild(workspace.buildId);
+			if (build === null) throw new Error("Missing build");
+			yield* store.saveBuild({
+				...build,
+				state: "building",
+				snapshotId: undefined,
+				providerSandboxId: workspace.providerSandboxId,
+				createdAtMs: Date.now(),
+				nextActionAtMs: 0,
+			});
+			const files: Record<string, string> = {
+				[`/var/lib/zuse/project-build/completed-${build.buildId}`]: "0",
+				"/var/lib/zuse/project-build/source-commit": "a".repeat(40),
+				"/var/lib/zuse/project-build/template-version": build.templateVersion,
+				"/var/lib/zuse/project-build/configuration-digest":
+					build.configurationDigest,
+				...(metadata === null
+					? {}
+					: { "/opt/zuse/current/runtime-metadata.json": metadata }),
+			};
+			const providers = yield* SandboxProviders;
+			const provider = yield* providers.get(build.provider);
+			yield* reconcileCloudBuild(build.buildId).pipe(
+				Effect.provideService(SandboxProviders, {
+					...providers,
+					get: () =>
+						Effect.succeed({
+							...provider,
+							pathExists: (_id, path) =>
+								Effect.succeed(path === "/var/lib/zuse/project-build/ready"),
+							readTextFile: (_id, path) =>
+								path in files
+									? Effect.succeed(files[path] as string)
+									: path.endsWith(".log")
+										? Effect.succeed("")
+										: Effect.fail(
+												new SandboxProviderError({ code: "not-found" }),
+											),
+						}),
+				}),
+			);
+			const promoted = yield* store.getBuild(build.buildId);
+			expect(promoted?.lastErrorCode).toBeUndefined();
+			expect(promoted?.state).toBe("ready");
+			expect(promoted?.settings?.runtime).toEqual(runtime);
+		}).pipe(Effect.provide(testLayer)),
+	);
+});
+
+test.each([
 	"none",
 	"runtime",
 	"toolchain",
@@ -3095,7 +3259,7 @@ ${script}`,
 						? "26\n"
 						: "0\n",
 		);
-		// A post-builder failure must win even when the builder wrote ready.
+
 		expect(existsSync(join(status, "ready"))).toBe(
 			fails === "none" || fails === "memory",
 		);
@@ -3399,7 +3563,7 @@ describe("inline first startup step", () => {
 					startCloudWorkspaceInline(workspace.workspaceId),
 				);
 				const after = yield* store.getWorkspace(workspace.workspaceId);
-				// The lease is released; the durable scheduler can claim immediately.
+
 				const claimed = yield* store.claimWorkspace(
 					workspace.workspaceId,
 					"alarm",
@@ -3501,7 +3665,7 @@ describe("inline first startup step", () => {
 				});
 				const provider = yield* (yield* SandboxProviders).get("fake");
 				const create = vi.spyOn(provider, "create");
-				// Between the eligibility read and the claim, the row moves on.
+
 				const racing: typeof store = {
 					...store,
 					claimWorkspace: (id, owner, nowMs, leaseExpiresAtMs) =>
@@ -3584,7 +3748,7 @@ describe("inline first startup step", () => {
 		);
 		expect(result.withoutCapability).toBe(false);
 		expect(result.held).not.toBeNull();
-		// Eligible, so it reports having run, but the held lease fenced any work.
+
 		expect(result.collided).toBe(true);
 		expect(result.after?.state).toBe("queued");
 		expect(result.after?.providerSandboxId).toBeUndefined();

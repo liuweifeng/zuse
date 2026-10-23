@@ -82,9 +82,6 @@ export class FsCommandReuseError extends Schema.TaggedErrorClass<FsCommandReuseE
 	},
 ) {}
 
-// External-file errors mirror the in-folder ones but key off an absolute
-// `path` instead of a `folderId` — the `fs.*ExternalFile` RPCs operate
-// outside any project folder, so there's no folder id to carry.
 export class FsExternalReadError extends Schema.TaggedErrorClass<FsExternalReadError>()(
 	"FsExternalReadError",
 	{ path: Schema.String, reason: Schema.String },
@@ -158,11 +155,7 @@ export const FsTreeRpc = Rpc.make("fs.tree", {
 	payload: Schema.Struct({
 		folderId: FolderId,
 		path: Schema.optional(Schema.String),
-		/**
-		 * When set, list inside the worktree's path instead of the project's
-		 * main checkout. The worktree must belong to `folderId`; otherwise the
-		 * server falls back to the main checkout silently.
-		 */
+
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: Schema.Array(FsEntry),
@@ -250,7 +243,6 @@ export const FsReadFileRpc = Rpc.make("fs.readFile", {
  */
 export const FsWriteFileRpc = Rpc.make("fs.writeFile", {
 	payload: Schema.Struct({
-		/** Stable identity makes a lost write response safe to retry. */
 		commandId: CommandId,
 		folderId: FolderId,
 		path: Schema.String,

@@ -14,15 +14,10 @@ import {
 } from "../services/file-search.ts";
 import { WorkspaceService } from "../services/workspace-service.ts";
 
-/**
- * Directories we skip outright. Same shape as FsService — keep these in
- * sync if either grows. Matched on basename.
- */
 const SKIP_DIRS = new Set([
 	".git",
 	"node_modules",
-	// Memoize's per-project artifacts (code-index sqlite, etc.) live under
-	// <root>/.zuse/. Pickers shouldn't surface them.
+
 	".zuse",
 	"dist",
 	"build",
@@ -33,15 +28,8 @@ const SKIP_DIRS = new Set([
 	".DS_Store",
 ]);
 
-/** Cap how deep we descend so a runaway monorepo can't hang the picker. */
 const MAX_DEPTH = 12;
 
-/**
- * Cap the *visited* node count too, independent of `limit`. The popover
- * filters client-side after the server returns; we still want the search
- * to terminate quickly even when the user hasn't typed yet. Gitignored
- * directories are skipped, so this bounds real project sources only.
- */
 const MAX_VISITED = 20_000;
 
 const DEFAULT_LIMIT = 20;
@@ -71,10 +59,6 @@ export const FileSearchServiceLive = Layer.effect(
 				}
 				const cap = limit && limit > 0 ? limit : DEFAULT_LIMIT;
 
-				// Reroot at the worktree's path when one is supplied and it belongs
-				// to this project. Mismatched worktree → fail closed by returning
-				// an empty result set so a stale worktreeId from a freshly-switched
-				// session never surfaces files from the wrong project.
 				let root = folder.path;
 				if (worktreeId) {
 					const wt = yield* worktrees.get(worktreeId);
@@ -106,12 +90,6 @@ export const FileSearchServiceLive = Layer.effect(
 					.ignoredDirectories(folderId, worktreeId)
 					.pipe(Effect.orElseSucceed((): ReadonlySet<string> => new Set()));
 
-				// Collect every candidate (subject to depth/visit caps), then rank
-				// with fuzzysort. The substring matcher we used previously couldn't
-				// span path segments — typing `chatcomp` wouldn't match
-				// `apps/renderer/src/components/chat-composer.tsx`. fuzzysort's
-				// boundary-aware ranking handles that and keeps the result count
-				// small enough that scoring everything is cheap.
 				const candidates: FileSearchHit[] = [];
 				let visited = 0;
 
@@ -164,9 +142,6 @@ export const FileSearchServiceLive = Layer.effect(
 
 				yield* walk(rootAbs, "", 0);
 
-				// Empty query: just return the first `cap` candidates as a "what's
-				// here" view. Fuzzysort's `all: true` would do this but we also want
-				// a stable filesystem order which the walker already provides.
 				if (!query) return candidates.slice(0, cap);
 
 				const ranked = fuzzysort.go(query, candidates, {

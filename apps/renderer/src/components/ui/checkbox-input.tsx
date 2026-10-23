@@ -9,11 +9,13 @@ import { cn } from "~/lib/utils";
  * dual-React hook error there. A native input has no such dependency.
  */
 export function CheckboxInput({
+	id,
 	checked,
 	onChange,
 	disabled,
 	className,
 }: {
+	id?: string;
 	checked: boolean;
 	onChange: (value: boolean) => void;
 	disabled?: boolean;
@@ -22,6 +24,7 @@ export function CheckboxInput({
 	return (
 		<span className={cn("relative inline-flex shrink-0", className)}>
 			<input
+				id={id}
 				type="checkbox"
 				checked={checked}
 				disabled={disabled}

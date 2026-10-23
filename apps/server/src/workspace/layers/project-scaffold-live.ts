@@ -21,11 +21,6 @@ import {
 	ProjectScaffold,
 } from "../services/project-scaffold.ts";
 
-/**
- * Drain stdout + stderr together so we can include them in error
- * messages without losing whatever the tool printed before exit. Same
- * pattern `GitServiceLive` uses for `git`/`gh` runs.
- */
 const collectText = (
 	s: Stream.Stream<Uint8Array, import("effect/PlatformError").PlatformError>,
 ) =>
@@ -37,13 +32,6 @@ const collectText = (
 		),
 	);
 
-/**
- * Resolve a "parent dir" hint from the renderer. Empty string means
- * "pick a sensible default" — we prefer `~/Developer` because that's
- * where the rest of the user's projects already live in the
- * screenshots, but we fall back to `~` so a fresh-laptop user doesn't
- * see a confusing error.
- */
 const resolveParent = Effect.fn("ProjectScaffold.resolveParent")(function* (
 	fs: FileSystem.FileSystem,
 	path: Path.Path,
@@ -135,12 +123,6 @@ export const ProjectScaffoldLive = Layer.effect(
 				});
 			});
 
-		/**
-		 * Run a command inside `cwd`, drain output, and return
-		 * `{ exitCode, stdout, stderr }`. Spawn failures (ENOENT, bad
-		 * argument) flow up as Effect failures so the caller can map them to
-		 * a domain error (e.g. "git is not installed").
-		 */
 		const runCommand = (
 			bin: string,
 			args: ReadonlyArray<string>,
@@ -159,7 +141,6 @@ export const ProjectScaffoldLive = Layer.effect(
 				}),
 			);
 
-		/** Best-effort `rm -rf` of a path we created during a failed scaffold. */
 		const cleanupDir = (absPath: string): Effect.Effect<void> =>
 			fs.remove(absPath, { recursive: true, force: true }).pipe(Effect.ignore);
 
@@ -177,9 +158,6 @@ export const ProjectScaffoldLive = Layer.effect(
 				}
 				const parentAbs = yield* resolveParent(fs, path, parent);
 
-				// Make sure parent exists (mkdir -p semantics) before we clone
-				// into it. `git clone` would error with a confusing "not a
-				// directory" otherwise.
 				yield* fs.makeDirectory(parentAbs, { recursive: true }).pipe(
 					Effect.mapError(
 						(err) =>
@@ -222,8 +200,6 @@ export const ProjectScaffoldLive = Layer.effect(
 				);
 
 				if (result.exitCode !== 0) {
-					// Leave nothing behind on the filesystem — a half-cloned dir
-					// would block a retry with the same URL.
 					yield* cleanupDir(target);
 					return yield* Effect.fail(
 						new WorkspaceCloneFailedError({
@@ -239,11 +215,6 @@ export const ProjectScaffoldLive = Layer.effect(
 				return target;
 			});
 
-		/**
-		 * Run one scaffold step. Any non-zero exit or spawn error becomes a
-		 * `WorkspaceCreateFailedError` tagged with the supplied `step`, so
-		 * the dialog can point the user at the right corrective action.
-		 */
 		const runStep = (
 			name: string,
 			step: WorkspaceCreateFailedError["step"],
@@ -319,8 +290,6 @@ export const ProjectScaffoldLive = Layer.effect(
 						);
 					}
 
-					// From here on we may have created the directory; if any step
-					// fails we sweep it so the user can retry cleanly.
 					const scaffold = Effect.gen(function* () {
 						if (template === "empty") {
 							yield* fs.makeDirectory(target, { recursive: true }).pipe(
@@ -335,8 +304,6 @@ export const ProjectScaffoldLive = Layer.effect(
 							);
 							yield* runStep(name, "git-init", "git", ["init"], target);
 						} else if (template === "nextjs") {
-							// `--yes` makes create-next-app skip every prompt; the rest
-							// pin sensible defaults so the user lands in a working app.
 							yield* runStep(
 								name,
 								"template",
@@ -360,8 +327,7 @@ export const ProjectScaffoldLive = Layer.effect(
 								parentAbs,
 							);
 							yield* runStep(name, "install", "bun", ["install"], target);
-							// create-next-app already inits git when none is present;
-							// re-running `git init` is a safe no-op if it did.
+
 							yield* runStep(name, "git-init", "git", ["init"], target);
 						} else if (template === "turborepo") {
 							yield* runStep(
@@ -381,7 +347,6 @@ export const ProjectScaffoldLive = Layer.effect(
 							yield* runStep(name, "install", "bun", ["install"], target);
 							yield* runStep(name, "git-init", "git", ["init"], target);
 						} else {
-							// Exhaustiveness — `ProjectTemplate` is a closed literal.
 							const _exhaustive: never = template;
 							void _exhaustive;
 						}

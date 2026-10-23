@@ -99,7 +99,7 @@ type MutableGroup = {
 	origin: GitOriginInfo | null;
 	members: LogicalProjectMember[];
 	chats: LogicalChatRef[];
-	/** Workspace-order index of the first active-env member, if any. */
+
 	activeOrder: number | null;
 };
 
@@ -119,18 +119,14 @@ type MemberSource = {
 export const buildLogicalProjectGroups = (input: {
 	readonly entries: ReadonlyArray<EnvironmentCatalogEntry>;
 	readonly activeEnvironmentId: string;
-	/**
-	 * The immutable id of this physical desktop's environment. "Remote"
-	 * badges compare against THIS, never the active environment, so the
-	 * sidebar reads identically no matter which computer is active.
-	 */
+
 	readonly localEnvironmentId: string;
-	/** Live workspace-store folders for the ACTIVE environment (catalog may lag). */
+
 	readonly activeFolders: ReadonlyArray<Folder>;
 	readonly folderKind?: "project" | "scratch";
 	readonly activeOrigins: Readonly<Record<string, GitOriginInfo | null>>;
 	readonly activeChatsByProject: Readonly<Record<string, ReadonlyArray<Chat>>>;
-	/** Qualified ClientBus shell data; the connection catalog owns no entities. */
+
 	readonly shellsByEnvironment: Readonly<
 		Record<string, EnvironmentShellData | null>
 	>;
@@ -169,8 +165,7 @@ export const buildLogicalProjectGroups = (input: {
 		const originKey = originKeyOf(source.origin);
 		if (originKey !== null) {
 			const candidates = groupsByOrigin.get(originKey) ?? [];
-			// Two checkouts of the same repo on ONE environment stay separate
-			// rows — merging is strictly across computers.
+
 			const target = candidates.find(
 				(candidate) =>
 					!candidate.members.some(
@@ -200,7 +195,7 @@ export const buildLogicalProjectGroups = (input: {
 			groups.push(created);
 			return;
 		}
-		// Originless folders NEVER merge.
+
 		groups.push({
 			key: `${source.environmentId}:${source.folder.id}`,
 			origin: null,
@@ -213,8 +208,7 @@ export const buildLogicalProjectGroups = (input: {
 	const activeEntry = input.entries.find(
 		(entry) => entry.environmentId === input.activeEnvironmentId,
 	);
-	// The active environment's data comes from the LIVE stores; its catalog
-	// entry only lends connection metadata.
+
 	input.activeFolders.forEach((folder, index) => {
 		if ((folder.kind === "scratch") !== (input.folderKind === "scratch"))
 			return;
@@ -283,8 +277,6 @@ export const buildLogicalProjectGroups = (input: {
 		};
 	});
 
-	// Groups anchored in the active workspace keep its order; the rest follow
-	// alphabetically so remote-only repos have a stable, scannable position.
 	return finished
 		.map((group, index) => ({
 			group,
@@ -391,7 +383,10 @@ export const computerPickerItems = (
 				status: entry.status,
 				projectAvailable: true,
 				setupAvailable: false,
-				retryable: entry.status === "error" || entry.status === "offline",
+				retryable:
+					entry.status === "not-connected" ||
+					entry.status === "error" ||
+					entry.status === "offline",
 				selected: target?.environmentId === entry.environmentId,
 				disabled: entry.status === "connecting",
 			})),
@@ -415,13 +410,17 @@ export const computerPickerItems = (
 				status: member.status,
 				projectAvailable: true,
 				setupAvailable: false,
-				retryable: member.status === "error" || member.status === "offline",
+				retryable:
+					member.status === "not-connected" ||
+					member.status === "error" ||
+					member.status === "offline",
 				selected:
 					resolved !== null &&
 					member.environmentId === resolved.environmentId &&
 					member.folderId === resolved.folderId,
 				disabled:
 					!member.connected &&
+					member.status !== "not-connected" &&
 					member.status !== "error" &&
 					member.status !== "offline",
 			}),
@@ -444,7 +443,10 @@ export const computerPickerItems = (
 				projectAvailable: false,
 				setupAvailable:
 					entry.status === "connected" && group.origin?.cloneUrl !== undefined,
-				retryable: entry.status === "error" || entry.status === "offline",
+				retryable:
+					entry.status === "not-connected" ||
+					entry.status === "error" ||
+					entry.status === "offline",
 				selected:
 					resolved?.environmentId === entry.environmentId &&
 					resolved.folderId === null,

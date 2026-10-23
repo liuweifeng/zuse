@@ -40,11 +40,6 @@ import {
 	type ConfigStoreServiceShape,
 } from "../services/config-store-service.ts";
 
-/**
- * Coalesce watcher fires inside this window. Editors save by truncate+
- * rewrite or rename-over, both of which emit multiple events per logical
- * write — debouncing keeps the change pipeline single-fire.
- */
 const WATCH_DEBOUNCE_MS = 100;
 
 const SETTINGS_FILENAME = "settings.json";
@@ -52,8 +47,6 @@ const KEYBINDINGS_FILENAME = "keybindings.json";
 const USER_CONFIG_DIRNAME = ".zuse";
 const DEV_USER_CONFIG_DIRNAME = ".zuse-dev";
 
-// First-run seeds come from the bundled catalog snapshot; the resolved
-// (remote + live) catalog only matters once a session actually starts.
 const seedModels = (): Record<ProviderId, string> => {
 	const out = {} as Record<ProviderId, string>;
 	for (const id of PROVIDER_IDS) {
@@ -84,8 +77,7 @@ const freshSettings = (): SettingsFile =>
 		defaultProviderId: "claude",
 		defaultModelByProvider: seedModels(),
 		defaultRuntimeMode: "approval-required",
-		// Worktrees on by default: each new chat runs on its own branch so parallel
-		// agents stay isolated. Per-repo settings can still opt a repo out.
+
 		defaultAutoCreateWorktree: true,
 		defaultAutonomyLevel: "approval-gated",
 		onboardingCompleted: false,
@@ -119,9 +111,6 @@ const freshKeybindings = (): KeybindingsFile =>
 const serialize = (value: unknown): string =>
 	`${JSON.stringify(value, null, 2)}\n`;
 
-/* ───────────── parse helpers — tolerant of legacy / missing fields ───────────── */
-
-/** Non-empty string keys from a hand-editable list; anything else is dropped. */
 const coerceKeyList = (value: unknown): string[] =>
 	Array.isArray(value)
 		? value.filter(
@@ -218,11 +207,6 @@ const resolveUserConfigDir = (join: (a: string, b: string) => string): string =>
 	process.env.ZUSE_CONFIG_DIR?.trim() ||
 	join(homedir(), defaultUserConfigDirname());
 
-/**
- * Re-shape an arbitrary parsed JSON value onto a `SettingsFile`, falling
- * through to defaults for anything missing/invalid. We don't trust the file
- * on disk — it can be hand-edited and might be from an older schema.
- */
 const coerceSettings = (raw: unknown): SettingsFile => {
 	const base = freshSettings();
 	if (raw === null || typeof raw !== "object") return base;
@@ -302,9 +286,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 				continue;
 			}
 			const flags = providerModels as Record<string, unknown>;
-			// Keep every boolean flag: the resolved catalog can know models the
-			// bundled snapshot doesn't (remote additions, live inventory), and a
-			// visibility choice for one must survive restarts.
+
 			for (const [modelId, value] of Object.entries(flags)) {
 				if (modelId.length === 0 || modelId.length > 200) continue;
 				if (typeof value === "boolean") {
@@ -342,9 +324,6 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		}
 	}
 
-	// OpenCode provider-manager fields. Keyed by opencode sub-provider id
-	// (free-form strings), so unlike the maps above we don't restrict to a
-	// known key set — just validate value shapes and drop anything malformed.
 	const opencodeProviderVisible: Record<string, boolean> = {};
 	if (
 		typeof obj.opencodeProviderVisible === "object" &&
@@ -411,7 +390,7 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 				id: p.id,
 				name: p.name,
 				baseURL: p.baseURL,
-				// Legacy entries (pre-type-picker) default to OpenAI-compatible.
+
 				npm:
 					typeof p.npm === "string" && p.npm.length > 0
 						? p.npm
@@ -559,6 +538,9 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 
 	return SettingsFile.make({
 		schemaVersion: 1,
+		simulatorSupportEnabled: obj.simulatorSupportEnabled === true,
+		simulatorAgentAccessEnabled: obj.simulatorAgentAccessEnabled === true,
+		simulatorOnboardingCompleted: obj.simulatorOnboardingCompleted === true,
 		defaultProviderId: provider,
 		defaultModelByProvider: models,
 		defaultRuntimeMode: runtime,
@@ -612,7 +594,7 @@ const coerceKeybindings = (raw: unknown): KeybindingsFile => {
 		if (typeof item !== "object" || item === null) continue;
 		const r = item as Record<string, unknown>;
 		if (typeof r.key !== "string" || !isCommand(r.command)) continue;
-		// Keep the original strings; the renderer / matcher revalidates on parse.
+
 		const rule: KeybindingRule = {
 			key: r.key,
 			command: r.command,
@@ -628,8 +610,6 @@ export const configStoreTestHelpers = {
 	coerceSettings,
 	userConfigDir: () => resolveUserConfigDir(NodePath.join),
 };
-
-/* ────────────────────────── Service implementation ──────────────────────────── */
 
 export const ConfigStoreServiceLive = Layer.effect(
 	ConfigStoreService,
@@ -649,10 +629,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 		const legacySettingsPath = pathSvc.join(userData, SETTINGS_FILENAME);
 		const legacyKeybindingsPath = pathSvc.join(userData, KEYBINDINGS_FILENAME);
 
-		/**
-		 * Read a JSON file from disk, returning the parsed object or `null` if
-		 * the file doesn't exist / is malformed. Other I/O failures bubble out.
-		 */
 		const readJsonOrNull = (absPath: string): Effect.Effect<unknown | null> =>
 			Effect.gen(function* () {
 				const exists = yield* fs.exists(absPath).pipe(Effect.orDie);
@@ -665,11 +641,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 				}
 			});
 
-		// One semaphore per path. Concurrent writes to the same file (e.g. the
-		// model-picker firing `defaultProviderId` and `defaultModelByProvider`
-		// back-to-back; or migrateLocalStorage racing the first updateSettings)
-		// would otherwise both pick the same `<path>.tmp` and the second
-		// rename ENOENTs because the first already renamed the tmp away.
 		const writeLocks = new Map<string, Semaphore.Semaphore>();
 		const lockFor = (absPath: string): Effect.Effect<Semaphore.Semaphore> =>
 			Effect.gen(function* () {
@@ -680,12 +651,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 				return sem;
 			});
 
-		/**
-		 * Atomic write — write the contents to a unique `<absPath>.<rand>.tmp`
-		 * and rename over the target so a crash during write never leaves a
-		 * partial file. Serialised per-path so concurrent callers don't race
-		 * on the tmp filename.
-		 */
 		const writeAtomically = (
 			absPath: string,
 			contents: string,
@@ -716,10 +681,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 		const initialSettings = coerceSettings(initialSettingsRaw);
 		const initialKeybindings = coerceKeybindings(initialKeybindingsRaw);
 
-		// Persist defaults on first launch so the file is hand-editable
-		// immediately. If the user already had a file, leave it alone unless our
-		// coerce step rewrote a stale slug — in which case write the cleaned
-		// version back so it sticks.
 		const initialSettingsSerialized = serialize(initialSettings);
 		const initialKeybindingsSerialized = serialize(initialKeybindings);
 		if (
@@ -736,16 +697,9 @@ export const ConfigStoreServiceLive = Layer.effect(
 		const settingsRef = yield* Ref.make<SettingsFile>(initialSettings);
 		const keybindingsRef = yield* Ref.make<KeybindingsFile>(initialKeybindings);
 
-		// Hubs broadcast to every subscriber (renderer stream consumers, the
-		// desktop menu-rebuild hook). Unbounded is fine — payloads are small and
-		// change events are rare.
 		const settingsHub = yield* PubSub.unbounded<SettingsFile>();
 		const keybindingsHub = yield* PubSub.unbounded<KeybindingsFile>();
 
-		/**
-		 * "Last serialized contents" — used to suppress no-op fs.watch events
-		 * (we just wrote the same content) and to detect genuine external edits.
-		 */
 		let lastSettingsContent = initialSettingsSerialized;
 		let lastKeybindingsContent = initialKeybindingsSerialized;
 
@@ -762,8 +716,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 				yield* Ref.set(keybindingsRef, next);
 				yield* PubSub.publish(keybindingsHub, next);
 			});
-
-		/* ──────────────── fs.watch — pick up external hand-edits ──────────────── */
 
 		let settingsDebounce: NodeJS.Timeout | null = null;
 		let keybindingsDebounce: NodeJS.Timeout | null = null;
@@ -795,9 +747,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 		};
 
 		const watchers: fsSync.FSWatcher[] = [];
-		// Watch the user config directory, not the files themselves — atomic
-		// rename swaps the inode out from under a per-file watcher and the
-		// events stop arriving. Directory-level watch survives that.
+
 		try {
 			const w = fsSync.watch(userConfigDir, (_eventType, filename) => {
 				if (filename === SETTINGS_FILENAME) {
@@ -814,14 +764,9 @@ export const ConfigStoreServiceLive = Layer.effect(
 					}, WATCH_DEBOUNCE_MS);
 				}
 			});
-			w.on("error", () => {
-				/* watcher dying is best-effort; the in-memory ref stays correct */
-			});
+			w.on("error", () => {});
 			watchers.push(w);
-		} catch {
-			// Userdata not watchable (sandboxed FS, network mount). The RPC
-			// surface still works; only external hand-edits go un-noticed.
-		}
+		} catch {}
 
 		yield* Effect.addFinalizer(() =>
 			Effect.sync(() => {
@@ -830,14 +775,10 @@ export const ConfigStoreServiceLive = Layer.effect(
 				for (const w of watchers) {
 					try {
 						w.close();
-					} catch {
-						/* ignore */
-					}
+					} catch {}
 				}
 			}),
 		);
-
-		/* ────────────────────────── Public API ─────────────────────────────── */
 
 		const getSettings: ConfigStoreServiceShape["getSettings"] = () =>
 			Ref.get(settingsRef);
@@ -847,6 +788,18 @@ export const ConfigStoreServiceLive = Layer.effect(
 				const cur = yield* Ref.get(settingsRef);
 				const next: SettingsFile = SettingsFile.make({
 					schemaVersion: 1,
+					simulatorSupportEnabled:
+						patch.simulatorSupportEnabled ??
+						cur.simulatorSupportEnabled ??
+						false,
+					simulatorAgentAccessEnabled:
+						patch.simulatorAgentAccessEnabled ??
+						cur.simulatorAgentAccessEnabled ??
+						false,
+					simulatorOnboardingCompleted:
+						patch.simulatorOnboardingCompleted ??
+						cur.simulatorOnboardingCompleted ??
+						false,
 					defaultProviderId: patch.defaultProviderId ?? cur.defaultProviderId,
 					defaultModelByProvider:
 						patch.defaultModelByProvider ?? cur.defaultModelByProvider,
@@ -918,16 +871,6 @@ export const ConfigStoreServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Migration is conservative: we only overlay the localStorage values
-		 * onto the *current* settings if the user hasn't already meaningfully
-		 * customised the file. The first call after a renderer reload supplies
-		 * the payload; subsequent calls find onboardingCompleted=true (the
-		 * common "I've already migrated" tell) or any differing field and
-		 * leave things alone. This protects against the renderer accidentally
-		 * shipping a stale localStorage blob after the user has changed
-		 * settings on disk.
-		 */
 		const migrateLocalStorage: ConfigStoreServiceShape["migrateLocalStorage"] =
 			(payload) =>
 				Effect.gen(function* () {
@@ -987,9 +930,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 							completionSoundPreset = fromLs.completionSoundPreset;
 							providerEnabled = fromLs.providerEnabled;
 							modelEnabledByProvider = fromLs.modelEnabledByProvider;
-						} catch {
-							/* swallow — keep current values */
-						}
+						} catch {}
 					}
 
 					if (
@@ -997,16 +938,13 @@ export const ConfigStoreServiceLive = Layer.effect(
 						payload.subagentsRaw.length > 0
 					) {
 						try {
-							// Zustand persist wraps state as `{state: {...}, version: N}`.
 							const wrapper = JSON.parse(payload.subagentsRaw) as {
 								readonly state?: Record<string, unknown>;
 							};
 							const state = wrapper?.state ?? {};
 							const fromLs = coerceSettings({ subagents: state });
 							subagents = fromLs.subagents;
-						} catch {
-							/* swallow */
-						}
+						} catch {}
 					}
 
 					const merged = SettingsFile.make({
@@ -1015,7 +953,7 @@ export const ConfigStoreServiceLive = Layer.effect(
 						defaultModelByProvider: models,
 						defaultRuntimeMode: runtime,
 						defaultAutoCreateWorktree: autoWorktree,
-						// Autonomy has no localStorage predecessor — preserve current.
+
 						defaultAutonomyLevel: cur.defaultAutonomyLevel,
 						onboardingCompleted: onboarding,
 						appearanceMode,

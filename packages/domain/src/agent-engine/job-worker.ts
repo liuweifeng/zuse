@@ -17,22 +17,6 @@ import type { JobLedger, JobLedgerError } from "./job-ledger.js";
 import type { Job, JobKind } from "./jobs.js";
 
 /**
- * Job worker.
- *
- * Claims jobs from the ledger, runs the executor, and settles the row. Jobs of
- * one session run in order because the ledger's claim predicate refuses to
- * claim while that session has a running job; jobs of different sessions run
- * in parallel up to `concurrency`.
- *
- * `drain` runs every job that is claimable now, including jobs parked as
- * `waiting`, and waits for jobs already in flight, then returns the failures
- * settled meanwhile. Commands use `drainSession` to surface only their session’s failures;
- * tests and explicit maintenance can use `drain` without sleeping. Background
- * loops handle automatic retries whose `availableAt` lies in the future and
- * work committed by other processes; they never touch `waiting` jobs.
- */
-
-/**
  * `automatic`: the worker retries with backoff up to the attempt budget.
  * `on_demand`: the job is parked as `waiting` until an explicit drain (a user
  * action) or boot recovery retries it. `never`: the job fails for good.
@@ -185,7 +169,6 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 			yield* onFailure(record);
 		});
 
-	/** Claims and runs one job. Returns `false` when nothing was claimable. */
 	const release = Ref.update(inFlight, (count) => count - 1).pipe(
 		Effect.andThen(PubSub.publish(settleHub, undefined)),
 	);
@@ -233,7 +216,6 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 						}
 					});
 					const execution = Effect.gen(function* () {
-						// Registration precedes the durable ownership check, closing the claim/cancel gap.
 						const owned = yield* ledger
 							.renew({ jobId: job.id, workerId: owner, leaseMs })
 							.pipe(Effect.orDie);
@@ -271,8 +253,7 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 						failureObservers.delete(observer);
 					}),
 			);
-			// Waiting jobs parked before this drain get one more attempt; a job that
-			// parks itself during the drain waits for the next explicit retry.
+
 			const startedAtIso = (yield* DateTime.nowAsDate).toISOString();
 			const settled = yield* PubSub.subscribe(settleHub);
 			while (true) {
@@ -287,8 +268,7 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 						? (yield* Ref.get(inFlight)) > 0
 						: yield* ledger.hasRunning(sessionId);
 				if (!pending) break;
-				// Another fibre owns a job for now. Its settlement may unblock a
-				// session lane, so look again afterwards.
+
 				yield* Effect.raceFirst(
 					PubSub.take(settled),
 					Effect.sleep(Duration.millis(Math.min(pollIntervalMs, 1000))),
@@ -302,7 +282,7 @@ export const makeJobWorker = Effect.fn("JobWorker.make")(function* (
 		if (next === null) return Math.min(pollIntervalMs, leaseMs);
 		const now = yield* DateTime.nowAsDate;
 		const untilAvailable = Date.parse(next) + backgroundGraceMs - now.getTime();
-		// Blocked pending jobs must not cause four background loops to poll at 25ms.
+
 		const minimumDelay = options.excludedKinds?.().length ? 1_000 : 25;
 		return Math.min(pollIntervalMs, Math.max(minimumDelay, untilAvailable));
 	});

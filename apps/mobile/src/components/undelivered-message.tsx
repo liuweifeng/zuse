@@ -17,13 +17,11 @@ import {
 } from "~/store/messages";
 import { sessionModelOptionsAtom } from "~/store/session-model-options";
 
-/** Cloud sends carry a `message-send:` prefix; local sends use the id itself. */
 const messageIdOf = (commandId: string): string =>
 	commandId.startsWith("message-send:")
 		? commandId.slice("message-send:".length)
 		: commandId;
 
-/** Rebuild the original send: text, attachments, references and goal mode. */
 const inputOf = (message: Message) => {
 	const content = message.content;
 	if (content._tag === "user")
@@ -61,7 +59,7 @@ export function UndeliveredMessage({
 	messages: readonly Message[];
 }) {
 	const delivery = useAtomValue(sessionDeliveryAtom(stateKey));
-	// The chat's current reasoning selection, as the composer would send it.
+
 	const modelOptions = useAtomValue(sessionModelOptionsAtom(stateKey));
 	const [busy, setBusy] = useState(false);
 	const failed = delivery.failed.findLast(

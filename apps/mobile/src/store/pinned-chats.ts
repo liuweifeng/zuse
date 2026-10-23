@@ -25,10 +25,7 @@ export const hydratePinnedChats = async (): Promise<void> => {
 	let raw: string | null = null;
 	try {
 		raw = await SecureStore.getItemAsync(STORE_KEY);
-	} catch {
-		// Pinned chats are optional startup state. A temporarily unavailable
-		// keychain should not leave the inbox in its loading placeholder.
-	}
+	} catch {}
 	let keys: string[] = [];
 	try {
 		const parsed: unknown = raw === null ? [] : JSON.parse(raw);

@@ -1,20 +1,21 @@
 import "@zuse/i18n/english/chat";
 import { completedNativeChildStep } from "@zuse/client-runtime/native-subagent-fork";
 import type { ChatRef } from "@zuse/client-runtime/resource-ref";
-import type { Message, SessionId } from "@zuse/contracts";
+import type { SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import { ChevronLeft } from "lucide-react";
 import { useMemo } from "react";
 
+import { subagentDelegationView } from "~/lib/delegation-display";
 import {
 	type DetachedSubagentGroup,
 	detachedSubagentGroups,
 } from "~/lib/group-messages";
 import { useOptionalRendererSessionTimeline } from "~/lib/session-timeline-hooks";
 import { rightPaneKey, useUiStore } from "~/store/ui";
+import { StatusGlyph } from "./delegation-row.tsx";
 import { ForkButton } from "./fork-menu.tsx";
-import { MessageRow } from "./message-row";
-import { SubagentAvatar } from "./subagent-identity";
+import { SubagentTranscript } from "./subagent-transcript.tsx";
 
 const formatAge = (date: Date): string => {
 	const elapsed = Math.max(0, Date.now() - date.getTime());
@@ -60,13 +61,6 @@ export function SubagentsPane({
 			itemId: selected.parentItemId,
 			nativeChildId: selected.childSessionId,
 		});
-		const summaryAlreadyInTranscript =
-			selected.summary !== null &&
-			selected.children.some(
-				(message) =>
-					message.content._tag === "assistant" &&
-					message.content.text.trim() === selected.summary?.text.trim(),
-			);
 		return (
 			<div className="flex min-h-0 flex-1 flex-col">
 				<div className="flex h-8 shrink-0 items-center gap-1.5 border-b border-border/60 px-2">
@@ -78,7 +72,6 @@ export function SubagentsPane({
 					>
 						<ChevronLeft className="size-4" />
 					</button>
-					<SubagentAvatar name={selected.agentName} size="sm" />
 					<span className="min-w-0 flex-1 truncate text-xs font-medium">
 						{selected.agentName}
 					</span>
@@ -92,16 +85,16 @@ export function SubagentsPane({
 					) : null}
 				</div>
 				<div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-					<SubagentTranscript messages={selected.children} />
-					{selected.summary?.text && !summaryAlreadyInTranscript ? (
-						<MessageRow
-							message={{
-								...selected.parent,
-								id: `${selected.parent.id}:summary` as Message["id"],
-								content: { _tag: "assistant", text: selected.summary.text },
-							}}
-						/>
-					) : null}
+					<SubagentTranscript
+						parent={selected.parent}
+						parentItemId={selected.parentItemId}
+						messages={selected.children}
+						summaryText={selected.summary?.text ?? null}
+						live={selected.summary === null}
+						chatRef={chatRef}
+						sessionId={sessionId ?? undefined}
+						environmentId={chatRef?.environmentId}
+					/>
 				</div>
 			</div>
 		);
@@ -167,7 +160,17 @@ function AgentSection({
 								onClick={() => onSelect(group.childSessionId)}
 								className="flex min-h-14 w-full items-start gap-2.5 rounded px-2 py-2 text-left hover:bg-muted/40 focus-visible:outline focus-visible:outline-1"
 							>
-								<SubagentAvatar name={group.agentName} />
+								<span className="grid h-5 w-3 shrink-0 place-items-center">
+									<StatusGlyph
+										status={
+											subagentDelegationView(group, {
+												providerId: null,
+												parentLive: true,
+												canReveal: true,
+											}).status
+										}
+									/>
+								</span>
 								<span className="min-w-0 flex-1">
 									<span className="block truncate text-sm font-medium text-foreground/90">
 										{group.agentName}
@@ -186,14 +189,4 @@ function AgentSection({
 			)}
 		</section>
 	);
-}
-
-function SubagentTranscript({
-	messages,
-}: {
-	readonly messages: ReadonlyArray<Message>;
-}) {
-	return messages.map((message) => (
-		<MessageRow key={message.id} message={message} />
-	));
 }

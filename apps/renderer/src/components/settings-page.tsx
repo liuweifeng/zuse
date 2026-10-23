@@ -8,6 +8,7 @@ import { PluginsSettingsPane } from "./settings/plugins-settings-pane.tsx";
 import { WallpaperSettings } from "./settings/wallpaper-settings";
 import "@zuse/i18n/english/settings";
 import "@zuse/i18n/english/plugins";
+import "@zuse/i18n/english/simulators";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -91,12 +92,11 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { BlurredEmail } from "./blurred-email.tsx";
 import { BrowserProfileSelect } from "./browser-profile-select.tsx";
 import { LanguageSelector } from "./language-selector.tsx";
-import { ModelPicker } from "./model-picker.tsx";
+import { MODEL_PICKER_SETTINGS_TRIGGER, ModelPicker } from "./model-picker.tsx";
 import { ProviderSettingsRow } from "./provider-card.tsx";
 import { MODE_META, MODES_ORDER } from "./runtime-mode-meta.ts";
 import { AccountGithubConnection } from "./settings/account-github.tsx";
 import { CloudWorkspacePool } from "./settings/cloud-workspace-pool.tsx";
-import { DeveloperPane } from "./settings/developer-pane.tsx";
 import { DevicesPane } from "./settings/devices-pane.tsx";
 import { DiagnosticsPane as FullDiagnosticsPane } from "./settings/diagnostics-pane.tsx";
 import { HostedDevicesPane } from "./settings/hosted-devices-pane.tsx";
@@ -104,6 +104,7 @@ import { KeybindingsPane } from "./settings/keybindings-editor.tsx";
 import { OrganizationSharingPane } from "./settings/organization-sharing-pane.tsx";
 import { OrganizationsPane } from "./settings/organizations-pane.tsx";
 import { PokedexPane } from "./settings/pokedex-pane.tsx";
+import { SimulatorSettingsPane } from "./settings/simulator-settings-pane.tsx";
 import { UpdateChannelSettings } from "./settings/update-channel-settings.tsx";
 import { RepositorySettings } from "./settings-repository.tsx";
 import {
@@ -380,7 +381,11 @@ function SectionTitle({
 	section: SettingsSection;
 	folders: ReadonlyArray<Folder>;
 }) {
-	const { message: uiMessage } = useUiMessages(["common", "settings"]);
+	const { message: uiMessage } = useUiMessages([
+		"common",
+		"settings",
+		"simulators",
+	]);
 	const workspace = useSyncExternalStore(
 		subscribeRendererWorkspace,
 		rendererWorkspaceSnapshot,
@@ -441,6 +446,12 @@ function SectionTitle({
 					"Browser sessions and credentials stay on this device; they are not shared with your organization.",
 			};
 		}
+		if (section.kind === "simulator") {
+			return {
+				title: uiMessage("simulators:settings_title"),
+				subtitle: uiMessage("simulators:settings_subtitle"),
+			};
+		}
 		if (section.kind === "pokedex") {
 			return {
 				title: uiMessage("settings:settings_page_pokedex"),
@@ -466,13 +477,7 @@ function SectionTitle({
 				subtitle: uiMessage("settings:settings_page_experimental_description"),
 			};
 		}
-		if (section.kind === "developer") {
-			return {
-				title: uiMessage("settings:settings_page_developer"),
-				subtitle:
-					"Accent palette + workflow chip/button states (dev builds only).",
-			};
-		}
+
 		if (section.kind === "organizations")
 			return {
 				title: uiMessage(
@@ -550,11 +555,11 @@ function Pane({ section }: { section: SettingsSection }) {
 		);
 	}
 	if (section.kind === "browser") return <BrowserSettingsPagePane />;
+	if (section.kind === "simulator") return <SimulatorSettingsPane />;
 	if (section.kind === "pokedex") return <PokedexPane />;
 	if (section.kind === "diagnostics") return <FullDiagnosticsPane />;
 	if (section.kind === "shortcuts") return <KeybindingsPane />;
 	if (section.kind === "experimental") return <ExperimentalPane />;
-	if (section.kind === "developer") return <DeveloperPane />;
 	return <RepositorySettings projectId={section.projectId} />;
 }
 
@@ -759,12 +764,6 @@ interface BrowserCredRow {
 	readonly username: string;
 }
 
-/**
- * Browser settings — manage the DUMMY/TEST logins the agent browser autofills
- * via `browser_login`. Passwords go into the encrypted local vault (write-only
- * from here; the list RPC never returns them). The warning banner is
- * load-bearing: real credentials must never live here.
- */
 function BrowserTestLoginsPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -932,11 +931,6 @@ function BrowserTestLoginsPane() {
 	);
 }
 
-/**
- * Opt-in previews. These toggles shape this app's own UI, so they are saved
- * on this install (local storage), not in the active computer's settings:
- * switching to a remote or cloud computer never flips them.
- */
 function ExperimentalPane() {
 	const { message: uiMessage } = useUiMessages(["common", "settings"]);
 
@@ -1357,15 +1351,11 @@ function GeneralPane() {
 		setDisplayName,
 	} = useAuth();
 
-	// Local mirror so typing is smooth; persist on blur to avoid an atomic
-	// settings-file write per keystroke.
 	const [prefixDraft, setPrefixDraft] = useState(branchNamingPrefix);
 	useEffect(() => {
 		setPrefixDraft(branchNamingPrefix);
 	}, [branchNamingPrefix]);
 
-	// Display-name override draft (local cosmetic alias; persisted to localStorage
-	// via the auth store). Mirror on external change.
 	const [nameDraft, setNameDraft] = useState(displayName);
 	const [editingName, setEditingName] = useState(false);
 	const nameInputRef = useRef<HTMLInputElement | null>(null);
@@ -1747,7 +1737,7 @@ export function DefaultModelsPane() {
 				action={
 					<ModelPicker
 						mode="default"
-						triggerClassName="h-7 w-64 max-w-[40vw] justify-between rounded-md border border-input bg-card px-2.5 text-xs hover:bg-muted"
+						triggerClassName={MODEL_PICKER_SETTINGS_TRIGGER}
 					/>
 				}
 			/>
@@ -1821,7 +1811,6 @@ function ProvidersPane() {
 		return latest;
 	}, [availability, uiMessage]);
 
-	// One row opens at a time; the choice survives leaving and reopening settings.
 	const [expandedProvider, setExpandedProvider] = useState<ProviderId | null>(
 		() => lastExpandedProvider,
 	);
@@ -1899,10 +1888,6 @@ function ProvidersPane() {
 
 let lastExpandedProvider: ProviderId | null = null;
 
-// ---------------------------------------------------------------------------
-// Shared building blocks
-// ---------------------------------------------------------------------------
-
 /**
  * Frame-shaped settings block: outer muted shell with `FrameHeader` (title
  * + optional trailing action), optional inner `Card` body, and
@@ -1921,7 +1906,7 @@ export function SettingsFrame({
 	trailing?: React.ReactNode;
 	description?: React.ReactNode;
 	bodyClassName?: string;
-	/** When true, render children flush inside the Card without inner padding. */
+
 	flush?: boolean;
 	children?: React.ReactNode;
 }) {
@@ -2315,9 +2300,6 @@ export function ModelSelect({
 	);
 }
 
-// Re-exported helpers consumed by `ChatComposer`'s "ensure valid defaults"
-// path that picks an effective provider/model when the user's saved
-// default isn't currently logged in.
 export function ensureValidDefaultsForRuntime(
 	ready: ReadonlyArray<ProviderId>,
 ): { providerId: ProviderId; model: string; runtimeMode: RuntimeMode } | null {

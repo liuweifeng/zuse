@@ -9,12 +9,6 @@ import { useResolvedAppearance } from "./appearance.tsx";
  */
 export const ZUSE_DIFF_THEMES = DEFAULT_THEMES;
 
-/**
- * The renderer paints its host, code, gutters, and separators from the
- * computed `--diffs-bg` token. Making that final token transparent lets the
- * surrounding Zuse pane own the surface while preserving syntax and change
- * highlighting from the selected Shiki theme.
- */
 const ZUSE_DIFF_UNSAFE_CSS = `
 :host {
   --diffs-bg: transparent;

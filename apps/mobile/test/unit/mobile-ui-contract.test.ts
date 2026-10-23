@@ -1,8 +1,21 @@
 import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 
-const appFile = (relativePath: string): string =>
-	readFileSync(`${process.cwd()}/app/${relativePath}`, "utf8");
+const source = (path: string): string =>
+	readFileSync(`${process.cwd()}/${path}`, "utf8");
+
+/** Route sources; the root layout and home screen span the files they were split into. */
+const appFile = (relativePath: string): string => {
+	if (relativePath === "_layout.tsx")
+		return source("app/_layout.tsx") + source("app/(main)/_layout.tsx");
+	if (relativePath === "index.tsx")
+		return (
+			source("app/(main)/index.tsx") +
+			source("src/components/home/home-feed.tsx") +
+			source("src/components/home/use-onboarding-gate.ts")
+		);
+	return source(`app/(main)/${relativePath}`);
+};
 
 describe("mobile UI contracts", () => {
 	test("project rows support direct hold-to-drag with rounded highlights", () => {
@@ -92,7 +105,7 @@ describe("mobile UI contracts", () => {
 			"onSelect: () => setCloudSandbox(provider.providerId)",
 		);
 		expect(newChat).not.toContain("/new-cloud-chat");
-		expect(existsSync(`${process.cwd()}/app/new-cloud-chat.tsx`)).toBe(false);
+		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(false);
 	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(
@@ -101,7 +114,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(settings).toContain('text: "Remove Computer"');
 		expect(settings).toContain("void removeConnection(key)");
-		// Account-linked computers come back from the account; only saved ones.
+
 		expect(settings).toContain('connection.source === "paired"');
 	});
 	test("offers bounded home loading and explicit recovery actions", () => {
@@ -116,7 +129,10 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/rpc/connection.ts`,
 			"utf8",
 		);
-		expect(connection).toContain("maxAutomaticAttempts: 2");
+		expect(connection).toContain("maxAutomaticAttempts: (options) =>");
+		expect(connection).toContain(
+			"options.cloudWorkspaceId ? 2 : Number.POSITIVE_INFINITY",
+		);
 	});
 	test("declares local pairing and Expo development discovery services", () => {
 		const config = JSON.parse(
@@ -170,10 +186,10 @@ describe("mobile UI contracts", () => {
 		);
 		expect(appConfig.expo.userInterfaceStyle).toBe("automatic");
 		expect(nativeTheme).toContain(
-			'DynamicColorIOS({ light: "#f7f7f5", dark: "hsl(0 0% 6%)" })',
+			'bg: { light: "#f7f7f5", dark: "hsl(0 0% 6%)" }',
 		);
 		expect(nativeTheme).toContain(
-			'DynamicColorIOS({ light: "#171716", dark: "hsl(0 0% 93%)" })',
+			'fg: { light: "#171716", dark: "hsl(0 0% 93%)" }',
 		);
 		for (const source of [layout, thread, glass]) {
 			expect(source).toContain("useUniwind");
@@ -184,9 +200,12 @@ describe("mobile UI contracts", () => {
 	test("presents settings as a system-backed native form sheet", () => {
 		const layout = appFile("_layout.tsx");
 		expect(layout).toContain('name="settings"');
-		expect(layout).toContain('presentation: "formSheet"');
+		expect(layout).toContain("presentation: SHEET_PRESENTATION");
+		expect(
+			readFileSync(`${process.cwd()}/src/lib/native-header.ts`, "utf8"),
+		).toContain('Platform.OS === "ios" ? "formSheet" : "card"');
 		expect(layout).toContain("sheetAllowedDetents: [0.92]");
-		expect(layout).toContain("contentStyle: { backgroundColor: colors.bg }");
+		expect(layout).toContain("contentStyle: readableContent");
 	});
 
 	test("reuses the model sheet from new chat", () => {
@@ -199,7 +218,12 @@ describe("mobile UI contracts", () => {
 		expect(newChat).toContain("<ModelSheetTrigger");
 		expect(newChat).toContain("<ModelSheet");
 		expect(newChat).not.toContain("<ComposerModelMenu");
-		expect(modelSheet).toContain("canChangeProvider && providers.length > 1");
+		expect(modelSheet).toContain("{showProviderPicker ? (");
+		expect(
+			readFileSync(`${process.cwd()}/src/lib/model-sheet.ts`, "utf8"),
+		).toContain(
+			"showProviderPicker: canChangeProvider && providers.length > 1",
+		);
 		expect(modelSheet).not.toContain('label="Mode"');
 		expect(modelSheet).toContain(
 			"PROVIDER_NATIVE_ASSET_NAMES[value.providerId]",
@@ -232,10 +256,15 @@ describe("mobile UI contracts", () => {
 			`${process.cwd()}/src/components/composer-approval-menu.ios.tsx`,
 			"utf8",
 		);
-		expect(plusMenu).toContain('label="Choose photos"');
-		expect(plusMenu).toContain('label="Choose files"');
-		expect(plusMenu).toContain('label="Add goal"');
-		expect(plusMenu).toContain('label="Plan mode"');
+		const actionMenus = readFileSync(
+			`${process.cwd()}/src/lib/action-menus.ts`,
+			"utf8",
+		);
+		expect(plusMenu).toContain("composerPlusMenuItems(props)");
+		expect(actionMenus).toContain('title: "Choose photos"');
+		expect(actionMenus).toContain('title: "Choose files"');
+		expect(actionMenus).toContain('title: "Add goal"');
+		expect(actionMenus).toContain('title: "Plan mode"');
 		for (const source of [plusMenu, approvalMenu]) {
 			expect(source).toContain('ignoreSafeArea="keyboard"');
 			expect(source).toContain("style={{ width: 40, height: 40 }}");
@@ -333,17 +362,20 @@ describe("mobile UI contracts", () => {
 	test("uses visible native header symbols with transparent targets", () => {
 		const home = appFile("index.tsx");
 		const qrIcon = home.slice(
-			home.indexOf('name="qrcode.viewfinder"'),
-			home.indexOf("</Pressable>", home.indexOf('name="qrcode.viewfinder"')),
+			home.indexOf('name={platformSymbolName("qrcode.viewfinder")}'),
+			home.indexOf(
+				"</Pressable>",
+				home.indexOf('name={platformSymbolName("qrcode.viewfinder")}'),
+			),
 		);
 		expect(home).toContain("width: 40");
 		expect(home).toContain("height: 40");
 		expect(home).not.toContain("backgroundColor");
 		expect(home).not.toContain("borderWidth");
-		expect(home).toContain('name="qrcode.viewfinder"');
+		expect(home).toContain('name={platformSymbolName("qrcode.viewfinder")}');
 		expect(qrIcon).toContain("size={19}");
 		expect(qrIcon).toContain("tintColor={colors.fg}");
-		expect(home).toContain('name="gearshape.fill"');
+		expect(home).toContain('name={platformSymbolName("gearshape.fill")}');
 		expect(home).toContain("size={20}");
 		expect(home).not.toContain('color="#ffffff"');
 	});
@@ -407,7 +439,7 @@ describe("mobile UI contracts", () => {
 		);
 		expect(emptyActions).toContain('router.push("/connect/scan")');
 		expect(nearby).toContain("<ScrollView");
-		expect(nearby).toContain("useHeaderHeight");
+		expect(nearby).toContain("useHeaderContentInset");
 		expect(nearby).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(nearby).toContain("alwaysBounceVertical={false}");
 		expect(nearby).toContain("minHeight: windowHeight");
@@ -431,7 +463,7 @@ describe("mobile UI contracts", () => {
 			"utf8",
 		);
 		expect(layout).toContain("<KeyboardProvider");
-		expect(thread).toContain("useHeaderHeight");
+		expect(thread).toContain("useHeaderContentInset");
 		expect(thread).not.toContain("<KeyboardGestureArea");
 		expect(thread).toContain('contentInsetAdjustmentBehavior="never"');
 		expect(thread).toContain("alignItemsAtEnd");
@@ -624,8 +656,7 @@ describe("mobile UI contracts", () => {
 			assistantActions.indexOf('accessibilityLabel="Copy response"'),
 		);
 		expect(forkMenu).toContain('systemName={sf("arrow.triangle.branch")}');
-		expect(forkMenu).toContain('label="Fork in this chat"');
-		expect(forkMenu).toContain('label="Fork to a new chat"');
+		expect(forkMenu).toContain("forkFromMessageMenuItems(props)");
 		expect(loader).not.toContain("backgroundColor");
 		expect(transcriptLoader).not.toContain("bg-");
 		expect(reconnectingLoader).not.toContain("bg-");
@@ -725,19 +756,19 @@ describe("mobile UI contracts", () => {
 		);
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/files"');
 		expect(layout).toContain('name="c/[conn]/session/[sessionId]/review"');
-		expect(layout).toContain('presentation: "formSheet"');
+		expect(layout).toContain("presentation: SHEET_PRESENTATION");
 		expect(thread).toContain("onFiles={openFiles}");
 		expect(thread).toContain("onChanges={openChanges}");
 		expect(thread).toContain("<ThreadHeaderTitle");
 		expect(thread).toContain("headerTitle: () => (");
 		expect(thread).toContain("headerRight: () => (");
 		expect(sessionActions).toContain("<Menu");
-		expect(sessionActions).toContain("<NativeButton");
+		expect(sessionActions).toContain("<SwiftMenuItems");
 		expect(sessionActions).not.toContain("ActionSheetIOS");
 		expect(thread).toContain("<ReviewChangesPill");
 		expect(files).toContain('<Stack.Toolbar placement="bottom">');
 		expect(files).toContain('placeholder="Search files"');
-		expect(files).toContain("useHeaderHeight");
+		expect(files).toContain("useHeaderContentInset");
 		expect(files).toContain("paddingTop: headerHeight");
 		expect(files).not.toContain("headerTitle:");
 		expect(files).toContain(
@@ -815,7 +846,7 @@ describe("mobile UI contracts", () => {
 		expect(sessionActions).toContain("<Host");
 		expect(sessionActions).toContain("<Menu");
 		expect(sessionActions).toContain("color={colors.fg}");
-		expect(sessionActions).toContain('role="destructive"');
+		expect(sessionActions).toContain("useSessionActionMenuItems(props)");
 		expect(sessionActions).not.toContain("NEON_GREEN");
 		expect(reviewPill).not.toContain("GitCompareArrows");
 		expect(files).not.toContain("translucentNativeHeaderOptions");

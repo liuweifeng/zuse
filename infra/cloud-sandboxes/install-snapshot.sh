@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Distributed alongside runtime-updater.mjs in zuse-snapshot-installer.tar.gz.
+
 set -euo pipefail
 runtime_user="${SUDO_USER:-$(id -un)}"
 while (($#)); do
@@ -19,7 +19,7 @@ if [[ $(id -u) != 0 ]]; then exec sudo -E bash "$0" --user "$runtime_user"; fi
 command -v apt-get >/dev/null || { echo 'This version supports Debian/Ubuntu Boxd images.' >&2; exit 2; }
 runtime_home="$(getent passwd "$runtime_user" | cut -d: -f6)"
 runtime_group="$(id -gn "$runtime_user")"
-# Installing a base snapshot is distinct from updating an enrolled workspace.
+
 [[ ! -e /var/lib/zuse/user-data/zuse.sqlite ]] || { echo 'This machine has existing Zuse chat state. Use workspace runtime updates; prepare a clean snapshot separately.' >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 missing_packages=()

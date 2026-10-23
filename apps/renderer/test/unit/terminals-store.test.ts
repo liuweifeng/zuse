@@ -394,12 +394,9 @@ describe("qualified terminals store", () => {
 		expect(limitReached(placement, ownerId)).toBe(false);
 		expect(limitReached(otherPlacement, otherOwnerId)).toBe(true);
 
-		// A catalog request already in flight may still include the closed PTY.
-		// Its close tombstone must keep both the list and occupancy released.
 		store.reconcileOwned(ref, ref.environmentId, placement, catalog(summaries));
 		expect(limitReached(placement, ownerId)).toBe(false);
 
-		// A new local reservation consumes exactly the newly released slot.
 		store.ensureSlot(ref, 3, "/workspace/replacement", placement);
 		expect(limitReached(placement, ownerId)).toBe(true);
 		expect(limitReached(otherPlacement, otherOwnerId)).toBe(true);
@@ -442,8 +439,6 @@ describe("qualified terminals store", () => {
 			useTerminalsStore.getState().byKey[terminalsKey(ref, "bottom")],
 		).toEqual([]);
 
-		// Once a newer authoritative catalog confirms absence, the tombstone is
-		// released instead of accumulating for the renderer's entire lifetime.
 		store.reconcileOwned(ref, ref.environmentId, "bottom", catalog([]));
 		store.reconcileOwned(
 			ref,

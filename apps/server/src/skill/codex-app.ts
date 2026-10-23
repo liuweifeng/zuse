@@ -15,8 +15,7 @@ export const withCodexApp = <A>(
 				codexPath,
 				startupTimeoutMs: 20_000,
 				onNotification: () => undefined,
-				// Nothing interactive runs in these one-shot calls; deny-by-noop
-				// keeps a stray server request from wedging the child.
+
 				onServerRequest: (_request, respond) => respond({}),
 			});
 			try {

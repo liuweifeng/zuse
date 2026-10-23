@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Encode a rendered PNG sequence to transparent VP9 WebM (+ first/last frame PNGs) in ../assets/blender/.
+
 set -e
 cd "$(dirname "$0")"
 shot=$1

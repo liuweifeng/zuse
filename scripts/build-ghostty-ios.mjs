@@ -39,9 +39,7 @@ const revision = readFileSync(
 const zigVersion = "0.15.2";
 const minimumIOS = "16.4";
 const cache = path.join(homedir(), ".cache", "zuse", "ghostty");
-// Linux shares the verified toolchain cache with the WebAssembly builder. The
-// macOS cache remains architecture-qualified because one checkout may build a
-// universal application with both host toolchains over time.
+
 const bootstrap = createGhosttyBuildBootstrap({
 	cacheRoot: cache,
 	revision,
@@ -196,12 +194,6 @@ function makeStaticSource(directory) {
 	}
 }
 
-/**
- * Zig records its standard-library source paths in Mach-O objects even for a
- * stripped release archive. Re-extract the checksum-verified distribution at
- * the same absolute path for every build so artifact bytes do not depend
- * on the current user's home directory. The path itself is also a build lock.
- */
 function makeCanonicalZig() {
 	const stagedZigRoot = path.join(deterministicRoot, `zig-${zigVersion}`);
 	if (existsSync(stagedZigRoot)) {
@@ -242,9 +234,6 @@ function validateLibrary(library) {
 }
 
 function alignArchiveMembers(library) {
-	// Zig's ar writer can leave compiler_rt.o only 4-byte aligned. Apple's
-	// linker requires 8-byte alignment. Extract first: libtool may silently
-	// omit an unaligned member when passed the original archive directly.
 	const directory = path.join(path.dirname(library), "archive-objects");
 	mkdirSync(directory);
 	if (macHost) run("xcrun", ["ar", "x", library], { cwd: directory });
@@ -256,7 +245,7 @@ function alignArchiveMembers(library) {
 	if (objects.length === 0 || objects.some((file) => !file.endsWith(".o"))) {
 		throw new Error("Unexpected Ghostty static archive members");
 	}
-	// Apple's ar preserves Zig's zero permission bits on extracted objects.
+
 	for (const object of objects) chmodSync(object, 0o644);
 	const aligned = `${library}.aligned`;
 	const arguments_ = ["-static", "-D", ...objects, "-o", aligned];
@@ -267,7 +256,6 @@ function alignArchiveMembers(library) {
 
 const alignTo = (value, alignment) => Math.ceil(value / alignment) * alignment;
 
-/** Create the deterministic two-slice FAT_MAGIC archive emitted by lipo. */
 function writeUniversalSimulatorLibrary(armLibrary, x86Library, destination_) {
 	const arm = readFileSync(armLibrary);
 	const x86 = readFileSync(x86Library);
@@ -279,13 +267,13 @@ function writeUniversalSimulatorLibrary(armLibrary, x86Library, destination_) {
 	const bytes = Buffer.alloc(armOffset + arm.byteLength);
 	bytes.writeUInt32BE(0xcafebabe, 0);
 	bytes.writeUInt32BE(2, 4);
-	// x86_64 (CPU_TYPE_X86_64, CPU_SUBTYPE_X86_64_ALL)
+
 	bytes.writeUInt32BE(0x01000007, 8);
 	bytes.writeUInt32BE(3, 12);
 	bytes.writeUInt32BE(x86Offset, 16);
 	bytes.writeUInt32BE(x86.byteLength, 20);
 	bytes.writeUInt32BE(alignmentPower, 24);
-	// arm64 (CPU_TYPE_ARM64, CPU_SUBTYPE_ARM64_ALL)
+
 	bytes.writeUInt32BE(0x0100000c, 28);
 	bytes.writeUInt32BE(0, 32);
 	bytes.writeUInt32BE(armOffset, 36);

@@ -109,8 +109,6 @@ export function CloudApiKeyList({
  * display prefix remains.
  */
 export function CloudApiKeys({ scope }: { scope: WorkspaceScope }) {
-	// API-key management and machine callers are Personal-only. Never mount
-	// their loader in an organization or fall back to Personal credentials.
 	return scope.kind === "personal" ? <PersonalCloudApiKeys /> : null;
 }
 

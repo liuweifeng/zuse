@@ -25,6 +25,19 @@ import { WorkspaceSettings, WorkspaceSettingsUpdate } from "./settings.ts";
 import { Folder } from "./workspace.ts";
 import { WorkspaceScope } from "./workspace-scope.ts";
 
+export const CloudWorkspacePreparationPhase = Schema.Literals([
+	"checking-repository",
+	"switching-branch",
+	"fetching-repository",
+	"preparing-credentials",
+	"claude-auth-reconnect-required",
+	"codex-auth-reconnect-required",
+	"cursor-auth-reconnect-required",
+	"grok-auth-reconnect-required",
+]);
+export type CloudWorkspacePreparationPhase =
+	typeof CloudWorkspacePreparationPhase.Type;
+
 export const CLOUD_WORKSPACE_OFFER_ID = "cloud-workspace-standard-v1" as const;
 export const CLOUD_RUNTIME_MACHINE_FORK_CAPABILITY = "machine-fork-v1";
 
@@ -159,7 +172,7 @@ export const CloudProviderAuthMode = CloudCodexAuthMode;
 export type CloudProviderAuthMode = CloudCodexAuthMode;
 
 export const CloudProviderConnectionInput = Schema.Struct({
-	providerId: Schema.Literals(["e2b", "boxd", "box"]),
+	providerId: Schema.Literals(["e2b", "boxd", "box", "daytona"]),
 	apiKey: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 	templateId: Schema.optional(
 		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(512)),
@@ -209,7 +222,7 @@ export const CloudSnapshotImportRequest = Schema.Struct({
 	connectionId: Schema.NonEmptyString,
 	agentAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
 	gitAuthentication: Schema.optional(Schema.Literals(["native", "zuse"])),
-	/** Boxd name or ID on input; saved configurations contain the resolved ID. */
+
 	snapshotId: Schema.String.check(
 		Schema.isMinLength(1),
 		Schema.isMaxLength(512),
@@ -217,7 +230,7 @@ export const CloudSnapshotImportRequest = Schema.Struct({
 	runtimeUser: Schema.String.check(
 		Schema.isPattern(/^[a-z_][a-z0-9_-]{0,31}$/u),
 	),
-	/** Empty means bounded discovery; otherwise inspect these exact checkouts. */
+
 	repositoryPaths: Schema.Array(
 		Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(4096)),
 	).check(Schema.isMaxLength(32)),
@@ -236,7 +249,7 @@ export const SnapshotAgentAccess = Schema.Struct({
 		"missing-tool",
 	]),
 	checkedAt: Schema.Number,
-	/** Non-secret account label reported by the agent CLI, such as an email. */
+
 	account: Schema.optional(Schema.String),
 });
 export type SnapshotAgentAccess = typeof SnapshotAgentAccess.Type;
@@ -380,6 +393,13 @@ export class CloudAccountImageBuildAttempt extends Schema.Class<CloudAccountImag
 	updatedAt: Schema.Number,
 }) {}
 
+/** The Zuse runtime release installed in an image; absent for older builds. */
+export const CloudAccountImageRuntime = Schema.Struct({
+	appVersion: Schema.String,
+	wireProtocolVersion: Schema.Number,
+});
+export type CloudAccountImageRuntime = typeof CloudAccountImageRuntime.Type;
+
 /** The private image maintained for an account on one sandbox provider. */
 export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	"CloudAccountImage",
@@ -399,6 +419,7 @@ export class CloudAccountImage extends Schema.Class<CloudAccountImage>(
 	generation: Schema.optional(Schema.String),
 	providerId: Schema.optional(Schema.String),
 	runtimeVersion: Schema.optional(Schema.String),
+	runtime: Schema.optional(CloudAccountImageRuntime),
 	buildMode: Schema.optional(CloudAccountImageBuildMode),
 	progressPhase: Schema.optional(Schema.String),
 	errorCode: Schema.optional(Schema.String),
@@ -558,6 +579,8 @@ export class CloudChatSummary extends Schema.Class<CloudChatSummary>(
 	lastMessageAt: Schema.NullOr(Schema.Number),
 	lastUserMessageAt: Schema.optional(Schema.NullOr(Schema.Number)),
 	archivedAt: Schema.optional(Schema.Number),
+	/** Chat integration that started this workspace, when not the desktop app. */
+	source: Schema.optional(Schema.Literal("slack")),
 	createdAt: Schema.Number,
 	updatedAt: Schema.Number,
 }) {}
@@ -835,8 +858,6 @@ export const CloudProjectsPrepareRpc = Rpc.make("cloud.projects.prepare", {
 });
 export const CloudAccountImageStatusRpc = Rpc.make("cloud.image.status", {
 	payload: Schema.Union([
-		// Void accepts and discards values; match the provider payload first so
-		// desktop RPC calls preserve provider selection in both directions.
 		Schema.Struct({ providerId: Schema.optional(Schema.String) }),
 		Schema.Void,
 	]),

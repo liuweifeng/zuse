@@ -7,10 +7,35 @@ import {
 	handoffComposerDraft,
 	partitionCloudMessages,
 	shouldQueueComposerMessage,
+	submitComposerDelivery,
 	waitingCloudMessagePresentation,
 } from "../../src/lib/composer-delivery.ts";
 
 describe("composer cloud delivery routing", () => {
+	it("holds a follow-up while the launch prompt is preparing before mailbox dispatch", () => {
+		const initial = Message.make({
+			id: MessageId.make("launch-prompt"),
+			sessionId: SessionId.make("launch-session"),
+			role: "user",
+			content: { _tag: "user", text: "yo", goal: false },
+			createdAt: new Date(1),
+		});
+		// The chat opens before gateway readiness or attachment preparation.
+		const preparing = partitionCloudMessages([], [], [initial]);
+		expect(cloudComposerSubmissionBlocked([], preparing.waiting)).toBe(true);
+		const dispatched = [
+			{
+				commandId: CommandId.make(`message-send:${initial.id}`),
+				kind: "messages.send",
+				targetId: null,
+				submittedAt: 1,
+			},
+		];
+		expect(cloudComposerSubmissionBlocked(dispatched, [])).toBe(true);
+		const settled = partitionCloudMessages([initial], [], []);
+		expect(cloudComposerSubmissionBlocked([], settled.waiting)).toBe(false);
+	});
+
 	it("keeps a second prompt in the composer until the durable send settles", () => {
 		for (const deliveryPhase of [
 			"accepted",
@@ -104,34 +129,38 @@ describe("composer cloud delivery routing", () => {
 		).toBe(false);
 	});
 
-	it("clears a draft only after delivery acceptance", async () => {
-		let clears = 0;
-		await expect(
-			commitAcceptedComposerDelivery(Promise.resolve(false), () => {
-				clears += 1;
-			}),
-		).resolves.toBe(false);
-		expect(clears).toBe(0);
-
-		await expect(
-			commitAcceptedComposerDelivery(Promise.resolve(true), () => {
-				clears += 1;
-			}),
-		).resolves.toBe(true);
-		expect(clears).toBe(1);
+	it("clears immediately while a slow send is unresolved and restores on rejection", async () => {
+		let resolve!: (accepted: boolean) => void;
+		let draft = "message with attachment";
+		const delivery = submitComposerDelivery(
+			() =>
+				new Promise<boolean>((done) => {
+					resolve = done;
+				}),
+			() => {
+				draft = "";
+			},
+			() => {
+				draft = "message with attachment";
+			},
+		);
+		expect(draft).toBe("");
+		resolve(false);
+		await expect(delivery).resolves.toBe(false);
+		expect(draft).toBe("message with attachment");
 	});
-
-	it("preserves a draft when acceptance rejects", async () => {
-		let cleared = false;
+	it("restores after a thrown send failure", async () => {
+		let restored = false;
 		await expect(
-			commitAcceptedComposerDelivery(
-				Promise.reject(new Error("pre-acceptance failure")),
+			submitComposerDelivery(
+				() => Promise.reject(new Error("offline")),
+				() => {},
 				() => {
-					cleared = true;
+					restored = true;
 				},
 			),
-		).rejects.toThrow("pre-acceptance failure");
-		expect(cleared).toBe(false);
+		).rejects.toThrow("offline");
+		expect(restored).toBe(true);
 	});
 
 	it.each([

@@ -1,9 +1,13 @@
+import type { RunningBackgroundTask } from "@zuse/client-runtime/background-agent-presentation";
 import { CloudCommandTerminalError } from "@zuse/client-runtime/client-persistence";
 import {
 	resourceRefKey,
 	type SessionRef,
 } from "@zuse/client-runtime/resource-ref";
-import type { SyncPhase } from "@zuse/client-runtime/resource-state";
+import type {
+	ResourceView,
+	SyncPhase,
+} from "@zuse/client-runtime/resource-state";
 import {
 	type AgentErrorKind,
 	CommandId,
@@ -21,7 +25,6 @@ import {
 	type CloudFailurePresentation,
 	cloudFailurePresentation,
 } from "./cloud-failure-presentation.ts";
-import { bindCloudWorkspaceToLocalDevice } from "./device-bridge-binding.ts";
 import { formatError } from "./format-error.ts";
 import {
 	clearPendingSessionMessage,
@@ -108,6 +111,9 @@ export const classifyErrorContent = (
 	content: Readonly<{ message: string; kind?: AgentErrorKind }>,
 	providerId?: ProviderId,
 ): ChatError => {
+	const presentation = cloudFailurePresentation({ cause: content.message });
+	if (presentation?.kind === "github-auth-required")
+		return chatErrorForPresentation(presentation);
 	if (content.kind === "auth")
 		return providerId === undefined
 			? { kind: "auth", message: content.message }
@@ -117,8 +123,6 @@ export const classifyErrorContent = (
 	return classifyMessage(content.message, providerId);
 };
 
-// Bookkeeping rows a provider can append after a failed turn; they neither
-// resolve nor restate the failure.
 const PASSIVE_CONTENT = new Set<Message["content"]["_tag"]>([
 	"usage",
 	"context_usage",
@@ -238,16 +242,11 @@ export const pendingSessionCommandError = (
 	const view = getRendererClientBus().snapshot(sessionTimelineResourceKey(ref));
 	const failed = view.failedCommands.at(-1);
 	if (failed === undefined) return null;
-	// A provisional chat can briefly receive a session-scoped command before its
-	// durable creation acknowledgement. Once the authoritative timeline is live,
-	// that earlier not-found result is obsolete and must not survive as a provider
-	// failure banner over a healthy, streaming turn.
+
 	if (isRecoveredPreAckSessionError(failed.error, view)) {
 		return null;
 	}
-	// Retriable failures remain in the durable outbox and are represented by the
-	// shared stale/connection phase. A destructive error bubble would imply the
-	// prompt was rejected even though reconnect will replay it.
+
 	if (failed.retryable) return null;
 	return failed.terminal === undefined
 		? classifyMessage(failed.error)
@@ -346,7 +345,11 @@ export const sendSessionMessage = async (
 	const messageId = stageSessionMessage(ref, input, options);
 	setSessionError(ref, null);
 	if (isCloudWorkspaceEnvironment(ref.environmentId)) {
-		await bindCloudWorkspaceToLocalDevice(ref.environmentId);
+		await import("./device-bridge-binding.ts")
+			.then(({ bindCloudWorkspaceToLocalDevice }) =>
+				bindCloudWorkspaceToLocalDevice(ref.environmentId),
+			)
+			.catch(() => false);
 	}
 	const commandId = CommandId.make(`message-send:${messageId}`);
 	const modelOptions = readSessionModelOptions(ref);
@@ -375,14 +378,34 @@ export const sendSessionMessage = async (
 			});
 		return true;
 	} catch (cause) {
-		// A transport failure is ambiguous, but there is no locally durable mailbox
-		// acceptance confirmation yet. Keep the outbox and optimistic prompt for
-		// retry while reporting false so the composer remains recoverable.
 		if (retryableFailure(ref, commandId)) return false;
 		discardStagedSessionMessage(ref, messageId);
 		setSessionError(ref, classifyError(cause, options?.providerId));
 		return false;
 	}
+};
+
+export const stopBackgroundTask = (
+	ref: SessionRef,
+	task: RunningBackgroundTask,
+) => {
+	if (task.turnId === null || task.attemptId === null)
+		return Promise.reject(
+			new Error("The task has no live execution identity."),
+		);
+	const commandId = CommandId.make(`background-stop:${crypto.randomUUID()}`);
+	return dispatchSessionCommand({
+		ref,
+		commandId,
+		kind: "messages.background.stop",
+		payload: {
+			commandId,
+			sessionId: ref.sessionId,
+			turnId: task.turnId,
+			attemptId: task.attemptId,
+			taskId: task.taskId,
+		},
+	});
 };
 
 export const interruptSession = async (
@@ -474,8 +497,7 @@ export const persistQueuedMessage = async (
 		return true;
 	} catch (cause) {
 		if (retryableFailure(ref, commandId)) return true;
-		// The optimistic item never became durable. Leaving it disabled implies it
-		// will eventually run even after an authoritative domain rejection.
+
 		updateQueue(ref, (items) => items.filter((item) => item.id !== queueId));
 		setSessionError(ref, classifyError(cause, options?.providerId));
 		return false;
@@ -526,7 +548,7 @@ export const updateQueuedMessage = async (
 	queueId: string,
 	input: ComposerInput,
 	providerId?: ProviderId,
-): Promise<void> => {
+): Promise<boolean> => {
 	const previous = projectionFor(ref)?.queue.items.find(
 		(item) => item.id === queueId,
 	);
@@ -557,15 +579,13 @@ export const updateQueuedMessage = async (
 		updateQueue(ref, (items) =>
 			items.map((item) => (item.id === queueId ? updated : item)),
 		);
+		return true;
 	} catch (cause) {
-		if (retryableFailure(ref, commandId)) return;
+		if (retryableFailure(ref, commandId)) return false;
 		if (isQueuedMessageNotFound(cause)) {
-			// The queue stream may lag behind the server consuming or deleting this
-			// item. Not-found is authoritative convergence, not a provider failure:
-			// drop any stale optimistic row and never resurrect an already-run prompt.
 			updateQueue(ref, (items) => items.filter((item) => item.id !== queueId));
 			clearSessionCommandError(ref);
-			return;
+			return true;
 		}
 		if (previous !== undefined) {
 			updateQueue(ref, (items) =>
@@ -573,6 +593,7 @@ export const updateQueuedMessage = async (
 			);
 		}
 		setSessionError(ref, classifyError(cause, providerId));
+		return false;
 	}
 };
 
@@ -641,8 +662,6 @@ const deleteQueuedMessage = async (
 			queueId,
 		});
 	} catch (cause) {
-		// Once retained in the durable outbox this deletion is accepted client
-		// intent. Re-adding the row would race its reconnect replay.
 		if (retryableFailure(ref, commandId)) return;
 		throw cause;
 	}
@@ -703,6 +722,19 @@ export const takeQueuedMessageForEdit = async (
 	}
 };
 
+/** Keeps queue controls locked while delivery is pending or scheduled for retry. */
+export const queuedMessageRunPending = (
+	view: Pick<ResourceView<unknown>, "pendingCommands" | "failedCommands">,
+	queueId: string,
+): boolean => {
+	const matches = (command: { kind: string; targetId: string | null }) =>
+		command.kind === "messages.queue.runNext" && command.targetId === queueId;
+	return (
+		view.pendingCommands.some(matches) ||
+		view.failedCommands.some((command) => command.retryable && matches(command))
+	);
+};
+
 export const runQueuedMessageNext = async (
 	ref: SessionRef,
 	queueId: string,
@@ -712,9 +744,8 @@ export const runQueuedMessageNext = async (
 		(candidate) => candidate.id === queueId,
 	);
 	if (item === undefined) return;
-	updateQueue(ref, (items) =>
-		items.filter((candidate) => candidate.id !== queueId),
-	);
+	const view = getRendererClientBus().snapshot(sessionTimelineResourceKey(ref));
+	if (queuedMessageRunPending(view, queueId)) return;
 	const commandId = CommandId.make(
 		`queue-run-next:${ref.sessionId}:${queueId}:${crypto.randomUUID()}`,
 	);
@@ -724,6 +755,9 @@ export const runQueuedMessageNext = async (
 			sessionId: ref.sessionId,
 			queueId,
 		});
+		updateQueue(ref, (items) =>
+			items.filter((candidate) => candidate.id !== queueId),
+		);
 	} catch (cause) {
 		if (retryableFailure(ref, commandId)) return;
 		restoreQueuedItem(ref, item);
@@ -744,8 +778,6 @@ export const retryLastSessionMessage = async (
 ): Promise<boolean> => {
 	const projection = projectionFor(ref);
 	if (projection?.status === "error" && projection.activeTurn !== null) {
-		// The runtime owns the persisted failed request. Resume replays that turn;
-		// submitting a new message would hit TurnAlreadyRunning or duplicate it.
 		const commandId = CommandId.make(`session-resume:${crypto.randomUUID()}`);
 		setSessionError(ref, null);
 		try {
@@ -785,10 +817,6 @@ export const retryLastSessionMessage = async (
 	return false;
 };
 
-/**
- * Sent after a compaction that stands in for a stopped turn. Prompts are not
- * localized: interface language must not change what the agent is asked.
- */
 const CONTINUE_AFTER_COMPACT_PROMPT = "Continue where you left off.";
 
 /**

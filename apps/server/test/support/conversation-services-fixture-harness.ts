@@ -236,6 +236,7 @@ export const makeConversationFixtureRuntime = (
 	const StubProviderLive = Layer.succeed(ProviderService, {
 		availability: () => Effect.succeed([]),
 		hasSession: () => Effect.succeed(providerStarted),
+		liveSessions: () => Effect.succeed([]),
 		guardCurrent: (_sessionId, _generation, effect) =>
 			effect.pipe(Effect.as(true)),
 		start: (
@@ -378,6 +379,7 @@ export const makeConversationFixtureRuntime = (
 	});
 
 	const StubGitLive = Layer.succeed(GitService, {
+		githubContext: () => Effect.succeed(null),
 		isRepository: () => Effect.succeed(true),
 		ignoredDirectories: () => Effect.succeed(new Set<string>()),
 		log: () => Effect.die("not used"),
@@ -395,6 +397,7 @@ export const makeConversationFixtureRuntime = (
 		createReviewComment: () => Effect.succeed({ url: null }),
 		reviewIdentity: () => Effect.succeed(null),
 		starZuse: () => Effect.void,
+		zuseStarStatus: () => Effect.succeed(false),
 		listPrs: () => Effect.die("not used"),
 		listIssues: () => Effect.die("not used"),
 		issueMarkdown: () => Effect.die("not used"),

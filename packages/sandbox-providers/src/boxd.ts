@@ -52,10 +52,6 @@ import {
 import { clampSeconds, providerError, validatedEnv } from "./provider-input.ts";
 import { zuseSnapshotName } from "./snapshot-name.ts";
 
-// boxd (boxd.sh) machines are KVM microVMs that hibernate with their memory:
-// a paused workspace wakes in milliseconds with its runtime still running, so
-// this adapter follows the warm E2B resume path rather than Boat's cold one.
-
 export interface BoxdSandboxConfig {
 	readonly apiKey: Redacted.Redacted<string>;
 	/** Organization slug that owns every machine and snapshot; empty = the key's personal context. */
@@ -142,9 +138,7 @@ const MIN_IDLE_SECONDS = 1;
 const MAX_IDLE_SECONDS = 2_592_000;
 const COMMAND_TIMEOUT_MS = 60_000;
 const MACHINE_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
-// Boxd limits the entire proxy hostname to 63 characters. Names created
-// before short names used up to 43 (p65535.<machine>.boxd.zuse.sh = 63), and
-// the first generation up to 63; both stay recoverable.
+
 const PREVIOUS_MACHINE_NAME_MAX_LENGTH = 43;
 const LEGACY_MACHINE_NAME_MAX_LENGTH = 63;
 const PARK_SETTLE_ATTEMPTS = 5;
@@ -168,13 +162,6 @@ const fnv1a32 = (value: string): string => {
 	return hash.toString(16).padStart(8, "0");
 };
 
-/**
- * boxd machine names are DNS labels: lowercase letters, digits and hyphens,
- * at most 43 characters, not ending in a hyphen. Labels that already satisfy
- * that pass through, so `recoverByLabel` finds them by name; anything else is
- * lowercased and given a digest suffix so two labels that differ only in
- * case, or only by a trailing hyphen, stay distinct.
- */
 const machineNameWithinLimit = (label: string, maxLength: number): string => {
 	const lowered = label
 		.toLowerCase()
@@ -192,7 +179,6 @@ const FNV64_OFFSET = 0xcbf2_9ce4_8422_2325n;
 const FNV64_PRIME = 0x100_0000_01b3n;
 const UINT64 = (1n << 64n) - 1n;
 
-/** 64-bit FNV-1a as 13 base36 characters: short, stable and DNS-safe. */
 const fnv1a64Base36 = (value: string): string => {
 	let hash = FNV64_OFFSET;
 	for (const byte of new TextEncoder().encode(value)) {
@@ -221,7 +207,6 @@ const machineKind = (label: string): string =>
 export const boxdMachineName = (label: string): string =>
 	`${machineKind(label)}${fnv1a64Base36(label)}`;
 
-/** Earlier naming generations, newest first, for recovering existing machines. */
 const previousBoxdMachineNames = (label: string): ReadonlyArray<string> => [
 	machineNameWithinLimit(label, PREVIOUS_MACHINE_NAME_MAX_LENGTH),
 	machineNameWithinLimit(label, LEGACY_MACHINE_NAME_MAX_LENGTH),
@@ -234,8 +219,7 @@ const errorForCause = (cause: unknown): SandboxProviderError => {
 		cause instanceof PermissionDeniedError
 	)
 		return providerError("rejected");
-	// FAILED_PRECONDITION covers state transitions ("is starting", "is
-	// stopped"): retryable. ALREADY_EXISTS is a permanent answer.
+
 	if (cause instanceof ConflictError)
 		return providerError(
 			cause.grpcCode === GRPC_ALREADY_EXISTS ? "rejected" : "transient",
@@ -244,7 +228,7 @@ const errorForCause = (cause: unknown): SandboxProviderError => {
 		return providerError(
 			cause.grpcCode === GRPC_INVALID_ARGUMENT ? "rejected" : "transient",
 		);
-	// Rate limits, connection failures, client-side deadlines (exec timeout).
+
 	return providerError("transient");
 };
 
@@ -265,8 +249,6 @@ const machineSizeOf = (machine: Machine): BoxdMachineSize | undefined =>
 		(size) => BOXD_MACHINE_RESOURCES[size].vcpuCount === machine.resources.vcpu,
 	);
 
-// Snapshot restore starts unrestricted. Only native machine forks inherit
-// the source's host-enforced egress allowlist; never promise safe snapshot quarantine.
 const validateNetwork = (network: SandboxNetworkPolicy) =>
 	network.kind === "open"
 		? Effect.void
@@ -274,8 +256,6 @@ const validateNetwork = (network: SandboxNetworkPolicy) =>
 
 export const BOXD_FORK_QUARANTINE = "zuse-fork-quarantine.invalid";
 
-// Snapshot restores replay the captured machine and refuse create-time env.
-// Every caller passes an empty map; a non-empty one would be silently lost.
 const validateCreateEnv = (env: Readonly<Record<string, string>>) =>
 	Object.keys(env).length === 0
 		? Effect.void
@@ -284,7 +264,6 @@ const validateCreateEnv = (env: Readonly<Record<string, string>>) =>
 const clampIdleSeconds = (timeoutSeconds: number): number =>
 	clampSeconds(timeoutSeconds, MIN_IDLE_SECONDS, MAX_IDLE_SECONDS);
 
-// BYOK accounts must not grow an isolate-wide secret/client cache without bound.
 const clients = boundedCache<Boxd>(64);
 
 /**
@@ -325,9 +304,7 @@ export const makeBoxdSandboxProvider = (
 	const org = config.org;
 	const machineSize = config.machineSize ?? "default";
 	const readyDeadlineMs = config.readyDeadlineMs ?? 120_000;
-	// A first capture of an 8 GiB machine takes about a minute; re-saves of
-	// the same name are incremental. Keep the request retryable, but do not
-	// abandon a healthy in-flight save on a short interactive deadline.
+
 	const snapshotDeadlineMs = config.snapshotDeadlineMs ?? 30 * 60_000;
 	const pollIntervalMs = config.pollIntervalMs ?? 2_000;
 	const timing = (providerSandboxId: string, stage: string) =>
@@ -345,8 +322,6 @@ export const makeBoxdSandboxProvider = (
 			},
 		});
 
-	// Snapshot metadata lookup accepts names; restore accepts names or immutable IDs.
-	// Only a genuine missing name warrants an ID lookup; outages must propagate.
 	const snapshotReference = (reference: string) =>
 		call("snapshots.get", () =>
 			client.snapshots.get(reference, org === undefined ? undefined : { org }),
@@ -369,8 +344,6 @@ export const makeBoxdSandboxProvider = (
 			),
 		);
 
-	// A lifecycle request answered with a state conflict already holds: the
-	// machine parked or woke on its own. Rate limits and outages still fail.
 	const callTolerantOfConflict = (
 		method: string,
 		run: () => Promise<unknown>,
@@ -419,8 +392,6 @@ export const makeBoxdSandboxProvider = (
 		state: PAUSED_STATUSES.has(found.status) ? "paused" : "running",
 	});
 
-	// Booting, failed, migrating and unknown states retain their data and stay
-	// retryable. Only confirmed destruction or not-found means absence.
 	const settledSandbox = (
 		found: Machine,
 	): Effect.Effect<ProviderSandbox | null, SandboxProviderError> =>
@@ -450,17 +421,11 @@ export const makeBoxdSandboxProvider = (
 				? Effect.succeed(sizeId)
 				: Effect.fail(providerError("rejected"));
 
-	// A restore keeps the size its snapshot was captured at; a different
-	// placement is applied afterwards as a cold reboot (~3 s). Publishing the
-	// template at the deployment's default size makes this a no-op.
 	const bootId = (providerSandboxId: string) =>
 		runCommand(providerSandboxId, BOOT_ID_COMMAND).pipe(
 			Effect.map((result) => result.stdout.trim()),
 		);
 
-	// `resize` answers before its reboot lands, and readiness alone can be
-	// satisfied by the instance that is about to go away, so a resize is only
-	// complete once the machine reports a new boot.
 	const applySize = Effect.fn("BoxdSandboxProvider.applySize")(function* (
 		current: Machine,
 		size: BoxdMachineSize,
@@ -483,9 +448,6 @@ export const makeBoxdSandboxProvider = (
 		}
 	});
 
-	// A cold boot (fresh create after resize, start after stop) reports exec
-	// readiness before systemd finished booting, and tagged launches need the
-	// bus. The secrets directory lives on tmpfs, so it is recreated each time.
 	const prepareRuntime = Effect.fn("BoxdSandboxProvider.prepareRuntime")(
 		function* (providerSandboxId: string) {
 			const result = yield* runCommand(
@@ -500,8 +462,6 @@ export const makeBoxdSandboxProvider = (
 		},
 	);
 
-	// Every API key is fenced to one organization, so a name resolves in the
-	// same context the adapter creates in.
 	const findByName = (
 		name: string,
 	): Effect.Effect<Machine | null, SandboxProviderError> =>
@@ -511,7 +471,6 @@ export const makeBoxdSandboxProvider = (
 			),
 		);
 
-	// Failed machines may retain authoritative data. Keep the name and disk.
 	const settledByName = Effect.fn("BoxdSandboxProvider.settledByName")(
 		function* (name: string) {
 			const found = yield* findByName(name);
@@ -538,15 +497,7 @@ export const makeBoxdSandboxProvider = (
 		if (!MACHINE_NAME_PATTERN.test(name))
 			return yield* providerError("rejected");
 		const idleSeconds = clampIdleSeconds(input.timeoutSeconds);
-		// Managed images are isolated. User-owned snapshots retain Boxd
-		// account integrations, including agent credential injection.
-		// Auto-suspend stays off so the runtime's
-		// outbound gateway connection never freezes under it; the caller's
-		// timeout becomes the hibernate (pause) or destroy (terminate) timer.
-		// ALREADY_EXISTS is the one create failure worth a second look: the
-		// label is the machine name, so a retried create after a lost response
-		// adopts the machine the first attempt made. A failed owner retains its
-		// identity and data; every other failure ends this attempt.
+
 		const createMachine = Effect.tryPromise({
 			try: async () => {
 				try {
@@ -591,8 +542,7 @@ export const makeBoxdSandboxProvider = (
 							),
 				),
 			));
-		// Configure the backstop once. The actual guarded launch proves guest
-		// readiness; same-size restores need no SDK exec probe or CLI priming.
+
 		if (input.onTimeout === "pause")
 			yield* call("machines.setAutoHibernateTimeout", () =>
 				client.machines.setAutoHibernateTimeout(created.id, idleSeconds),
@@ -641,8 +591,6 @@ export const makeBoxdSandboxProvider = (
 			boxSystemdProcessCommand({ ...input, tag, user }, unit, selector),
 		);
 		if (result.exitCode !== 0) {
-			// Provider output can contain the command's environment. Remove every
-			// supplied value before exposing a bounded launch diagnosis.
 			let diagnostic = `${result.stderr ?? ""}\n${result.stdout ?? ""}`;
 			for (const value of Object.values(input.env ?? {})) {
 				if (value.length > 0)
@@ -676,8 +624,7 @@ export const makeBoxdSandboxProvider = (
 			return yield* startManagedProcess(providerSandboxId, input, input.tag);
 		yield* validatedEnv(input.env ?? {});
 		const user = input.user ?? COMMAND_USER;
-		// Untagged build commands run detached in their own session; the exec
-		// returns as soon as the launcher shell backgrounds them.
+
 		const result = yield* runCommand(
 			providerSandboxId,
 			`sudo -n -E -H -u ${shellQuote(user)} setsid bash -c ${shellQuote(boxProcessScript(input))} >/dev/null 2>&1 </dev/null &`,
@@ -708,8 +655,6 @@ export const makeBoxdSandboxProvider = (
 		providerSandboxId: string,
 		path: string,
 	) {
-		// Read one byte past the cap so an oversized file is rejected without
-		// transferring it.
 		const result = yield* runCommand(
 			providerSandboxId,
 			`sudo -n head -c ${MAX_TEXT_FILE_BYTES + 1} ${shellQuote(path)}`,
@@ -725,7 +670,6 @@ export const makeBoxdSandboxProvider = (
 	const writeTextFiles: NonNullable<SandboxProviderAdapter["writeTextFiles"]> =
 		Effect.fn("BoxdSandboxProvider.writeTextFiles")(
 			function* (providerSandboxId, files, user) {
-				// Validate the entire batch before uploading or changing any file.
 				if (
 					files.some(
 						({ path, contents }) =>
@@ -786,8 +730,7 @@ export const makeBoxdSandboxProvider = (
 		function* (providerLabel: string) {
 			const name = boxdMachineName(providerLabel);
 			let found = yield* settledByName(name);
-			// Keep machines named by earlier schemes discoverable without
-			// renaming them or allocating replacements for their runtime data.
+
 			const tried = new Set([name]);
 			for (const previous of previousBoxdMachineNames(providerLabel)) {
 				if (found !== null) break;
@@ -799,11 +742,6 @@ export const makeBoxdSandboxProvider = (
 		},
 	);
 
-	// Proxies reach the VM interface while the runtime binds loopback, so the
-	// shared forwarder bridges them; it is idempotent and re-binds the fresh
-	// interface address a restore or fork receives. The route itself is
-	// inherited from the template snapshot for the runtime port and created
-	// on demand for preview ports.
 	const revokeEndpoint = Effect.fn("BoxdSandboxProvider.revokeEndpoint")(
 		function* (providerSandboxId: string, port?: number) {
 			if (
@@ -831,8 +769,7 @@ export const makeBoxdSandboxProvider = (
 					),
 				);
 			}
-			// In particular, never claim the default URL is revoked if the provider
-			// retains it or switches it back to automatic port detection.
+
 			const remaining = yield* call("machines.proxies.list", () =>
 				client.machines.proxies.list(providerSandboxId),
 			);
@@ -855,8 +792,7 @@ export const makeBoxdSandboxProvider = (
 			);
 			if (forwarded.exitCode !== 0) return yield* providerError("transient");
 			const routeName = `p${port}`;
-			// A previously published route can serve the port even when creation
-			// is unavailable. Never reuse auto mode: it can switch ports later.
+
 			const routeForPort = (routes: ReadonlyArray<ProxyRoute>) =>
 				routes.find(
 					(route) =>
@@ -876,8 +812,6 @@ export const makeBoxdSandboxProvider = (
 			let routes = yield* listRoutes;
 			let creation: SandboxProviderError | undefined;
 			if (routeForPort(routes) === undefined) {
-				// A concurrent resolution may have created it first; only a route
-				// that is still missing afterwards makes the failure the answer.
 				creation = yield* call("machines.proxies.create", () =>
 					client.machines.proxies.create(providerSandboxId, routeName, port),
 				).pipe(
@@ -891,8 +825,7 @@ export const makeBoxdSandboxProvider = (
 			const route = routeForPort(routes);
 			if (route === undefined)
 				return yield* creation ?? providerError("transient");
-			// Proxy listings can retain the cluster zone even when the org has
-			// an active wildcard domain. Machine access advertises that domain.
+
 			const current = yield* machine(providerSandboxId);
 			const domain = `${route.name === null ? "" : `${route.name}.`}${current.name}.${current.access.domain}`;
 			return {
@@ -911,8 +844,7 @@ export const makeBoxdSandboxProvider = (
 		const current = yield* machine(providerSandboxId);
 		if (ABSENT_STATUSES.has(current.status))
 			return yield* providerError("not-found");
-		// A machine that woke on its own (inbound traffic) answers with a
-		// state conflict; that is success.
+
 		const wake =
 			current.status === "hibernated"
 				? callTolerantOfConflict("machines.wake", () =>
@@ -933,8 +865,7 @@ export const makeBoxdSandboxProvider = (
 			sizeId === undefined ? undefined : yield* machineSizeFor(sizeId);
 		const resizeRequired =
 			requestedSize !== undefined && machineSizeOf(current) !== requestedSize;
-		// A retained restore requires no guest probes, SDK readiness poll, setup,
-		// CLI priming or timeout rewrite. The installed runtime owns reattachment.
+
 		if (current.status !== "stopped" && !resizeRequired) {
 			if (current.status !== "running" && !PAUSED_STATUSES.has(current.status))
 				return yield* providerError("transient");
@@ -953,9 +884,6 @@ export const makeBoxdSandboxProvider = (
 		return { ...toProviderSandbox(sized), processContinuity: "lost" as const };
 	});
 
-	// Hibernate only a running machine, and confirm it parked: a machine
-	// still booting answers with a state conflict that must not be mistaken
-	// for "already parked", and inbound traffic can wake it straight back.
 	const pause = Effect.fn("BoxdSandboxProvider.pause")(function* (
 		providerSandboxId: string,
 	) {
@@ -1014,8 +942,7 @@ export const makeBoxdSandboxProvider = (
 			yield* call("snapshots.create", () =>
 				client.snapshots.create(providerSandboxId, target),
 			);
-		// Capturing memory and disk takes up to a minute; retries land back
-		// here and resume polling the same in-flight save.
+
 		const attempts = Math.max(
 			1,
 			Math.ceil(snapshotDeadlineMs / pollIntervalMs),
@@ -1052,8 +979,6 @@ export const makeBoxdSandboxProvider = (
 			const name = boxdMachineName(input.providerLabel);
 			const existing = yield* settledByName(name);
 			if (existing !== null) {
-				// Adoption is safe only for this exact native fork. A completed child
-				// can now be running its own work: never quarantine or reset it again.
 				if (
 					existing.source?.kind !== "fork" ||
 					existing.source.id !== input.sourceSandboxId
@@ -1086,11 +1011,10 @@ export const makeBoxdSandboxProvider = (
 			const source = yield* ready(input.sourceSandboxId);
 			if (!source.networking.isolated || source.networking.networks.length > 0)
 				return yield* providerError("rejected");
-			// The lifecycle owner persists a source-network recovery intent before
-			// this call, so a worker crash cannot leave the parent fenced forever.
+
 			return yield* Effect.gen(function* () {
 				yield* setNetwork(source.id, { kind: "quarantined" });
-				// boxd documents a one-second propagation window before enforcement.
+
 				yield* Effect.sleep(Duration.millis(1_100));
 				const created = yield* call("machines.fork", () =>
 					client.machines.fork(source.id, {
@@ -1162,9 +1086,7 @@ export const makeBoxdSandboxProvider = (
 					call("usage", async () => {
 						if (client.machines.usage === undefined)
 							throw new Error("boxd usage API unavailable");
-						// Bucket starts are integral seconds. Ceiling both bounds preserves
-						// their membership in the requested half-open interval; flooring
-						// a later period boundary would assign its preceding bucket to the wrong period.
+
 						const usage = await client.machines.usage(id, {
 							since: Math.ceil(window.startedAtMs / 1000),
 							until: Math.ceil(window.endedAtMs / 1000),
@@ -1206,6 +1128,14 @@ export const makeBoxdSandboxProvider = (
 						: "Large (4 vCPU / 16 GB)",
 			...BOXD_MACHINE_RESOURCES[sizeId],
 		})),
+		validateTemplate: () =>
+			snapshotReference(config.templateSnapshot).pipe(
+				Effect.flatMap((snapshot) =>
+					snapshot.status === "ready" && snapshot.version !== null
+						? Effect.void
+						: providerError("rejected"),
+				),
+			),
 		create: (input) =>
 			allocate({
 				providerLabel: input.providerLabel,
@@ -1216,8 +1146,7 @@ export const makeBoxdSandboxProvider = (
 				network: input.network,
 				onTimeout: input.onTimeout,
 			}),
-		// Account images are snapshots; a restore boots into the captured
-		// state in milliseconds with its memory intact.
+
 		resolveSnapshotSource: (snapshotId) =>
 			snapshotReference(snapshotId).pipe(
 				Effect.flatMap((info) =>
@@ -1250,8 +1179,7 @@ export const makeBoxdSandboxProvider = (
 		inspect,
 		resolveEndpoint,
 		revokeEndpoint,
-		// Hibernate writes memory to disk: effectively free while parked and
-		// ~85 ms to wake with every process intact.
+
 		pause,
 		resume,
 		extendTimeout: (providerSandboxId, timeoutSeconds) =>

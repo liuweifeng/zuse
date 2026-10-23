@@ -83,5 +83,16 @@ export const cloudQueueStatus = (
 ): CloudQueueStatus => {
 	const waiting = waitingCloudMessagePresentation(input.pendingCommands);
 	if (waiting?.blocked === true) return { label: waiting.label, busy: false };
+	if (input.connection === "failed")
+		return {
+			label:
+				"Cloud connection failed. Retry to reconnect; your message is still queued.",
+			busy: false,
+		};
+	if (input.summary?.state === "failed")
+		return {
+			label: "Cloud workspace failed. Your message is still queued.",
+			busy: false,
+		};
 	return { label: cloudLifecycleLabel(input), busy: true };
 };

@@ -89,7 +89,6 @@ type BatchEntry = {
 	reject: (error: unknown) => void;
 };
 
-/** Aliases are grouped only under one pinned host/account and priority. */
 class GitHubBatch {
 	private readonly controllers = new Set<AbortController>();
 	private readonly queues = new Map<
@@ -321,7 +320,6 @@ export class GitHubPullRequests {
 						"head",
 					)
 					.catch(async (error) => {
-						// Only discovery has a compatible REST shape. Mutations never enter this path.
 						if (
 							!(error instanceof GitHubFailure) ||
 							(error.kind !== "rate_limited" &&
@@ -370,6 +368,22 @@ export class GitHubPullRequests {
 						pr.headRepositoryOwner?.login.toLowerCase() ===
 							headOwner.toLowerCase(),
 				);
+				const open = nodes.filter((pr) => pr.state === "OPEN");
+				const candidates = open.length ? open : nodes;
+				if (
+					!headOwner &&
+					new Set(
+						candidates.flatMap((pr) =>
+							pr.headRepositoryOwner
+								? [pr.headRepositoryOwner.login.toLowerCase()]
+								: [],
+						),
+					).size > 1
+				)
+					throw new GitHubFailure(
+						"unknown",
+						"This branch matches multiple forks. Connect the checkout to identify its pull request.",
+					);
 				const number =
 					(nodes.find((pr) => pr.state === "OPEN") ?? nodes[0])?.number ?? null;
 				if (number === null && result.pullRequests.pageInfo.hasNextPage)
@@ -578,7 +592,7 @@ export class GitHubPullRequests {
 				"unknown",
 				"GitHub check data changed during pagination. Refresh to retry.",
 			);
-		// An overlapping read may return its valid result, but cannot replace a newer cache observation.
+
 		if (this.authorities.get(key) !== authority) return value;
 		this.cache.set(key, {
 			value,
@@ -639,7 +653,7 @@ export class GitHubPullRequests {
 						cached.etags.clear();
 						return false;
 					}
-					// The Link header is not guaranteed on a 304: retain page shape with validators.
+
 					const nextKey = `${endpoint}\0next`;
 					if (response.status !== 304)
 						cached.etags.set(

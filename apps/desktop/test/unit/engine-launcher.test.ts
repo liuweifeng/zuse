@@ -66,7 +66,7 @@ it("reattaches to the live engine's API port without rewriting its launch config
 				supervisorPath: "unused",
 			}),
 		).rejects.toThrow("different engine version");
-		// An incompatible desktop must leave the existing owner reachable.
+
 		expect(
 			(await ensureDesktopEngine({ config, supervisorPath: "unused" })).pid,
 		).toBe(process.pid);

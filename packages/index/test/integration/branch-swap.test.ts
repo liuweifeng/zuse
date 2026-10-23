@@ -25,12 +25,11 @@ describe("Phase E — branch swap + incremental", () => {
 			await run(runMigrations(db));
 			await run(indexRepo(db, root, "main"));
 
-			// Branch "feature": same files plus an extra.
 			writeFileSync(join(root, "c.ts"), "export const c = 3;\n");
 			await run(indexRepo(db, root, "feature"));
 
 			const diff = await run(diffManifest(db, "feature", "main"));
-			// To go main → match feature, we'd need to add c.ts.
+
 			const add = diff.toAdd.find((x) => x.filePath === "c.ts");
 			expect(add).toBeDefined();
 			await run(closeIndexDb(db));
@@ -55,9 +54,7 @@ describe("Phase E — branch swap + incremental", () => {
 			const t0 = Date.now();
 			const diff = await run(swapBranchManifest(db, "main", "feature"));
 			const elapsed = Date.now() - t0;
-			// Most files unchanged (we just re-indexed the same content), so
-			// the swap is effectively a no-op write set — exercises the
-			// SELECT + diff path under load.
+
 			console.log(
 				`[swap] elapsed=${elapsed}ms adds=${diff.toAdd.length} removes=${diff.toRemove.length} unchanged=${diff.unchanged}`,
 			);
@@ -79,7 +76,6 @@ describe("Phase E — branch swap + incremental", () => {
 
 			writeFileSync(join(root, "x.ts"), "export function x() { return 2; }\n");
 
-			// Warm-up call (grammar load + prepare statements).
 			await run(reindexFile(db, root, join(root, "x.ts"), "main"));
 
 			writeFileSync(join(root, "x.ts"), "export function x() { return 3; }\n");

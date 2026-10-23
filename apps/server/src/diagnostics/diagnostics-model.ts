@@ -112,9 +112,7 @@ const decodeEventCursor = (
 		) {
 			return { createdAt: parsed.createdAt, id: parsed.id };
 		}
-	} catch {
-		// Legacy numeric cursors are handled by the caller.
-	}
+	} catch {}
 	return null;
 };
 

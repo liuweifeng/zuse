@@ -116,9 +116,6 @@ const logWorkosVerifyFailure = (
 	});
 };
 
-// Worker services are rebuilt per request, but public verification keys should
-// retain jose's normal cache/rotation behavior between requests. Never cache
-// bearer tokens or principals. jose handles request-owned fetches on Workers.
 const verificationKeys = new Map<
 	string,
 	ReturnType<typeof createRemoteJWKSet>

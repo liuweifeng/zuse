@@ -135,8 +135,6 @@ const itemKey = (message: Message): string | null =>
 		? `${message.sessionId}:${message.content.itemId}`
 		: null;
 
-/** A successful emit_ui call is shown by its `ui_spec` row alone; failed
- * calls keep their tool rows so the error stays visible. */
 const withoutRenderedUiCalls = (messages: Message[]): Message[] => {
 	const calls = new Set<string>();
 	const failed = new Set<string>();
@@ -212,33 +210,29 @@ const linesForReplacement = (oldText: string, newText: string): DiffLine[] => [
 	})),
 ];
 
+/** Git file headers that precede the first hunk of a patch. */
+const PATCH_FILE_HEADER =
+	/^(?:diff --git |index |new file mode |deleted file mode |old mode |new mode |similarity index |dissimilarity index |rename from |rename to |copy from |copy to |--- |\+\+\+ |Binary files )/;
+
 export const parseUnifiedPatch = (patch: string): DiffLine[] => {
 	const lines: DiffLine[] = [];
 	let oldLine = 0;
 	let newLine = 0;
-	// Lines still owed to the current hunk. Inside a hunk a `+++` or `---`
-	// line is an added or removed source line, not a file header. Body lines
-	// always carry a prefix, so a `@@` header is recognized even when a
-	// malformed count claims more lines.
-	let oldRemaining = 0;
-	let newRemaining = 0;
-	for (const raw of patch.split(/\r\n|\r|\n/)) {
-		if (raw.startsWith("diff ")) {
-			oldRemaining = 0;
-			newRemaining = 0;
-		}
-		const inHunk = oldRemaining > 0 || newRemaining > 0;
-		const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
+	let inHunk = false;
+	const rawLines = patch.split(/\r\n|\r|\n/);
+	if (rawLines.at(-1) === "") rawLines.pop();
+	for (const raw of rawLines) {
+		const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+		if (raw.startsWith("diff --git ")) inHunk = false;
+		if (header === null && !inHunk && PATCH_FILE_HEADER.test(raw)) continue;
 		if (header !== null) {
+			inHunk = true;
 			oldLine = Number(header[1]);
-			newLine = Number(header[3]);
-			oldRemaining = header[2] === undefined ? 1 : Number(header[2]);
-			newRemaining = header[4] === undefined ? 1 : Number(header[4]);
+			newLine = Number(header[2]);
 			lines.push({ kind: "hunk", text: raw, oldLine: null, newLine: null });
 		} else if (raw.startsWith("+") && (inHunk || !raw.startsWith("+++"))) {
 			lines.push({ kind: "added", text: raw.slice(1), oldLine: null, newLine });
 			newLine += 1;
-			newRemaining = Math.max(0, newRemaining - 1);
 		} else if (raw.startsWith("-") && (inHunk || !raw.startsWith("---"))) {
 			lines.push({
 				kind: "removed",
@@ -247,14 +241,11 @@ export const parseUnifiedPatch = (patch: string): DiffLine[] => {
 				newLine: null,
 			});
 			oldLine += 1;
-			oldRemaining = Math.max(0, oldRemaining - 1);
 		} else if (!raw.startsWith("\\")) {
 			const text = raw.startsWith(" ") ? raw.slice(1) : raw;
 			lines.push({ kind: "context", text, oldLine, newLine });
 			oldLine += 1;
 			newLine += 1;
-			oldRemaining = Math.max(0, oldRemaining - 1);
-			newRemaining = Math.max(0, newRemaining - 1);
 		}
 	}
 	return lines;

@@ -145,9 +145,7 @@ for (const packageName of nativePackages) {
 		try {
 			const metadata = JSON.parse(await readFile(candidate, "utf8"));
 			if (metadata.name === packageName) break;
-		} catch {
-			// Keep walking: package exports often hide package.json itself.
-		}
+		} catch {}
 		const parent = dirname(source);
 		if (parent === source) {
 			throw new Error(`Could not resolve package root for ${packageName}`);
@@ -248,7 +246,6 @@ console.log(
 	}),
 );
 
-// The installer bundle is inert: no repository paths, credentials, or runtime state.
 const snapshotInstallerRoot = join(outputRoot, "snapshot-installer");
 await mkdir(snapshotInstallerRoot, { recursive: true });
 for (const [source, target] of [

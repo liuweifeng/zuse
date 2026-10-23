@@ -43,6 +43,7 @@ import {
 	readLocalExternalFile,
 	writeLocalExternalFile,
 } from "../lib/local-device-client-bus.ts";
+import { readImageFile } from "../lib/read-image-file.ts";
 import {
 	rendererWorkspaceSnapshot,
 	subscribeRendererWorkspace,
@@ -192,7 +193,7 @@ export function FileEditor() {
 	}
 
 	const canPreview = isPreviewableFileName(openFile.name);
-	// External files have no git/folder context, so they're edit/preview only.
+
 	const isExternal = openFile.kind === "external";
 	const view =
 		(openFile.view === "preview" && !canPreview) ||
@@ -222,13 +223,6 @@ export function FileEditor() {
 	);
 }
 
-/**
- * Inline image preview — used for attachment screenshots so clicking the
- * thumbnail keeps the user inside the app rather than punting to the OS
- * handler. No toolbar, no read RPC; the privileged `zuse://` scheme
- * (see `apps/desktop/src/main.ts`) lets the renderer fetch the bytes
- * directly.
- */
 function ImageBody({ src, name }: { src: string; name: string }) {
 	return (
 		<div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-black/40 p-4">
@@ -246,8 +240,6 @@ type FileImageState =
 	| { status: "ready"; src: string }
 	| { status: "error"; reason: string };
 
-/** Loads project and external images through the same path-validated fs RPC
- * as the editor, then gives the browser a short-lived local object URL. */
 function FileImageBody({ openFile }: { openFile: EditableFile }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -260,33 +252,7 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 
 		void (async () => {
 			try {
-				const result =
-					openFile.kind === "external"
-						? await readLocalExternalFile<typeof FsFileContent.Type>(
-								openFile.absPath,
-							)
-						: (
-								await dispatchFileTreeCommand<
-									Parameters<MemoizeClient["fs.readFile"]>[0],
-									typeof FsFileContent.Type
-								>({
-									ref: {
-										environmentId: EnvironmentId.make(
-											openFile.environmentId ?? getLocalEnvironmentId(),
-										),
-										folderId: openFile.folderId,
-										worktreeId: openFile.worktreeId,
-										rootPath: "",
-									},
-									kind: "fs.readFile",
-									commandId: CommandId.make(`fs-read:${crypto.randomUUID()}`),
-									payload: {
-										folderId: openFile.folderId,
-										path: openFile.path,
-										worktreeId: openFile.worktreeId,
-									},
-								})
-							).result;
+				const result = await readImageFile(openFile);
 				if (cancelled) return;
 				const mimeType = imageMimeForFile(openFile.name);
 				if (mimeType === null) return;
@@ -327,17 +293,8 @@ function FileImageBody({ openFile }: { openFile: EditableFile }) {
 	return <ImageBody src={state.src} name={openFile.name} />;
 }
 
-// ---------------------------------------------------------------------------
-// Pierre edit body — loads a file via fs.readFile and renders the same file
-// surface used by review, with native in-place editing from @pierre/diffs/edit.
-// ---------------------------------------------------------------------------
-
 type EditableFile = Extract<OpenFile, { kind: "text" | "external" }>;
 
-// Stable empty reference for the annotations selector. Returning a fresh
-// `[]` literal from an atom/`useSyncExternalStore` selector fails React's
-// snapshot identity check every render → "getSnapshot should be cached" and
-// an infinite update loop. One shared constant keeps the reference stable.
 const EMPTY_ANNOTATIONS: ReadonlyArray<CodeAnnotation> = [];
 type FileAnnotationMetadata =
 	| { readonly kind: "saved"; readonly annotation: CodeAnnotation }
@@ -392,8 +349,6 @@ function PierreEditBody({
 	);
 	const addAnnotation = useAddAnnotation();
 
-	// The annotation target path: workspace-relative for project files, absolute
-	// for external ones (matches `CodeAnnotation.relPath`).
 	const workspaceRoot = useActiveWorkspaceRoot(
 		openFile.kind === "text" ? openFile.folderId : null,
 	);
@@ -434,8 +389,6 @@ function PierreEditBody({
 		],
 	);
 
-	// Mutable per-file working state. Refs keep save/load callbacks stable across
-	// keystrokes while Pierre owns rendering, selection and undo history.
 	const editorRef = useRef<Editor<FileAnnotationMetadata> | null>(null);
 	const docRef = useRef("");
 	const baselineRef = useRef("");
@@ -821,23 +774,11 @@ function PierreEditBody({
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Diff body — fetches `git.diff` for the current file and feeds the unified
-// patch string to `@pierre/diffs` `PatchDiff`. Handles untracked/deleted/
-// binary/unchanged states with placeholders so empty diffs don't surprise.
-// ---------------------------------------------------------------------------
-
 type DiffState =
 	| { status: "loading" }
 	| { status: "ready"; result: GitDiffResult }
 	| { status: "error"; reason: string; noRepo: boolean };
 
-/**
- * Inline comment editor injected into the diff via Pierre's `renderAnnotation`
- * slot. Sits directly under the selected line (no floating overlay / pixel
- * math). Enter (without shift) confirms; Escape cancels. The confirmed comment
- * lands in the composer annotation tray through the shared annotations store.
- */
 function InlineAnnotationEditor({
 	relPath,
 	range,
@@ -929,8 +870,7 @@ function DiffViewBody({
 
 	const diffTheme = useZuseDiffTheme();
 	const [state, setState] = useState<DiffState>({ status: "loading" });
-	// Bumped after an in-place `git init` from the no-repo CTA so the diff
-	// re-fetches without the user toggling Edit/Diff to force a remount.
+
 	const [reload, setReload] = useState(0);
 	const addAnnotation = useAddAnnotation();
 	const workspaceRoot = useActiveWorkspaceRoot(openFile.folderId);
@@ -939,10 +879,6 @@ function DiffViewBody({
 			? `${workspaceRoot}/${openFile.path}`
 			: openFile.path;
 
-	// Pierre-native line selection replaces the old shadow-DOM scraping: the
-	// built-in gutter "+" reports a `SelectedLineRange`, and the pending comment
-	// editor is injected inline on that line via `lineAnnotations` +
-	// `renderAnnotation` (a clean slot, no floating overlay or pixel math).
 	const [pending, setPending] = useState<{
 		startLine: number;
 		endLine: number;
@@ -1135,11 +1071,6 @@ function DiffViewBody({
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Preview body — reads the saved file from disk and renders markdown / HTML.
-// This deliberately ignores unsaved CodeMirror edits until the user saves.
-// ---------------------------------------------------------------------------
-
 function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -1266,12 +1197,6 @@ function PreviewViewBody({ openFile }: { openFile: EditableFile }) {
 		/>
 	);
 }
-
-// ---------------------------------------------------------------------------
-// Toolbar — path + dirty/saving on the left, Diff/Edit segmented toggle on
-// the right. The saving indicator lives inside CodeMirrorBody so it tracks
-// the actual save call; the toolbar just shows path + dirty + the toggle.
-// ---------------------------------------------------------------------------
 
 function Toolbar({
 	path,

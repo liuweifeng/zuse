@@ -101,8 +101,6 @@ export async function readBatteryStatus(
 			return parseWindowsBatteryStatus(stdout);
 		}
 		if (platform === "linux") return await readLinuxBatteryStatus();
-	} catch {
-		// Battery telemetry is optional and never affects desktop startup.
-	}
+	} catch {}
 	return unknownBatteryStatus();
 }

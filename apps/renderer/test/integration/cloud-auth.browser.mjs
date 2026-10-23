@@ -127,7 +127,7 @@ try {
 	]);
 	await page.evaluate(() => window.rejectAuth());
 	await dialog.getByRole("alert").waitFor();
-	// A resolved RPC containing a failed verification must not close the dialog.
+
 	await page.evaluate(async () => {
 		const key = await crypto.subtle.generateKey(
 			{

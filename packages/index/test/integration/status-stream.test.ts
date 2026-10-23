@@ -37,9 +37,6 @@ describe("IndexService.statusStream", () => {
 
 			const collected: Array<IndexStatus["state"]> = [];
 
-			// Subscribe first, then trigger the reindex. The first emit should be
-			// the current "idle" snapshot, then "indexing" (possibly with progress
-			// ticks if the corpus is large), then "ready" once the run settles.
 			const fiber = runtime.runFork(
 				Effect.flatMap(IndexService, (svc) =>
 					Stream.runForEach(svc.statusStream, (s) =>
@@ -55,15 +52,12 @@ describe("IndexService.statusStream", () => {
 				),
 			);
 
-			// Yield so the subscriber registers before we start the reindex.
 			await new Promise((res) => setTimeout(res, 20));
 
 			await runtime.runPromise(
 				Effect.flatMap(IndexService, (svc) => svc.reindex()),
 			);
 
-			// Give the in-flight emissions a moment to settle before we tear the
-			// fiber down.
 			await new Promise((res) => setTimeout(res, 50));
 			await runtime.runPromise(Fiber.interrupt(fiber));
 			await runtime.dispose();

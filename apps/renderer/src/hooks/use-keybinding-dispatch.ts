@@ -50,11 +50,7 @@ export function useKeybindingDispatch(): void {
 				const command: Command = r.rule.command;
 				if (!APPLICATION_COMMANDS.has(command)) continue;
 				if (!matchesShortcut(event, r.shortcut, IS_MAC)) continue;
-				// Hand-edited when-clauses evaluate against an empty context — any
-				// identifier resolves to false, so a rule like `when: composerFocus`
-				// simply won't fire from here. (composer/editor commands are
-				// excluded above and handled inside their CodeMirror keymap, where
-				// focus is implicit.)
+
 				if (r.whenAst !== null && !evaluateWhen(r.whenAst, {})) continue;
 
 				event.preventDefault();

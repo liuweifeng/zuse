@@ -15,11 +15,13 @@
 		"test:startup-browser": "node test/integration/react-startup.browser.mjs",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"test:cloud-repository-state-browser": "node test/integration/cloud-repository-state.browser.mjs",
+		"test:timeline-cache-browser": "node test/integration/session-timeline-cache.browser.mjs",
 		"test:plugins-browser": "node test/integration/plugins.browser.mjs",
 		"test:cloud-setup-browser": "node test/integration/cloud-setup.browser.mjs",
 		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs",
 		"test:secret-requests-browser": "node test/integration/session-secret-requests.browser.mjs",
-		"test:message-origin-browser": "node test/integration/message-origin.browser.mjs"
+		"test:message-origin-browser": "node test/integration/message-origin.browser.mjs",
+		"test:remote-device-access-browser": "node test/integration/remote-device-access.browser.mjs"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.4.1",
@@ -82,6 +84,7 @@
 		"@types/react-dom": "catalog:",
 		"@vitejs/plugin-react": "6.0.3",
 		"babel-plugin-react-compiler": "^1.0.0",
+		"esbuild": "0.28.1",
 		"tailwindcss": "^4.0.0",
 		"typescript": "catalog:",
 		"vite": "8.1.5",

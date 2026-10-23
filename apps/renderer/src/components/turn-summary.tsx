@@ -84,13 +84,6 @@ const aggregateFileStats = (body: ReadonlyArray<Message>): FileStat[] => {
 const MAX_PREVIEW_ICONS = 5;
 const MAX_FILE_CHIPS = 4;
 
-/**
- * Inline summary of a completed turn. The header (chevron + counts + tool
- * icon preview) toggles the detail rows. The final assistant text always
- * shows below; its action row carries elapsed time, while the optional footer
- * carries file edit stats. No outer card — sections sit flat in the timeline
- * like every other row.
- */
 function TurnSummaryImpl({
 	body,
 	sessionId,
@@ -157,18 +150,11 @@ function TurnSummaryImpl({
 		[body, finalAssistant, uiMessage],
 	);
 
-	// Group delegated agents so each renders as one row with its nested
-	// children inside, instead of dumping every nested Bash / text row at the
-	// top level alongside the parent's own work — which makes parallel
-	// sub-agents look like duplicates.
 	const detailGroups = useMemo(
 		() => groupDelegations(groupMessages(detailRows)),
 		[detailRows, uiMessage],
 	);
 
-	// Dedupe by icon identity (not tool name) — Edit/Write/MultiEdit share an
-	// icon, as do Grep/Glob, etc. We want one slot per visual, ordered by
-	// first appearance in the turn.
 	const previewIcons = useMemo(() => {
 		const items: { key: string; icon: ReturnType<typeof iconForTool> }[] = [];
 		const seen = new Set<unknown>();

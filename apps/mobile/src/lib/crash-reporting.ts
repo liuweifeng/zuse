@@ -55,7 +55,7 @@ export const captureMobileError = async (
   try {
     await FileSystem.writeAsStringAsync(PATH, JSON.stringify(report, null, 2));
   } catch {
-    // Crash reporting must never become another crash source.
+
   }
 };
 
@@ -75,7 +75,7 @@ export const clearLastCrashReport = async (): Promise<void> => {
   try {
     await FileSystem.deleteAsync(PATH, { idempotent: true });
   } catch {
-    // Best effort.
+
   }
 };
 

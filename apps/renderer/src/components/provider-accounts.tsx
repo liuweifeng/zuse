@@ -124,8 +124,7 @@ export function ProviderAccountsControls({
 			setBusy(false);
 		}
 	};
-	// Connecting means signing in: create the account under a suggested name
-	// (renamable later) and open the provider's login straight away.
+
 	const connect = async () => {
 		if (busy) return;
 		setBusy(true);
@@ -231,10 +230,6 @@ export function ProviderAccountsControls({
 	);
 }
 
-/**
- * One account line: avatar, name with an optional "Default" badge, then a
- * muted detail on the same line and trailing actions.
- */
 function AccountRow({
 	avatar,
 	label,

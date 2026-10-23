@@ -154,7 +154,7 @@ test("REST validators reuse checks and unsupported endpoints stop being probed",
 	const f = fixture();
 	await settle(f.reader.read(repo, 1, signal()));
 	f.setNow(60_000);
-	await settle(f.reader.read(repo, 1, signal())); // seed validators and reread
+	await settle(f.reader.read(repo, 1, signal()));
 	f.setNow(119_000);
 	await settle(f.reader.read(repo, 1, signal()));
 	expect(f.client.metrics.graphql).toBe(2);

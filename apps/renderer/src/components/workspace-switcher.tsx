@@ -39,7 +39,6 @@ import {
 
 export { organizationWorkspacesAvailable } from "../lib/organization-workspaces.ts";
 
-/** Personal shows the account photo; organizations their dithered mark. */
 function WorkspaceMark({
 	seed,
 	imageUrl,

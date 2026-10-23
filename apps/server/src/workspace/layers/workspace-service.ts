@@ -32,7 +32,7 @@ const rowToFolder = (row: ProjectRow): Folder =>
 		name: row.name,
 		kind: row.kind,
 		addedAt: new Date(row.created_at),
-		// A malformed stored key must never widen visibility; treat it as Personal.
+
 		workspaceKey: isWorkspaceKey(row.workspace_key)
 			? row.workspace_key
 			: PERSONAL_WORKSPACE_KEY,
@@ -52,6 +52,7 @@ export const WorkspaceServiceLive = Layer.effect(
 				const rows = yield* sql<ProjectRow>`
           SELECT id, path, name, created_at, workspace_key, kind
           FROM projects
+          WHERE id NOT LIKE 'master-workspace-%'
           ORDER BY created_at ASC
         `.pipe(Effect.orDie);
 				return rows.map(rowToFolder);
@@ -103,7 +104,6 @@ export const WorkspaceServiceLive = Layer.effect(
 						options?.moveFrom !== undefined &&
 						options.moveFrom !== workspaceKey
 					) {
-						// Compare-and-swap: a concurrent move or re-add leaves the row alone.
 						const moved = yield* sql<{ id: string }>`
               UPDATE projects
               SET workspace_key = ${workspaceKey}, updated_at = ${new Date().toISOString()}
@@ -134,7 +134,11 @@ export const WorkspaceServiceLive = Layer.effect(
 						}),
 				});
 
-				const id = FolderId.make(crypto.randomUUID());
+				const id = FolderId.make(
+					options?.privateId !== undefined
+						? `master-workspace-${options.privateId}`
+						: crypto.randomUUID(),
+				);
 				const name = Path.basename(resolved) || resolved;
 				const now = new Date();
 				const nowIso = now.toISOString();
@@ -173,7 +177,7 @@ export const WorkspaceServiceLive = Layer.effect(
 						}
 						return existing;
 					}
-					// Never run an unscoped agent inside an enclosing repository.
+
 					yield* fs
 						.makeDirectory(root, { recursive: true })
 						.pipe(Effect.mapError((cause) => invalid(String(cause))));
@@ -192,7 +196,7 @@ export const WorkspaceServiceLive = Layer.effect(
 						if (parent === ancestor) break;
 						ancestor = parent;
 					}
-					// Persisted paths are reused above, even if the root or date changes.
+
 					const nowDate = new Date();
 					let directory = Path.join(root, scratchDirectoryName(id, nowDate));
 					const occupied = yield* sql<{
@@ -235,9 +239,7 @@ export const WorkspaceServiceLive = Layer.effect(
 				yield* sql`DELETE FROM projects WHERE id = ${folderId}`.pipe(
 					Effect.orDie,
 				);
-				// ON DELETE CASCADE on projects → sessions → messages handles the rest.
-				// If this was the selected project, clear the pointer so the persisted
-				// value never points to a missing id.
+
 				yield* sql`
           DELETE FROM app_state
           WHERE key = ${SELECTED_KEY} AND value = ${folderId}
@@ -265,7 +267,7 @@ export const WorkspaceServiceLive = Layer.effect(
 				const row = rows[0];
 				if (row === undefined) return null;
 				const id = FolderId.make(row.value);
-				// Defensive: drop the selection if the project is gone.
+
 				const known = yield* sql<{ id: string }>`
           SELECT id FROM projects WHERE id = ${id} LIMIT 1
         `.pipe(Effect.orDie);

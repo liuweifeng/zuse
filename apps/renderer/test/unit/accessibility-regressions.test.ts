@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import chatViewSource from "../../src/components/chat-view.tsx?raw";
+import questionCardSource from "../../src/components/composer/question-tray.tsx?raw";
 import environmentSummarySource from "../../src/components/environment-summary.tsx?raw";
 import permissionCardSource from "../../src/components/permission-card.tsx?raw";
 import projectsSidebarSource from "../../src/components/projects-sidebar.tsx?raw";
-import questionCardSource from "../../src/components/question-card.tsx?raw";
 import rightPaneSource from "../../src/components/right-pane.tsx?raw";
+import sidebarActionRowSource from "../../src/components/sidebar-action-row.tsx?raw";
 import topBarSource from "../../src/components/top-bar.tsx?raw";
 import composerSource from "../../src/lib/codemirror/composer.ts?raw";
 import { rendererStylesWithPalette } from "../support/renderer-styles.ts";
@@ -85,7 +86,7 @@ describe("renderer accessibility regressions", () => {
 	it("keeps the project toggle separate from its sibling actions", () => {
 		const projectHeader = sourceBetween(
 			projectsSidebarSource,
-			"Project header toggles expansion only.",
+			"const Chevron = isExpanded ? ChevronDown : ChevronRight;",
 			"<ProjectContextMenu",
 		);
 		expect(projectHeader).not.toContain('role="button"');
@@ -124,11 +125,7 @@ describe("renderer accessibility regressions", () => {
 
 	it("uses uniquely named toolbars instead of duplicate banner landmarks", () => {
 		expect(topBarSource).not.toContain("<header");
-		for (const label of [
-			"projects_toolbar",
-			"workspace_toolbar",
-			"workflow_toolbar",
-		]) {
+		for (const label of ["projects_toolbar", "workspace_toolbar"]) {
 			expect(topBarSource).toContain(
 				`aria-label={uiMessage("common:${label}")}`,
 			);
@@ -151,15 +148,6 @@ describe("renderer accessibility regressions", () => {
 			"export function BranchMenuButton",
 		);
 		expect(workspaceToolbar).not.toContain("<section");
-
-		const workflowToolbar = sourceBetween(
-			topBarSource,
-			"export function TopBarRight",
-			"export function TopBarRightContent",
-		);
-		expect(workflowToolbar).toMatch(
-			/<section\s+aria-label=\{uiMessage\("common:workflow_controls"\)\}/,
-		);
 	});
 
 	it("gives every complementary pane a unique accessible name", () => {
@@ -181,12 +169,10 @@ describe("renderer accessibility regressions", () => {
 	});
 
 	it("uses readable semantic text colors for compact sidebar metadata", () => {
-		const actionRow = sourceBetween(
-			projectsSidebarSource,
-			"function SidebarActionRow",
-			"function SidebarFooter",
+		expect(sidebarActionRowSource).toContain(
+			"export function SidebarActionRow",
 		);
-		expect(actionRow).not.toContain("text-muted-foreground/60");
+		expect(sidebarActionRowSource).not.toContain("text-muted-foreground/60");
 		expect(projectsSidebarSource).toContain('className="text-danger-text"');
 		expect(environmentSummarySource).toContain('className="text-danger-text"');
 		expect(questionCardSource).toContain("text-xs text-danger-text");

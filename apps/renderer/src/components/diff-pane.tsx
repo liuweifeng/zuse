@@ -21,7 +21,6 @@ import type {
 import { CommandId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	ArrowUpRight01Icon,
 	FolderTreeIcon,
 	GitBranchIcon,
@@ -32,7 +31,7 @@ import {
 	Tick02Icon,
 	Upload01Icon,
 } from "@zuse/icons/solid-rounded";
-import { FileWarning, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, FileWarning, Pencil, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "~/lib/utils";
 import {
@@ -80,7 +79,6 @@ const basename = (path: string): string => {
 	return i === -1 ? path : path.slice(i + 1);
 };
 
-/** Long change lists get a permanent filter instead of a toggle. */
 const FILTER_ALWAYS_VISIBLE_AT = 20;
 const EMPTY_REVIEW_PATCHES: Readonly<Record<string, GitReviewPatch>> = {};
 type RevertRequest =
@@ -136,7 +134,6 @@ export function DiffPane({
 	const updateComment = useAnnotationsStore((s) => s.updateComment);
 	const removeComment = useAnnotationsStore((s) => s.remove);
 
-	// Paths the user has unchecked for the next commit (see `committable` below).
 	const [excluded, setExcluded] = useState<Set<string>>(() => new Set());
 	const [revertRequest, setRevertRequest] = useState<RevertRequest | null>(
 		null,
@@ -219,15 +216,11 @@ export function DiffPane({
 		}
 	};
 
-	// Which files are included in the next commit. We track an *exclude* set
-	// (paths the user unchecked) so newly-appeared files default to selected and
-	// the selection survives resource invalidations without re-adding every path.
 	const committable = [...tracked, ...untracked];
 	const committablePaths = committable.map((c) => c.path);
 	const selectedEntries = committable.filter((c) => !excluded.has(c.path));
 	const selectedCount = selectedEntries.length;
-	// The pathspec handed to `git commit` — renames need their old path too so
-	// the deletion side of the move lands in the same commit.
+
 	const commitPaths = selectedEntries.flatMap((c) =>
 		c.oldPath !== null && c.oldPath !== c.path ? [c.path, c.oldPath] : [c.path],
 	);
@@ -848,7 +841,7 @@ export function ExternalFeedbackCard({
 
 const ROW_BASE_PADDING_PX = 8;
 const TREE_INDENT_PX = 12;
-/** Chevron width + gap, so file icons line up under their folder's icon. */
+
 const TREE_CHEVRON_SPACE_PX = 18;
 
 function ChangedFilesList({
@@ -925,8 +918,7 @@ function ChangedFilesList({
 							style={{ paddingLeft: indent }}
 							className="flex h-7 w-full items-center gap-1.5 rounded-md pr-2 text-left text-xs outline-none transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
 						>
-							<HugeiconsIcon
-								icon={ArrowDown01Icon}
+							<ChevronDown
 								className={cn(
 									"size-3 shrink-0 text-muted-foreground/70 transition-transform duration-150",
 									!open && "-rotate-90",
@@ -1022,11 +1014,6 @@ function ChangedFileRow({
 	);
 }
 
-/**
- * Small square checkbox used to pick which files go into the commit. Filled
- * monochrome (foreground) when checked, a dash when the header box is in the
- * "some selected" indeterminate state.
- */
 function CheckBox({
 	checked,
 	indeterminate,
@@ -1069,11 +1056,6 @@ function CheckBox({
 	);
 }
 
-/**
- * Commit composer at the bottom of the Changes tab: message, selection, and a
- * single Commit action, with the branch and Push underneath. Only the checked
- * files (`paths`) are staged + committed.
- */
 function CommitComposer({
 	environmentId,
 	folderId,

@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig, searchForWorkspaceRoot } from "vite-plus";
+import { defineConfig, normalizePath, searchForWorkspaceRoot } from "vite-plus";
 
 import { gitRevisionRecovery } from "./vite-git-recovery.ts";
 import { rendererProxy } from "./vite-proxy.ts";
@@ -16,12 +16,6 @@ const rpcTarget = `http://127.0.0.1:${rpcPort}`;
 const sourceMaps = process.env.ZUSE_SOURCEMAPS === "1" ? "hidden" : false;
 const hostedBuild = process.env.VITE_ZUSE_HOSTED === "1";
 
-// In Memoize worktrees, the renderer's node_modules links out to a Bun
-// central store at a sibling path (e.g. `~/Developer/<main checkout>/
-// node_modules/.bun/...`), which sits OUTSIDE the workspace root. Vite's
-// default `fs.allow` doesn't see it and refuses to serve font files. We
-// resolve a known font package at config-load time and walk up to the
-// store root so every hoisted dep gets allowed too.
 const require = createRequire(import.meta.url);
 const iconRuntime = require("../../scripts/icon-runtime.cjs") as {
 	getPaidIconAliases: () => Record<string, string>;
@@ -34,17 +28,17 @@ const iconAliases =
 const desktopPackage = require("../desktop/package.json") as {
 	version: string;
 };
-const effectSchemaPath = require.resolve("effect/Schema");
-const fastCheckProductionStub = fileURLToPath(
-	new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
+const effectSchemaPath = normalizePath(require.resolve("effect/Schema"));
+const fastCheckProductionStub = normalizePath(
+	fileURLToPath(
+		new URL("./src/lib/fast-check-production-stub.ts", import.meta.url),
+	),
 );
 const fontPkgPath = require.resolve("@fontsource-variable/geist/package.json");
-// .../node_modules/.bun/@fontsource-variable+inter@X.Y.Z/node_modules/@fontsource-variable/inter/package.json
-//                  ^^^^ walk up 5 dirs to reach `node_modules/.bun/`
+
 const bunStoreRoot = dirname(dirname(dirname(dirname(dirname(fontPkgPath)))));
 
 export default defineConfig({
-	// Catalogs are consumed as dictionaries, never as named JSON exports.
 	json: { stringify: true, namedExports: false },
 	envDir: resolve(__dirname, "../.."),
 	define: {
@@ -54,8 +48,7 @@ export default defineConfig({
 	experimental: {
 		bundledDev: process.env.ZUSE_BUNDLED_DEV === "1",
 	},
-	// Hosted routes need root-relative assets, while packaged Electron builds
-	// need relative assets so they continue to load through file://.
+
 	base: hostedBuild ? "/" : "./",
 	plugins: [
 		gitRevisionRecovery(),
@@ -66,7 +59,8 @@ export default defineConfig({
 			resolveId(source, importer) {
 				if (
 					source === "./testing/FastCheck.js" &&
-					importer?.split("?", 1)[0] === effectSchemaPath
+					importer !== undefined &&
+					normalizePath(importer.split("?", 1)[0]) === effectSchemaPath
 				) {
 					return fastCheckProductionStub;
 				}
@@ -93,7 +87,13 @@ export default defineConfig({
 		// Keep browser dependencies explicit, including lazy/shared UI entrypoints.
 		noDiscovery: true,
 		holdUntilCrawlEnd: true,
+		// These are already ESM and expand into hundreds of language/diagram
+		// modules. Prebundling them can consume ~2 GB and prevent Vite from binding
+		// its port on a cold Windows cache. Let Vite load them lazily instead.
+		exclude: ["mermaid", "shiki"],
 		include: [
+			// CommonJS dependency of the lazy ESM Mermaid package.
+			"mermaid > dayjs",
 			"react",
 			"react-dom",
 			"react-dom/client",
@@ -140,7 +140,6 @@ export default defineConfig({
 			"fuzzysort",
 			"gradient-shimmer",
 			"lucide-react",
-			"mermaid",
 			"motion/react",
 			"posthog-js/dist/module.slim",
 			"qrcode.react",
@@ -149,11 +148,14 @@ export default defineConfig({
 			"rehype-raw",
 			"rehype-sanitize",
 			"remark-gfm",
-			"shiki",
 			"tailwind-merge",
 		],
 	},
 	server: {
+		// Optimized entry URLs can survive while their React imports change.
+		// Revalidate dev modules so a cached ReactDOM entry cannot retain a
+		// previous React instance after an optimizer update or server restart.
+		headers: { "Cache-Control": "no-cache" },
 		host,
 		port,
 		strictPort: true,

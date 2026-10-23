@@ -28,6 +28,7 @@ export interface SandboxProviderRuntime {
 		readonly providerId: string;
 		readonly productionReady: boolean;
 		readonly advertised: boolean;
+		readonly managedPlacementEnabled?: boolean;
 	}>;
 	/** `CLOUD_AUTH_PROVIDER_ID`, validated against the registered providers. */
 	readonly cloudAuthProviderId?: string;
@@ -36,9 +37,12 @@ export interface SandboxProviderRuntime {
 export interface SandboxProviderModule {
 	readonly providerId: string;
 	readonly productionReady: boolean;
-	readonly configure: (input: {
-		readonly env: SandboxProviderEnvironment;
-	}) => SandboxProviderRegistration | undefined;
+	readonly configure: (input: { readonly env: SandboxProviderEnvironment }) =>
+		| (SandboxProviderRegistration & {
+				/** False retains BYOK registration but excludes managed placement. */
+				readonly managedPlacementEnabled?: boolean;
+		  })
+		| undefined;
 }
 
 export class SandboxProviderConfigurationError extends Schema.TaggedErrorClass<SandboxProviderConfigurationError>()(
@@ -68,9 +72,6 @@ const isRegistered = (
 			adapter.providerId === providerId || aliases.includes(providerId),
 	);
 
-// The login authority must run on a registered provider. Checked at boot like
-// the default provider: a typo or a disabled adapter would otherwise surface
-// only as a 503 on every Cloud authentication request.
 const resolveCloudAuthProviderId = (
 	env: SandboxProviderEnvironment,
 	registrations: ReadonlyArray<SandboxProviderRegistration>,
@@ -138,16 +139,19 @@ export const resolveSandboxProviderRuntimeFromModules = <
 		return registration === undefined ? [] : [registration];
 	});
 	const offer = offerConfiguration();
-	const configuredProviders = registrations.map(({ adapter, advertised }) => ({
-		advertised: advertised !== false,
-		providerId: adapter.providerId,
-		productionReady:
-			modules.find((module) => module.providerId === adapter.providerId)
-				?.productionReady ?? false,
-	}));
-	// With no configured provider the fake registry stands in so the api can
-	// still boot; the fake is never advertised and never selectable via
-	// placement. Any registration switches to the real registry.
+	const configuredProviders = registrations.map(
+		({ adapter, advertised, managedPlacementEnabled }) => ({
+			...(managedPlacementEnabled === undefined
+				? {}
+				: { managedPlacementEnabled }),
+			advertised: advertised !== false,
+			providerId: adapter.providerId,
+			productionReady:
+				modules.find((module) => module.providerId === adapter.providerId)
+					?.productionReady ?? false,
+		}),
+	);
+
 	const layer =
 		registrations.length === 0
 			? makeSandboxProvidersFake([])

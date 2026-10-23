@@ -78,6 +78,10 @@ export interface ProviderServiceShape {
 		sessionId: AgentSessionId,
 		expectedProviderSessionId?: string,
 	) => Effect.Effect<boolean>;
+	/** Sessions with a live handle for this provider. */
+	readonly liveSessions: (
+		providerId: ProviderId,
+	) => Effect.Effect<ReadonlyArray<AgentSessionId>>;
 	/** Stop and verify quiescence before filesystem rollback; failed handles remain owned. */
 	readonly quiesce?: (
 		sessionId: AgentSessionId,
@@ -106,6 +110,13 @@ export interface ProviderServiceShape {
 		attemptId?: import("@zuse/contracts").AttemptId,
 		goal?: ThreadGoalSetInput,
 	) => Effect.Effect<void, AgentSessionNotFoundError>;
+
+	readonly stopBackgroundTask?: (
+		sessionId: AgentSessionId,
+		turnId: AgentTurnId,
+		attemptId: import("@zuse/contracts").AttemptId,
+		taskId: string,
+	) => Effect.Effect<void, AgentSessionNotFoundError | Error>;
 
 	readonly interrupt: (
 		sessionId: AgentSessionId,

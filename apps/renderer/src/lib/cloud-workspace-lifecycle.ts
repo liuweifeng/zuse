@@ -34,7 +34,6 @@ export const cloudWorkspaceStartupError = (
 			? new Error(`Cloud startup stopped during ${workspace.statusCode}.`)
 			: null;
 
-/** Wait for the server-owned lifecycle stream to reach a terminal attach state. */
 const waitForCloudWorkspaceState = (
 	stream: Stream.Stream<CloudWorkspace, unknown>,
 	isReady: (workspace: CloudWorkspace) => boolean,

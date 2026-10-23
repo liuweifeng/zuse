@@ -50,18 +50,10 @@ const kindDetail = (kind: PermissionKind): string => {
 	}
 };
 
-/**
- * `forcePrompt` is overloaded server-side: sensitive credential paths always
- * force a one-shot approval, but so does plan mode (every bash/write/network
- * call). The old copy always said "Sensitive path", which was wrong for the
- * common Grok/ACP case of plan-mode shell prompts on ordinary commands.
- */
 const forcePromptHint = (kind: PermissionKind): string => {
 	switch (kind._tag) {
 		case "Bash":
 		case "Network":
-			// Bash policy never path-scans the command string — forcePrompt here is
-			// plan mode (or an equivalent "never silence this class" gate).
 			return "Plan mode — only “Allow once” is available.";
 		case "FileWrite":
 			return "Sensitive path or plan mode — only “Allow once” is available.";

@@ -1,3 +1,4 @@
+import { ChevronDown } from "lucide-react";
 import { providerDisplayName } from "~/lib/provider-labels";
 import { CopyButton } from "./copy-button.tsx";
 import { ProviderAccountsControls } from "./provider-accounts.tsx";
@@ -8,7 +9,6 @@ import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	Add01Icon,
 	AlertCircleIcon,
-	ArrowDown01Icon,
 	CircleArrowUp01Icon,
 	Delete02Icon,
 	LinkSquare01Icon,
@@ -52,7 +52,6 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 	kiro: "kiro-cli login",
 };
 
-/** Providers with an explicitly reported paid-plan requirement. */
 const SUBSCRIPTION_INFO: Partial<
 	Record<ProviderId, { readonly plan: string; readonly url: string }>
 > = {
@@ -91,7 +90,6 @@ export function ProviderSettingsRow({
 	const persistedEnabled =
 		useSettingsStore((s) => s.providerEnabled[providerId]) ?? true;
 
-	// Only an explicit provider verdict can gate access. Grok uses CLI login status.
 	const unmetSubscriptionRequirement =
 		subscription !== undefined &&
 		availability?.authLabel?.toLowerCase().includes("require") === true;
@@ -102,8 +100,7 @@ export function ProviderSettingsRow({
 		() => getProviderSummary(availability, enabled, loading),
 		[availability, enabled, loading, uiMessage],
 	);
-	// Only force the violet "subscription" status + "Requires ..." headline
-	// when the backend probe says the plan requirement is still unmet.
+
 	const summary =
 		unmetSubscriptionRequirement && subscription !== undefined
 			? {
@@ -119,17 +116,14 @@ export function ProviderSettingsRow({
 	const styles = PROVIDER_STATUS_STYLES[summary.statusKey];
 	const versionLabel = formatVersionLabel(availability?.cliVersion);
 	const showUpgrade = enabled && availability?.cliVersionStatus === "outdated";
-	// One-click update affordance, independent of the blocking SDK floor
-	// (`showUpgrade`). Shown for any installed provider with an update command
-	// unless it is known to be on the latest published version; curl-installed
-	// CLIs (Grok, version "unknown") stay updatable.
+
 	const showUpdate =
 		enabled &&
 		!showUpgrade &&
 		availability !== undefined &&
 		canRunProviderUpdate(availability) &&
 		availability.latestVersionStatus !== "current";
-	// Subscription-gated rows still open so the Subscribe call to action is reachable.
+
 	const canExpand = enabled || unmetSubscriptionRequirement;
 	const open = expanded && canExpand;
 	const label = providerDisplayName(providerId);
@@ -237,8 +231,7 @@ export function ProviderSettingsRow({
 						onExpandedChange(!open);
 					}}
 				>
-					<HugeiconsIcon
-						icon={ArrowDown01Icon}
+					<ChevronDown
 						className={cn(
 							"size-3.5 transition-transform motion-reduce:transition-none",
 							open && "rotate-180",
@@ -314,10 +307,6 @@ function ProviderConfiguration({
 	const { message: uiMessage } = useUiMessages(["common", "providers"]);
 
 	if (providerId === "opencode" || providerId === "opencode2") {
-		// OpenCode fronts many model providers; it gets a dedicated provider
-		// manager (connect catalog providers, add custom OpenAI-compatible ones,
-		// pick which models show) instead of the single-model defaults + one API
-		// key the other harnesses use.
 		return <OpencodeProviderManager channel={providerId} />;
 	}
 	return (
@@ -502,17 +491,6 @@ function ModelVisibilitySettings({ providerId }: { providerId: ProviderId }) {
 	);
 }
 
-/**
- * Subscription / plan notice for providers that gate behind a paid tier
- * (Grok → SuperGrok or X Premium+, Cursor → Cursor Pro).
- *
- * - If the server probe reports an unmet requirement (authLabel contains
- *   "Requires"), we show the strong violet alarm box + Subscribe CTA.
- * - If the user has a successful login (clean authenticated + email from
- *   auth.json), we render nothing — the card already shows "Authenticated
- *   as <email>" and the toggle works. The plan gate is still real and will
- *   be reported by the ACP at runtime with a helpful error.
- */
 function SubscriptionRow({
 	providerId,
 	availability,
@@ -566,16 +544,6 @@ function SubscriptionRow({
 	);
 }
 
-/**
- * One-click sign-in row for providers with a real in-app login handler.
- * Click → subscribe to `provider.startLogin`,
- * which spawns the provider's `login` subcommand server-side and streams
- * progress. The terminal `done` event triggers an availability refresh and
- * (on success) collapses the row. Cancel interrupts the stream, which closes
- * the server-side scope and SIGTERMs the child process. The whole state
- * machine lives in `useProviderLogin` so the composer sign-in tray can reuse
- * it verbatim.
- */
 function ProviderSignInRow({
 	providerId,
 	environmentId,
@@ -725,14 +693,6 @@ function ProviderSignInRow({
 	);
 }
 
-/**
- * Hover-revealed one-click update control shown next to the version label.
- * Clicking the icon **runs the update immediately in-app** (spawns the install
- * command server-side, streams progress) — for npm providers and curl-based
- * CLIs like Grok alike. No dialog: the icon itself is the status badge
- * (spinner → check / alert), with a tooltip carrying the detail / error.
- * `stopPropagation` keeps the click from toggling the card's expand.
- */
 function UpdateAvailableButton({
 	environmentId,
 	providerId,
@@ -765,7 +725,6 @@ function UpdateAvailableButton({
 					? state.reason
 					: idleLabel;
 
-	// The icon doubles as the status badge.
 	const { icon, tone } =
 		state.kind === "running"
 			? {
@@ -811,8 +770,6 @@ function UpdateAvailableButton({
 							tone: behind ? "text-warning" : "text-muted-foreground",
 						};
 
-	// Active states and known newer versions stay visible; an unknown-version
-	// CLI's idle control is hover-revealed so it doesn't clutter the row.
 	const active = state.kind !== "idle" || behind;
 	const badge =
 		state.kind === "running"

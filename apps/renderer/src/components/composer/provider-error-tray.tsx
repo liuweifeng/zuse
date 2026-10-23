@@ -1,5 +1,6 @@
 import "@zuse/i18n/english/chat";
 import "@zuse/i18n/english/common";
+import "@zuse/i18n/english/providers";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { cloudProviderAuthenticationMode } from "@zuse/client-runtime/cloud-provider-availability";
 import type { EnvironmentId, ProviderId, SessionId } from "@zuse/contracts";
@@ -7,13 +8,15 @@ import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
 	AlertCircleIcon,
 	Cancel01Icon,
+	CircleArrowUp01Icon,
 	Copy01Icon,
 	DashboardSpeedIcon,
+	Loading02Icon,
 	RefreshIcon,
 	Settings01Icon,
 	Tick01Icon,
 } from "@zuse/icons/stroke-rounded";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
 	localProjectForCloudEnvironment,
@@ -29,6 +32,8 @@ import {
 	type ProviderErrorNotice,
 	useDismissedProviderErrors,
 } from "../../lib/provider-error-notice.ts";
+import { providerDisplayName } from "../../lib/provider-labels.ts";
+import { canRunProviderUpdate } from "../../lib/provider-status.ts";
 import {
 	type ChatError,
 	clearSessionCommandError,
@@ -42,7 +47,9 @@ import {
 } from "../../lib/session-actions.ts";
 import { useRendererSessionTimeline } from "../../lib/session-timeline-hooks.ts";
 import { cn } from "../../lib/utils.ts";
+import { useProvidersStore, useProviderUpdate } from "../../store/providers.ts";
 import { useUiStore } from "../../store/ui.ts";
+import { CopyButton } from "../copy-button.tsx";
 import { useProviderErrorCopy } from "../provider-error-copy.ts";
 import { SwitchAccountAction } from "./switch-account-action.tsx";
 import {
@@ -82,17 +89,21 @@ export function ProviderErrorTray({
 	const dismissedId = useDismissedProviderErrors(
 		(state) => state.dismissedBySession[sessionKey] ?? null,
 	);
+	// Keyed by message so a new failure always starts collapsed.
+	const [expandedMessage, setExpandedMessage] = useState<string | null>(null);
 
 	const commandError = localError ?? pendingSessionCommandError(ref);
 	const transcriptError = latestTranscriptError(timeline.messages, providerId);
 
-	let source: { error: ChatError; dismiss: () => void } | null = null;
+	let source: { error: ChatError; key: string; dismiss: () => void } | null =
+		null;
 	if (
 		commandError !== null &&
 		!isRecoveredPreAckSessionError(commandError, timeline.view)
 	) {
 		source = {
 			error: commandError,
+			key: `command:${commandError.message}`,
 			dismiss: () => clearSessionCommandError(ref),
 		};
 	} else if (
@@ -105,6 +116,7 @@ export function ProviderErrorTray({
 		const messageId = transcriptError.message.id;
 		source = {
 			error: transcriptError.error,
+			key: `message:${messageId}`,
 			dismiss: () => dismissTranscriptProviderError(sessionKey, messageId),
 		};
 	}
@@ -113,6 +125,10 @@ export function ProviderErrorTray({
 	const notice = describeProviderError(source.error, providerId, environmentId);
 	if (notice.kind === "sign-in") return null;
 	const copy = describe(notice, source.error);
+	// The row shows one truncated line; the full provider text stays readable
+	// and copyable for bug reports.
+	const fullMessage = source.error.message.trim();
+	const expanded = fullMessage.length > 0 && expandedMessage === fullMessage;
 
 	return (
 		<TrayPill
@@ -123,12 +139,30 @@ export function ProviderErrorTray({
 			icon={<HugeiconsIcon icon={noticeIcon(notice)} className="size-3.5" />}
 			title={copy.title}
 			subtitle={copy.detail.length > 0 ? copy.detail : undefined}
+			{...(fullMessage.length > 0
+				? {
+						onPillClick: () =>
+							setExpandedMessage(expanded ? null : fullMessage),
+						ariaExpanded: expanded,
+						ariaLabel: uiMessage(
+							expanded ? "common:collapse" : "common:expand",
+							{
+								title: copy.title,
+							},
+						),
+					}
+				: {})}
+			expanded={
+				expanded ? (
+					<p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-3 py-2 text-muted-foreground select-text">
+						{fullMessage}
+					</p>
+				) : undefined
+			}
 			actions={
 				<>
 					{notice.kind === "usage-limit" &&
 					isNativeAccountProvider(providerId) ? (
-						// Retrying on the same account would hit the limit again, so it
-						// is only offered when there is no other account to switch to.
 						<SwitchAccountAction
 							sessionRef={ref}
 							environmentId={environmentId}
@@ -142,6 +176,7 @@ export function ProviderErrorTray({
 						/>
 					) : null}
 					<ProviderErrorActions
+						key={source.key}
 						notice={notice}
 						switchesAccounts={isNativeAccountProvider(providerId)}
 						onRetry={() => void retryLastSessionMessage(ref, providerId)}
@@ -150,10 +185,16 @@ export function ProviderErrorTray({
 						}
 						environmentId={environmentId}
 					/>
+					{fullMessage.length > 0 ? (
+						<CopyButton
+							text={fullMessage}
+							label={uiMessage("common:startup_surface_copy_details")}
+							className="size-7"
+						/>
+					) : null}
 					<button
 						type="button"
 						onClick={source.dismiss}
-						// Match the h-7 text actions beside it.
 						className={cn(trayPillActionClass, "size-7")}
 						aria-label={uiMessage("chat:message_row_dismiss_error")}
 						title={uiMessage("chat:message_row_dismiss")}
@@ -178,7 +219,9 @@ const noticeIcon = (notice: ProviderErrorNotice) =>
 		? DashboardSpeedIcon
 		: notice.kind === "reconnecting"
 			? RefreshIcon
-			: AlertCircleIcon;
+			: notice.kind === "provider-update"
+				? CircleArrowUp01Icon
+				: AlertCircleIcon;
 
 function ProviderErrorActions({
 	notice,
@@ -188,7 +231,7 @@ function ProviderErrorActions({
 	environmentId,
 }: {
 	notice: ProviderErrorNotice;
-	/** The usage-limit retry is owned by `SwitchAccountAction`. */
+
 	switchesAccounts: boolean;
 	onRetry: () => void;
 	onKeepGoing: () => void;
@@ -233,6 +276,15 @@ function ProviderErrorActions({
 						? uiMessage("common:copied")
 						: uiMessage("chat:message_row_copy_upgrade_command")}
 				</button>
+			);
+		case "provider-update":
+			return (
+				<ProviderUpdateAction
+					environmentId={environmentId}
+					providerId={notice.providerId}
+					onRetry={onRetry}
+					onOpenSettings={() => openSettings("providers")}
+				/>
 			);
 		case "cloud-auth": {
 			const legacy =
@@ -292,9 +344,96 @@ function ProviderErrorActions({
 		case "generic":
 			return <RetryAction onRetry={onRetry} />;
 		case "terminal":
+			return notice.category === "github-auth-required" ? (
+				<>
+					<button
+						type="button"
+						className={trayPillTextActionClass}
+						onClick={() => openSettings("machines")}
+					>
+						<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
+						{uiMessage("chat:message_row_open_cloud_authentication")}
+					</button>
+					<RetryAction onRetry={onRetry} />
+				</>
+			) : null;
 		case "sign-in":
 			return null;
 	}
+}
+
+/**
+ * Runs the shared provider update (the same run the provider card shows), then
+ * offers to resend the failed message once the new CLI is installed.
+ */
+function ProviderUpdateAction({
+	environmentId,
+	providerId,
+	onRetry,
+	onOpenSettings,
+}: {
+	environmentId: EnvironmentId;
+	providerId: ProviderId;
+	onRetry: () => void;
+	onOpenSettings: () => void;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat", "providers"]);
+	const { state, run } = useProviderUpdate(environmentId, providerId);
+	// Unknown availability still offers the update; the server reports when
+	// there is no update command.
+	const updatable = useProvidersStore((s) => {
+		const availability = s.availabilityByEnvironment[
+			environmentId
+		]?.availability.find((a) => a.providerId === providerId);
+		return availability === undefined || canRunProviderUpdate(availability);
+	});
+	const label = providerDisplayName(providerId);
+	// The shared run returns to idle shortly after success; keep offering the
+	// resend here instead of another update.
+	const [updated, setUpdated] = useState(false);
+	useEffect(() => {
+		if (state.kind === "success") setUpdated(true);
+	}, [state.kind]);
+
+	if (updated || state.kind === "success")
+		return <RetryAction onRetry={onRetry} />;
+	if (state.kind === "running")
+		return (
+			<span
+				className={cn(trayPillTextActionClass, "pointer-events-none")}
+				title={state.line ?? undefined}
+			>
+				<HugeiconsIcon icon={Loading02Icon} className="size-3.5 animate-spin" />
+				{uiMessage("providers:updating")}
+			</span>
+		);
+	if (!updatable)
+		return (
+			<button
+				type="button"
+				className={trayPillTextActionClass}
+				onClick={onOpenSettings}
+			>
+				<HugeiconsIcon icon={Settings01Icon} className="size-3.5" />
+				{uiMessage("chat:message_row_open_provider_settings")}
+			</button>
+		);
+	return (
+		<button
+			type="button"
+			className={trayPillTextActionClass}
+			onClick={() => void run()}
+			title={state.kind === "failed" ? state.reason : undefined}
+		>
+			<HugeiconsIcon
+				icon={state.kind === "failed" ? AlertCircleIcon : CircleArrowUp01Icon}
+				className="size-3.5"
+			/>
+			{state.kind === "failed"
+				? uiMessage("chat:message_row_retry_provider_update")
+				: uiMessage("chat:message_row_update_provider", { label })}
+		</button>
+	);
 }
 
 function RetryAction({ onRetry }: { onRetry: () => void }) {

@@ -1,4 +1,5 @@
 {
+	"show_more_count": "再显示 {{count}} 个",
 	"device_preferences_save_failed": "无法保存设备偏好设置。原有偏好设置保持不变。",
 	"workspace_settings_load_failed": "无法加载工作区设置。请重试。",
 	"workspace_settings_save_failed": "无法保存工作区设置。请刷新后重试。",

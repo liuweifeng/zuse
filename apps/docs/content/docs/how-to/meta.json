@@ -1,9 +1,9 @@
 {
-	"title": "How to",
-	"description": "Complete a specific task in Zuse",
-	"icon": "ListChecks",
+	"title": "How-to guides",
+	"description": "Step-by-step tasks",
 	"pages": [
 		"index",
+		"---Build and ship---",
 		"local-parallel-worktrees",
 		"local-delegate-agents",
 		"local-add-context",
@@ -13,10 +13,18 @@
 		"local-recover-task",
 		"local-configure-settings",
 		"local-configure-mcp",
+		"---Other devices---",
 		"remote-connect-device",
 		"remote-local-browser",
 		"remote-hosted-access",
 		"serve-operate-host",
-		"remote-recover-connection"
+		"remote-recover-connection",
+		"---Cloud---",
+		"cloud-start-chat",
+		"choose-cloud-provider",
+		"cloud-share-chat",
+		"cloud-agent-local-commands",
+		"custom-boxd-snapshot",
+		"slack-start-task"
 	]
 }

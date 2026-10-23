@@ -44,7 +44,7 @@ import { requireOrganizationMember } from "./organizations.ts";
 import { ApiStore } from "./store.ts";
 
 const cookieName = "zuse_github_join";
-/** The confirmation form posts back here; keep the Origin header for its check. */
+
 const confirmationPageHeaders = {
 	...INTEGRATION_PAGE_HEADERS,
 	"referrer-policy": "strict-origin",
@@ -71,9 +71,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 		yield* requireOrganizationRollout(input.organizationId);
 		const store = yield* ApiStore;
 		const joining = store.githubJoining;
-		// Commit enrollment intent and its seat reservation before calling WorkOS.
-		// This uses the existing one-connection transaction lock without a second
-		// database connection or a transaction spanning both durable writes.
+
 		const prepared = yield* store.withOrganizationLock(
 			input.organizationId,
 			Effect.gen(function* () {
@@ -100,7 +98,7 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 					input.organizationId,
 				);
 				const active = memberships.find((m) => m.status === "active");
-				if (active) return null; // Never convert a manually admitted membership.
+				if (active) return null;
 				if (!enrollment && memberships.length > 0)
 					return yield* forbidden("organization_access_denied");
 				if (yield* organizationSeatsFull(input.organizationId, accountId))
@@ -175,7 +173,6 @@ export const joinGithubOrganization = Effect.fn("joinGithubOrganization")(
 	},
 );
 
-/** Joins one organization; skips blocked, already joined and full cases. */
 const autoJoin = (
 	accountId: string,
 	githubUserId: number,
@@ -189,8 +186,7 @@ const autoJoin = (
 			accountId,
 		);
 		if (enrollment?.blocked) return false;
-		// A finished enrollment whose membership is still active needs nothing.
-		// One that lost access (left GitHub, then returned) is re-admitted.
+
 		if (
 			enrollment?.memberId &&
 			!enrollment.reservedUntil &&
@@ -200,8 +196,7 @@ const autoJoin = (
 			))
 		)
 			return false;
-		// One organization failing (full, removed, GitHub unavailable) never
-		// blocks the others or the caller.
+
 		return yield* joinGithubOrganization(accountId, githubUserId, policy).pipe(
 			Effect.catch(() => Effect.succeed(false)),
 		);
@@ -346,9 +341,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 			);
 			if (memberships.length < 100) break;
 		}
-		// The browser carries no Zuse session, so a link minted for another
-		// account must not attach this GitHub account silently. Hold the
-		// verified identity and ask the person to confirm the named account.
+
 		yield* store.createChallenge({
 			challengeId: `github-join-confirm:${nonce}`,
 			accountId,
@@ -572,7 +565,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 					enabled: input.enabled,
 					revision: crypto.randomUUID(),
 				};
-				// A complete roster read proves Members permission and stores the roster.
+
 				if (input.enabled) yield* githubMemberEligible(policy, -1);
 				yield* joining.savePolicy(policy);
 			}),
@@ -594,7 +587,7 @@ export const routeGithubOrganizationRequest = Effect.fn(
 					input.accountId,
 				);
 				if (!e) return yield* notFound();
-				// Finish a previously interrupted removal before allowing a new seat claim.
+
 				if (e.blocked)
 					for (const m of yield* membershipsFor(
 						input.accountId,

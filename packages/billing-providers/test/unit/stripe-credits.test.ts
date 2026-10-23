@@ -232,7 +232,7 @@ describe("prepaid invoice balance", () => {
 		await Effect.runPromise(
 			f.credits.process(event("checkout.session.completed")),
 		);
-		f.setBalance(0); // Stripe applied the credit to an invoice.
+		f.setBalance(0);
 		f.setPurchase({ refunds: [{ id: "re_full", amount: 2500 }] });
 		await Effect.runPromise(
 			f.credits.process(event("charge.refunded", { id: "ch_1" })),

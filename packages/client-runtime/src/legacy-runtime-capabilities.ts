@@ -24,7 +24,6 @@ const engineOnlyMethods = new Set([
 	"session.sendAndWait",
 ]);
 
-// Methods added after the final protocol-5 contract (a80cb4bdf^).
 const postProtocolFiveMethods = new Set([
 	"attachments.uploadChunk",
 	"cloud.image.delete",
@@ -96,6 +95,14 @@ export const supportsRuntimeRpc = (
 export const supportsIdempotentSessionFork = (
 	protocolVersion: number | undefined,
 ): boolean => protocolVersion !== undefined && protocolVersion >= 7;
+
+/**
+ * Runtimes negotiated below protocol 7 reject provider changes once a user
+ * message exists; only a new session can run another provider there.
+ */
+export const supportsStartedProviderHandoff = (
+	protocolVersion: number | undefined,
+): boolean => protocolVersion === undefined || protocolVersion >= 7;
 
 export class UnsupportedRuntimeFeatureError extends Error {
 	readonly _tag = "UnsupportedRuntimeFeatureError";

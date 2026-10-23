@@ -27,7 +27,6 @@ describe("machine resource sampling", () => {
 		expect(first.cpuPercent).toBeCloseTo(30);
 		expect(first.cpuCores).toBe(8);
 
-		// 1000 total jiffies elapsed, 900 of them idle -> 10% busy.
 		const second = toSample(
 			{ idle: 7000, total: 10_000, cores: 8 },
 			snapshot({ idle: 7900, total: 11_000, cores: 8 }),

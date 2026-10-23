@@ -27,10 +27,6 @@ import {
 } from "~/store/providers";
 import { useUiStore } from "~/store/ui";
 
-// Persist dismissed update sets so we don't re-nag every launch. The key
-// encodes the exact (provider, latestVersion) pairs, so dismissing "Codex
-// v1.2.0 + Claude v1.0.5" stays hidden — but a newer release changes the key
-// and the toast returns.
 const STORAGE_KEY = "zuse.dismissedProviderUpdates";
 const LEGACY_STORAGE_KEYS = ["memoize.dismissedProviderUpdates"] as const;
 
@@ -54,10 +50,7 @@ function loadDismissed(): Set<string> {
 function persistDismissed(keys: ReadonlySet<string>): void {
 	try {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify([...keys]));
-	} catch {
-		// localStorage can be unavailable (private mode / strict CSP). The toast
-		// simply re-appears next launch — non-fatal.
-	}
+	} catch {}
 }
 
 /**
@@ -87,9 +80,7 @@ export function ProviderUpdatesToast() {
 	const [dismissed, setDismissed] = useState<ReadonlySet<string>>(() =>
 		loadDismissed(),
 	);
-	// Providers updated from this toast stay listed (showing their result)
-	// after the refreshed availability reports them as current. Keyed by
-	// environment so switching computers never retains another one's rows.
+
 	const [startedHere, setStartedHere] = useState<ReadonlySet<string>>(
 		() => new Set(),
 	);
@@ -155,8 +146,6 @@ export function ProviderUpdatesToast() {
 		})
 		.map((a) => a.providerId);
 
-	// Portal to body so the toast escapes any ancestor with a backdrop-filter /
-	// transform that would trap `position: fixed` (same reason as UpdateBanner).
 	return createPortal(
 		<div
 			role="status"
@@ -212,13 +201,8 @@ export function ProviderUpdatesToast() {
 	);
 }
 
-// Fixed width so the update, progress, and retry states never shift the row.
 const UPDATE_BUTTON_CLASS = "h-6 w-14 px-0 text-[10px]";
 
-/**
- * One provider in the toast: icon, name, installed → latest version, and the
- * store-owned update control (Update, spinner that cancels, Retry, or Updated).
- */
 function ProviderUpdateRow({
 	environmentId,
 	availability,

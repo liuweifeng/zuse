@@ -1,4 +1,3 @@
-/** Owns provider-event subscriptions and durable turn settlement. */
 import type {
 	AgentItemId,
 	AgentTurnId,
@@ -276,8 +275,7 @@ export const makeConversationEventRuntime = Effect.fn(
 								{ haltStrategy: "left" },
 							);
 				let pendingReceipt: ProviderCursorReceipt | undefined;
-				// Provider-opened turns that lost the race to an application turn,
-				// mapped onto the application turn that absorbed their events.
+
 				const absorbedProviderTurns = new Map<AgentTurnId, AgentTurnId>();
 				const providerTurns = new Map<AgentTurnId, AttemptOwnership | null>();
 				const ready = yield* Deferred.make<void>();
@@ -382,9 +380,7 @@ export const makeConversationEventRuntime = Effect.fn(
 									if (event._tag === "Completed") {
 										if (envelope.scope !== "turn" || turnId === undefined)
 											return;
-										// An absorbed provider turn's terminal belongs to work the
-										// application turn has not delivered yet; that turn settles
-										// on its own terminal.
+
 										if (absorbedProviderTurns.delete(envelope.turnId)) return;
 										const outcome =
 											event.reason === "interrupted"

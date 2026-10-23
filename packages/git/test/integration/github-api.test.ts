@@ -8,7 +8,11 @@ import { Effect, Layer } from "effect";
 import { expect, test } from "vitest";
 import { GitService } from "../../src/git-service.ts";
 import { GitServiceLive } from "../../src/git-service-live.ts";
-import { GitHubClient, GitHubClientService } from "../../src/github-client.ts";
+import {
+	GitHubClient,
+	GitHubClientService,
+	GitHubRequestScope,
+} from "../../src/github-client.ts";
 import { RepositoryLocator } from "../../src/repository-locator.ts";
 import { pr } from "../github-fixture.ts";
 
@@ -22,6 +26,7 @@ test.each([
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 	let offline = false;
+	let unavailable = false;
 	let token = "account-a";
 	let head = "";
 	const mutations: Record<string, unknown>[] = [];
@@ -29,6 +34,11 @@ test.each([
 		resolveCredential: async () => ({ token }),
 		fetch: async (_url, init) => {
 			if (offline) throw new TypeError("offline");
+			if (unavailable)
+				return Response.json(
+					{ message: "Service Unavailable" },
+					{ status: 503 },
+				);
 			if (init?.method === "DELETE")
 				return Response.json({ message: "Branch protected" }, { status: 403 });
 			const { query, variables } = JSON.parse(String(init?.body));
@@ -92,7 +102,38 @@ test.each([
 		await Effect.runPromise(
 			Effect.gen(function* () {
 				const service = yield* GitService;
-				const initial = yield* service.prState(folder, null, { force: true });
+				const nativeScope = {
+					key: "actor-with-unavailable-native-helper",
+					body: "{}",
+					resolveEnv: async () => {
+						throw new Error("Native Git helper unavailable");
+					},
+				};
+				const context = yield* service
+					.githubContext(folder, null)
+					.pipe(Effect.provideService(GitHubRequestScope, nativeScope));
+				expect(context).toEqual({
+					host: "github.com",
+					owner: "acme",
+					repo: "app",
+					branch: "feature",
+					headOwner: "acme",
+					headSha: head,
+				});
+				expect(client.metrics.graphql).toBe(0);
+				git("remote", "set-url", "origin", "https://github.com/alice/app.git");
+				git("remote", "add", "upstream", "https://github.com/acme/app.git");
+				expect(yield* service.githubContext(folder, null)).toMatchObject({
+					owner: "acme",
+					repo: "app",
+					headOwner: "alice",
+					branch: "feature",
+				});
+				git("remote", "remove", "upstream");
+				git("remote", "set-url", "origin", "https://github.com/acme/app.git");
+				const initial = yield* service
+					.prState(folder, null, { force: true })
+					.pipe(Effect.provideService(GitHubRequestScope, nativeScope));
 				expect(initial).toMatchObject({
 					state: "open",
 					branch: "feature",
@@ -100,6 +141,15 @@ test.each([
 					checksComplete: true,
 					headSha: head,
 				});
+				// Network Git must still fail closed when the actor helper is unavailable.
+				const push = yield* Effect.result(
+					service
+						.push(folder, null)
+						.pipe(Effect.provideService(GitHubRequestScope, nativeScope)),
+				);
+				expect(push._tag).toBe("Failure");
+				// Establish a separate desktop snapshot for the remaining recovery checks.
+				yield* service.prState(folder, null, { force: true });
 				writeFileSync(join(cwd, "untracked.txt"), "keep local changes");
 				const merged = yield* service.mergePr(
 					folder,
@@ -132,7 +182,24 @@ test.each([
 					state: "open",
 					stale: true,
 					prCapability: "offline",
+					observationError: "Could not reach GitHub.",
 				});
+				offline = false;
+				unavailable = true;
+				const unavailableStatus = yield* service.prState(folder, null, {
+					force: true,
+				});
+				expect(unavailableStatus).toMatchObject({
+					state: "open",
+					stale: true,
+					prCapability: "unknown",
+					observationError: "Service Unavailable",
+				});
+				unavailable = false;
+				const recovered = yield* service.prState(folder, null, { force: true });
+				expect(recovered.stale).toBe(false);
+				expect(recovered.observationError).toBeUndefined();
+				offline = true;
 				git("switch", "-c", "other");
 				const changed = yield* service.prState(folder, null, { force: true });
 				expect(changed).toMatchObject({

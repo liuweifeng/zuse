@@ -1,4 +1,13 @@
+import { FloatingComposerLayout } from "../components/floating-composer-layout.tsx";
 import { isCloudProjectFolder } from "../lib/cloud-project-folders.ts";
+import { useMastersStore } from "../store/masters.ts";
+
+const MastersSurface = lazy(() =>
+	import("../components/masters/surface.tsx").then((module) => ({
+		default: module.MastersSurface,
+	})),
+);
+
 import { SurfaceFallback } from "./surface-fallback.tsx";
 import "@zuse/i18n/english/shell";
 
@@ -12,7 +21,6 @@ import {
 	useEffect,
 	useMemo,
 	useRef,
-	useState,
 } from "react";
 
 import {
@@ -84,7 +92,6 @@ const PANEL_GROUP_ID = "zuse.shell.v3";
 
 const PANEL_IDS = ["projects", "main", "files"];
 
-/** Keeps the selected checkout live even when no Git-specific panel is open. */
 function ActiveGitWorkspaceLease() {
 	const context = useActiveContext();
 	const scratch = useWorkspaceStore(
@@ -137,12 +144,6 @@ const TopBarLeft = lazy(() =>
 const TopBarMain = lazy(() =>
 	import("../components/top-bar.tsx").then((module) => ({
 		default: module.TopBarMain,
-	})),
-);
-
-const TopBarRight = lazy(() =>
-	import("../components/top-bar.tsx").then((module) => ({
-		default: module.TopBarRight,
 	})),
 );
 
@@ -248,10 +249,6 @@ const UsageDashboard = lazy(() =>
 	})),
 );
 
-/**
- * Animate only programmatic open/close changes. Drag resizing remains direct,
- * and the browser handles the short flex transition outside React's render loop.
- */
 function useAnimatedPanelVisibility(
 	panelRef: ReturnType<typeof usePanelRef>,
 	elementRef: RefObject<HTMLDivElement | null>,
@@ -283,9 +280,7 @@ function useAnimatedPanelVisibility(
 				if (expandedSizeRef.current !== undefined) {
 					panel.resize(expandedSizeRef.current);
 				}
-				// A saved percentage can fall below the collapse threshold in a
-				// narrow window. Expand last so "open" still guarantees a visible
-				// panel at the library's minimum size instead of snapping to zero.
+
 				panel.expand();
 			} else {
 				panel.collapse();
@@ -342,8 +337,6 @@ export function MainShell() {
 		selectedCloudSummary?.workspaceId ?? activeEnvironmentId,
 	);
 
-	// Retain the cloud shell even when its catalog has no active session. Otherwise
-	// no timeline mounts to attach the runtime and the landing page becomes a dead end.
 	const cloudShell = useEnvironmentShellResource(
 		selectedCloudSummary === null ? null : selectedEnvironmentId,
 		selectedCloudSummary === null
@@ -372,7 +365,7 @@ export function MainShell() {
 					sessionId,
 				};
 	}, [selectedCloudSummary, cloudSession, storedSessionId]);
-	// API checkpoint synchronization does not activate or wake a paused runtime.
+
 	useSessionTimelineResource(coldTimelineRef, "sync");
 	useEffect(() => {
 		if (
@@ -507,8 +500,9 @@ export function MainShell() {
 	const closeChangesTab = useUiStore((s) => s.closeChangesTab);
 	const leftSidebarOpen = useUiStore((s) => s.leftSidebarOpen);
 	const setLeftSidebarOpen = useUiStore((s) => s.setLeftSidebarOpen);
+	const masterSelection = useMastersStore((state) => state.selection);
 	const rightSidebarOpen = useUiStore((s) =>
-		selectedChatKey === null
+		masterSelection !== null || selectedChatKey === null
 			? false
 			: (s.rightPaneLayoutByChat[selectedChatKey]?.open ?? false),
 	);
@@ -533,8 +527,6 @@ export function MainShell() {
 	const showEnvironmentSummary =
 		environmentSummaryAvailable && environmentSummaryOpen;
 
-	// Switching projects closes the file tab — its path wouldn't resolve
-	// under the new project's root anyway.
 	useEffect(() => {
 		if (openFile === null) return;
 		if (openFile.kind !== "text") return;
@@ -549,10 +541,6 @@ export function MainShell() {
 		closeChangesTab();
 	}, [selectedFolderId, closeChangesTab]);
 
-	// Eagerly hydrate worktrees on project select so the active context can
-	// resolve worktree paths without waiting for the chat composer to mount.
-	// Without this, terminal/file-tree/branch label stay in "preparing
-	// worktree" until the user opens the chat tab.
 	const refreshWorktrees = useWorktreesStore((s) => s.refresh);
 	useEffect(() => {
 		if (
@@ -566,10 +554,6 @@ export function MainShell() {
 		void refreshWorktrees(selectedFolderId);
 	}, [selectedFolderId, folders, refreshWorktrees]);
 
-	// Cmd+W in the menu dispatches `menu:close-tab` over IPC; the renderer
-	// owns the close-tab logic because it knows which surface is active. If
-	// the file tab is foregrounded we close that; otherwise we fall through
-	// to the chat-tab archive path.
 	useEffect(() => {
 		const menu = window.zuse?.menu;
 		if (menu === undefined) return;
@@ -594,10 +578,6 @@ export function MainShell() {
 		selectedFolder?.name ||
 		"no project selected";
 
-	// The empty new-chat landing reads as a clean, chrome-free surface: no top
-	// bar, no tab strip — just the centered composer. Keep the chrome whenever a
-	// session/file is open, or when the left panel is collapsed (so the user
-	// always has a way back to the projects panel + the window drag region).
 	const showMainChrome =
 		selectedCloudSummary !== null ||
 		selectedSessionId !== null ||
@@ -610,37 +590,17 @@ export function MainShell() {
 		activeMainTab === "plugins";
 	const showMainTabs = showMainChrome && !fullWidthPage;
 
-	// Persist the three-pane layout in localStorage so widths survive reloads.
 	const { defaultLayout, onLayoutChanged } = useDefaultLayout({
 		id: PANEL_GROUP_ID,
 		panelIds: PANEL_IDS,
 		storage: typeof window === "undefined" ? undefined : window.localStorage,
 	});
 
-	// Drive the side panels' collapsed state from `useUiStore`, animating the
-	// open/close via the library's imperative resize() (see the hook). v4 has no
-	// `onCollapse` prop — we peek the imperative handle through `panelRef`.
 	const leftPanelRef = usePanelRef();
 	const leftPanelElementRef = useRef<HTMLDivElement>(null);
 	const rightPanelRef = usePanelRef();
 	const rightPanelElementRef = useRef<HTMLDivElement>(null);
 
-	// The composer floats over the timeline (glass) — measure it so the list
-	// can pad its scroll range and the last message clears the overlay.
-	const [composerNode, setComposerNode] = useState<HTMLDivElement | null>(null);
-	const [composerInset, setComposerInset] = useState(0);
-	useEffect(() => {
-		if (composerNode === null) {
-			setComposerInset(0);
-			return;
-		}
-		const ro = new ResizeObserver(() => {
-			setComposerInset(composerNode.offsetHeight);
-		});
-		ro.observe(composerNode);
-		setComposerInset(composerNode.offsetHeight);
-		return () => ro.disconnect();
-	}, [composerNode]);
 	useAnimatedPanelVisibility(
 		leftPanelRef,
 		leftPanelElementRef,
@@ -667,9 +627,6 @@ export function MainShell() {
 				<Panel
 					id="projects"
 					defaultSize="232px"
-					// Keep project and chat labels usable when the pane is open. A
-					// collapsed pane may still rest at 0; stale near-zero expanded
-					// widths from persisted layouts are clamped to this minimum.
 					minSize="200px"
 					maxSize="300px"
 					collapsible
@@ -677,9 +634,6 @@ export function MainShell() {
 					panelRef={leftPanelRef}
 					elementRef={leftPanelElementRef}
 					onResize={(size) => {
-						// Programmatic open/close emits the same resize events as a drag.
-						// The store already owns that state, so reflecting an intermediate
-						// animated size would immediately undo a close.
 						if (
 							leftPanelElementRef.current?.classList.contains(
 								"fz-sidebar-panel-motion",
@@ -708,206 +662,216 @@ export function MainShell() {
 				<Panel id="main" minSize="30%">
 					<div className="workspace-column">
 						<main className="workspace-main flex min-h-0 min-w-0 flex-1 flex-col">
-							{showMainChrome ? (
-								<Suspense fallback={<TopBarFallback />}>
-									<TopBarMain />
+							{masterSelection ? (
+								<Suspense fallback={<SurfaceFallback />}>
+									<MastersSurface
+										key={`${masterSelection.environmentId}:${masterSelection.masterId}`}
+										selection={masterSelection}
+									/>
 								</Suspense>
-							) : null}
-							<div className="workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
-								<Suspense fallback={null}>
-									<UpdateBanner />
-									<ProviderUpdatesToast />
-								</Suspense>
-								{showMainTabs ? (
-									<Suspense fallback={<TabsFallback />}>
-										<MainTabs
-											environmentId={selectedEnvironmentId}
-											projectId={selectedSession?.projectId ?? selectedFolderId}
-											emptyLabel={emptyTabLabel}
-										/>
-									</Suspense>
-								) : null}
-								<div
-									hidden={activeMainTab !== "chat"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{chatSurface === "session" &&
-									selectedSessionId !== null &&
-									selectedSession !== null ? (
-										// Render the chat as soon as the session exists — even while
-										// its worktree is still branching or the provider is booting.
-										// All that progress is surfaced inline by `WorktreeSetupCard`
-										// at the top of the timeline, with the composer pinned at the
-										// bottom (no full-screen takeover).
-										<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
-											<div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-												<Suspense fallback={<ChatLoadingFallback />}>
-													<ChatView
-														sessionId={selectedSessionId}
-														environmentId={selectedEnvironmentId}
-														session={selectedSession}
-														endInset={composerInset}
+							) : (
+								<>
+									{showMainChrome ? (
+										<Suspense fallback={<TopBarFallback />}>
+											<TopBarMain />
+										</Suspense>
+									) : null}
+									<div className="workspace-surface flex min-h-0 min-w-0 flex-1 flex-col">
+										<Suspense fallback={null}>
+											<UpdateBanner />
+											<ProviderUpdatesToast />
+										</Suspense>
+										{showMainTabs ? (
+											<Suspense fallback={<TabsFallback />}>
+												<MainTabs
+													environmentId={selectedEnvironmentId}
+													projectId={
+														selectedSession?.projectId ?? selectedFolderId
+													}
+													emptyLabel={emptyTabLabel}
+												/>
+											</Suspense>
+										) : null}
+										<div
+											hidden={activeMainTab !== "chat"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{chatSurface === "session" &&
+											selectedSessionId !== null &&
+											selectedSession !== null ? (
+												<div className="chat-session-layout relative flex min-h-0 min-w-0 flex-1">
+													<FloatingComposerLayout
+														transcript={(endInset) => (
+															<Suspense fallback={<ChatLoadingFallback />}>
+																<ChatView
+																	sessionId={selectedSessionId}
+																	environmentId={selectedEnvironmentId}
+																	session={selectedSession}
+																	endInset={endInset}
+																/>
+															</Suspense>
+														)}
+														composer={
+															<>
+																<Suspense fallback={null}>
+																	<CliUpgradeBanner
+																		providerId={selectedSession.providerId}
+																		constrain={false}
+																	/>
+																</Suspense>
+																{directoryUnavailable ? (
+																	<Suspense fallback={null}>
+																		<DirectoryUnavailableBanner />
+																	</Suspense>
+																) : null}
+																<Suspense fallback={<ComposerFallback />}>
+																	{selectedChat?.readOnly === true ? (
+																		<p
+																			role="status"
+																			className="py-3 text-center text-xs text-muted-foreground"
+																		>
+																			{uiMessage(
+																				"shell:shared_session_read_only",
+																			)}
+																		</p>
+																	) : (
+																		<ChatComposer
+																			key={selectedSession.id}
+																			session={selectedSession}
+																			environmentId={selectedEnvironmentId}
+																			constrain={false}
+																			directoryUnavailable={
+																				directoryUnavailable
+																			}
+																		/>
+																	)}
+																</Suspense>
+															</>
+														}
+													/>
+													{environmentSummaryAvailable ? (
+														<div
+															className={`pointer-events-none absolute right-2 -top-8 z-20 max-h-[calc(100%+2rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
+																showEnvironmentSummary
+																	? "translate-x-0 opacity-100"
+																	: "translate-x-2 opacity-0"
+															}`}
+															aria-hidden={!showEnvironmentSummary}
+															inert={!showEnvironmentSummary}
+														>
+															<Suspense fallback={null}>
+																<EnvironmentSummary />
+															</Suspense>
+														</div>
+													) : null}
+												</div>
+											) : chatSurface === "pending" &&
+												pendingCreation !== null ? (
+												<PendingChatCreationSurface
+													creation={pendingCreation}
+												/>
+											) : chatSurface === "cloud-pending" ? (
+												<ChatLoadingFallback
+													footer={<CloudConnectionNotice />}
+												/>
+											) : (
+												<Suspense fallback={<SurfaceFallback />}>
+													<ChatLanding
+														key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
 													/>
 												</Suspense>
-												<div className="pointer-events-none absolute inset-x-0 bottom-0 z-30 px-[var(--chat-row-gutter)]">
-													{/* Keep the fade on the full transcript plane. Code blocks
-											    can extend beyond the centered composer column. */}
-													<div
-														data-chat-composer-fade
-														aria-hidden
-														className="pointer-events-none absolute inset-x-0 -top-10 bottom-0 -z-10 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black_45%)]"
-													/>
-													<div
-														ref={setComposerNode}
-														className="pointer-events-auto mx-auto w-full max-w-[var(--chat-reading-column)] pt-1"
-													>
-														<Suspense fallback={null}>
-															<CliUpgradeBanner
-																providerId={selectedSession.providerId}
-																constrain={false}
-															/>
-														</Suspense>
-														{directoryUnavailable ? (
-															<Suspense fallback={null}>
-																<DirectoryUnavailableBanner />
-															</Suspense>
-														) : null}
-														<Suspense fallback={<ComposerFallback />}>
-															{selectedChat?.readOnly === true ? (
-																<p
-																	role="status"
-																	className="py-3 text-center text-xs text-muted-foreground"
-																>
-																	{uiMessage("shell:shared_session_read_only")}
-																</p>
-															) : (
-																<ChatComposer
-																	key={selectedSession.id}
-																	session={selectedSession}
-																	environmentId={selectedEnvironmentId}
-																	constrain={false}
-																	directoryUnavailable={directoryUnavailable}
-																/>
-															)}
-														</Suspense>
-													</div>
-												</div>
-											</div>
-											{environmentSummaryAvailable ? (
-												// Lift over the h-9 conversation tab strip so the panel
-												// opens directly under its top-bar toggle.
-												<div
-													className={`pointer-events-none absolute right-2 -top-8 z-20 max-h-[calc(100%+2rem)] transition-[opacity,transform] duration-150 ease-[cubic-bezier(0.165,0.84,0.44,1)] motion-reduce:transition-none ${
-														showEnvironmentSummary
-															? "translate-x-0 opacity-100"
-															: "translate-x-2 opacity-0"
-													}`}
-													aria-hidden={!showEnvironmentSummary}
-													inert={!showEnvironmentSummary}
-												>
-													<Suspense fallback={null}>
-														<EnvironmentSummary />
-													</Suspense>
-												</div>
-											) : null}
+											)}
 										</div>
-									) : chatSurface === "pending" && pendingCreation !== null ? (
-										<PendingChatCreationSurface creation={pendingCreation} />
-									) : chatSurface === "cloud-pending" ? (
-										<ChatLoadingFallback footer={<CloudConnectionNotice />} />
-									) : (
-										<Suspense fallback={<SurfaceFallback />}>
-											<ChatLanding
-												key={`${activeEnvironmentId}:${selectedFolderId}:${landingRevision}`}
-											/>
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "archives"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "archives" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<ArchivedChatsPage
-												projectId={selectedFolderId}
-												projectName={
-													selectedFolder?.name ?? "No repository selected"
-												}
-											/>
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "plugins"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "plugins" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<PluginsPage />
-										</Suspense>
-									)}
-								</div>
-								<div
-									hidden={activeMainTab !== "usage"}
-									className="flex min-h-0 flex-1 flex-col"
-								>
-									{activeMainTab === "usage" && (
-										<Suspense fallback={<SurfaceFallback />}>
-											<UsageDashboard
-												environmentId={EnvironmentId.make(activeEnvironmentId)}
-												projectId={
-													usageScope === "project" ? selectedFolderId : null
-												}
-												availableProjectId={selectedFolderId}
-												scopeLabel={
-													usageScope === "project"
-														? (selectedFolder?.name ?? "This project")
-														: "All projects"
-												}
-											/>
-										</Suspense>
-									)}
-								</div>
-								{openFile !== null && (
-									<div
-										hidden={activeMainTab !== "file"}
-										className="flex min-h-0 flex-1 flex-col"
-									>
-										<Suspense fallback={<SurfaceFallback />}>
-											{directoryUnavailable ? (
-												<DirectoryUnavailableSurface
-													label={uiMessage(
-														"shell:app_files_are_unavailable_because_this_directory_was_deleted",
-													)}
-												/>
-											) : (
-												<FileEditor />
+										<div
+											hidden={activeMainTab !== "archives"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "archives" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<ArchivedChatsPage
+														projectId={selectedFolderId}
+														projectName={
+															selectedFolder?.name ?? "No repository selected"
+														}
+													/>
+												</Suspense>
 											)}
-										</Suspense>
-									</div>
-								)}
-								{changesTabOpen ? (
-									<div
-										hidden={activeMainTab !== "changes"}
-										className="flex min-h-0 flex-1 flex-col"
-									>
-										<Suspense fallback={<SurfaceFallback />}>
-											{directoryUnavailable ? (
-												<DirectoryUnavailableSurface
-													label={uiMessage(
-														"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
-													)}
-												/>
-											) : (
-												<ChangesReview />
+										</div>
+										<div
+											hidden={activeMainTab !== "plugins"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "plugins" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<PluginsPage />
+												</Suspense>
 											)}
-										</Suspense>
+										</div>
+										<div
+											hidden={activeMainTab !== "usage"}
+											className="flex min-h-0 flex-1 flex-col"
+										>
+											{activeMainTab === "usage" && (
+												<Suspense fallback={<SurfaceFallback />}>
+													<UsageDashboard
+														environmentId={EnvironmentId.make(
+															activeEnvironmentId,
+														)}
+														projectId={
+															usageScope === "project" ? selectedFolderId : null
+														}
+														availableProjectId={selectedFolderId}
+														scopeLabel={
+															usageScope === "project"
+																? (selectedFolder?.name ?? "This project")
+																: "All projects"
+														}
+													/>
+												</Suspense>
+											)}
+										</div>
+										{openFile !== null && (
+											<div
+												hidden={activeMainTab !== "file"}
+												className="flex min-h-0 flex-1 flex-col"
+											>
+												<Suspense fallback={<SurfaceFallback />}>
+													{directoryUnavailable ? (
+														<DirectoryUnavailableSurface
+															label={uiMessage(
+																"shell:app_files_are_unavailable_because_this_directory_was_deleted",
+															)}
+														/>
+													) : (
+														<FileEditor />
+													)}
+												</Suspense>
+											</div>
+										)}
+										{changesTabOpen ? (
+											<div
+												hidden={activeMainTab !== "changes"}
+												className="flex min-h-0 flex-1 flex-col"
+											>
+												<Suspense fallback={<SurfaceFallback />}>
+													{directoryUnavailable ? (
+														<DirectoryUnavailableSurface
+															label={uiMessage(
+																"shell:app_changes_are_unavailable_because_this_directory_was_deleted",
+															)}
+														/>
+													) : (
+														<ChangesReview />
+													)}
+												</Suspense>
+											</div>
+										) : null}
 									</div>
-								) : null}
-							</div>
+								</>
+							)}
 						</main>
 						{!fullWidthPage &&
+						!masterSelection &&
 						selectedChatRef !== null &&
 						activeContext.status === "ready" ? (
 							<Suspense fallback={null}>
@@ -924,11 +888,6 @@ export function MainShell() {
 				<Panel
 					id="files"
 					defaultSize="22%"
-					// Keep an opened dock useful. Older persisted layouts may contain a
-					// near-zero expanded width from when this minimum was 0; the panel
-					// library clamps those layouts to this value on launch and reopen.
-					// At the 720px window minimum, 360px plus the other panes'
-					// minimum widths cannot fit, so the library collapses this pane.
 					minSize={compactWorkspace ? "280px" : "360px"}
 					maxSize="55%"
 					collapsible
@@ -936,10 +895,6 @@ export function MainShell() {
 					panelRef={rightPanelRef}
 					elementRef={rightPanelElementRef}
 					onResize={(size, _id, prev) => {
-						// Ignore the initial mount call (prev === undefined). The right
-						// dock defaults to closed (`rightSidebarOpen: false`); the
-						// persisted/default panel width would otherwise fire here and
-						// flip the sidebar open before the collapse effect runs.
 						if (prev === undefined || fullWidthPage) return;
 						if (selectedChatRef === null) return;
 						if (
@@ -960,17 +915,17 @@ export function MainShell() {
 				>
 					<div
 						className="workspace-column workspace-right-column"
-						hidden={fullWidthPage}
-						inert={fullWidthPage}
+						hidden={fullWidthPage || masterSelection !== null}
+						inert={fullWidthPage || masterSelection !== null}
 					>
 						<div className="workspace-surface flex min-h-0 flex-1 flex-col">
-							<Suspense fallback={<TopBarFallback />}>
-								<TopBarRight />
-							</Suspense>
 							<div className="flex min-h-0 flex-1 flex-col">
 								{shouldMountRightPane(rightSidebarOpen && !fullWidthPage) ? (
 									<Suspense fallback={<SurfaceFallback />}>
-										<RightPane directoryUnavailable={directoryUnavailable} />
+										<RightPane
+											directoryUnavailable={directoryUnavailable}
+											visible={rightSidebarOpen && !fullWidthPage}
+										/>
 									</Suspense>
 								) : null}
 							</div>

@@ -13,19 +13,13 @@ import {
 } from "./cloud-workspace-store.ts";
 import { ApiConfiguration } from "./config.ts";
 
-// Webhook deliveries follow the house async pattern: durable Postgres rows
-// swept by the cron reconciler, with a response-header fast path
-// (`x-zuse-deliver-cloud-webhooks`) for low latency. Payloads are signed like
-// Stripe/Slack webhooks: `zuse-signature: t=<unixSeconds>,v1=<hex hmac>` over
-// `<t>.<rawBody>` with the per-endpoint `whsec_…` secret.
-
 const DELIVERY_TIMEOUT_MS = 10_000;
-/** Claim lease; a crashed sweep leaves rows retryable after this window. */
+
 const DELIVERY_LEASE_MS = 2 * 60_000;
 const DELIVERY_BATCH_LIMIT = 32;
 const MAX_DELIVERY_ATTEMPTS = 20;
 const DELIVERY_CONCURRENCY = 8;
-/** How long an API command may sit pending before the cron re-nudges. */
+
 const STALE_COMMAND_NUDGE_MS = 60_000;
 const API_DATA_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
@@ -94,8 +88,6 @@ const deliverOne = Effect.fn("deliverApiWebhook")(function* (
 		),
 	}).pipe(Effect.option);
 	if (opened._tag === "None") {
-		// Configuration can be transiently unavailable during a deploy. Keep the
-		// durable row retryable instead of irreversibly dropping every claimed event.
 		yield* recordFailure("payload_unsealable");
 		return false;
 	}
@@ -190,8 +182,7 @@ export const sweepApiCommands: Effect.Effect<
 	const store = yield* CloudWorkspaceStore;
 	const nowMs = yield* Clock.currentTimeMillis;
 	yield* store.expireApiCommands(nowMs);
-	// The cron runs every minute; hourly pruning keeps the sealed ledger bounded
-	// without paying a ranking scan on every command nudge sweep.
+
 	if (new Date(nowMs).getUTCMinutes() === 0)
 		yield* store.pruneApiData(nowMs - API_DATA_RETENTION_MS);
 	const staleWorkspaceIds =

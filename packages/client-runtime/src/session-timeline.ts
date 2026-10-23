@@ -153,6 +153,30 @@ export const prependSessionTimelineMessages = (
 	};
 };
 
+/** A same-cursor head refresh must not discard pages already read locally. */
+const preserveSessionTimelineHistory = (
+	previous: SessionTimelineProjection | null,
+	previousCursor: SessionStreamCursor | null,
+	next: SessionTimelineProjection,
+	nextCursor: SessionStreamCursor,
+): SessionTimelineProjection => {
+	if (
+		previous === null ||
+		previousCursor?.epoch !== nextCursor.epoch ||
+		previousCursor.version !== nextCursor.version ||
+		next.olderMessageSequence == null
+	)
+		return next;
+	const first = next.messages[0]?.id;
+	const index = previous.messages.findIndex((message) => message.id === first);
+	if (index <= 0) return next;
+	return SessionTimelineProjection.make({
+		...next,
+		messages: [...previous.messages.slice(0, index), ...next.messages],
+		olderMessageSequence: previous.olderMessageSequence ?? null,
+	});
+};
+
 const cursorForFrame = (
 	state: SessionTimelineState,
 	version: number,
@@ -230,13 +254,18 @@ export const reduceSessionTimelineFrame = (
 			return state;
 		}
 		const reconciled = reconcileOptimisticMessages(
-			SessionTimelineProjection.make({
-				...frame.projection,
-				olderMessageSequence:
-					frame.olderMessageSequence ??
-					frame.projection.olderMessageSequence ??
-					null,
-			}),
+			preserveSessionTimelineHistory(
+				state.resetEpoch === null ? state.projection : null,
+				state.cursor,
+				SessionTimelineProjection.make({
+					...frame.projection,
+					olderMessageSequence:
+						frame.olderMessageSequence ??
+						frame.projection.olderMessageSequence ??
+						null,
+				}),
+				cursor,
+			),
 			state.optimistic,
 		);
 		return {

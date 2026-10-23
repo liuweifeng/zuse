@@ -1,3 +1,18 @@
+import { cloudSummaryForEnvironment } from "./cloud-workspace-catalog.ts";
+import { runControlPlane } from "./control-plane-client.ts";
+import {
+	githubTargetFromSummary,
+	rendererGitHubObserver,
+	useGitHubObservation,
+} from "./github-observer.ts";
+import {
+	rendererAccountSnapshot,
+	subscribeRendererAccount,
+} from "./renderer-account.ts";
+import {
+	rendererWorkspaceSnapshot,
+	subscribeRendererWorkspace,
+} from "./renderer-workspace.ts";
 import "@zuse/i18n/english/projects";
 import type {
 	ResourceDriver,
@@ -23,6 +38,7 @@ import {
 } from "@zuse/client-runtime/resource-state";
 import type {
 	GitChange,
+	GitHubTarget,
 	GitPrDetails,
 	GitPrInfo,
 	GitReviewPatch,
@@ -31,10 +47,14 @@ import type {
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { Cause, Effect, Fiber, Stream } from "effect";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { toastManager } from "../components/ui/toast.tsx";
 import { classifyGit, type GitErrorTag } from "./git-rpc.ts";
-import { isRpcClientTransportError, type MemoizeClient } from "./rpc-client.ts";
+import {
+	isCloudWorkspaceEnvironment,
+	isRpcClientTransportError,
+	type MemoizeClient,
+} from "./rpc-client.ts";
 import {
 	getRendererClientBus,
 	registerRendererResourceDriver,
@@ -54,6 +74,7 @@ export type GitDiffStat = Readonly<{
 
 export type GitWorkspaceData = Readonly<{
 	schemaVersion: 2;
+	githubTarget?: GitHubTarget | null;
 	status: GitStatusSummary | null;
 	pr: GitPrInfo | null;
 	diffStat: GitDiffStat | null;
@@ -239,8 +260,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 						);
 						throwTransportFailure(snapshot);
 						if (!active || !context.isCurrent()) return;
-						// Reconciliation is an observation, not necessarily a state change.
-						// Keep the shared view and hydrated details stable on idle polls.
+
 						if (
 							snapshot.ok &&
 							previous !== null &&
@@ -248,6 +268,8 @@ const makeWorkspaceDriver = (): ResourceDriver<
 							previous.reviewError === null &&
 							previous.prDetailsError === null &&
 							previous.localFingerprint === snapshot.value.localFingerprint &&
+							JSON.stringify(previous.githubTarget) ===
+								JSON.stringify(snapshot.value.githubTarget) &&
 							JSON.stringify(previous.pr) ===
 								JSON.stringify(snapshot.value.pr) &&
 							context.snapshot()?.cursor?.epoch === epoch
@@ -269,6 +291,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 								: { tag: snapshot.tag, message: snapshot.message };
 							data = {
 								schemaVersion: 2,
+								githubTarget: previous?.githubTarget,
 								status: noRepository ? null : (previous?.status ?? null),
 								pr: noRepository ? null : (previous?.pr ?? null),
 								diffStat: noRepository ? null : (previous?.diffStat ?? null),
@@ -321,6 +344,7 @@ const makeWorkspaceDriver = (): ResourceDriver<
 							);
 							data = {
 								schemaVersion: 2,
+								githubTarget: snapshot.value.githubTarget,
 								status: snapshot.value.status,
 								pr: nextPr,
 								diffStat: snapshot.value.diffStat,
@@ -395,14 +419,10 @@ const makeWorkspaceDriver = (): ResourceDriver<
 			const program = Stream.runForEach(
 				context.client["git.workspaceChanges"]({
 					visible: true,
+					localOnly: true,
 					folderId: ref.folderId,
 					worktreeId: ref.worktreeId,
 				}).pipe(
-					// A plain folder, a removed checkout, or a missing Git binary is a
-					// resource-level capability failure. Materialize that state through
-					// the normal snapshot loader and keep the invalidation stream alive;
-					// escalating a typed Git error would disconnect every resource on the
-					// computer (including auth and the project catalog).
 					Stream.catchTags({
 						GitNotARepoError: () =>
 							Stream.concat(Stream.make({ revision: 0 }), Stream.never),
@@ -574,15 +594,86 @@ const useKey = <Data>(
 		],
 	);
 
+const targetForRef = (
+	ref: ExecutionRef,
+	data?: GitWorkspaceData | null,
+): GitHubTarget | null =>
+	data?.githubTarget !== undefined
+		? data.githubTarget
+		: githubTargetFromSummary(cloudSummaryForEnvironment(ref.environmentId));
+const remoteWorkspaceData = (target: GitHubTarget): GitWorkspaceData => ({
+	schemaVersion: 2,
+	githubTarget: target,
+	status: null,
+	pr: null,
+	diffStat: null,
+	changes: [],
+	reviewSummary: null,
+	reviewPatches: {},
+	reviewPatchesRevision: null,
+	reviewPatchesLoading: false,
+	prDetails: null,
+	prDetailsIdentity: null,
+	prDetailsLoading: false,
+	noRepository: false,
+	error: null,
+	reviewError: null,
+	prDetailsError: null,
+	revision: 0,
+	projectionVersion: 0,
+	localFingerprint: "",
+});
+
 export const useGitWorkspaceResource = (
 	ref: ExecutionRef | null,
 	activation: ResourceActivation = "connect",
-): ResourceView<GitWorkspaceData> =>
-	useClientBusResource(
+): ResourceView<GitWorkspaceData> => {
+	const view = useClientBusResource(
 		useKey(ref, gitWorkspaceResourceKey),
 		EMPTY_WORKSPACE_VIEW,
 		activation,
 	);
+	const target = ref ? targetForRef(ref, view.data) : null;
+	const observation = useGitHubObservation(target, activation !== "cache-only");
+	const previousPr = useRef<GitPrInfo | null>(null);
+	useEffect(() => {
+		const next = observation.value?.pr ?? null;
+		const previous = previousPr.current;
+		previousPr.current = next;
+		if (
+			ref &&
+			previous?.state === "open" &&
+			next &&
+			!next.stale &&
+			previous.url === next.url &&
+			(next.state === "merged" || next.state === "closed")
+		) {
+			void runControlPlane((client) =>
+				Effect.promise(() =>
+					notifyPrStateTransition(client, ref, previous, next),
+				),
+			).catch(() => undefined);
+		}
+	}, [observation.value?.pr, ref]);
+
+	return useMemo(() => {
+		if (!target) return view;
+		const data = view.data ?? remoteWorkspaceData(target);
+		return {
+			...view,
+			data: {
+				...data,
+				githubTarget: target,
+				pr: observation.value?.pr ?? null,
+				prDetails: observation.value?.details ?? null,
+				prDetailsLoading: observation.detailsPending ?? false,
+				prDetailsError: observation.detailsError
+					? { tag: null, message: observation.detailsError }
+					: null,
+			},
+		};
+	}, [view, target && rendererGitHubObserver.key(target), observation]);
+};
 
 const projectResourceView = <Source, Data>(
 	view: ResourceView<Source>,
@@ -686,6 +777,7 @@ const hydrateGitPrDetails = (
 	ref: ExecutionRef,
 	force = false,
 ): Promise<void> => {
+	if (isCloudWorkspaceEnvironment(ref.environmentId)) return Promise.resolve();
 	const key = gitWorkspaceResourceKey(ref);
 	const bus = getRendererClientBus();
 	const initial = bus.snapshot(key);
@@ -794,30 +886,51 @@ export const useGitPrDetailsResource = (
 	activation: ResourceActivation = "connect",
 ): ResourceView<GitPrDetailsData> => {
 	const view = useGitWorkspaceResource(ref, activation);
-	const shouldHydrate = activation === "connect" || activation === "wake";
+	const target = view.data?.githubTarget ?? null;
+	const account = useSyncExternalStore(
+		subscribeRendererAccount,
+		rendererAccountSnapshot,
+	);
+	const workspace = useSyncExternalStore(
+		subscribeRendererWorkspace,
+		rendererWorkspaceSnapshot,
+	);
+	const identity = JSON.stringify([
+		account.epoch,
+		workspace.epoch,
+		target ? rendererGitHubObserver.key(target) : "",
+	]);
+	const revision = view.data?.pr?.observedAt?.getTime();
+	const legacyIdentity = view.data?.pr
+		? pullRequestIdentity(view.data.pr)
+		: null;
 	useEffect(() => {
-		if (
-			ref === null ||
-			!shouldHydrate ||
-			view.data === null ||
-			view.data.pr === null ||
-			view.data.pr.state === "none" ||
-			view.data.prDetailsIdentity === pullRequestIdentity(view.data.pr)
-		) {
-			return;
-		}
-		void hydrateGitPrDetails(ref);
-	}, [ref, shouldHydrate, view.data]);
-	return useMemo(() => {
-		const projected = projectResourceView(view, (data) => ({
-			details: data.prDetails,
-			error: data.prDetailsError,
-			revision: data.revision,
-		}));
-		return view.data?.prDetailsLoading === true
-			? { ...projected, sync: "synchronizing" }
-			: projected;
-	}, [view]);
+		if (ref && !target && (activation === "connect" || activation === "wake"))
+			void hydrateGitPrDetails(ref);
+	}, [ref, target, activation, legacyIdentity]);
+	useEffect(() => {
+		if (!target || activation === "cache-only") return;
+		const controller = new AbortController();
+		void rendererGitHubObserver
+			.details(target, controller.signal)
+			.catch(() => undefined);
+		return () => controller.abort();
+	}, [identity, activation, revision]);
+	return {
+		...view,
+		sync: view.data?.prDetailsLoading
+			? "synchronizing"
+			: view.data?.prDetailsError
+				? "failed"
+				: view.data?.prDetails
+					? "live"
+					: "empty",
+		data: {
+			details: view.data?.prDetails ?? null,
+			error: view.data?.prDetailsError ?? null,
+			revision: view.data?.revision ?? 0,
+		},
+	};
 };
 
 export const refreshGitWorkspace = (ref: ExecutionRef): Promise<void> => {
@@ -837,17 +950,39 @@ export const refreshGitReview = async (ref: ExecutionRef): Promise<void> => {
 	await hydrateGitReviewPatches(ref, true);
 };
 
+export const refreshGitPrStatus = async (ref: ExecutionRef): Promise<void> => {
+	const target = targetForRef(
+		ref,
+		getRendererClientBus().snapshot(gitWorkspaceResourceKey(ref)).data,
+	);
+	if (target) {
+		await rendererGitHubObserver.refresh(target, true);
+	} else if (!isCloudWorkspaceEnvironment(ref.environmentId)) {
+		const client = getRendererClientBus().client(ref.environmentId);
+		if (client)
+			await Effect.runPromise(
+				client["git.prState"]({
+					folderId: ref.folderId,
+					worktreeId: ref.worktreeId,
+				}),
+			).catch(() => undefined);
+		await refreshGitWorkspace(ref);
+	}
+};
+
 export const refreshGitPrDetails = async (ref: ExecutionRef): Promise<void> => {
-	const client = getRendererClientBus().client(ref.environmentId);
-	if (client)
-		await Effect.runPromise(
-			client["git.prState"]({
-				folderId: ref.folderId,
-				worktreeId: ref.worktreeId,
-			}),
-		).catch(() => undefined);
-	await refreshGitWorkspace(ref);
-	await hydrateGitPrDetails(ref, true);
+	await refreshGitPrStatus(ref);
+	const target = targetForRef(
+		ref,
+		getRendererClientBus().snapshot(gitWorkspaceResourceKey(ref)).data,
+	);
+	if (target)
+		await rendererGitHubObserver.details(
+			target,
+			AbortSignal.timeout(30_000),
+			true,
+		);
+	else await hydrateGitPrDetails(ref, true);
 };
 
 export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
@@ -912,7 +1047,7 @@ export const dispatchGitWorkspaceCommand = <Payload, Result>(input: {
 				input.kind === "git.mergePr" ||
 				input.kind === "git.markReady"
 			) {
-				await hydrateGitPrDetails(input.ref, true);
+				await refreshGitPrDetails(input.ref);
 			}
 		})
 		.catch(() => undefined);
@@ -988,6 +1123,7 @@ export const resetGitWorkspaceClientBusForTest = (): void => {
 	workspaceRefreshers.clear();
 	reviewHydrationRequests.clear();
 	prDetailsRequests.clear();
+	rendererGitHubObserver.clear();
 	manualRefreshes.clear();
 	patchRequests.clear();
 };

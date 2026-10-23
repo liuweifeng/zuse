@@ -8,7 +8,7 @@
 		"icon": "./assets/icon.png",
 		"userInterfaceStyle": "automatic",
 		"ios": {
-			"supportsTablet": false,
+			"supportsTablet": true,
 			"buildNumber": "1",
 			"infoPlist": {
 				"NSCameraUsageDescription": "Scan pairing codes and capture images to attach to Zuse messages.",
@@ -27,11 +27,15 @@
 				]
 			},
 			"bundleIdentifier": "com.zuse.sh",
-			"appleTeamId": "HMCST4VV42"
+			"appleTeamId": "HMCST4VV42",
+			"requireFullScreen": false
 		},
 		"plugins": [
 			"expo-router",
 			"./plugins/with-android-architectures",
+			"./plugins/with-android-cleartext-traffic",
+			"./plugins/with-android-material-theme",
+			"./plugins/with-android-release",
 			"expo-dev-client",
 			"expo-secure-store",
 			"expo-notifications",
@@ -40,7 +44,8 @@
 			"expo-status-bar",
 			"expo-image",
 			"expo-audio",
-			"expo-screen-orientation"
+			"expo-screen-orientation",
+			"expo-localization"
 		],
 		"extra": {
 			"router": {},
@@ -50,7 +55,8 @@
 		},
 		"owner": "swarajbachu",
 		"android": {
-			"package": "com.zuse.sh"
+			"package": "com.zuse.sh",
+			"versionCode": 1
 		}
 	}
 }

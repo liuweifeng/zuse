@@ -329,9 +329,7 @@ const readPersistedEventKeys = async (
 				if (parsed.event !== undefined)
 					keys.add(`${parsed.event.runId}:${parsed.event.id}`);
 			}
-		} catch {
-			// A rotated file can disappear while a different runtime is exporting.
-		}
+		} catch {}
 	}
 	return keys;
 };
@@ -605,9 +603,7 @@ export const TelemetryStoreLive = Layer.effect(
 							loadedEvents.push(parsed.event);
 						if (parsed.parseError) errors += 1;
 					}
-				} catch {
-					// Missing telemetry files are normal on first launch.
-				}
+				} catch {}
 			}
 			try {
 				for (const line of await readNewestLines(
@@ -623,9 +619,7 @@ export const TelemetryStoreLive = Layer.effect(
 						errors += 1;
 					}
 				}
-			} catch {
-				// An absent rollup file is normal.
-			}
+			} catch {}
 			return { events: loadedEvents, rollups: loadedRollups, errors };
 		}).pipe(
 			Effect.orElseSucceed(() => ({
@@ -742,9 +736,7 @@ export const TelemetryStoreLive = Layer.effect(
 					}
 					version += 1;
 				}
-			} catch {
-				// Diagnostics must never interrupt the operation it observes.
-			}
+			} catch {}
 		};
 
 		const persistRollup = (rollup: OperationRollup): void => {
@@ -839,9 +831,7 @@ export const TelemetryStoreLive = Layer.effect(
 				startPersistenceDrain();
 				await persistenceDrain;
 				await unlink(offlinePath).catch(() => undefined);
-			} catch {
-				// An absent offline crash file is normal.
-			}
+			} catch {}
 		};
 
 		const migrateLegacy = async (): Promise<void> => {
@@ -1065,9 +1055,7 @@ export const TelemetryStoreLive = Layer.effect(
 								const parsed = parseEventLine(line);
 								if (parsed.event !== undefined) add(parsed.event);
 							}
-						} catch {
-							// A runtime may rotate a candidate during export.
-						}
+						} catch {}
 					}
 					for (const event of snapshot()) add(event);
 					const deduplicated = [...newest.values()].sort((left, right) =>
@@ -1097,13 +1085,9 @@ export const TelemetryStoreLive = Layer.effect(
 										exportedRollups.push(rollup);
 									if (exportedRollups.length > MAX_ROLLUPS * 4)
 										exportedRollups.shift();
-								} catch {
-									// Invalid rollup lines are ignored during export.
-								}
+								} catch {}
 							}
-						} catch {
-							// A runtime may rotate a candidate during export.
-						}
+						} catch {}
 					}
 					exportedRollups.push(currentRollup);
 					return summariesFromRollups(exportedRollups, since);

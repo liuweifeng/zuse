@@ -1,4 +1,8 @@
-import type { AgentAvailability, ProviderId } from "@zuse/contracts";
+import {
+	type AgentAvailability,
+	bundledResolvedModelCatalog,
+	type ProviderId,
+} from "@zuse/contracts";
 import { Effect, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -32,7 +36,9 @@ vi.mock("../../src/lib/environment-shell-client-bus.ts", () => ({
 		result:
 			kind === "provider.availability"
 				? await Effect.runPromise(rpc.availability(payload))
-				: undefined,
+				: kind === "model.catalog"
+					? bundledResolvedModelCatalog()
+					: undefined,
 	}),
 }));
 
@@ -115,7 +121,7 @@ describe("provider update state", () => {
 					IDLE_PROVIDER_UPDATE_STATE,
 			).toEqual(IDLE_PROVIDER_UPDATE_STATE);
 		}
-		// A second request while running does not start another update.
+
 		await useProvidersStore.getState().updateProvider("local", "claude");
 		expect(update.stream).toHaveBeenCalledTimes(1);
 	});

@@ -1,11 +1,11 @@
 import "@zuse/i18n/english/chat";
+import { ChevronDown } from "lucide-react";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { ExecutionRef } from "@zuse/client-runtime/resource-ref";
 import type { GitPrDetails, GitPrInfo, SessionId } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
-	ArrowDown01Icon,
 	Cancel01Icon,
 	CheckmarkCircle02Icon,
 	Comment01Icon,
@@ -35,6 +35,7 @@ import {
 	useComposerDraftsStore,
 } from "../store/composer-drafts.ts";
 import { useSessionsStore } from "../store/sessions.ts";
+import { PrStateIcon } from "./branch-icon.tsx";
 import { PrAutoFix } from "./pr-auto-fix.tsx";
 import {
 	compactMenuItemClass,
@@ -79,10 +80,10 @@ export function PrActionsMenu({
 	sessionId: SessionId | null;
 	action?: EnvironmentPrAction | null;
 	className?: string;
-	/** Replaces the default title trigger, e.g. with a compact "…" button. */
+
 	trigger?: ReactNode;
 	popupSide?: "left" | "bottom";
-	/** Omitted where the PR view is already visible. */
+
 	onView?: () => void;
 	onChat: () => void;
 }) {
@@ -166,10 +167,7 @@ export function PrActionsMenu({
 			) : (
 				<div className={className}>
 					<MenuTrigger className="flex min-h-7 min-w-0 flex-1 items-center gap-2 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
-						<HugeiconsIcon
-							icon={pr.isDraft ? GitPullRequestDraftIcon : GitPullRequestIcon}
-							className="size-4 shrink-0 text-muted-foreground"
-						/>
+						<PrStateIcon pr={pr} className="size-4" />
 						<span className="min-w-0 flex-1 truncate">
 							{details?.title ||
 								uiMessage("projects:github_pr_number", {
@@ -177,10 +175,7 @@ export function PrActionsMenu({
 								})}
 						</span>
 						{rowAction === null ? (
-							<HugeiconsIcon
-								icon={ArrowDown01Icon}
-								className="size-3 shrink-0 text-muted-foreground"
-							/>
+							<ChevronDown className="size-3 shrink-0 text-muted-foreground" />
 						) : null}
 					</MenuTrigger>
 					{action !== null && rowAction !== null ? (

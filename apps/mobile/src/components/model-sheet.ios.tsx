@@ -11,18 +11,18 @@ import {
 import { padding, pickerStyle, tag, tint } from "@expo/ui/swift-ui/modifiers";
 import type { ProviderId, RuntimeMode } from "@zuse/contracts";
 
+import { RUNTIME_OPTIONS } from "~/lib/model-options";
 import {
-	defaultModelOptions,
-	modelOptionsForProvider,
-	providerOptions,
-	RUNTIME_OPTIONS,
-	reasoningValueForModel,
-	runtimeOptionFor,
-} from "~/lib/model-options";
+	type ModelSheetProps,
+	modelSheetChoices,
+	withModel,
+	withProvider,
+	withReasoning,
+	withRuntimeMode,
+} from "~/lib/model-sheet";
 import { PROVIDER_NATIVE_ASSET_NAMES } from "~/lib/provider-logos";
 import { activeModelCatalog } from "~/store/model-catalog";
 import { colors } from "~/theme";
-import type { ModelModeValue } from "./model-mode-menu";
 
 const sf = (name: string) => name as never;
 
@@ -41,37 +41,20 @@ export function ModelSheet({
 	canChangeProvider,
 	canChangeReasoning,
 	onChange,
-}: {
-	open: boolean;
-	onOpenChange: (open: boolean) => void;
-	value: ModelModeValue;
-	availableProviders?: readonly ProviderId[] | null;
-	strictProviders?: boolean;
-	canChangeProvider: boolean;
-	canChangeReasoning: boolean;
-	onChange: (value: ModelModeValue) => void;
-}) {
-	const runtimeOption = runtimeOptionFor(value.runtimeMode);
-	const reasoning = reasoningValueForModel(
-		activeModelCatalog(),
-		value.providerId,
-		value.model,
-		value.modelOptions,
-	);
-	const providers = providerOptions(activeModelCatalog()).filter((provider) => {
-		if (strictProviders && !availableProviders?.includes(provider.value))
-			return false;
-		if (!canChangeProvider) return provider.value === value.providerId;
-		if (availableProviders == null) return true;
-		return (
-			provider.value === value.providerId ||
-			availableProviders.includes(provider.value)
-		);
+}: ModelSheetProps) {
+	const {
+		providers,
+		showProviderPicker,
+		models,
+		reasoning,
+		runtime: runtimeOption,
+	} = modelSheetChoices(activeModelCatalog(), {
+		value,
+		availableProviders,
+		strictProviders,
+		canChangeProvider,
+		canChangeReasoning,
 	});
-	const models =
-		strictProviders && !availableProviders?.includes(value.providerId)
-			? []
-			: modelOptionsForProvider(activeModelCatalog(), value.providerId);
 
 	return (
 		<Host matchContents seedColor={colors.fg}>
@@ -82,28 +65,20 @@ export function ModelSheet({
 			>
 				<Form>
 					<Section title="Model">
-						{canChangeProvider && providers.length > 1 ? (
+						{showProviderPicker ? (
 							<Picker
 								label="Provider"
 								systemImage="cpu"
 								selection={value.providerId}
-								onSelectionChange={(providerId) => {
-									if (!canChangeProvider) return;
-									const id = providerId as ProviderId;
-									const nextModel =
-										modelOptionsForProvider(activeModelCatalog(), id)[0]
-											?.value ?? value.model;
-									onChange({
-										...value,
-										providerId: id,
-										model: nextModel,
-										modelOptions: defaultModelOptions(
+								onSelectionChange={(providerId) =>
+									onChange(
+										withProvider(
 											activeModelCatalog(),
-											id,
-											nextModel,
+											value,
+											providerId as ProviderId,
 										),
-									});
-								}}
+									)
+								}
 								modifiers={[pickerStyle("menu")]}
 							>
 								{providers.map((provider) => (
@@ -127,15 +102,9 @@ export function ModelSheet({
 							label="Model"
 							selection={value.model}
 							onSelectionChange={(model) =>
-								onChange({
-									...value,
-									model: model as string,
-									modelOptions: defaultModelOptions(
-										activeModelCatalog(),
-										value.providerId,
-										model as string,
-									),
-								})
+								onChange(
+									withModel(activeModelCatalog(), value, model as string),
+								)
 							}
 							modifiers={[pickerStyle("menu")]}
 						>
@@ -147,8 +116,6 @@ export function ModelSheet({
 								) : (
 									<Label
 										key={model.value}
-										// Same spacing as provider rows: SwiftUI's collapsed picker
-										// value ignores the icon's padding modifier.
 										title={`\u00a0\u00a0${model.label}`}
 										icon={
 											<Image
@@ -165,19 +132,15 @@ export function ModelSheet({
 								),
 							)}
 						</Picker>
-						{canChangeReasoning && reasoning !== null ? (
+						{reasoning !== null ? (
 							<Picker
 								label="Intelligence"
 								systemImage="gauge.with.dots.needle.67percent"
 								selection={reasoning.value}
 								onSelectionChange={(id) =>
-									onChange({
-										...value,
-										modelOptions: {
-											...(value.modelOptions ?? {}),
-											[reasoning.descriptor.id]: id as string,
-										},
-									})
+									onChange(
+										withReasoning(value, reasoning.descriptor.id, id as string),
+									)
 								}
 								modifiers={[pickerStyle("menu")]}
 							>
@@ -195,7 +158,7 @@ export function ModelSheet({
 							systemImage={sf(runtimeOption.systemImage)}
 							selection={value.runtimeMode}
 							onSelectionChange={(runtimeMode) =>
-								onChange({ ...value, runtimeMode: runtimeMode as RuntimeMode })
+								onChange(withRuntimeMode(value, runtimeMode as RuntimeMode))
 							}
 							modifiers={[pickerStyle("menu"), tint(runtimeOption.tint)]}
 						>

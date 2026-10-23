@@ -1,6 +1,5 @@
 import { createMDX } from "fumadocs-mdx/next";
 
-/** @type {import('next').NextConfig} */
 const nextConfig = {
 	transpilePackages: ["@zuse/analytics"],
 	env: {
@@ -21,6 +20,11 @@ const nextConfig = {
 			{
 				source: "/",
 				destination: "/start",
+				permanent: true,
+			},
+			{
+				source: "/providers/gemini",
+				destination: "/providers/acp#gemini-cli",
 				permanent: true,
 			},
 		];

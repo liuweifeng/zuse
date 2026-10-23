@@ -9,10 +9,6 @@ import afterPack, { stageCursorHelpers } from "./cursor-sdk-package.mjs";
 
 const require = createRequire(import.meta.url);
 
-/**
- * Load the pinned SDK's real locator without credentials or a model request.
- * Fail on webpack layout changes so upgrades cannot silently invalidate this check.
- */
 async function sdkLocator(runtime) {
 	const source = await readFile(require.resolve("@cursor/sdk"), "utf8");
 	const key = "./src/agent/platform-package-locator.ts";
@@ -44,7 +40,10 @@ for (const [platform, archive] of [
 	["darwin", "app-arm64.asar.unpacked"],
 	["linux", "app.asar.unpacked"],
 ]) {
-	test(`packaged ${platform} ${archive} SDK finds nested helpers without a script argv`, async () => {
+	// The POSIX locator checks executable permission bits, unavailable on NTFS.
+	test(`packaged ${platform} ${archive} SDK finds nested helpers without a script argv`, {
+		skip: process.platform === "win32",
+	}, async () => {
 		const root = await mkdtemp(join(tmpdir(), "zuse-cursor-package-"));
 		try {
 			const contents = join(root, "app", "Contents");
@@ -118,7 +117,7 @@ test("universal packaging stages both architectures only after merging", async (
 				},
 			},
 		};
-		// Temporary per-architecture hook must not require or stage helpers.
+
 		for (const arch of [Arch.arm64, Arch.x64]) {
 			await afterPack({
 				...context,
@@ -212,3 +211,43 @@ for (const architecture of ["arm64", "x64"]) {
 		}
 	});
 }
+
+test("Windows stages executable-suffixed helpers from the packaged SDK", async () => {
+	const root = await mkdtemp(join(tmpdir(), "zuse Windows ü-"));
+	try {
+		const resources = join(root, "resources");
+		const source = join(
+			resources,
+			"app.asar.unpacked/node_modules/@cursor/sdk/node_modules/@cursor/sdk-win32-x64/bin",
+		);
+		await mkdir(source, { recursive: true });
+		for (const name of ["cursorsandbox.exe", "rg.exe"])
+			await writeFile(join(source, name), "fixture");
+		const locate = await sdkLocator({
+			platform: "win32",
+			arch: "x64",
+			argv: ["Zuse.exe"],
+			execPath: join(root, "Zuse.exe"),
+		});
+		const excludedWorkspaceDir = join(root, "project");
+		assert.equal(
+			locate({ binaryName: "rg.exe", excludedWorkspaceDir }),
+			undefined,
+		);
+		await stageCursorHelpers(root, resources, "win32", ["x64"]);
+		for (const binaryName of ["cursorsandbox.exe", "rg.exe"])
+			assert.equal(
+				locate({ binaryName, excludedWorkspaceDir }),
+				join(root, "node_modules/@cursor/sdk-win32-x64/bin", binaryName),
+			);
+		assert.equal(
+			await readFile(
+				join(root, "node_modules/@cursor/sdk-win32-x64/bin/rg.exe"),
+				"utf8",
+			),
+			"fixture",
+		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});

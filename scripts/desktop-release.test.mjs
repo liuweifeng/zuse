@@ -162,9 +162,9 @@ test("adopts GitHub manifest names only for matching archive contents and blockm
 				readFileSync(join(directory, `${file.url}.blockmap`), "utf8"),
 				`blockmap-${file.url.split(".").at(-1)}`,
 			);
-		// Preparation remains safe when publication is retried after an upload failure.
+
 		prepareReleaseAssets(directory, metadata);
-		// An interruption after moving the archive must not publish its old-named blockmap.
+
 		renameSync(
 			join(directory, `${zip.url}.blockmap`),
 			join(directory, `${zip.local}.blockmap`),
@@ -284,10 +284,10 @@ function withReleaseRepository(run) {
 		git("commit", "-m", "Later main change");
 		git("update-ref", "refs/remotes/origin/main", "HEAD");
 		mkdirSync(join(directory, "bin"));
+		const fakeGhSource = join(directory, "bin", "gh.mjs");
 		writeFileSync(
-			join(directory, "bin/gh"),
-			`#!${process.execPath}\nif(process.argv.includes('--slurp') && process.argv.includes('--jq')) process.exit(2);\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconst releases = process.argv.some(a=>a.endsWith('&page=1')) ? Array(100).fill(stable) : [{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}];\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : releases));\n`,
-			{ mode: 0o755 },
+			fakeGhSource,
+			`if(process.argv.includes('--slurp') && process.argv.includes('--jq')) process.exit(2);\nconst stable = {tag_name:'v0.21.0',prerelease:false,draft:false};\nconst releases = process.argv.some(a=>a.endsWith('&page=1')) ? Array(100).fill(stable) : [{tag_name:'v0.22.0-preview.2',prerelease:true,draft:false}];\nconsole.log(JSON.stringify(process.argv.some(a=>a.endsWith('/latest')) ? stable : releases));\n`,
 		);
 		const resolveRelease = (overrides) => {
 			execFileSync(
@@ -301,7 +301,7 @@ function withReleaseRepository(run) {
 					stdio: "pipe",
 					env: {
 						...process.env,
-						PATH: `${join(directory, "bin")}:${process.env.PATH}`,
+						ZUSE_RELEASE_GH_SCRIPT: fakeGhSource,
 						GITHUB_EVENT_NAME: "workflow_dispatch",
 						GITHUB_REPOSITORY: "example/zuse",
 						RELEASE_CHANNEL: "preview",

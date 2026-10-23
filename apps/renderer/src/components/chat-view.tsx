@@ -1,4 +1,3 @@
-import { runningBackgroundAgents } from "@zuse/client-runtime/background-agent-presentation";
 import type { SyncPhase } from "@zuse/client-runtime/resource-state";
 import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { useEnvironmentQuestionAttachments } from "../lib/environment-question-attachments-client-bus.ts";
@@ -18,7 +17,6 @@ import { ChatLoadingFallback } from "./chat-loading-fallback.tsx";
 import { ChatSelectionMenu } from "./chat-selection-menu.tsx";
 import { SessionForkRecovery } from "./session-fork-recovery.tsx";
 import { SessionMergeBack } from "./session-merge-back.tsx";
-import { SessionSecretRequests } from "./session-secret-requests.tsx";
 import { ToolActivityTree } from "./tool-activity-tree.tsx";
 import "@zuse/i18n/english/chat";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -88,6 +86,7 @@ import {
 import { useRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { workspaceCreationProgressIsActive } from "../lib/setup-card-visibility.ts";
 import {
+	isTimelineReadingPositionReady,
 	resolveInitialTimelineTarget,
 	resolveTimelineReadingPosition,
 	type TimelineReadingPosition,
@@ -123,11 +122,6 @@ import { WorktreeSetupCard } from "./worktree-setup-card.tsx";
 
 const ChatWorkingRow = lazy(() =>
 	import("./chat-working-row.tsx").then((m) => ({ default: m.ChatWorkingRow })),
-);
-const BackgroundAgentWorkingRows = lazy(() =>
-	import("./chat-working-row.tsx").then((m) => ({
-		default: m.BackgroundAgentWorkingRows,
-	})),
 );
 
 interface TimelineEndState {
@@ -213,7 +207,7 @@ export function ChatView({
 	readonly sessionId: SessionId;
 	readonly environmentId: EnvironmentId;
 	readonly session: Session;
-	/** Height of the floating composer overlay; padded into the scroll range. */
+
 	readonly endInset?: number;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -266,8 +260,7 @@ export function ChatView({
 		(state) => state.errorByResource[errorKey] ?? null,
 	);
 	const commandError = localError ?? pendingSessionCommandError(sessionRef);
-	// Command failures are presented by the provider error tray above the
-	// composer; a pre-ack failure the timeline already recovered from is cleared.
+
 	const recoveredPreAckError =
 		commandError !== null &&
 		isRecoveredPreAckSessionError(commandError, timeline.view);
@@ -374,16 +367,16 @@ export function ChatView({
 		() =>
 			(cloudSummary === null ? deriveChatTimelineRows : cloudRows)({
 				messages,
-				// The durable creation accordion exclusively narrates startup. Generic
-				// in-flight UI resumes only after that lifecycle projection is gone.
+
 				inFlight: shouldRenderGenericAgentStartup({
-					inFlight,
+					inFlight: inFlight && !timeline.presentation.backgroundOnly,
 					agentStarting,
 					hasPendingCreation: workspaceProgressActive || cloudSetupActive,
 				}),
 				awaitingPlanApproval: awaitingUserAction,
 			}),
 		[
+			timeline.presentation.backgroundOnly,
 			cloudSummary === null,
 			cloudRows,
 			awaitingUserAction,
@@ -395,21 +388,12 @@ export function ChatView({
 			uiMessage,
 		],
 	);
-	const backgroundAgents = useMemo(
-		() => runningBackgroundAgents(timeline.view),
-		[timeline.view],
-	);
 	const timelineFooter = useMemo(
 		() => (
 			<>
 				<div className="px-[var(--chat-row-gutter,0.75rem)]">
 					<div className="mx-auto w-full max-w-[var(--chat-reading-column,56rem)]">
-						<WorktreeSetupCard providerOutputStarted={providerOutputStarted} />
-						{backgroundAgents.length > 0 && (
-							<Suspense fallback={null}>
-								<BackgroundAgentWorkingRows agents={backgroundAgents} />
-							</Suspense>
-						)}
+						<WorktreeSetupCard />
 						{pendingCreation?.phase === "failed" ? (
 							<ChatCreationFailureActions creation={pendingCreation} />
 						) : null}
@@ -418,7 +402,7 @@ export function ChatView({
 				<div className="h-2" />
 			</>
 		),
-		[pendingCreation, providerOutputStarted, backgroundAgents, uiMessage],
+		[pendingCreation, providerOutputStarted, uiMessage],
 	);
 	const turns = useMemo(
 		() => deriveChatTurnNavigationEntries(rows),
@@ -479,7 +463,7 @@ export function ChatView({
 					setScrollSnapshot(snapshot);
 				},
 			}),
-		[sessionId, uiMessage],
+		[sessionId],
 	);
 	useEffect(() => {
 		coordinator.setSmoothFollowing(
@@ -554,8 +538,16 @@ export function ChatView({
 		let cancelled = false;
 		initializedSessionRef.current = null;
 		sessionOpenedEmptyRef.current = messages.length === 0;
-		setReadingState(null);
 		currentReadingPositionRef.current = null;
+		const cachedPosition =
+			readingNamespace === null
+				? undefined
+				: timelineReadingPositionStore?.peek(sessionRef, readingNamespace);
+		if (cachedPosition !== undefined) {
+			setReadingState({ sessionId, position: cachedPosition });
+			return;
+		}
+		setReadingState(null);
 		void (async () => {
 			const position =
 				readingNamespace === null
@@ -649,6 +641,35 @@ export function ChatView({
 			document.removeEventListener("visibilitychange", onVisibilityChange);
 	}, []);
 
+	const cachedReadingPosition =
+		readingNamespace === null
+			? undefined
+			: timelineReadingPositionStore?.peek(sessionRef, readingNamespace);
+	const effectiveReadingPosition =
+		currentReadingPositionRef.current?.sessionId === sessionId
+			? currentReadingPositionRef.current
+			: readingState?.sessionId === sessionId
+				? readingState.position
+				: cachedReadingPosition;
+	const readingReady =
+		(readingState?.sessionId === sessionId ||
+			cachedReadingPosition !== undefined) &&
+		(initializedSessionRef.current === sessionId ||
+			isTimelineReadingPositionReady({
+				rows,
+				position: effectiveReadingPosition,
+				historyComplete:
+					timeline.projection !== null &&
+					timeline.projection.olderMessageSequence == null &&
+					timeline.view.sync !== "synchronizing" &&
+					timeline.view.sync !== "hydrating-cache" &&
+					timeline.view.sync !== "empty",
+			}));
+	const initialTarget = resolveInitialTimelineTarget({
+		rows,
+		position: effectiveReadingPosition,
+		recoverAtLiveEdge: false,
+	});
 	useLayoutEffect(() => {
 		const node = listRef.current?.getScrollableNode() ?? null;
 		if (node instanceof HTMLDivElement) {
@@ -658,10 +679,11 @@ export function ChatView({
 		} else {
 			scrollElementRef.current = null;
 		}
-	}, [rows.length, sessionId]);
+	}, [readingReady, rows.length, sessionId]);
 
 	useEffect(() => {
 		if (
+			!readingReady ||
 			readingState?.sessionId !== sessionId ||
 			messages.length === 0 ||
 			initializedSessionRef.current === sessionId
@@ -695,6 +717,7 @@ export function ChatView({
 		inFlight,
 		messages.length,
 		readingState,
+		readingReady,
 		rows,
 		sessionId,
 		timelineVersion,
@@ -718,9 +741,11 @@ export function ChatView({
 				scrollNode.tabIndex = -1;
 				scrollElementRef.current = scrollNode;
 			}
-			const takeControl = (intent: "interaction" | "scroll") => {
+			const takeControl = (
+				intent: "interaction" | "scroll" | "scroll-backward",
+			) => {
 				coordinator.readerTookControl(intent);
-				if (intent === "scroll") requestAnimationFrame(handleScroll);
+				if (intent !== "interaction") requestAnimationFrame(handleScroll);
 			};
 			const onKeyDown = (event: KeyboardEvent) => {
 				if (
@@ -734,7 +759,12 @@ export function ChatView({
 						" ",
 					].includes(event.key)
 				) {
-					takeControl("scroll");
+					takeControl(
+						["ArrowUp", "PageUp", "Home"].includes(event.key) ||
+							(event.key === " " && event.shiftKey)
+							? "scroll-backward"
+							: "scroll",
+					);
 				}
 			};
 			const onFocusIn = (event: FocusEvent) => {
@@ -754,6 +784,10 @@ export function ChatView({
 					takeControl("interaction");
 			};
 			const onScrollIntent = () => takeControl("scroll");
+			const onWheel = (event: WheelEvent) => {
+				if (event.deltaY !== 0)
+					takeControl(event.deltaY < 0 ? "scroll-backward" : "scroll");
+			};
 			const onPointerDown = (event: PointerEvent) => {
 				const bounds = scrollNode.getBoundingClientRect();
 				const scrollbarHitWidth = Math.max(
@@ -769,7 +803,7 @@ export function ChatView({
 						: event.clientX >= bounds.right - scrollbarHitWidth);
 				takeControl(isScrollbarIntent ? "scroll" : "interaction");
 			};
-			scrollNode.addEventListener("wheel", onScrollIntent, { passive: true });
+			scrollNode.addEventListener("wheel", onWheel, { passive: true });
 			scrollNode.addEventListener("touchmove", onScrollIntent, {
 				passive: true,
 			});
@@ -780,7 +814,7 @@ export function ChatView({
 			scrollNode.addEventListener("focusin", onFocusIn);
 			document.addEventListener("selectionchange", onSelectionChange);
 			removeListeners = () => {
-				scrollNode.removeEventListener("wheel", onScrollIntent);
+				scrollNode.removeEventListener("wheel", onWheel);
 				scrollNode.removeEventListener("touchmove", onScrollIntent);
 				scrollNode.removeEventListener("pointerdown", onPointerDown);
 				scrollNode.removeEventListener("keydown", onKeyDown);
@@ -793,10 +827,10 @@ export function ChatView({
 			if (frame !== null) cancelAnimationFrame(frame);
 			removeListeners?.();
 		};
-	}, [coordinator, handleScroll, sessionId]);
+	}, [coordinator, handleScroll, readingReady, sessionId]);
 
 	useEffect(() => {
-		if (latestUserMessageId === null) return;
+		if (!readingReady || latestUserMessageId === null) return;
 		const previous = lastObservedUserMessageIdRef.current;
 		if (previous === latestUserMessageId) return;
 		lastObservedUserMessageIdRef.current = latestUserMessageId;
@@ -807,7 +841,7 @@ export function ChatView({
 		setActiveTurnMessageId(latestUserMessageId);
 		setHasOutOfViewUpdates(false);
 		coordinator.prepareNewTurn(turn.rowIndex, TRANSCRIPT_TURN_INSET_PX);
-	}, [coordinator, inFlight, latestUserMessageId, turns]);
+	}, [coordinator, inFlight, latestUserMessageId, readingReady, turns]);
 
 	useLayoutEffect(() => {
 		if (anchoredEndSpace === undefined || timelineAnchorMessageId === null) {
@@ -873,16 +907,6 @@ export function ChatView({
 			timeline.view.pendingCommands,
 		],
 	);
-	const readingReady = readingState?.sessionId === sessionId;
-	const effectiveReadingPosition =
-		currentReadingPositionRef.current?.sessionId === sessionId
-			? currentReadingPositionRef.current
-			: readingState?.position;
-	const initialTarget = resolveInitialTimelineTarget({
-		rows,
-		position: effectiveReadingPosition,
-		recoverAtLiveEdge: false,
-	});
 	const showPill =
 		(scrollSnapshot.mode === "detached" ||
 			scrollSnapshot.mode === "navigating" ||
@@ -897,7 +921,6 @@ export function ChatView({
 			<h1 className="sr-only">
 				{session.title || uiMessage("chat:chat_view_new_chat")}
 			</h1>
-			<SessionSecretRequests sessionRef={sessionRef} />
 			<SessionForkRecovery
 				key={`forks:${sessionRef.environmentId}:${sessionRef.sessionId}`}
 				sessionRef={sessionRef}
@@ -968,6 +991,15 @@ export function ChatView({
 							className="flex h-full min-h-0 w-full flex-1 flex-col outline-none"
 						>
 							<ChatLoadingFallback />
+							{historyStatus === "failed" && (
+								<button
+									type="button"
+									className="h-7 shrink-0 text-xs text-muted-foreground hover:text-foreground"
+									onClick={() => retryCloudHistory(sessionRef)}
+								>
+									{uiMessage("chat:cloud_history_retry")}
+								</button>
+							)}
 						</div>
 					) : (
 						<ChatLookupsProvider value={chatLookups}>

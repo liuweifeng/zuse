@@ -3,6 +3,7 @@ import {
 	isUserMessage,
 	normalizeTimelineMessages,
 } from "@zuse/client-runtime/timeline";
+import { isGenerateImageTool } from "@zuse/client-runtime/tool-image-result";
 import type { Message } from "@zuse/contracts";
 import {
 	type DelegationMember,
@@ -142,11 +143,14 @@ export const isForkableAssistantMessage = (message: Message): boolean =>
 	(!("parentItemId" in message.content) ||
 		message.content.parentItemId === undefined);
 
+const isVisualTool = (tool: string): boolean =>
+	isHtmlRenderTool(tool) || isGenerateImageTool(tool);
+
 /** Rich output remains visible when completed tool activity collapses. */
 export const isVisualMessage = (message: Message): boolean =>
 	message.content._tag === "ui_spec" ||
 	(message.content._tag === "tool_use" &&
-		isHtmlRenderTool(
+		isVisualTool(
 			normalizeToolCallEnvelope(
 				message.content.tool,
 				message.content.input,
@@ -181,7 +185,6 @@ export function deriveChatTimelineRows({
 
 	for (const message of normalizedMessages) {
 		if (message.content._tag === "model_switch") {
-			// Configuration changes stand between turns, outside collapsed replies.
 			if (current !== null) turns.push(current);
 			turns.push({ user: null, body: [message] });
 			current = null;
@@ -200,7 +203,7 @@ export function deriveChatTimelineRows({
 	for (const [index, turn] of turns.entries()) {
 		const isLastTurn = index === turns.length - 1;
 		const isLive = inFlight && isLastTurn;
-		// Copy and fork appear once the turn settles, on its final reply only.
+
 		const finalAssistant = isLive ? null : findFinalAssistantMessage(turn.body);
 		const showAssistantCommands = (message: Message): boolean =>
 			message === finalAssistant;
@@ -216,7 +219,7 @@ export function deriveChatTimelineRows({
 		}
 
 		const bodyGroups = groupDelegations(groupMessages(turn.body));
-		// Delegated work stays visible after the turn settles, like plans.
+
 		const delegations = bodyGroups.filter(
 			(group) => group.kind === "delegation",
 		);
@@ -417,8 +420,7 @@ export function groupToolActivityRows(
 	let active:
 		| { kind: "tool-activity"; id: string; messages: Message[]; live?: boolean }
 		| undefined;
-	// Thinking only joins a tree when a tool follows it; until then it is held
-	// here so thinking that leads straight into text stays a standalone row.
+
 	let leading: Extract<ChatTimelineRow, { kind: "message" }>[] = [];
 	for (const row of rows) {
 		const tag = row.kind === "message" ? row.message.content._tag : undefined;

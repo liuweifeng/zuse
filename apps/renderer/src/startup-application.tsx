@@ -78,8 +78,7 @@ function ConnectedStartupApplication({
 	}, [settings.loaded, settings.origin, settings.phase]);
 	const [applicationReady, setApplicationReady] = useState(false);
 	const settingsPresentation = startupPresentation(settings);
-	// A workspace API failure is not a failed local server. Keep an escape route
-	// without rendering workspace content with missing (or Personal) settings.
+
 	const workspacePending =
 		workspace.scope.kind === "organization" && settingsPresentation !== "ready";
 	const presentation = workspacePending

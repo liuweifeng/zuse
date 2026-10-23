@@ -37,6 +37,7 @@ const setup = async (teamId = "T1", connected = true) => {
 		store: new InstallationStore(db.binding, testCipher),
 		identity: {
 			clientId: "client_workos",
+			organizations: vi.fn(async () => []),
 
 			exchange: vi.fn(
 				async (): ReturnType<AppEnv["identity"]["exchange"]> => ({
@@ -262,12 +263,14 @@ describe("conversational Slack app", () => {
 			nativeStatus: "",
 			clearStatusFailures: 0,
 			workspaceError: "",
+			workspaceErrorStatus: 400,
 			messageError: "",
 			workspaceStatusCode: "",
 			state: "ready",
 			projects: [
 				{ projectId: "p1", displayName: "Repository one", state: "ready" },
 			],
+			sourceNamesError: "",
 		};
 		vi.stubGlobal(
 			"fetch",
@@ -331,7 +334,7 @@ describe("conversational Slack app", () => {
 				if (url.endsWith("/v1/api/workspaces") && result.workspaceError)
 					return Response.json(
 						{ error: result.workspaceError },
-						{ status: 400 },
+						{ status: result.workspaceErrorStatus },
 					);
 				if (url.endsWith("/v1/api/workspaces"))
 					return Response.json({
@@ -388,6 +391,20 @@ describe("conversational Slack app", () => {
 							? { ok: true }
 							: { ok: false, error: "feature_disabled" },
 					);
+				}
+				if (url.includes("users.info") || url.includes("conversations.info")) {
+					if (result.sourceNamesError)
+						return Response.json({ ok: false, error: result.sourceNamesError });
+					return url.includes("users.info")
+						? Response.json({
+								ok: true,
+								user: {
+									name: "ada",
+									real_name: "Ada Lovelace",
+									profile: { display_name: "", real_name: "Ada Lovelace" },
+								},
+							})
+						: Response.json({ ok: true, channel: { name: "eng-alerts" } });
 				}
 				if (url.endsWith("chat.postMessage"))
 					return Response.json({ ok: true, ts: "201.001" });
@@ -899,7 +916,7 @@ describe("conversational Slack app", () => {
 		await app.event({ ...mention, files });
 		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
 		const link = connectionLink(http);
-		// Slack redelivery cannot consume or replace the saved request.
+
 		await app.event({ ...mention, files });
 		await consumeNext(app);
 		expect(http.ephemerals()).toHaveLength(1);
@@ -1522,6 +1539,34 @@ describe("conversational Slack app", () => {
 			http.calls.some((call) => call.url.includes("conversations.replies")),
 		).toBe(false);
 	});
+	it("attributes the request to its Slack author and channel", async () => {
+		const app = await setup();
+		const http = mockServices();
+		await app.event(mention);
+		await consumeNext(app);
+		const message = http.calls.find((call) => call.url.endsWith("/messages"));
+		expect(message?.body.source).toEqual({
+			_tag: "slack",
+			text: "fix the failing test",
+			author: "Ada Lovelace",
+			channel: "eng-alerts",
+		});
+		expect(message?.body.text).toBe(
+			"Request from Slack (thread 200.001):\nfix the failing test",
+		);
+	});
+	it("still attributes the request to Slack when names cannot be read", async () => {
+		const app = await setup();
+		const http = mockServices();
+		http.result.sourceNamesError = "missing_scope";
+		await app.event(mention);
+		expect((await consumeNext(app)).retry).not.toHaveBeenCalled();
+		const message = http.calls.find((call) => call.url.endsWith("/messages"));
+		expect(message?.body.source).toEqual({
+			_tag: "slack",
+			text: "fix the failing test",
+		});
+	});
 	it("reuses the workspace for an authorized tagged thread reply", async () => {
 		const app = await setup();
 		const http = mockServices();
@@ -2143,6 +2188,23 @@ describe("conversational Slack app", () => {
 			"/slack/setup/login",
 		);
 	});
+	it("explains image readiness failures without blaming Slack permissions", async () => {
+		const app = await setup();
+		const http = mockServices();
+		http.result.workspaceError = "cloud_project_not_ready";
+		http.result.workspaceErrorStatus = 409;
+		await app.event(mention);
+		const consumed = await consumeNext(app);
+		expect(consumed.ack).toHaveBeenCalledOnce();
+		expect(consumed.retry).not.toHaveBeenCalled();
+		const text = http.replies().at(-1)?.body.text;
+		expect(text).toContain("Cloud setup is not ready");
+		expect(text).toContain("machine provider");
+		expect(text).not.toContain("reinstall");
+		expect(http.calls.some((call) => call.url.endsWith("/messages"))).toBe(
+			false,
+		);
+	});
 	it("reports permanent missing-scope failures immediately without retrying or starting an agent", async () => {
 		const app = await setup();
 		const http = mockServices();
@@ -2312,7 +2374,7 @@ describe("conversational Slack app", () => {
 		const creates = http.calls.filter((c) =>
 			c.url.endsWith("/v1/api/workspaces"),
 		);
-		expect(creates).toHaveLength(2); // One rejected for missing defaults, one accepted.
+		expect(creates).toHaveLength(2);
 		expect(creates[1]?.body).toMatchObject({
 			projectId: "p1",
 			...resolveAgentChoice(choice),
@@ -2950,10 +3012,10 @@ describe("customer installation and account connection", () => {
 		);
 		vi.mocked(app.env.identity.exchange).mockResolvedValue({
 			accountId: "user_new",
-			...(personal
-				? {}
-				: { organization: { id: "org_team", name: "Team & Co" } }),
 		});
+		vi.mocked(app.env.identity.organizations).mockResolvedValue(
+			personal ? [] : [{ id: "org_team", name: "Team & Co" }],
+		);
 		const cloud = vi.spyOn(app.env, "cloud");
 		const pendingRequest = withRequest
 			? {
@@ -2993,14 +3055,56 @@ describe("customer installation and account connection", () => {
 		);
 		return { app, cloud, callback };
 	};
-	it("uses the WorkOS organization without showing a second chooser", async () => {
+	const workspaceRequest = async (
+		response: Response,
+		workspace = "org_team",
+	) => {
+		const html = await response.text();
+		const csrf = /name="csrf" value="([^"]+)"/u.exec(html)?.[1] ?? "";
+		const cookie =
+			response.headers
+				.getSetCookie()
+				.find((value) => value.startsWith("__Host-zuse-slack-workspace="))
+				?.split(";")[0] ?? "";
+		return new Request("https://app.test/slack/account/workspace", {
+			method: "POST",
+			headers: { origin: "https://app.test", cookie },
+			body: new URLSearchParams({ csrf, workspace }),
+		});
+	};
+
+	it("keeps the WorkOS organization without showing another picker", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		vi.mocked(app.env.identity.exchange).mockResolvedValueOnce({
+			accountId: "user_new",
+			organization: { id: "org_team", name: "Team & Co" },
+		});
+		const response = await app.fetch(callback);
+		expect(response.status).toBe(200);
+		expect(await response.text()).not.toContain("Choose your workspace");
+		expect(app.env.identity.organizations).not.toHaveBeenCalled();
+		expect(cloud).toHaveBeenCalledWith("user_new", "org_team");
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toMatchObject({ organizationId: "org_team" });
+	});
+	it("requires an explicit workspace choice when WorkOS skips organization selection", async () => {
 		const { app, cloud, callback } = await connectWithWorkosOrganization();
 		const response = await app.fetch(callback.clone());
 		expect(response.status).toBe(200);
 		const html = await response.text();
 		expect(html).toContain("Team &amp; Co");
-		expect(html).not.toContain("Choose your organization");
-		expect(html).not.toContain("/slack/account/organization");
+		expect(html).toContain("Choose your workspace");
+		expect(html).toContain("Personal");
+		expect(
+			(await app.store.member(app.installation, "U1")).connection,
+		).toBeNull();
+		expect(cloud).not.toHaveBeenCalled();
+		const choice = await workspaceRequest(
+			new Response(html, { headers: response.headers }),
+		);
+		expect((await app.fetch(choice.clone())).status).toBe(200);
+		expect((await app.fetch(choice)).status).toBe(401);
 		const profile = await app.store.member(app.installation, "U1");
 		expect(profile.connection).toMatchObject({
 			accountId: "user_new",
@@ -3025,9 +3129,10 @@ describe("customer installation and account connection", () => {
 		).toBe(true);
 		expect((await app.fetch(callback)).status).toBe(400);
 	});
-	it("preserves a saved Slack request through WorkOS organization selection", async () => {
+	it("preserves a saved Slack request through workspace selection", async () => {
 		const { app, callback } = await connectWithWorkosOrganization(true);
-		expect((await app.fetch(callback)).status).toBe(200);
+		const choice = await workspaceRequest(await app.fetch(callback));
+		expect((await app.fetch(choice)).status).toBe(200);
 		expect(app.jobs).toContainEqual(
 			expect.objectContaining({
 				kind: "connected",
@@ -3053,6 +3158,50 @@ describe("customer installation and account connection", () => {
 		).toBeUndefined();
 		expect(cloud).toHaveBeenCalledWith("user_new", undefined);
 	});
+
+	it("allows Personal even when organizations are available", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(
+			await app.fetch(callback),
+			"personal",
+		);
+		expect((await app.fetch(choice)).status).toBe(200);
+		expect(cloud).toHaveBeenCalledWith("user_new", undefined);
+	});
+	it("rechecks organization access before connecting", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(await app.fetch(callback));
+		vi.mocked(app.env.identity.organizations).mockResolvedValue([]);
+		expect((await app.fetch(choice)).status).toBe(403);
+		expect(cloud).not.toHaveBeenCalled();
+	});
+	it("rejects forged workspace choices and cross-site submissions", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const response = await app.fetch(callback);
+		const choice = await workspaceRequest(response.clone(), "org_unrelated");
+		expect((await app.fetch(choice)).status).toBe(403);
+		const crossSite = await workspaceRequest(response.clone());
+		crossSite.headers.set("origin", "https://unrelated.test");
+		expect((await app.fetch(crossSite)).status).toBe(403);
+		const invalidCsrf = await workspaceRequest(response.clone());
+		const badCsrf = new Request(invalidCsrf, {
+			body: new URLSearchParams({ workspace: "personal", csrf: "invalid" }),
+		});
+		expect((await app.fetch(badCsrf)).status).toBe(403);
+		expect(cloud).not.toHaveBeenCalled();
+	});
+	it("expires workspace selections after ten minutes", async () => {
+		const { app, cloud, callback } = await connectWithWorkosOrganization();
+		const choice = await workspaceRequest(await app.fetch(callback));
+		const now = Date.now();
+		const clock = vi.spyOn(Date, "now").mockReturnValue(now + 600_001);
+		try {
+			expect((await app.fetch(choice)).status).toBe(401);
+		} finally {
+			clock.mockRestore();
+		}
+		expect(cloud).not.toHaveBeenCalled();
+	});
 	it("does not overwrite a connection changed during authentication", async () => {
 		const { app, cloud, callback } = await connectWithWorkosOrganization();
 		vi.mocked(app.env.identity.exchange).mockImplementationOnce(async () => {
@@ -3063,7 +3212,6 @@ describe("customer installation and account connection", () => {
 			});
 			return {
 				accountId: "user_new",
-				organization: { id: "org_team", name: "Team" },
 			};
 		});
 		expect((await app.fetch(callback)).status).toBe(409);

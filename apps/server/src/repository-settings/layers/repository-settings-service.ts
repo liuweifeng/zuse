@@ -188,8 +188,6 @@ const parseTomlSettings = (repoPath: string): RepositorySettingsFile => {
 		if (key === undefined || value === undefined) continue;
 		if (section === "") {
 			if (key === "schemaVersion") {
-				// v1 is the only supported shape; keep parsing with v1 defaults if a
-				// future value appears so a hand-edit does not blank settings.
 			} else if (key === "defaultProviderId") {
 				const parsed = parseTomlNullableString(value);
 				settings.defaultProviderId = isProviderId(parsed)
@@ -411,9 +409,7 @@ const writeTomlSettings = (
 const removeLegacyJsonSettings = (repoPath: string): void => {
 	try {
 		fsSync.rmSync(jsonPath(repoPath), { force: true });
-	} catch {
-		// Best-effort migration cleanup only.
-	}
+	} catch {}
 };
 
 const fileToSettings = (

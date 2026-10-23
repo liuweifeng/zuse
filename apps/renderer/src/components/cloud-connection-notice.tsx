@@ -28,8 +28,8 @@ import {
 } from "../lib/cloud-workspace-catalog.ts";
 import { cloudTranscriptActivation } from "../lib/cloud-workspace-lifecycle.ts";
 import {
-	ensureCloudWorkspaceAttached,
 	rearmRegisteredCloudConnection,
+	recoverCloudWorkspaceConnection,
 } from "../lib/cloud-workspaces.ts";
 import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus.ts";
 import { useMachineResources } from "../lib/machine-resources-client-bus.ts";
@@ -82,9 +82,12 @@ const copy: Record<
 		get title() {
 			return uiMessage("connections:cloud_connection_notice_reconnect_needed");
 		},
-		detail: "The workspace is still running. Retry the live connection.",
+		detail:
+			"The live connection is unavailable. Retry to reconnect; queued messages are preserved.",
 	},
 	failed: {
+		detail:
+			"Couldn’t reconnect to this cloud workspace. Retry to connect; queued messages are preserved.",
 		get title() {
 			return uiMessage("connections:cloud_connection_notice_connection_failed");
 		},
@@ -99,7 +102,7 @@ type RetryRendererConnection = (environmentId: EnvironmentId) => void;
 
 export const retryCloudConnection = async (
 	summary: CloudChatSummary,
-	attach: AttachCloudWorkspace = ensureCloudWorkspaceAttached,
+	attach: AttachCloudWorkspace = recoverCloudWorkspaceConnection,
 	retryConnection: RetryRendererConnection = retryRendererEnvironmentConnection,
 ): Promise<void> => {
 	await attach(summary, "wake");
@@ -143,8 +146,7 @@ export function CloudConnectionNotice() {
 					runtime,
 					timeline: timeline.view,
 				});
-	// Only observe an already-connected, active turn. A resource subscription
-	// must never wake paused compute or keep an idle sandbox alive.
+
 	const observeMemory = shouldObserveCloudMemory(
 		summary,
 		shell.connection,
@@ -163,23 +165,23 @@ export function CloudConnectionNotice() {
 			resources.sync === "live" &&
 			resources.connection === "connected" &&
 			resources.data?.sample.memoryPressure === true,
+		summary.failureDiagnostic,
 	);
 	const lifecycle = cloudConnectionPresentation(
 		summary,
 		activity,
 		shell.connection,
 	);
-	// Waiting prompts carry the compute lifecycle in the queue header; showing
-	// it here too would stack two statuses for the same wait.
+
 	const presentation =
 		queuedPrompts > 0 &&
+		shell.connection !== "failed" &&
 		(lifecycle === "paused" ||
 			lifecycle === "resuming" ||
 			lifecycle === "updating")
 			? "hidden"
 			: lifecycle;
-	// A signed-out session can never reconnect a cloud workspace, so it shows
-	// one steady sign-in banner immediately — never the reconnect states.
+
 	const blockedAuth =
 		(!isLoading && !isSignedIn) || shell.connection === "blocked-auth";
 	const connectionError = getRendererClientBus().connection(
@@ -246,15 +248,15 @@ export function CloudConnectionNotice() {
 						detail:
 							"Your session expired — sign in to reconnect this cloud workspace.",
 					}
-				: typedConnectionFailure !== null
+				: memoryNotice !== null && !terminalConnectionFailure
 					? {
-							title: typedConnectionFailure.headline,
-							detail: typedConnectionFailure.message,
+							title: uiMessage(memoryNotice.title),
+							detail: uiMessage("connections:cloud_memory_advice"),
 						}
-					: memoryNotice !== null
+					: typedConnectionFailure !== null
 						? {
-								title: uiMessage(memoryNotice.title),
-								detail: uiMessage("connections:cloud_memory_advice"),
+								title: typedConnectionFailure.headline,
+								detail: typedConnectionFailure.message,
 							}
 						: presentation === "hidden"
 							? null
@@ -281,6 +283,7 @@ export function CloudConnectionNotice() {
 	return (
 		<TrayPill
 			flush
+			tone={memoryNotice !== null ? "warning" : "default"}
 			role="status"
 			aria-live="polite"
 			icon={

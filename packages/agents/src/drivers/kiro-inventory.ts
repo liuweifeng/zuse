@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
 import type { KiroInventory, KiroInventoryModel } from "@zuse/contracts";
 import { humanizeModelId } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { Effect } from "effect";
 
 import {
@@ -8,13 +8,6 @@ import {
 	kiroControlPlaneRequest,
 	readKiroAuthContext,
 } from "./kiro-auth.ts";
-
-/**
- * Live Kiro model inventory. Prefer the control-plane
- * `ListAvailableModels` API (richer: context windows, credit multipliers,
- * image support). Fall back to `kiro-cli chat --list-models --format json`
- * when the API is unreachable so the picker still refreshes.
- */
 
 interface ListModelsApiModel {
 	readonly modelId?: string;
@@ -93,8 +86,7 @@ const fromCliModel = (
 				: null,
 		rateMultiplier:
 			typeof model.rate_multiplier === "number" ? model.rate_multiplier : null,
-		// CLI list does not advertise input types; assume image support for
-		// the majority of Kiro models (API path is authoritative when available).
+
 		supportsImages: true,
 	};
 };

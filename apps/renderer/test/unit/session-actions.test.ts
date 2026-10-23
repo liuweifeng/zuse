@@ -15,8 +15,9 @@ import {
 	SessionNotFoundError,
 	SessionTimelineProjection,
 } from "@zuse/contracts";
-import { Effect, Queue, Stream } from "effect";
+import { Deferred, Effect, Queue, Stream } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { submitComposerDelivery } from "../../src/lib/composer-delivery.ts";
 import {
 	clearPendingSessionMessage,
 	mergePendingSessionMessages,
@@ -35,6 +36,7 @@ import {
 	persistQueuedMessage,
 	queueSessionMessage,
 	retryLastSessionMessage,
+	runQueuedMessageNext,
 	sendSessionMessage,
 	stageSessionMessage,
 	updateQueuedMessage,
@@ -321,7 +323,7 @@ describe("session actions", () => {
 		);
 		const history =
 			getRendererClientBus().snapshot(retained.key).data?.messages ?? [];
-		// This is the startup gap: persisted history legitimately has no message yet.
+
 		expect(history).toHaveLength(0);
 		const visible = mergePendingSessionMessages(
 			history,
@@ -330,13 +332,102 @@ describe("session actions", () => {
 		expect(visible).toMatchObject([
 			{ id: messageId, content: { text: "Describe this image" } },
 		]);
-		// Durable reflection replaces the pending row without duplicating it.
+
 		expect(
 			mergePendingSessionMessages(visible, pendingSessionMessages(ref)),
 		).toHaveLength(1);
 		clearPendingSessionMessage(ref, messageId);
 		expect(pendingSessionMessages(ref)).toHaveLength(0);
 		unregister();
+		retained.lease.release();
+	});
+
+	it("clears text and attachments before a slow live send receipt", async () => {
+		const frames = Effect.runSync(Queue.unbounded());
+		const ack = Effect.runSync(Deferred.make<void>());
+		let sending = false;
+		setSessionTimelineRpcClientForTest(
+			async () =>
+				({
+					"session.events": () => Stream.fromQueue(frames),
+					"messages.send": () =>
+						Effect.gen(function* () {
+							sending = true;
+							yield* Deferred.await(ack);
+						}),
+				}) as never,
+		);
+		const retained = retainSessionTimeline(ref, "connect");
+		let draft = ComposerInput.make({
+			text: "Delegate this fix",
+			attachments: [
+				{
+					id: "screenshot",
+					mimeType: "image/png",
+					originalName: "screenshot.png",
+				},
+			],
+			fileRefs: [],
+			skillRefs: [],
+		});
+		const input = draft;
+		let clears = 0;
+		const submission = submitComposerDelivery(
+			() => sendSessionMessage(ref, input),
+			() => {
+				draft = ComposerInput.make({
+					text: "",
+					attachments: [],
+					fileRefs: [],
+					skillRefs: [],
+				});
+				clears += 1;
+			},
+			() => {
+				draft = input;
+			},
+		);
+		await waitUntil(() => sending);
+		expect(draft.text).toBe("");
+		expect(draft.attachments).toEqual([]);
+		await Effect.runPromise(Deferred.succeed(ack, undefined));
+		await waitUntil(() => clears === 1);
+		await expect(submission).resolves.toBe(true);
+		expect(draft.text).toBe("");
+		expect(draft.attachments).toEqual([]);
+		const pending = pendingSessionMessages(ref);
+		expect(pending).toHaveLength(1);
+		expect(pending[0]?.content).toMatchObject({
+			text: "Delegate this fix",
+			attachments: [{ id: "screenshot" }],
+		});
+		expect(
+			getRendererClientBus().snapshot(retained.key).pendingCommands,
+		).toHaveLength(1);
+		draft = ComposerInput.make({ ...draft, text: "Next instruction" });
+		Queue.offerUnsafe(frames, {
+			kind: "snapshot",
+			sessionId,
+			throughVersion: 2,
+			cursor: { epoch: "accepted-turn", version: 2 },
+			projection: SessionTimelineProjection.make({
+				messages: pending,
+				status: "running",
+				activeTurn: null,
+				turnCount: 0,
+				queue: QueueState.make({ items: [], paused: false }),
+				permissionMode: "default",
+				runtimeMode: "approval-required",
+			}),
+		});
+		Queue.offerUnsafe(frames, {
+			kind: "synchronized",
+			sessionId,
+			cursor: { epoch: "accepted-turn", version: 2 },
+		});
+		await waitUntil(() => pendingSessionMessages(ref).length === 0);
+		expect(clears).toBe(1);
+		expect(draft.text).toBe("Next instruction");
 		retained.lease.release();
 	});
 
@@ -406,7 +497,11 @@ describe("session actions", () => {
 		retained.lease.release();
 	});
 
-	it("converges when a queued message was consumed before its final update", async () => {
+	it.each([
+		"consumed",
+		"rejected",
+		"accepted",
+	] as const)("reports a %s queued-message update without losing readiness", async (outcome) => {
 		const frames = Effect.runSync(Queue.unbounded());
 		let streamStarts = 0;
 		const input = ComposerInput.make({
@@ -424,7 +519,23 @@ describe("session actions", () => {
 						return Stream.fromQueue(frames);
 					},
 					"messages.queue.update": () =>
-						Effect.fail(new QueuedMessageNotFoundError({ sessionId, queueId })),
+						outcome === "consumed"
+							? Effect.fail(
+									new QueuedMessageNotFoundError({ sessionId, queueId }),
+								)
+							: outcome === "rejected"
+								? Effect.fail(new SessionNotFoundError({ sessionId }))
+								: Effect.succeed(
+										QueuedMessage.make({
+											id: queueId,
+											sessionId,
+											input,
+											ready: true,
+											position: 0,
+											createdAt: new Date(),
+											updatedAt: new Date(),
+										}),
+									),
 				}) as never,
 		);
 
@@ -464,15 +575,18 @@ describe("session actions", () => {
 					.length === 1,
 		);
 
-		await updateQueuedMessage(ref, queueId, input);
+		expect(await updateQueuedMessage(ref, queueId, input)).toBe(
+			outcome !== "rejected",
+		);
 
-		expect(
-			getRendererClientBus().snapshot(retained.key).data?.queue.items,
-		).toEqual([]);
-		expect(
-			getRendererClientBus().snapshot(retained.key).failedCommands,
-		).toEqual([]);
-		expect(pendingSessionCommandError(ref)).toBeNull();
+		const items = getRendererClientBus().snapshot(retained.key).data?.queue
+			.items;
+		if (outcome === "consumed") expect(items).toEqual([]);
+		else expect(items?.[0]?.ready).toBe(outcome === "accepted");
+		if (outcome === "rejected")
+			expect(pendingSessionCommandError(ref)).not.toBeNull();
+		else expect(pendingSessionCommandError(ref)).toBeNull();
+
 		retained.lease.release();
 	});
 
@@ -558,4 +672,166 @@ describe("session actions", () => {
 			});
 		retained.lease.release();
 	});
+});
+
+it.each([
+	false,
+	true,
+])("keeps a steer visible until its runtime receipt arrives (rejected: %s)", async (rejected) => {
+	const input = ComposerInput.make({
+		text: "steer this turn",
+		attachments: [],
+		fileRefs: [],
+		skillRefs: [],
+	});
+	const item = QueuedMessage.make({
+		id: "pending-steer",
+		sessionId,
+		input,
+		position: 0,
+		ready: true,
+		createdAt: new Date(),
+		updatedAt: new Date(),
+	});
+	let acknowledge!: () => void;
+	let calls = 0;
+	const acknowledgment = new Promise<void>((resolve) => {
+		acknowledge = resolve;
+	});
+	registerWebSocketEnvironment(environmentId, "wss://example.test/rpc");
+	setSessionTimelineRpcClientForTest(
+		async () =>
+			({
+				"session.events": () => Stream.never,
+				"messages.queue.runNext": () => {
+					calls++;
+					return Effect.promise(() => acknowledgment).pipe(
+						Effect.flatMap(() =>
+							rejected
+								? Effect.fail(
+										new SessionInputBlockedError({
+											sessionId,
+											requestId: "question",
+											kind: "question",
+											message: "Answer the pending request",
+										}),
+									)
+								: Effect.void,
+						),
+					);
+				},
+			}) as never,
+	);
+	registerSessionTimelineCheckpointSynchronizer(environmentId, async () => ({
+		data: SessionTimelineProjection.make({
+			messages: [],
+			status: "idle",
+			activeTurn: null,
+			turnCount: 0,
+			queue: QueueState.make({ items: [item], paused: false }),
+			permissionMode: "default",
+			runtimeMode: "full-access",
+		}),
+		cursor: { epoch: "steer", version: 1 },
+	}));
+	const retained = retainSessionTimeline(ref, "sync");
+	try {
+		await waitUntil(
+			() =>
+				getRendererClientBus().snapshot(retained.key).data?.queue.items
+					.length === 1,
+		);
+		const sending = runQueuedMessageNext(ref, item.id);
+		await waitUntil(() => calls === 1);
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.queue.items,
+		).toEqual([item]);
+		await runQueuedMessageNext(ref, item.id);
+		expect(calls).toBe(1);
+		acknowledge();
+		await sending;
+		expect(
+			getRendererClientBus().snapshot(retained.key).data?.queue.items,
+		).toEqual(rejected ? [item] : []);
+	} finally {
+		acknowledge();
+		retained.lease.release();
+		resetSessionTimelineClientBusForTest();
+	}
+});
+
+it("makes queued feedback steerable while a goal send is awaiting its receipt", async () => {
+	resetSessionTimelineClientBusForTest();
+	registerWebSocketEnvironment(environmentId, "wss://example.test/rpc");
+	let finishGoalSend!: () => void;
+	const goalSendReceipt = new Promise<void>((resolve) => {
+		finishGoalSend = resolve;
+	});
+	let goalSendStarted = false;
+	let steered = false;
+	setSessionTimelineRpcClientForTest(
+		async () =>
+			({
+				"session.events": () => Stream.never,
+				"messages.send": () => {
+					goalSendStarted = true;
+					return Effect.promise(() => goalSendReceipt);
+				},
+				"messages.queue.add": ({
+					queueId,
+					input,
+				}: {
+					queueId: string;
+					input: ComposerInput;
+				}) =>
+					Effect.succeed(
+						QueuedMessage.make({
+							id: queueId,
+							sessionId,
+							input,
+							position: 0,
+							ready: true,
+							createdAt: new Date(),
+							updatedAt: new Date(),
+						}),
+					),
+				"messages.queue.runNext": () =>
+					Effect.sync(() => {
+						steered = true;
+					}),
+			}) as never,
+	);
+	const retained = retainSessionTimeline(ref, "connect");
+	const sending = sendSessionMessage(ref, "finish the goal", { asGoal: true });
+	try {
+		await waitUntil(() => goalSendStarted);
+		const input = ComposerInput.make({
+			text: "change direction",
+			attachments: [],
+			fileRefs: [],
+			skillRefs: [],
+		});
+		const queueId = queueSessionMessage(ref, input, {
+			persist: false,
+			ready: false,
+		});
+		const persisting = persistQueuedMessage(ref, queueId, input);
+		await expect
+			.poll(
+				() =>
+					getRendererClientBus()
+						.snapshot(retained.key)
+						.data?.queue.items.find((item) => item.id === queueId)?.ready,
+			)
+			.toBe(true);
+		expect(await persisting).toBe(true);
+		await runQueuedMessageNext(ref, queueId);
+		expect(steered).toBe(true);
+	} finally {
+		finishGoalSend();
+		retained.lease.release();
+		resetSessionTimelineClientBusForTest();
+		await sending;
+		usePendingSessionMessages.setState({ byResource: {} });
+	}
 });

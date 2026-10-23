@@ -45,8 +45,7 @@ export class SyncFileVerifier {
 			return cached.hash;
 		}
 		this.verified.delete(path);
-		// A timestamp exposed in nanoseconds can still have coarse resolution.
-		// Avoid reusing hashes taken in the same timestamp tick as a write.
+
 		const safeBefore = BigInt(Date.now() - 1_000) * 1_000_000n;
 		const stable = before.ctimeNs < safeBefore && before.mtimeNs < safeBefore;
 		const hash = await this.readDigest(path);

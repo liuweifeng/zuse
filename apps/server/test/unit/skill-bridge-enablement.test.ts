@@ -92,8 +92,7 @@ beforeEach(() => {
 	codex.skills = [];
 	codex.listCalls = [];
 	codex.writes = [];
-	// Codex discovery installs the bundled skill into ~/.codex/skills, which
-	// Zuse discovery also reads; install it up front so results are stable.
+
 	ensureBundledZuseSkillInstalled("codex", home);
 
 	const claudeSkills = join(home, ".claude", "skills");
@@ -102,8 +101,6 @@ beforeEach(() => {
 	writeSkill(join(project, ".claude", "skills"), "project-only");
 	writeSkill(join(home, ".zuse", "skills"), "notes");
 
-	// A marketplace plugin installed through Claude Code, plus one the user
-	// switched off in Claude's settings.
 	const installPath = join(home, ".claude", "plugins", "cache", "mkt", "acme");
 	writeSkill(join(installPath, "skills"), "deploy");
 	const offPath = join(home, ".claude", "plugins", "cache", "mkt", "off");
@@ -221,7 +218,7 @@ describe("SkillBridge enablement", () => {
 				"claude:docx:global:on:toggle",
 				"claude:pdf:global:off:toggle",
 				"claude:zuse:global:on:toggle",
-				// Codex enablement is native; Zuse settings never override it.
+
 				"codex:codex-off:global:off:toggle",
 				"codex:codex-on:global:on:toggle",
 				"zuse:notes:global:off:toggle",
@@ -263,7 +260,7 @@ describe("SkillBridge enablement", () => {
 					Stream.runDrain,
 					Effect.forkChild,
 				);
-				// Wait for the initial snapshot before toggling.
+
 				yield* Deferred.await(first);
 				const toggled = yield* bridge.setEnabled({
 					providerId: "claude",

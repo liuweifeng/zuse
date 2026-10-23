@@ -6,8 +6,7 @@ import { fileURLToPath } from "node:url";
 import { runAgentCli } from "./agent-cli.ts";
 
 const args = process.argv.slice(2);
-// Images already install the service-management CLI here. Keep those commands
-// available when the runtime's newer orchestration CLI takes precedence on PATH.
+
 const serviceCli = "/usr/local/bin/zuse";
 if (
 	args[0] === "serve" &&

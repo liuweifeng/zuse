@@ -45,8 +45,6 @@ export function installHtmlVisualNetwork(target: Session) {
 	for (const scheme of VISUAL_ASSET_SCHEMES) {
 		target.protocol.handle(scheme, async (request) => {
 			try {
-				// Never forward app cookies, authorization, or arbitrary request headers.
-				// Static assets and public GET APIs cover visualization dependencies.
 				if (request.method !== "GET")
 					return new Response(null, { status: 405 });
 				const url = new URL(
@@ -66,7 +64,7 @@ export function installHtmlVisualNetwork(target: Session) {
 						AbortSignal.timeout(30_000),
 					]),
 				});
-				// Do not propagate Set-Cookie, redirects, or upstream policy headers to the app session.
+
 				const headers = new Headers({
 					"Access-Control-Allow-Origin": "*",
 					"Cache-Control": "no-store",
@@ -82,7 +80,7 @@ export function installHtmlVisualNetwork(target: Session) {
 			}
 		});
 	}
-	// This is the application's only onBeforeRequest handler. Browser tabs have a separate session.
+
 	target.webRequest.onBeforeRequest((details, callback) => {
 		if (!isVisualFrame(details.frame?.url ?? "")) return callback({});
 		if (details.resourceType === "subFrame") return callback({ cancel: true });

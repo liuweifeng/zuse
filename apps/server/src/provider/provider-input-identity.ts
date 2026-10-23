@@ -18,7 +18,7 @@ export const ownProviderInputs = (
 	};
 	const byPublic = new Map<AgentItemId, InputIdentity>();
 	const respond = handle.respondToPlan;
-	// Retain bounded result correlation after callback authority is released.
+
 	const settledPlans = new Map<AgentItemId, AgentItemId>();
 	const nativeKey = (kind: "question" | "plan", id: AgentItemId) =>
 		`${kind}:${id}`;
@@ -137,7 +137,7 @@ export const ownProviderInputs = (
 				const entry = byPublic.get(itemId);
 				if (entry === undefined || entry.kind !== "question" || closed)
 					return Effect.void;
-				// Revoke before yielding: a late receipt cannot acknowledge a replacement.
+
 				forget(itemId);
 				return (
 					handle.acknowledgeQuestionAnswer?.(entry.nativeId) ?? Effect.void

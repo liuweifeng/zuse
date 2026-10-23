@@ -14,9 +14,16 @@ type MermaidDiagramProps = {
 	dom?: DOMProps;
 };
 
+/** Blocks request and preconnect APIs in the diagram's isolated DOM environment. */
 const disableNetworkAccess = (): void => {
-	globalThis.fetch = () =>
-		Promise.reject(new Error("Network access is disabled for diagrams"));
+	globalThis.fetch = Object.assign(
+		() => Promise.reject(new Error("Network access is disabled for diagrams")),
+		{
+			preconnect: () => {
+				throw new Error("Network access is disabled for diagrams");
+			},
+		},
+	);
 
 	if (typeof XMLHttpRequest !== "undefined") {
 		XMLHttpRequest.prototype.open = () => {

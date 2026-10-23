@@ -36,13 +36,12 @@ export function retainSessionActivity<Client>(options: {
 					interaction._tag === "Permission" &&
 					interaction.request.recoveryState !== "expired",
 			);
-		// A live terminal frame settles this catalog hint. A lagging catalog cannot
-		// hold the stream open or revive that completed turn.
+
 		if (view.sync === "live" && view.data !== null && !active)
 			catalogNeedsSync = false;
 		const next = active || catalogNeedsSync ? "connect" : "cache-only";
 		if (next === activation) return;
-		// activate can synchronously publish another view; fence reentrant callbacks.
+
 		activation = next;
 		lease.activate(next);
 	};

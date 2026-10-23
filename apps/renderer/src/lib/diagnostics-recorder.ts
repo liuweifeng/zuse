@@ -92,9 +92,7 @@ export function persistFatalRendererDiagnostic(
 			errorName: error.name || "Error",
 			frameNames,
 		});
-	} catch {
-		// The synchronous crash path is best effort and cannot mask the failure.
-	}
+	} catch {}
 }
 
 export const summarizeDiagnosticArguments = (
@@ -140,8 +138,6 @@ export async function flushRendererDiagnostics(): Promise<void> {
 	flushing = true;
 	const pending = pendingRendererLogs.slice();
 	const acknowledge = () => {
-		// New entries can evict an in-flight batch from the bounded queue.
-		// Only remove entries actually delivered, never their replacements.
 		const delivered = new Set(pending);
 		for (let index = pendingRendererLogs.length - 1; index >= 0; index -= 1) {
 			const entry = pendingRendererLogs[index];
@@ -180,7 +176,6 @@ export async function flushRendererDiagnostics(): Promise<void> {
 		);
 		acknowledge();
 	} catch {
-		// Diagnostics transport is best-effort and must never create another error.
 		retryDelayMs = Math.min(60_000, Math.max(1_000, retryDelayMs * 2));
 	} finally {
 		flushing = false;

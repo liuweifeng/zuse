@@ -101,6 +101,34 @@ describe("timeline projection", () => {
 		expect(body[3]?.newLine).toBe(4);
 	});
 
+	it("skips git file headers and the trailing newline of a patch", () => {
+		const lines = parseUnifiedPatch(
+			[
+				"diff --git a/.gitignore b/.gitignore",
+				"new file mode 100644",
+				"index 0000000..e69de29",
+				"--- /dev/null",
+				"+++ b/.gitignore",
+				"@@ -0,0 +1,2 @@",
+				"+.context",
+				"+++++ not a header",
+				"diff --git a/b.txt b/b.txt",
+				"--- a/b.txt",
+				"+++ b/b.txt",
+				"@@ -1 +1 @@",
+				"---x",
+				"",
+			].join("\n"),
+		);
+		expect(lines.map((line) => [line.kind, line.text])).toEqual([
+			["hunk", "@@ -0,0 +1,2 @@"],
+			["added", ".context"],
+			["added", "++++ not a header"],
+			["hunk", "@@ -1 +1 @@"],
+			["removed", "--x"],
+		]);
+	});
+
 	it("extracts multi-edit stats and aggregates turn activity", () => {
 		const tool = message("t1", {
 			_tag: "tool_use",

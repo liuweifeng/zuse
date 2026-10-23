@@ -1,4 +1,3 @@
-// The native route owner rebuilds disposable proxies before RPC retries.
 let recover: ((connectionKey: string) => void) | undefined;
 
 export const registerLocalRouteRecovery = (

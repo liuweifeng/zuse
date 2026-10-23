@@ -51,8 +51,6 @@ import { WorkosVerifierTest } from "../../src/workos.ts";
 
 const API_ISSUER = "https://api.test";
 
-// --- test client key material -------------------------------------------------
-
 interface KeyPair {
 	readonly publicKey: CryptoKey;
 	readonly privateKey: CryptoKey;
@@ -90,8 +88,6 @@ const dpopProof = async (
 		.setProtectedHeader({ alg: "ES256", typ: "dpop+jwt", jwk })
 		.setIssuedAt(nowSec())
 		.sign(deviceKey.privateKey);
-
-// --- harness ------------------------------------------------------------------
 
 let api: ReturnType<typeof makeApi>;
 let mintKey: KeyPair;
@@ -323,7 +319,6 @@ const heartbeat = (
 		}),
 	);
 
-// Obtain a DPoP-bound access token for a device on `account`.
 const mintAccess = async (
 	account: string,
 	device: KeyPair,
@@ -1103,7 +1098,7 @@ describe("@zuse/api", () => {
 				checkoutInput = input;
 				return Effect.succeed("https://billing.test/checkout");
 			},
-			// Mirrors a real adapter: the checkout belongs to `user_a` only.
+
 			getCheckout: (input) => {
 				checkoutLookups = [...checkoutLookups, input];
 				return Effect.succeed(
@@ -1162,7 +1157,7 @@ describe("@zuse/api", () => {
 			expect(successUrl.searchParams.get("offer")).toBe(
 				"persistent-standard-v1",
 			);
-			// The provider interpolates this itself, so it must not be encoded.
+
 			expect(checkoutInput?.successUrl).toContain("&checkout_id={CHECKOUT_ID}");
 			const receiptTicket = successUrl.searchParams.get("t") ?? "";
 			expect(receiptTicket.length).toBeGreaterThan(0);
@@ -1199,8 +1194,6 @@ describe("@zuse/api", () => {
 			expect(completionPage).toContain("$19.00");
 			expect(completionPage).toContain("Paid");
 
-			// Without the api-signed ticket nothing is looked up at all, so a
-			// stolen checkout id discloses nothing.
 			const unticketed = await billingApi.fetch(
 				new Request(completeUrl({ checkout_id: "checkout_abcdef123456" })),
 			);
@@ -1210,7 +1203,6 @@ describe("@zuse/api", () => {
 			expect(unticketedPage).toContain("Awaiting confirmation");
 			expect(unticketedPage).not.toContain("ZS-EF123456");
 
-			// A forged or expired ticket is treated the same as none.
 			const forged = await billingApi.fetch(
 				new Request(
 					completeUrl({
@@ -1223,8 +1215,6 @@ describe("@zuse/api", () => {
 			expect(checkoutLookups).toHaveLength(1);
 			expect(await forged.text()).toContain("Awaiting confirmation");
 
-			// An unsubstituted placeholder must not be looked up, and the page still
-			// names the purchase from the ticket's offer.
 			const placeholderCompletion = await billingApi.fetch(
 				new Request(
 					completeUrl({ checkout_id: "{CHECKOUT_ID}", t: receiptTicket }),
@@ -1288,7 +1278,6 @@ describe("@zuse/api", () => {
 			expect(page).toContain("Persistent Standard");
 			expect(page).toContain("Awaiting confirmation");
 
-			// Unknown offers are never echoed back into the page.
 			const hostile = await billingApi.fetch(
 				new Request(
 					`${API_ISSUER}${ApiPaths.billingCheckoutComplete}?offer=${encodeURIComponent("<script>alert(1)</script>")}`,
@@ -1548,7 +1537,7 @@ describe("@zuse/api", () => {
 			expect((await deliver()).status).toBe(401);
 			valid = true;
 			linked = true;
-			// The deferred delivery must not deduplicate away a later linked delivery.
+
 			expect((await deliver()).status).toBe(200);
 			periodStart = Date.now() - 30_000;
 			paidThrough = Date.now() + 86_400_000;
@@ -2114,7 +2103,6 @@ describe("@zuse/api", () => {
 		const jwk = await exportJWK(device.publicKey);
 		const accessToken = await mintAccess("user_a", device, jwk);
 
-		// Before any heartbeat: offline.
 		const statusUrl = `${API_ISSUER}/v1/environments/${environmentId}/status`;
 		const offline = await api.fetch(
 			new Request(statusUrl, {
@@ -2130,7 +2118,6 @@ describe("@zuse/api", () => {
 		);
 		expect((await offline.json()).status).toBe("offline");
 
-		// Heartbeat → online.
 		expect(
 			(
 				await heartbeat(environmentId, credential, {
@@ -2161,7 +2148,6 @@ describe("@zuse/api", () => {
 		);
 		expect((await online.json()).status).toBe("online");
 
-		// Connect → signed token.
 		const connectUrl = `${API_ISSUER}/v1/environments/${environmentId}/connect`;
 		const connect = await api.fetch(
 			new Request(connectUrl, {
@@ -2187,7 +2173,7 @@ describe("@zuse/api", () => {
 			connectToken: string;
 			endpointCandidates: ReadonlyArray<{ kind: string; wsBaseUrl: string }>;
 		};
-		expect(connectBody.connectToken.split(".")).toHaveLength(3); // a JWT, not base64 stub
+		expect(connectBody.connectToken.split(".")).toHaveLength(3);
 		expect(connectBody.endpointCandidates[0]).toEqual({
 			kind: "private-network",
 			endpoint: {
@@ -2401,7 +2387,6 @@ describe("@zuse/api", () => {
 	test("scopes environments by account — cross-account access is denied", async () => {
 		await linkEnvironment({ account: "user_a", environmentId: "env_a" });
 
-		// user_b lists: sees nothing.
 		const listB = await api.fetch(
 			new Request(`${API_ISSUER}/v1/environments`, {
 				method: "GET",
@@ -2410,7 +2395,6 @@ describe("@zuse/api", () => {
 		);
 		expect((await listB.json()).environments).toHaveLength(0);
 
-		// user_b cannot connect to user_a's environment (404, not leaked).
 		const device = (await ec()) as KeyPair;
 		const jwk = await exportJWK(device.publicKey);
 		const accessToken = await mintAccess("user_b", device, jwk);
@@ -2445,7 +2429,7 @@ describe("@zuse/api", () => {
 
 		const realKey = (await eddsa()) as KeyPair;
 		const attackerKey = (await eddsa()) as KeyPair;
-		// Proof signed by the attacker, but claims the victim's public key.
+
 		const proof = await signLinkProof(attackerKey, {
 			challenge: challenge.challenge,
 			environmentId: "env_x",
@@ -2613,8 +2597,6 @@ describe("@zuse/api", () => {
 	});
 });
 
-// --- managed Cloudflare tunnel ------------------------------------------------
-
 const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
 	cfApiToken: Redacted.make("cf-token"),
 	cfAccountId: "acct_1",
@@ -2623,10 +2605,6 @@ const FAKE_TUNNEL: Config.ManagedTunnelConfig = {
 	namespace: "zenv",
 };
 
-/**
- * Stub the Cloudflare v4 API. Returns the CF envelope shape the provider
- * expects and records every call so deprovision can be asserted.
- */
 const stubCloudflare = () => {
 	const calls: Array<{ method: string; path: string; body?: unknown }> = [];
 	const realFetch = globalThis.fetch;
@@ -2650,7 +2628,7 @@ const stubCloudflare = () => {
 		if (path.includes("/cfd_tunnel/") && path.includes("/configurations")) {
 			return ok({});
 		}
-		if (path.includes("/cfd_tunnel") && method === "GET") return ok([]); // no existing
+		if (path.includes("/cfd_tunnel") && method === "GET") return ok([]);
 		if (path.includes("/cfd_tunnel") && method === "POST") {
 			return ok({ id: "tunnel_abc", name: "zenv-xyz" });
 		}
@@ -2730,7 +2708,6 @@ describe("@zuse/api managed tunnel", () => {
 			);
 			expect(body.endpoint.wsBaseUrl).toBe(`wss://${body.tunnelHostname}`);
 
-			// The discovery list now advertises the managed endpoint.
 			const list = await api.fetch(
 				new Request(`${API_ISSUER}/v1/environments`, {
 					method: "GET",
@@ -2760,7 +2737,7 @@ describe("@zuse/api managed tunnel", () => {
 				}),
 			);
 			expect(res.status).toBe(200);
-			// Tunnel + DNS deletes were issued.
+
 			expect(
 				cf.calls.some(
 					(c) => c.method === "DELETE" && c.path.includes("/cfd_tunnel/"),
@@ -2771,7 +2748,7 @@ describe("@zuse/api managed tunnel", () => {
 					(c) => c.method === "DELETE" && c.path.includes("/dns_records/"),
 				),
 			).toBe(true);
-			// Environment is gone.
+
 			const list = await api.fetch(
 				new Request(`${API_ISSUER}/v1/environments`, {
 					method: "GET",
@@ -2848,7 +2825,7 @@ describe("@zuse/api managed tunnel", () => {
 	});
 
 	test("link succeeds without a tunnel when provisioning is disabled", async () => {
-		api = makeApi(await makeLayer()); // no managedTunnel config
+		api = makeApi(await makeLayer());
 		const res = await linkWithTunnel("user_a", "env_t");
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as {
@@ -2856,7 +2833,7 @@ describe("@zuse/api managed tunnel", () => {
 			endpoint: { wsBaseUrl: string };
 		};
 		expect(body.connectorToken).toBeUndefined();
-		expect(body.endpoint.wsBaseUrl).toBe("ws://127.0.0.1:8787/rpc"); // LAN fallback
+		expect(body.endpoint.wsBaseUrl).toBe("ws://127.0.0.1:8787/rpc");
 	});
 
 	test("connects cloud projects idempotently and queues provider-scoped builds", async () => {

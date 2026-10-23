@@ -13,6 +13,7 @@ import {
 	getDefaultPluginClient,
 	pluginCliEnv,
 } from "@zuse/agents/drivers/plugin-tools";
+import { SimulatorTools } from "@zuse/agents/drivers/simulator-tools";
 import { AttachmentService } from "@zuse/agents/kernel/attachment-service";
 import type {
 	GoalCapableSessionHandle,
@@ -121,11 +122,6 @@ import { ProviderService } from "../services/provider-service.ts";
 import { RuntimeGitExecution } from "../services/runtime-git-execution.ts";
 import { RuntimeProviderCredentials } from "../services/runtime-provider-credentials.ts";
 
-/**
- * Live provider runtime. Handles own their scopes and are published through a
- * generation-checked registry, so an older asynchronous startup cannot replace
- * the provider selected by a newer session command.
- */
 type SessionHandle = TurnScopedProviderSessionHandle;
 
 const isPublicProviderEvent = (
@@ -133,11 +129,6 @@ const isPublicProviderEvent = (
 ): envelope is ProviderEventEnvelope =>
 	envelope.event._tag !== "QuestionCallbackReleased";
 
-/**
- * Handles that expose goal mode. Codex backs it with `thread/goal/*` RPCs;
- * Grok forwards to its native `/goal` slash command with driver-local state.
- * Both share the same method shape so the goal routes treat them uniformly.
- */
 type GoalCapableHandle = GoalCapableSessionHandle;
 type SessionEntry = {
 	readonly providerSessionId: string;
@@ -171,6 +162,7 @@ export const ProviderServiceLive = Layer.effect(
 		const workspace = yield* WorkspaceService;
 		const permissions = yield* PermissionService;
 		const attachmentService = yield* AttachmentService;
+		const simulatorTools = yield* SimulatorTools;
 		const htmlTools = yield* Effect.acquireRelease(
 			Effect.sync(() => createHtmlTools(attachmentService)),
 			(tools) => Effect.promise(() => tools.close()),
@@ -185,9 +177,7 @@ export const ProviderServiceLive = Layer.effect(
 			SessionEntry
 		>();
 		yield* ownProviderRegistry(registry);
-		// Identical startup requests serialize and reuse the published handle;
-		// different provider/model generations may start concurrently so a slow,
-		// stale process can never head-of-line block the user's latest selection.
+
 		const startupWorker = new KeyedEffectSerialWorker<string>();
 		const lifecycleWorker = new KeyedEffectSerialWorker<AgentSessionId>();
 		const startupPermits = yield* Semaphore.make(4);
@@ -230,9 +220,6 @@ export const ProviderServiceLive = Layer.effect(
 				const attachment = { sessionId, itemId };
 				const admission = questionAttachments.attach(attachment, questions);
 				if (admission === "conflict") {
-					// A replay with different metadata must not replace or cancel the
-					// original callback authority. Suppress only the conflicting envelope;
-					// the first, exact question remains visible and answerable.
 					yield* Effect.logWarning(
 						`[ProviderService] suppressed conflicting question metadata for ${sessionId}/${itemId}`,
 					);
@@ -240,8 +227,6 @@ export const ProviderServiceLive = Layer.effect(
 				}
 				if (admission === "duplicate") return admission;
 				if (admission === "full") {
-					// Never forward a durable question that has no corresponding live
-					// authority.
 					yield* dropQuestion(handle, itemId);
 					return admission;
 				}
@@ -267,10 +252,6 @@ export const ProviderServiceLive = Layer.effect(
 				yield* publishQuestionSnapshot();
 			});
 
-		// The Claude SDK's `canUseTool` callback returns a Promise; here we
-		// shim PermissionService.request into that signature using the live
-		// runtime captured at layer construction. `projectId` is bound at
-		// start() time so the driver doesn't need to know about projects.
 		const buildRequestPermission =
 			(
 				projectId: FolderId,
@@ -321,9 +302,7 @@ export const ProviderServiceLive = Layer.effect(
 						),
 						Effect.provideService(FileSystem.FileSystem, fs),
 					);
-					// Keychain enumeration is best-effort for CLI-backed providers. The
-					// bundled provider is overlaid from its app-managed credential and
-					// never trusts a local login or inherited environment value.
+
 					const configured = yield* credentials
 						.listConfigured()
 						.pipe(
@@ -475,9 +454,12 @@ export const ProviderServiceLive = Layer.effect(
 		const goalOperation = <A>(
 			sessionId: AgentSessionId,
 			operation: (handle: GoalCapableHandle) => Effect.Effect<A>,
-			publish?: GoalPublication<A>,
-			notificationDriven = false,
-			verify?: GoalCurrentCheck,
+			options: {
+				readonly publish?: GoalPublication<A>;
+				readonly notificationDriven?: boolean;
+				readonly verify?: GoalCurrentCheck;
+				readonly readOnly?: boolean;
+			},
 		) =>
 			Effect.flatMap(lookup(sessionId), (entry) =>
 				runProviderGoal({
@@ -486,9 +468,7 @@ export const ProviderServiceLive = Layer.effect(
 					sessionId,
 					entry,
 					operation,
-					publish,
-					notificationDriven,
-					verify,
+					...options,
 				}),
 			);
 
@@ -503,6 +483,13 @@ export const ProviderServiceLive = Layer.effect(
 							entry.providerSessionId === expectedProviderSessionId)
 					);
 				}),
+			liveSessions: (providerId) =>
+				Effect.sync(() =>
+					registry
+						.entries()
+						.filter(([, entry]) => entry.providerId === providerId)
+						.map(([sessionId]) => sessionId),
+				),
 			quiesce: (sessionId, expectedProviderSessionId) =>
 				lifecycleWorker.run(
 					sessionId,
@@ -562,19 +549,34 @@ export const ProviderServiceLive = Layer.effect(
 					: "custom";
 				const startupKey = `${sessionId}\u0000${input.providerId}\u0000${requestedModel}\u0000${input.initialAttemptId ?? ""}\u0000${providerSessionId ?? ""}`;
 				const start = Effect.gen(function* () {
-					const execution = yield* Effect.tryPromise({
-						try: () => gitExecution.resolve(sessionId),
-						catch: (cause) =>
+					if (
+						input.outputOnly &&
+						input.providerId !== "claude" &&
+						input.providerId !== "zuse"
+					)
+						return yield* Effect.fail(
 							new AgentSessionStartError({
 								providerId: input.providerId,
 								reason:
-									cause instanceof Error
-										? cause.message
-										: "GitHub connection is unavailable.",
+									"This provider does not support isolated text-only turns. Choose Claude or Zuse for memory consolidation.",
 							}),
-					});
-					// Reserve ownership before awaiting process teardown. If `begin` moved
-					// below `handle.close()`, an older startup could outrank a later switch.
+						);
+					// Auxiliary text-only turns have no persisted execution actor and
+					// cannot use Git. Do not request repository credentials for them.
+					const execution = input.outputOnly
+						? undefined
+						: yield* Effect.tryPromise({
+								try: () => gitExecution.resolve(sessionId),
+								catch: (cause) =>
+									new AgentSessionStartError({
+										providerId: input.providerId,
+										reason:
+											cause instanceof Error
+												? cause.message
+												: "GitHub connection is unavailable.",
+									}),
+							});
+
 					const reservation = yield* reserveProviderStartup({
 						registry,
 						lifecycle: lifecycleWorker,
@@ -645,9 +647,7 @@ export const ProviderServiceLive = Layer.effect(
 						);
 					}
 					const cwd = input.cwdOverride ?? folder.path;
-					// Canonicalize retired / shorthand slugs and attach the resolved
-					// descriptor (curated seed merged with the live inventory) so
-					// drivers never read a static model list.
+
 					const canonicalModel =
 						input.model === undefined
 							? undefined
@@ -697,12 +697,17 @@ export const ProviderServiceLive = Layer.effect(
 						providerAccountHome: account?.home,
 						...(canonicalModel !== undefined ? { model: canonicalModel } : {}),
 						...(modelDescriptor !== undefined ? { modelDescriptor } : {}),
-						workspaceInstructions: zuseWorkspaceInstructions({
-							projectPath: folder.path,
-							includeAppTools: providerCapabilities(input.providerId).appTools,
-							includeOrchestration: orchestrationTools !== null,
-							cwd,
-						}),
+						workspaceInstructions:
+							(input.outputOnly
+								? input.workspaceInstructions
+								: orchestrationTools?.instructions) ??
+							zuseWorkspaceInstructions({
+								projectPath: folder.path,
+								includeOrchestration: orchestrationTools !== null,
+								includeAppTools: providerCapabilities(input.providerId)
+									.appTools,
+								cwd,
+							}),
 					};
 					const brokeredCredential = yield* Effect.tryPromise({
 						try: () =>
@@ -752,10 +757,22 @@ export const ProviderServiceLive = Layer.effect(
 											orchestration: orchestrationTools !== null,
 											plugins: client !== undefined,
 											html: true,
+											simulators: true,
 										},
 										ctx: {
 											toolsets: sessionTools?.toolsets ?? [],
 											html: { client: htmlTools.client, cwd },
+											simulators: {
+												client: simulatorTools,
+												requestPermission: (kind, options) =>
+													buildRequestPermission(
+														input.folderId,
+														permissionAuthority,
+													)(sessionId, kind, options),
+												getRuntimeMode: () =>
+													getRuntimeMode?.() ?? "approval-required",
+												getPermissionMode: () => managedPermissionMode,
+											},
 											...(orchestrationTools === null
 												? {}
 												: {
@@ -858,9 +875,6 @@ export const ProviderServiceLive = Layer.effect(
 									orchestrationTools,
 								);
 							} else if (input.providerId === "gemini") {
-								// Same story as Grok: hand the driver the user's installed
-								// `gemini` binary. Surface a clean install message rather than
-								// letting spawn fail with ENOENT inside the driver.
 								const geminiPath = yield* resolveCliPath(
 									"gemini",
 									binaryPaths,
@@ -940,8 +954,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "kiro") {
-								// Kiro CLI exposes ACP via `kiro-cli acp`. Auth is out-of-band
-								// (`kiro-cli login`); we only need the binary on PATH.
 								const kiroPath = yield* resolveCliPath(
 									"kiro-cli",
 									binaryPaths,
@@ -996,10 +1008,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "grok") {
-								// Same story as Claude/Codex: hand the driver the user's
-								// installed `grok` binary (no bundled CLI in our package).
-								// Surface a clean install message rather than letting spawn
-								// fail with ENOENT inside the driver.
 								const grokPath = yield* resolveCliPath(
 									"grok",
 									binaryPaths,
@@ -1047,10 +1055,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "opencode") {
-								// OpenCode spawns a local HTTP server (`opencode serve`) and we
-								// drive it via @opencode-ai/sdk. Same install-message pattern
-								// as the other CLI-backed drivers — surface a clean error
-								// before the driver tries to spawn.
 								const opencodePath = yield* resolveCliPath(
 									"opencode",
 									binaryPaths,
@@ -1069,10 +1073,7 @@ export const ProviderServiceLive = Layer.effect(
 										}),
 									);
 								}
-								// Custom OpenAI-compatible providers are injected into
-								// `opencode serve` via OPENCODE_CONFIG_CONTENT; their API keys
-								// live in opencode's own auth.json (written via
-								// `agent.opencodeSetProviderAuth`), so no key is threaded here.
+
 								const opencodeSettings = yield* configStore.getSettings();
 								providerHandle = yield* startOpencodeSession(
 									driverInput,
@@ -1129,12 +1130,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else if (input.providerId === "claude") {
-								// Point the SDK at the user's installed `claude` binary. We
-								// don't ship the SDK's bundled optional native CLI (216 MB per
-								// arch) — if `which claude` finds nothing here, the SDK would
-								// throw a cryptic "Native CLI binary for darwin-arm64 not
-								// found" error. Surface a clean install-Claude-Code message
-								// instead.
 								const claudePath = yield* resolveCliPath(
 									"claude",
 									binaryPaths,
@@ -1153,8 +1148,7 @@ export const ProviderServiceLive = Layer.effect(
 										}),
 									);
 								}
-								// Disabled Claude skills are enforced through the SDK `skills`
-								// allowlist; skip discovery entirely when nothing is disabled.
+
 								const skillAllowlist = hasDisabledSkillsFor(
 									(yield* configStore.getSettings()).disabledSkills,
 									"claude",
@@ -1184,10 +1178,6 @@ export const ProviderServiceLive = Layer.effect(
 									Effect.provideService(AttachmentService, attachmentService),
 								);
 							} else {
-								// Same story as Claude: we don't ship the SDK's bundled native
-								// CLI, so hand it the user's installed `codex` binary. Surface a
-								// clean install message if it's missing instead of the SDK's
-								// "Unable to locate Codex CLI binaries" error.
 								const codexPath = yield* resolveCliPath(
 									"codex",
 									binaryPaths,
@@ -1215,17 +1205,7 @@ export const ProviderServiceLive = Layer.effect(
 										executor,
 									),
 								);
-								// We used to also fail-fast here when `codex --version` was below
-								// the SDK pin. Pulled because `session.create` calls
-								// `provider.start` synchronously — failing at start blocked
-								// session creation outright, leaving the user with no surface to
-								// upgrade *from*. The renderer's `CliUpgradeBanner` is the
-								// canonical signal (driven by the periodic availability probe),
-								// and the codex driver translates the SDK's
-								// "unexpected argument '--experimental-json'" failure on the
-								// first turn into a clean upgrade message — so the user sees
-								// either the banner before sending or the friendly error after,
-								// never the cryptic SDK trace.
+
 								providerHandle = yield* startCodexSession(
 									driverInput,
 									cwd,
@@ -1341,6 +1321,7 @@ export const ProviderServiceLive = Layer.effect(
 						startupPermits.withPermits(1)(
 							start.pipe(
 								Effect.provideService(HtmlTools, htmlTools.client),
+								Effect.provideService(SimulatorTools, simulatorTools),
 								Effect.onError(() =>
 									Effect.promise(async () => {
 										await managedPlugins?.close();
@@ -1439,6 +1420,15 @@ export const ProviderServiceLive = Layer.effect(
 								"session.id": sessionId,
 							},
 						}),
+					),
+				),
+			stopBackgroundTask: (sessionId, turnId, attemptId, taskId) =>
+				Effect.flatMap(lookup(sessionId), (entry) =>
+					Effect.suspend(() =>
+						entry.ownership?.attemptId !== attemptId ||
+						entry.ownership.turnId !== turnId
+							? Effect.fail(new AgentSessionNotFoundError({ sessionId }))
+							: entry.handle.stopBackgroundTask(turnId, taskId),
 					),
 				),
 			interrupt: (sessionId, turnId, attemptId) =>
@@ -1694,8 +1684,7 @@ export const ProviderServiceLive = Layer.effect(
 				Effect.sync(() => questionAttachments.has(sessionId, itemId)),
 			validateQuestionAnswer: (sessionId, itemId, answers) =>
 				questionAttachments.validateAnswer(sessionId, itemId, answers),
-			// Attachment authority serializes each callback. Holding the session
-			// lifecycle lane here would prevent close from revoking a hung delivery.
+
 			answerQuestion: (sessionId, itemId, answers) =>
 				Effect.gen(function* () {
 					const { handle } = yield* lookup(sessionId);
@@ -1765,29 +1754,23 @@ export const ProviderServiceLive = Layer.effect(
 					),
 				),
 			getGoal: (sessionId, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.getGoal(),
+				goalOperation(sessionId, (handle) => handle.getGoal(), {
 					publish,
-					false,
 					verify,
-				),
+					readOnly: true,
+				}),
 			setGoal: (sessionId, goal, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.setGoal(goal),
+				goalOperation(sessionId, (handle) => handle.setGoal(goal), {
 					publish,
-					true,
 					verify,
-				),
+					notificationDriven: true,
+				}),
 			clearGoal: (sessionId, publish, verify) =>
-				goalOperation(
-					sessionId,
-					(handle) => handle.clearGoal(),
+				goalOperation(sessionId, (handle) => handle.clearGoal(), {
 					publish,
-					true,
 					verify,
-				),
+					notificationDriven: true,
+				}),
 		};
 	}),
 );

@@ -36,9 +36,7 @@ export const startOptionalServicesAfterCritical = <Critical>(
 			onFailure(service, cause);
 			throw cause;
 		});
-		// Readiness is intentionally allowed to reject for consumers, but attaching
-		// a passive observer prevents an optional service from becoming an unhandled
-		// rejection when the user never opens that feature.
+
 		void readiness.catch(() => undefined);
 		return readiness;
 	};

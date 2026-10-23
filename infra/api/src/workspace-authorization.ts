@@ -31,8 +31,7 @@ export const resolveWorkspaceActorAccess = Effect.fn(
 		!(access === "billing" && role === "billing")
 	)
 		return yield* forbidden("workspace_access_denied");
-	// Existing Personal keys remain byte-for-byte unchanged (including encryption AAD).
-	// New organization owners use a separate namespace in the existing stores.
+
 	return {
 		actor,
 		scope,

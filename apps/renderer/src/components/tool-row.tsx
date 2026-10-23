@@ -9,10 +9,12 @@ import {
 	isRedundantShellDescription,
 	type UserQuestion,
 	type UserQuestionAnswer,
+	unwrapShellCommand,
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
 import {
+	AiImageIcon,
 	Analytics01Icon,
 	Brain01Icon,
 	BrowserIcon,
@@ -51,13 +53,16 @@ import {
 	subagentWaitAccessibleTiming,
 	subagentWaitLabel,
 } from "~/lib/subagent-wait";
-import { toolImageDataUrl, toolImageResult } from "~/lib/tool-image-result";
+import {
+	GENERATE_IMAGE_TOOL,
+	generatedImagePrompt,
+	toolImageDataUrl,
+	toolImageResult,
+} from "~/lib/tool-image-result";
 import { cn } from "~/lib/utils";
 import { useChatsStore } from "~/store/chats";
 import { type FileView, useUiStore } from "~/store/ui";
-import { useWorkspaceStore } from "~/store/workspace";
-import { useWorktreesStore } from "~/store/worktrees";
-import { resolveFileOpenTarget, useFileChipContext } from "./file-chip.tsx";
+import { useFileOpenTarget } from "./file-chip.tsx";
 import { FileIcon } from "./file-icon.tsx";
 import {
 	diffStats,
@@ -84,7 +89,6 @@ const normalizeToolName = (tool: string): string => {
 		: normalized;
 };
 
-/** Managed-plugin gateway tools, whatever MCP prefix the provider adds. */
 const pluginToolKind = (tool: string): "search" | "schema" | "call" | null => {
 	const match = /(?:^|__|[.:/-])plugins_(search|schema|call)$/.exec(tool);
 	return (match?.[1] as "search" | "schema" | "call" | undefined) ?? null;
@@ -115,6 +119,8 @@ export const iconForTool = (tool: string): IconHandle => {
 			return File01Icon;
 		case "ViewImage":
 			return Camera01Icon;
+		case GENERATE_IMAGE_TOOL:
+			return AiImageIcon;
 		case "Edit":
 		case "Write":
 		case "WriteFile":
@@ -146,13 +152,9 @@ export const iconForTool = (tool: string): IconHandle => {
 		case "mcp__zuse__browser_screenshot":
 			return Camera01Icon;
 		default: {
-			// Agent browser tools arrive as their MCP FQN; match by suffix so the
-			// exact-case list above stays the source of truth.
 			if (normalizedTool.endsWith("__browser_screenshot")) return Camera01Icon;
 			if (normalizedTool.includes("__browser_")) return BrowserIcon;
-			// Heuristic fallback for any Grok-native or future tool we haven't
-			// wired an exact case for yet. "list dir", "read file", "run shell"
-			// etc. will now get a reasonable icon instead of the generic wrench.
+
 			const t = normalizedTool.toLowerCase();
 			if (t.includes("dir") || t.includes("folder") || t.includes("list"))
 				return Folder01Icon;
@@ -190,6 +192,9 @@ const stringifyJson = (value: unknown): string => {
 const asString = (v: unknown): string | null =>
 	typeof v === "string" && v.length > 0 ? v : null;
 
+const shellCommandOf = (raw: string | null): string | null =>
+	raw === null ? null : unwrapShellCommand(raw);
+
 const basename = (p: string): string => {
 	const i = p.lastIndexOf("/");
 	return i === -1 ? p : p.slice(i + 1);
@@ -203,11 +208,6 @@ const dirname = (p: string): string => {
 const truncate = (s: string, max: number): string =>
 	s.length > max ? s.slice(0, max - 1) + "…" : s;
 
-/**
- * Coerce a tool_result `output` into displayable text. The Anthropic SDK
- * sometimes returns a string, sometimes an array of content blocks (each
- * with its own `text`); fall back to JSON for anything stranger.
- */
 const toResultText = (output: unknown): string => {
 	if (typeof output === "string") return output;
 	if (output === null || output === undefined) return "";
@@ -216,12 +216,12 @@ const toResultText = (output: unknown): string => {
 		for (const block of output) {
 			if (block === null || typeof block !== "object") continue;
 			const b = block as Record<string, unknown>;
-			// Direct {type: "text", text: "..."}
+
 			if (typeof b.text === "string") {
 				parts.push(b.text);
 				continue;
 			}
-			// MCP-wrapped {type: "content", content: {type: "text", text: "..."}}
+
 			const inner = b.content;
 			if (inner !== null && typeof inner === "object") {
 				const it = (inner as Record<string, unknown>).text;
@@ -240,8 +240,6 @@ const toResultText = (output: unknown): string => {
 	return stringifyJson(output);
 };
 
-// First-sentence (or first-line) teaser, with whitespace collapsed and
-// hard-capped so a single fat row doesn't blow up the timeline.
 const firstSentence = (text: string, hardCap = 160): string => {
 	const flat = text.replace(/\s+/g, " ").trim();
 	if (flat.length === 0) return "";
@@ -251,10 +249,6 @@ const firstSentence = (text: string, hardCap = 160): string => {
 	const cut = stops.length > 0 ? Math.min(...stops) + 1 : flat.length;
 	return truncate(flat.slice(0, cut).trim(), hardCap);
 };
-
-// ---------------------------------------------------------------------------
-// Visual primitives
-// ---------------------------------------------------------------------------
 
 function InlineTextHint({ value }: { value: string }) {
 	return (
@@ -275,7 +269,6 @@ function ToolInputPreview({ value }: { value: string }) {
 	);
 }
 
-/** Soft +/− line counts for edit rows — muted but still readable as color. */
 function SoftDiffStats({ added, removed }: { added: number; removed: number }) {
 	if (added <= 0 && removed <= 0) return null;
 	return (
@@ -290,10 +283,6 @@ function SoftDiffStats({ added, removed }: { added: number; removed: number }) {
 	);
 }
 
-/**
- * Compact file reference for tool rows: file icon, name, and optional count.
- * A subtle tonal background separates the target from the action label.
- */
 function MutedFilePath({
 	path,
 	view,
@@ -306,25 +295,10 @@ function MutedFilePath({
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
 
 	const name = basename(path);
-	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
-	const folderPath = useWorkspaceStore((s) => {
-		if (folderId === null) return null;
-		return s.folders.find((f) => f.id === folderId)?.path ?? null;
-	});
-	const worktreePath = useWorktreesStore((s) => {
-		if (folderId === null || worktreeId === null) return null;
-		const list = s.byProject[folderId] ?? [];
-		return list.find((w) => w.id === worktreeId)?.path ?? null;
-	});
-	const openTarget = resolveFileOpenTarget({
+	const { openTarget, folderPath, worktreePath } = useFileOpenTarget({
 		relPath: path,
 		absPath: path,
-		kind: "file",
-		folderId,
-		worktreeId,
-		folderPath,
-		worktreePath,
 		view,
 	});
 	const canOpen = openTarget !== null;
@@ -484,11 +458,6 @@ function FileListBlock({ paths }: { paths: ReadonlyArray<string> }) {
 	);
 }
 
-/**
- * Render a `list_dir` tree (the indented "- name" / "  - sub/" text Grok's
- * tool emits) as a calm monospace block — directories muted, files bright —
- * instead of a raw JSON dump. Indentation is preserved verbatim.
- */
 function DirTreeBlock({ text }: { text: string }) {
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
 
@@ -521,11 +490,6 @@ function DirTreeBlock({ text }: { text: string }) {
 	);
 }
 
-/**
- * Render grep matches grouped by file: a muted file path header followed
- * by the matched lines. Far nicer than the raw `{ stdout: [char codes],
- * file_matches: [...] }` envelope Grok returns.
- */
 function GrepGroupsBlock({
 	groups,
 }: {
@@ -600,10 +564,6 @@ function CombinedPreBlock({
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Result extractors (per tool)
-// ---------------------------------------------------------------------------
-
 const splitLines = (s: string): ReadonlyArray<string> => {
 	const trimmed = s.trim();
 	if (trimmed.length === 0) return [];
@@ -613,8 +573,6 @@ const splitLines = (s: string): ReadonlyArray<string> => {
 		.filter((l) => l.length > 0);
 };
 
-// Grep / Glob results are usually one path per line, sometimes followed
-// by a header like "Found N files". Filter out obvious headers.
 const parseFileList = (output: string): ReadonlyArray<string> => {
 	const lines = splitLines(output);
 	return lines.filter((l) => !/^found\s+\d+\s+/i.test(l) && !/^no\s+/i.test(l));
@@ -625,13 +583,6 @@ interface GrepGroup {
 	readonly matches: ReadonlyArray<string>;
 }
 
-/**
- * Parse grep output into per-file groups. A flush-left line is a file path;
- * indented lines are matches under the current file. Plain path-per-line
- * output (files-with-matches mode) yields groups with no matches, which the
- * caller renders as a simple file list. Summary lines ("Found N files", "No
- * matches") are dropped.
- */
 const parseGrepGroups = (output: string): ReadonlyArray<GrepGroup> => {
 	const groups: Array<{ path: string; matches: string[] }> = [];
 	let current: { path: string; matches: string[] } | null = null;
@@ -649,18 +600,9 @@ const parseGrepGroups = (output: string): ReadonlyArray<GrepGroup> => {
 	return groups;
 };
 
-// Count the leaf files in a `list_dir` tree (lines that aren't directories).
 const countTreeFiles = (tree: string): number =>
 	splitLines(tree).filter((l) => !l.endsWith("/")).length;
 
-// ---------------------------------------------------------------------------
-// Expandable row primitive (icon ↔ chevron hover swap, click to toggle)
-// ---------------------------------------------------------------------------
-
-/**
- * Logo and name for a plugin tool call. Separate components so only plugin
- * rows look up connected plugins (and the signed-in account).
- */
 function PluginToolGlyph({
 	pluginId,
 	icon,
@@ -714,14 +656,14 @@ function ExpandableIconRow({
 	plugin,
 }: {
 	icon: IconHandle;
-	/** Managed plugin behind the row: its logo and name replace the glyph. */
+
 	plugin?: string | undefined;
 	localDevice?: boolean;
 	label: string;
 	detail?: React.ReactNode;
 	body: React.ReactNode;
 	hasContent: boolean;
-	/** True while the tool/thinking is still running — label shimmers. */
+
 	pending?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["tools", "chat", "common"]);
@@ -826,13 +768,9 @@ function ExpandableIconRow({
 	);
 }
 
-// ---------------------------------------------------------------------------
-// Per-tool views
-// ---------------------------------------------------------------------------
-
 interface ToolView {
 	readonly icon: IconHandle;
-	/** Managed plugin behind this call; the row shows its logo and name. */
+
 	readonly pluginId?: string;
 	readonly label: string;
 	readonly detail?: React.ReactNode;
@@ -854,8 +792,9 @@ const buildToolView = (
 			: {};
 
 	if (presentation === "background-task") {
-		const cmd =
-			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command);
+		const cmd = shellCommandOf(
+			asString(obj.command) ?? asString(obj.cmd) ?? asString(obj.shell_command),
+		);
 		return {
 			icon: PlayIcon,
 			label: uiMessage("tools:tool_row_background_task"),
@@ -877,7 +816,6 @@ const buildToolView = (
 		};
 	}
 
-	// The rendered block is its own transcript row; this row keeps the source.
 	if (isEmitUiTool(normalizedTool))
 		return {
 			icon: Analytics01Icon,
@@ -935,11 +873,12 @@ const buildToolView = (
 		case "run_terminal_cmd":
 		case "run_terminal_command":
 		case "Run Terminal Command": {
-			const cmd =
+			const cmd = shellCommandOf(
 				asString(obj.command) ??
-				asString(obj.cmd) ??
-				asString(obj.shell_command) ??
-				asString(input);
+					asString(obj.cmd) ??
+					asString(obj.shell_command) ??
+					asString(input),
+			);
 			const desc = asString(obj.description);
 			const fallbackLabel =
 				normalizedTool === "local_command_execute"
@@ -949,15 +888,13 @@ const buildToolView = (
 						: normalizedTool === "Shell"
 							? "Shell"
 							: "Execute";
-			// Keep a genuine human summary as the label; fall back to the tool
-			// name when description is missing or just echoes the command (also
-			// covers old persisted Codex/ACP sessions that stored the echo).
+
 			const label =
 				desc !== null &&
 				(cmd === null || !isRedundantShellDescription(desc, cmd))
 					? desc
 					: fallbackLabel;
-			// Preview the command inline; keep the full command and output expanded.
+
 			return {
 				icon: TerminalIcon,
 				label,
@@ -1006,6 +943,32 @@ const buildToolView = (
 											value1: String(basename(path)),
 										})
 							}
+						/>
+					);
+				},
+			};
+		}
+
+		case GENERATE_IMAGE_TOOL: {
+			const prompt = generatedImagePrompt(result?.output);
+			return {
+				icon: AiImageIcon,
+				label:
+					result === undefined
+						? uiMessage("tools:tool_row_generating_image")
+						: uiMessage("tools:tool_row_generated_image"),
+				detail: prompt !== null ? <InlineTextHint value={prompt} /> : undefined,
+				resultPanel: (result) => {
+					const image = toolImageResult(result.output);
+					return image === null ? (
+						<PreBlock
+							text={toResultText(result.output)}
+							isError={result.isError}
+						/>
+					) : (
+						<ToolImagePreview
+							image={image}
+							alt={prompt ?? uiMessage("tools:tool_row_generated_image")}
 						/>
 					);
 				},
@@ -1126,7 +1089,7 @@ const buildToolView = (
 			return {
 				icon: SearchIcon,
 				label: uiMessage("tools:tool_row_grep"),
-				// Pattern/scope live under the chevron; count sits next to the label.
+
 				detail:
 					matchesHint !== null ? (
 						<span className="tabular-nums text-[11px] text-muted-foreground">
@@ -1643,10 +1606,6 @@ const buildToolView = (
 		}
 
 		default: {
-			// Produce a human-friendly label even for completely unknown tools
-			// (Grok's future native tools, custom MCP tools, etc.). We title-case
-			// and replace underscores so "list_dir" or "run_terminal_cmd" look
-			// reasonable instead of the raw token the user was seeing.
 			const niceLabel = tool
 				.replace(/([a-z0-9])([A-Z])/g, "$1 $2")
 				.replace(/[_\-.]+/g, " ")
@@ -1665,7 +1624,7 @@ const buildToolView = (
 				asString(obj.description) ??
 				asString(obj.prompt);
 			return {
-				icon: iconForTool(tool), // will pick a heuristic icon
+				icon: iconForTool(tool),
 				label: niceLabel || "Tool",
 				detail: preview ? <ToolInputPreview value={preview} /> : undefined,
 				fallbackBody: (
@@ -1717,12 +1676,6 @@ export function ExitPlanModeRow({
 				? "cancelled"
 				: "approved";
 
-	// Pending plans render the full body inline; the Approve / Cancel decision
-	// lives in the pinned `PlanApprovalTray` above the composer, where the user's
-	// cursor already sits — see composer/plan-approval-tray.tsx. Resolved plans
-	// (approved / rejected) collapse into the same icon-row accordion the rest of
-	// the timeline uses, with the plan body behind the chevron and the status pill
-	// pinned to the body footer.
 	if (status === "pending") {
 		return (
 			<div className="px-4 py-2">
@@ -1870,9 +1823,6 @@ export function UserInputRow({
 		});
 	};
 
-	// Collapsed teaser: first question + its answer (or "cancelled"), flattened
-	// and truncated like ThinkingRow / ToolRow detail hints so the row reads
-	// as one calm line in scrollback.
 	const firstQ = questions[0];
 	const teaser = (() => {
 		if (firstQ === undefined) return "";
@@ -1950,11 +1900,6 @@ export function UserInputRow({
 	);
 }
 
-/**
- * One question's answer formatted for display: selected option labels
- * joined with `, ` then optionally `· <other>` for free-text. Returns
- * `null` when the user submitted nothing (cancelled).
- */
 function answerSummary(
 	question: UserQuestion,
 	answers: ReadonlyArray<UserQuestionAnswer>,
@@ -1975,7 +1920,6 @@ function answerSummary(
 	);
 }
 
-/** Plain-text version of `answerSummary` for clipboard export. */
 function answerSummaryText(
 	question: UserQuestion,
 	answers: ReadonlyArray<UserQuestionAnswer>,
@@ -2039,7 +1983,6 @@ export function ToolRow({
 		}
 	}
 
-	// Keep failures visible alongside the input preview.
 	const detail =
 		result?.isError === true ? (
 			<>
@@ -2147,7 +2090,7 @@ export function ThinkingRow({
 }: {
 	text: string;
 	redacted: boolean;
-	/** True while this thinking block is the live tip of a running turn. */
+
 	pending?: boolean;
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "tools"]);
@@ -2174,8 +2117,7 @@ export function ThinkingRow({
 	) : (
 		<MarkdownBlock text={text} />
 	);
-	// Collapsed teaser: the thought's opening line, without markdown emphasis,
-	// so the row gives a glimpse of what the model is weighing.
+
 	const teaser =
 		redacted || isEmpty
 			? ""

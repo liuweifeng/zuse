@@ -254,10 +254,6 @@ const normalizeStatus = (
 	}
 };
 
-/**
- * A checkout id travels through the buyer's browser, so a lookup is only ever
- * answered for the account Polar recorded as the checkout's customer.
- */
 const isOwnedBy = (checkout: PolarCheckout, accountId: string): boolean =>
 	(checkout.externalCustomerId ?? checkout.customer?.externalId ?? null) ===
 	accountId;
@@ -360,8 +356,7 @@ export const makePolarBillingProvider = (
 					try: () => request.text(),
 					catch: () => new BillingProviderError({ code: "invalid-event" }),
 				});
-				// Signature failures, verifier load failures and unsupported events all
-				// surface as one invalid-event rejection, exactly as before.
+
 				const verified = yield* Effect.tryPromise({
 					try: async () => {
 						const headers: Record<string, string> = {};
@@ -413,7 +408,7 @@ export const makePolarBillingProvider = (
 				) {
 					return yield* providerFailure();
 				}
-				// Checkout-link purchases remain unclaimed until verified-email sign-in.
+
 				if (
 					accountId === undefined ||
 					accountId === null ||

@@ -128,6 +128,8 @@ describe("relay migration reconciliation", () => {
 			{ idx: 44, tag: "0043_stripe_customer_recovery_jobs" },
 			{ idx: 45, tag: "0044_stripe_customer_recovery_leases" },
 			{ idx: 46, tag: "0045_github_member_repository_scope" },
+			{ idx: 47, tag: "0046_daytona_provider_connections" },
+			{ idx: 48, tag: "0047_master_ownership" },
 		]);
 	});
 
@@ -171,8 +173,7 @@ describe("relay migration reconciliation", () => {
 			"api_api_webhook_deliveries",
 		])
 			expect(migrations).toContain(`CREATE TABLE "${table}"`);
-		// API-key secrets are stored hashed only; webhook secrets and message
-		// content are sealed, never plaintext.
+
 		expect(migrations).toContain('"secret_hash" text NOT NULL');
 		expect(migrations).toContain('"sealed_secret" text NOT NULL');
 		expect(migrations).toContain('"sealed_content" text NOT NULL');

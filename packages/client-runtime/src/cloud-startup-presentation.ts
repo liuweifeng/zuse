@@ -10,6 +10,13 @@ export const cloudWorkspaceIsStarting = (summary: CloudChatSummary): boolean =>
 	summary.startupPhase === "authenticating-runtime" ||
 	summary.startupPhase === "syncing-repository";
 
+/** The durable lifecycle is still replacing this workspace's runtime. */
+export const cloudRuntimeUpdateInProgress = (statusCode: string): boolean =>
+	statusCode === "update-queued" ||
+	statusCode === "runtime-update-preparing" ||
+	statusCode === "runtime-update-rolling-back" ||
+	statusCode === "resume-runtime-restarting";
+
 /** Setup step index (0 workspace, 1 runtime, 2 repository, 3 agent). */
 export const cloudPhaseRank: Record<CloudStartupPhase, number> = {
 	allocating: 0,
@@ -33,6 +40,10 @@ export const cloudFailureMessage = (statusCode: string): string => {
 	const failure = cloudFailurePresentation({ category: statusCode });
 	if (failure?.kind === "workspace-storage-unavailable") return failure.message;
 	switch (statusCode) {
+		case "archive-restore-failed":
+			return "Your saved workspace could not be restored. Its recovery backup is still retained. Retry to continue restoring it.";
+		case "archive-restore-image-required":
+			return "Prepare a current managed cloud image to restore this saved workspace. Your recovery backup is retained.";
 		case "updating-runtime-failed":
 			return "The secure runtime is incompatible with the cloud control plane. Retry after the cloud service finishes updating.";
 		case "starting-runtime-failed":
@@ -59,6 +70,11 @@ export const cloudPhaseLabel = (
 	statusCode: string,
 ): string => {
 	if (phase === "failed") return cloudFailureMessage(statusCode);
+	if (
+		statusCode === "archive-restore-queued" ||
+		statusCode === "archive-restoring"
+	)
+		return "Restoring saved chat and workspace files…";
 	switch (phase) {
 		case "allocating":
 			return "Preparing cloud workspace…";
@@ -67,6 +83,14 @@ export const cloudPhaseLabel = (
 			return "Starting secure cloud runtime…";
 		case "syncing-repository":
 			switch (statusCode) {
+				case "claude-auth-reconnect-required":
+					return "Reconnect Claude in Cloud Workspaces to continue.";
+				case "codex-auth-reconnect-required":
+					return "Reconnect Codex in Cloud Workspaces to continue.";
+				case "cursor-auth-reconnect-required":
+					return "Reconnect Cursor in Cloud Workspaces to continue.";
+				case "grok-auth-reconnect-required":
+					return "Reconnect Grok in Cloud Workspaces to continue.";
 				case "preparing-credentials":
 					return "Preparing connected accounts…";
 				case "checking-repository":

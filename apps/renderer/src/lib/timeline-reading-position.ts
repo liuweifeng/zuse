@@ -19,6 +19,11 @@ export interface TimelineReadingPosition {
 }
 
 export interface TimelineReadingPositionStore {
+	/** Undefined means this position has not been read in this app session. */
+	readonly peek: (
+		ref: SessionRef,
+		namespace?: string,
+	) => TimelineReadingPosition | null | undefined;
 	readonly load: (
 		ref: SessionRef,
 		namespace?: string,
@@ -72,6 +77,23 @@ export function resolveReadingPositionTarget(
 		latest = target;
 	}
 	return latest;
+}
+
+/** Waits for the saved turn before allowing fallback to a newer, already loaded turn. */
+export function isTimelineReadingPositionReady({
+	rows,
+	position,
+	historyComplete,
+}: {
+	readonly rows: ReadonlyArray<ChatTimelineRow>;
+	readonly position: TimelineReadingPosition | null | undefined;
+	readonly historyComplete: boolean;
+}): boolean {
+	return (
+		position == null ||
+		historyComplete ||
+		rows.some((row) => rowAnchorMessageId(row) === position.userTurnMessageId)
+	);
 }
 
 export function resolveInitialTimelineTarget({

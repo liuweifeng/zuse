@@ -1,6 +1,6 @@
-/** Startup validates the pinned installation; channel changes belong to explicit update operations. */
-// The gateway can carry old runtime RPCs without decoding them. This is independent
-// of the app/client minimum; old desktops must retain access to their runtimes.
+import type { CloudAccountImageRuntime } from "@zuse/contracts";
+import type { CloudProjectBuildRecord } from "./cloud-workspace-store.ts";
+
 export const MIN_RETAINED_RUNTIME_WIRE_PROTOCOL = 5;
 
 export const WORKSPACE_RUNTIME_UPDATE_SCRIPT = `
@@ -27,3 +27,38 @@ ensure_workspace_runtime() {
   return 1
 }
 `;
+
+/** Installed release metadata written by the runtime build into every image. */
+export const INSTALLED_RUNTIME_METADATA_FILE =
+	"/opt/zuse/current/runtime-metadata.json";
+
+const installedRuntime = (
+	metadata: unknown,
+): CloudAccountImageRuntime | undefined => {
+	if (typeof metadata !== "object" || metadata === null) return undefined;
+	const { appVersion, wireProtocolVersion } = metadata as Record<
+		string,
+		unknown
+	>;
+	return typeof appVersion === "string" &&
+		typeof wireProtocolVersion === "number" &&
+		Number.isInteger(wireProtocolVersion)
+		? { appVersion, wireProtocolVersion }
+		: undefined;
+};
+
+/** Absent when the image predates recording or its metadata is unreadable. */
+export const parseInstalledRuntime = (
+	text: string,
+): CloudAccountImageRuntime | undefined => {
+	try {
+		return installedRuntime(JSON.parse(text));
+	} catch {
+		return undefined;
+	}
+};
+
+export const imageBuildRuntime = (
+	build: Pick<CloudProjectBuildRecord, "settings">,
+): CloudAccountImageRuntime | undefined =>
+	installedRuntime(build.settings?.runtime);

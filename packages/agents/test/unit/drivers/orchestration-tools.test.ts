@@ -11,11 +11,14 @@ import { validateGenerativeUiSpec } from "@zuse/utils/generative-ui";
 import { describe, expect, test } from "vitest";
 
 describe("orchestration MCP tools", () => {
-	test("denies plan-mode mutations without requesting permission", async () => {
+	test.each([
+		"create_session",
+		"master_action",
+	] as const)("denies %s in plan mode without requesting permission", async (toolName) => {
 		let requestCount = 0;
 		await expect(
 			ensureOrchestrationPermission(
-				"create_session",
+				toolName,
 				{ task: "test" },
 				{
 					getPermissionMode: () => "plan",
@@ -45,6 +48,8 @@ describe("orchestration MCP tools", () => {
 			"task_status",
 			"task_cancel",
 			"interrupt_thread",
+			"master_state",
+			"master_action",
 			"create_thread",
 			"create_session",
 			"send_to_thread",
@@ -78,6 +83,7 @@ describe("orchestration MCP tools", () => {
 			"list_scheduled_tasks",
 			"list_secret_requests",
 			"list_threads",
+			"master_state",
 			"orchestrator_capabilities",
 			"read_thread",
 			"task_status",
@@ -90,6 +96,7 @@ describe("orchestration MCP tools", () => {
 			"delegate_task",
 			"delete_scheduled_task",
 			"interrupt_thread",
+			"master_action",
 			"request_secret",
 			"schedule_task",
 			"send_to_thread",
@@ -137,7 +144,6 @@ describe("orchestration MCP tools", () => {
 		expect(result.isError).toBeUndefined();
 		expect(result.content[0]?.text).toContain("m_ui");
 
-		// Display-only: emit_ui never prompts, even under a prompting mode.
 		let requested = 0;
 		await ensureOrchestrationPermission(
 			"emit_ui",

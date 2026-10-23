@@ -29,6 +29,7 @@ import type {
 	MessageContent,
 	MessageId,
 	MessageOrigin,
+	MessageSource,
 	PermissionMode,
 	PlanApprovalOutcome,
 	PlanResolutionError,
@@ -66,18 +67,6 @@ import type { DelegationOrigin } from "@zuse/domain/agent-engine/delegation";
 import type { CommandReceiptIdentity } from "@zuse/domain/engine/dispatch";
 import { Context, type Effect, type Stream } from "effect";
 
-/**
- * Public conversation service contracts for sessions and their message log.
- * Wraps `ProviderService` so RPC handlers and the renderer talk to one
- * coherent surface used by the session RPC boundary.
- *
- * Invariants:
- * - `Session.id` matches the provider's in-memory `AgentSessionId`.
- * - Every persisted `Message` corresponds to either a user submit or an
- *   `AgentEvent` that produced renderable content; lifecycle events
- *   (`Started`, `Status`, `Completed`) update the session row but are not
- *   persisted as messages.
- */
 /** Native handle of a provider thread to bind at creation. */
 export interface ProviderThreadSeedInput {
 	readonly nativeThreadId: string;
@@ -106,6 +95,8 @@ export interface CreateSessionInput {
 	readonly model: string;
 	readonly title?: string;
 	readonly initialPrompt?: string;
+	/** Environment-qualified initial message attribution supplied by trusted server orchestration. */
+	readonly origin?: MessageOrigin;
 	readonly runtimeMode?: RuntimeMode;
 	/**
 	 * Sub-agents the main agent may delegate to. Stored on the session row
@@ -179,6 +170,8 @@ export interface CreateChatInput {
 	readonly model: string;
 	readonly title?: string;
 	readonly initialPrompt?: string;
+	/** Environment-qualified initial message attribution supplied by trusted server orchestration. */
+	readonly origin?: MessageOrigin;
 	readonly runtimeMode?: RuntimeMode;
 	readonly worktreeId?: WorktreeId | null;
 	readonly agents?: Readonly<Record<string, AgentDefinition>>;
@@ -186,7 +179,7 @@ export interface CreateChatInput {
 	readonly permissionMode?: PermissionMode;
 	readonly modelOptions?: Readonly<Record<string, string>>;
 	readonly toolSearch?: boolean;
-	/** Persist the initial turn while workspace/setup is still preparing. */
+	/** Persist the initial turn until its workspace checkout is available. */
 	readonly queuePaused?: boolean;
 	/** Return after rows are durable and start the provider in the background. */
 	readonly background?: boolean;
@@ -247,6 +240,8 @@ export interface MessageSendInput {
 	/** Stable persisted user-message identity, when supplied by the caller. */
 	readonly messageId?: MessageId;
 	readonly origin?: MessageOrigin;
+	/** External chat attribution, supplied only by the internal API pump. */
+	readonly source?: MessageSource;
 	/** Supplied only by an authenticated server boundary. */
 	readonly actor?: WorkspaceActor;
 	/** Stable domain turn identity for a causally correlated transport command. */
@@ -367,10 +362,6 @@ export interface ConversationOperations {
 	readonly deleteSession: (
 		sessionId: SessionId,
 	) => Effect.Effect<void, SessionNotFoundError>;
-
-	// -------------------------------------------------------------------------
-	// Chats — sidebar containers; each chat hosts ≥1 session as a tab.
-	// -------------------------------------------------------------------------
 
 	readonly listChats: (
 		projectId: FolderId,

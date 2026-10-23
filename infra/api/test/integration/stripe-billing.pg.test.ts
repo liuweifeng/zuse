@@ -70,7 +70,6 @@ it.skipIf(!connectionString)(
 				"UPDATE api_stripe_customers SET customer_id='cus_legacy_claim' WHERE account_id='legacy-claim'",
 			);
 
-			// The production post-migration helper also works on an autocommit connection.
 			const indexClient = {
 				query: (statement: string) =>
 					db.query(statement.replaceAll("public.", `${schema}.`)),
@@ -99,8 +98,7 @@ it.skipIf(!connectionString)(
 					).rows[0].occurred_at,
 				),
 			).toBe(99000);
-			// A currently deployed Polar Worker still omits the new occurred_at
-			// column. Database-first rollout must keep that writer working.
+
 			const legacyInsertStartedAt = Date.now();
 			const legacyWrite = await db.query(
 				"INSERT INTO api_cloud_billing_outbox (outbox_id,period_id,account_id,provider,amount_cents,idempotency_key,attempt_count,next_attempt_at,created_at) VALUES ('old-worker','legacy','legacy','polar',1,'old-worker',0,0,$1) RETURNING occurred_at",
@@ -152,7 +150,7 @@ it.skipIf(!connectionString)(
 				recoveryMatches: ["cus_match"],
 				recoveryComplete: false,
 			});
-			// Delayed responses from the preceding page cannot discard current progress.
+
 			await stripe.finishCustomerRecovery("scan-account", 0, undefined, {
 				matches: [],
 				nextCursor: "stale",
@@ -443,7 +441,7 @@ it.skipIf(!connectionString)(
 					)
 				).some((item) => item.periodId === period.periodId),
 			).toBe(false);
-			// More than one batch of old failures must not starve a newer period.
+
 			const attemptNow = now + 2_000_000;
 			for (let index = 0; index < 27; index++) {
 				const periodId = `fair-${index.toString().padStart(2, "0")}`;
@@ -498,7 +496,7 @@ it.skipIf(!connectionString)(
 					firstBatch.some((first) => first.periodId === item.periodId),
 				),
 			).toBe(false);
-			// After cooldown, never-attempted periods still come before old failing ones.
+
 			expect(
 				(
 					await runtime.runPromise(

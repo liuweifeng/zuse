@@ -1,5 +1,5 @@
 {
-	"extends": ["@repo/typescript-config/base.json", "expo/tsconfig.base"],
+	"extends": ["@repo/typescript-config/base.json", "expo/tsconfig.base.json"],
 	"compilerOptions": {
 		"allowImportingTsExtensions": true,
 		"baseUrl": ".",

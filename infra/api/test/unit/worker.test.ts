@@ -73,7 +73,7 @@ describe("public workspace response scheduling", () => {
 		const result = await response;
 		expect(result.status).toBe(202);
 		expect(result.headers.has("x-zuse-reconcile-cloud-workspace")).toBe(false);
-		// The runtime is retained only for the background inline step, then disposed.
+
 		await Promise.all(background);
 		expect(dispose).toHaveBeenCalledOnce();
 	});
@@ -121,7 +121,7 @@ describe("public workspace response scheduling", () => {
 			async () => undefined,
 			{ waitUntil: (work) => background.push(work) },
 		);
-		// Durable enqueue is acknowledged before the inline step completes.
+
 		expect(response.status).toBe(201);
 		expect(startInline).toHaveBeenCalledExactlyOnceWith("workspace-1");
 		expect(schedule).toHaveBeenCalledTimes(1);

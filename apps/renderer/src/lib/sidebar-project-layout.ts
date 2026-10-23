@@ -1,13 +1,3 @@
-/**
- * User-defined sidebar organization: a stable top-level order of projects
- * and named groups. Distinct from `project-groups.ts`, which collapses the
- * same git origin across computers into one logical row.
- *
- * Keys are whatever the sidebar already uses as a row identity (logical
- * group key, or folder id when the catalog is off). Unknown keys are
- * dropped; newly seen projects append.
- */
-
 import {
 	isProjectIconColorId,
 	type ProjectIconColorId,

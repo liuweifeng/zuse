@@ -64,7 +64,7 @@ describe("account-owned mobile cloud catalog", () => {
 			runtimeMode: "full-access",
 		});
 		expect(availableConnections(connections, false)).toEqual([]);
-		// Sandbox providers feed the new-chat "Cloud · …" destinations.
+
 		expect(
 			appAtomRegistry
 				.get(cloudCatalogAtom)
@@ -81,7 +81,7 @@ describe("account-owned mobile cloud catalog", () => {
 			sessions: initial.sessions,
 			savedAt: 1,
 		};
-		// Existing cache files were written directly with JSON.stringify.
+
 		const restored = Schema.decodeUnknownSync(SessionsSnapshot)(
 			JSON.parse(JSON.stringify(snapshot)),
 		);

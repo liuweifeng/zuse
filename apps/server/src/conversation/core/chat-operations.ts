@@ -181,10 +181,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		Stream.unwrap(
 			Effect.gen(function* () {
 				const sub = yield* PubSub.subscribe(chatChangesHub);
-				// Subscribe before reading the snapshot. A mutation that lands during
-				// the query is present in the snapshot, queued in the subscription, or
-				// both; the ordered concat ensures a queued fresh patch always lands
-				// after the possibly older snapshot.
+
 				const snapshot = yield* listChats(projectId, false);
 				const live = Stream.fromSubscription(sub).pipe(
 					Stream.filter((event) => event.projectId === projectId),
@@ -232,9 +229,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 					return;
 				}
 				const current = chatsByProject(result.success);
-				// A local mutation published a precise patch while the catalog query
-				// was in flight. Discard this potentially older snapshot; the next
-				// pass will reconcile from the durable state.
+
 				yield* Effect.sync(() => {
 					if (currentChatRevision() !== revision) return;
 					const projectIds = new Set([...previous.keys(), ...current.keys()]);
@@ -255,12 +250,6 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 		);
 	});
 
-	/**
-	 * Create a chat row AND its initial session in one effect. Both rows
-	 * land or neither does — we INSERT the chat first, attempt the
-	 * provider boot, and if the boot fails we DELETE the chat to leave
-	 * the DB clean.
-	 */
 	const createChat: ConversationOperations["createChat"] = (
 		input: CreateChatInput,
 	) =>
@@ -289,10 +278,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 						`.pipe(Effect.orDie);
 						const receipt = receipts[0];
 						const hasDurableReceipt = receipt !== undefined;
-						// Compatibility for sessions created before chat bootstrap receipts
-						// existed. Exact entity identity and configuration are sufficient to
-						// prove this replay cannot create a second session. A present receipt
-						// remains authoritative and must match in full.
+
 						let receiptMatches =
 							receipt === undefined &&
 							existingSession.projectId === input.projectId &&
@@ -394,6 +380,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				initialPrompt: input.initialPrompt,
 				actor: input.actor,
 				githubSlackMessageId: input.githubSlackMessageId,
+				origin: input.origin,
 				runtimeMode: input.runtimeMode,
 				agents: input.agents,
 				enableSubagents: input.enableSubagents,
@@ -408,9 +395,6 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 				background: input.background,
 			}).pipe(
 				Effect.tapError(() =>
-					// Roll back the chat row if the provider failed to boot —
-					// otherwise the sidebar would show an empty container the
-					// user can't escape from.
 					dispatchChatCommand(chatId, {
 						_tag: "DeleteChat",
 						deletedAt: createdAt,
@@ -419,11 +403,7 @@ export const makeChatOperations = (options: ChatOperationsOptions) => {
 			);
 			const chat = yield* lookupChat(chatId).pipe(Effect.orDie);
 			yield* broadcastChat(chat);
-			// Fetch the initial user message (if any) so the renderer can seed
-			// its messages store and skip the empty-state flash while the live
-			// message stream is connecting. `createSession` writes the row
-			// synchronously when `initialPrompt` is supplied, so by here it
-			// exists in the table.
+
 			const hasInitial =
 				input.initialPrompt !== undefined &&
 				input.initialPrompt.trim().length > 0;

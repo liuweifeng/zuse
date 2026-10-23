@@ -20,7 +20,7 @@ export const routeModelConnectionRequest = (request: Request) =>
 			return null;
 		if (request.method !== "POST")
 			return yield* Effect.fail(badRequest("invalid_method"));
-		// Browsers use metadata RPCs, never this credential endpoint.
+
 		if (request.headers.has("origin") || request.headers.has("sec-fetch-site"))
 			return yield* Effect.fail(badRequest("backend_transport_required"));
 		const environment = request.headers.get("x-zuse-environment-id");

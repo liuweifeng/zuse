@@ -60,8 +60,7 @@ export const connectEngineHost = (options: {
 						}
 						const request = new AbortController();
 						requests.set(frame.id, request);
-						// A request may arrive in the same packet as Welcome. Defer until
-						// the resolved channel is assigned before invoking native work.
+
 						void Promise.resolve().then(async () => {
 							if (attachment.signal.aborted || request.signal.aborted) {
 								requests.delete(frame.id);
@@ -90,7 +89,6 @@ export const connectEngineHost = (options: {
 				options.attached?.();
 				await channel.closed;
 			} catch {
-				// The worker can be restarting. Reattach without replaying native actions.
 			} finally {
 				attachment.abort();
 				for (const request of requests.values()) request.abort();

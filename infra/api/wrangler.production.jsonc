@@ -1,13 +1,11 @@
 {
-	// Isolated production configuration. Ordinary api commands never read this
-	// file; only scripts/deploy-production.mjs may select it after confirmation.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "zuse-relay",
 	"main": "src/worker.ts",
 	"compatibility_date": "2026-06-01",
 	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
 	"observability": { "enabled": true },
-	// Keep ordered startup writes near the production Hyperdrive origin.
+
 	"placement": { "region": "aws:us-east-1" },
 	"rules": [
 		{
@@ -19,6 +17,7 @@
 				"**/install-grok.sh",
 				"**/workspace-bootstrap.sh",
 				"**/workspace-runtime.sh",
+				"**/workspace-archive.sh",
 				"**/github-auth.sh",
 				"**/workspace-repository.sh",
 				"**/workspace-fork-prepare.sh",
@@ -88,15 +87,15 @@
 		"CLOUD_WORKSPACE_RUNTIME_MANIFEST_URL": "https://github.com/swarajbachu/zuse/releases/download/cloud-runtime-production/stable-manifest.json",
 		"CLOUD_WORKSPACE_RUNTIME_SIGNING_PUBLIC_JWK": "{\"crv\":\"Ed25519\",\"x\":\"58x6syowGjYSYg5rmy04aC1-gyXhsyqjIlGLYcTc6tc\",\"kty\":\"OKP\"}",
 		"E2B_ADAPTER_ENABLED": "true",
-		"E2B_TEMPLATE_ID": "zuse-cloud-sandbox-production",
-		"E2B_TEMPLATE_VERSION": "56e72d23-3e0f-4f26-8069-37a4035e39b4",
+		"E2B_TEMPLATE_ID": "ioeu6w9tn6l30781rikc",
+		"E2B_TEMPLATE_VERSION": "d5520ad2-383a-459d-bf39-9441f053bdcb",
 		"E2B_VCPU_COUNT": "2",
 		"E2B_MEMORY_MIB": "4096",
 		"BOAT_ADAPTER_ENABLED": "true",
 		"BOAT_TEMPLATE_SNAPSHOT": "zuse-base-v8",
 		"BOAT_TEMPLATE_VERSION": "8",
 		"BOAT_MACHINE_TYPE": "small",
-		// Uses the verified organization template and production BOXD_API_KEY secret.
+
 		"BOXD_ADAPTER_ENABLED": "true",
 		"BOXD_BILLING_ENABLED": "true",
 		"BOXD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
@@ -110,8 +109,6 @@
 		"CLOUD_USAGE_EXPORT_ENABLED": "true",
 		"CLOUD_BILLING_CUTOVER_AT": "2026-10-10T16:00:00Z",
 
-		// New subscriptions use Stripe. Existing subscriptions keep their provider.
-		// Verified usage charging starts at the prospective cutover above.
 		"BILLING_DEFAULT_PROVIDER": "stripe",
 		"STRIPE_CLOUD_BILLING_MODE": "metered",
 		"STRIPE_ENVIRONMENT": "production",
@@ -141,6 +138,7 @@
 	],
 	"durable_objects": {
 		"bindings": [
+			{ "name": "DEVICE_BRIDGE_GATEWAY", "class_name": "DeviceBridgeGateway" },
 			{ "name": "PLUGIN_VAULT", "class_name": "PluginVault" },
 			{ "name": "CLOUD_AUTH_EXECUTOR", "class_name": "CloudAuthExecutor" },
 			{ "name": "WORKSPACE_STARTUP", "class_name": "WorkspaceStartup" },
@@ -171,6 +169,7 @@
 		{
 			"tag": "cloud-auth-executor-v1",
 			"new_sqlite_classes": ["CloudAuthExecutor"]
-		}
+		},
+		{ "tag": "device-bridge-v1", "new_sqlite_classes": ["DeviceBridgeGateway"] }
 	]
 }

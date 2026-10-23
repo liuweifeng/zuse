@@ -3,8 +3,7 @@ import { SqlClient } from "effect/unstable/sql";
 
 export const Migration0080SessionDelegations = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
-	// Retain lineage after session deletion so reconciliation can cancel descendants
-	// or report a deleted child; cascading foreign keys would erase that obligation.
+
 	yield* sql`CREATE TABLE session_delegations (
   child_session_id TEXT PRIMARY KEY,
   child_turn_id TEXT NOT NULL,

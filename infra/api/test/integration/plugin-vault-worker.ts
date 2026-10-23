@@ -27,7 +27,6 @@ export class PluginVault extends Vault {
 			return new Response(null, { status: 204 });
 		}
 		if (url.pathname === "/__test/legacy-reference") {
-			// Rewrites a reference as stored before lazy registration.
 			const key = `engine:alice:${url.searchParams.get("id")}`;
 			const ref =
 				await this.testState.storage.get<Record<string, unknown>>(key);

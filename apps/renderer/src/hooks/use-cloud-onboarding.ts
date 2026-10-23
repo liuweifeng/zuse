@@ -30,8 +30,6 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 			if (openRef.current) return;
 			const request = ++sequence;
 			try {
-				// Provider-key eligibility arrives with the provider list; older APIs
-				// or a failed list still fall back to subscription entitlements.
 				const providers = await loadCloudProviders().catch(() => null);
 				const entitled =
 					providers?.entitled ??
@@ -47,7 +45,7 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 					cloudOnboardingCompleted(window.localStorage, accountId)
 				)
 					return;
-				// Existing users with a built image should not be forced through setup again.
+
 				const placement = await loadCloudWorkspacePlacement();
 				if (disposed || request !== sequence) return;
 				if (
@@ -66,9 +64,7 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 				) {
 					setOwner(accountId);
 				}
-			} catch {
-				/* A network failure must not replace the user's current screen. */
-			}
+			} catch {}
 		};
 		const stop = subscribeControlPlaneSessionCache((key) => {
 			if (
@@ -78,8 +74,6 @@ export function useCloudOnboarding(accountId: string | null, enabled: boolean) {
 				void check();
 		});
 		const resume = () => {
-			// Explicit navigation must not wait on entitlement or image requests.
-			// The wizard loads account status and exposes retry controls itself.
 			sequence += 1;
 			openRef.current = true;
 			setOwner(accountId);

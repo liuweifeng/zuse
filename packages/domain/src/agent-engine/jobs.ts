@@ -39,14 +39,14 @@ export const JobRequest = Schema.Union([
 	}),
 	Schema.TaggedStruct("provider.turn.send", {
 		turnId: Schema.String,
-		/** Absent only on historical requests written before attempt ownership. */
+
 		attemptId: Schema.optional(Schema.String),
 		providerInputJson: Schema.String,
 		providerStartJson: Schema.optional(Schema.String),
 	}),
 	Schema.TaggedStruct("provider.turn.interrupt", {
 		turnId: Schema.String,
-		/** Absent only on historical requests written before attempt ownership. */
+
 		attemptId: Schema.optional(Schema.String),
 		requestedAt: Schema.Number,
 	}),

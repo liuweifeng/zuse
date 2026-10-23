@@ -12,8 +12,6 @@ describe("right-pane lifecycle", () => {
 	it("keeps A authoritative when React computes B without committing it", () => {
 		const authority = makeCommittedAuthority("chat-a");
 
-		// Computing the next render's identity is deliberately pure. The layout
-		// phase is the only caller allowed to commit it.
 		const speculativeIdentity = "chat-b";
 		expect(authority.current()).toBe("chat-a");
 		expect(authority.isCurrent(speculativeIdentity)).toBe(false);

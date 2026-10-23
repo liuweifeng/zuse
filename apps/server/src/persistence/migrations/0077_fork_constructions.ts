@@ -3,7 +3,7 @@ import { SqlClient } from "effect/unstable/sql";
 
 export const Migration0077ForkConstructions = Effect.gen(function* () {
 	const sql = yield* SqlClient.SqlClient;
-	// Staged before the destination exists so admission is fenced from its first event.
+
 	yield* sql`CREATE TABLE session_fork_constructions (
 		session_id TEXT PRIMARY KEY,
 		payload_json TEXT NOT NULL,

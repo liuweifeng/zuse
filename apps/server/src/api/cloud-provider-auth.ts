@@ -132,10 +132,7 @@ export class CloudProviderAuth {
 		requestId?: string,
 	): Promise<ProviderCredential> => {
 		const cached = this.cached.get(providerId);
-		// A session start deliberately refreshes so a changed account connection
-		// is observed promptly. The one exception is a grant obtained during
-		// workspace startup: the launch session consumes it instead of paying a
-		// second authority round trip for the same credential.
+
 		const seededForInitial =
 			reason === "initial" && this.seeded.delete(providerId);
 		if (
@@ -166,8 +163,7 @@ export class CloudProviderAuth {
 		requestId?: string,
 	): Promise<void> {
 		const cached = this.cached.get(providerId);
-		// A grant recovered moments ago is already fresh; seeding it avoids a
-		// third round trip after the recovery refresh.
+
 		if (
 			cached === undefined ||
 			this.recovering.has(providerId) ||

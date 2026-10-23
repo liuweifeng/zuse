@@ -1,6 +1,5 @@
 import { Clock, Effect } from "effect";
 
-/** Correlation fields only: never include prompts, credentials, URLs or bodies. */
 interface CloudTimingFields {
 	readonly provider?: string;
 	readonly runtimeGeneration?: number;

@@ -15,7 +15,7 @@ import {
 	staticContextWindowDescriptor,
 } from "./authoring.ts";
 import { BUNDLED_MODEL_CATALOG } from "./bundled.ts";
-import { humanizeModelId } from "./helpers.ts";
+import { humanizeModelId, resolveModelSlug } from "./helpers.ts";
 import type {
 	LiveListingStatus,
 	ModelLiveMeta,
@@ -92,7 +92,7 @@ const isRetired = (providerId: ProviderId, id: string): boolean => {
 	const set = RETIRED_MODEL_IDS_BY_PROVIDER[providerId];
 	if (set === undefined) return false;
 	if (set.has(id)) return true;
-	// OpenCode ids are `<provider>/<model>`; retire on the model half too.
+
 	const slash = id.indexOf("/");
 	return slash >= 0 && set.has(id.slice(slash + 1));
 };
@@ -111,11 +111,6 @@ const oneMillionContext = (meta: ModelLiveMeta | undefined): boolean =>
 	typeof meta?.contextWindowTokens === "number" &&
 	meta.contextWindowTokens >= 1_000_000;
 
-/**
- * Descriptors for a model the curated catalog doesn't know, derived from
- * what the provider reported. Keeps the composer usable for brand-new
- * models on day one.
- */
 const liveOnlyDescriptors = (
 	providerId: ProviderId,
 	meta: ModelLiveMeta | undefined,
@@ -155,10 +150,6 @@ const liveOnlyDescriptors = (
 	return out;
 };
 
-/**
- * Overlay live facts onto a curated entry's descriptors: Codex reasoning
- * tiers and fast tier, OpenCode variants, and the 1M context pill.
- */
 const mergeDescriptors = (
 	providerId: ProviderId,
 	curated: ReadonlyArray<OptionDescriptor> | undefined,
@@ -176,7 +167,6 @@ const mergeDescriptors = (
 			existing?.defaultId,
 		);
 		if (live !== undefined) {
-			// Keep curated labels for tiers we already know.
 			const labels = new Map(existing?.options.map((o) => [o.id, o.label]));
 			out = [
 				...withoutDescriptor(out, "reasoning"),
@@ -214,7 +204,6 @@ const mergeDescriptors = (
 	return out.length === 0 && curated === undefined ? undefined : out;
 };
 
-/** Kiro's live inventory owns the badge column: credit multipliers only. */
 const liveBadge = (
 	providerId: ProviderId,
 	curated: string | undefined,
@@ -248,11 +237,26 @@ const resolveProvider = (
 	curated: ModelCatalogProvider,
 	listing: LiveListing,
 ): ResolvedModelCatalogProvider => {
+	const catalogView = { providers: { [providerId]: curated }, pricing: {} };
 	const liveOk = listing.status === "ok";
 	const liveById = new Map<string, LiveModel>();
 	if (liveOk) {
 		for (const model of listing.models) {
-			if (!isRetired(providerId, model.id)) liveById.set(model.id, model);
+			const id = resolveModelSlug(catalogView, providerId, model.id);
+			if (isRetired(providerId, model.id) || isRetired(providerId, id))
+				continue;
+			// Prefer an explicit model over its shorthand, regardless of listing order.
+			if (!liveById.has(id) || model.id === id) {
+				liveById.set(id, {
+					...model,
+					id,
+					isDefault: model.isDefault || liveById.get(id)?.isDefault,
+				});
+			} else if (model.isDefault) {
+				const existing = liveById.get(id);
+				if (existing !== undefined)
+					liveById.set(id, { ...existing, isDefault: true });
+			}
 		}
 	}
 	const authoritative = liveOk && listing.authoritative;
@@ -283,7 +287,10 @@ const resolveProvider = (
 		const webSearch = providerDefaultWebSearch(providerId);
 		models.push({
 			id: live.id,
-			label: live.label ?? humanizeModelId(live.id),
+			label:
+				providerId === "claude" && live.id === "default"
+					? "Claude Code default (automatic)"
+					: (live.label ?? humanizeModelId(live.id)),
 			...(badgeLabel !== undefined ? { badgeLabel } : {}),
 			...(descriptors.length > 0 ? { optionDescriptors: descriptors } : {}),
 			supportsPlanMode: providerCapabilities(providerId).planMode,
@@ -296,7 +303,7 @@ const resolveProvider = (
 	const usable = (m: ResolvedModelOption) =>
 		m.available && m.defaultVisible !== false;
 	const liveDefaultId = liveOk
-		? listing.models.find((m) => m.isDefault === true)?.id
+		? [...liveById.values()].find((m) => m.isDefault === true)?.id
 		: undefined;
 	const defaultModelId =
 		models.find((m) => m.defaultModel === true && usable(m))?.id ??

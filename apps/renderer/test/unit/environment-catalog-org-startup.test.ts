@@ -12,7 +12,6 @@ const folder = (id: string, workspaceKey?: string) =>
 		...(workspaceKey === undefined ? {} : { workspaceKey }),
 	});
 
-// This desktop's server returns every workspace's projects in one shell.
 const shell = vi.hoisted(() => ({ data: null as unknown }));
 const connection = vi.hoisted(() => ({
 	listener: null as null | ((snapshot: { status: string }) => void),
@@ -115,7 +114,6 @@ test("organization startup shows only this desktop's projects linked to the orga
 		"org-repo",
 	]);
 
-	// Switching workspace re-projects the same desktop for the new owner.
 	selectRendererWorkspace({ kind: "personal" });
 	expect(useWorkspaceStore.getState().folders.map((f) => f.id)).toEqual([
 		"personal-repo",
@@ -149,8 +147,7 @@ test("recovers failed local discovery when the engine reconnects without manual 
 	expect(useEnvironmentCatalogStore.getState().initializationError).toContain(
 		"local engine disconnected",
 	);
-	// A healthy transport does not guarantee successful discovery. Keep a real
-	// failure visible and do not turn the recovery edge into a retry loop.
+
 	const failedCalls = connection.calls;
 	connection.listener?.({ status: "connected" });
 	await vi.waitFor(() =>

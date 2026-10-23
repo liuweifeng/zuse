@@ -72,9 +72,7 @@ export const RuntimePerformanceMonitorLive = Layer.effectDiscard(
 		});
 		try {
 			observer.observe({ entryTypes: ["gc"] });
-		} catch {
-			// Older runtimes may not expose GC performance entries.
-		}
+		} catch {}
 
 		yield* Effect.addFinalizer(() =>
 			Effect.sync(() => {

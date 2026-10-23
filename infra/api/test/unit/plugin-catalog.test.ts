@@ -21,7 +21,7 @@ test("generated catalog keeps unique ids, allowed endpoints, and legacy entries"
 			expect(isAllowedPluginUrl(plugin.oauthDiscovery)).toBe(true);
 		expect(plugin.description.length).toBeLessThanOrEqual(160);
 	}
-	// Existing connections resolve these ids and hash these exact definitions.
+
 	expect(findCatalogPlugin("linear")).toMatchObject({
 		name: "Linear",
 		endpoint: "https://mcp.linear.app/mcp",
@@ -127,7 +127,7 @@ test("generator filters, dedupes by preference, and applies query defaults", () 
 			"posthog",
 		].sort(),
 	);
-	// Discovered servers get their product name and rank after the feeds.
+
 	expect(catalog.find((p) => p.id === "betterstack")?.name).toBe(
 		"Better Stack",
 	);
@@ -142,7 +142,7 @@ test("generator filters, dedupes by preference, and applies query defaults", () 
 	const bindings = catalog.find((p) => p.id === "cloudflare-bindings");
 	expect(bindings?.description.length).toBeLessThanOrEqual(160);
 	expect(bindings?.description.endsWith("word…")).toBe(true);
-	// Legacy entries are always present and featured, even when absent from the feed.
+
 	expect(catalog.find((p) => p.id === "cloudflare")).toMatchObject({
 		endpoint: "https://docs.mcp.cloudflare.com/mcp",
 		featured: true,

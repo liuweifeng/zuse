@@ -1,11 +1,3 @@
-/**
- * Shared primitives for the browser-facing pages the product serves from its
- * loopback listeners and the api worker (sign-in, integration connect,
- * checkout complete). The pages themselves stay next to the code that serves
- * them — the runtimes have no common view layer — but sanitization and response
- * hardening are one behavior and live here so a fix lands everywhere at once.
- */
-
 const HTML_ESCAPES: Readonly<Record<string, string>> = {
 	'"': "&quot;",
 	"&": "&amp;",
@@ -36,11 +28,6 @@ export const clampedText = (
 	);
 };
 
-/**
- * Response headers for every browser-facing page. These URLs carry
- * authorization codes and checkout ids, so nothing is cached, referred, or
- * framed, and the pages are built to need no resource beyond inline styles.
- */
 /**
  * Hardened headers for a self-contained page. Scripts are off unless a page
  * opts in with CSP sources for its exact inline scripts (`'sha256-…'`).

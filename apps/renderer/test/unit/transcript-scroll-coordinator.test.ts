@@ -338,3 +338,39 @@ it("cloud following glides, parks, and stops immediately on reader input", () =>
 	frames.flush();
 	expect(commands).toEqual(["end:false"]);
 });
+
+it("does not resume following from an upward wheel event still inside the end threshold", () => {
+	const frames = makeFrameScheduler();
+	const { adapter, commands } = makeAdapter();
+	const coordinator = new TranscriptScrollCoordinator({
+		scheduleFrame: frames.schedule,
+		cancelFrame: frames.cancel,
+	});
+	coordinator.attach(adapter);
+	coordinator.initialize({ atReadingPosition: false });
+	coordinator.readerTookControl("scroll-backward");
+	coordinator.scrolled({ isAtEnd: true });
+	coordinator.contentChanged();
+	frames.flush();
+	expect(coordinator.getSnapshot().mode).toBe("detached");
+	expect(commands).toEqual([]);
+	coordinator.readerTookControl("scroll");
+	coordinator.scrolled({ isAtEnd: true });
+	expect(coordinator.getSnapshot().mode).toBe("following");
+});
+
+it("cancels a queued follow when a new turn starts before its anchor is measured", () => {
+	const frames = makeFrameScheduler();
+	const { adapter, commands } = makeAdapter();
+	const coordinator = new TranscriptScrollCoordinator({
+		scheduleFrame: frames.schedule,
+		cancelFrame: frames.cancel,
+	});
+	coordinator.attach(adapter);
+	coordinator.initialize({ atReadingPosition: false });
+	coordinator.contentChanged();
+	coordinator.prepareNewTurn(1);
+	frames.flush();
+	expect(commands).toEqual([]);
+	expect(coordinator.getSnapshot().mode).toBe("anchoring-turn");
+});

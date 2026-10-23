@@ -128,16 +128,13 @@ import {
 	readLocalePreference,
 	writeLocalePreference,
 } from "./locale-preference.ts";
+import { showOwnedOpenDialog } from "./owned-open-dialog.ts";
 import { desktopRemoteAccessPolicy } from "./remote-access-policy.ts";
 import {
 	createTitleBarOverlay,
 	createWindowTitleBarOptions,
 } from "./window-title-bar.ts";
 
-// Build verification runs the generated CommonJS bundle under Node to ensure
-// its static import graph initializes without temporal-dead-zone failures.
-// Exit before touching Electron APIs; production and normal development never
-// set this flag.
 if (process.env.ZUSE_MAIN_BUNDLE_SMOKE === "1") {
 	process.exit(0);
 }
@@ -158,7 +155,11 @@ if (
 }
 
 import { resolveDesktopApiPort } from "./api-port.ts";
-import { makeBatchedLogWriter } from "./batched-log-writer.ts";
+import {
+	appendRotatingLogFile,
+	MAX_LOG_FILE_BYTES,
+	makeBatchedLogWriter,
+} from "./batched-log-writer.ts";
 import { type BatteryStatus, readBatteryStatus } from "./battery-status.ts";
 import {
 	BROWSER_PARTITION,
@@ -244,6 +245,7 @@ import {
 	setEngineUpdateLifecycle,
 	startAutoUpdater,
 } from "./updater.ts";
+import { installVoiceTranscription } from "./voice-transcription.ts";
 
 type DiagnosticLogLevel = "debug" | "info" | "warn" | "error";
 
@@ -317,9 +319,7 @@ function persistOfflineDiagnostic(
 			})}\n`,
 			"utf8",
 		);
-	} catch {
-		// Fatal diagnostics must never mask the original exception.
-	}
+	} catch {}
 }
 
 function persistTailnetDiagnostic(event: TailnetDiagnosticEvent): void {
@@ -336,9 +336,7 @@ function persistTailnetDiagnostic(event: TailnetDiagnosticEvent): void {
 			{ encoding: "utf8", mode: 0o600 },
 		);
 		fsSync.chmodSync(logPath, 0o600);
-	} catch {
-		// Connectivity diagnostics must never interfere with the action itself.
-	}
+	} catch {}
 }
 
 const tailnetCommandRunner = makeTailnetCommandRunner(persistTailnetDiagnostic);
@@ -403,7 +401,7 @@ process.on("unhandledRejection", (reason) => {
  * `https`; `supportFetchAPI` lets the renderer use `fetch()` against it;
  * `stream: true` lets us hand back a body that the renderer can stream.
  */
-// Untrusted visual scripts must not use UDP transports outside the asset proxy.
+
 app.commandLine.appendSwitch(
 	"force-webrtc-ip-handling-policy",
 	"disable_non_proxied_udp",
@@ -433,7 +431,6 @@ protocol.registerSchemesAsPrivileged([
 		},
 	},
 	{
-		// Legacy persisted attachment and sprite URLs from pre-Zuse builds.
 		scheme: "memoize",
 		privileges: {
 			secure: true,
@@ -469,26 +466,12 @@ app.setAsDefaultProtocolClient("zuse");
 // buffer and flush on register (R2).
 // ---------------------------------------------------------------------------
 const AUTH_LOOPBACK_PORTS = [8976, 8977, 8978, 8979] as const;
-// Both dev and packaged use the loopback as the WorkOS redirect_uri. It's the
-// RFC 8252 native-app pattern and gives a strictly better sign-in finish:
-//   - the browser lands on a real HTML page (see `auth-callback-page.ts`)
-//     instead of a dead `zuse://` URL that leaves the tab hanging, and
-//   - no OS "Open in Zuse (Beta)?" prompt — the browser hits localhost and the
-//     already-running app answers directly, no deep-link handoff needed.
-// The `zuse://auth/callback` scheme handler stays registered below as a
-// fallback (and the future mobile path), but is no longer the primary flow.
-// Register `http://localhost:8976/callback` through `:8979` in the WorkOS
-// dashboard so parallel worktree instances can each finish sign-in.
+
 const AUTH_DEEP_LINK_SCHEMES = ["zuse://", "memoize://"] as const;
 
 const isAuthDeepLink = (arg: string): boolean =>
 	AUTH_DEEP_LINK_SCHEMES.some((scheme) => arg.startsWith(scheme));
 
-// Connect/pair deep links (`zuse:///connect/pair?...#token=...`) bypass the
-// auth flow entirely: they are routed to the renderer's Add-computer dialog.
-// A link can arrive before the renderer mounts its handler (cold start), so
-// publish into a buffered channel and flush once the renderer subscribes.
-// Raw strings pass through untouched — the `#token=` fragment must survive.
 const pairingLinkChannel = createBufferedChannel<string>();
 
 ipcMain.on("pairing:link-subscribe", () => {
@@ -502,9 +485,6 @@ const handlePairingDeepLink = (url: string): void => {
 	focusMainWindow();
 };
 
-// Managed-plugin OAuth returns (`/plugins/callback`) carry a one-use ticket the
-// signed-in renderer redeems; main only forwards it. Buffered like pairing
-// links because the browser can finish before the renderer subscribes.
 const pluginReturnChannel = createBufferedChannel<PluginReturn>();
 
 ipcMain.on("plugins:return-subscribe", () => {
@@ -513,6 +493,7 @@ ipcMain.on("plugins:return-subscribe", () => {
 	});
 });
 ipcMain.handle("plugins:callback-port", () => boundAuthPort);
+installVoiceTranscription();
 
 let deliverAuthUrl: ((url: string) => void) | null = null;
 let pendingAuthUrls: string[] = [];
@@ -597,9 +578,7 @@ const startAuthLoopback = async (): Promise<void> => {
 			res.end(renderNotFoundPage());
 			return;
 		}
-		// The provider reports failures on the callback itself (`error=...`). The
-		// URL is still delivered to the app either way — the flow's own validation
-		// owns the rejection; the page only mirrors what the browser was told.
+
 		const failure = parsed.searchParams.get("error");
 		handleAuthCallback(parsed.toString());
 		res.writeHead(200, AUTH_CALLBACK_PAGE_HEADERS);
@@ -628,6 +607,18 @@ const startAuthLoopback = async (): Promise<void> => {
 
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL?.trim() || "";
 const isDevelopment = Boolean(DEV_SERVER_URL);
+if (isDevelopment && process.send !== undefined) {
+	process.on("message", (message: unknown) => {
+		if (
+			typeof message === "object" &&
+			message !== null &&
+			"type" in message &&
+			message.type === "zuse:dev-shutdown"
+		)
+			app.quit();
+	});
+	process.once("disconnect", () => app.quit());
+}
 const remoteAccessPolicy = desktopRemoteAccessPolicy(isDevelopment);
 
 const APP_NAME = isDevelopment ? "Zuse (Beta) (Dev)" : "Zuse (Beta)";
@@ -652,11 +643,6 @@ const ZUSE_USER_DATA_DIR =
 fsSync.mkdirSync(ZUSE_USER_DATA_DIR, { recursive: true });
 app.setPath("userData", ZUSE_USER_DATA_DIR);
 
-// Single-instance lock: required so a deep link launched while the app is
-// already running routes through `second-instance` (Win/Linux) rather than
-// spawning a second copy. macOS delivers via `open-url` regardless. App name
-// and userData must be set first so dev workspaces don't collide with the
-// packaged app or with each other.
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
 if (!gotSingleInstanceLock) {
 	app.quit();
@@ -670,7 +656,6 @@ const runMarkerPath = Path.join(
 const previousRunUnclean = fsSync.existsSync(runMarkerPath);
 const desktopRunId = `desktop_${randomUUID().replaceAll("-", "").slice(0, 12)}`;
 
-// macOS: deep links arrive here (also on cold launch, before whenReady).
 app.on("open-url", (event, url) => {
 	event.preventDefault();
 	if (isPairingDeepLink(url)) {
@@ -680,8 +665,6 @@ app.on("open-url", (event, url) => {
 	handleAuthCallback(url);
 });
 
-// Start dark to preserve the historical launch appearance. The renderer sends
-// the persisted Light / Dark / System preference after settings hydrate.
 nativeTheme.themeSource = "dark";
 
 ipcMain.on("window:setAppearanceMode", (_event, value: unknown) => {
@@ -702,14 +685,21 @@ const cloudSyncFiles = new CloudSyncFileBridge((request) => {
 ipcMain.on("app:cloudSyncReadFileResult", (_event, requestId, value) =>
 	cloudSyncFiles.complete(requestId, value),
 );
+/** Last logged sync status per workspace; repeats are sent but not logged. */
+const loggedCloudSyncStatus = new Map<string, string>();
 const cloudSyncManager = new CloudSyncManager(
 	(status) => {
-		appendRemoteConnectionLog("cloud.sync.status", {
+		const fields = {
 			workspaceId: status.workspaceId,
 			state: status.state,
 			enabled: status.enabled,
 			error: status.error,
-		});
+		};
+		const logged = JSON.stringify(fields);
+		if (loggedCloudSyncStatus.get(status.workspaceId) !== logged) {
+			loggedCloudSyncStatus.set(status.workspaceId, logged);
+			appendRemoteConnectionLog("cloud.sync.status", fields);
+		}
 		mainWindow?.webContents.send("cloudSync:status", status);
 	},
 	undefined,
@@ -1169,9 +1159,7 @@ ipcMain.on(POWER_REPORT_LAG_CHANNEL, (_event, payload: unknown) => {
 			performanceHistoryStore.recordLag(
 				Schema.decodeUnknownSync(LagSampleSchema)(item),
 			);
-		} catch {
-			// Invalid renderer telemetry is dropped without affecting the app.
-		}
+		} catch {}
 	}
 });
 
@@ -1344,10 +1332,7 @@ ipcMain.handle(
 				"openDirectory" | "createDirectory"
 			>,
 		};
-		const selection =
-			mainWindow === null
-				? await dialog.showOpenDialog(options)
-				: await dialog.showOpenDialog(mainWindow, options);
+		const selection = await showOwnedOpenDialog(dialog, mainWindow, options);
 		const directory = selection.filePaths[0];
 		if (selection.canceled || directory === undefined) return null;
 		const timestamp = report.summary.startedAt
@@ -1370,9 +1355,6 @@ const rendererDistDir = (): string =>
 		: process.env.ZUSE_RENDERER_DIST_DIR?.trim() ||
 			Path.resolve(DESKTOP_SOURCE_DIR, "..", "renderer", "dist");
 
-// Win/Linux: a second launch (e.g. the OS opening the deep link) lands here in
-// the primary instance. Pull any auth deep-link arg out of its argv and focus
-// the existing window.
 app.on("second-instance", (_event, argv) => {
 	const pairingUrl = argv.find(isPairingDeepLink);
 	if (pairingUrl !== undefined) pairingLinkChannel.publish(pairingUrl);
@@ -1398,10 +1380,8 @@ const appLogWriter = makeBatchedLogWriter({
 				}
 			}
 			await fs.mkdir(Path.dirname(filePath), { recursive: true });
-			await fs.appendFile(filePath, `${lines.join("\n")}\n`, "utf8");
-		} catch {
-			// Logging must never affect app behavior.
-		}
+			await appendRotatingLogFile(filePath, `${lines.join("\n")}\n`);
+		} catch {}
 	},
 });
 
@@ -1423,6 +1403,13 @@ const appendRemoteConnectionLog = (
 		remoteConnectionLogScrubScheduled = true;
 		const scrub = (async () => {
 			try {
+				// The scrub reads the whole file into memory. An oversized log
+				// (older builds never rotated it) can't be scrubbed that way, so it
+				// is removed rather than read or kept unscrubbed.
+				if ((await fs.stat(logFilePath)).size > MAX_LOG_FILE_BYTES) {
+					await fs.unlink(logFilePath);
+					return;
+				}
 				const contents = await fs.readFile(logFilePath, "utf8");
 				const sanitized = sanitizeRemoteConnectionLog(contents);
 				if (sanitized === contents) return;
@@ -1432,10 +1419,7 @@ const appendRemoteConnectionLog = (
 					mode: 0o600,
 				});
 				await fs.rename(temporaryPath, logFilePath);
-			} catch {
-				// A missing or unreadable old log is safe to ignore. Diagnostics
-				// cleanup must never affect app behavior.
-			}
+			} catch {}
 		})();
 		appLogPreflights.set(logFilePath, scrub);
 	}
@@ -1466,9 +1450,7 @@ const localConnectivityHelperPath = (): string =>
 				"local-connectivity",
 				"zuse-local-connectivity",
 			)
-		: // Development bundles are isolated per runner, while native helpers are
-			// built once in the desktop source tree.
-			Path.join(
+		: Path.join(
 				DESKTOP_SOURCE_DIR,
 				"native",
 				"local-connectivity",
@@ -1775,7 +1757,6 @@ const openWithApp = (appSpecifier: string, targetPath: string): Promise<void> =>
 		});
 	});
 
-/** One shared launch attempt serves native and renderer attachments. */
 const desktopEngine = async (
 	signal?: AbortSignal,
 ): Promise<DesktopEngineEndpoint> => {
@@ -1792,9 +1773,7 @@ const desktopEngine = async (
 				probe.close();
 				await probe.closed;
 				existingPort = existing.apiPort;
-			} catch {
-				/* An old descriptor is not proof of a running engine. */
-			}
+			} catch {}
 		}
 		const port =
 			existingPort ??
@@ -1874,7 +1853,7 @@ const attachDesktopHost = () => {
 		request: async (request, signal) => {
 			signal.throwIfAborted();
 			if (request.method === "pickFolder") {
-				const result = await dialog.showOpenDialog({
+				const result = await showOwnedOpenDialog(dialog, mainWindow, {
 					defaultPath: app.getPath("home"),
 					properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
 				});
@@ -1990,9 +1969,7 @@ async function createMainWindow() {
 			contextIsolation: true,
 			nodeIntegration: false,
 			sandbox: false,
-			// Enables the `<webview>` tag the in-app Browser tab uses. The webview
-			// itself still runs with `nodeIntegration: false` in its own process,
-			// so this only unlocks the element, not Node access inside it.
+
 			webviewTag: true,
 		},
 	});
@@ -2013,9 +1990,8 @@ async function createMainWindow() {
 	mainWindow.on("minimize", sampleWindowTransition);
 	mainWindow.on("restore", sampleWindowTransition);
 
-	// Avoid the white flash that transparent windows show before first paint.
 	mainWindow.once("ready-to-show", () => mainWindow?.show());
-	// Keep macOS's window attachment and native handlers alive between close and Dock reopen.
+
 	if (isMac)
 		mainWindow.on("close", (event) => {
 			if (sshQuitCleanupInProgress) return;
@@ -2023,10 +1999,6 @@ async function createMainWindow() {
 			mainWindow?.hide();
 		});
 
-	// Renderer needs to know fullscreen state to drop the macOS traffic-light
-	// gutter (the controls hide in native fullscreen, so the 80px reserve is
-	// dead space). We push the current state on first paint plus on every
-	// toggle — a fresh boot in fullscreen still gets the initial value.
 	const sendFullScreenState = () => {
 		if (mainWindow === null) return;
 		mainWindow.webContents.send("window:fullscreen", mainWindow.isFullScreen());
@@ -2047,16 +2019,16 @@ async function createMainWindow() {
 	installEngineServerBridge(mainWindow.webContents, desktopEngine);
 	attachDesktopHost();
 
-	// Start Chromium as soon as the native window exists. Port selection,
-	// network preferences, TLS identity, and the independent engine can settle
-	// behind the lightweight renderer startup surface instead of delaying the
-	// first visible frame after a Dock click.
+	// The renderer can request its update channel as soon as navigation starts.
+	// Register these handlers before loading it, independently of engine readiness.
+	if (isDevelopment) registerUpdaterDemo(mainWindow);
+	else startAutoUpdater(mainWindow);
+
 	if (isDevelopment) {
 		void mainWindow.loadURL(DEV_SERVER_URL);
 		// Keep DevTools opt-in via the View menu. Opening docked DevTools during
 		// startup can crash Electron 42.4.1 in DevToolsOpened / SetOwnerWindow.
 	} else {
-		// Use the secure standard origin for concurrent split-module loading.
 		void mainWindow.loadURL(PACKAGED_RENDERER_URL);
 	}
 
@@ -2070,9 +2042,7 @@ async function createMainWindow() {
 		ownershipDir: userData,
 		probe: probeZuseLoopback,
 	};
-	// The api port can drift between launches (fallback or ephemeral bind).
-	// When a persisted marker shows Zuse owns the Tailscale Serve route on the
-	// old port, repoint it in the background so sharing survives the drift.
+
 	void readServeOwnershipMarker(userData)
 		.then(async (markerPort) => {
 			if (markerPort === null || markerPort === apiPort.port) return;
@@ -2107,10 +2077,6 @@ async function createMainWindow() {
 		port: apiPort.port,
 	};
 
-	// Hand off http(s) URLs to the OS default browser via `shell.openExternal`
-	// — the renderer asked to leave Electron, not to host another Chromium
-	// window inside the app. Allowlist scheme so the bridge can't be coaxed
-	// into running arbitrary shell URI handlers.
 	const openHttpExternal = (rawUrl: unknown): boolean => {
 		if (typeof rawUrl !== "string") return false;
 		let parsed: URL;
@@ -2132,8 +2098,7 @@ async function createMainWindow() {
 
 	ipcMain.handle("app:listOpenTargets", async (_event, rawPath: unknown) => {
 		if (typeof rawPath !== "string") return [];
-		// An empty path lists installed apps without opening anything — used for
-		// remote (SSH) targets where no local workspace path exists.
+
 		if (rawPath.length > 0 && !(await pathExists(rawPath))) return [];
 		if (process.platform !== "darwin") {
 			return listPortableOpenTargets(process.platform as HostPlatform);
@@ -2653,8 +2618,6 @@ async function createMainWindow() {
 	// crash. Detach happens automatically when the webContents is destroyed.
 	// ---------------------------------------------------------------------------
 
-	// Track which webContentsIds we've attached to so registerWebview is
-	// idempotent (the renderer fires it on every `dom-ready`, including reloads).
 	const attachedWebContents = new Set<number>();
 	// Event taps (debugger message listener + webContents listeners) survive a
 	// debugger detach/re-attach cycle, so they install once per webContents —
@@ -2662,11 +2625,6 @@ async function createMainWindow() {
 	// page error and unload-allow.
 	const tappedWebContents = new Set<number>();
 
-	// Per-webview observability buffers, fed by CDP events below. Network keeps
-	// insertion order (Map) so "recent requests" reads oldest→newest; both are
-	// cleared on every main-frame load start so the agent's `browser_network` /
-	// `browser_console` reads describe the current page, mirroring the
-	// renderer's own console ring buffer.
 	type NetworkEntry = {
 		id: string;
 		method: string;
@@ -2710,9 +2668,7 @@ async function createMainWindow() {
 		}
 		try {
 			if (wc.debugger.isAttached()) wc.debugger.detach();
-		} catch {
-			// Detach failures are non-fatal — the webContents may be tearing down.
-		}
+		} catch {}
 		attachedWebContents.delete(id);
 		dropBrowserBuffers(id);
 	};
@@ -2838,11 +2794,6 @@ async function createMainWindow() {
 		});
 	};
 
-	/**
-	 * Turn on the CDP domains the v2 tools read from. Best-effort per domain —
-	 * a domain that fails to enable (older Chromium, experimental surface)
-	 * degrades that one capability, not the whole browser.
-	 */
 	const enableCdpDomains = async (wc: WebContents): Promise<void> => {
 		for (const method of [
 			"Network.enable",
@@ -2880,14 +2831,12 @@ async function createMainWindow() {
 			if (!tappedWebContents.has(rawId)) {
 				tappedWebContents.add(rawId);
 				installCdpEventTaps(rawId, wc);
-				// Fresh page → the previous page's requests/errors are stale.
+
 				wc.on("did-start-loading", () => {
 					browserNetworkLog.get(rawId)?.clear();
 					browserPageErrors.get(rawId)?.splice(0);
 				});
-				// A page's beforeunload handler must not wedge agent navigation — the
-				// user watched the agent ask for the navigation, so always let it
-				// proceed (this is what a user clicking "Leave" would do).
+
 				wc.on("will-prevent-unload", (event) => {
 					event.preventDefault();
 				});
@@ -2909,20 +2858,11 @@ async function createMainWindow() {
 			await enableCdpDomains(wc);
 			return true;
 		} catch (err) {
-			// The only expected failure here is "already attached by DevTools" —
-			// surface so the renderer can fall back gracefully.
 			console.error("[zuse] failed to attach CDP debugger", err);
 			return false;
 		}
 	});
 
-	/**
-	 * Allowlisted CDP passthrough for the agent-browser renderer. The renderer
-	 * already holds `executeJavaScript` on the same webview, so this grants no
-	 * new page-level power — the list just keeps the seam from becoming a
-	 * generic protocol proxy (no Target.*, no Browser.*, no Input.* — input
-	 * stays on the dedicated `browser:dispatchInput` path).
-	 */
 	const CDP_ALLOWED_METHODS = new Set([
 		"Accessibility.getFullAXTree",
 		"DOM.getDocument",
@@ -3032,8 +2972,7 @@ async function createMainWindow() {
 			if (typeof query.id === "string" && query.id.length > 0) {
 				const entry = log.get(query.id);
 				if (entry === undefined) return null;
-				// Body comes straight from the CDP buffer; truncated so one XHR
-				// can't blow up the agent's context.
+
 				let body: string | undefined;
 				let bodyBase64 = false;
 				const wc = webContentsModule.fromId(rawId);
@@ -3048,10 +2987,7 @@ async function createMainWindow() {
 							typeof res.body === "string"
 								? res.body.slice(0, 4000)
 								: undefined;
-					} catch {
-						// Body may be gone (evicted, streamed, or a non-buffered type) —
-						// detail without a body is still useful.
-					}
+					} catch {}
 				}
 				return { detail: { ...entry, body, bodyBase64 } };
 			}
@@ -3323,14 +3259,7 @@ async function createMainWindow() {
 		},
 	);
 
-	// Markdown links rendered by react-markdown have no `target="_blank"`, so a
-	// click triggers an in-window navigation away from the renderer — the app
-	// would unload and Chromium would render the page inline, indistinguishable
-	// from "the app froze." Intercept those and route to the OS browser.
 	mainWindow.webContents.on("will-navigate", (event, url) => {
-		// Allow same-document navigations (dev-server HMR, our own renderer's
-		// file:// load, the privileged `zuse://` scheme). Everything else is
-		// an external link the user clicked.
 		let parsed: URL;
 		try {
 			parsed = new URL(url);
@@ -3338,8 +3267,6 @@ async function createMainWindow() {
 			return;
 		}
 		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-			// In dev the renderer is served from http://localhost:<port> — don't
-			// hijack navigations inside the renderer itself.
 			if (isDevelopment && parsed.origin === new URL(DEV_SERVER_URL).origin) {
 				return;
 			}
@@ -3348,29 +3275,18 @@ async function createMainWindow() {
 		}
 	});
 
-	// `target="_blank"` and `window.open()` go through the window-open handler
-	// instead of will-navigate. Default behavior is to spawn a new
-	// BrowserWindow hosting the URL — i.e. the "in-app browser" the user was
-	// seeing. Deny the new window and route http(s) externally.
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
 		openHttpExternal(url);
 		return { action: "deny" };
 	});
 
-	// Backstops so any stray http(s) link click in the shell webContents
-	// (markdown anchors without an onClick, target="_blank" forms, etc.)
-	// punts to the OS default browser instead of opening a child Electron
-	// window or navigating the SPA away. The in-app Browser tab uses a
-	// `<webview>` which runs in its own webContents and isn't affected.
 	mainWindow.webContents.setWindowOpenHandler(({ url }) => {
 		try {
 			const parsed = new URL(url);
 			if (parsed.protocol === "http:" || parsed.protocol === "https:") {
 				void shell.openExternal(parsed.toString());
 			}
-		} catch {
-			// not a parseable URL — drop silently
-		}
+		} catch {}
 		return { action: "deny" };
 	});
 	mainWindow.webContents.on("will-navigate", (event, url) => {
@@ -3380,9 +3296,7 @@ async function createMainWindow() {
 				event.preventDefault();
 				void shell.openExternal(parsed.toString());
 			}
-		} catch {
-			// file:// (renderer index) and other internal schemes fall through
-		}
+		} catch {}
 	});
 
 	const startup = startOptionalServicesAfterCritical(
@@ -3417,8 +3331,7 @@ async function createMainWindow() {
 		},
 	);
 	optionalDesktopReadiness = startup.readiness;
-	// Persist renderer console output so UI-side races can be diagnosed from
-	// disk after the fact. In dev we also mirror it into the terminal.
+
 	mainWindow.webContents.on(
 		"console-message",
 		(_event, level, message, line, source) => {
@@ -3439,13 +3352,6 @@ async function createMainWindow() {
 	});
 }
 
-/**
- * Resolve internal asset URLs to files under userData:
- *   - `zuse://attachments/<id>`
- *   - `zuse://pokemon/<dex-number>` or `zuse://pokemon/<dex-number>-<variant>`
- * The id has no extension on the wire so we scan the directory for a file
- * with the matching stem. Anything outside known hosts is rejected.
- */
 const ATTACHMENTS_HOST = "attachments";
 const POKEMON_HOST = "pokemon";
 const SITE_FAVICON_HOST = "site-favicon";
@@ -3495,18 +3401,8 @@ const findAssetFilename = async (
 
 const ZUSE_SQLITE_FILENAME = "zuse.sqlite";
 
-// Attachment ids resolve to an immutable on-disk path, so caching id → path
-// avoids re-opening the DB for every `<img>` request.
 const attachmentPathCache = new Map<string, string>();
 
-/**
- * Resolve `<id>` → the attachment blob's absolute path via a read-only probe
- * of the app database. Blobs now live in each workspace's per-session
- * `.context/files/` dir (recorded in `attachments.abs_path`), so a single-dir
- * scan can no longer find them. Returns `null` on any failure (missing row,
- * NULL `abs_path`, or DB unavailable) — the caller then tries the legacy
- * flat-dir layout.
- */
 const resolveAttachmentAbsPathFromDb = (
 	userData: string,
 	id: string,
@@ -3514,8 +3410,6 @@ const resolveAttachmentAbsPathFromDb = (
 	const cached = attachmentPathCache.get(id);
 	if (cached !== undefined) return cached;
 	try {
-		// Lazy require: `node:sqlite` is a builtin in this Electron's Node
-		// runtime — the same client the server uses.
 		const req = createRequire(import.meta.url);
 		const { DatabaseSync } = req("node:sqlite") as typeof import("node:sqlite");
 		const db = new DatabaseSync(Path.join(userData, ZUSE_SQLITE_FILENAME), {
@@ -3536,12 +3430,6 @@ const resolveAttachmentAbsPathFromDb = (
 	}
 };
 
-/**
- * Defense-in-depth: only serve a DB-recorded path when it lives inside the
- * legacy attachments dir or a `.context/files` directory. The path is
- * server-written and the id is already sanitised, but this keeps a corrupted
- * row from turning the protocol into an arbitrary-file reader.
- */
 const isServableAttachmentPath = (
 	attachmentsDir: string,
 	p: string,
@@ -3557,10 +3445,6 @@ const registerZuseProtocol = (): void => {
 	const handleRendererAsset = createRendererAssetHandler({
 		rendererRoot: rendererDistDir(),
 		fetchFile: async (absolutePath) => {
-			// Do not delegate renderer chunks back to Chromium's file:// loader.
-			// Large split builds can exhaust that loader's concurrent resources;
-			// serving build-owned bytes here keeps the zuse:// module graph on one
-			// secure origin and avoids the file URL request pool entirely.
 			const bytes = await fs.readFile(absolutePath);
 			return new Response(Uint8Array.from(bytes));
 		},
@@ -3590,8 +3474,6 @@ const registerZuseProtocol = (): void => {
 			return new Response(null, { status: 404 });
 		}
 
-		// The path is `/<id>`; sanitise to a single segment so a crafted url
-		// like `zuse://attachments/../foo` cannot escape the asset dirs.
 		const id = decodeURIComponent(url.pathname.replace(/^\//, ""));
 		if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) {
 			return new Response(null, { status: 400 });
@@ -3599,7 +3481,6 @@ const registerZuseProtocol = (): void => {
 
 		let absPath: string | null = null;
 		if (url.host === ATTACHMENTS_HOST) {
-			// Prefer the DB-recorded absolute path (new `.context/files` layout).
 			const fromDb = resolveAttachmentAbsPathFromDb(
 				app.getPath("userData"),
 				id,
@@ -3607,8 +3488,6 @@ const registerZuseProtocol = (): void => {
 			if (fromDb !== null && isServableAttachmentPath(attachmentsDir, fromDb)) {
 				absPath = fromDb;
 			} else {
-				// Legacy fallback: scan the flat userData/attachments dir for
-				// pre-migration blobs.
 				try {
 					const filename = await findAssetFilename(
 						attachmentsDir,
@@ -3653,11 +3532,6 @@ const registerZuseProtocol = (): void => {
 	protocol.handle("memoize", handleAssetRequest);
 };
 
-/**
- * Validate a renderer-supplied accelerator map before handing it to
- * `installAppMenu`. Anything missing or non-string falls through to the
- * default for that command so a bad payload can't blank out the menu.
- */
 const sanitizeAccelerators = (raw: unknown): MenuAccelerators => {
 	if (raw === null || typeof raw !== "object") {
 		return DEFAULT_MENU_ACCELERATORS;
@@ -3677,15 +3551,6 @@ const sanitizeAccelerators = (raw: unknown): MenuAccelerators => {
 	return out;
 };
 
-// Renderer → main: "the user's keybindings just changed, please re-install
-// the menu with these accelerators." Renderer owns the defaults + override
-// resolution since its keybindings store is the live mirror of the JSON
-// config file.
-// Latest values for the two independent inputs that drive the menu shape.
-// `menu:setAccelerators` and the auto-updater status listener both rebuild
-// the menu, but each only knows about its own input — without remembering
-// the other, a status flip would blow away custom keybindings (and vice
-// versa).
 let lastAccelerators: MenuAccelerators = DEFAULT_MENU_ACCELERATORS;
 
 ipcMain.on("menu:setAccelerators", (_event, payload: unknown) => {
@@ -3739,8 +3604,7 @@ void app.whenReady().then(async () => {
 	app.once("will-quit", () => {
 		void closeVisualNetwork();
 	});
-	// Non-primary instance is on its way out (lost the single-instance lock) —
-	// don't build a window or boot the runtime.
+
 	if (!gotSingleInstanceLock) return;
 	localeController = createLocaleController({
 		preference: await readLocalePreference(app.getPath("userData")),
@@ -3763,7 +3627,6 @@ void app.whenReady().then(async () => {
 	await activateLocale(localeController.get().locale);
 	ipcMain.handle("locale:get", () => localeController?.get());
 	ipcMain.handle("locale:set", (event, preference: unknown) => {
-		// Only top-level application windows receive the privileged preload bridge.
 		const owner = BrowserWindow.fromWebContents(event.sender);
 		if (!owner || event.senderFrame !== event.sender.mainFrame)
 			throw new Error("Untrusted locale sender");
@@ -3790,15 +3653,10 @@ void app.whenReady().then(async () => {
 			persistOfflineDiagnostic(source, message);
 			recordMainDiagnostic("error", "main.previousRunUnclean", [message]);
 		}
-	} catch {
-		// A run marker is diagnostic-only and must never block app startup.
-	}
+	} catch {}
 
 	registerZuseProtocol();
-	// Begin creating and loading the native window before optional desktop
-	// services. The async function reaches its first prerequisite await only
-	// after Chromium navigation has started, so the Dock click gets immediate
-	// visual feedback while the rest of startup continues in parallel.
+
 	authLoopbackReady = startAuthLoopback();
 	const mainWindowReady = createMainWindow().catch((error) => {
 		recordMainDiagnostic("error", "desktop.engine.start_failed", [error]);
@@ -3809,13 +3667,8 @@ void app.whenReady().then(async () => {
 		app.quit();
 	});
 
-	// Localhost loopback that catches the WorkOS OAuth callback (dev + packaged).
-	// It's the redirect_uri for both, so the browser finishes on a real HTML
-	// page and no `zuse://` deep-link handoff/prompt is needed. The scheme
-	// handler stays registered below as a fallback.
 	await authLoopbackReady;
 
-	// Win/Linux cold launch from a deep link: the URL is an argv entry.
 	const initialPairingLink = process.argv.find(isPairingDeepLink);
 	if (initialPairingLink !== undefined) {
 		pairingLinkChannel.publish(initialPairingLink);
@@ -3825,8 +3678,6 @@ void app.whenReady().then(async () => {
 	);
 	if (initialDeepLink !== undefined) handleAuthCallback(initialDeepLink);
 
-	// Sockets can die silently while the machine sleeps. Tell every window to
-	// re-probe its connections now instead of waiting for retry backoff.
 	const broadcastSystemResume = (): void => {
 		for (const window of BrowserWindow.getAllWindows()) {
 			if (!window.isDestroyed()) window.webContents.send(SYSTEM_RESUME_CHANNEL);
@@ -3841,10 +3692,8 @@ void app.whenReady().then(async () => {
 		packagedRendererDir: rendererDistDir(),
 	});
 
-	// Populate the native About panel so "About Zuse" shows the current
 	// version + copyright. Without this, Electron's default panel only shows
-	// the app name. macOS reads these once at panel-open time, so it's safe
-	// to call once on startup.
+
 	app.setAboutPanelOptions({
 		applicationName: "Zuse (Beta)",
 		applicationVersion: ZUSE_APP_VERSION,
@@ -3853,26 +3702,12 @@ void app.whenReady().then(async () => {
 		website: "https://github.com/swarajbachu/zuse",
 	});
 
-	// Rebuild the menu whenever the updater status changes so the
-	// "Check for Updates…" item label/enabled state stays live — this is the
-	// user's fallback path when the in-app toast is dismissed or a download
-	// stalls mid-way. The subscription is set up once; the listener runs on
-	// every status flip.
 	onStatusChange((status) => {
 		installAppMenu(() => mainWindow, lastAccelerators, status);
 	});
 
 	installAppMenu(() => mainWindow, lastAccelerators, getLastStatus());
 	await mainWindowReady;
-	if (mainWindow !== null) {
-		if (isDevelopment) {
-			// Wire the dev console helper (window.__zuseUpdateDemo) to a real
-			// IPC round-trip so the banner can be exercised without a release.
-			registerUpdaterDemo(mainWindow);
-		} else {
-			startAutoUpdater(mainWindow);
-		}
-	}
 
 	app.on("activate", () => {
 		void localeController
@@ -3890,11 +3725,9 @@ app.on("window-all-closed", () => {
 	}
 });
 
-// Desktop quit releases UI-owned resources. Engine work keeps running.
 let sshQuitCleanupComplete = false;
 let sshQuitCleanupInProgress = false;
 
-/** Close the local port forwards owned by a saved SSH profile's environment. */
 const closeSshProfileForwards = async (profileId: string): Promise<void> => {
 	const environmentId = (await readySshEnvironmentManager())
 		.listProfiles()
@@ -3945,17 +3778,12 @@ app.on("before-quit", (event) => {
 	finishQuitAfterSshCleanup(event);
 });
 
-// Tear down the macOS notch tray once a quit actually proceeds. `will-quit`
-// fires after an un-prevented `before-quit`, so a cancelled quit leaves the
-// tray untouched.
 app.on("will-quit", () => {
 	computerAwakeSubscribers.clear();
 	if (gotSingleInstanceLock) {
 		try {
 			fsSync.unlinkSync(runMarkerPath);
-		} catch {
-			// Missing or unwritable markers are safe to leave for the next run.
-		}
+		} catch {}
 	}
 	disposePowerMonitorEvents?.();
 	disposePowerMonitorEvents = null;

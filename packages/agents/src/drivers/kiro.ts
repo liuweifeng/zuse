@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import * as readline from "node:readline";
 import { decodeJsonRpcLine } from "@zuse/acp/protocol";
 import { AcpRpcClient } from "@zuse/acp/rpc-client";
@@ -11,6 +11,7 @@ import {
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { ACP_CLIENT_CAPABILITIES } from "../kernel/acp-capabilities.ts";
 import { formatAcpError } from "../kernel/acp-error.ts";
@@ -110,11 +111,6 @@ const formatKiroDiagnostics = (diagnostics: string): string => {
 	return trimmed;
 };
 
-/**
- * Map Zuse permission mode to a Kiro agent config when plan mode is active.
- * `kiro_planner` is the specialized planning agent advertised by
- * `session/new` modes; default stays on the user's default agent config.
- */
 const kiroModeForPermission = (mode: PermissionMode): string | null => {
 	if (mode === "plan") return "kiro_planner";
 	return null;
@@ -147,8 +143,6 @@ export const startKiroSession = (
 	AttachmentService
 > =>
 	withProviderStartup(function* (startup) {
-		// AttachmentService resolves uploaded image blobs for ACP image content
-		// (Kiro advertises promptCapabilities.image).
 		const attachments = yield* AttachmentService;
 		const events = yield* Queue.make<ProviderDriverEvent, Cause.Done>();
 
@@ -220,11 +214,8 @@ export const startKiroSession = (
 			},
 		});
 
-		// Aliases are canonicalized by ProviderService before the driver runs.
 		const modelId = input.model;
 
-		// Spawn args: model + effort can be set at process start so the first
-		// session inherits them without an extra round-trip.
 		const spawnArgs: string[] = ["acp"];
 		if (modelId !== undefined && modelId.length > 0) {
 			spawnArgs.push("--model", modelId);
@@ -315,11 +306,6 @@ export const startKiroSession = (
 			rpc.notify(method, params);
 		};
 
-		/**
-		 * Currently in-flight `session/prompt` rpc id. Tracked so
-		 * `interrupt()` can send `session/cancel` AND force-reject the
-		 * pending request, unblocking the `inflight` promise chain.
-		 */
 		let currentPromptRpcId: number | null = null;
 		const rejectCurrentPrompt = (reason: string): void => {
 			const id = currentPromptRpcId;
@@ -358,10 +344,6 @@ export const startKiroSession = (
 					return;
 				}
 
-				// Kiro extension notifications (`_kiro.dev/*`) are optional
-				// enhancements (slash commands, MCP lifecycle, compaction,
-				// metering). Requests with ids are handled below so the child never
-				// waits forever for a response.
 				if (
 					msg.id === undefined &&
 					(msg.method.startsWith("_kiro.") ||
@@ -527,7 +509,6 @@ export const startKiroSession = (
 			Queue.endUnsafe(events);
 		});
 
-		// === ACP handshake — synchronous, fails the start() RPC on error. ===
 		const handshake = Effect.tryPromise({
 			try: async () => {
 				const init = (await request("initialize", {
@@ -542,17 +523,12 @@ export const startKiroSession = (
 					agentInfo?: { name?: unknown; version?: unknown };
 				};
 
-				// Kiro authenticates out-of-band via `kiro-cli login`. When
-				// authMethods is empty (the current protocol shape), skip
-				// `authenticate` entirely — session/new will fail with a
-				// clear error if the CLI is logged out.
 				const authIds = new Set(
 					(init.authMethods ?? [])
 						.map((m) => (typeof m?.id === "string" ? m.id : null))
 						.filter((id): id is string => id !== null),
 				);
 				if (authIds.size > 0) {
-					// Prefer any advertised method; headless so we never open a browser.
 					const methodId = authIds.values().next().value;
 					if (typeof methodId === "string") {
 						await request("authenticate", {
@@ -573,8 +549,6 @@ export const startKiroSession = (
 					resumeCursor,
 				});
 
-				// Apply model selection post-session when spawn-time --model
-				// wasn't enough (e.g. resumed sessions keep their prior model).
 				if (modelId !== undefined && modelId.length > 0) {
 					try {
 						await request("session/set_model", {
@@ -582,7 +556,6 @@ export const startKiroSession = (
 							modelId,
 						});
 					} catch (cause) {
-						// Non-fatal: some older builds may not implement set_model.
 						console.warn(
 							`[kiro] session/set_model failed: ${
 								cause instanceof Error ? cause.message : String(cause)
@@ -591,7 +564,6 @@ export const startKiroSession = (
 					}
 				}
 
-				// Switch into planner agent when plan mode is requested.
 				const agentMode = kiroModeForPermission(currentMode);
 				if (agentMode !== null) {
 					try {
@@ -654,9 +626,7 @@ export const startKiroSession = (
 					}),
 				);
 			}
-			// Plan-mode emulation: also force planner agent; still prefix
-			// developer instructions so the model stays read-only if the
-			// agent config doesn't enforce it.
+
 			const promptText =
 				compactSnapshot !== null
 					? text.trim()
@@ -783,9 +753,7 @@ export const startKiroSession = (
 					rpc.rejectAll(new Error("Kiro session closed"));
 					try {
 						child.stdin.end();
-					} catch {
-						// ignore — stdin may already be closed by the child
-					}
+					} catch {}
 					yield* Effect.promise(() =>
 						stopProviderProcess(child, { processGroup: true }),
 					);
@@ -799,7 +767,7 @@ export const startKiroSession = (
 					if (mode === currentMode) return;
 					currentMode = mode;
 					Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
-					// Best-effort live agent swap for plan mode.
+
 					const sid = acpSessionId;
 					const agentMode = kiroModeForPermission(mode);
 					if (sid !== null && agentMode !== null) {

@@ -96,9 +96,9 @@ it("selects a configured Cloud provider after onboarding instead of an unbuilt d
 		providerId,
 		displayName: providerId,
 	}));
-	// Boat was selected from catalog order before the completed image arrived.
+
 	expect(selectedCloudProvider(providers, "box", ["boxd"])).toBe("boxd");
-	// Onboarding also permits configuring a non-recommended provider.
+
 	expect(selectedCloudProvider(providers, null, ["e2b"])).toBe("e2b");
 	expect(selectedCloudProvider(providers, "e2b", ["boxd", "e2b"])).toBe("e2b");
 	expect(selectedCloudProvider(providers, null, ["removed"])).toBe("boxd");

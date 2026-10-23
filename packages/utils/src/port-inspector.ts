@@ -34,7 +34,6 @@ const isLoopbackHost = (host: string): boolean => {
 	);
 };
 
-/** Merge per-listener entries: first-seen name wins, loopback is AND-ed. */
 const collect = (
 	entries: Iterable<ListenerEntry>,
 ): ReadonlyArray<ListeningServer> => {
@@ -101,10 +100,32 @@ export const parseSsListeners = (
 	return collect(entries).filter((server) => !excludedPorts.has(server.port));
 };
 
+/** Windows netstat state labels are localized; use the TCP remote endpoint. */
+export const parseWindowsTcpListeners = (stdout: string) => {
+	const listeners: { host: string; port: number; pid: number }[] = [];
+	for (const line of stdout.split(/\r?\n/u)) {
+		const parts = line.trim().split(/\s+/u);
+		if (parts[0]?.toUpperCase() !== "TCP") continue;
+		if (!/^(?:0\.0\.0\.0|\[::\]):0$/u.test(parts[2] ?? "")) continue;
+		const match = parts[1]?.match(/^(.*):(\d+)$/u);
+		const port = validPort(match?.[2]);
+		const pid = Number(parts.at(-1));
+		if (!match || port === null || !Number.isInteger(pid) || pid <= 0) continue;
+		listeners.push({ host: match[1] ?? "", port, pid });
+	}
+	return listeners;
+};
+
 export const parseNetstatListeners = (
 	stdout: string,
 ): ReadonlyArray<ListeningServer> => {
-	const entries: ListenerEntry[] = [];
+	const entries: ListenerEntry[] = parseWindowsTcpListeners(stdout).map(
+		({ host, port }) => ({
+			name: "localhost",
+			port,
+			loopback: isLoopbackHost(host),
+		}),
+	);
 	for (const line of stdout.split("\n")) {
 		if (!/\bLISTEN(?:ING)?\b/iu.test(line)) continue;
 		const match = line.match(
@@ -121,9 +142,6 @@ export const parseNetstatListeners = (
 	return collect(entries);
 };
 
-// /proc/net/tcp{,6} local addresses are per-32-bit-word byte-swapped hex:
-// IPv4 loopback is 0100007F, IPv6 loopback and the IPv4-mapped form end in
-// the same swapped words; all-zero means the wildcard address.
 const isLoopbackHexAddress = (hex: string): boolean =>
 	hex === "0100007F" ||
 	hex === "00000000000000000000000001000000" ||
@@ -167,7 +185,6 @@ export const listListeningServers = async (
 			});
 			return parseSsListeners(stdout, excludedPid);
 		} catch {
-			// Without process ownership, do not advertise potentially internal sockets.
 			if (excludedPid !== undefined) return [];
 			const contents = await Promise.all(
 				["/proc/net/tcp", "/proc/net/tcp6"].map((path) =>

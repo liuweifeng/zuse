@@ -12,7 +12,13 @@
 			"!!**/dist",
 			"!!**/dist-electron",
 			"!!**/node_modules",
-			"!!packages/executor-v2/vendor/runtime.mjs"
+			"!!packages/executor-v2/vendor/runtime.mjs",
+			"!!apps/ios/DerivedData",
+			"!!apps/ios/.build",
+			"!!apps/ios/App/UIParser.js",
+			"!!apps/ios/App/Mermaid.js",
+			"!!apps/ios/App/ModelCatalog.json",
+			"!!apps/ios/App/SettingsSchema.json"
 		]
 	},
 	"css": {
@@ -21,6 +27,14 @@
 		}
 	},
 	"overrides": [
+		{
+			"includes": ["apps/web/public/schemas/*.json"],
+			"formatter": {
+				"indentStyle": "space",
+				"indentWidth": 2,
+				"expand": "always"
+			}
+		},
 		{
 			"includes": ["apps/mobile/global.css"],
 			"linter": {

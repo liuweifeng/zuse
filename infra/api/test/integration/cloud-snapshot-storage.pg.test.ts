@@ -202,7 +202,7 @@ it.skipIf(!connectionString)(
 				),
 			);
 			await entered;
-			// A second restore must finish while the first is still blocked in the provider.
+
 			await runtime.runPromise(
 				withSnapshotLifecycleLock(
 					raceAccount,
@@ -414,7 +414,6 @@ it.skipIf(!connectionString)(
 				rmSync(capture, { recursive: true, force: true });
 			}
 
-			// A failed transaction cannot switch the active image or checkpoint.
 			const second = image("second");
 			await runtime.runPromise(
 				store.createBuild({

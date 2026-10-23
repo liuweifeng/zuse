@@ -1,4 +1,4 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -25,6 +25,7 @@ import {
 	type StartSessionInput,
 	type UserQuestionAnswer,
 } from "@zuse/contracts";
+import { spawn } from "@zuse/utils/spawn-command";
 import { type Cause, Effect, Queue, Stream } from "effect";
 import { AttachmentService } from "../kernel/attachment-service.ts";
 import type { ProviderSessionHandle } from "../kernel/driver.ts";
@@ -82,12 +83,8 @@ export interface OpencodeSessionHandle extends ProviderSessionHandle {
 	) => Effect.Effect<void>;
 }
 
-// Default off — set MEMOIZE_DEBUG_OPENCODE=1 to re-enable when debugging
-// opencode server boot, SSE, or auth issues.
 const OPENCODE_DEBUG = process.env.MEMOIZE_DEBUG_OPENCODE === "1";
 
-// Tee all debug to a file so bun's dev-server stdout multiplexing
-// doesn't swallow the trace. Path is logged at startup.
 const LOG_PATH = ((): string => {
 	try {
 		const base = process.env.HOME ? homedir() : tmpdir();
@@ -103,17 +100,13 @@ const writeLog = (line: string): void => {
 	process.stderr.write(line);
 	try {
 		appendFileSync(LOG_PATH, line);
-	} catch {
-		// ignore — file logging is best-effort
-	}
+	} catch {}
 };
 
 const dlog = (msg: string): void => {
 	if (OPENCODE_DEBUG) writeLog(`[opencode] ${msg}\n`);
 };
 
-// Truncated JSON dump for noisy payloads (parts, events). Keeps stderr
-// readable when a tool input contains a 50KB file blob.
 const ddump = (label: string, value: unknown, maxLen = 2000): void => {
 	if (!OPENCODE_DEBUG) return;
 	let json: string;
@@ -134,25 +127,12 @@ if (OPENCODE_DEBUG) {
 
 const OPENCODE_EMPTY_CONFIG = "{}";
 
-/**
- * Resolve opencode's global `auth.json` — the same file `opencode auth login`
- * writes, so credentials we manage in-app are shared with the user's terminal
- * opencode. Honours `XDG_DATA_HOME`, else the platform default.
- */
 const opencodeAuthPath = (): string => {
 	const xdg = process.env.XDG_DATA_HOME?.trim();
 	const base = xdg && xdg.length > 0 ? xdg : join(homedir(), ".local", "share");
 	return join(base, "opencode", "auth.json");
 };
 
-/**
- * Build the `OPENCODE_CONFIG_CONTENT` JSON handed to `opencode serve`. It
- * injects the user's custom OpenAI-compatible providers so both inventory
- * scans and live sessions see them. API keys are deliberately NOT included
- * here — opencode reads them from its own `auth.json` (written via
- * `auth.set`), keyed by provider id. Returns `"{}"` when there are no custom
- * providers, preserving the original behaviour.
- */
 const buildOpencodeConfigContent = (
 	customProviders: ReadonlyArray<OpencodeCustomProvider>,
 ): string => {
@@ -173,19 +153,8 @@ const buildOpencodeConfigContent = (
 
 type OpencodeClient = ReturnType<typeof createOpencodeClient>;
 
-// stdout marker the opencode server prints once it's bound to the port. We
-// grep for either the
-// human-readable line or any naked URL on a line by itself so future
-// server message tweaks don't break the handshake.
 const SERVER_READY_REGEX = /(https?:\/\/[^\s]+)/;
 
-/**
- * Grab a free TCP port. We bind to port 0, read the kernel-assigned port,
- * close the socket, and hand the number to `opencode serve`. A tiny race
- * window remains (another process could grab the port between our close
- * and opencode's bind); the worst case is a clean spawn error we surface as
- * `AgentSessionStartError`.
- */
 const findFreePort = (): Promise<number> =>
 	new Promise((resolve, reject) => {
 		const server = createServer();
@@ -208,12 +177,6 @@ interface OpencodeServerProcess {
 	readonly url: string;
 }
 
-/**
- * Spawn `opencode serve` on a fresh local port and wait for the URL it
- * prints to stdout. Resolves with the running child + the resolved URL.
- * Caller owns the child — call `child.kill("SIGTERM")` (or close stdin)
- * to tear it down.
- */
 const spawnOpencodeServer = (
 	opencodePath: string,
 	cwd: string,
@@ -236,8 +199,7 @@ const spawnOpencodeServer = (
 							...executionEnv,
 							OPENCODE_CONFIG_CONTENT: configContent,
 						},
-						// Detach so SIGTERM can take down the whole process group on Unix.
-						// Windows tree termination is handled by the shutdown helper.
+
 						detached: process.platform !== "win32",
 						stdio: ["pipe", "pipe", "pipe"],
 					});
@@ -308,12 +270,6 @@ const spawnOpencodeServer = (
 			}),
 	);
 
-/**
- * Split `<providerID>/<modelID>` slugs into the two halves the SDK wants.
- * Inventory ids always carry the prefix; user-typed bare ids return
- * `{ providerID: null, modelID: slug }` and the caller falls back to the
- * server's default provider.
- */
 const splitModelSlug = (
 	slug: string | undefined,
 ): { providerID: string | null; modelID: string | null } => {
@@ -331,12 +287,6 @@ const splitModelSlug = (
 const isToolPart = (part: SdkPart): part is SdkToolPart =>
 	(part as { type?: string }).type === "tool";
 
-/**
- * Map opencode's lowercase tool names onto the Title-case names worcester's
- * `tool-row.tsx:buildToolView` switch already understands. Anything not
- * in this table passes through as-is — the renderer's default branch
- * renders it as a generic tool row.
- */
 const OPENCODE_TOOL_NAME: Record<string, string> = {
 	read: "Read",
 	write: "Write",
@@ -356,13 +306,6 @@ const OPENCODE_TOOL_NAME: Record<string, string> = {
 const asStr = (v: unknown): string | null =>
 	typeof v === "string" && v.length > 0 ? v : null;
 
-/**
- * Reshape an opencode tool's `state.input` into the canonical key bag the
- * renderer expects (e.g. `file_path` instead of opencode's `filePath`).
- * Mirrors `acp/translate.ts:buildCanonicalInput`. When the input is missing
- * a key but `state.title` carries it (opencode often puts the relative
- * file path there), fall back to the title so the row still shows a chip.
- */
 const canonicalizeOpencodeInput = (
 	canonicalTool: string,
 	rawInput: unknown,
@@ -400,7 +343,7 @@ const canonicalizeOpencodeInput = (
 			const file_path =
 				asStr(obj["filePath"]) ?? asStr(obj["file_path"]) ?? title;
 			const rawEdits = Array.isArray(obj["edits"]) ? obj["edits"] : [];
-			// Renderer's `extractEdits` reads `{old_string,new_string}` per entry.
+
 			const edits = rawEdits.map((e) => {
 				if (e === null || typeof e !== "object") return {};
 				const r = e as Record<string, unknown>;
@@ -443,7 +386,7 @@ const canonicalizeOpencodeInput = (
 			if (pattern !== null) out["pattern"] = pattern;
 			const path = asStr(obj["path"]);
 			if (path !== null) out["path"] = path;
-			// Opencode names the filename filter `include`; the renderer reads `glob`.
+
 			const glob = asStr(obj["include"]) ?? asStr(obj["glob"]);
 			if (glob !== null) out["glob"] = glob;
 			return out;
@@ -493,7 +436,7 @@ const unwrapReadOutput = (text: string): string => {
 		return text;
 	}
 	const inner = text.slice(contentOpen + "<content>".length, contentClose);
-	// Trim the single \n that wraps the content body inside the tag pair.
+
 	return inner.replace(/^\n/, "").replace(/\n$/, "");
 };
 
@@ -507,13 +450,6 @@ const toOutputString = (value: unknown): string => {
 	}
 };
 
-/**
- * Translate an opencode SDK Part snapshot into the equivalent worcester
- * `AgentEvent`s. Called from the event pump on every `message.part.updated`
- * frame. The renderer dedupes events by `itemId`, so re-emitting the same
- * tool part as it transitions pending → running → completed updates the
- * existing row in place rather than spawning a new one.
- */
 const translatePart = (
 	part: SdkPart,
 	state: DeltaState,
@@ -545,10 +481,7 @@ const translatePart = (
 		}
 		case "tool": {
 			if (!isToolPart(part)) return [];
-			// Prefer `callID` for the itemId so SSE updates (which keep the same
-			// call but bump `part.id` between snapshots in some opencode builds)
-			// collapse onto a single tool row in the renderer. Falls back to
-			// `id` when callID isn't present.
+
 			const id = (part.callID ?? part.id) as string as AgentItemId;
 			const status = part.state.status;
 			const rawTool = part.tool;
@@ -565,11 +498,7 @@ const translatePart = (
 				`tool ${rawTool}→${canonicalTool} status=${status} callID=${part.callID ?? "(none)"} id=${part.id}`,
 			);
 			ddump(`  tool.state`, part.state);
-			// Opencode emits a `message.part.updated` frame for every state
-			// transition (pending → running → completed). The persistence layer
-			// doesn't dedupe by itemId, so each ToolUse becomes its own row.
-			// Emit ToolUse exactly once per call — when we first see input or
-			// hit a terminal state — and emit ToolResult only on completion.
+
 			const events: AgentEvent[] = [];
 			const inputObj =
 				canonicalInput !== null && typeof canonicalInput === "object"
@@ -626,22 +555,11 @@ interface DeltaState {
 	readonly checkpointRevisionByPartId: Map<string, number>;
 	readonly checkpointLengthByPartId: Map<string, number>;
 	readonly snapshotPartIds: Set<string>;
-	/** PartIDs we've already emitted as full AssistantMessage / Thinking
-	 *  via the prompt-response fallback — skip the SSE flush for these
-	 *  so we don't duplicate rows. */
+
 	readonly flushedPartIds: Set<string>;
-	/** Tool itemIds we've already emitted a `ToolUse` for. Opencode pushes
-	 *  a `message.part.updated` frame for every state transition (pending →
-	 *  running → completed), but the renderer/conversation-services doesn't dedupe
-	 *  by itemId — each event becomes a new row. So we emit ToolUse once
-	 *  (the first frame with real input or the completed snapshot) and
-	 *  only emit ToolResult on the terminal transition. */
+
 	readonly emittedToolUseIds: Set<string>;
-	/** Message IDs we've learned belong to the *user* (from `message.updated`
-	 *  with role=user). Opencode also emits `message.part.updated` /
-	 *  `message.part.delta` for the user message's text part, and our
-	 *  translator would otherwise re-emit that text as an `AssistantMessage`,
-	 *  duplicating the user's prompt on the left side. */
+
 	readonly userMessageIds: Set<string>;
 }
 
@@ -738,9 +656,7 @@ export const translateOpencodeEvent = (
 		case "message.part.updated": {
 			const part = ev.properties.part;
 			if (part.sessionID !== sessionID) return [];
-			// Opencode persists the user's message-as-text part too; skip parts
-			// owned by user messages so we don't echo the prompt back as an
-			// AssistantMessage on the left.
+
 			const partMessageId = (part as { messageID?: string }).messageID;
 			if (
 				partMessageId !== undefined &&
@@ -783,8 +699,7 @@ export const translateOpencodeEvent = (
 				}
 			).properties;
 			if (props.sessionID !== sessionID) return [];
-			// Same user-text guard as above — the user message's text part can
-			// arrive as deltas in some opencode builds.
+
 			if (
 				props.messageID !== undefined &&
 				state.userMessageIds.has(props.messageID)
@@ -805,8 +720,7 @@ export const translateOpencodeEvent = (
 		case "message.updated": {
 			const info = ev.properties.info;
 			if (info.sessionID !== sessionID) return [];
-			// Remember user message ids so subsequent part/delta frames for
-			// those messages get dropped (see the two guards above).
+
 			if (info.role === "user") {
 				state.userMessageIds.add(info.id);
 				return [];
@@ -827,8 +741,7 @@ export const translateOpencodeEvent = (
 		}
 		case "session.idle": {
 			if (ev.properties.sessionID !== sessionID) return [];
-			// Flush buffered text/reasoning deltas before signalling turn end so
-			// the renderer sees the full assistant bubble before the spinner stops.
+
 			const flushed = flushOpencodeDeltaState(state);
 			return [
 				...flushed,
@@ -930,11 +843,6 @@ export const startOpencodeSession = (
 			dlog(`resumeCursor=${resumeCursor} ignored — using fresh session`);
 		}
 
-		// === Boot: spawn server, open SSE FIRST, then create session. ===
-		// Opening the SSE channel before session creation matters because the
-		// opencode HTTP server pushes events as soon as a turn starts; any
-		// late-binding listener silently misses everything up to the moment
-		// it connects, which manifests as "I sent a message and saw nothing".
 		const boot = Effect.tryPromise({
 			try: async () => {
 				const proc = await spawnOpencodeServer(
@@ -942,8 +850,7 @@ export const startOpencodeSession = (
 					cwd,
 					JSON.stringify({
 						...JSON.parse(buildOpencodeConfigContent(customProviders)),
-						// Agents get MCP only through the Zuse gateway; the plugin
-						// drops every other merged `mcp` entry before MCP starts.
+
 						plugin: [await opencodeMcpIsolationPluginUrl()],
 						...(managedMcp
 							? {
@@ -1006,7 +913,6 @@ export const startOpencodeSession = (
 			strategy: "opencode-session-id",
 		});
 
-		// Auto-accept permissions for v1.
 		const respondToPermission = async (permissionID: string): Promise<void> => {
 			try {
 				await client.postSessionIdPermissionsPermissionId({
@@ -1021,7 +927,6 @@ export const startOpencodeSession = (
 			}
 		};
 
-		// === Event pump — translate SSE frames into AgentEvents. ===
 		dlog(`==== EVENT PUMP STARTED for session ${opencodeSessionId} ====`);
 		let eventCount = 0;
 		void (async () => {
@@ -1031,11 +936,7 @@ export const startOpencodeSession = (
 					eventCount += 1;
 					const sdkEvent = ev as SdkEvent;
 					const type = sdkEvent.type;
-					// Always dump the full event payload, regardless of type. If
-					// opencode is invoking tools we expect to see message.part.updated
-					// frames with part.type=tool in this stream; if those never
-					// appear, the model isn't actually issuing tool calls (or the
-					// agent's permission policy is blocking them server-side).
+
 					dlog(`#${eventCount} event=${type}`);
 					ddump(`  raw`, sdkEvent);
 					if (type === "message.part.updated") {
@@ -1067,9 +968,6 @@ export const startOpencodeSession = (
 							`  → emit ${translated.length}: ${translated.map((e) => e._tag).join(", ")}`,
 						);
 					} else if (type === "message.part.updated") {
-						// Translator dropped a part frame — log so we can see what was
-						// discarded (e.g. a part.sessionID mismatch on the global event
-						// bus, or a part.type we don't translate yet).
 						dlog(`  (translator dropped this frame)`);
 					}
 					for (const out of translated) emit(out);
@@ -1088,7 +986,6 @@ export const startOpencodeSession = (
 			}
 		})();
 
-		// Watch for the server process dying out from under us.
 		server.child.on("exit", (code, signal) => {
 			if (closed) return;
 			Queue.offerUnsafe(events, {
@@ -1099,7 +996,6 @@ export const startOpencodeSession = (
 			Queue.offerUnsafe(events, { _tag: "Status", status: "idle" });
 		});
 
-		// === Prompt queue — serializes turns inside a single session. ===
 		let inflight: Promise<void> = Promise.resolve();
 		let workspaceInstructionsPending = input.workspaceInstructions;
 		const enqueuePrompt = (text: string): void => {
@@ -1166,10 +1062,7 @@ export const startOpencodeSession = (
 							body,
 						});
 						dlog("prompt resolved");
-						// Fallback: if the SSE pump missed the final assistant text
-						// (race with subscribe handshake, server restart, etc.), pull
-						// it directly from the prompt response so the user still sees
-						// *something* instead of a silent turn.
+
 						const data = res.data as
 							| {
 									info?: {
@@ -1199,9 +1092,7 @@ export const startOpencodeSession = (
 						ddump(`  prompt.info`, data?.info);
 						for (const part of parts) {
 							const partId = (part as { id?: string }).id;
-							// Skip text/reasoning parts already streamed via SSE deltas —
-							// those were flushed on session.idle and double-emitting would
-							// produce duplicate bubbles.
+
 							if (
 								partId !== undefined &&
 								deltaState.flushedPartIds.has(partId)
@@ -1230,8 +1121,7 @@ export const startOpencodeSession = (
 								Queue.offerUnsafe(events, evt);
 							}
 						}
-						// Catch-all flush in case session.idle never fired (e.g. the
-						// prompt resolved before the SSE got there).
+
 						checkpointScheduler.cancel();
 						for (const evt of flushOpencodeDeltaState(deltaState)) emit(evt);
 						if (compactSnapshot !== null && !closed) {
@@ -1304,9 +1194,7 @@ export const startOpencodeSession = (
 					closed = true;
 					try {
 						eventAbort.abort();
-					} catch {
-						// ignore
-					}
+					} catch {}
 					yield* Effect.promise(() =>
 						stopProviderProcess(server.child, { processGroup: true }),
 					);
@@ -1317,20 +1205,11 @@ export const startOpencodeSession = (
 					if (mode === currentMode) return;
 					currentMode = mode;
 					Queue.offerUnsafe(events, { _tag: "PermissionModeChanged", mode });
-					// No in-band toggle on opencode — the next `enqueuePrompt`
-					// swaps the agent to "plan" or back to the user's selection.
 				}),
 			answerQuestion: () => Effect.void,
 		};
 		return handle;
 	});
-
-// ---------------------------------------------------------------------------
-// Inventory loader — short-lived `opencode serve` used by the
-// `agent.opencodeInventory` RPC to read the user's locally-connected
-// providers, models, and agents (build/plan/custom). The server is torn
-// down as soon as both SDK calls return.
-// ---------------------------------------------------------------------------
 
 const asNonEmptyString = (value: unknown): string | null =>
 	typeof value === "string" && value.length > 0 ? value : null;
@@ -1382,20 +1261,13 @@ interface InventoryProviderModel {
 interface InventoryProvider {
 	readonly id?: unknown;
 	readonly name?: unknown;
-	// Env var(s) the provider's key is read from (e.g. `["OPENAI_API_KEY"]`).
+
 	readonly env?: ReadonlyArray<unknown> | null;
 	readonly models?: {
 		readonly [key: string]: InventoryProviderModel | null;
 	} | null;
 }
 
-/**
- * Best-effort fetch of models.dev's catalog to pull each provider's
- * "get an API key" doc URL (opencode's `provider.list()` doesn't expose it).
- * Returns an id→doc-url map; on any failure returns an empty map so inventory
- * still loads (the UI just omits the doc link). opencode already fetches
- * models.dev for its own catalog, so the data is authoritative.
- */
 const fetchModelsDevDocs = async (): Promise<Map<string, string>> => {
 	const out = new Map<string, string>();
 	try {
@@ -1412,17 +1284,10 @@ const fetchModelsDevDocs = async (): Promise<Map<string, string>> => {
 				out.set(id, meta.doc);
 			}
 		}
-	} catch {
-		// offline / models.dev down — inventory loads without doc links
-	}
+	} catch {}
 	return out;
 };
 
-// OpenCode reports every model its provider definitions know about — alpha,
-// beta, deprecated, audio-only, etc. For agentic chat we need active models
-// that support tool calls; everything else just clutters the picker (and
-// would fail mid-session). Mirrors what the SDK type declares on `Model`
-// (status + capabilities.toolcall).
 const RETIRED_OPENCODE_MODEL_IDS = new Set(["claude-opus-4-5"]);
 
 export const isUsableOpencodeInventoryModel = (
@@ -1459,12 +1324,7 @@ export const collectInventoryProviders = (
 			custom: customIds.has(id),
 			apiKeyEnv: typeof env0 === "string" ? env0 : "",
 			apiKeyUrl: docById.get(id) ?? "",
-			// Only enumerate models for connected providers. The catalog carries
-			// ~150 providers with thousands of models between them; shipping every
-			// unconnected provider's full model list would bloat the RPC payload
-			// and the renderer's localStorage cache. The picker only ever renders
-			// connected providers' models, and connecting one triggers a refresh
-			// that fills them in.
+
 			models: isConnected
 				? Object.values(modelsMap)
 						.filter(
@@ -1491,8 +1351,7 @@ export const collectInventoryProviders = (
 				: [],
 		});
 	}
-	// Connected providers first (each with usable models), then the rest of
-	// the catalog alphabetically for the "add provider" browser.
+
 	return providers.sort((a, b) => {
 		if (a.connected !== b.connected) return a.connected ? -1 : 1;
 		return a.name.localeCompare(b.name);
@@ -1600,13 +1459,6 @@ export const loadOpencodeInventory = (
 			}),
 	});
 
-/**
- * Short-live an `opencode serve`, run `fn` against its SDK client, and tear
- * the server down — the shared shape behind the provider-management effects
- * below (mirrors `loadOpencodeInventory`'s spawn/try/finally). Failures wrap
- * into `AgentSessionStartError` so the renderer surfaces them the same way as
- * inventory / session-start errors.
- */
 const withOpencodeServer = <A>(
 	opencodePath: string,
 	cwd: string,

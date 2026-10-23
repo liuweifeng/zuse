@@ -1,12 +1,3 @@
-/**
- * Wires durable conversation work to focused handlers.
- *
- * Provider-facing work (start, send, interrupt, stop, successor) runs from the
- * durable job ledger: jobs are inserted in the command transaction and the job
- * worker claims, executes, retries, and settles them. Derived work that only
- * reads committed events (naming, archive, delete) still runs from cursor
- * reactors.
- */
 import type {
 	ChatArchiveScriptError,
 	ChatArchiveTimeoutError,
@@ -90,12 +81,6 @@ const serialize = Effect.fn("ConversationReactors.serialize")(function* <
 const failureCause = (failure: JobFailure): Error =>
 	new Error(failure.failure.message, { cause: failure.failure.cause });
 
-/**
- * Provider jobs are drained synchronously so a command that implied them can
- * report their outcome. A permanent failure is a defect for the caller, as it
- * was before jobs were durable; a retryable failure has already been scheduled
- * for the worker's next pass.
- */
 const drainProviderJobs = (worker: JobWorker, sessionId: string) =>
 	worker.drainSession(sessionId).pipe(
 		Effect.orDie,
@@ -156,10 +141,7 @@ export const makeConversationReactorRuntime = Effect.fn(
 	const runSession = (sessionId: string) =>
 		Effect.gen(function* () {
 			yield* drainProviderJobs(worker, sessionId);
-			// Generated chat and branch names can take tens of seconds. They are
-			// durable, but they must not hold the provider lane and delay the
-			// user's next message. Keep their own serialized worker in the service
-			// scope so catch-up remains reliable across overlapping turn settlements.
+
 			yield* Effect.forkIn(runAutoName, serviceScope);
 			yield* Effect.forkIn(runReviewGuide, serviceScope);
 		});

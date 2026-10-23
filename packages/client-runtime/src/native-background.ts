@@ -22,14 +22,13 @@ export const nativeBackgroundChildren = (
 				content._tag === "subagent_summary"
 					? (content.childSessionId ?? nativeByItem.get(content.itemId))
 					: nativeByItem.get(content.itemId);
-			// A subagent's spawn tool result is only an acknowledgement; its summary ends it.
+
 			const isSpawnResult =
 				content._tag === "tool_result" && subagentItems.has(content.itemId);
 			if (native !== undefined && !isSpawnResult) pending.delete(native);
 		}
 	}
-	// A bounded transcript may omit spawn/terminal messages. The durable latest
-	// step for each native child remains authoritative after reconnect/rollback.
+
 	const seen = new Set<string>();
 	for (const step of [...steps].sort(
 		(a, b) => b.createdAt - a.createdAt || b.updatedAt - a.updatedAt,

@@ -11,7 +11,7 @@ test("missing optional agent cache paths do not fail image preparation", () => {
 		mkdirSync(join(root, "current"));
 		mkdirSync(join(root, "node-compile-cache"));
 		writeFileSync(join(root, "current/bin.mjs"), "// runtime");
-		// Execute only the read-only warm-up; never manipulate host memory in tests.
+
 		const warmup = IMAGE_MEMORY_PREPARATION_SCRIPT.split(
 			"ZUSE_IMAGE_MEMORY\n",
 		)[1];

@@ -2,23 +2,18 @@ import * as AuthSession from "expo-auth-session";
 import * as SecureStore from "expo-secure-store";
 import { decodeJwt } from "jose";
 
-import { APP_SCHEME, WORKOS_API, workosClientId } from "./config.ts";
+import {
+	APP_SCHEME,
+	AUTH_REDIRECT_PATH,
+	WORKOS_API,
+	workosClientId,
+} from "./config.ts";
 
-/**
- * WorkOS AuthKit sign-in on mobile, mirroring the desktop's public-client PKCE
- * flow (see apps/server/src/auth/layers/workos.ts): authorize with a
- * code_challenge, then exchange the code + code_verifier at
- * `/user_management/authenticate`. No client secret ships in the app.
- */
 const SESSION_KEY = "zuse.mobile.workos.session.v1";
 const REFRESH_SKEW_MS = 60_000;
 
-// WorkOS refresh tokens are single-use. Callers that race on an expiring
-// token must share one refresh, or every loser fails with invalid_grant and
-// surfaces as a spurious sign-in error.
 let refreshFlight: Promise<string> | null = null;
-// Bumped on sign-in/out so a refresh that finishes afterwards cannot
-// resurrect or overwrite the replaced session.
+
 let sessionGeneration = 0;
 const expiryListeners = new Set<() => void>();
 
@@ -30,7 +25,6 @@ export const onSessionExpired = (listener: () => void): (() => void) => {
 	};
 };
 
-/** A failed WorkOS authenticate call, with the OAuth `error` code if any. */
 class WorkosAuthenticateError extends Error {
 	constructor(
 		readonly status: number,
@@ -40,9 +34,6 @@ class WorkosAuthenticateError extends Error {
 	}
 }
 
-// Only `invalid_grant` means the refresh token itself is dead; retrying cannot
-// recover, so stop presenting the account as signed in. A malformed request,
-// server error or network failure keeps the session for a later retry.
 const isRejectedRefresh = (cause: unknown): boolean =>
 	cause instanceof WorkosAuthenticateError && cause.code === "invalid_grant";
 
@@ -63,7 +54,10 @@ const discovery: AuthSession.DiscoveryDocument = {
 };
 
 const redirectUri = (): string =>
-	AuthSession.makeRedirectUri({ scheme: APP_SCHEME, path: "auth" });
+	AuthSession.makeRedirectUri({
+		scheme: APP_SCHEME,
+		path: AUTH_REDIRECT_PATH,
+	});
 
 const readSession = async (): Promise<StoredSession | null> => {
 	const raw = await SecureStore.getItemAsync(SESSION_KEY);
@@ -184,7 +178,7 @@ export const getAccessToken = async (): Promise<string> => {
 	if (session.expiresAtMs - Date.now() > REFRESH_SKEW_MS) {
 		return session.accessToken;
 	}
-	// Another caller may have started the refresh while this one read storage.
+
 	if (refreshFlight !== null) return refreshFlight;
 	const flight = refreshSession(session, generation).finally(() => {
 		if (refreshFlight === flight) refreshFlight = null;

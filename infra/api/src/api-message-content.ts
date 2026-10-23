@@ -1,4 +1,7 @@
-import type { ApiAsset } from "@zuse/contracts";
+import { type ApiAsset, MessageSource } from "@zuse/contracts";
+import { Option, Schema } from "effect";
+
+const decodeMessageSource = Schema.decodeUnknownOption(MessageSource);
 
 const PREFIX = "zuse-api-message-v1:";
 
@@ -7,6 +10,7 @@ export interface ApiMessageContent {
 	readonly githubBot?: boolean;
 	readonly actor?: { readonly subject: string; readonly membershipId: string };
 	readonly attachments: ReadonlyArray<ApiAsset>;
+	readonly source?: MessageSource;
 }
 
 /**
@@ -20,6 +24,7 @@ export const encodeApiMessageContent = (content: ApiMessageContent): string =>
 		...(content.githubBot === true ? { githubBot: true } : {}),
 		attachments: content.attachments,
 		...(content.actor === undefined ? {} : { actor: content.actor }),
+		...(content.source === undefined ? {} : { source: content.source }),
 	})}`;
 
 export const decodeApiMessageContent = (
@@ -36,6 +41,7 @@ export const decodeApiMessageContent = (
 				readonly membershipId?: unknown;
 			};
 			readonly attachments?: unknown;
+			readonly source?: unknown;
 		};
 		if (
 			typeof decoded.text !== "string" ||
@@ -55,6 +61,10 @@ export const decodeApiMessageContent = (
 			)
 		)
 			throw new Error("invalid API message envelope");
+		const source =
+			decoded.source === undefined
+				? Option.none()
+				: decodeMessageSource(decoded.source);
 		return {
 			text: decoded.text,
 			...(decoded.githubBot === true ? { githubBot: true } : {}),
@@ -69,10 +79,9 @@ export const decodeApiMessageContent = (
 						},
 					}
 				: {}),
+			...(Option.isSome(source) ? { source: source.value } : {}),
 		};
 	} catch {
-		// This indicates corrupted authenticated content. Returning the literal
-		// value is safer than dropping a command during rollout.
 		return { text: sealedPlaintext, attachments: [] };
 	}
 };

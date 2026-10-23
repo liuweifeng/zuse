@@ -531,7 +531,7 @@ describe("PermissionService restart recovery", () => {
 		await schemaRuntime.dispose();
 		const first = makeRuntime(filename, directory);
 		await first.runPromise(createSession);
-		// Reproduce the old runtime's event: turnId incorrectly held requestId.
+
 		await first.runPromise(
 			Effect.gen(function* () {
 				const domain = yield* SessionDomain;
@@ -617,7 +617,6 @@ describe("PermissionService restart recovery", () => {
 			),
 		);
 		try {
-			// No client subscription while the provider creates and persists its ask.
 			await runtime.runPromise(
 				Effect.gen(function* () {
 					const sql = yield* SqlClient.SqlClient;

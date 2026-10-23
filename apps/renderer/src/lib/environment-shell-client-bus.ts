@@ -344,7 +344,7 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			const sessionReady = new Set<FolderId>();
 			const creationReady = new Set<FolderId>();
 			const sessionCursorByProject = new Map<FolderId, number>();
-			// Persisted cursors survive renderer restarts; module counters do not.
+
 			const epoch = `environment-shell:${context.generation}:${crypto.randomUUID()}`;
 			const isLive = (): boolean =>
 				current.folders.every(
@@ -371,19 +371,13 @@ export const makeEnvironmentShellResourceDriver = (options: {
 			};
 			const applyInput = (input: EnvironmentShellInput): void => {
 				if (!active || !context.isCurrent()) return;
-				// Commands apply optimistic overlays to the same ClientBus cell. Fold the
-				// currently visible value back into the serialized stream reducer before
-				// applying the next durable frame, otherwise an unrelated frame could
-				// resurrect this driver's pre-command snapshot.
+
 				const visible = context.snapshot()?.data;
 				if (visible !== null && visible !== undefined && visible !== current) {
 					current = visible;
 				}
 				if (input.type === "workspace") {
 					for (const ready of [chatReady, sessionReady, creationReady]) {
-						// switchMap replaces every project stream for this workspace
-						// frame. A prior readiness bit cannot prove the replacement stream
-						// has delivered its subscribe-before-snapshot boundary.
 						ready.clear();
 					}
 					sessionCursorByProject.clear();
@@ -744,10 +738,6 @@ export const waitForEnvironmentGateway = (
 	});
 };
 
-/**
- * Public reads are scoped to the selected workspace. The driver, overlays and
- * persistence keep the full cell, so switching workspace never refetches.
- */
 const scopedView = (
 	ref: EnvironmentRef,
 	view: ResourceView<EnvironmentShellData>,
@@ -765,6 +755,31 @@ export const environmentShellSnapshot = (
 		ref,
 		getRendererClientBus().snapshot(environmentShellResourceKey(ref)),
 	);
+
+/** Usage reads are side requests; they must not enter the workspace mutation lane. */
+export const readEnvironmentUsage = async <Result>(
+	environmentId: EnvironmentId,
+	kind: "usage.limits" | "usage.limits.history",
+	payload: Readonly<Record<string, unknown>>,
+): Promise<Result> => {
+	const bus = getRendererClientBus();
+	const key = environmentShellResourceKey({ environmentId });
+	const lease = bus.retain(key, { activation: "connect" });
+	try {
+		await waitForEnvironmentGateway(environmentId, key);
+		const client = bus.client(environmentId);
+		if (client === null) throw new Error("Usage connection is unavailable.");
+		const request: Effect.Effect<unknown, unknown> = client[kind](
+			payload as never,
+		);
+		const result = await Effect.runPromise(request);
+		if (bus.client(environmentId) !== client)
+			throw new Error("Usage connection changed during the request.");
+		return result as Result;
+	} finally {
+		lease.release();
+	}
+};
 
 export const dispatchEnvironmentShellCommand = <Payload, Result>(input: {
 	readonly environmentId: EnvironmentId;
@@ -874,10 +889,7 @@ const EMPTY_ENVIRONMENT_SHELL_VIEW = emptyResourceView<EnvironmentShellData>();
 export const useEnvironmentShellResource = (
 	environmentId: EnvironmentId | null,
 	activation: ResourceActivation = "cache-only",
-	/**
-	 * `all` reads every workspace's projects on this desktop. Only machine-wide
-	 * bookkeeping (keep-awake, update deferral) may use it; UI must not.
-	 */
+
 	workspaces: "selected" | "all" = "selected",
 ): ResourceView<EnvironmentShellData> => {
 	const ref = useMemo<EnvironmentRef | null>(

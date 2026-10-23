@@ -42,9 +42,7 @@ export function SessionForkRecovery({
 					client["session.forkConstructions"]({ sessionId }),
 				);
 				if (current === generation.current) setRows(rows);
-			} catch {
-				/* Connection status is shown by the shared connection UI. */
-			}
+			} catch {}
 			if (current === generation.current)
 				timer = setTimeout(() => void refresh(), 5000);
 		};

@@ -186,9 +186,7 @@ private final class ByteProxy {
       connectivityQueue
     )
     let parameters = NWParameters(tls: tls, tcp: NWProtocolTCP.Options())
-    // Peer-to-peer only when the service was actually discovered over AWDL;
-    // enabling it unconditionally keeps the AWDL radio active for every
-    // proxied connection and disrupts regular Wi-Fi.
+
     parameters.includePeerToPeer =
       service.interfaceName?.hasPrefix("awdl") == true
     let remote = NWConnection(to: endpoint, using: parameters)
@@ -222,7 +220,6 @@ public final class ZuseLocalConnectivityModule: Module {
       self.startDiscovery()
     }
 
-    // Browser restarts must not disconnect proxies owned by other computers.
     AsyncFunction("stopDiscovery") { () -> Void in
       self.stopDiscovery(cancelProxies: false)
     }
@@ -263,18 +260,11 @@ public final class ZuseLocalConnectivityModule: Module {
     guard browser == nil else { return }
     browserRetryWork?.cancel()
     sendEvent("onDiscoveryStateChanged", ["state": "starting"])
-    // One generation per browser instance (not per emit): route ids stay
-    // stable while a browser lives, and change only when discovery restarts
-    // — e.g. after a path change — so routes are invalidated exactly when
-    // the network they were discovered on is gone.
+
     browserGeneration += 1
     let generation = browserGeneration
     let parameters = NWParameters.tcp
-    // No peer-to-peer for browsing: includePeerToPeer engages AWDL, which
-    // time-slices the Wi-Fi radio and visibly degrades the phone's Wi-Fi the
-    // whole time discovery runs. Infrastructure Wi-Fi is the product's
-    // primary (and pinned) path; AWDL-only discovery is not worth breaking
-    // the network we actually use.
+
     let browser = NWBrowser(
       for: .bonjourWithTXTRecord(type: serviceType, domain: nil),
       using: parameters
@@ -317,7 +307,7 @@ public final class ZuseLocalConnectivityModule: Module {
     }
     browser.stateUpdateHandler = { [weak self, weak browser] state in
       guard let self else { return }
-      // Ignore callbacks from a browser we already replaced.
+
       guard let browser, self.browser === browser else { return }
       switch state {
       case .ready:
@@ -328,9 +318,7 @@ public final class ZuseLocalConnectivityModule: Module {
           "state": "waiting",
           "reason": String(describing: error),
         ])
-        // A Wi-Fi switch usually parks the browser in .waiting (not .failed),
-        // where it can sit forever on the dead interface. Restart with the
-        // same backoff so discovery re-arms on the new network.
+
         self.browser?.cancel()
         self.browser = nil
         self.scheduleBrowserRestart()
@@ -370,9 +358,7 @@ public final class ZuseLocalConnectivityModule: Module {
         "usesCellular": path.usesInterfaceType(.cellular),
         "generation": self.pathGeneration,
       ])
-      // The network the current browser is browsing on just changed; restart
-      // discovery so services are re-resolved on the new path. Debounced so a
-      // flapping transition coalesces into one restart.
+
       if path.status == .satisfied {
         self.scheduleBrowserRestartForPathChange()
       }

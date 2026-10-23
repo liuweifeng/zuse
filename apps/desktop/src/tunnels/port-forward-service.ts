@@ -217,9 +217,6 @@ export class PortForwardManager {
 		},
 		owners: Set<"preview" | "manual">,
 	): Promise<PortForwardSummary> {
-		// Prefer the matching port, then try a bounded set of verified random
-		// candidates. ExitOnForwardFailure still catches the bind race between
-		// the probe and ssh taking ownership of the port.
 		const candidates = [input.remotePort];
 		for (
 			let draws = 0;

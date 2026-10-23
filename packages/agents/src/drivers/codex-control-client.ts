@@ -54,8 +54,6 @@ const controlClientKey = (
 	});
 	const previous = keys.get(key);
 	const config = {
-		// Preserve an explicitly resolved binary path even though the default
-		// command and an absolute path ending in `/codex` share one pool identity.
 		codexPath: codexPath ?? previous?.codexPath ?? null,
 		codexHome: accountHome ?? (process.env.CODEX_HOME?.trim() || null),
 		accountHome,

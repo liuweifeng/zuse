@@ -45,7 +45,6 @@ const cpuCountersFromOs = (): CpuCounters => {
 	return { idle, total, cores: Math.max(all.length, 1) };
 };
 
-/** One point-in-time reading; the stream derives CPU use from two snapshots. */
 const readSnapshot = Effect.promise(async (): Promise<ResourceSnapshot> => {
 	const memory =
 		process.platform === "linux"
@@ -73,8 +72,6 @@ export const toSample = (
 	previous: CpuCounters | undefined,
 	snapshot: ResourceSnapshot,
 ): MachineResourceSample => {
-	// Without a prior reading the counters span the whole uptime, so the first
-	// emission reports the average load since boot.
 	const idleDelta = snapshot.counters.idle - (previous?.idle ?? 0);
 	const totalDelta = snapshot.counters.total - (previous?.total ?? 0);
 	const busyRatio = totalDelta > 0 ? (totalDelta - idleDelta) / totalDelta : 0;
@@ -126,8 +123,6 @@ export class MachineResourceService extends Context.Service<
 	MachineResourceServiceShape
 >()("zuse/MachineResourceService") {}
 
-// Persist once per runtime launch, even when no UI is watching resource samples.
-// Diagnostics never prevent runtime startup. Atomic replacement avoids torn reads.
 const recordMemoryBaseline = async () => {
 	if (
 		process.env.ZUSE_RUNTIME_KIND !== "cloud-workspace" ||
@@ -152,9 +147,7 @@ const recordMemoryBaseline = async () => {
 			{ mode: 0o600 },
 		);
 		await rename(temporary, RUNTIME_MEMORY_BASELINE_PATH);
-	} catch {
-		/* Older templates may not expose the diagnostics directory. */
-	}
+	} catch {}
 };
 
 export const MachineResourceServiceLive = Layer.effect(

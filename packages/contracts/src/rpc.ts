@@ -87,6 +87,7 @@ import {
 import {
 	CloudGithubDisconnectRpc,
 	CloudGithubInstallRpc,
+	CloudGithubObserveRpc,
 	CloudGithubStatusRpc,
 } from "./cloud-github.ts";
 import {
@@ -146,6 +147,8 @@ import { ContextSaveTextRpc } from "./context.ts";
 import {
 	CloudDeviceBridgeRpc,
 	DeviceBridgeControlRpc,
+	DeviceBridgeDevicesRpc,
+	DeviceBridgeSetEnabledRpc,
 } from "./device-bridge.ts";
 import {
 	DiagnosticsCaptureRpc,
@@ -181,6 +184,8 @@ import {
 	GitCreateReviewCommentRpc,
 	GitDiffRpc,
 	GitFixFailingChecksRpc,
+	GitHubContextRpc,
+	GitHubObserveRpc,
 	GitInitRpc,
 	GitIssueMarkdownRpc,
 	GitListIssuesRpc,
@@ -213,6 +218,7 @@ import {
 	GitUserNameRpc,
 	GitWorkspaceChangesRpc,
 	GitWorkspaceSnapshotRpc,
+	GitZuseStarStatusRpc,
 } from "./git.ts";
 import { ConnectHandshakeRpc } from "./handshake.ts";
 import { HostOpenSessionRpc } from "./host.ts";
@@ -250,6 +256,21 @@ import {
 	MachinesPrepaidCheckoutRpc,
 	MachinesRecoverRpc,
 } from "./machines.ts";
+import {
+	MastersActivateRpc,
+	MastersAgentRpc,
+	MastersArtifactRpc,
+	MastersCreateRpc,
+	MastersDirectoryRpc,
+	MastersExecuteRpc,
+	MastersGetRpc,
+	MastersListRpc,
+	MastersTargetRpc,
+	MastersTranscriptRpc,
+	MastersTransferRpc,
+	MastersWatchRpc,
+	MastersWorkerQueryRpc,
+} from "./master.ts";
 import { ModelCatalogRpc, ModelCatalogStreamRpc } from "./model-catalog/rpc.ts";
 import {
 	ModelConnectionAcknowledgePlanRpc,
@@ -293,7 +314,7 @@ import {
 	PermissionRevokeDecisionRpc,
 } from "./permission.ts";
 import { PingRpc } from "./ping.ts";
-import { PluginsRequestRpc } from "./plugins.ts";
+import { LocalPluginsRequestRpc, PluginsRequestRpc } from "./plugins.ts";
 import { PokemonEnsureSpriteCachedRpc, PokemonPokedexRpc } from "./pokemon.ts";
 import { PreviewsListServersRpc } from "./previews.ts";
 import {
@@ -344,6 +365,7 @@ import {
 	ChatSetWorktreeRpc,
 	ChatStreamChangesRpc,
 	ChatUnarchiveRpc,
+	MessagesBackgroundStopRpc,
 	MessagesInterruptRpc,
 	MessagesListRpc,
 	MessagesQueueAddRpc,
@@ -405,6 +427,17 @@ import {
 	SettingsStreamRpc,
 	SettingsUpdateRpc,
 } from "./settings.ts";
+import {
+	SimulatorCloseRpc,
+	SimulatorConfigureRpc,
+	SimulatorFixRpc,
+	SimulatorFramesRpc,
+	SimulatorInputRpc,
+	SimulatorOpenRpc,
+	SimulatorRefreshRpc,
+	SimulatorScreenshotRpc,
+	SimulatorStateRpc,
+} from "./simulators.ts";
 import {
 	SkillListForProjectRpc,
 	SkillListGlobalRpc,
@@ -495,8 +528,33 @@ export const MemoizeRpcs = RpcGroup.make(
 	ModelConnectionDisconnectRpc,
 	ModelConnectionAcknowledgePlanRpc,
 	PluginsRequestRpc,
+	LocalPluginsRequestRpc,
+	MastersTransferRpc,
+	MastersActivateRpc,
+	MastersTranscriptRpc,
+	MastersWorkerQueryRpc,
+	MastersAgentRpc,
+	MastersWatchRpc,
+	MastersDirectoryRpc,
+	MastersListRpc,
+	MastersGetRpc,
+	MastersCreateRpc,
+	MastersExecuteRpc,
+	MastersArtifactRpc,
+	MastersTargetRpc,
 	DeviceBridgeControlRpc,
+	DeviceBridgeSetEnabledRpc,
+	DeviceBridgeDevicesRpc,
 	CloudDeviceBridgeRpc,
+	SimulatorStateRpc,
+	SimulatorRefreshRpc,
+	SimulatorConfigureRpc,
+	SimulatorFixRpc,
+	SimulatorOpenRpc,
+	SimulatorCloseRpc,
+	SimulatorFramesRpc,
+	SimulatorInputRpc,
+	SimulatorScreenshotRpc,
 	PingRpc,
 	PreviewsListServersRpc,
 	AnalyticsGetContextRpc,
@@ -531,6 +589,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	CloudAuthLoginCancelRpc,
 	CloudAuthDisconnectRpc,
 	CloudGithubStatusRpc,
+	CloudGithubObserveRpc,
 	CloudGithubInstallRpc,
 	CloudGithubDisconnectRpc,
 	CloudAccountImageStatusRpc,
@@ -646,6 +705,8 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitWorkspaceSnapshotRpc,
 	GitOriginRpc,
 	GitPrStateRpc,
+	GitHubObserveRpc,
+	GitHubContextRpc,
 	GitPrNotificationClaimRpc,
 	GitPrDetailsRpc,
 	GitListPrsRpc,
@@ -657,6 +718,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	GitReviewFileContentsRpc,
 	GitReviewIdentityRpc,
 	GitStarZuseRpc,
+	GitZuseStarStatusRpc,
 	GitDiffRpc,
 	GitCommitRpc,
 	GitCreateReviewCommentRpc,
@@ -767,6 +829,7 @@ export const MemoizeRpcs = RpcGroup.make(
 	MessagesListRpc,
 	MessagesSendRpc,
 	MessagesInterruptRpc,
+	MessagesBackgroundStopRpc,
 	MessagesQueueListRpc,
 	MessagesQueueAddRpc,
 	MessagesQueueUpdateRpc,

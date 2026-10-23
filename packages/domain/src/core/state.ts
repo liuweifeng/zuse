@@ -238,11 +238,6 @@ const withProviderThread = (
 	};
 };
 
-/**
- * Legacy resume tokens (`cursor` on creation, `SessionResumeSet`) bind a
- * provider thread keyed by the session's provider so old event streams fold
- * into the same graph as new ones.
- */
 const bindLegacyResume = (
 	state: SessionState,
 	nativeThreadId: string,
@@ -280,7 +275,6 @@ const bindLegacyResume = (
 	);
 };
 
-/** Retire the active provider thread; the next turn opens a fresh one. */
 const retireActiveProviderThread = (
 	state: SessionState,
 	at: number,
@@ -418,7 +412,6 @@ export const evolve = (
 				version,
 			};
 		case "SessionProviderSet":
-			// A different provider cannot continue this provider thread.
 			return {
 				...state,
 				providerId: event.providerId,
@@ -447,7 +440,6 @@ export const evolve = (
 				version,
 			};
 		case "SessionStatusSet": {
-			// The provider accepted the turn: it is running, not merely starting.
 			const current =
 				state.currentTurnId === null
 					? undefined
@@ -918,9 +910,7 @@ export const evolveAll = (
 			owned = undefined;
 			continue;
 		}
-		// Only this synchronous fold can observe its intermediate states. Copy
-		// once per contiguous message batch, avoiding quadratic transcript replay
-		// while keeping the supplied state and ordinary evolve calls immutable.
+
 		owned ??= {
 			messageIds: new Set(current.messageIds),
 			messageCheckpoints: new Map(current.messageCheckpoints),

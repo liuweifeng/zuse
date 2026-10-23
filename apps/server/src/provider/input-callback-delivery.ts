@@ -5,7 +5,7 @@ export const makeInputCallbackDelivery = <E>(options: {
 	readonly isCurrent: () => boolean;
 	readonly unavailable: () => E;
 	readonly timeout: Duration.Input;
-	/** Only protocols with safe retry semantics may reopen a failed invocation. */
+
 	readonly retryFailures: boolean;
 }) => {
 	const revoked = Deferred.makeUnsafe<never, E>();

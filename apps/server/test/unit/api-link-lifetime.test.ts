@@ -15,7 +15,6 @@ import {
 } from "../../src/lan-auth/services/lan-auth-service.ts";
 import { TelemetryStore } from "../../src/observability/telemetry-store.ts";
 
-// Only linked-account lifecycle methods are provided; unexpected calls fail.
 const makeLinkedLayer = (
 	connectorToken?: string,
 	start = () => Effect.void,

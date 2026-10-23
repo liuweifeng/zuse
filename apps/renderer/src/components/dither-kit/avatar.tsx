@@ -14,10 +14,8 @@ import {
 	xorshift32,
 } from "./pixel";
 
-// 8×8 cells, mirrored across one axis → 32 free pattern bits. With the mirror
-// axis bit and 180 hues that's 2^33 × 180 ≈ 1.5 trillion distinct avatars.
 const GRID = 8;
-const CELL_PX = 4; // backing px per cell → a 32×32 canvas, scaled up pixelated
+const CELL_PX = 4;
 
 export type AvatarMirror = "auto" | "horizontal" | "vertical";
 
@@ -42,17 +40,11 @@ export type DitherAvatarProps = {
 };
 
 type AvatarModel = {
-	on: boolean[]; // GRID×GRID, row-major
-	density: number[]; // per-cell dither density for on cells
+	on: boolean[];
+	density: number[];
 	fill: [number, number, number];
 };
 
-/**
- * Derive the full 8×8 cell grid from the name: 32 pattern bits + the mirror
- * axis + the hue + per-cell densities, all from one deterministic PRNG stream.
- * Every draw happens unconditionally so overriding `hue` or `mirror` never
- * shifts the pattern.
- */
 function avatarModel(
 	name: string,
 	hueProp: number | undefined,
@@ -72,8 +64,6 @@ function avatarModel(
 	const density = new Array<number>(GRID * GRID);
 	for (let r = 0; r < GRID; r++) {
 		for (let c = 0; c < GRID; c++) {
-			// Fold across the chosen axis: left/right symmetric ("horizontal"
-			// mirror) or top/bottom symmetric ("vertical").
 			const i = vertical
 				? Math.min(r, GRID - 1 - r) * GRID + c
 				: r * (GRID / 2) + Math.min(c, GRID - 1 - c);
@@ -84,11 +74,6 @@ function avatarModel(
 	return { on, density, fill: hueFill(hue) };
 }
 
-/**
- * Paint the avatar, optionally sweeping cells in with the Bayer-ordered
- * materialize entrance. Lives outside the component (same shape as the chart
- * canvases). Returns a cleanup that cancels the entrance loop.
- */
 function paintAvatar(
 	canvas: HTMLCanvasElement,
 	bloomCanvas: HTMLCanvasElement | null,
@@ -112,8 +97,7 @@ function paintAvatar(
 		for (let r = 0; r < GRID; r++) {
 			for (let c = 0; c < GRID; c++) {
 				if (!model.on[r * GRID + c]) continue;
-				// Cells materialize in Bayer order — the entrance is made of the same
-				// matrix as the texture.
+
 				const start = (BAYER4[r % 4]?.[c % 4] ?? 0.5) * 0.7;
 				const cellAlpha = clamp01((progress - start) / 0.3);
 				if (cellAlpha <= 0) continue;
@@ -124,8 +108,7 @@ function paintAvatar(
 						const gx = c * CELL_PX + pxi;
 						const gy = r * CELL_PX + py;
 						const lit = density > (BAYER4[gy & 3]?.[gx & 3] ?? 0.5);
-						// On/off cells modulate alpha tiers of the one fill colour, so the
-						// avatar holds up on light and dark backgrounds alike.
+
 						const alpha = (lit ? base : base * 0.35) * cellAlpha;
 						ctx.fillStyle = rgb(model.fill, 1, alpha);
 						ctx.fillRect(gx, gy, 1, 1);

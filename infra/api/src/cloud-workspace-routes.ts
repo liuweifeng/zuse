@@ -29,6 +29,7 @@ import {
 	CloudTranscriptMessagePageUpload,
 	CloudWorkspaceActionRequest,
 	CloudWorkspaceCreateRequest,
+	CloudWorkspacePreparationPhase,
 	CloudWorkspaceResumeRequest,
 	CloudWorkspaceRuntimeSummary,
 	CloudWorkspaceStartupTimings,
@@ -36,6 +37,8 @@ import {
 	DEFAULT_RUNTIME_MODE,
 	DEVICE_BRIDGE_VERSION,
 	DeviceBridgeAction,
+	GitHubObservation,
+	GitHubObserveRequest,
 	ProviderGrantRequest,
 	RuntimeAcknowledgment,
 	RuntimeMode,
@@ -142,6 +145,7 @@ import {
 	cloudWorkspaceActorPermission,
 	cloudWorkspacePermission,
 } from "./cloud-workspace-access.ts";
+import { routeWorkspaceArchiveObject } from "./cloud-workspace-archive.ts";
 import {
 	CloudWorkspaceLaunchIntentCipher,
 	hasCloudWorkspaceInitialMessage,
@@ -157,10 +161,12 @@ import {
 	MAILBOX_RUNTIME_STALL_TIMEOUT_MS,
 	withoutRuntimeBootstrapReceipt,
 } from "./cloud-workspace-reconciler.ts";
+import { ARCHIVED_WORKSPACE_RETENTION_MS } from "./cloud-workspace-retention.ts";
 import {
 	cloudWorkspaceGatewayEpoch,
 	cloudWorkspaceRuntimeGeneration,
 } from "./cloud-workspace-runtime-fence.ts";
+import { imageBuildRuntime } from "./cloud-workspace-runtime-update.ts";
 import {
 	type CloudProjectBuildRecord,
 	type CloudProjectRecord,
@@ -189,6 +195,7 @@ import {
 	verifyWorkspaceRuntimeTicket,
 } from "./crypto.ts";
 import { forwardDeviceBridge } from "./device-bridge.ts";
+import { requireBridgeDevice } from "./device-bridge-routes.ts";
 import {
 	type ApiError,
 	badRequest,
@@ -199,6 +206,7 @@ import {
 	unauthorized,
 } from "./errors.ts";
 import { githubCallbackPageHeaders } from "./github-callback-page.ts";
+import { observeGithub } from "./github-observations.ts";
 import { decodeBody, json } from "./http.ts";
 import { MachineControlConfiguration } from "./machine-config.ts";
 import { MachineStore } from "./machine-store.ts";
@@ -233,13 +241,9 @@ export type CloudWorkspaceRouteContext =
 	| WorkosVerifier
 	| CloudBillingStore;
 
-// The RPC socket may reconnect without another user action. A signed ticket is
-// reusable during this short lease; expiry affects only new connections.
 const WORKSPACE_CLIENT_TICKET_TTL_MS = 60_000;
 const RUNTIME_CREDENTIAL_TTL_MS = 15 * 60_000;
-const ARCHIVED_WORKSPACE_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
-// SSH bridge access: the hashed ticket is staged inside the sandbox (like the
-// runtime boot token) and verified by the runtime's /ssh WebSocket route.
+
 const WORKSPACE_SSH_TICKET_TTL_MS = 12 * 60 * 60_000;
 const escapeHtml = (value: string): string =>
 	value.replace(
@@ -257,8 +261,6 @@ const githubCallbackPage = (input: {
 	readonly title: string;
 	readonly message: string;
 }) =>
-	// These values currently originate from fixed copy and GitHub login names,
-	// but escaping here keeps this public callback safe if its copy evolves.
 	new Response(
 		`<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(input.title)}</title><body style="margin:0;background:#111;color:#eee;font:14px system-ui;display:grid;min-height:100vh;place-items:center"><main style="max-width:420px;padding:24px"><h1 style="font-size:18px">${escapeHtml(input.title)}</h1><p style="color:#aaa;line-height:1.5">${escapeHtml(input.message)}</p></main></body></html>`,
 		{
@@ -579,6 +581,18 @@ export const isCloudAccountImageOutdated = (input: {
 	(input.requiredProviderAuthDeliveryVersion === 1 &&
 		input.providerAuthDeliveryVersion !== 1);
 
+export const accountImageBuildsForHosting = (
+	builds: ReadonlyArray<CloudProjectBuildRecord>,
+	currentTemplateVersion: string | undefined,
+) =>
+	builds
+		.filter(
+			(build) =>
+				!importedSnapshot(build) ||
+				snapshotBuildCompatible(build, currentTemplateVersion),
+		)
+		.sort((left, right) => right.createdAtMs - left.createdAtMs);
+
 export const selectActiveAccountImageBuild = (
 	builds: ReadonlyArray<CloudProjectBuildRecord>,
 	currentTemplateVersion: string | undefined,
@@ -628,7 +642,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const store = yield* CloudWorkspaceStore;
 	const apiConfiguration = yield* ApiConfiguration;
 	const sandboxProviders = yield* SandboxProviders;
-	// Each provider owns its image; omitted selections retain the account default.
+
 	const provider = (yield* accountSandboxProviders(accountId)).find(
 		(candidate) =>
 			candidate.providerId ===
@@ -638,9 +652,10 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 	const builds =
 		provider === undefined
 			? []
-			: [
-					...(yield* store.listAccountBuilds(accountId, provider.providerId)),
-				].sort((left, right) => right.createdAtMs - left.createdAtMs);
+			: accountImageBuildsForHosting(
+					yield* store.listAccountBuilds(accountId, provider.providerId),
+					provider.templateVersion,
+				);
 	const snapshotRecords =
 		provider?.providerId === "box" && provider.connectionId === undefined
 			? yield* (yield* CloudBillingStore).snapshots.list(accountId, false)
@@ -794,6 +809,7 @@ const cloudAccountImage = Effect.fn("cloudAccountImage")(function* (
 					},
 		providerId: provider?.providerId,
 		runtimeVersion: active?.templateVersion ?? provider?.templateVersion,
+		runtime: active === undefined ? undefined : imageBuildRuntime(active),
 		buildMode: buildMode(statusBuild),
 		progressPhase: building?.state,
 		errorCode: latestFailedAfterActive ? latest.lastErrorCode : undefined,
@@ -851,9 +867,14 @@ const startupTimings = (
 
 export const startupPhase = (workspace: CloudWorkspaceRecord) => {
 	if (workspace.state === "failed") return "failed" as const;
-	// Warm resumes can reuse an already-acknowledged launch intent. In that case
-	// the runtime reports repository-ready, so there is no new agent-started
-	// timestamp even though the durable status is already authoritative.
+	if (
+		workspace.statusCode === "archive-restore-queued" ||
+		workspace.statusCode === "archive-restoring"
+	)
+		return workspace.providerSandboxId === undefined
+			? ("allocating" as const)
+			: ("booting" as const);
+
 	if (
 		workspace.statusCode === "agent-running" ||
 		(workspace.statusCode === "ready" && workspace.runtimeState === "online")
@@ -892,6 +913,35 @@ export const failedWorkspaceResumeTarget = (
 		providerSandboxId: workspace.providerSandboxId,
 	} as const;
 };
+
+/** Verify provider metadata on explicit wake; an online database row is not a
+ * guarantee that externally stopped compute is still running. Never allocate
+ * replacement compute from a failed or missing observation. */
+export const cloudWorkspaceProviderNeedsWake = Effect.fn(
+	"cloudWorkspaceProviderNeedsWake",
+)(function* (
+	workspace: Pick<
+		CloudWorkspaceRecord,
+		"state" | "runtimeState" | "providerSandboxId"
+	>,
+	provider: Pick<ConnectedSandboxProvider, "inspect">,
+) {
+	if (
+		workspace.state !== "ready" ||
+		workspace.runtimeState !== "online" ||
+		workspace.providerSandboxId === undefined
+	)
+		return false;
+	const sandbox = yield* provider.inspect(workspace.providerSandboxId).pipe(
+		Effect.timeout("10 seconds"),
+		Effect.mapError(() =>
+			serviceUnavailable("cloud_provider_state_unavailable"),
+		),
+	);
+	if (sandbox === null)
+		return yield* notFound("cloud_workspace_sandbox_not_found");
+	return sandbox.state === "paused";
+});
 
 export const cloudWorkspaceResumeIsAlreadyRequested = (
 	workspace: Pick<CloudWorkspaceRecord, "desiredState" | "state">,
@@ -977,6 +1027,19 @@ const workspaceRuntimeStorageUnavailable = (
 	workspace.statusCode === "runtime-storage-replaced" ||
 	workspace.requestConfig.launchErrorCode === "runtime-storage-replaced";
 
+/** Slack-created workspaces carry the bot's launch identity from creation. */
+const workspaceStartedFromSlack = (
+	workspace: CloudWorkspaceRecord,
+): boolean => {
+	const initialGithub = Schema.decodeUnknownOption(
+		CloudGithubCredentialRequest,
+	)(workspace.requestConfig.initialGithubContext);
+	return (
+		Option.isSome(initialGithub) &&
+		initialGithub.value.slackMessageId !== undefined
+	);
+};
+
 export const publicCloudWorkspaceSummary = (
 	workspace: CloudWorkspaceRecord,
 	project: CloudProjectRecord,
@@ -1044,6 +1107,9 @@ export const publicCloudWorkspaceSummary = (
 			? {
 					archivedAt: workspace.archiveRequestedAtMs ?? workspace.updatedAtMs,
 				}
+			: {}),
+		...(workspaceStartedFromSlack(workspace)
+			? { source: "slack" as const }
 			: {}),
 		createdAt: workspace.createdAtMs,
 		updatedAt: Math.max(
@@ -1214,14 +1280,7 @@ const sealRuntimeSecret = Effect.fn("sealRuntimeSecret")(function* (
 });
 
 const RuntimeReadyRequest = Schema.Struct({
-	preparationPhase: Schema.optional(
-		Schema.Literals([
-			"checking-repository",
-			"switching-branch",
-			"fetching-repository",
-			"preparing-credentials",
-		]),
-	),
+	preparationPhase: Schema.optional(CloudWorkspacePreparationPhase),
 	deviceBridgeVersion: Schema.optional(Schema.Literal(DEVICE_BRIDGE_VERSION)),
 	phase: Schema.Literals([
 		"runtime-connected",
@@ -1302,10 +1361,6 @@ export const codexGrantRuntimeBindingError = (
 	return null;
 };
 
-/** Bootstrap must answer promptly even when the account authority is slow or disconnected. */
-// A cold control connection can take more than 1.5 s even for a ready
-// authority. Allow that normal path to finish rather than paying its latency
-// again through the runtime's fallback request.
 export const BOOTSTRAP_LAUNCH_GRANT_TIMEOUT_MS = 3_000;
 
 /**
@@ -1563,7 +1618,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 	accountId: string,
 	body: Omit<CloudWorkspaceCreateRequest, "providerId"> & {
 		readonly providerId?: string;
-		/** Canonical public-API request fingerprint, absent for first-party calls. */
+
 		readonly publicApiRequestDigest?: string;
 		readonly githubBot?: boolean;
 	},
@@ -1718,10 +1773,7 @@ export const createCloudWorkspaceForAccount = Effect.fn(
 			);
 	const chatId = `chat_${crypto.randomUUID()}`;
 	const initialSessionId = `s_${crypto.randomUUID()}`;
-	// Workspace records cannot tell us which names were used by local chats,
-	// other accounts, or deleted GitHub branches with historical PRs. Scope
-	// generated names to the full workspace identity instead of reusing a bare
-	// mascot name. Explicit "Create from" branches retain their identity.
+
 	const branch =
 		body.branch ??
 		`${
@@ -1962,6 +2014,15 @@ const routeCloudWorkspaceRequestWithAccess = (
 			);
 		}
 		const nowMs = yield* Clock.currentTimeMillis;
+		const archiveResponse = yield* routeWorkspaceArchiveObject(
+			request,
+			nowMs,
+		).pipe(
+			Effect.catchTag("CloudTranscriptStoreError", () =>
+				serviceUnavailable("workspace_archive_storage_unavailable"),
+			),
+		);
+		if (archiveResponse !== null) return archiveResponse;
 		const store = yield* CloudWorkspaceStore;
 		const launchIntentCipher = yield* CloudWorkspaceLaunchIntentCipher;
 		const apiConfiguration = yield* ApiConfiguration;
@@ -1974,8 +2035,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				decodeURIComponent(controlMatch[1] ?? ""),
 				nowMs,
 			);
-			// A shared organization runtime cannot impersonate its creator. Actor-scoped
-			// delegation must precede enabling cross-workspace control there.
+
 			if (source.accountId.startsWith("organization:"))
 				return yield* forbidden("runtime_control_requires_personal_workspace");
 			if (source.state !== "ready")
@@ -2028,20 +2088,17 @@ const routeCloudWorkspaceRequestWithAccess = (
 				Schema.Struct({
 					action: DeviceBridgeAction,
 					targetDeviceId: Schema.optional(Schema.String),
+					bindOnlyIfUnbound: Schema.optional(Schema.Boolean),
 				}),
 				request,
 			);
-			if (body.targetDeviceId !== undefined) {
+			if (
+				body.targetDeviceId !== undefined &&
+				!(body.bindOnlyIfUnbound && workspace.requestConfig.localDeviceId)
+			) {
 				if (actor !== "user" || body.action._tag !== "status")
 					return yield* Effect.fail(forbidden("device_bridge_user_required"));
-				const devices = yield* ApiStore;
-				const device = yield* devices.getEnvironment(body.targetDeviceId);
-				if (
-					!device ||
-					device.accountId !== workspace.accountId ||
-					device.providerKind !== "desktop"
-				)
-					return yield* Effect.fail(forbidden("device_bridge_target_rejected"));
+				yield* requireBridgeDevice(workspace.accountId, body.targetDeviceId);
 				const bound = yield* store.bindLocalDevice({
 					workspaceId,
 					accountId: workspace.accountId,
@@ -2142,13 +2199,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 				workspace.providerSandboxId === undefined
 			)
 				return yield* Effect.fail(unauthorized("workspace_bootstrap_rejected"));
-			const initialGithub = Schema.decodeUnknownOption(
-				CloudGithubCredentialRequest,
-			)(workspace.requestConfig.initialGithubContext);
 			if (
 				(workspace.accountId.startsWith("organization:") ||
-					(Option.isSome(initialGithub) &&
-						initialGithub.value.slackMessageId !== undefined)) &&
+					workspaceStartedFromSlack(workspace)) &&
 				!body.capabilities?.includes(CLOUD_RUNTIME_GITHUB_EXECUTION_CAPABILITY)
 			)
 				return yield* conflict("github_runtime_update_required");
@@ -2166,8 +2219,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				return yield* Effect.fail(
 					unauthorized("workspace_bootstrap_key_mismatch"),
 				);
-			// Derivation from the high-entropy one-shot token allows response-loss
-			// retries to recover the credential without storing it in plaintext.
+
 			const runtimeCredential = `workspace_runtime_${yield* sha256Hex(
 				`bootstrap-v1\n${token}\n${workspaceId}\n${generation}\n${epoch}\n${credentialKeyThumbprint}\n${signingKeyThumbprint}`,
 			)}`;
@@ -2265,7 +2317,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 							enrolled.receipt.runtimeCredentialExpiresAtMs -
 							RUNTIME_CREDENTIAL_TTL_MS,
 					}),
-					// Enrollment succeeded above; the launch agent's grant rides along.
+
 					issueBootstrapLaunchGrant({
 						codexServingEnabled:
 							apiConfiguration.cloudCodexAuthBrokerServingEnabled,
@@ -2299,10 +2351,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				providerSandboxId,
 				runtimeCredential,
 				runtimeGatewayCredential,
-				// Wire-v5 runtimes published before machine-owned sandbox auth require
-				// this field during bootstrap decoding. Credentials are no longer sent
-				// here, but retaining the empty additive field keeps retained sandboxes
-				// resumable while newer v5 runtimes use runtimeGatewayCredential.
+
 				cloudCredentials: [],
 				gatewayUrl: gatewayUrl(api.apiIssuer, workspaceId),
 				gatewayProtocol: WORKSPACE_GATEWAY_PROTOCOL,
@@ -2394,8 +2443,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				});
 				verifiedSigningKeyThumbprint = registeredThumbprint;
 			}
-			// A deterministic value lets a retry recover the exact credential after
-			// response loss without storing plaintext at Api.
+
 			const runtimeCredential = `workspace_runtime_${yield* sha256Hex(
 				`${currentCredential}:${workspaceId}:${body.requestId}`,
 			)}`;
@@ -2521,22 +2569,36 @@ const routeCloudWorkspaceRequestWithAccess = (
 			let useBot = false;
 			if (context.slackMessageId !== undefined) {
 				const message = yield* store.getApiMessage(context.slackMessageId);
-				if (
-					message === null ||
-					message.accountId !== workspace.accountId ||
-					message.workspaceId !== workspaceId
-				)
-					return yield* forbidden("github_execution_identity_invalid");
-				const content = decodeApiMessageContent(
-					yield* openApiMessageString(
-						workspace.accountId,
-						workspaceId,
-						message.messageId,
-						message.sealedContent,
-					),
-				);
-				if (content.githubBot !== true)
-					return yield* forbidden("github_execution_identity_invalid");
+				// Slack creates an idle workspace before submitting its first message.
+				// Its server-persisted launch identity authorizes repository setup even
+				// when no synthetic launch-message row exists. Arbitrary message IDs
+				// still require the normal account/workspace/content checks below.
+				const initialGithub = Schema.decodeUnknownOption(
+					CloudGithubCredentialRequest,
+				)(workspace.requestConfig.initialGithubContext);
+				const trustedSetup =
+					message === null &&
+					context.slackMessageId === `msg_launch_${workspaceId}` &&
+					Option.isSome(initialGithub) &&
+					initialGithub.value.slackMessageId === context.slackMessageId;
+				if (!trustedSetup) {
+					if (
+						message === null ||
+						message.accountId !== workspace.accountId ||
+						message.workspaceId !== workspaceId
+					)
+						return yield* forbidden("github_execution_identity_invalid");
+					const content = decodeApiMessageContent(
+						yield* openApiMessageString(
+							workspace.accountId,
+							workspaceId,
+							message.messageId,
+							message.sealedContent,
+						),
+					);
+					if (content.githubBot !== true)
+						return yield* forbidden("github_execution_identity_invalid");
+				}
 				useBot = true;
 			}
 			const actorId = context.actor?.subject ?? workspace.accountId;
@@ -2696,8 +2758,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				runtimeBootstrapReceiptFromConfig(
 					workspace.requestConfig,
 				)?.capabilities?.includes(CLOUD_RUNTIME_API_ASSETS_CAPABILITY) === true;
-			// SessionDomain accepts one active turn at a time. Strict FIFO keeps a
-			// second durable command from colliding with the turn just started here.
+
 			const commands = yield* Effect.forEach(
 				pending === null ? [] : [pending],
 				(message) =>
@@ -2710,9 +2771,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 								message.sealedContent,
 							),
 						);
-						// Keep attachment commands pending until an upgraded runtime is active.
-						// Older runtimes ignore the optional wire field and would otherwise ACK
-						// the command after silently dropping its files.
+
 						if (
 							content.githubBot === true &&
 							!runtimeBootstrapReceiptFromConfig(
@@ -2736,6 +2795,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 							...(content.attachments.length === 0
 								? {}
 								: { attachments: content.attachments }),
+							...(content.source === undefined
+								? {}
+								: { source: content.source }),
 							seq: message.seq,
 						};
 					}),
@@ -2783,7 +2845,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				body.settledAt > nowMs + 5 * 60_000
 			)
 				return yield* Effect.fail(badRequest("invalid_turn_event"));
-			// v1 of the public API follows the initial session only.
+
 			if (body.sessionId !== workspace.initialSessionId)
 				return json({ recorded: false });
 			const messageId = `msg_turn_${(
@@ -3107,9 +3169,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					leaseRequest.afterRevision < 0)
 			)
 				return yield* Effect.fail(badRequest("cloud_mailbox_revision_invalid"));
-			// Delete fences all new delivery, but an exact still-current runtime
-			// credential must retain the bounded ability to publish the durable receipt
-			// for a lease it already owns. The mailbox validates that original token.
+
 			const workspace =
 				action === "ack"
 					? yield* authenticateRuntime(request, workspaceId, nowMs)
@@ -3156,11 +3216,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				return yield* Effect.fail(
 					conflict("cloud_workspace_runtime_not_ready"),
 				);
-			// Do not cross into the Durable Object on an idle poll. If an enqueue
-			// races after the atomic store observation, that enqueue owns a newer wake
-			// revision and the consumer's next poll will drain it. This closes the
-			// inverse race where an unobserved command could be leased between the
-			// store check and the DO request.
+
 			if (
 				action === "lease" &&
 				billingCapacity === "available" &&
@@ -3553,7 +3609,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				const response = json(
 					{
 						...envelope,
-						// Overwrite caller claims, including removing them for legacy Personal.
+
 						actor:
 							access.membership === null
 								? undefined
@@ -3616,6 +3672,19 @@ const routeCloudWorkspaceRequestWithAccess = (
 						)
 					: attachMailboxLifecycle(response, workspace);
 			}
+		}
+		if (method === "POST" && path === ApiPaths.cloudGithubObserve) {
+			const input = yield* decodeBody(GitHubObserveRequest, request);
+			const result = yield* observeGithub(
+				access.actor.accountId,
+				ownerId,
+				input,
+			);
+			return json(
+				yield* Schema.encodeEffect(GitHubObservation)(result).pipe(
+					Effect.orDie,
+				),
+			);
 		}
 		if (method === "GET" && path === "/v1/cloud/github") {
 			const installations = yield* refreshGithubConnections(ownerId);
@@ -3996,7 +4065,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				settings: {
 					source: "custom-snapshot",
 					snapshotVersion: source.version,
-					// Resolve names once; retries and launches retain this source generation.
+
 					snapshot: { ...body, snapshotId: source.snapshotId },
 					providerConnectionId: provider.connectionId,
 				},
@@ -4170,9 +4239,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				changes && rawCursor !== null ? Number(rawCursor) : undefined;
 			if (cursor !== undefined && (!Number.isSafeInteger(cursor) || cursor < 0))
 				return json({ error: "invalid-request" }, 400);
-			// Organization membership and grants can change independently of a client's
-			// cursor. A filtered replacement also removes revoked chats without exposing
-			// tombstone IDs for private chats this member has never seen.
+
 			const replacement = access.scope.kind === "organization";
 			const catalog = yield* store.readCloudCatalog(
 				ownerId,
@@ -4194,8 +4261,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 					))
 				)
 					continue;
-				// An accepted deletion removes the chat immediately. Provider cleanup
-				// can retry or fail independently without resurrecting a clickable chat.
+
 				if (
 					workspace.state === "deleted" ||
 					workspace.desiredState === "deleted"
@@ -4389,7 +4455,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 			const { permission } = yield* cloudWorkspacePermission(access, workspace);
 			if (workspace.state === "failed" || workspace.state === "deleted")
 				return yield* Effect.fail(conflict("cloud_workspace_unavailable"));
-			// Reject before the WebSocket handshake, where browsers hide HTTP errors.
+
 			if (!workspaceRuntimeSupportsScope(workspace))
 				return yield* conflict("workspace_runtime_update_required");
 			const ticketRequest =
@@ -4536,10 +4602,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 						body.port === offer.port
 			)
 				return yield* Effect.fail(badRequest("invalid_preview_port"));
-			// The returned host is public-by-URL: anyone holding it reaches the
-			// port with no further auth. The high-entropy sandbox id is the trust
-			// model (like sharing a tunnel link). Pausing does not revoke a route:
-			// providers such as boxd can wake the machine on inbound traffic.
+
 			const provider = yield* resolveResourceProvider(workspace).pipe(
 				Effect.mapError(() => serviceUnavailable("cloud_provider_unavailable")),
 			);
@@ -4672,15 +4735,26 @@ const routeCloudWorkspaceRequestWithAccess = (
 				action === "resume"
 					? yield* decodeBody(CloudWorkspaceResumeRequest, request)
 					: yield* decodeBody(CloudWorkspaceActionRequest, request);
-			// Client socket loss and bearer expiry cannot establish execution loss.
-			// Recovery follows stored lifecycle failure or an authoritative mailbox fence.
+
+			const resumeProvider =
+				action === "resume" &&
+				workspace.state === "ready" &&
+				workspace.runtimeState === "online"
+					? yield* resolveResourceProvider(workspace)
+					: null;
+			const providerNeedsWake =
+				resumeProvider !== null
+					? yield* cloudWorkspaceProviderNeedsWake(workspace, resumeProvider)
+					: false;
 			const recoverRuntime =
 				action === "resume" &&
 				workspace.providerSandboxId !== undefined &&
-				((workspace.state === "failed" &&
-					(cloudWorkspaceHasRetainedRuntimeData(workspace) ||
-						workspace.statusCode === "runtime-connection-timeout" ||
-						workspace.statusCode === "runtime-activation-unconfirmed")) ||
+				((providerNeedsWake &&
+					resumeProvider?.preservesProcessesOnResume !== true) ||
+					(workspace.state === "failed" &&
+						(cloudWorkspaceHasRetainedRuntimeData(workspace) ||
+							workspace.statusCode === "runtime-connection-timeout" ||
+							workspace.statusCode === "runtime-activation-unconfirmed")) ||
 					workspace.statusCode === "runtime-memory-recovery-failed" ||
 					workspace.requestConfig.cloudMailboxFenceRequired === true);
 
@@ -4717,6 +4791,9 @@ const routeCloudWorkspaceRequestWithAccess = (
 								: "paused";
 			const updated: CloudWorkspaceRecord = {
 				...workspace,
+				...(providerNeedsWake && !recoverRuntime
+					? { state: "paused" as const, runtimeState: "offline" as const }
+					: {}),
 				...(failedRetryBuild === null
 					? {}
 					: { buildId: failedRetryBuild.buildId }),
@@ -4796,7 +4873,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 			};
 			const received: CloudWorkspaceRecord = {
 				...updated,
-				// An explicit retry starts a new bounded episode on the same disk.
+
 				...((action === "resume" ||
 					action === "restart" ||
 					action === "update") &&
@@ -4832,6 +4909,7 @@ const routeCloudWorkspaceRequestWithAccess = (
 				deduplicateRequestedResume:
 					action === "resume" &&
 					!recoverRuntime &&
+					!providerNeedsWake &&
 					cloudWorkspaceResumeIsAlreadyRequested(workspace),
 				createdAtMs: nowMs,
 			});

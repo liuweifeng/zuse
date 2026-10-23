@@ -1,16 +1,13 @@
 import { Host } from "@expo/ui";
-import { Label, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Label, Menu } from "@expo/ui/swift-ui";
 import { frame } from "@expo/ui/swift-ui/modifiers";
 import { useState } from "react";
 
+import { type SelectorRowProps, selectorMenuItems } from "~/lib/action-menus";
 import { colors } from "~/theme";
+import { SwiftMenuItems } from "./swift-menu-items";
 
-export type SelectorOption = {
-	key: string;
-	label: string;
-	selected: boolean;
-	onSelect: () => void;
-};
+export type { SelectorOption } from "~/lib/action-menus";
 
 /**
  * Uses the supported native Label primitive rather than HStackView. Giving the
@@ -24,14 +21,7 @@ export function SelectorRow({
 	disabled = false,
 	emptyLabel = "None",
 	compact = false,
-}: {
-	symbol: string;
-	label: string;
-	options: readonly SelectorOption[];
-	disabled?: boolean;
-	emptyLabel?: string;
-	compact?: boolean;
-}) {
+}: SelectorRowProps) {
 	const [rowWidth, setRowWidth] = useState(1);
 
 	return (
@@ -63,18 +53,9 @@ export function SelectorRow({
 							]
 				}
 			>
-				{disabled || options.length === 0 ? (
-					<NativeButton label={emptyLabel} onPress={() => {}} />
-				) : (
-					options.map((option) => (
-						<NativeButton
-							key={option.key}
-							label={option.label}
-							systemImage={option.selected ? sf("checkmark") : undefined}
-							onPress={option.onSelect}
-						/>
-					))
-				)}
+				<SwiftMenuItems
+					items={selectorMenuItems(options, { disabled, emptyLabel })}
+				/>
 			</Menu>
 		</Host>
 	);

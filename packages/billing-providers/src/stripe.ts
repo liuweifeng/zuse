@@ -144,14 +144,14 @@ export interface StripeBillingDependencies {
 const notFound = (error: unknown) =>
 	error instanceof Stripe.errors.StripeInvalidRequestError &&
 	error.statusCode === 404;
-/** Uses fetch for Worker compatibility and bounds retry time for billing requests. */
+
 const makeSdk = (config: StripeBillingConfig) =>
 	new Stripe(Redacted.value(config.secretKey), {
 		httpClient: Stripe.createFetchHttpClient(),
 		maxNetworkRetries: 1,
 		timeout: 10_000,
 	});
-/** Translates Stripe SDK objects into the billing adapter contract. */
+
 const makeClient = (
 	sdk: Stripe,
 	config: StripeBillingConfig,
@@ -271,8 +271,7 @@ const makeClient = (
 			)
 		)
 			return true;
-		// Late usage is safe only while its original metered invoice is draft.
-		// A successful meter request cannot amend an already finalized invoice.
+
 		for await (const invoice of sdk.invoices.list({
 			subscription: subscriptionId,
 			created: { gte: Math.floor(periodEndMs / 1000) - 300 },
@@ -352,7 +351,7 @@ export const makeStripeBillingProvider = (
 	const now = deps.now ?? Date.now;
 	const call = <A>(run: () => Promise<A>) =>
 		Effect.tryPromise({ try: run, catch: failure });
-	/** Rejects a persisted binding whose remote ownership no longer matches. */
+
 	const verifiedCustomer = (accountId: string, customerId: string) =>
 		Effect.gen(function* () {
 			if (
@@ -390,7 +389,7 @@ export const makeStripeBillingProvider = (
 			}
 			if (reservation.customerId !== undefined)
 				return yield* verifiedCustomer(accountId, reservation.customerId);
-			// A losing renewal must use the winner's key, never replay an expired generation.
+
 			if (now() - reservation.createdAtMs >= 23 * 60 * 60_000)
 				return yield* needsReconciliation();
 			const key =
@@ -607,7 +606,7 @@ export const makeStripeBillingProvider = (
 				)
 					return yield* needsReconciliation();
 				const customerId = yield* customer(input.accountId, false);
-				// Meter identifiers have a 100-character limit. Hash long ledger keys.
+
 				const bytes = new TextEncoder().encode(input.idempotencyKey);
 				const digest = yield* call(() =>
 					crypto.subtle.digest("SHA-256", bytes),
@@ -661,8 +660,7 @@ export const makeStripeBillingProvider = (
 					periodEndMs <= periodStartMs
 				)
 					return yield* failure();
-				// The invoice outbox places first-minute usage at the next full
-				// minute. Adjacent periods therefore have disjoint summary windows.
+
 				const start = Math.ceil(periodStartMs / 60_000) * 60;
 				const end = Math.ceil(periodEndMs / 60_000) * 60;
 				if (start >= end) return yield* needsReconciliation();

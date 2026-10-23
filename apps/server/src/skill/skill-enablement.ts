@@ -1,11 +1,6 @@
 import * as path from "node:path";
 import { type ProviderId, Skill } from "@zuse/contracts";
 
-/**
- * Providers whose skill enablement is a Zuse-owned override stored in the
- * global `disabledSkills` setting. Codex is absent on purpose: Codex's native
- * skill config is the source of truth for Codex skills.
- */
 const ZUSE_OVERRIDE_PROVIDERS: ReadonlySet<ProviderId> = new Set<ProviderId>([
 	"claude",
 	"zuse",
@@ -53,12 +48,6 @@ export const applySkillEnablement = (
 	);
 };
 
-/**
- * Names Claude Code may know a skill by. The CLI names a `<dir>/SKILL.md`
- * skill after its directory (plugin skills: `<plugin>:<dir>`) and matches
- * allowlist entries against that name or the frontmatter display name, so
- * both are listed when they differ.
- */
 const claudeSkillNames = (skill: Skill): ReadonlyArray<string> => {
 	if (
 		skill.filePath === null ||

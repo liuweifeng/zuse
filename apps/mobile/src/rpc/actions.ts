@@ -41,7 +41,6 @@ import {
 	type WorktreeId,
 } from "@zuse/contracts";
 import { Effect, Stream } from "effect";
-
 import { reviewScopeRequestValue } from "~/lib/review-scope";
 import {
 	connectionKeyForOptions,
@@ -55,6 +54,7 @@ import {
 	sessionCommandContext,
 } from "~/store/mobile-client-bus";
 import { getConnectionClient, reportConnectionFailure } from "./connection";
+import { loadGithubObservation } from "./github";
 import { mobileTerminalOpenOwnership } from "./terminal-actions";
 import type { WsProtocolOptions } from "./ws-protocol";
 
@@ -966,13 +966,7 @@ export const loadGitBranches = (options: GitTarget) =>
 export const loadGitPrState = (
 	options: GitTarget,
 ): Effect.Effect<GitPrInfo, unknown> =>
-	Effect.gen(function* () {
-		const client = yield* getConnectionClient(options.connection);
-		return yield* client["git.prState"]({
-			folderId: options.folderId,
-			worktreeId: options.worktreeId ?? null,
-		});
-	});
+	loadGithubObservation(options).pipe(Effect.map((value) => value.pr));
 
 export const markGitPrReady = (options: GitTarget) =>
 	Effect.gen(function* () {

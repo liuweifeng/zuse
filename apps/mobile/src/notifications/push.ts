@@ -41,7 +41,17 @@ const withPushTimeout = async <T>(
 
 export const clearPushRegistration = (): Promise<void> => clearDeviceIdentity();
 
+/** Android 13+ only shows the permission prompt once a channel exists. */
+const ensureAndroidNotificationChannel = async (): Promise<void> => {
+	if (Platform.OS !== "android") return;
+	await Notifications.setNotificationChannelAsync("default", {
+		name: "Zuse",
+		importance: Notifications.AndroidImportance.HIGH,
+	});
+};
+
 const getExpoPushToken = async (): Promise<string | null> => {
+	await ensureAndroidNotificationChannel();
 	const current = await Notifications.getPermissionsAsync();
 	const finalStatus =
 		current.status === "granted"

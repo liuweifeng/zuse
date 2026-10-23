@@ -187,8 +187,7 @@ export const CredentialsServiceLive = Layer.effect(
 					JSON.parse(raw),
 					await secureStorageMasterKey(false),
 				);
-				// Cache under the pre-read identity. An atomic replacement during the
-				// read will miss next time, never pin an old vault to a new identity.
+
 				cached = { stamp, contents };
 				return contents;
 			} catch (cause) {
@@ -304,8 +303,7 @@ export const CredentialsServiceLive = Layer.effect(
 						}))
 						.sort((a, b) => a.origin.localeCompare(b.origin)),
 				),
-			// WorkOS sessions already use SessionStore. Deliberately do not touch
-			// legacy Keychain entries during startup migration.
+
 			getWorkosSession: () => Effect.succeed(null),
 			setWorkosSession: () => Effect.void,
 			removeWorkosSession: () => Effect.void,

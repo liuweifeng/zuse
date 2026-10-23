@@ -9,10 +9,6 @@ export type RateLimitInfo = {
 	readonly period?: "weekly" | "monthly" | "daily";
 };
 
-// Parse rate-limit / usage-limit messages emitted by Claude Code, the
-// Anthropic SDK, or other providers. We see them as plain strings (the
-// wire ErrorEvent carries no structured metadata) so this is best-effort
-// pattern matching against the human-readable text.
 export const parseRateLimit = (text: string): RateLimitInfo | null => {
 	const isRateLimit =
 		/usage limit|rate[-\s]?limit|quota|429|too many requests|overloaded|hit your limit|reached (?:your |the )?limit|agent reached limit/i.test(
@@ -62,6 +58,16 @@ export const isGeminiAcpUpgradeError = (text: string): boolean =>
 		text,
 	);
 
+const CODEX_MODEL_NEEDS_UPDATE_PATTERN =
+	/The '([^']+)' model is not supported when using Codex with a ChatGPT account/i;
+
+/**
+ * Codex's backend filters ChatGPT-account models by client version, so a model
+ * newer than the installed CLI fails with this error until Codex is updated.
+ */
+export const codexModelNeedingUpdate = (text: string): string | null =>
+	CODEX_MODEL_NEEDS_UPDATE_PATTERN.exec(text)?.[1] ?? null;
+
 const CLOUD_ACCOUNT_AUTH_PROVIDERS: ReadonlySet<ProviderId> = new Set([
 	"claude",
 	"codex",
@@ -82,13 +88,23 @@ export type ProviderErrorNotice =
 			readonly maxAttempts: number;
 	  }
 	| { readonly kind: "gemini-upgrade" }
+	/** The installed provider CLI is too old for the selected model. */
+	| {
+			readonly kind: "provider-update";
+			readonly providerId: ProviderId;
+			readonly modelId: string;
+	  }
 	/** Cloud workspace account-level credential needs reconnecting. */
 	| { readonly kind: "cloud-auth"; readonly providerId: ProviderId }
 	/** Local provider with in-app sign-in; `ProviderSignInTray` owns recovery. */
 	| { readonly kind: "sign-in"; readonly providerId: ProviderId }
 	| { readonly kind: "auth"; readonly providerId?: ProviderId }
 	| { readonly kind: "network" }
-	| { readonly kind: "terminal"; readonly headline: string }
+	| {
+			readonly kind: "terminal";
+			readonly headline: string;
+			readonly category: Extract<ChatError, { kind: "terminal" }>["category"];
+	  }
 	| { readonly kind: "generic" };
 
 export const describeProviderError = (
@@ -97,6 +113,16 @@ export const describeProviderError = (
 	environmentId: EnvironmentId | undefined,
 ): ProviderErrorNotice => {
 	if (isGeminiAcpUpgradeError(error.message)) return { kind: "gemini-upgrade" };
+	const errorProvider =
+		(error.kind === "auth" ? error.providerId : undefined) ?? providerId;
+	const codexModel =
+		errorProvider === "codex" ? codexModelNeedingUpdate(error.message) : null;
+	if (codexModel !== null)
+		return {
+			kind: "provider-update",
+			providerId: "codex",
+			modelId: codexModel,
+		};
 	const limit = parseRateLimit(error.message);
 	if (limit !== null) return { kind: "usage-limit", limit };
 	const reconnecting = parseReconnectingStatus(error.message);
@@ -120,7 +146,11 @@ export const describeProviderError = (
 		case "network":
 			return { kind: "network" };
 		case "terminal":
-			return { kind: "terminal", headline: error.headline };
+			return {
+				kind: "terminal",
+				headline: error.headline,
+				category: error.category,
+			};
 		case "generic":
 			return { kind: "generic" };
 	}
@@ -135,6 +165,7 @@ export const isBlockingNotice = (notice: ProviderErrorNotice): boolean => {
 	switch (notice.kind) {
 		case "usage-limit":
 		case "gemini-upgrade":
+		case "provider-update":
 		case "cloud-auth":
 		case "auth":
 		case "terminal":
@@ -149,7 +180,6 @@ export const isBlockingNotice = (notice: ProviderErrorNotice): boolean => {
 };
 
 type DismissedProviderErrorState = {
-	/** Session resource key -> id of the transcript error the user dismissed. */
 	readonly dismissedBySession: Readonly<Record<string, string>>;
 };
 

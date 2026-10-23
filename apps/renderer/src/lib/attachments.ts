@@ -99,14 +99,17 @@ export const uploadAttachmentBytes = async (
 	};
 };
 
+export const validateAttachmentFile = (file: File): void => {
+	if (file.size > MAX_ATTACHMENT_BYTES)
+		throw new Error(`${file.name}: File too large (max 100 MB)`);
+};
+
 export const uploadAttachment = async (
 	ref: SessionRef,
 	file: File,
 	rootPath?: string,
 ): Promise<AttachmentRef> => {
-	if (file.size > MAX_ATTACHMENT_BYTES) {
-		throw new Error("File too large (max 100 MB)");
-	}
+	validateAttachmentFile(file);
 	return uploadAttachmentBytes(ref, {
 		bytes: await fileToBytes(file),
 		mimeType: file.type || "application/octet-stream",
@@ -115,7 +118,6 @@ export const uploadAttachment = async (
 	});
 };
 
-/** Read an attachment's bytes back from the environment that stores it. */
 const readAttachment = async (
 	ref: SessionRef,
 	id: string,

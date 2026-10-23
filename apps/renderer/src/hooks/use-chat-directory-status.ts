@@ -38,7 +38,6 @@ export function useChatDirectoryStatus(
 				});
 				if (!cancelled) setStatus(next);
 			} catch {
-				// Existing data remains usable during a transient transport failure.
 			} finally {
 				inFlight = false;
 				schedule();

@@ -58,10 +58,6 @@ const openDatabase = (name: string): Promise<IDBDatabase> =>
 				receipts.createIndex("receivedAt", "receivedAt", { unique: false });
 			}
 			if (event.oldVersion < 2) {
-				// Legacy pending commands still contain their full identity, so preserve
-				// them by deriving the new fingerprint in the upgrade transaction.
-				// Legacy receipts contain only commandId/result and cannot be bound to a
-				// payload safely; invalidate them so the stable command ID is replayed.
 				const transaction = request.transaction;
 				if (transaction !== null) {
 					const outbox = transaction.objectStore(OUTBOX_STORE);

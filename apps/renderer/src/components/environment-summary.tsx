@@ -1,5 +1,7 @@
+import { runningBackgroundTasks } from "@zuse/client-runtime/background-agent-presentation";
 import { formatNumber as formatUiNumber } from "@zuse/i18n";
 import { useGitPrState } from "../lib/use-git-pr-state.ts";
+import { BackgroundTasks } from "./background-tasks.tsx";
 import { GitStackMenu } from "./git-stack-menu.tsx";
 import { GitHubStatusNotice } from "./github-status-notice.tsx";
 import { PrActionsMenu } from "./pr-actions-menu.tsx";
@@ -19,6 +21,7 @@ import {
 	GitMergeIcon,
 	GitPullRequestIcon,
 	LaptopIcon,
+	Layers01Icon,
 	Loading02Icon,
 	ServerStack01Icon,
 	Tick02Icon,
@@ -28,6 +31,7 @@ import { latestProposedPlanMarkdown } from "@zuse/utils/proposed-plan";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { deriveEnvironmentPrRows } from "../lib/branch-workflow.ts";
+import { chatPullRequests } from "../lib/chat-pull-requests.ts";
 import { useCloudChatCatalogStore } from "../lib/cloud-workspace-catalog.ts";
 import { displayPath } from "../lib/display-path.ts";
 import { useEnvironmentEntities } from "../lib/environment-entity-hooks.ts";
@@ -45,14 +49,18 @@ import { isSessionTurnActive } from "../lib/session-runtime-state.ts";
 import { useOptionalRendererSessionTimeline } from "../lib/session-timeline-hooks.ts";
 import { useActiveContext } from "../store/active-workspace.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
+import { useGitStack } from "../store/git-stack.ts";
 import { useSessionsStore } from "../store/sessions.ts";
 import { useUiStore } from "../store/ui.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { AgentsSummary } from "./agents-summary.tsx";
+import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import {
 	CloudWorkspaceInfo,
 	summaryRowClass as rowClass,
+	summaryMetaClass,
 } from "./cloud-workspace-info.tsx";
+import { SummarySection } from "./summary-section.tsx";
 import { BranchMenuButton } from "./top-bar.tsx";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "./ui/menu.tsx";
 import {
@@ -130,6 +138,7 @@ export function EnvironmentSummary() {
 		checkRuns,
 	} = useGitPrState(executionRef, checksRequestedKey !== null);
 	const status = gitView.data?.status ?? null;
+	const stack = useGitStack(executionRef, status?.branch ?? null);
 	const diffStat = gitView.data?.diffStat ?? null;
 	const [branches, setBranches] = useState<ReadonlyArray<GitBranchInfo>>([]);
 	const [branchesLoading, setBranchesLoading] = useState(false);
@@ -174,10 +183,19 @@ export function EnvironmentSummary() {
 			uiMessage,
 		],
 	);
-	const subagents = useMemo(
-		() => detachedSubagentGroups(messages, timeline.projection?.executionSteps),
-		[messages, timeline.projection?.executionSteps, uiMessage],
-	);
+	const subagents = useMemo(() => {
+		const backgroundIds = new Set(
+			runningBackgroundTasks(timeline.view).map((task) => task.id),
+		);
+		return detachedSubagentGroups(
+			messages,
+			timeline.projection?.executionSteps,
+		).filter(
+			(group) =>
+				group.parent.content._tag !== "tool_use" ||
+				!backgroundIds.has(group.parent.content.itemId),
+		);
+	}, [messages, timeline.view, timeline.projection?.executionSteps, uiMessage]);
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -217,7 +235,7 @@ export function EnvironmentSummary() {
 	};
 	useEffect(() => {
 		void refreshBranches();
-		// The active branch is the refresh boundary for this menu.
+
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [branchLabel, environmentId, folderId, worktreeId]);
 	const switchToBranch = async (branch: GitBranchInfo): Promise<void> => {
@@ -274,6 +292,11 @@ export function EnvironmentSummary() {
 				? "Pull request"
 				: `PR #${pr.number ?? "?"} · ${pr.state}`;
 	const prRows = deriveEnvironmentPrRows(pr);
+	const linkedPullRequests = chatPullRequests({
+		pr,
+		title: prDetails?.title ?? null,
+		stack,
+	});
 	const prStatus = (() => {
 		if (pr === null) {
 			return {
@@ -333,29 +356,8 @@ export function EnvironmentSummary() {
 	return (
 		<aside
 			aria-label={uiMessage("chat:environment_summary_environment_summary")}
-			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-64 shrink-0 overflow-y-auto rounded-lg bg-glass border-glass p-1"
+			className="pointer-events-auto max-h-[calc(100dvh-7rem)] w-72 shrink-0 overflow-y-auto rounded-xl bg-glass border-glass p-1.5"
 		>
-			<h2 className="px-2 pb-1 pt-0.5 text-xs font-medium text-muted-foreground">
-				{uiMessage("chat:environment_summary_summary")}
-			</h2>
-			<button
-				type="button"
-				className={`${rowClass} hover:bg-muted/60`}
-				onClick={() => revealPanel("changes")}
-			>
-				<HugeiconsIcon icon={GitCompareIcon} className="size-4 shrink-0" />
-				<span className="min-w-0 flex-1 truncate">{changesLabel}</span>
-				{diffStat !== null && diffStat.additions + diffStat.deletions > 0 ? (
-					<span className="flex shrink-0 items-center gap-1 font-mono text-[11px] tabular-nums">
-						<span className="text-[var(--accent-green)]">
-							+{compactNumber(diffStat.additions)}
-						</span>
-						<span className="text-danger-text">
-							−{compactNumber(diffStat.deletions)}
-						</span>
-					</span>
-				) : null}
-			</button>
 			{cloudWorkspaceId !== null ? (
 				<CloudWorkspaceInfo workspaceId={cloudWorkspaceId} />
 			) : (
@@ -372,9 +374,11 @@ export function EnvironmentSummary() {
 							{environmentLocation.label}
 						</span>
 						{environmentLocation.isLocal ? null : (
-							<span
-								className={`size-1.5 shrink-0 rounded-full ${environmentLocation.connected ? "bg-[var(--accent-green)]" : "bg-[var(--accent-amber)]"}`}
-							/>
+							<span className={summaryMetaClass}>
+								<span
+									className={`size-1.5 rounded-full ${environmentLocation.connected ? "bg-[var(--accent-green)]" : "bg-[var(--accent-amber)]"}`}
+								/>
+							</span>
 						)}
 					</MenuTrigger>
 					<MenuPopup side="left" align="start" sideOffset={8} className="w-64">
@@ -421,14 +425,31 @@ export function EnvironmentSummary() {
 				onRename={() => {}}
 				onSwitch={(branch) => void switchToBranch(branch)}
 			/>
-			{executionRef ? (
-				<GitStackMenu
-					branch={status?.branch ?? null}
-					key={`${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}:${status?.branch}`}
-					executionRef={executionRef}
-					className={`${rowClass} hover:bg-muted/60`}
+			<button
+				type="button"
+				className={`${rowClass} hover:bg-muted/60`}
+				onClick={() => revealPanel("changes")}
+			>
+				<HugeiconsIcon
+					icon={GitCompareIcon}
+					className="size-4 shrink-0 text-muted-foreground"
 				/>
-			) : null}
+				<span
+					className={`min-w-0 flex-1 truncate ${status?.dirtyFiles === 0 ? "text-muted-foreground" : ""}`}
+				>
+					{changesLabel}
+				</span>
+				{diffStat !== null && diffStat.additions + diffStat.deletions > 0 ? (
+					<span className={`${summaryMetaClass} gap-1 font-mono`}>
+						<span className="text-[var(--accent-green)]">
+							+{compactNumber(diffStat.additions)}
+						</span>
+						<span className="text-danger-text">
+							−{compactNumber(diffStat.deletions)}
+						</span>
+					</span>
+				) : null}
+			</button>
 			{pr && pr.state !== "none" && executionRef ? (
 				<PrActionsMenu
 					executionRef={executionRef}
@@ -456,13 +477,36 @@ export function EnvironmentSummary() {
 						aria-label={prStatus.label}
 					/>
 					<span className="min-w-0 flex-1 truncate">{prLabel}</span>
-					<span className="shrink-0 text-[10px] text-muted-foreground">
+					<span className={summaryMetaClass}>
 						{pr?.state === "none"
 							? uiMessage("chat:environment_summary_create_pr")
 							: uiMessage("common:open")}
 					</span>
 				</button>
 			)}
+			{executionRef !== null &&
+			stack?.branches.some(
+				(item) => item.isCurrent && item.name === status?.branch,
+			) ? (
+				<SummarySection
+					icon={Layers01Icon}
+					label={uiMessage("chat:environment_summary_stack")}
+					meta={uiMessage("chat:environment_summary_stack_count", {
+						count: linkedPullRequests.length,
+					})}
+				>
+					{linkedPullRequests.length > 1 ? (
+						<ChatPullRequestList pullRequests={linkedPullRequests} limit={5} />
+					) : null}
+					<GitStackMenu
+						branch={status?.branch ?? null}
+						key={`${executionRef.environmentId}:${executionRef.folderId}:${executionRef.worktreeId}:${status?.branch}`}
+						executionRef={executionRef}
+						className="flex h-6 w-full items-center rounded-md ps-[34px] text-[11px] text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60 data-[popup-open]:text-foreground"
+						trigger={uiMessage("chat:environment_summary_manage_stack")}
+					/>
+				</SummarySection>
+			) : null}
 			<GitHubStatusNotice pr={pr} executionRef={executionRef} />
 			{prRows.checks !== null ? (
 				<div className={`${rowClass} justify-between`}>
@@ -495,7 +539,7 @@ export function EnvironmentSummary() {
 									<span className="min-w-0 flex-1 truncate">
 										{uiMessage("chat:environment_summary_github_actions")}
 									</span>
-									<span className="shrink-0 text-[10px] text-muted-foreground">
+									<span className={summaryMetaClass}>
 										{prRows.checks.label}
 									</span>
 								</button>
@@ -525,22 +569,26 @@ export function EnvironmentSummary() {
 				</div>
 			) : null}
 			{planAvailable ? (
-				<>
-					<div className="mx-2 my-1 border-border/60 border-t" />
-					<button
-						type="button"
-						className={`${rowClass} hover:bg-muted/60`}
-						onClick={() => revealPanel("plan")}
-					>
-						<HugeiconsIcon
-							icon={CheckListIcon}
-							className="size-4 shrink-0 text-primary"
-						/>
-						<span className="min-w-0 flex-1 truncate">
-							{uiMessage("chat:environment_summary_plan")}
-						</span>
-					</button>
-				</>
+				<button
+					type="button"
+					className={`${rowClass} hover:bg-muted/60`}
+					onClick={() => revealPanel("plan")}
+				>
+					<HugeiconsIcon
+						icon={CheckListIcon}
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
+					<span className="min-w-0 flex-1 truncate">
+						{uiMessage("chat:environment_summary_plan")}
+					</span>
+				</button>
+			) : null}
+			{timeline.ref !== null && session !== null ? (
+				<BackgroundTasks
+					view={timeline.view}
+					sessionRef={timeline.ref}
+					providerId={session.providerId}
+				/>
 			) : null}
 			{chatRef !== null && session !== null ? (
 				<AgentsSummary

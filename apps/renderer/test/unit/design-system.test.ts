@@ -98,7 +98,7 @@ describe("renderer design system", () => {
 		expect(composer).toContain("aria-valuetext={activeLabel}");
 		expect(modelPicker).toContain('label.replace(/^gpt[-\\s]*/i, "")');
 		expect(modelPicker).toContain("<ProviderIcon providerId={providerId}");
-		expect(modelPicker).toContain("flex h-7 w-40 max-w-[40vw] items-center");
+		expect(modelPicker).toContain("flex h-7 max-w-[40vw] items-center");
 		expect(modelPicker).toContain("{optionsPanel}");
 		expect(trays).toContain("composer-attached-rail mx-auto w-14/15");
 		expect(composer).toContain(
@@ -116,7 +116,6 @@ describe("renderer design system", () => {
 	it("uses 28px visible controls in browser authentication", () => {
 		const accessGate = rendererSource("components/browser-access-gate.tsx");
 
-		// The shared Input and default Button are both h-7.
 		expect(accessGate).toContain("<Input");
 		expect(accessGate).toContain("<Button");
 		expect(accessGate).not.toMatch(/\b(?:h-8|h-11|min-h-11)\b/);

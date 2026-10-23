@@ -58,6 +58,7 @@
 	"plugins_skills_project": "Projet",
 	"plugins_skills_codex_note": "Les réglages Codex sont enregistrés dans la configuration de Codex et s'appliquent aussi en dehors de Zuse.",
 	"plugins_skills_loading": "Chargement des compétences…",
+	"plugins_rename": "Renommer",
 	"plugins_connection_name": "Nom de la connexion",
 	"plugins_connection_name_placeholder": "Travail, personnel ou nom de l’entreprise",
 	"plugins_connect_another": "Connecter un autre compte",
@@ -121,5 +122,12 @@
 	"plugins_connected_accounts": "Comptes connectés",
 	"plugins_turn_off": "Désactiver pour les agents",
 	"plugins_turn_on": "Activer pour les agents",
-	"plugins_connection_off": "Désactivé · les agents ne peuvent pas utiliser ce compte"
+	"plugins_connection_off": "Désactivé · les agents ne peuvent pas utiliser ce compte",
+	"plugins_transport": "Type de connexion",
+	"plugins_remote": "Distant",
+	"plugins_local": "Commande locale",
+	"plugins_local_config": "Configuration MCP (JSON)",
+	"plugins_local_hint": "S’exécute sur cet ordinateur dans votre espace personnel. Collez la configuration d’un serveur stdio avec command, args et éventuellement env. Les applications comme Paper doivent être installées ici.",
+	"plugins_local_config_invalid": "Saisissez une configuration MCP stdio valide avec une commande, un tableau args et éventuellement des valeurs env.",
+	"plugins_local_connect_failed": "Impossible de démarrer le serveur MCP local. Vérifiez la commande et assurez-vous que l’application est installée et en cours d’exécution."
 }

@@ -419,9 +419,10 @@ function LimitStrip() {
 	const { message: uiMessage } = useUiMessages(["usage"]);
 
 	const providers = useUsageLimitsStore((state) => state.providers);
-	const loading = useUsageLimitsStore((state) => state.loading);
-	// Always paint every limits-capable provider (incl. Kiro) in a stable
-	// order so a missing/empty API row cannot hide a card.
+	const loadingProviders = useUsageLimitsStore(
+		(state) => state.loadingProviders,
+	);
+
 	const cards = useMemo(() => {
 		const byId = new Map(
 			providers.map((provider) => [provider.providerId, provider] as const),
@@ -462,7 +463,7 @@ function LimitStrip() {
 						<LimitPlaceholder
 							key={entry.id}
 							providerId={entry.id}
-							unavailable={providers.length > 0 || !loading}
+							unavailable={!loadingProviders.includes(entry.id)}
 							reason={"reason" in entry ? entry.reason : undefined}
 						/>
 					),

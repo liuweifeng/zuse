@@ -556,8 +556,6 @@ describe("serve ownership", () => {
 	});
 
 	it("prefers the ownership marker over a live squatter on the old port", async () => {
-		// A foreign process on the old port is why the api port drifted in the
-		// first place; the serve route still belongs to Zuse.
 		await expect(
 			resolveServeOwnership({
 				serveStatusRaw: running,

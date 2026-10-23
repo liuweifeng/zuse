@@ -1,29 +1,6 @@
+import type { ChildProcess } from "node:child_process";
 import { childProcessEnv } from "@zuse/utils/process-env";
-/**
- * Terminal support for ACP clients (Grok, Gemini, Cursor, etc.).
- *
- * Implements the canonical ACP terminal lifecycle backed by node:child_process:
- *   terminal/create      → spawn a process, return { terminalId }
- *   terminal/output      → { output, truncated, exitStatus }
- *   terminal/wait_for_exit → await exit, return { exitStatus }
- *   terminal/kill        → SIGTERM (+SIGKILL fallback)
- *   terminal/release     → kill if running + drop the record
- *
- * This is what lets ACP agents actually run shell commands (e.g. `gh pr create`,
- * `git push`) and read their output — previously these were stubs that returned
- * fake success and never executed anything, so the agent reported the shell as
- * blocked.
- *
- * Execution is gated through the shared Bash permission policy + PermissionService
- * (via ctx.requestPermission) exactly like Claude/Codex Bash and ACP fs writes.
- * When the permission callbacks are not wired by the driver (transitional state),
- * we fall back to auto-allow so existing sessions keep working.
- *
- * Security: the working directory is forced under the session cwd via
- * ensureUnderCwd (shared with acp/fs.ts).
- */
-
-import { type ChildProcess, spawn } from "node:child_process";
+import { spawn } from "@zuse/utils/spawn-command";
 import type { AcpPermissionContext } from "../../kernel/acp-permission-context.ts";
 import { getBashPolicy } from "../../kernel/policy.ts";
 import { ensureUnderCwd } from "./fs.ts";
@@ -41,19 +18,16 @@ interface TerminalRecord {
 	truncated: boolean;
 	readonly byteLimit: number;
 	exitStatus: ExitStatus | null;
-	/** Resolves once the child closes; resolves immediately if already exited. */
+
 	readonly exited: Promise<ExitStatus>;
 }
 
-/** Default cap on captured output (most-recent bytes are kept). */
-const DEFAULT_OUTPUT_BYTE_LIMIT = 1024 * 1024; // 1 MiB
+const DEFAULT_OUTPUT_BYTE_LIMIT = 1024 * 1024;
 
-/** Live terminals keyed by the id we hand back to the agent. */
 const terminals = new Map<string, TerminalRecord>();
 let terminalCounter = 0;
 const nextTerminalId = (): string => `term_${Date.now()}_${++terminalCounter}`;
 
-/** Append output, keeping only the most-recent `byteLimit` bytes. */
 const appendOutput = (rec: TerminalRecord, chunk: string): void => {
 	rec.output += chunk;
 	if (Buffer.byteLength(rec.output, "utf8") > rec.byteLimit) {
@@ -63,11 +37,6 @@ const appendOutput = (rec: TerminalRecord, chunk: string): void => {
 	}
 };
 
-/**
- * Normalize the `env` param into a plain record. The ACP spec models env as
- * `Array<{ name, value }>`, but agents have also been seen to pass a plain
- * object — accept both.
- */
 const normalizeEnv = (raw: unknown): Record<string, string> => {
 	const out: Record<string, string> = {};
 	if (raw == null) return out;
@@ -89,7 +58,6 @@ const normalizeEnv = (raw: unknown): Record<string, string> => {
 	return out;
 };
 
-/** Pull the terminal id out of params under any of the shapes agents use. */
 const idOf = (params: unknown): string | undefined => {
 	const p = params as Record<string, unknown> | null | undefined;
 	const id = p?.terminalId ?? p?.processId ?? p?.id;
@@ -104,10 +72,6 @@ const recordOf = (params: unknown, method: string): TerminalRecord => {
 	return rec;
 };
 
-/**
- * Gate command execution through the shared Bash policy + PermissionService.
- * Throws on Deny so the JSON-RPC reply to the agent becomes an error.
- */
 async function ensureBashPermission(
 	ctx: TerminalHandleContext,
 	command: string,
@@ -115,7 +79,6 @@ async function ensureBashPermission(
 	const requestPermission = ctx.requestPermission;
 	const getRuntimeMode = ctx.getRuntimeMode;
 
-	// Transitional: no permission service wired yet → auto-allow.
 	if (!requestPermission || !getRuntimeMode) return;
 
 	const policy = getBashPolicy(
@@ -160,14 +123,10 @@ async function createTerminal(
 		typeof p.cwd === "string" && p.cwd.length > 0 ? p.cwd : ctx.cwd;
 	const spawnCwd = ensureUnderCwd(requestedCwd, ctx.cwd);
 
-	// Human-readable command for the permission prompt.
 	const displayCommand =
 		args.length > 0 ? `${command} ${args.join(" ")}` : command;
 	await ensureBashPermission(ctx, displayCommand);
 
-	// If the agent gave us argv, run the program directly. Otherwise treat
-	// `command` as a shell line so `gh pr create ... && git push` style commands
-	// (pipes, &&, env expansion) work as the agent expects.
 	const useShell = args.length === 0;
 	const child = useShell
 		? spawn(command, {
@@ -230,8 +189,6 @@ async function createTerminal(
 		resolveExit(status);
 	});
 
-	// Return terminalId (canonical ACP) plus a processId alias for any agent
-	// variant still keyed on the old exec/run_command shape.
 	return { terminalId, processId: terminalId };
 }
 
@@ -291,7 +248,7 @@ export async function handleTerminalRequest(
 		switch (method) {
 			case "terminal/create":
 			case "terminal/createSession":
-			// Legacy aliases that also embed a command to run.
+
 			case "terminal/exec":
 			case "terminal/run_command":
 				return await createTerminal(params, ctx);

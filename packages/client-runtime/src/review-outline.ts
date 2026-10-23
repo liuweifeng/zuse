@@ -7,6 +7,8 @@
  * for one revision recognize its chapters in the next.
  */
 
+import { fnv1a } from "./fnv1a.ts";
+
 export interface PatchHunk {
 	readonly index: number;
 	/** Text after the closing `@@`, e.g. git's function-name hint. */
@@ -78,18 +80,11 @@ export const joinPatchHunks = (split: SplitPatch): string =>
 		...split.hunks.flatMap((hunk) => [hunkHeader(hunk), ...hunk.lines]),
 	].join("\n")}\n`;
 
-const fnv1a = (text: string): string => {
-	let value = 2166136261;
-	for (let index = 0; index < text.length; index += 1) {
-		value ^= text.charCodeAt(index);
-		value = Math.imul(value, 16777619);
-	}
-	return (value >>> 0).toString(36);
-};
+const hash = (text: string): string => fnv1a(text).toString(36);
 
 /** Identity of a whole file patch: changes whenever any line of it does. */
 export const reviewFingerprint = (patch: string): string =>
-	`${patch.length}:${fnv1a(patch)}`;
+	`${patch.length}:${hash(patch)}`;
 
 const changedLines = (hunk: PatchHunk): ReadonlyArray<string> =>
 	hunk.lines.filter((line) => line.startsWith("+") || line.startsWith("-"));
@@ -105,7 +100,7 @@ export const hunkIds = (
 ): ReadonlyArray<string> => {
 	const seen = new Map<string, number>();
 	return hunks.map((hunk) => {
-		const fingerprint = fnv1a(
+		const fingerprint = hash(
 			changedLines(hunk)
 				.map((line) => line.trimEnd())
 				.join("\n"),

@@ -1,4 +1,3 @@
-import { spawn, spawnSync } from "node:child_process";
 import {
 	copyFileSync,
 	existsSync,
@@ -9,6 +8,7 @@ import {
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawn, spawnSync } from "@zuse/utils/spawn-command";
 
 /**
  * Kiro CLI stores the live OIDC token in its app-support SQLite DB under
@@ -71,7 +71,6 @@ const ssoCacheTokenPaths = (): ReadonlyArray<string> => {
 	];
 };
 
-/** Common install locations when Electron's PATH is incomplete. */
 const kiroCliCandidatePaths = (): ReadonlyArray<string> => {
 	const home = homedir();
 	const out: string[] = [];
@@ -126,15 +125,13 @@ const loadNodeSqlite = (): NodeSqliteModule => {
 	if (typeof getter === "function") {
 		return getter("node:sqlite") as NodeSqliteModule;
 	}
-	// Bun unit tests / older Node — createRequire is fine under ESM.
+
 	return createRequire(import.meta.url)("node:sqlite") as NodeSqliteModule;
 };
 
 const openWithDriver = (path: string): SqliteHandle | null => {
 	try {
 		if (process.versions.bun !== undefined) {
-			// Only used under Bun (tests/dev). Electron builds never hit this
-			// branch (`process.versions.bun` is unset).
 			const bunSqlite = createRequire(import.meta.url)("bun:sqlite") as {
 				Database: new (
 					filename: string,
@@ -155,17 +152,12 @@ const openWithDriver = (path: string): SqliteHandle | null => {
 	}
 };
 
-/**
- * Open Kiro's auth DB. The live CLI may hold a write lock; try direct
- * readonly first, then a temp copy of the DB (+ WAL/SHM when present).
- */
 const openReadonlyDatabase = (path: string): SqliteHandle | null => {
 	if (!existsSync(path)) return null;
 
 	const direct = openWithDriver(path);
 	if (direct !== null) return direct;
 
-	// Busy / locked: snapshot the file(s) into a temp dir and read that.
 	let tmpDir: string | null = null;
 	try {
 		tmpDir = mkdtempSync(join(tmpdir(), "zuse-kiro-auth-"));
@@ -176,9 +168,7 @@ const openReadonlyDatabase = (path: string): SqliteHandle | null => {
 			if (existsSync(side)) {
 				try {
 					copyFileSync(side, `${tmpDb}${suffix}`);
-				} catch {
-					// ignore partial WAL
-				}
+				} catch {}
 			}
 		}
 		const snapped = openWithDriver(tmpDb);
@@ -190,23 +180,17 @@ const openReadonlyDatabase = (path: string): SqliteHandle | null => {
 			close: () => {
 				try {
 					snapped.close();
-				} catch {
-					// ignore
-				}
+				} catch {}
 				try {
 					rmSync(dir, { recursive: true, force: true });
-				} catch {
-					// ignore
-				}
+				} catch {}
 			},
 		};
 	} catch {
 		if (tmpDir !== null) {
 			try {
 				rmSync(tmpDir, { recursive: true, force: true });
-			} catch {
-				// ignore
-			}
+			} catch {}
 		}
 		return null;
 	}
@@ -306,11 +290,6 @@ const tokenExpired = (token: KiroOidcToken, skewMs = 60_000): boolean => {
 	return ms <= Date.now() + skewMs;
 };
 
-/**
- * Best-effort refresh: `kiro-cli whoami` re-writes auth_kv when the refresh
- * token is still valid. Synchronous and short-timeout so usage/inventory
- * probes stay snappy.
- */
 const tryRefreshViaCli = (kiroPath = "kiro-cli"): void => {
 	const resolved = resolveKiroCliPath(kiroPath);
 	try {
@@ -320,9 +299,7 @@ const tryRefreshViaCli = (kiroPath = "kiro-cli"): void => {
 			env: process.env,
 			shell: false,
 		});
-	} catch {
-		// ignore — caller will surface no-credentials / expired
-	}
+	} catch {}
 };
 
 const readFromSqlite = (): KiroAuthContext | null => {
@@ -344,14 +321,11 @@ const readFromSqlite = (): KiroAuthContext | null => {
 	} finally {
 		try {
 			db.close();
-		} catch {
-			// ignore
-		}
+		} catch {}
 	}
 };
 
 const readFromSsoCache = (): KiroAuthContext | null => {
-	// Prefer freshest non-expired cache entry.
 	let best: KiroAuthContext | null = null;
 	let bestExpiry = Number.NEGATIVE_INFINITY;
 	for (const path of ssoCacheTokenPaths()) {
@@ -369,9 +343,7 @@ const readFromSsoCache = (): KiroAuthContext | null => {
 				profileArn: null,
 				region: token.region,
 			};
-		} catch {
-			// ignore per-file errors
-		}
+		} catch {}
 	}
 	return best;
 };
@@ -389,7 +361,7 @@ export const readKiroAuthContext = (
 		readFromSqlite() ?? readFromSsoCache();
 
 	let first = readOnce();
-	// DB missing / unreadable: still try a CLI refresh so auth_kv is rewritten.
+
 	if (first === null && refreshIfExpired) {
 		tryRefreshViaCli(kiroPath);
 		first = readOnce();

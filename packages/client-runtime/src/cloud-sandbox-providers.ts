@@ -12,7 +12,9 @@ export const cloudProviderLabel = (providerId: string): string =>
 			? "boxd"
 			: providerId === "e2b"
 				? "E2B"
-				: providerId;
+				: providerId === "daytona"
+					? "Daytona"
+					: providerId;
 
 /** Keep server ordering for other providers, with boxd recommended first. */
 export const orderedCloudProviders = (
@@ -78,7 +80,7 @@ export type CloudSandboxSetup =
 export const cloudSandboxSetup = (input: {
 	readonly image: CloudAccountImage | undefined;
 	readonly subscribed: boolean;
-	/** `null` when the repository is not connected to Cloud Workspaces. */
+
 	readonly projectId: string | null;
 	readonly placementFailed?: boolean;
 }): CloudSandboxSetup =>

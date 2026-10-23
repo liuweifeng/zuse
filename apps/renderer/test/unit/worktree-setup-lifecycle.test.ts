@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const fixture = vi.hoisted(() => ({
 	effects: [] as Array<() => undefined | (() => void)>,
 	state: {
-		byProject: { project: [] as Array<{ id: string }> },
+		byProject: { project: [] as Array<{ id: string; setupStatus?: string }> },
 		refresh: vi.fn<() => Promise<void>>(),
 		subscribeSetup: vi.fn(),
 		unsubscribeSetup: vi.fn(),
@@ -27,6 +27,8 @@ const { useWorktreeSetupLifecycle } = await import(
 beforeEach(() => {
 	vi.useFakeTimers();
 	fixture.effects = [];
+	fixture.state.subscribeSetup.mockClear();
+	fixture.state.unsubscribeSetup.mockClear();
 	fixture.state.byProject.project = [];
 	fixture.state.refresh.mockReset().mockResolvedValue();
 });
@@ -57,4 +59,40 @@ it("stops reconciliation when the selected chat unmounts", async () => {
 	cleanup?.();
 	await vi.advanceTimersByTimeAsync(5_000);
 	expect(fixture.state.refresh).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+	"pending",
+	"running",
+])("keeps tracking %s setup after the agent starts", (setupStatus) => {
+	fixture.state.byProject.project = [{ id: "worktree", setupStatus }];
+	useWorktreeSetupLifecycle(
+		FolderId.make("project"),
+		WorktreeId.make("worktree"),
+		"running",
+	);
+	const cleanup = fixture.effects[1]?.();
+	expect(fixture.state.subscribeSetup).toHaveBeenCalledWith(
+		"project",
+		"worktree",
+	);
+	cleanup?.();
+	expect(fixture.state.unsubscribeSetup).toHaveBeenCalledWith(
+		"project",
+		"worktree",
+	);
+});
+it.each([
+	"succeeded",
+	"failed",
+	"skipped",
+])("does not retain a completed %s setup subscription", (setupStatus) => {
+	fixture.state.byProject.project = [{ id: "worktree", setupStatus }];
+	useWorktreeSetupLifecycle(
+		FolderId.make("project"),
+		WorktreeId.make("worktree"),
+		"running_setup",
+	);
+	fixture.effects[1]?.();
+	expect(fixture.state.subscribeSetup).not.toHaveBeenCalled();
 });

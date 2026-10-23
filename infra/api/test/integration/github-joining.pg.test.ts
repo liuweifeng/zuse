@@ -61,13 +61,13 @@ test.skipIf(!url)(
 			expect(
 				await first.runPromise(a.githubJoining.saveIdentity(identity)),
 			).toBe(true);
-			// One GitHub account never links to two Zuse accounts.
+
 			expect(
 				await second.runPromise(
 					b.githubJoining.saveIdentity({ ...identity, accountId: "other" }),
 				),
 			).toBe(false);
-			// An account may switch to another GitHub account.
+
 			expect(
 				await first.runPromise(
 					a.githubJoining.saveIdentity({ ...identity, githubUserId: 12 }),
@@ -76,7 +76,7 @@ test.skipIf(!url)(
 			expect(
 				await second.runPromise(b.githubJoining.getIdentity("alice")),
 			).toMatchObject({ githubUserId: 12 });
-			// Rosters replace atomically and are visible to other workers.
+
 			await first.runPromise(
 				a.githubJoining.replaceRoster(123, new Set([10, 11])),
 			);
@@ -92,7 +92,7 @@ test.skipIf(!url)(
 			expect(
 				await second.runPromise(b.githubJoining.identitiesInRoster(123)),
 			).toMatchObject([{ accountId: "alice", githubUserId: 12 }]);
-			// A domain belongs to one organization.
+
 			const domain = {
 				domain: "acme.dev",
 				organizationId: "org",
@@ -166,7 +166,7 @@ test.skipIf(!url)(
 					b.githubJoining.listPolicies({ installationIds: [123] }),
 				),
 			).toHaveLength(1);
-			// Separate workers serialize read-modify-write operations on the same org.
+
 			const append = (api: typeof a, suffix: string) =>
 				api.withOrganizationLock(
 					"org",

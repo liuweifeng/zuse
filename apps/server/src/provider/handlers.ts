@@ -12,6 +12,7 @@ import { safeModelId } from "@zuse/analytics";
 import {
 	AgentSessionStartError,
 	AgentTurnId,
+	BackgroundTaskStopError,
 	ChatArchiveWorktreeError,
 	ChatCreationConflictError,
 	type ChatCreationOperation,
@@ -85,13 +86,6 @@ import { ProviderService } from "./services/provider-service.ts";
 import { startProviderUpdate } from "./services/update-service.ts";
 import { sessionSummaryEvents } from "./session-summary-events.ts";
 
-/**
- * Provider-domain RPC handlers. Each subsequent PR adds a `toLayerHandler`
- * here as it registers its RPC into `MemoizeRpcs` (in `@zuse/contracts`):
- *
- * Provider process management stays behind this boundary while session
- * lifecycle and event traffic use the durable session domain.
- */
 const Availability = MemoizeRpcs.toLayerHandler(
 	"provider.availability",
 	({ refresh }) =>
@@ -144,10 +138,6 @@ const RemoveCredential = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Renderer subscribes to this when the user clicks the "Sign in" button on a
-// provider card or in an auth error bubble. Supported handlers spawn the
-// provider's login subcommand, extract its OAuth URL, and stream progress
-// back. When the renderer unsubscribes, the service finalizer stops the child.
 const StartLogin = MemoizeRpcs.toLayerHandler(
 	"provider.startLogin",
 	({ providerId, accountId, sessionId }) =>
@@ -244,26 +234,40 @@ const StartLogin = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// Renderer subscribes to this when the user clicks "Update" on a provider
-// card. Spawns the provider's install/upgrade command in a login shell,
-// streams output, and ends with `done`. On success the renderer re-probes
-// availability so the new version shows immediately.
+/**
+ * Idle chats keep their provider process across turns, so they would keep
+ * running the replaced CLI. Release them before reporting success; their next
+ * turn starts the updated binary. Busy chats pick it up on their next restart.
+ */
+const releaseUpdatedProviderSessions = (providerId: ProviderId) =>
+	Effect.gen(function* () {
+		const provider = yield* ProviderService;
+		const sessions = yield* SessionService;
+		const live = yield* provider.liveSessions(providerId);
+		yield* Effect.forEach(
+			live,
+			(sessionId) => sessions.releaseProvider(sessionId).pipe(Effect.ignore),
+			{ discard: true },
+		);
+	});
+
 const UpdateProvider = MemoizeRpcs.toLayerHandler(
 	"provider.update",
 	({ providerId }) =>
 		Stream.unwrap(
 			resolveUpdateCommand(providerId).pipe(
-				Effect.map((command) => startProviderUpdate(providerId, command)),
+				Effect.map((command) =>
+					startProviderUpdate(providerId, command).pipe(
+						Stream.tap((event) =>
+							event._tag === "done" && event.ok
+								? releaseUpdatedProviderSessions(providerId)
+								: Effect.void,
+						),
+					),
+				),
 			),
 		),
 );
-
-// ---------------------------------------------------------------------------
-// OpenCode provider management. `setProviderAuth` / `addCustomProvider` write
-// credentials through to opencode's own `auth.json` (so terminal opencode sees
-// them too); custom-provider *shapes* are persisted to our settings.json
-// (`opencodeCustomProviders`) and injected into every `opencode serve` spawn.
-// ---------------------------------------------------------------------------
 
 const requireOpencodePath = (): Effect.Effect<
 	string,
@@ -309,8 +313,7 @@ const OpencodeAddCustomProvider = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const opencodePath = yield* requireOpencodePath();
 			const configStore = yield* ConfigStoreService;
-			// Write the key through to opencode's auth.json first — if that fails we
-			// don't want an orphaned provider def with no credential.
+
 			yield* setOpencodeProviderAuth(opencodePath, process.cwd(), id, apiKey);
 			const settings = yield* configStore.getSettings();
 			const others = settings.opencodeCustomProviders.filter(
@@ -427,10 +430,6 @@ const OpencodeRemoveCustomProvider = MemoizeRpcs.toLayerHandler(
 		}),
 );
 
-// ---------------------------------------------------------------------------
-// session.* / messages.* — focused conversation service surfaces.
-// ---------------------------------------------------------------------------
-
 const SessionList = MemoizeRpcs.toLayerHandler(
 	"session.list",
 	({ projectId, includeArchived }) =>
@@ -536,10 +535,7 @@ const SessionCreate = MemoizeRpcs.toLayerHandler("session.create", (input) =>
 			permissionMode: input.permissionMode,
 			modelOptions: input.modelOptions,
 			toolSearch: input.toolSearch,
-			// Detach `provider.start` so the new in-chat tab appears in
-			// ~hundreds of ms; the booting status flips when the CLI handshake
-			// finishes (or fails). Chat-create stays synchronous to preserve
-			// its existing staged loading panel timing.
+
 			background: true,
 		});
 		yield* analytics.capture("session created", {
@@ -762,7 +758,7 @@ const updateCreationPhase = (
 	`.pipe(Effect.asVoid, Effect.orDie);
 };
 
-const ChatCreate = MemoizeRpcs.toLayerHandler(
+export const ChatCreate = MemoizeRpcs.toLayerHandler(
 	"chat.create",
 	Effect.gen(function* () {
 		const serviceScope = yield* Effect.scope;
@@ -782,9 +778,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 							(input.worktreeId === null || input.worktreeId === undefined
 								? "main"
 								: "existing");
-						// Repository inspection is part of workspace preparation. Keeping it
-						// after the durable acknowledgement is what makes Send responsive even
-						// when Git or the remote is slow.
+
 						const policy = requestedPolicy;
 						const requestFingerprint =
 							input.operationId === undefined
@@ -966,9 +960,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 									const sessionDomain = yield* SessionDomain;
 									const lifecycleOperation =
 										yield* getChatCreationOperation(operationId);
-									// Replayed create commands acknowledge the already-durable entities.
-									// Recovery is explicit, so a duplicate must never regress a terminal
-									// phase or repeat an external side effect after a recorded failure.
+
 									if (
 										lifecycleOperation === null ||
 										lifecycleOperation.phase === "running" ||
@@ -1048,39 +1040,8 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 											.setChatWorktree(chatId, worktree.id, true)
 											.pipe(Effect.orDie);
 									}
-									if (
-										worktree !== null &&
-										durableOperation.setup_bypassed === 0 &&
-										worktree.setupStatus !== "succeeded" &&
-										worktree.setupStatus !== "skipped"
-									) {
-										yield* updateCreationPhase(
-											sql,
-											operationId,
-											"running_setup",
-										);
-										yield* worktrees.setupStream(worktree.id).pipe(
-											Stream.runDrain,
-											Effect.catch(() => Effect.void),
-										);
-									}
-									const ready =
-										worktree === null
-											? null
-											: yield* worktrees.get(worktree.id);
-									if (
-										worktree !== null &&
-										durableOperation.setup_bypassed === 0 &&
-										(ready === null || ready.setupStatus === "failed")
-									) {
-										yield* updateCreationPhase(sql, operationId, "failed", {
-											failureStage: "setup",
-											error:
-												ready?.setupOutput.trim() ||
-												"The workspace setup failed.",
-										});
-										return;
-									}
+									// WorktreeService.create already owns background setup. Chat startup
+									// waits only for the checkout, so setup failures cannot block a turn.
 									if (yield* cancellationRequested) return;
 									yield* updateCreationPhase(
 										sql,
@@ -1280,48 +1241,7 @@ const ChatCreate = MemoizeRpcs.toLayerHandler(
 									WHERE operation_id = ${input.operationId}
 								`.pipe(Effect.orDie);
 											}
-											// A directory existing is not the same thing as an execution
-											// workspace being ready. The provider, startup queue, file tree,
-											// and terminal must all cross the same setup terminal edge.
-											const worktrees = yield* WorktreeService;
-											yield* worktrees.setupStream(created.id).pipe(
-												Stream.runDrain,
-												Effect.mapError(
-													(error) =>
-														new SessionStartError({
-															providerId: input.providerId,
-															reason: `The fresh worktree setup could not be observed: ${String(error)}`,
-														}),
-												),
-												Effect.tapError((error) =>
-													input.operationId === undefined
-														? Effect.void
-														: sql`
-											UPDATE chat_creation_operations
-											SET status = 'failed', error = ${error.reason},
-											    updated_at = ${new Date().toISOString()}
-											WHERE operation_id = ${input.operationId}
-										`.pipe(Effect.orDie),
-												),
-											);
-											const ready = yield* worktrees.get(created.id);
-											if (ready === null || ready.setupStatus === "failed") {
-												const error = new SessionStartError({
-													providerId: input.providerId,
-													reason:
-														ready?.setupOutput.trim() ||
-														"The fresh worktree setup failed.",
-												});
-												if (input.operationId !== undefined) {
-													yield* sql`
-											UPDATE chat_creation_operations
-											SET status = 'failed', error = ${error.reason},
-											    updated_at = ${new Date().toISOString()}
-											WHERE operation_id = ${input.operationId}
-										`.pipe(Effect.orDie);
-												}
-												return yield* error;
-											}
+
 											if (input.operationId !== undefined) {
 												yield* sql`
 									UPDATE chat_creation_operations
@@ -1499,6 +1419,40 @@ const ChatCreationStream = MemoizeRpcs.toLayerHandler(
 				operations,
 			})),
 		),
+);
+
+const ChatCreationStartupRecovery = Layer.effectDiscard(
+	Effect.gen(function* () {
+		const sql = yield* SqlClient.SqlClient;
+		const recoveredAt = new Date().toISOString();
+		// These phases are backed by fibers and child processes owned by one server
+		// runtime. If that runtime disappears, no worker remains to advance them.
+		// Make the interruption explicit so reconnecting renderers offer Retry
+		// instead of displaying an endless "Preparing workspace" state.
+		yield* sql`
+			UPDATE chat_creation_operations
+			SET phase = 'failed', status = 'failed', retryable = 1,
+			    failure_stage = CASE
+			      WHEN phase = 'creating_workspace' THEN 'workspace'
+			      WHEN phase = 'running_setup' THEN 'setup'
+			      ELSE 'provider'
+			    END,
+			    error = CASE
+			      WHEN phase = 'creating_workspace' THEN
+			        'Workspace creation was interrupted when Zuse stopped.'
+			      WHEN phase = 'running_setup' THEN
+			        COALESCE(
+			          (SELECT NULLIF(trim(worktrees.setup_output), '')
+			           FROM worktrees
+			           WHERE worktrees.id = chat_creation_operations.worktree_id),
+			          'Workspace setup was interrupted when Zuse stopped.'
+			        )
+			      ELSE 'Agent startup was interrupted when Zuse stopped.'
+			    END,
+			    phase_started_at = ${recoveredAt}, updated_at = ${recoveredAt}
+			WHERE phase IN ('creating_workspace', 'running_setup', 'starting_agent')
+		`.pipe(Effect.orDie);
+	}),
 );
 
 const ChatCreationRecover = MemoizeRpcs.toLayerHandler(
@@ -2157,6 +2111,29 @@ const MessagesInterrupt = MemoizeRpcs.toLayerHandler(
 		),
 );
 
+const MessagesBackgroundStop = MemoizeRpcs.toLayerHandler(
+	"messages.background.stop",
+	({ sessionId, turnId, attemptId, taskId }) =>
+		Effect.gen(function* () {
+			yield* Effect.flatMap(SessionService, (svc) => svc.getSession(sessionId));
+			const provider = yield* ProviderService;
+			if (provider.stopBackgroundTask === undefined)
+				return yield* new BackgroundTaskStopError({
+					reason: "This provider cannot stop individual background tasks.",
+				});
+			yield* provider
+				.stopBackgroundTask(sessionId, turnId, attemptId, taskId)
+				.pipe(
+					Effect.mapError(
+						(cause) =>
+							new BackgroundTaskStopError({
+								reason: cause instanceof Error ? cause.message : String(cause),
+							}),
+					),
+				);
+		}),
+);
+
 const MessagesQueueList = MemoizeRpcs.toLayerHandler(
 	"messages.queue.list",
 	({ sessionId }) =>
@@ -2244,12 +2221,6 @@ const MessagesQueueResume = MemoizeRpcs.toLayerHandler(
 		),
 );
 
-// ---------------------------------------------------------------------------
-// permission.* — Phase 4 surface. The renderer subscribes to
-// `permission.requests`, shows a toast, and posts back via `permission.decide`.
-// `listPending` is the cold-load helper used on session mount.
-// ---------------------------------------------------------------------------
-
 const PermissionRequests = MemoizeRpcs.toLayerHandler(
 	"permission.requests",
 	() =>
@@ -2293,13 +2264,6 @@ const PermissionRevokeDecision = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(PermissionService, (svc) => svc.revokeDecision(requestId)),
 );
 
-// ---------------------------------------------------------------------------
-// browser.* — in-app agent browser bridge. The renderer's BrowserPane
-// subscribes to `browser.commands`, drives the `<webview>`, and posts the
-// outcome back via `browser.respond`, resolving the Deferred the MCP browser
-// tool is awaiting. Mirrors the permission.* request/decide pair.
-// ---------------------------------------------------------------------------
-
 const BrowserCommands = MemoizeRpcs.toLayerHandler("browser.commands", () =>
 	Stream.unwrap(Effect.map(BrowserBridgeService, (svc) => svc.commands())),
 );
@@ -2310,9 +2274,6 @@ const BrowserRespond = MemoizeRpcs.toLayerHandler(
 		Effect.flatMap(BrowserBridgeService, (svc) => svc.respond(result)),
 );
 
-// Browser credentials — DUMMY/TEST logins kept in the encrypted vault. A vault
-// failure is swallowed to a safe value (void / [] / null) rather than
-// surfacing a defect: a missing credential just means autofill no-ops.
 const BrowserSetCredential = MemoizeRpcs.toLayerHandler(
 	"browser.setCredential",
 	({ origin, username, password }) =>
@@ -2382,8 +2343,7 @@ const ProviderAccountHandlers = Layer.mergeAll(
 					return yield* new ProviderAccountError({
 						message: "This chat uses another provider.",
 					});
-				// Stop the old login's process before copying its transcript, so the
-				// copy is final and the next turn starts under the new account.
+
 				const released = yield* sessions
 					.releaseProvider(session.id)
 					.pipe(Effect.mapError(chatUnavailable));
@@ -2431,6 +2391,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	ChatGet,
 	ChatArchivePreview,
 	ChatCreate,
+	ChatCreationStartupRecovery,
 	ChatCreationList,
 	ChatCreationStream,
 	ChatCreationRecover,
@@ -2473,6 +2434,7 @@ export const ProviderHandlersLayer = Layer.mergeAll(
 	SessionWaitHandlers,
 	MessagesSend,
 	MessagesInterrupt,
+	MessagesBackgroundStop,
 	MessagesQueueList,
 	MessagesQueueAdd,
 	MessagesQueueUpdate,

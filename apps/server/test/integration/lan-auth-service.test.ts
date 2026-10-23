@@ -534,8 +534,7 @@ describe("LanAuthService", () => {
 			const result = await run(
 				Effect.gen(function* () {
 					const auth = yield* LanAuthService;
-					// Four live codes exceed the cap of 3: the oldest is evicted,
-					// the newer three all stay redeemable.
+
 					const first = yield* auth.createPairingCode();
 					const second = yield* auth.createPairingCode();
 					const third = yield* auth.createPairingCode();
@@ -650,7 +649,6 @@ describe("LanAuthService", () => {
 				}),
 			);
 
-			// Proof is now an Ed25519 JWT (header.payload.signature), not an HMAC.
 			expect(result.proof.proof.split(".")).toHaveLength(3);
 			expect(JSON.parse(result.keys.publicJwk).crv).toBe("Ed25519");
 			expect(result.rows).toEqual([

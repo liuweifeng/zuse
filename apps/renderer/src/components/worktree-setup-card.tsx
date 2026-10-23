@@ -57,17 +57,11 @@ export type SetupCardData = {
 };
 
 /**
- * Inline timeline card shown while a new chat is coming up: it narrates the
- * worktree branch/copy, streams the live environment-setup log, and tracks
- * the provider/model CLI boot — all in one place, with the composer pinned
- * at the bottom. Replaces the old full-screen `ChatCreatingPanel` stepper.
- * Renders nothing once there's no setup work left and the provider is ready.
+ * Compact worktree progress alongside the transcript. Workspace setup runs
+ * independently of the agent; its logs and retry action stay collapsed until
+ * requested, including after a setup failure.
  */
-export function WorktreeSetupCard({
-	providerOutputStarted = false,
-}: {
-	readonly providerOutputStarted?: boolean;
-} = {}) {
+export function WorktreeSetupCard() {
 	const ctx = useActiveContext();
 	const selectedChatId = useChatsStore((state) => state.selectedChatId);
 	const pendingCreation = useChatsStore((state) =>
@@ -92,7 +86,13 @@ export function WorktreeSetupCard({
 			: (Object.values(sessionsByProject)
 					.flat()
 					.find((candidate) => candidate.id === selectedSessionId) ?? null);
+	// Creation, session summaries, and the active context arrive independently.
+	// The reserved identities remain valid before the other views catch up.
 	const initialSession = (() => {
+		const reservedSessionId =
+			creation?.initialSessionId ?? pendingCreation?.sessionId;
+		if (reservedSessionId !== undefined)
+			return reservedSessionId === selectedSessionId;
 		if (session === null) return false;
 		const chatSessions = sessionsByProject[session.projectId] ?? [];
 		const oldest = chatSessions
@@ -108,14 +108,18 @@ export function WorktreeSetupCard({
 		return s.folders.find((f) => f.id === ctx.folderId)?.name ?? null;
 	});
 	const setupProjectId =
+		creation?.projectId ??
 		pendingCreation?.projectId ??
 		(ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.folderId
 			: null);
 	const setupWorktreeId =
-		ctx.status === "ready" || ctx.status === "worktree-pending"
+		(ctx.status === "ready" || ctx.status === "worktree-pending"
 			? ctx.worktreeId
-			: (creation?.worktreeId ?? pendingCreation?.worktreeId ?? null);
+			: null) ??
+		creation?.worktreeId ??
+		pendingCreation?.worktreeId ??
+		null;
 	const worktree = useWorktreeSetupLifecycle(
 		setupProjectId,
 		setupWorktreeId,
@@ -123,30 +127,28 @@ export function WorktreeSetupCard({
 	);
 	const rerunSetup = useWorktreesStore((s) => s.rerunSetup);
 	const hasWorktree =
+		setupWorktreeId !== null ||
 		ctx.status === "worktree-pending" ||
-		(ctx.status === "ready" && ctx.worktreeId !== null);
+		(creation !== undefined && creation.workspacePolicy._tag !== "main") ||
+		pendingCreation?.workspaceRequested === true;
 	const worktreePending =
+		(hasWorktree && worktree === null) ||
 		ctx.status === "worktree-pending" ||
 		(ctx.status === "ready" && ctx.worktreePending);
 	const setupStatus = worktree?.setupStatus ?? null;
-	const setupDone =
-		setupStatus === "succeeded" ||
-		setupStatus === "skipped" ||
-		((setupStatus === null || setupStatus === "pending") &&
-			(creationPhase === "starting_agent" || creationPhase === "running"));
-	const externalResume = session !== null && session.providerThread !== null;
+	const setupDone = setupStatus === "succeeded" || setupStatus === "skipped";
+	// A provider thread can already be running while workspace setup continues.
+	const externalResume =
+		session !== null && session.providerThread !== null && worktree === null;
 
-	// This card owns workspace setup only. As soon as that work is done, the
-	// normal transcript activity row owns provider startup.
 	const visible = shouldShowSetupCard({
 		externalResume,
 		initialSession,
 		hasWorktree,
 		setupDone,
-		workspacePending: ctx.status === "worktree-pending",
+		workspacePending: worktreePending,
 	});
-	if (providerOutputStarted) return null;
-	// Cloud lifecycle is shown once, in the composer connection tray.
+
 	if (cloudSummary !== null) return null;
 	if (!visible) return null;
 
@@ -197,13 +199,11 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const setupStatus =
 		observedSetupStatus !== null && observedSetupStatus !== "pending"
 			? observedSetupStatus
-			: creationPhase === "starting_agent" || creationPhase === "running"
-				? "succeeded"
-				: creationPhase === "running_setup"
-					? "running"
-					: creationPhase === "failed"
-						? "failed"
-						: observedSetupStatus;
+			: creationPhase === "running_setup"
+				? "running"
+				: creationPhase === "failed"
+					? "failed"
+					: observedSetupStatus;
 	const showsWorktreeSteps = hasWorktree || worktreePending;
 	const wtReady =
 		showsWorktreeSteps &&
@@ -304,7 +304,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	const elapsed = Math.max(0, now - (data.startedAt ?? mountedAt));
 	const output = setupOutput.trim();
 	const outputRef = useRef<HTMLPreElement>(null);
-	// Follow the live log tail unless the user scrolled up to read it.
+
 	useLayoutEffect(() => {
 		const element = outputRef.current;
 		if (element === null) return;
@@ -314,11 +314,7 @@ export function SetupCardView({ data }: { data: SetupCardData }) {
 	}, [output]);
 
 	return (
-		<details
-			className="group/setup w-full px-4 py-1 text-[11px]"
-			// Failures need the log and the rerun action without an extra click.
-			open={failed || undefined}
-		>
+		<details className="group/setup w-full px-4 py-1 text-[11px]">
 			<summary className="flex h-7 cursor-pointer list-none items-center gap-2 rounded-md text-muted-foreground outline-none select-none marker:content-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
 				<span
 					className="flex size-4 shrink-0 items-center justify-center"

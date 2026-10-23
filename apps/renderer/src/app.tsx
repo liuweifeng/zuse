@@ -9,9 +9,6 @@ import { lazy, Suspense, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { TooltipProvider } from "./components/ui/tooltip-provider.tsx";
 import { useAuth } from "./hooks/use-auth.ts";
-import { useKeybindingDispatch } from "./hooks/use-keybinding-dispatch.ts";
-
-import { useMenuShortcuts } from "./hooks/use-menu-shortcuts.ts";
 
 import { AppearanceController } from "./lib/appearance.tsx";
 
@@ -39,14 +36,17 @@ import { getRpcClient } from "./lib/rpc-client.ts";
 import { useSettingsStore } from "./lib/settings-client-bus.ts";
 
 import { useEnvironmentCatalogStore } from "./store/environment-catalog.ts";
-import { useModelCatalogStore } from "./store/model-catalog.ts";
-import { useProvidersStore } from "./store/providers.ts";
 
 import { useUiStore } from "./store/ui.ts";
 
 import { useWorkspaceStore } from "./store/workspace.ts";
 
-// Build monitoring starts after account access is ready and needs no startup UI.
+const ApplicationShortcuts = lazy(() =>
+	import("./components/application-shortcuts.tsx").then((module) => ({
+		default: module.ApplicationShortcuts,
+	})),
+);
+
 const CloudBuildMonitor = lazy(() =>
 	import("./components/cloud-build-monitor.tsx").then((module) => ({
 		default: module.CloudBuildMonitor,
@@ -121,8 +121,6 @@ const LazyPluginReturnHandler = lazy(() =>
 	})),
 );
 
-// Plugin callbacks run across every surface without making their client and
-// schemas part of the shell's static startup graph.
 function PluginReturnHandler() {
 	return (
 		<Suspense fallback={null}>
@@ -182,6 +180,9 @@ export function App({ onReady }: { readonly onReady?: () => void }) {
 	);
 	return (
 		<>
+			<Suspense fallback={null}>
+				<ApplicationShortcuts />
+			</Suspense>
 			{!isHostedProduct() && onboardingCompleted ? (
 				<ErrorBoundary fallback={null}>
 					<Suspense fallback={null}>
@@ -218,6 +219,7 @@ function StartupReadySignal({
 	return null;
 }
 
+/** Runs application services after settings readiness, deferring desktop catalogs until onboarding completes. */
 function ReadyApp({
 	cloudOnboarding,
 	onboardingCompleted,
@@ -229,10 +231,6 @@ function ReadyApp({
 }) {
 	const { isSignedIn, user } = useAuth();
 	const cloudCacheIdentity = useRef<string | null | undefined>(undefined);
-	const ensureModelCatalog = useModelCatalogStore(
-		(state) => state.ensureLoaded,
-	);
-	const loadProviderAvailability = useProvidersStore((state) => state.load);
 	useEffect(() => installClientBusOnlineBridge(), []);
 	useEffect(
 		() =>
@@ -260,26 +258,12 @@ function ReadyApp({
 			stop?.();
 		};
 	}, []);
-	// Native Application Menu → renderer action dispatcher. Lives on the
-	// root so the bindings work in every view (chat, settings, onboarding).
-	useMenuShortcuts();
 
-	// Document-level keybinding dispatcher. Walks the live keybindings store
-	// on every keydown and fires the matching application command. Composer
-	// and editor commands are handled by CodeMirror keymaps, so this hook
-	// ignores them.
-	useKeybindingDispatch();
-
-	// Warm the analytics surface after the shell settles so opening Usage never
-	// pauses on parsing the chart renderer. The data request still starts only
-	// when the user opens the surface.
 	useEffect(() => {
 		const timeout = window.setTimeout(() => void loadUsageDashboard(), 1_500);
 		return () => window.clearTimeout(timeout);
 	}, []);
 
-	// Mirror Electron's fullscreen state into the ui store so the top bars
-	// can drop the macOS traffic-light gutter.
 	const setFullScreen = useUiStore((s) => s.setFullScreen);
 	useEffect(() => {
 		const win = window.zuse?.window;
@@ -287,8 +271,6 @@ function ReadyApp({
 		return win.onFullScreenChange((value) => setFullScreen(value));
 	}, [setFullScreen]);
 
-	// One-shot RPC ping so we know the bridge is alive early. Only the failure
-	// is logged — the success path is silent to keep the renderer console clean.
 	useEffect(() => {
 		if (isHostedProduct()) return;
 		let cancelled = false;
@@ -337,19 +319,19 @@ function ReadyApp({
 	useEffect(() => {
 		if (isHostedProduct() || !onboardingCompleted || !catalogInitialized)
 			return;
-		void ensureModelCatalog().catch((cause) =>
-			console.error("[zuse] model catalog prefetch failed", cause),
-		);
-		void loadProviderAvailability().catch((cause) =>
-			console.error("[zuse] provider availability prefetch failed", cause),
-		);
-	}, [
-		activeEnvironmentId,
-		catalogInitialized,
-		ensureModelCatalog,
-		loadProviderAvailability,
-		onboardingCompleted,
-	]);
+		void import("./store/model-catalog.ts")
+			.then(({ useModelCatalogStore }) =>
+				useModelCatalogStore.getState().ensureLoaded(),
+			)
+			.catch((cause) =>
+				console.error("[zuse] model catalog prefetch failed", cause),
+			);
+		void import("./store/providers.ts")
+			.then(({ useProvidersStore }) => useProvidersStore.getState().load())
+			.catch((cause) =>
+				console.error("[zuse] provider availability prefetch failed", cause),
+			);
+	}, [activeEnvironmentId, catalogInitialized, onboardingCompleted]);
 	useEffect(() => {
 		if (!onboardingCompleted) return;
 		const identity = user?.id ?? null;

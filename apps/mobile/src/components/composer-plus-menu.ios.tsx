@@ -1,8 +1,13 @@
 import { Host } from "@expo/ui";
-import { Image, Menu, Button as NativeButton } from "@expo/ui/swift-ui";
+import { Image, Menu } from "@expo/ui/swift-ui";
 import { frame } from "@expo/ui/swift-ui/modifiers";
 
+import {
+	type ComposerPlusMenuProps,
+	composerPlusMenuItems,
+} from "~/lib/action-menus";
 import { colors } from "~/theme";
+import { SwiftMenuItems } from "./swift-menu-items";
 
 const sf = (name: string) => name as never;
 
@@ -10,25 +15,7 @@ const sf = (name: string) => name as never;
  * Native composer action menu. Attachments launch system pickers and the two
  * send modes remain visible here instead of being buried in model settings.
  */
-export function ComposerPlusMenu({
-	goalMode,
-	goalSupported,
-	planMode,
-	onCaptureImage,
-	onPickImages,
-	onPickFiles,
-	onToggleGoal,
-	onTogglePlan,
-}: {
-	goalMode: boolean;
-	goalSupported: boolean;
-	planMode: boolean;
-	onCaptureImage: () => void;
-	onPickImages: () => void;
-	onPickFiles: () => void;
-	onToggleGoal: (next: boolean) => void;
-	onTogglePlan: (next: boolean) => void;
-}) {
+export function ComposerPlusMenu(props: ComposerPlusMenuProps) {
 	return (
 		<Host
 			ignoreSafeArea="keyboard"
@@ -45,33 +32,7 @@ export function ComposerPlusMenu({
 					/>
 				}
 			>
-				<NativeButton
-					label="Take photo"
-					systemImage={sf("camera")}
-					onPress={onCaptureImage}
-				/>
-				<NativeButton
-					label="Choose photos"
-					systemImage={sf("photo.on.rectangle")}
-					onPress={onPickImages}
-				/>
-				<NativeButton
-					label="Choose files"
-					systemImage={sf("doc")}
-					onPress={onPickFiles}
-				/>
-				{goalSupported ? (
-					<NativeButton
-						label="Add goal"
-						systemImage={goalMode ? sf("checkmark") : sf("target")}
-						onPress={() => onToggleGoal(!goalMode)}
-					/>
-				) : null}
-				<NativeButton
-					label="Plan mode"
-					systemImage={planMode ? sf("checkmark") : sf("checklist")}
-					onPress={() => onTogglePlan(!planMode)}
-				/>
+				<SwiftMenuItems items={composerPlusMenuItems(props)} />
 			</Menu>
 		</Host>
 	);

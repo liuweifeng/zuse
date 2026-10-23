@@ -11,6 +11,15 @@ const followUps =
 	'root = FollowUps([{label: "Run tests", prompt: "Run the full test suite."}])';
 
 describe("generated UI transcript blocks", () => {
+	it("renders recovered summary variants from saved transcripts", () => {
+		const html = render(
+			'root = Card([CardHeader("Health"), KeyValue([["Build", "Passed"], {label: "Types", value: "Passed"}])])',
+		);
+		for (const text of ["Health", "Build", "Types", "Passed"])
+			expect(html).toContain(text);
+		expect(html).not.toContain("<pre");
+		expect(html).not.toContain("Unknown component");
+	});
 	it("renders donut values and percentages as accessible text", () => {
 		const html = render(
 			'root = DonutChart("Spend", [{label: "Model A", value: 80}, {label: "Model B", value: 20}], "USD")',

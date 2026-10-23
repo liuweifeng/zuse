@@ -72,7 +72,7 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 	const target = join(root, "target");
 	const bin = join(root, "bin");
 	await Promise.all([mkdir(source), mkdir(target), mkdir(bin)]);
-	// Execute the production SSH protocol locally. No rsync, tar, network, or credentials.
+
 	await writeFile(
 		join(bin, "ssh"),
 		'#!/bin/sh\nfor arg do command="$arg"; done\nexec sh -c "$command"\n',
@@ -181,11 +181,11 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 		expect(
 			(await readSyncManifest(target, "files")).files.map((f) => f.path),
 		).not.toContain("dist/tracked.js");
-		// Local modifications must be repaired even when remote hashes are unchanged.
+
 		await writeFile(join(target, "app.js"), "local edit");
 		await scan();
 		expect(await readFile(join(target, "app.js"), "utf8")).toBe("version 2");
-		// A large change publishes full files, never transfer scratch files.
+
 		events.length = 0;
 		await Promise.all(
 			Array.from({ length: 1000 }, (_, i) =>
@@ -201,7 +201,7 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 				(path) => path.includes(".partial") || path.includes("objects"),
 			),
 		).toBe(false);
-		// File/directory replacements only remove owned paths.
+
 		await writeFile(join(source, "shape"), "file");
 		await scan();
 		await rm(join(source, "shape"));
@@ -213,7 +213,7 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 		await writeFile(join(source, "shape"), "file again");
 		await scan();
 		expect(await readFile(join(target, "shape"), "utf8")).toBe("file again");
-		// Replay a process interrupted after publication but before manifest commit.
+
 		const committed = await readSyncManifest(target, "files");
 		await writeFile(
 			join(target, "interrupted"),
@@ -229,7 +229,7 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 		await scan();
 		expect(await readdir(target)).not.toContain("interrupted");
 		expect((await readSyncManifest(target, "files")).pending).toBeUndefined();
-		// A local symlink must never redirect a managed write outside the mirror.
+
 		const outside = join(root, "outside");
 		await mkdir(outside);
 		await rm(join(target, "nested"), { recursive: true });
@@ -241,7 +241,7 @@ test("Gateway archive Git-selected snapshots preserve tracked builds, ignore arb
 		failGateway = true;
 		await expect(scan()).rejects.toThrow("gateway lost");
 		failGateway = false;
-		// Stream failure cannot publish partial content or delete the last good state.
+
 		await writeFile(
 			join(bin, "ssh"),
 			'#!/bin/sh\nprintf "{\\"done\\":true}\\n"\nexit 1\n',
@@ -315,7 +315,7 @@ test("interrupted transfers retain verified objects and retries reuse them", asy
 		expect((await stat(join(cache, "objects", file.hash))).mtimeMs).toBe(
 			before.mtimeMs,
 		);
-		// A corrupt cached object is never offered as a valid baseline.
+
 		await writeFile(join(cache, "objects", file.hash), "corrupt");
 		expect(await cachedBaseline(cache)).toEqual([]);
 	} finally {

@@ -417,7 +417,7 @@ describe("cloud workspace bootstrap", () => {
 		expect(result._tag).toBe("Failure");
 	});
 
-	it("publishes bounded older transcript pages only for an urgent checkpoint", async () => {
+	it("keeps a complete checkpoint readable until the next history publication", async () => {
 		const sessionId = AgentSessionId.make("session-pages");
 		const older = Message.make({
 			id: MessageId.make("message-older"),
@@ -426,6 +426,7 @@ describe("cloud workspace bootstrap", () => {
 			content: { _tag: "assistant", text: "older durable output" },
 			createdAt: new Date(1),
 		});
+		let version = 9;
 		const headWrites: unknown[] = [];
 		const pageWrites: Array<{ readonly beforeSequence: number }> = [];
 		const publisher = await Effect.runPromise(
@@ -433,8 +434,8 @@ describe("cloud workspace bootstrap", () => {
 				workspaceId: "workspace-pages",
 				sessionId,
 				transcriptKey: bytesToBase64Url(new Uint8Array(32).fill(7)),
-				read: Effect.succeed({
-					cursor: { epoch: "epoch-pages", version: 9 },
+				read: Effect.sync(() => ({
+					cursor: { epoch: "epoch-pages", version },
 					projection: SessionTimelineProjection.make({
 						messages: [],
 						olderMessageSequence: 20,
@@ -445,7 +446,7 @@ describe("cloud workspace bootstrap", () => {
 						permissionMode: "default",
 						runtimeMode: "approval-required",
 					}),
-				}),
+				})),
 				readPage: () =>
 					Effect.succeed({
 						messages: [older],
@@ -469,6 +470,14 @@ describe("cloud workspace bootstrap", () => {
 			expect.objectContaining({ beforeSequence: 20 }),
 		]);
 		expect(await Effect.runPromise(publisher.flush)).toBe(false);
+		version = 10;
+		publisher.mark();
+		expect(await Effect.runPromise(publisher.flush)).toBe(false);
+		expect(headWrites).toHaveLength(1);
+		publisher.mark(true);
+		expect(await Effect.runPromise(publisher.flush)).toBe(true);
+		expect(headWrites).toHaveLength(2);
+		expect(pageWrites).toHaveLength(2);
 	});
 
 	it("publishes monotonic metadata and throttles only activity checkpoints", async () => {
@@ -963,8 +972,7 @@ describe("cloud workspace bootstrap", () => {
 				}),
 			);
 		await start();
-		// The first acknowledgement can disappear between runtime and API. A
-		// repeated encrypted intent must carry exactly the same durable identities.
+
 		await start();
 
 		expect(createChat).toHaveBeenCalledTimes(2);
@@ -1242,8 +1250,7 @@ describe("cloud workspace mailbox runtime", () => {
 
 	it("recovers an applied message receipt before acknowledging it", async () => {
 		const durable = await makeDurableMessageLease();
-		// This is the crash boundary after SessionDomain atomically committed the
-		// prompt and mailbox identity but before the runtime sent the ACK.
+
 		const receipts = makeReceiptStore(boundReceiptFor(durable));
 		const sendMessage = vi.fn(() =>
 			Effect.die(new Error("provider must not be re-entered")),
@@ -1960,6 +1967,57 @@ describe("cloud active work keepalive", () => {
 	});
 });
 
+it.each([
+	"sessions",
+	"inputs",
+	"publish",
+] as const)("keeps active work protected after a %s defect and stops on shutdown", async (stage) => {
+	await Effect.runPromise(
+		Effect.gen(function* () {
+			const chatId = ChatId.make("keepalive-defect-chat");
+			let failed = false;
+			let published = 0;
+			const probe = (at: typeof stage) =>
+				Effect.suspend(() => {
+					if (stage === at && !failed) {
+						failed = true;
+						return Effect.die(new Error("transient read failure"));
+					}
+					return Effect.void;
+				});
+			const fiber = yield* Effect.forkScoped(
+				keepCloudRuntimeActive({
+					chatId,
+					sessions: probe("sessions").pipe(
+						Effect.as([
+							{
+								id: SessionId.make("keepalive-defect-session"),
+								chatId,
+								status: "running" as const,
+							},
+						]),
+					),
+					isWaitingForInput: () => probe("inputs").pipe(Effect.as(false)),
+					publish: probe("publish").pipe(
+						Effect.andThen(
+							Effect.sync(() => {
+								published++;
+							}),
+						),
+					),
+				}),
+			);
+			yield* TestClock.adjust("11 minutes");
+			expect(failed).toBe(true);
+			expect(published).toBeGreaterThan(20);
+			yield* Fiber.interrupt(fiber);
+			const stopped = published;
+			yield* TestClock.adjust("1 minute");
+			expect(published).toBe(stopped);
+		}).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+	);
+});
+
 describe("cloud mailbox polling lifetime", () => {
 	it("preserves the runtime through ambiguous credential rejection without minting wake intent", async () => {
 		await Effect.runPromise(
@@ -2337,6 +2395,7 @@ describe("launch agent credential readiness", () => {
 
 	it("keeps waiting through a refused grant until that provider recovers", async () => {
 		const recovery = new ProviderReadySignal();
+		const onUnavailable = vi.fn(() => Effect.void);
 		let attempts = 0;
 		const prepare = vi.fn((_: string) => {
 			attempts += 1;
@@ -2351,12 +2410,14 @@ describe("launch agent credential readiness", () => {
 					agent: "claude",
 					prepare,
 					recovery,
+					onUnavailable,
 				}).pipe(Effect.forkScoped({ startImmediately: true }));
 				yield* TestClock.adjust("10 minutes");
-				// No readiness and no retry storm while the provider stays refused.
+
 				expect(fiber.pollUnsafe()).toBeUndefined();
 				expect(attempts).toBe(1);
-				// Another provider recovering is not evidence for the selected one.
+				expect(onUnavailable).toHaveBeenCalledWith("claude");
+
 				recovery.notify("cursor");
 				yield* TestClock.adjust("1 second");
 				expect(fiber.pollUnsafe()).toBeUndefined();
@@ -2423,7 +2484,7 @@ describe("launch agent credential readiness", () => {
 		expect(
 			providerCredentialFailureIsTerminal("provider-auth-legacy-workspace"),
 		).toBe(true);
-		// A snapshot-native tool has no recovery notification; retry rechecks it.
+
 		expect(
 			providerCredentialFailureIsTerminal("claude-snapshot-missing-tool"),
 		).toBe(true);
@@ -2495,11 +2556,11 @@ describe("bootstrap launch grant startup identity", () => {
 		expect(first).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
 		);
-		// Later initial retries after expiry must use a fresh request.
+
 		expect(
 			await Effect.runPromise(absent.requestId("claude", thumbprint)),
 		).toBeUndefined();
-		// Never for a provider that is not the launch agent.
+
 		expect(
 			await Effect.runPromise(
 				make("claude", undefined).requestId("codex", thumbprint),

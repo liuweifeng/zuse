@@ -18,11 +18,6 @@ import { useSettingsStore } from "../../../lib/settings-client-bus.ts";
 import { useProvidersStore } from "../../../store/providers.ts";
 import { StepHeader } from "./shared.tsx";
 
-// Subscription-gated providers — same set surfaced as violet notices on the
-// settings ProviderCard and filtered out of the composer's provider picker.
-// We can't verify the plan from the CLI, so the onboarding card flags the
-// requirement before the user picks the provider and discovers it the
-// hard way mid-session.
 const SUBSCRIPTION_INFO: Partial<
 	Record<ProviderId, { readonly plan: string; readonly url: string }>
 > = {
@@ -56,16 +51,16 @@ const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
 
 type ProviderState =
 	| { readonly kind: "loading" }
-	| { readonly kind: "missing" } // Provider runtime unavailable
+	| { readonly kind: "missing" }
 	| {
 			readonly kind: "outdated";
 			readonly current: string;
 			readonly required: string;
 			readonly command: string | null;
-	  } // installed but below SDK floor
-	| { readonly kind: "signed-out" } // CLI installed, not logged in, no API key
+	  }
+	| { readonly kind: "signed-out" }
 	| { readonly kind: "key-attention"; readonly invalid: boolean }
-	| { readonly kind: "subscription"; readonly plan: string } // logged in but missing required paid plan (e.g. SuperGrok or X Premium+)
+	| { readonly kind: "subscription"; readonly plan: string }
 	| { readonly kind: "ready"; readonly via: "cli" | "key" | "native" };
 
 function deriveState(
@@ -86,9 +81,7 @@ function deriveState(
 		};
 	}
 	if (!a.cliInstalled) return { kind: "missing" };
-	// Outdated trumps logged-in / ready: a stale CLI will reject the SDK's
-	// probe flags regardless of auth state, so showing "Connected" here would
-	// be misleading.
+
 	if (a.cliVersionStatus === "outdated") {
 		return {
 			kind: "outdated",
@@ -98,10 +91,8 @@ function deriveState(
 		};
 	}
 
-	// Pi owns authentication; an uncertain probe must not claim sign-in is required.
 	if (providerId === "pi") return { kind: "ready", via: "native" };
 
-	// Only explicit provider subscription verdicts gate onboarding.
 	if (a.cliLoggedIn) {
 		const subInfo = SUBSCRIPTION_INFO[providerId];
 		const unmet =
@@ -142,9 +133,6 @@ export function ProviderStep() {
 		<div className="flex flex-col gap-4">
 			<StepHeader
 				title={uiMessage("onboarding:provider_pick_your_default_agent")}
-				// Welcome step already established "we reuse your CLI auth, no new
-				// logins" — so here we just nudge them to pick and continue. Short
-				// subtitle keeps the cards above the fold.
 				subtitle="Choose the agent you use most. You can change it anytime."
 			/>
 
@@ -184,9 +172,6 @@ function ProviderCard({
 			onClick={onClick}
 			aria-pressed={active}
 			className={cn(
-				// Tighter card: row layout (icon + text + state) instead of stacked
-				// tiles. Removes ~30% of vertical height while keeping the same
-				// information density.
 				"group relative flex items-center gap-3 overflow-hidden rounded-lg border p-2.5 text-left transition-colors",
 				active
 					? "border-input bg-accent text-accent-foreground"
@@ -201,9 +186,7 @@ function ProviderCard({
 					<span className="truncate text-[13px] font-medium leading-none text-foreground">
 						{providerDisplayName(providerId)}
 					</span>
-					{/* Only show the subscription chip when the probe actually detected
-              an unmet plan requirement. Users with a valid tier see a clean
-              card with no chip. */}
+
 					{state.kind === "subscription" && (
 						<span className="rounded-full bg-info/10 px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-info">
 							{uiMessage("onboarding:provider_sub")}
@@ -305,9 +288,6 @@ function ProviderStatus({
 	const refresh = useProvidersStore((s) => s.refresh);
 	const subscriptionInfo = SUBSCRIPTION_INFO[providerId];
 
-	// Ready state has nothing for the user to do — the heavy card was reading
-	// as a homework assignment ("did I miss a step?"). Collapse it to a slim
-	// confirmation row and hide the API-key disclosure unless they ask for it.
 	if (state.kind === "ready" && state.via === "native") {
 		return (
 			<p className="rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
@@ -331,7 +311,6 @@ function ProviderStatus({
 		);
 	}
 
-	// Loading: a single quiet line, no big card.
 	if (state.kind === "loading") {
 		return (
 			<div className="flex items-center gap-2 rounded-md bg-muted/60 px-3 py-2 text-[12px] text-muted-foreground">
@@ -348,7 +327,6 @@ function ProviderStatus({
 		);
 	}
 
-	// Everything below requires the user to do something — keep the full card.
 	const headline =
 		state.kind === "signed-out"
 			? providerId === "cursor"

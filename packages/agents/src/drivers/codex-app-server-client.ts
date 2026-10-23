@@ -1,9 +1,10 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import readline from "node:readline";
 import type { ClientRequest } from "@zuse/agents/codex-generated/ClientRequest";
 import type { InitializeResponse } from "@zuse/agents/codex-generated/InitializeResponse";
 import type { ServerNotification } from "@zuse/agents/codex-generated/ServerNotification";
 import type { ServerRequest } from "@zuse/agents/codex-generated/ServerRequest";
+import { spawn } from "@zuse/utils/spawn-command";
 import {
 	stopProviderProcess,
 	watchProviderProcess,
@@ -117,11 +118,6 @@ export type CodexAppMcpLaunchConfig = (
 	readonly disabledNativeServers?: ReadonlyArray<string>;
 };
 
-/**
- * Agents receive MCP only through the Zuse gateway: ChatGPT apps
- * (`codex_apps`) are an MCP surface, and skill-driven MCP installs would add
- * servers mid-session. Unknown feature keys only warn on older Codex.
- */
 const CODEX_NATIVE_MCP_FEATURE_OVERRIDES = [
 	"-c",
 	"features.apps=false",
@@ -129,11 +125,6 @@ const CODEX_NATIVE_MCP_FEATURE_OVERRIDES = [
 	"features.skill_mcp_dependency_install=false",
 ] as const;
 
-/**
- * One inline table so dotted server names stay addressable. It must precede
- * the dotted `mcp_servers.zuse.*` overrides: a later whole-table override
- * would replace them.
- */
 const disabledNativeServersOverride = (
 	names: ReadonlyArray<string> | undefined,
 ): ReadonlyArray<string> =>
@@ -157,7 +148,7 @@ export const codexAppServerLaunchArgs = (
 		: [
 				...CODEX_NATIVE_MCP_FEATURE_OVERRIDES,
 				...disabledNativeServersOverride(mcp.disabledNativeServers),
-				// App tools can wait for a human approval before command execution.
+
 				"-c",
 				`mcp_servers.zuse.tool_timeout_sec=${DEVICE_COMMAND_TOOL_TIMEOUT_SECONDS}`,
 			]),
@@ -326,8 +317,7 @@ export class CodexAppServerClient {
 		rl.on("line", (line) => bootstrap.handleLine(line));
 		rl.once("close", () => {
 			if (bootstrap.closed) return;
-			// Let a normal process exit drain stderr and report its exit code first.
-			// EOF itself is terminal even when the process remains alive.
+
 			bootstrap.eofTimer = setTimeout(() => {
 				bootstrap.handleUnexpectedTermination(
 					new Error("Codex app-server output closed unexpectedly"),
@@ -348,11 +338,7 @@ export class CodexAppServerClient {
 			if (options.onStderr !== undefined) options.onStderr(text);
 			else reportCodexStderr(text);
 		});
-		// Without this listener, a spawn-time failure (ENOENT when codex isn't on
-		// PATH, EACCES on a non-executable file) becomes an uncaught exception
-		// that crashes the whole process. Surface it as a rejection of every
-		// pending request — including the `initialize` we're about to await —
-		// so callers see a normal Effect failure they already know how to catch.
+
 		child.once("error", (err) => bootstrap.handleUnexpectedTermination(err));
 		child.once("close", (code, signal) => {
 			bootstrap.handleUnexpectedTermination(
@@ -516,9 +502,6 @@ export class CodexAppServerClient {
 	}
 
 	private handleUnexpectedTermination(error: Error): void {
-		// `error` and `close` may both fire for one failed child. The first signal
-		// owns termination; an explicit close sets `closed` before killing the child
-		// and therefore remains intentionally quiet.
 		if (this.closed) return;
 		this.closed = true;
 		clearTimeout(this.eofTimer);

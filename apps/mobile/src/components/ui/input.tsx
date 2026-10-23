@@ -1,10 +1,14 @@
 import { forwardRef } from "react";
-import { TextInput, type TextInputProps } from "react-native";
+import {
+	TextInput,
+	type TextInputInstance,
+	type TextInputProps,
+} from "react-native";
 
 import { cn } from "~/lib/cn";
 import { colors } from "~/theme";
 
-export const Input = forwardRef<TextInput, TextInputProps>(
+export const Input = forwardRef<TextInputInstance, TextInputProps>(
 	({ className, placeholderTextColor = colors.secondaryFg, ...props }, ref) => (
 		<TextInput
 			ref={ref}

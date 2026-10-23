@@ -313,7 +313,7 @@ describe("lifecycle backfill", () => {
 				status: "already-completed",
 				eventCount: 5,
 			});
-			// Imported rows can retain a completion marker without chat events.
+
 			await runtime.runPromise(
 				Effect.scoped(
 					Effect.gen(function* () {

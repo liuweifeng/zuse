@@ -115,7 +115,6 @@ const wsUrlWithToken = (wsBaseUrl: string, token: string): string => {
 	return url.toString();
 };
 
-/** Unparseable timestamps sort as oldest so a valid profile always wins. */
 const connectedAtMs = (profile: TailnetEnvironmentProfile): number => {
 	const parsed = Date.parse(profile.lastConnectedAt);
 	return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
@@ -273,8 +272,7 @@ export class TailnetEnvironmentManager {
 				throw cause;
 			}
 			this.pending.delete(profileId);
-			// Pairing again revokes this device's earlier token on the host, so any
-			// other saved route to the same computer can no longer authenticate.
+
 			for (const stale of this.profiles.list()) {
 				if (
 					stale.environmentId === confirmed.environmentId &&

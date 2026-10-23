@@ -124,8 +124,7 @@ describe("permission recovery through production RPC", () => {
 			expect(
 				messages.filter((message) => message.role === "user"),
 			).toHaveLength(1);
-			// Restart ended the interrupted turn. Session-load updates must not
-			// resurrect it as a newly completed assistant response.
+
 			expect(
 				messages.filter((message) => message.content._tag === "assistant"),
 			).toHaveLength(0);

@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
 	initialSessionId: "startup-session",
 	paused: true,
 	runtime: "idle",
+	ready: true,
 }));
 
 vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
@@ -21,10 +22,13 @@ vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
 vi.mock("../../src/lib/session-timeline-hooks.ts", () => ({
 	useRendererSessionTimeline: () => ({
 		projection: {
-			queue: { items: [{ id: "startup-queue" }], paused: state.paused },
+			queue: {
+				items: [{ id: "startup-queue", ready: state.ready }],
+				paused: state.paused,
+			},
 		},
 		runtime: state.runtime,
-		view: { pendingCommands: [] },
+		view: { pendingCommands: [], failedCommands: [] },
 	}),
 }));
 vi.mock("../../src/lib/cloud-message-queue.ts", () => ({
@@ -39,7 +43,10 @@ vi.mock("../../src/lib/queue-recovery.ts", async (importOriginal) => ({
 	...(await importOriginal<typeof import("../../src/lib/queue-recovery.ts")>()),
 	holdQueueUntilOnline: vi.fn(),
 }));
-vi.mock("../../src/lib/session-actions.ts", () => ({
+vi.mock("../../src/lib/session-actions.ts", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("../../src/lib/session-actions.ts")
+	>()),
 	reorderSessionQueue: vi.fn(),
 	resumeSessionQueue: vi.fn(),
 }));
@@ -64,6 +71,7 @@ describe("startup queue presentation", () => {
 		state.initialSessionId = "startup-session";
 		state.paused = true;
 		state.runtime = "idle";
+		state.ready = true;
 	});
 
 	it.each([
@@ -101,5 +109,56 @@ describe("startup queue presentation", () => {
 		state.phase = "running";
 		state.paused = false;
 		expect(render()).not.toContain("Resume");
+	});
+});
+
+it("explains a first-message upload interrupted by a reload instead of silently queuing it", () => {
+	state.phase = "running";
+	state.paused = false;
+	state.ready = false;
+	const html = render();
+	expect(html).toContain("Files weren’t attached");
+	expect(html).toContain("Remove this message and attach the files again");
+	expect(html).not.toContain("Resume");
+});
+
+describe("in-chat startup upload recovery", () => {
+	it.each([
+		"preparing",
+		"failed",
+	] as const)("shows %s upload state after chat creation has finished", async (status) => {
+		const { useStartupQueueStore, startupQueueKey } = await import(
+			"../../src/composer/startup-queue.ts"
+		);
+		state.phase = "running";
+		state.paused = false;
+		state.ready = false;
+		const ref = {
+			environmentId: EnvironmentId.make("local"),
+			sessionId: SessionId.make("startup-session"),
+		};
+		useStartupQueueStore.setState({
+			jobs: {
+				[startupQueueKey(ref, "startup-queue")]: {
+					status,
+					error: status === "failed" ? "Upload connection closed" : null,
+					retry: vi.fn().mockResolvedValue(true),
+					cancel: vi.fn(),
+				},
+			},
+		});
+		try {
+			const html = render();
+			if (status === "preparing") {
+				expect(html).toContain("Attaching files");
+				expect(html).not.toContain("Files weren’t attached");
+			} else {
+				expect(html).toContain("Files weren’t attached");
+				expect(html).toContain("Upload connection closed");
+				expect(html).toContain("Retry");
+			}
+		} finally {
+			useStartupQueueStore.setState({ jobs: {} });
+		}
 	});
 });

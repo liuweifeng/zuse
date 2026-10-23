@@ -140,9 +140,7 @@ const main = (): void => {
 		settled = true;
 		try {
 			ws.close();
-		} catch {
-			// The socket never opened.
-		}
+		} catch {}
 		fail(sanitizedSshBridgeFailure({ timedOut: true }));
 	}, CONNECT_TIMEOUT_MS);
 

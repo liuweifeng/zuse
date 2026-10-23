@@ -68,8 +68,6 @@ export const usePreviewServers = (
 					},
 
 					list: async () => {
-						// A user-entered port remains actionable even on an older runtime or
-						// while listener discovery is unavailable. Never mark it HTTP-verified.
 						const manualPorts =
 							portsKey === "" ? [] : portsKey.split(",").map(Number);
 						let detected: ReadonlyArray<

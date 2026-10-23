@@ -1,5 +1,6 @@
-import { spawn } from "node:child_process";
+import { stopOwnedProcess, watchOwnedProcess } from "@zuse/utils/owned-process";
 import { childProcessEnv } from "@zuse/utils/process-env";
+import { spawn } from "@zuse/utils/spawn-command";
 import { decodeJsonRpcLine } from "./protocol.js";
 import { AcpRpcClient, type AcpRpcMessage } from "./rpc-client.js";
 
@@ -12,7 +13,6 @@ export interface AcpLaunch {
 	readonly mcpEnabled?: boolean;
 }
 
-/** Bounds a stderr line when an agent never writes a newline. */
 const MAX_STDERR_LINE = 16_384;
 
 /**
@@ -33,6 +33,7 @@ export const launchAcpProcess = (
 		shell: false,
 		detached: process.platform !== "win32",
 	});
+	watchOwnedProcess(child);
 	let closed = false;
 	let stopped = false;
 	let buffer = "";
@@ -53,20 +54,11 @@ export const launchAcpProcess = (
 		stopped = true;
 		finish(new Error("ACP connection closed"));
 		child.stdin.end();
-		const signal = (value: NodeJS.Signals) => {
-			try {
-				if (process.platform !== "win32" && child.pid)
-					process.kill(-child.pid, value);
-				else child.kill(value);
-			} catch {
-				/* Already exited. */
-			}
-		};
-		signal("SIGTERM");
-		const timer = setTimeout(() => {
-			signal("SIGKILL");
-		}, 2000);
-		timer.unref();
+		void stopOwnedProcess(child, { processGroup: true, graceMs: 2_000 }).catch(
+			(error) => {
+				console.warn("[acp] Agent process cleanup failed", error);
+			},
+		);
 	};
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk: string) => {

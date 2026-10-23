@@ -191,13 +191,16 @@ describe("Claude background agents", () => {
 				durationMs: 1200,
 			}),
 		]);
+		// Progress narrates streamed tool calls; only the final summary is text.
 		expect(
-			events.filter(
-				(event) =>
-					event._tag === "AssistantMessage" &&
-					event.parentItemId === "agent-tool-1",
-			),
-		).toHaveLength(2);
+			events
+				.filter(
+					(event) =>
+						event._tag === "AssistantMessage" &&
+						event.parentItemId === "agent-tool-1",
+				)
+				.map((event) => (event._tag === "AssistantMessage" ? event.text : "")),
+		).toEqual(["Retention audit complete"]);
 	});
 
 	it("does not guess that an unknown task notification is a subagent", () => {
@@ -281,10 +284,9 @@ describe("Claude background agents", () => {
 			});
 		const events = translateClaudeSdkMessages(
 			[
-				// The CLI woke on a task notification: no application send is open.
 				reply("Builder A is done"),
 				result,
-				// Sub-agent output between turns does not open a top-level turn.
+
 				sdk({
 					type: "assistant",
 					parent_tool_use_id: "agent-1",

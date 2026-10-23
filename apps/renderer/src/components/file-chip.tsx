@@ -1,20 +1,13 @@
+import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
 import { createContext, useContext } from "react";
 
-import type { CodeAnnotation, FolderId, WorktreeId } from "@zuse/contracts";
-
 import { cn } from "~/lib/utils";
-import { useUiStore, type FileView } from "~/store/ui";
+import { type FileView, useUiStore } from "~/store/ui";
 import { useWorkspaceStore } from "~/store/workspace";
 import { useWorktreesStore } from "~/store/worktrees";
 import { FileIcon } from "./file-icon.tsx";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip.tsx";
 
-/**
- * Implicit workspace coordinates for the chips rendered inside a chat
- * surface. ChatView / ChatComposer wrap their subtree with this provider so
- * FileChip and FileBadge can open files in the editor tab without every
- * intermediate component threading the folder/worktree pair down by prop.
- */
 const FileChipContext = createContext<{
 	readonly folderId: FolderId | null;
 	readonly worktreeId: WorktreeId | null;
@@ -98,6 +91,41 @@ export const resolveFileOpenTarget = ({
 	return null;
 };
 
+/** Resolve a path against the current chat's workspace for opening in a tab. */
+export const useFileOpenTarget = ({
+	relPath,
+	absPath,
+	kind = "file",
+	view,
+}: {
+	readonly relPath: string;
+	readonly absPath?: string;
+	readonly kind?: "file" | "directory";
+	readonly view?: FileView;
+}) => {
+	const { folderId, worktreeId } = useFileChipContext();
+	const folderPath = useWorkspaceStore((s) => {
+		if (folderId === null) return null;
+		return s.folders.find((f) => f.id === folderId)?.path ?? null;
+	});
+	const worktreePath = useWorktreesStore((s) => {
+		if (folderId === null || worktreeId === null) return null;
+		const list = s.byProject[folderId] ?? [];
+		return list.find((w) => w.id === worktreeId)?.path ?? null;
+	});
+	const openTarget = resolveFileOpenTarget({
+		relPath,
+		absPath,
+		kind,
+		folderId,
+		worktreeId,
+		folderPath,
+		worktreePath,
+		view,
+	});
+	return { openTarget, folderPath, worktreePath };
+};
+
 const annotationRangeLabel = (a: CodeAnnotation): string =>
 	a.startLine === a.endLine ? `${a.startLine}` : `${a.startLine}-${a.endLine}`;
 
@@ -149,52 +177,19 @@ export function FileChip({
 	diffStats,
 	className,
 }: {
-	/** Path shown in the tooltip + used as the chip label (basename only). */
 	readonly relPath: string;
-	/**
-	 * Absolute path the editor will read. Optional — tool rows usually only
-	 * carry the absolute path the agent saw, so we fall back to it as the
-	 * `relPath` for display when the workspace-relative path isn't known.
-	 */
+
 	readonly absPath?: string;
 	readonly kind?: "file" | "directory";
-	/**
-	 * Which body the file viewer should open with. Tool rows for Edit/Write/
-	 * MultiEdit pass `"diff"` so clicking the file goes straight to the
-	 * side-by-side diff; everything else defaults to the CodeMirror editor.
-	 */
+
 	readonly view?: FileView;
 	readonly diffStats?: { readonly added: number; readonly removed: number };
 	readonly className?: string;
 }) {
-	const { folderId, worktreeId } = useFileChipContext();
 	const openFileInTab = useUiStore((s) => s.openFileInTab);
-	const folderPath = useWorkspaceStore((s) => {
-		if (folderId === null) return null;
-		return s.folders.find((f) => f.id === folderId)?.path ?? null;
-	});
-	const worktreePath = useWorktreesStore((s) => {
-		if (folderId === null || worktreeId === null) return null;
-		const list = s.byProject[folderId] ?? [];
-		return list.find((w) => w.id === worktreeId)?.path ?? null;
-	});
+	const { openTarget } = useFileOpenTarget({ relPath, absPath, kind, view });
 
-	// Resolve the chip's effective root + workspace-relative path. Tool rows
-	// sometimes carry an absolute path from another checkout or sibling repo;
-	// opening those would trigger
-	// `FsPathOutsideError` on the server. Detect early, surface as a
-	// non-clickable chip with an explanatory tooltip.
 	const name = basename(relPath);
-	const openTarget = resolveFileOpenTarget({
-		relPath,
-		absPath,
-		kind,
-		folderId,
-		worktreeId,
-		folderPath,
-		worktreePath,
-		view,
-	});
 	const canOpen = openTarget !== null;
 
 	const tooltip =
@@ -209,11 +204,6 @@ export function FileChip({
 		openFileInTab(openTarget);
 	};
 
-	// Rendered as a `<span role="button">` rather than a real `<button>` so the
-	// chip can sit inside parent buttons (e.g. ExpandableIconRow's collapsed
-	// header). Nested <button> elements are invalid HTML and React throws a
-	// hydration warning. We still wire keyboard activation (Enter / Space) so
-	// a11y matches the button affordance.
 	const onKeyDown = (e: React.KeyboardEvent<HTMLSpanElement>) => {
 		if (!canOpen) return;
 		if (e.key === "Enter" || e.key === " ") {
@@ -224,9 +214,7 @@ export function FileChip({
 	};
 	const onChipClick = (e: React.MouseEvent<HTMLSpanElement>) => {
 		if (!canOpen) return;
-		// Stop the click from bubbling to a wrapping button (Read row's
-		// accordion toggle) — clicking the chip should open the file, not
-		// expand the row.
+
 		e.preventDefault();
 		e.stopPropagation();
 		onClick();

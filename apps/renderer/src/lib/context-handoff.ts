@@ -111,7 +111,6 @@ export const fetchTranscriptMarkdown = async (
 	}
 };
 
-/** The mounted composer belongs to `target` (or no target was requested). */
 const composerMatches = (target?: SessionRef): boolean =>
 	!target || useComposerBridge.getState().draftKey === resourceRefKey(target);
 

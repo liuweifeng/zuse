@@ -124,12 +124,9 @@ export type ProjectTemplate = typeof ProjectTemplate.Type;
 export const WorkspaceAddRpc = Rpc.make("workspace.add", {
 	payload: Schema.Struct({
 		path: Schema.String,
-		/** Workspace that owns the new project. Defaults to Personal. */
+
 		workspaceKey: Schema.optional(WorkspaceKey),
-		/**
-		 * Moves an already-registered path from this workspace to `workspaceKey`.
-		 * The move only applies while the row still belongs to `moveFrom`.
-		 */
+
 		moveFrom: Schema.optional(WorkspaceKey),
 	}),
 	success: Folder,

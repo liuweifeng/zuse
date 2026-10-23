@@ -17,7 +17,7 @@ export const linuxMemory = (text: string) => {
 		total,
 		available,
 		used: total - available,
-		// Requiring both low headroom and a high proportion avoids warnings on large hosts.
+
 		pressure: available < Math.min(total * 0.1, 512 * 1024 * 1024),
 	};
 };

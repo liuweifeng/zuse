@@ -1,5 +1,6 @@
 import type { CloudAccountImage } from "@zuse/contracts";
 import { reconcileCloudImages } from "./cloud-image-group.ts";
+import { catchUpCloudImageRuntimes } from "./cloud-runtime-catch-up.ts";
 import { setCloudSettingsUnbuiltChanges } from "./cloud-settings-guard.ts";
 import {
 	hasCloudEntitlement,
@@ -29,8 +30,7 @@ export const refreshCloudImages = async (): Promise<
 > => {
 	const epoch = generation;
 	const sequence = ++requestSequence;
-	// Provider-key access arrives with the provider list; a subscription is
-	// the fallback for APIs that do not report eligibility there.
+
 	const { providers, entitled } = await loadCloudProviders(true);
 	const hasAccess =
 		entitled ?? hasCloudEntitlement(await loadCloudEntitlements(true));
@@ -59,8 +59,6 @@ export const refreshCloudImages = async (): Promise<
 		providers.some((provider) => provider.providerId === image.providerId),
 	);
 
-	// Only warn when no image can serve a cloud chat yet. Providers the user
-	// does not build for would otherwise block leaving Settings every time.
 	setCloudSettingsUnbuiltChanges(
 		!latestImages.some((image) => image.state === "ready") &&
 			latestImages.some(
@@ -68,6 +66,7 @@ export const refreshCloudImages = async (): Promise<
 			),
 	);
 	for (const listener of listeners) listener(latestImages);
+	catchUpCloudImageRuntimes(latestImages);
 	if (results.some((result) => result.status === "rejected"))
 		throw new Error("Some cloud image statuses could not be refreshed.");
 	return latestImages;

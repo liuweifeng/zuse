@@ -143,7 +143,7 @@ export class ChatGPTOAuth extends ConnectionRegistry {
 			resolve = yes;
 			reject = no;
 		});
-		// A caller may attach a waiter after opening the browser.
+
 		void finished.catch(() => {});
 		const exchangeAbort = new AbortController();
 		let consumed = false;
@@ -445,15 +445,11 @@ export class ChatGPTOAuth extends ConnectionRegistry {
 								);
 								if (response.status === 200) return true;
 								if (response.status < 500) return false;
-							} catch {
-								/* Retry one transient network failure while the old token is in memory. */
-							}
+							} catch {}
 							if (attempt === 0) await delay(200);
 						}
 					}
-				} catch {
-					/* Disconnected locally. */
-				}
+				} catch {}
 			return false;
 		});
 	}

@@ -4,10 +4,6 @@ import { Rpc } from "effect/unstable/rpc";
 import { EnvironmentEndpoint } from "./connect.ts";
 import { EnvironmentId } from "./ids.ts";
 
-// ---------------------------------------------------------------------------
-// Managed cloud machines
-// ---------------------------------------------------------------------------
-
 export const PERSISTENT_STANDARD_OFFER_ID = "persistent-standard-v1" as const;
 
 export const MachineArchitecture = Schema.Literals(["x86_64"]);
@@ -136,8 +132,6 @@ export class MachineDestroyRequest extends Schema.Class<MachineDestroyRequest>(
 	confirmation: Schema.Literal("destroy"),
 }) {}
 
-// --- enrollment -------------------------------------------------------------
-
 export class MachineEnrollRequest extends Schema.Class<MachineEnrollRequest>(
 	"MachineEnrollRequest",
 )({
@@ -171,8 +165,6 @@ export class MachineBootStatusRequest extends Schema.Class<MachineBootStatusRequ
 	phase: MachineBootPhase,
 	statusCode: Schema.optional(MachineStatusCode),
 }) {}
-
-// --- billing and entitlements -----------------------------------------------
 
 export const EntitlementKind = Schema.Literals([
 	"persistent-machine",
@@ -241,8 +233,6 @@ export class BillingPortal extends Schema.Class<BillingPortal>("BillingPortal")(
 	},
 ) {}
 
-// --- client-visible errors --------------------------------------------------
-
 export const MachineErrorCode = Schema.Literals([
 	"not-found",
 	"not-allowed",
@@ -274,10 +264,6 @@ export class MachineOpError extends Schema.TaggedErrorClass<MachineOpError>()(
 		code: MachineErrorCode,
 	},
 ) {}
-
-// ---------------------------------------------------------------------------
-// Desktop control-plane RPCs
-// ---------------------------------------------------------------------------
 
 export const MachinesOffersRpc = Rpc.make("machines.offers", {
 	payload: Schema.Void,
@@ -349,10 +335,6 @@ export const MachinesEntitlementsRpc = Rpc.make("machines.entitlements", {
 	success: EntitlementList,
 	error: MachineOpError,
 });
-
-// ---------------------------------------------------------------------------
-// RPCs served by a cloud machine
-// ---------------------------------------------------------------------------
 
 export const SshMode = Schema.Literals(["authorized-keys", "tailnet-identity"]);
 export type SshMode = typeof SshMode.Type;
@@ -514,10 +496,6 @@ export const MachineResourcesWatchRpc = Rpc.make("machine.resources.watch", {
 	error: MachineOpError,
 	stream: true,
 });
-
-// ---------------------------------------------------------------------------
-// Cloud-machine account access
-// ---------------------------------------------------------------------------
 
 export const AccountAccessProvider = Schema.Literals([
 	"claude",

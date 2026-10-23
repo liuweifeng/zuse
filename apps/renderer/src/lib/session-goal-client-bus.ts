@@ -19,6 +19,7 @@ import {
 	emptyResourceView,
 	type ResourceView,
 } from "@zuse/client-runtime/resource-state";
+import { waitForSessionRegistration } from "@zuse/client-runtime/session-registration";
 import {
 	CommandId,
 	type ThreadGoal,
@@ -65,13 +66,13 @@ const makeSessionGoalDriver = (): ResourceDriver<
 			if (ref === null) return;
 			active = true;
 			driverStarts += 1;
-			// The goal feed is snapshot-first but does not expose a durable sequence.
-			// Give each attachment a fresh epoch so its authoritative initial frame can
-			// replace a cached cursor even after a same-generation release/re-retain.
+
 			const epoch = `session-goal:${context.generation}:${crypto.randomUUID()}`;
 			let version = 0;
 			const program = Stream.runForEach(
-				context.client["session.goal.stream"]({ sessionId: ref.sessionId }),
+				waitForSessionRegistration(() =>
+					context.client["session.goal.stream"]({ sessionId: ref.sessionId }),
+				),
 				(event) =>
 					Effect.sync(() => {
 						if (
@@ -99,8 +100,7 @@ const makeSessionGoalDriver = (): ResourceDriver<
 						if (!active || Cause.hasInterruptsOnly(cause)) return;
 						const failure = Cause.squash(cause);
 						context.emit({ sync: "failed" });
-						// A domain gap belongs to this keyed resource; only transport-level
-						// termination is allowed to restart the shared environment connection.
+
 						if (!isRpcClientTransportError(failure)) return;
 						getRendererClientBus().reportConnectionFault(
 							ref.environmentId,

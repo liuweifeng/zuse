@@ -150,8 +150,7 @@ export const makeProviderSessionRuntime = (
 								turnId: options.initialTurnId,
 								attemptId: options.initialAttemptId,
 							};
-				// Resolve configuration again at the execution edge. Reactor handlers may
-				// have captured this row before a provider/model switch committed.
+
 				const ownsAttempt =
 					options.initialAttemptId === undefined
 						? Effect.succeed(true)
@@ -362,8 +361,6 @@ export const makeProviderSessionRuntime = (
 						listSessions,
 						persistMessage: (sessionId, content) =>
 							Effect.gen(function* () {
-								// Tools live for the provider residency and can span several turns.
-								// Capture this invocation's attempt, then fence both identities at commit.
 								const attempt = yield* optionsState.activeAttempt(sessionId);
 								if (attempt === null)
 									return yield* Effect.fail(
@@ -457,8 +454,6 @@ export const makeProviderSessionRuntime = (
 					Effect.catch(() => Effect.succeed(false)),
 				);
 				if (!publishable) {
-					// The durable provider switch owns teardown. Closing by session id here
-					// could race with a newer startup and accidentally close its handle.
 					return false;
 				}
 				const publish = (
@@ -513,11 +508,8 @@ export const makeProviderSessionRuntime = (
 						},
 					}).pipe(Effect.asVoid);
 
-				// Keep every externally visible handoff behind the lease. Guarding only
-				// `start()` still lets a stopped generation attach or publish `running`.
 				if (!(yield* publish(attach))) return false;
-				// Publish startup status before consuming buffered provider events. A fast
-				// completion must remain authoritative after startup returns.
+
 				if (
 					options.postBootStatus !== undefined &&
 					!(yield* publish(status(options.postBootStatus)))
@@ -598,8 +590,6 @@ export const makeProviderSessionRuntime = (
 			);
 		});
 
-	/** The only external startup seam: callers identify durable work, while this
-	 * module resolves the latest provider configuration and owns the handoff. */
 	const ensureForTurn = (
 		sessionId: SessionId,
 		options: OpenProviderSessionOptions = {},

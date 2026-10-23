@@ -23,7 +23,6 @@ import { Effect, Fiber, Layer, Stream } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ProviderDriverEvent } from "../../../src/kernel/driver.ts";
 
-// The shared control client answers `config/read` for native MCP isolation.
 let nativeConfigLayers: unknown[] = [];
 vi.mock("../../../src/drivers/codex-control-client.ts", () => ({
 	withCodexControlClient: async (
@@ -125,6 +124,19 @@ const installAppServer = (
 							return { data: [] };
 						case "thread/goal/get":
 							return null;
+						case "thread/goal/set":
+							return {
+								goal: {
+									threadId: record.threadId,
+									objective: "keep working",
+									status: "active",
+									tokenBudget: null,
+									tokensUsed: 0,
+									timeUsedSeconds: 0,
+									createdAt: 1,
+									updatedAt: 1,
+								},
+							};
 						case "thread/start":
 							options.onNotification({
 								method: "thread/started",
@@ -201,6 +213,7 @@ const withSession = async <A>(
 		readonly runtimeMode?: import("@zuse/contracts").RuntimeMode;
 		readonly resumeCursor?: string | null;
 		readonly apiKey?: string;
+		readonly workspaceInstructions?: string;
 		readonly forkFromResume?: boolean;
 		readonly missingResume?: boolean;
 		readonly archivedInCodex?: boolean;
@@ -223,7 +236,10 @@ const withSession = async <A>(
 		);
 		const handle = await Effect.runPromise(
 			startCodexSession(
-				input({ forkFromResume: options.forkFromResume }),
+				input({
+					forkFromResume: options.forkFromResume,
+					workspaceInstructions: options.workspaceInstructions,
+				}),
 				cwd,
 				options.apiKey ?? null,
 				"fake-codex",
@@ -416,6 +432,38 @@ describe("Codex session cursor persistence", () => {
 				},
 			);
 		}
+	});
+
+	it.each([
+		null,
+		"existing-master-thread",
+	])("passes coordinator policy as native developer instructions on start/resume (%s)", async (resumeCursor) => {
+		const policy =
+			"You are the coordinator of the Zuse Master. Delegate repository implementation through the CLI.";
+		await withSession(
+			{ resumeCursor, workspaceInstructions: policy },
+			async (handle, appServer) => {
+				await Effect.runPromise(handle.send("Fix the composer"));
+				const setup = appServer.requests.find(
+					(request) =>
+						request.method ===
+						(resumeCursor ? "thread/resume" : "thread/start"),
+				);
+				expect(setup?.params).toMatchObject({ developerInstructions: policy });
+				await vi.waitFor(() =>
+					expect(
+						appServer.requests.some(
+							(request) => request.method === "turn/start",
+						),
+					).toBe(true),
+				);
+				const turn = appServer.requests.find(
+					(request) => request.method === "turn/start",
+				);
+				expect(JSON.stringify(turn?.params)).toContain("Fix the composer");
+				expect(JSON.stringify(turn?.params)).not.toContain(policy);
+			},
+		);
 	});
 
 	it("ends an idle stream once without inventing a turn failure", async () => {
@@ -921,4 +969,55 @@ describe("Codex file attachments", () => {
 			expect(JSON.stringify(appServer.turnInputs[0])).toContain(path);
 		});
 	});
+});
+
+it("settles an interrupted native goal turn without waiting for a goal update", async () => {
+	await withSession(
+		{ resumeCursor: "resume-thread" },
+		async (handle, appServer) => {
+			await Effect.runPromise(
+				handle.setGoal({ objective: "keep working", status: "active" }),
+			);
+			const events: ProviderDriverEvent[] = [];
+			const subscription = Effect.runFork(
+				handle.events.pipe(
+					Stream.runForEach((event) =>
+						Effect.sync(() => {
+							events.push(event);
+						}),
+					),
+				),
+			);
+			try {
+				await expect
+					.poll(() => events.some((event) => event._tag === "GoalUpdated"))
+					.toBe(true);
+				events.length = 0;
+				appServer.notify({
+					method: "turn/started",
+					params: {
+						threadId: "resume-thread",
+						turn: { id: "native-goal-turn" },
+					},
+				} as never);
+				appServer.notify({
+					method: "turn/completed",
+					params: {
+						threadId: "resume-thread",
+						turn: { id: "native-goal-turn", status: "interrupted" },
+					},
+				} as never);
+				await expect
+					.poll(() =>
+						events.some(
+							(event) => event._tag === "Status" && event.status === "idle",
+						),
+					)
+					.toBe(true);
+				expect(events.some((event) => event._tag === "Interrupted")).toBe(true);
+			} finally {
+				await Effect.runPromise(Fiber.interrupt(subscription));
+			}
+		},
+	);
 });

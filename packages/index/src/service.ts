@@ -66,10 +66,6 @@ export const IndexServiceLive = Layer.effect(
       progress: null,
     });
 
-    // Fan-out for status updates. Each call to `statusStream` registers a
-    // fresh per-subscriber mailbox; on every state transition we re-snapshot
-    // and `unsafeOffer` into all live subscribers. A subscriber receives the
-    // current value on subscribe so there's no race with the first transition.
     const subscribers = yield* Ref.make<
       ReadonlyArray<Queue.Queue<IndexStatus>>
     >([]);
@@ -122,7 +118,7 @@ export const IndexServiceLive = Layer.effect(
           Ref.update(subscribers, (xs) => xs.filter((m) => m !== mailbox)),
         );
         yield* Ref.update(subscribers, (xs) => [...xs, mailbox]);
-        // Seed with the current snapshot so a fresh subscriber doesn't race.
+
         const snapshot = yield* computeStatus();
         yield* Queue.offer(mailbox, snapshot);
         return Stream.fromQueue(mailbox);

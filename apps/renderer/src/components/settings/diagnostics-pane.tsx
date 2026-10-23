@@ -982,9 +982,7 @@ export function DiagnosticsPane() {
 				DIAGNOSTICS_PREFERENCES_KEY,
 				JSON.stringify({ view, rangeMs, severity, source, search }),
 			);
-		} catch {
-			// The workspace remains usable when local storage is unavailable.
-		}
+		} catch {}
 	}, [rangeMs, search, severity, source, view]);
 
 	useEffect(
@@ -1042,9 +1040,7 @@ export function DiagnosticsPane() {
 						});
 					}
 					mainLogsIngestedRef.current = true;
-				} catch {
-					// Main-process ingestion is best effort and must not block inspection.
-				}
+				} catch {}
 			}
 
 			const since = diagnosticsSince(rangeMs);

@@ -3,10 +3,6 @@ import type { ModelPricing } from "./litellm.ts";
 
 const TIERED_THRESHOLD = 200_000;
 
-/**
- * Tiered per-token cost: tokens above the 200k threshold are charged at the
- * tiered rate when present. Ported from ccusage `calculateTieredCost`.
- */
 const tieredCost = (
   tokens: number,
   basePrice: number | undefined,

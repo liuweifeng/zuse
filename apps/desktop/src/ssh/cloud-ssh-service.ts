@@ -17,16 +17,6 @@ import { promisify } from "node:util";
 
 import type { CloudWorkspaceSshAccess } from "@zuse/contracts";
 
-/**
- * Desktop-side SSH access to cloud workspaces.
- *
- * Owns the managed key material and ssh configuration under `~/.zuse/ssh/`:
- * a dedicated keypair, one `Host zuse-*` block whose ProxyCommand runs the
- * bundled WebSocket bridge, per-workspace access tickets, and a single
- * marker-guarded `Include` line in the user's `~/.ssh/config` (required —
- * `vscode-remote://` URIs resolve hosts through ssh config, not CLI flags).
- */
-
 const execFileAsync = promisify(execFile);
 
 export interface CloudSshPrepared {
@@ -135,9 +125,7 @@ export const pruneExpiredCloudSshTickets = async (
 					};
 					if (typeof ticket.expiresAt === "number" && ticket.expiresAt > now)
 						return;
-				} catch {
-					// Invalid managed tickets cannot be used and are safe to prune.
-				}
+				} catch {}
 				await rm(path, { force: true });
 			}),
 	);
@@ -170,13 +158,11 @@ export const managedSshConfig = (bridgeCommand: string): string =>
 		`\tIdentityFile ${keyPath()}`,
 		"\tIdentitiesOnly yes",
 		"\tConnectTimeout 15",
-		// Sync opens a command for each batch. Reuse the authenticated transport
-		// so every scan does not depend on another DNS/TLS/WebSocket handshake.
-		// The private SSH directory contains one hashed socket per destination.
+
 		"\tControlMaster auto",
 		`\tControlPath ${join(sshRoot(), "control-%C")}`,
 		"\tControlPersist 120",
-		// Detect a paused/restarted runtime instead of retaining a dead master.
+
 		"\tServerAliveInterval 10",
 		"\tServerAliveCountMax 3",
 		"\tStrictHostKeyChecking accept-new",

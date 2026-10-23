@@ -19,10 +19,12 @@ const skillKey = (skill: Pick<Skill, "providerId" | "name">) =>
 const skillCommand = async <Payload, Result>(
 	kind: "skill.listGlobal" | "skill.setEnabled",
 	payload: Payload,
+	environmentId?: string,
 ): Promise<Result> => {
 	const receipt = await dispatchEnvironmentShellCommand<Payload, Result>({
 		environmentId: EnvironmentId.make(
-			useEnvironmentCatalogStore.getState().activeEnvironmentId,
+			environmentId ??
+				useEnvironmentCatalogStore.getState().activeEnvironmentId,
 		),
 		kind,
 		commandId: CommandId.make(`skill:${crypto.randomUUID()}`),
@@ -38,8 +40,11 @@ export type GlobalSkills = {
 	readonly setEnabled: (skill: Skill, enabled: boolean) => Promise<void>;
 };
 
-/** User-level skills for every provider, with their on/off state. */
-export function useGlobalSkills(): GlobalSkills {
+/**
+ * User-level skills for every provider, with their on/off state. Reads the
+ * active environment unless `environmentId` names another one.
+ */
+export function useGlobalSkills(environmentId?: string): GlobalSkills {
 	const { message: m } = useUiMessages(["plugins"]);
 	const [skills, setSkills] = useState<readonly Skill[] | null>(null);
 	const [failed, setFailed] = useState(false);
@@ -49,20 +54,21 @@ export function useGlobalSkills(): GlobalSkills {
 				await skillCommand<Record<string, never>, readonly Skill[]>(
 					"skill.listGlobal",
 					{},
+					environmentId,
 				),
 			);
 			setFailed(false);
 		} catch {
 			setFailed(true);
 		}
-	}, []);
+	}, [environmentId]);
 	useEffect(() => {
 		void reload();
 	}, [reload]);
 	const setEnabled = useCallback(
 		async (skill: Skill, enabled: boolean) => {
 			const key = skillKey(skill);
-			// Optimistic; the result is the provider's state after the write.
+
 			const apply = (value: boolean) =>
 				setSkills(
 					(current) =>
@@ -80,12 +86,16 @@ export function useGlobalSkills(): GlobalSkills {
 						readonly enabled: boolean;
 					},
 					{ readonly enabled: boolean }
-				>("skill.setEnabled", {
-					providerId: skill.providerId,
-					name: skill.name,
-					scope: skill.scope,
-					enabled,
-				});
+				>(
+					"skill.setEnabled",
+					{
+						providerId: skill.providerId,
+						name: skill.name,
+						scope: skill.scope,
+						enabled,
+					},
+					environmentId,
+				);
 				apply(result.enabled);
 			} catch {
 				apply(skill.enabled);
@@ -97,7 +107,7 @@ export function useGlobalSkills(): GlobalSkills {
 				});
 			}
 		},
-		[m],
+		[environmentId, m],
 	);
 	return { skills, failed, reload, setEnabled };
 }
@@ -135,7 +145,7 @@ export function SkillsSettingsList({
 					: m("plugins:plugins_skills_none")}
 			</p>
 		);
-	// Grouped by provider, like MCP servers: each provider owns its skills.
+
 	const groups = new Map<Skill["providerId"], Skill[]>();
 	for (const skill of skills)
 		groups.set(skill.providerId, [

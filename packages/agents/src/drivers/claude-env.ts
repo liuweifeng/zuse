@@ -1,5 +1,3 @@
-// Markers injected by a parent Claude process. Native CLI subprocesses must
-// not inherit them or they can resolve auth/session state as a nested call.
 const INHERITED_CLAUDE_MARKERS = [
 	"CLAUDECODE",
 	"CLAUDE_CODE_ENTRYPOINT",

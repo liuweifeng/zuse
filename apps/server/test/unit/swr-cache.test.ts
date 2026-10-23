@@ -84,9 +84,9 @@ describe("makeSwrCache", () => {
 				});
 				yield* cache.refresh();
 				now = 100;
-				// Stale read: serves the old value immediately …
+
 				expect(Option.getOrThrow(yield* cache.get()).value).toEqual({ n: 1 });
-				// … and the forked refresh lands shortly after.
+
 				yield* Effect.sleep("10 millis");
 				expect(Option.getOrThrow(yield* cache.get()).value).toEqual({ n: 2 });
 			}),
@@ -146,7 +146,7 @@ describe("makeSwrCache", () => {
 				const state = yield* cache.state();
 				expect(state.entry?.value).toEqual({ n: 1 });
 				expect(state.lastError?.message).toBe("boom");
-				// Stale + recent error: get() serves the old value and does not reload.
+
 				const held = yield* cache.get();
 				expect(Option.getOrThrow(held).value).toEqual({ n: 1 });
 				yield* Effect.sleep("5 millis");

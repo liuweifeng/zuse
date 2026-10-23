@@ -227,7 +227,6 @@ describe("mobile inbox helpers", () => {
 				query,
 			});
 
-		// Search still matches provider/model even though the subtitle now shows time.
 		expect(build("codex")).toHaveLength(1);
 		const row = build("")[0]?.rows[0];
 		expect(row?.providerModel).toBe("codex / gpt-5");
@@ -244,11 +243,11 @@ describe("mobile inbox helpers", () => {
 		expect(relativeTimeLabel(now - 30 * 1000, now)).toBe("now");
 		expect(relativeTimeLabel(now - 2 * minute, now)).toBe("2m");
 		expect(relativeTimeLabel(now - 3 * hour, now)).toBe("3h");
-		// 2 days ago is within the week → a weekday label.
+
 		expect(relativeTimeLabel(now - 2 * day, now)).toMatch(
 			/^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/,
 		);
-		// Older than a week → a short date.
+
 		expect(relativeTimeLabel(now - 40 * day, now)).toMatch(
 			/^[A-Z][a-z]{2} \d{1,2}$/,
 		);

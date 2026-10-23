@@ -153,8 +153,7 @@ describe("ensureSqliteRenameCompatibility", () => {
 		await fs.mkdir(legacyDir, { recursive: true });
 
 		const legacy = Path.join(legacyDir, "memoize.sqlite");
-		// Keep a writer open with auto-checkpoint disabled to model a legacy DB
-		// whose committed project insert exists in WAL but not in the main file.
+
 		const writer = new DatabaseSync(legacy);
 		try {
 			writer.exec(`

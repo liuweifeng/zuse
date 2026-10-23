@@ -76,7 +76,6 @@ body,
 		"Geist Variable", "Geist", system-ui, "PingFang SC", "PingFang TC", "Hiragino Sans", "Yu Gothic UI", "Malgun Gothic", "Noto Sans CJK SC", "Noto Sans CJK TC", "Noto Sans CJK JP", "Noto Sans CJK KR", sans-serif;
 	--font-mono: "Geist Mono Variable", "Geist Mono", monospace;
 
-	/* Standard shadcn semantic tokens */
 	--color-background: var(--background);
 	--color-foreground: var(--foreground);
 	--color-card: var(--card);
@@ -104,7 +103,6 @@ body,
 	--color-input: var(--input);
 	--color-ring: var(--ring);
 
-	/* Sidebar — used by the project sidebar + the shadcn ui/sidebar primitive */
 	--color-sidebar: var(--sidebar);
 	--color-sidebar-foreground: var(--sidebar-foreground);
 	--color-sidebar-primary: var(--sidebar-primary);
@@ -114,25 +112,16 @@ body,
 	--color-sidebar-border: var(--sidebar-border);
 	--color-sidebar-ring: var(--sidebar-ring);
 
-	/* Memoize extras: extra rungs on the surface ladder. The semantic shadcn
-     tokens (background → card → muted → accent) form a 4-step ramp; these
-     fill in the gaps for hover/elevated/popover-on-popover surfaces. */
 	--color-bg-subtle: var(--bg-subtle);
 	--color-bg-elevated: var(--bg-elevated);
 	--color-bg-overlay: var(--bg-overlay);
 	--color-text-faint: var(--text-faint);
 
-	/* Alert surface tints. Distinct from `--destructive` / `--warning` (which
-     are pure saturated tokens for icons/text). These are dedicated card
-     surfaces — soft, warm, darker hues that read as "this card is red" /
-     "this card is amber" without being a loud saturated wash. */
 	--color-alert-error-bg: var(--alert-error-bg);
 	--color-alert-warning-bg: var(--alert-warning-bg);
 	--color-alert-info-bg: var(--alert-info-bg);
 	--color-alert-success-bg: var(--alert-success-bg);
 
-	/* Chat + prose tokens. Kept separate from `primary` so the assistant
-     prose body and the user bubble can be tuned independently of buttons. */
 	--color-user-bubble: var(--user-bubble);
 	--color-user-bubble-foreground: var(--user-bubble-foreground);
 	--color-message-text: var(--message-text);
@@ -143,7 +132,6 @@ body,
 	--color-message-quote: var(--message-quote);
 	--color-message-rule: var(--message-rule);
 
-	/* Charts — kept for the shadcn convention; unused right now. */
 	--color-chart-1: var(--chart-1);
 	--color-chart-2: var(--chart-2);
 	--color-chart-3: var(--chart-3);
@@ -239,9 +227,6 @@ body,
 	}
 }
 
-/* ---------- Light theme ---------- */
-/* Cool green-neutrals. Zuse lime is intentionally reserved for
-   primary actions, progress, active agents, and keyboard focus. */
 :root {
 	/* Electron Window Controls Overlay reports the native button strip through
      these env() values. It resolves to zero in browsers and on macOS. */
@@ -255,7 +240,7 @@ body,
 		env(titlebar-area-x, 0px) -
 		env(titlebar-area-width, 100vw)
 	);
-	/* Desktop density system: 24px rows, 28px text controls, 8px rhythm. */
+
 	--radius: 0.4375rem;
 	--density-row: 1.75rem;
 	--density-control: 1.75rem;
@@ -281,8 +266,6 @@ body,
 	--bg-overlay: var(--app-light-bg-overlay);
 	--text-faint: var(--app-light-text-faint);
 
-	/* Chip surface — sits on top of cards/bubbles, must stay visibly darker than
-     --card so the pill reads as inset against the composer card. */
 	--chip-bg: var(--app-light-chip-bg);
 
 	--card: var(--app-light-card);
@@ -355,8 +338,6 @@ body,
 	--chart-4: hsl(220 76% 54%);
 	--chart-5: hsl(0 74% 56%);
 
-	/* Chat bubble + prose. Independent of `primary` so we can keep button
-     primary punchy without bleaching message text. */
 	--user-bubble: hsl(105 14% 92%);
 	--user-bubble-foreground: hsl(132 14% 13%);
 	--message-text: hsl(132 10% 17%);
@@ -375,9 +356,6 @@ body,
 	--syntax-attribute: hsl(339 70% 43%);
 	--syntax-tag: hsl(0 70% 45%);
 
-	/* Overlay elevation. Raw box-shadow values (consumed by .shadow-overlay*
-     and .border-glass) so they survive the light-mode --tw-shadow kill in
-     @layer base. Light leads with a 1px ring that doubles as the border. */
 	--shadow-overlay-sm:
 		0 0 0 1px hsl(0 0% 0% / 0.05), 0 2px 6px hsl(0 0% 0% / 0.08);
 	--shadow-overlay:
@@ -403,15 +381,11 @@ body,
 	--bg-overlay: var(--app-dark-bg-overlay);
 	--text-faint: var(--app-dark-text-faint);
 
-	/* Chip surface — kept darker than --card so pills read as inset on the
-     composer surface. */
 	--chip-bg: var(--app-dark-chip-bg);
 
 	--card: var(--app-dark-card);
 	--card-foreground: var(--foreground);
 
-	/* Popover sits just below card so the glass border/shadow has something to
-     bite on. */
 	--popover: var(--app-dark-popover);
 	--popover-foreground: hsl(100 4% 91%);
 
@@ -442,8 +416,6 @@ body,
 	--secondary: var(--app-dark-secondary);
 	--secondary-foreground: hsl(100 4% 91%);
 
-	/* Muted + accent sit ABOVE --card/--popover so hover/selected states,
-	   segmented controls, and dialog footers retain visible elevation. */
 	--muted: var(--app-dark-muted);
 	--muted-foreground: var(--app-dark-muted-foreground);
 
@@ -484,7 +456,6 @@ body,
 	--sidebar-border: var(--app-dark-sidebar-border);
 	--sidebar-ring: var(--lime);
 
-	/* Subtle glass button tokens */
 	--color-neutral-primary-reverted-5: #ffffff0d;
 	--color-neutral-primary-reverted-20: #ffffff14;
 	--color-white-3: #ffffff08;
@@ -513,7 +484,6 @@ body,
 	--syntax-attribute: #fda4af;
 	--syntax-tag: #f87171;
 
-	/* Overlay elevation — deeper on dark since borders carry the edge. */
 	--shadow-overlay-sm:
 		0 0 0 1px hsl(0 0% 100% / 0.07), 0 4px 12px -4px hsl(0 0% 0% / 0.72);
 	--shadow-overlay:
@@ -527,9 +497,9 @@ body,
 	html:not(.dark) *,
 	html:not(.dark) *::before,
 	html:not(.dark) *::after {
-		--tw-shadow: 0 0 #0000 !important;
-		--tw-shadow-colored: 0 0 #0000 !important;
-		--tw-inset-shadow: 0 0 #0000 !important;
+		--tw-shadow: 0 0 #0000;
+		--tw-shadow-colored: 0 0 #0000;
+		--tw-inset-shadow: 0 0 #0000;
 	}
 
 	* {
@@ -540,8 +510,7 @@ body,
 		font-family: var(--font-sans);
 		font-size: var(--text-ui);
 		line-height: 1.35;
-		/* Solid app background — the macOS vibrancy look read as washed-out,
-       especially in light mode, so panes paint flat theme colors instead. */
+
 		background-color: var(--background);
 	}
 	code,
@@ -551,18 +520,11 @@ body,
 		font-family: var(--font-mono);
 	}
 
-	/* Icon weight: every 24x24 icon (hugeicons stroke set, lucide, inline
-     glyphs) renders at stroke-width 1 for a consistently light line. The
-     CSS property beats the per-path stroke-width="1.5" presentation attr. */
 	svg[viewBox="0 0 24 24"],
 	svg[viewBox="0 0 24 24"] [stroke-width] {
 		stroke-width: 1;
 	}
 
-	/* Lucide icons are stroked (unlike the solid hugeicons set the rule above is
-	   tuned for), so stroke-width 1 renders them — chevrons especially — too
-	   faint. Give lucide a heavier stroke, and nudge the chevrons up a touch so
-	   they read cleanly at the small sizes used in menus, selects, and rows. */
 	svg[class*="lucide"] {
 		stroke-width: 2;
 	}
@@ -571,16 +533,12 @@ body,
 	}
 }
 
-/* The drag gesture owns the cursor, including over child buttons and gaps. */
 html[data-sidebar-dragging],
 html[data-sidebar-dragging] * {
 	cursor: grabbing;
 	user-select: none;
 }
 
-/* Animate all participating flex sizes together so their total stays constant.
-   Animating only the toggled panel makes the untouched sidebar briefly expand.
-   Manual resizing stays directly under the pointer. */
 .workspace-panel-group:has(> .fz-sidebar-panel-motion) > [data-panel] {
 	transition: flex-grow 220ms cubic-bezier(0.32, 0.72, 0, 1);
 }
@@ -592,7 +550,6 @@ html[data-sidebar-dragging] * {
 }
 
 @layer components {
-	/* Shared recipes for renderer-owned rows and toolbars. */
 	.compact-row {
 		min-height: var(--density-row);
 		gap: var(--density-gap);
@@ -641,8 +598,8 @@ html[data-sidebar-dragging] * {
 @media (prefers-reduced-motion: reduce) {
 	.compact-notification,
 	.compact-step-enter {
-		animation-duration: 80ms !important;
-		animation-name: compact-fade-in !important;
+		animation-duration: 80ms;
+		animation-name: compact-fade-in;
 	}
 }
 
@@ -652,12 +609,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* `@pierre/diffs` ships with stock GitHub-style fire-engine red / spring
-   green and pure white/black surfaces. That reads as a separate widget
-   bolted onto the app. Override its public detail tokens here so the diff
-   uses the app's neutrals and softer change colors. Review renderers make the
-   package's final computed base token transparent in `lib/diffs-theme.ts`, so
-   these inherited detail tokens blend into the surrounding pane. */
 @layer components {
 	.chat-session-layout {
 		--chat-reading-column: 56rem;
@@ -666,15 +617,12 @@ html[data-sidebar-dragging] * {
 	}
 
 	.fz-diff {
-		/* Opaque because headers stick over scrolled code. */
-		--fz-diff-header-bg: color-mix(in srgb, var(--muted) 45%, var(--background));
+		--fz-diff-header-bg: color-mix(
+			in srgb,
+			var(--muted) 45%,
+			var(--background)
+		);
 
-		/* Surfaces — drop the diff onto the same neutral the pane uses so it
-       reads as part of the app, not a bolted-on widget. Pierre computes
-       its buffer / context / gutter tints from `--diffs-bg` mixed with a
-       `--diffs-mixer` (`#fff` in dark), which pushes toward zinc. We
-       override the computed values directly to keep everything anchored
-       on the app's `--background`. */
 		--diffs-light-bg: var(--background);
 		--diffs-dark-bg: var(--background);
 		--diffs-light: var(--foreground);
@@ -688,11 +636,6 @@ html[data-sidebar-dragging] * {
 			var(--background)
 		);
 
-		/* Add leans hard on the app's lime --primary — true yellow-chartreuse,
-       not teal. Delete stays warm rose so a glance still tells add from
-       delete. The text colors land on the marker / line text; the
-       backgrounds are a faint wash of the same hue against the app bg so
-       a + row reads as "a hint of lime" rather than "a green band." */
 		--diffs-added-light: oklch(0.55 0.2 108);
 		--diffs-added-dark: oklch(0.88 0.2 115);
 		--diffs-deleted-light: oklch(0.55 0.2 22);
@@ -731,15 +674,10 @@ html[data-sidebar-dragging] * {
 			var(--bg-subtle)
 		);
 
-		/* Typography — same monospace token as the rest of the app, slightly
-       smaller than Pierre's default so a diff doesn't dwarf the chat. */
 		--diffs-font-family: var(--font-mono);
 		--diffs-font-size: 12px;
 		--diffs-line-height: 18px;
 
-		/* Line selection (Pierre 1.2 native selection, used by the diff-tab
-       annotate flow). Tint the staged rows / gutter with the app primary so
-       selecting lines to comment matches the rest of the UI. */
 		--diffs-selection-color-override: var(--primary);
 		--diffs-bg-selection-override: color-mix(
 			in oklab,
@@ -754,12 +692,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* `@pierre/trees` renders the file tree into a shadow root and reads
-   `--trees-*` custom properties (which pierce the shadow boundary) for its
-   surfaces, selection, and built-in git-status badges. Anchor them on the
-   app palette so the tree matches the sidebar, and reuse the same lime-add /
-   rose-delete / amber-modified hues as the diff so an "M"/"A"/dot badge reads
-   the same everywhere. */
 @layer components {
 	.fz-tree {
 		--trees-bg-override: var(--background);
@@ -770,14 +702,12 @@ html[data-sidebar-dragging] * {
 		--trees-accent-override: var(--primary);
 		--trees-selected-bg-override: var(--sidebar-accent);
 		--trees-selected-fg-override: var(--foreground);
-		/* No bright focus ring / selection border — the active row reads through a
-       subtle background instead of a loud lime box. */
+
 		--trees-selected-focused-border-color-override: transparent;
 		--trees-focus-ring-color-override: transparent;
-		/* Drop the vertical indent guide lines for a cleaner, flat tree. */
+
 		--trees-indent-guide-bg-override: transparent;
 
-		/* Git-status badge colors, matched to the diff palette. */
 		--trees-status-added-override: oklch(0.88 0.2 115);
 		--trees-status-modified-override: oklch(0.82 0.11 82);
 		--trees-status-deleted-override: oklch(0.78 0.15 20);
@@ -785,19 +715,12 @@ html[data-sidebar-dragging] * {
 		--trees-status-untracked-override: oklch(0.88 0.2 115);
 		--trees-status-ignored-override: var(--muted-foreground);
 
-		/* Exact Hugeicons Folder01 (closed) and Folder02 (open) paths. The two
-       masks preserve the icons' original muted base / full-strength foreground
-       treatment while inheriting the tree's current text color. */
 		--fz-folder-01: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.08264 2.24996C8.11205 2.24951 8.82373 2.24919 9.4626 2.48876C10.8581 3.01205 11.4704 4.25121 11.9425 5.20636C12.0838 5.48909 12.3409 6.0027 12.4128 6.11563C12.4348 6.15255 12.5044 6.22817 12.6064 6.23531C12.7396 6.24908 12.92 6.25 13.2361 6.25L16.7905 6.25C17.8095 6.24999 18.6312 6.24998 19.2905 6.31705C19.9711 6.38628 20.5613 6.53313 21.0834 6.88199C21.4929 7.15559 21.8444 7.50715 22.118 7.91661C22.4669 8.43872 22.6137 9.02893 22.683 9.70949C22.75 10.3688 22.75 11.2733 22.75 12.2923C22.75 14.012 22.75 15.3602 22.6408 16.4336C22.5295 17.5283 22.2983 18.4202 21.781 19.1945C21.3614 19.8224 20.8224 20.3614 20.1945 20.781C19.4202 21.2983 18.5283 21.5295 17.4336 21.6408C16.3602 21.75 15.012 21.75 13.2923 21.75H11.9426C9.63423 21.75 7.82519 21.75 6.41371 21.5603C4.96897 21.366 3.82895 20.9607 2.93414 20.0659C2.03933 19.1711 1.63399 18.031 1.43975 16.5863C1.24998 15.1748 1.24999 13.3658 1.25 11.0574V7.90951C1.24999 7.26419 1.24999 6.71057 1.26997 6.23531C1.27719 6.0634 1.28704 5.90174 1.30044 5.7497C1.35242 5.15996 1.46238 4.64388 1.7254 4.17258C2.06428 3.56534 2.56533 3.06428 3.17258 2.7254C3.64388 2.46238 4.15996 2.35243 4.7497 2.30044C5.32205 2.24999 6.2039 2.24995 7.08264 2.24996Z'/%3E%3C/svg%3E");
 		--fz-folder-02-background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M20.3201 10.3679C21.1491 10.4898 21.8892 10.7615 22.3622 11.4571C22.8359 12.1536 22.8144 12.9409 22.6198 13.7542C22.432 14.5395 22.0405 15.5138 21.5612 16.7069L21.5611 16.707C21.2076 17.5871 20.582 19.1443 20.2833 19.702C19.9714 20.2844 19.6166 20.7557 19.0967 21.1061C18.577 21.4565 18.0065 21.6092 17.3484 21.6811C16.7179 21.7501 15.9426 21.7501 14.9903 21.75L6.82564 21.75C5.53437 21.7501 4.48102 21.7501 3.67955 21.6322C2.85055 21.5103 2.11046 21.2386 1.63746 20.543C1.16382 19.8465 1.18526 19.0592 1.37984 18.2459C1.56772 17.4605 2.29668 15.6461 2.77606 14.453C3.12961 13.5729 3.41769 12.8558 3.71637 12.2981C4.02829 11.7157 4.38309 11.2444 4.90302 10.8939C5.42272 10.5436 5.99323 10.3909 6.65124 10.319C7.28177 10.25 8.05707 10.25 9.00939 10.25H17.174C18.4653 10.25 19.5187 10.25 20.3201 10.3679Z'/%3E%3C/svg%3E");
 		--fz-folder-02-foreground: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23000' d='M7.14203 2.25009C8.02697 2.25009 8.86433 2.64958 9.41958 3.33668L10.8985 5.16676L15.9142 5.16676C16.5634 5.16674 17.1089 5.16673 17.5553 5.2031C18.0221 5.24113 18.4657 5.32371 18.8867 5.53764C19.5288 5.86387 20.0509 6.38443 20.3781 7.02471C20.5926 7.44457 20.6754 7.88689 20.7136 8.35232C20.75 8.79744 20.75 9.34143 20.75 9.98875V10.448C20.6101 10.4157 20.4665 10.3895 20.3201 10.3679C19.5187 10.25 18.4653 10.2501 17.1741 10.2501H9.00944C8.05712 10.2501 7.28177 10.2501 6.65124 10.319C5.99323 10.391 5.42272 10.5437 4.90302 10.894C4.38309 11.2445 4.02829 11.7157 3.71637 12.2981C3.41769 12.8558 3.12961 13.5729 2.77606 14.453C2.29668 15.6462 1.56772 17.4606 1.37984 18.2459C1.32416 18.4787 1.28265 18.7093 1.26287 18.9362C1.2544 18.8847 1.25 18.8318 1.25 18.7779V7.61054C1.24999 6.93793 1.24998 6.38272 1.28207 5.92856C1.31534 5.45753 1.38658 5.02223 1.56632 4.60478C1.96071 3.68878 2.6928 2.95878 3.61142 2.56551C4.02949 2.38653 4.46387 2.31532 4.93624 2.28208C5.39091 2.25008 5.94776 2.25008 6.62538 2.25009H7.14203Z'/%3E%3C/svg%3E");
 	}
 }
 
-/* Assistant message prose. Tuned for long-read comfort: body sits a touch
-   below `--foreground`, headings sharper, code in a contained surface, and
-   typographic rhythm (margins, line-height, list indents) calmed down so a
-   long answer reads like a published doc instead of a wall of bold tags. */
 @layer components {
 	.fz-prose {
 		color: var(--message-text);
@@ -971,9 +894,7 @@ html[data-sidebar-dragging] * {
 	.fz-prose .markdown-code-block {
 		margin: 0.9em 0;
 	}
-	/* Assistant code stays aligned with the reading column on the left, but
-     reaches the transcript edge on the right. The scroll thumb therefore
-     lives at the pane edge instead of floating beside the centered column. */
+
 	.chat-assistant-markdown > .markdown-code-block {
 		width: calc(
 			100cqw -
@@ -1126,9 +1047,7 @@ html[data-sidebar-dragging] * {
 		padding: 0;
 		font-size: inherit;
 	}
-	/* Rounded tables. `border-collapse: separate` so the outer radius works;
-     cells draw only inner dividers (right + bottom), the table draws the
-     outer border, and corner cells round their own backgrounds. */
+
 	.fz-prose table {
 		width: auto;
 		border-collapse: separate;
@@ -1180,9 +1099,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* Composer atomic chips. Filled tag that visually replaces the underlying
-   token (e.g. `@apps/foo.ts`) with an icon + label. Sized to sit on the
-   prose baseline without disturbing line-height. */
 @layer components {
 	.fz-chip {
 		display: inline-flex;
@@ -1197,8 +1113,7 @@ html[data-sidebar-dragging] * {
 		color: var(--foreground);
 		font-size: 0.85em;
 		line-height: 1.1;
-		/* Center the chip against the surrounding text line instead of hanging
-       below the baseline — keeps chips and typed text on one visual line. */
+
 		vertical-align: middle;
 		transform: translateY(-0.06em);
 		user-select: none;
@@ -1238,7 +1153,7 @@ html[data-sidebar-dragging] * {
 	.fz-chip[data-kind="file"] {
 		cursor: pointer;
 	}
-	/* Plugin mentions read as an inline link: logo plus tinted name, no pill. */
+
 	.fz-chip[data-kind="plugin"],
 	.dark .fz-chip[data-kind="plugin"] {
 		gap: 0.3rem;
@@ -1302,19 +1217,13 @@ html[data-sidebar-dragging] * {
 			0 1px 0 color-mix(in oklch, white 6%, transparent) inset,
 			0 2px 5px color-mix(in oklch, black 24%, transparent);
 	}
-	/* Image-thumb and plugin-logo chips: the picture fills the icon slot. */
+
 	.fz-chip[data-kind="image"] .fz-chip-icon:has(.fz-chip-thumb),
 	.fz-chip[data-kind="plugin"] .fz-chip-icon:has(.fz-chip-thumb) {
 		background-color: transparent;
 	}
 }
 
-/* ============================================================
-   Neon lime + embodied UI enhancements
-   ============================================================ */
-
-/* Lime glow utilities. All alpha layers derived from --lime via color-mix
-   so re-toning the accent (in .dark { --lime: … }) propagates here. */
 @layer components {
 	.neon-lime {
 		color: var(--lime);
@@ -1329,8 +1238,6 @@ html[data-sidebar-dragging] * {
 		box-shadow: 0 0 0 1px color-mix(in oklch, var(--lime) 32%, transparent);
 	}
 
-	/* Overlay elevation classes — raw box-shadow so they work in light mode
-     despite the --tw-shadow kill in @layer base. */
 	.shadow-overlay {
 		box-shadow: var(--shadow-overlay);
 	}
@@ -1341,11 +1248,6 @@ html[data-sidebar-dragging] * {
 		box-shadow: var(--shadow-overlay-lg);
 	}
 
-	/* Glass surface for anchored popups (menus, popovers, selects).
-     Dark: translucent popover + blur + dual ring (inner white highlight,
-     outer black seam) + elevation, all in one box-shadow stack.
-     Light: glass reads muddy, so it degrades to an opaque white panel whose
-     edge comes from the 1px ring baked into --shadow-overlay. */
 	.bg-glass {
 		background-color: var(--popover);
 		color: var(--popover-foreground);
@@ -1359,7 +1261,7 @@ html[data-sidebar-dragging] * {
 		);
 		backdrop-filter: blur(20px) saturate(1.18);
 	}
-	/* One neutral glass surface for the editor and its controls. */
+
 	.composer-glass {
 		position: relative;
 		backdrop-filter: blur(20px) saturate(1.05);
@@ -1369,7 +1271,7 @@ html[data-sidebar-dragging] * {
 		pointer-events: none;
 		position: absolute;
 		inset: 0;
-		/* Below every composer child, including the internal action row. */
+
 		z-index: -1;
 		border-radius: inherit;
 		background-color: color-mix(in oklab, var(--card) 94%, transparent);
@@ -1399,7 +1301,6 @@ html[data-sidebar-dragging] * {
 			var(--shadow-overlay);
 	}
 
-	/* Embodied primary button */
 	.btn-lime-embodied {
 		transition:
 			box-shadow 120ms cubic-bezier(0.23, 1, 0.32, 1),
@@ -1416,21 +1317,13 @@ html[data-sidebar-dragging] * {
 		box-shadow: var(--tw-shadow, 0 0 #0000);
 	}
 
-	/* Framed card polish — ensure inner FramePanels get the full layered
-     bevel treatment when nested inside the main shell Frames. */
 	[data-slot="frame"] [data-slot="card"] {
 		box-shadow: var(--tw-shadow, 0 0 #0000);
 	}
 
-	/* Tinted glass surfaces (PR card states, status buttons). Reads --tone
-     from a per-instance CSS var, e.g.
-       <div class="glass-tone" style={{ "--tone": "var(--accent-blue)" }}>
-     The bg + inset highlight + text color all derive from one var so we
-     never duplicate per-tone classes. */
 	.glass-tone {
 		background-color: color-mix(in oklch, var(--tone) 15%, transparent);
-		/* Light mode: bias toward the near-black foreground so tinted labels
-       stay crisp on pale tinted fills instead of pastel-on-pastel. */
+
 		color: color-mix(in oklch, var(--tone) 48%, var(--foreground));
 		box-shadow: inset 0 0 0 1px
 			color-mix(in oklch, var(--tone) 22%, transparent);
@@ -1443,7 +1336,6 @@ html[data-sidebar-dragging] * {
 		background-color: color-mix(in oklch, var(--tone) 26%, transparent);
 	}
 
-	/* Untinted glass — same shape, neutral palette. Used for secondary actions. */
 	.glass-neutral {
 		background-color: var(--color-neutral-primary-reverted-5);
 		color: var(--foreground);
@@ -1508,7 +1400,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* Lime focus ring override for inputs/selects when inside dark framed surfaces */
 @layer base {
 	.dark .focus-lime-ring:focus-visible,
 	.dark [data-slot="input-control"]:has(:focus-visible) {
@@ -1516,17 +1407,14 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* Shiki output container — line numbers gutter + padding + font.
-   Shiki emits `<pre class="shiki ..."><code><span class="line" data-line>…`. */
 @layer components {
 	.code-block-shiki pre {
 		margin: 0;
 		padding: 6px 0;
-		/* CodeBlock draws its own frame; kill the .fz-prose pre card styling so
-       fenced blocks don't render as a card inside a card. */
+
 		border: 0;
 		border-radius: 0;
-		background: transparent !important;
+		background: transparent;
 		color: var(--message-text);
 		font-family: var(
 			--font-mono,
@@ -1548,7 +1436,7 @@ html[data-sidebar-dragging] * {
 		min-height: 1.3em;
 		padding: 0 10px;
 	}
-	/* Scrollbar polish for code blocks. */
+
 	.code-block-scroll::-webkit-scrollbar {
 		width: 6px;
 		height: 6px;
@@ -1567,7 +1455,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* Tool branches remain attached while results grow; no transcript fade-ins. */
 .tool-activity-branch {
 	position: relative;
 	padding-inline-start: 0.5rem;
@@ -1595,8 +1482,6 @@ html[data-sidebar-dragging] * {
 	display: none;
 }
 
-/* Native scroll containers (including the virtualized transcript) use the
-   same thumb-only treatment as ScrollArea, even with macOS Always scrollbars. */
 @layer base {
 	.workspace-shell ::-webkit-scrollbar {
 		width: 8px;
@@ -1631,7 +1516,6 @@ html[data-sidebar-dragging] * {
 	}
 }
 
-/* Shared workspace framing. Gutters also carry the resize hit targets. */
 .workspace-shell {
 	--workspace-gutter: 4px;
 	--workspace-radius: 8px;
@@ -1678,7 +1562,6 @@ html[data-sidebar-dragging] * {
 	background: var(--input);
 }
 .workspace-terminal-dock {
-	/* The resize handle sits in the gutter above the clipped terminal body. */
 	overflow: visible;
 }
 .workspace-terminal-resizer {
@@ -1702,7 +1585,156 @@ html[data-sidebar-dragging] * {
 	overflow: hidden;
 }
 
-/* Text being annotated in a chat stays painted while the note has focus. */
 ::highlight(chat-annotation) {
 	background-color: color-mix(in oklch, var(--primary) 32%, transparent);
+}
+
+/* Master mascots: sprite frames + 1px steps, no smooth tweening. */
+.mascot-sprite {
+	shape-rendering: crispEdges;
+	overflow: visible;
+}
+.mascot-sprite [data-frame="closed"] {
+	visibility: hidden;
+}
+.mascot-sprite [data-frame="open"] {
+	animation: mascot-blink-open 4.6s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite [data-frame="closed"] {
+	animation: mascot-blink-closed 4.6s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite [data-part="figure"] {
+	animation: mascot-bob 1.2s steps(1) infinite var(--mascot-delay, 0s);
+}
+.mascot-sprite[data-state="working"] [data-part="figure"] {
+	animation-duration: 0.32s;
+}
+.mascot-sprite[data-state="attention"] [data-part="figure"] {
+	animation-name: mascot-jump;
+	animation-duration: 0.9s;
+}
+.mascot-sprite[data-state="paused"] [data-frame="open"] {
+	display: none;
+}
+.mascot-sprite[data-state="paused"] [data-frame="closed"] {
+	visibility: visible;
+	animation: none;
+}
+.mascot-sprite[data-state="paused"] [data-part="figure"] {
+	animation: none;
+}
+.mascot-sprite [data-part="snore"] {
+	animation: mascot-snore 2.4s steps(4) infinite;
+}
+@keyframes mascot-blink-open {
+	0%,
+	94%,
+	100% {
+		visibility: visible;
+	}
+	95%,
+	98% {
+		visibility: hidden;
+	}
+}
+@keyframes mascot-blink-closed {
+	0%,
+	94%,
+	100% {
+		visibility: hidden;
+	}
+	95%,
+	98% {
+		visibility: visible;
+	}
+}
+@keyframes mascot-bob {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-1px);
+	}
+}
+@keyframes mascot-jump {
+	0%,
+	40%,
+	100% {
+		transform: translateY(0);
+	}
+	10% {
+		transform: translateY(-2px);
+	}
+	20%,
+	30% {
+		transform: translateY(-3px);
+	}
+}
+@keyframes mascot-snore {
+	0% {
+		transform: translate(0, 0);
+		opacity: 0.6;
+	}
+	100% {
+		transform: translate(2px, -4px);
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.mascot-sprite[data-state] [data-frame],
+	.mascot-sprite[data-state] [data-part] {
+		animation: none;
+	}
+}
+
+/* Zot details: the list and a sub-view swap with a short push/pop slide. */
+.details-slide {
+	transition:
+		transform 260ms cubic-bezier(0.32, 0.72, 0, 1),
+		opacity 200ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+	.details-slide {
+		transition: none;
+	}
+}
+
+/* Zot preferences and editors slide in a few pixels. */
+.details-view-enter {
+	animation: details-view-enter 160ms cubic-bezier(0.165, 0.84, 0.44, 1);
+}
+@keyframes details-view-enter {
+	from {
+		opacity: 0;
+		transform: translateX(6px);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.details-view-enter {
+		animation: none;
+	}
+}
+
+/* Zot guide: the control a step points at. Drawn inside the element so
+   scrolling and overflow-hidden panels never clip it. */
+[data-zot-guide-active] {
+	outline: 2px solid color-mix(in oklab, var(--primary) 75%, transparent);
+	outline-offset: -2px;
+	border-radius: var(--radius-md);
+	animation: zot-guide-pulse 1.4s ease-in-out 2;
+}
+@keyframes zot-guide-pulse {
+	50% {
+		outline-color: color-mix(in oklab, var(--primary) 30%, transparent);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	[data-zot-guide-active] {
+		animation: none;
+	}
+	[data-slot="popover-positioner"]:has([data-zot-guide-card]),
+	[data-zot-guide-card] {
+		transition: none;
+	}
 }

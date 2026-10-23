@@ -1,9 +1,11 @@
 import { chatRecency } from "@zuse/client-runtime/chat-recency";
 import { useThreadListSidebarEnabled } from "../lib/browser-device-preferences.ts";
+import { chatRowIsUnread } from "../lib/chat-attention-state.ts";
 import {
 	isCloudProjectFolder,
 	mergeCloudProjectFolders,
 } from "../lib/cloud-project-folders.ts";
+import { githubOwnerAvatarUrl } from "../lib/github-avatar.ts";
 import {
 	refreshHostedProjects,
 	selectHostedCloudHome,
@@ -17,8 +19,11 @@ import {
 import { buildThreadList, type ThreadListEntry } from "../lib/thread-list.ts";
 import { useChatAttention } from "../lib/use-chat-attention.ts";
 import { useCloudProjects } from "../lib/use-cloud-projects.ts";
+import { useMastersStore } from "../store/masters.ts";
 import { GithubStarPrompt } from "./github-star-prompt.tsx";
 import { HostedLaptopSection } from "./hosted-sidebar.tsx";
+import { MastersSidebar } from "./masters/sidebar.tsx";
+import { SidebarActionRow } from "./sidebar-action-row.tsx";
 import { WorkspaceSwitcher } from "./workspace-switcher.tsx";
 import "@zuse/i18n/english/projects";
 import { HugeiconsIcon, type IconSvgElement } from "@hugeicons/react";
@@ -35,6 +40,7 @@ import {
 	type ProviderId,
 	type SessionId,
 	type SessionStatus,
+	type ThreadGoal,
 } from "@zuse/contracts";
 import { message as uiMessage } from "@zuse/i18n";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -43,12 +49,14 @@ import {
 	ArchiveArrowDownIcon,
 	ArchiveArrowUpIcon,
 	ArchiveIcon,
+	DashboardSpeedIcon,
 	Delete02Icon,
 	Edit01Icon,
 	Folder01Icon,
 	FolderAddIcon,
 	GitBranchIcon,
 	HelpCircleIcon,
+	Layers01Icon,
 	Login03Icon,
 	PencilIcon,
 	PuzzleIcon,
@@ -87,6 +95,7 @@ import {
 	executionAttentionState,
 	mergeChatAttentionStates,
 } from "~/lib/chat-attention-state";
+import { chatCreationIsInProgress } from "~/lib/chat-creation-lifecycle.ts";
 import { displayPath } from "~/lib/display-path";
 import { activeSessionById } from "~/lib/environment-entities.ts";
 import { useEnvironmentEntities } from "~/lib/environment-entity-hooks.ts";
@@ -97,6 +106,11 @@ import { isHostedProduct } from "~/lib/hosted-session.ts";
 import { filterActionableQuestionInteractions } from "~/lib/question-actionability.ts";
 import { cn, formatCompactNumber } from "~/lib/utils";
 import {
+	type ChatPullRequest,
+	chatPullRequests,
+} from "../lib/chat-pull-requests.ts";
+import {
+	cloudChatShowsLoading,
 	cloudChatShowsWorking,
 	deriveCloudChatActivity,
 } from "../lib/cloud-chat-activity.ts";
@@ -118,6 +132,7 @@ import {
 } from "../lib/cloud-workspaces.ts";
 import { dispatchCommand } from "../lib/commands.ts";
 import { noteSessionRuntimeCompletion } from "../lib/completion-sounds.ts";
+import { formatElapsed } from "../lib/delegation-display.ts";
 import {
 	useEnvironmentShellCatalog,
 	useEnvironmentShellResource,
@@ -148,6 +163,11 @@ import {
 	environmentBelongsToWorkspace,
 	getLocalEnvironmentId,
 } from "../lib/rpc-client.ts";
+import { useSessionGoalResource } from "../lib/session-goal-client-bus.ts";
+import {
+	GOAL_STATUS_MESSAGE,
+	isGoalInProgress,
+} from "../lib/session-goal-presentation.ts";
 import { isSessionRuntimeBusy } from "../lib/session-runtime-state.ts";
 import {
 	useOptionalRendererSessionTimeline,
@@ -176,6 +196,11 @@ import {
 	environmentCatalogViewState,
 	useEnvironmentCatalogStore,
 } from "../store/environment-catalog.ts";
+import {
+	gitStackKey,
+	readGitStack,
+	useGitStackStore,
+} from "../store/git-stack.ts";
 import { useRegisterPane } from "../store/pane-focus.ts";
 import { subscribeSessionTerminals } from "../store/session-runtime.ts";
 import { useSessionsStore } from "../store/sessions.ts";
@@ -184,7 +209,9 @@ import { useWorkspaceStore } from "../store/workspace.ts";
 import { EMPTY_WORKTREES, useWorktreesStore } from "../store/worktrees.ts";
 import { openAddComputerDialog } from "./add-computer-dialog.tsx";
 import { BranchIcon, type BranchState, PrStateIcon } from "./branch-icon.tsx";
+import { ChatPullRequestList } from "./chat-pull-request-list.tsx";
 import { DitherCloudIcon } from "./dither-cloud-icon.tsx";
+import { SlackIcon } from "./icons/slack-icon.tsx";
 import { ProjectAddMenu } from "./project-add-menu.tsx";
 import { ProviderIcon } from "./provider-icons.tsx";
 import { AgentActivityOrb } from "./ui/agent-activity-orb.tsx";
@@ -262,25 +289,22 @@ function SidebarErrorToasts(): null {
 	return null;
 }
 
-// GitHub serves owner/org avatars at this path; works for users and orgs alike.
-// Returns null for non-GitHub remotes so the caller falls back to a dither avatar.
-const githubOwnerAvatarUrl = (host: string, owner: string): string | null =>
-	host.toLowerCase() === "github.com"
-		? `https://github.com/${encodeURIComponent(owner)}.png?size=80`
-		: null;
-
+// Hosts compare case-insensitively; the shared helper builds the URL.
 const avatarUrlFor = (origin: GitOriginInfo | null): string | null =>
-	origin === null ? null : githubOwnerAvatarUrl(origin.host, origin.owner);
+	origin === null
+		? null
+		: githubOwnerAvatarUrl({
+				host: origin.host.toLowerCase(),
+				owner: origin.owner,
+			});
 
-/** Same avatar for a cloud chat's `host/owner/repo` repository identity. */
 const avatarUrlForRepositoryIdentity = (identity: string): string | null => {
 	const [host, owner] = identity.split("/");
 	return host === undefined || owner === undefined
 		? null
-		: githubOwnerAvatarUrl(host, owner);
+		: githubOwnerAvatarUrl({ host: host.toLowerCase(), owner });
 };
 
-/** `compact` drops " ago" ("5m") for dense rows that need the title room. */
 const formatRelative = (iso: Date, compact = false): string => {
 	const ms = Date.now() - iso.getTime();
 	const sec = Math.floor(ms / 1000);
@@ -342,6 +366,7 @@ export function ProjectsSidebar() {
 	};
 	const selectFolder = useWorkspaceStore((s) => s.select);
 	const select = async (id: FolderId) => {
+		useMastersStore.getState().select(null);
 		if (isHostedProduct()) selectHostedCloudHome(id);
 		else await selectFolder(id);
 	};
@@ -425,18 +450,11 @@ export function ProjectsSidebar() {
 		);
 	}, [initializeEnvironmentCatalog]);
 
-	// Auto-expand the selected project so newly opened workspaces immediately
-	// reveal their session list.
 	useEffect(() => {
 		if (selectedFolderId === null) return;
 		const key = environmentProjectKey(activeEnvironmentId, selectedFolderId);
 		setExpanded((prev) => (prev[key] ? prev : { ...prev, [key]: true }));
 	}, [activeEnvironmentId, selectedFolderId]);
-
-	// PR state is keyed per-session by `(folderId, worktreeId)` because each
-	// worktree has its own branch and therefore its own PR. Hydration happens
-	// inside `SessionRow` so each row pulls the entry that matches its
-	// session — no per-project bulk hydrate.
 
 	const onToggleKey = (key: string) => {
 		setExpanded((previous) => ({ ...previous, [key]: !previous[key] }));
@@ -449,8 +467,6 @@ export function ProjectsSidebar() {
 		desktopCatalogEnabled &&
 		catalogEntries.filter((entry) => entry.status === "connected").length > 1;
 
-	// One merged timeline: computers never form sections. The same repo across
-	// machines collapses into one logical group; the computer is a row property.
 	const logicalGroups = useMemo(
 		() =>
 			desktopCatalogEnabled
@@ -543,7 +559,7 @@ export function ProjectsSidebar() {
 	const hiddenArchivedChatIds = useChatsStore(
 		(state) => state.hiddenArchivedChatIds,
 	);
-	// Same sources the tree shows: live chats, other computers, and cloud.
+
 	const threadListEntries = useMemo(
 		() =>
 			threadListSidebar
@@ -618,6 +634,7 @@ export function ProjectsSidebar() {
 				</Suspense>
 			)}
 			<SidebarActions />
+			<MastersSidebar />
 			{showComputerControls ? (
 				<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
 					<span>{uiMessage("projects:projects_sidebar_computers")}</span>
@@ -627,7 +644,13 @@ export function ProjectsSidebar() {
 				</div>
 			) : null}
 			<div className="flex items-center justify-between px-2.5 py-1.5 text-[12px] text-muted-foreground">
-				<span>{uiMessage("projects:projects_sidebar_projects")}</span>
+				<span>
+					{uiMessage(
+						threadListSidebar
+							? "projects:projects_sidebar_threads"
+							: "projects:projects_sidebar_projects",
+					)}
+				</span>
 				<div className="flex items-center">
 					{threadListSidebar ? null : (
 						<NewProjectGroupButton
@@ -648,297 +671,275 @@ export function ProjectsSidebar() {
 				data-sidebar-scroll
 				className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5"
 			>
-				{!threadListSidebar && scratchEntries.length > 0 ? (
-					<>
-						<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
-							{uiMessage("projects:no_project")}
-						</li>
-						<ThreadListSection
-							entries={scratchEntries}
-							origins={{}}
-							loading={loading}
-						/>
-					</>
-				) : null}
-				{threadListSidebar
-					? null
-					: ungroupedCloudChats.map((summary) => (
-							<CloudChatRow key={summary.workspaceId} summary={summary} />
-						))}
 				{threadListSidebar ? (
-					<>
-						{folders
-							.filter((folder) => folder.kind !== "scratch")
-							.map((folder) => {
-								const origin = origins[folder.id];
-								const name = origin?.repo ?? folder.name;
-								const avatarUrl = avatarUrlFor(origin ?? null);
-								return (
-									<li key={folder.id}>
-										<button
-											type="button"
-											aria-pressed={selectedFolderId === folder.id}
-											title={folder.path}
-											onClick={() => {
-												if (isHostedProduct()) selectHostedCloudHome(folder.id);
-												else openNewChatLanding(folder.id);
-											}}
-											className={cn(
-												"flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-												selectedFolderId === folder.id &&
-													"bg-sidebar-accent/40",
-											)}
-										>
-											<Avatar className="size-5 rounded">
-												{avatarUrl !== null && (
-													<AvatarImage src={avatarUrl} alt="" />
-												)}
-												<AvatarFallback className="rounded text-[10px]">
-													{initialsOf(origin?.owner ?? folder.name)}
-												</AvatarFallback>
-											</Avatar>
-											<span className="truncate">{name}</span>
-										</button>
-									</li>
-								);
-							})}
-						<li className="px-2 pb-1 pt-3 text-[12px] text-muted-foreground">
-							{uiMessage("projects:projects_sidebar_threads")}
-						</li>
-						<ThreadListSection
-							entries={threadListEntries}
-							origins={origins}
-							loading={loading}
-						/>
-					</>
-				) : desktopCatalogEnabled ? (
-					<>
-						{catalogViewState === "loading" ? (
-							<li
-								className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
-								aria-busy="true"
-							>
-								<Spinner className="size-3.5" />
-								{uiMessage("projects:projects_sidebar_loading_projects")}
-							</li>
-						) : null}
-						{catalogViewState === "unavailable" ? (
-							<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
-								<p role="alert">
-									{uiMessage(
-										"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
-									)}
-								</p>
-								<p className="mt-1 text-[12px]">{catalogInitializationError}</p>
-								<button
-									type="button"
-									className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
-									onClick={() => {
-										void initializeEnvironmentCatalog().catch(() => undefined);
-									}}
-								>
-									{uiMessage("common:retry")}
-								</button>
-							</li>
-						) : null}
-						{catalogViewState === "empty" ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
-								/>
-							</li>
-						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const logical = logicalGroups.find(
-											(group) => group.key === key,
-										);
-										if (logical === undefined) return null;
-										return (
-											<SidebarLogicalRow
-												key={key}
-												group={logical}
-												folders={folders}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(key)}
-												dragProps={organize.projectDragProps(
-													key,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onToggleKey={onToggleKey}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const logical = logicalGroups.find(
-										(group) => group.key === node.key,
-									);
-									if (logical === undefined) return null;
-									return (
-										<SidebarLogicalRow
-											key={node.key}
-											group={logical}
-											folders={folders}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(node.key)}
-											dragProps={organize.projectDragProps(node.key, null)}
-											onToggleExpanded={onToggleExpanded}
-											onToggleKey={onToggleKey}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
-										/>
-									);
-								})()
-							),
-						)}
-					</>
+					<ThreadListSection
+						entries={threadListEntries}
+						origins={origins}
+						loading={loading}
+					/>
 				) : (
 					<>
-						{folders.every((folder) => folder.kind === "scratch") &&
-						ungroupedCloudChats.length === 0 &&
-						!loading ? (
-							<li>
-								<CompactEmptyState
-									title={uiMessage("projects:projects_sidebar_no_projects_yet")}
-									description={uiMessage(
-										"projects:projects_sidebar_use_to_add_a_repository",
-									)}
+						{scratchEntries.length > 0 ? (
+							<>
+								<li className="px-2 pb-1 pt-2 text-[12px] text-muted-foreground">
+									{uiMessage("projects:no_project")}
+								</li>
+								<ThreadListSection
+									entries={scratchEntries}
+									origins={{}}
+									loading={loading}
 								/>
-							</li>
+							</>
 						) : null}
-						{organize.nodes.map((node) =>
-							node.kind === "group" ? (
-								<UserProjectGroup
-									key={organize.sidebarGroupItemKey(node.group.id)}
-									group={node.group}
-									dropLine={organize.dropLineFor(
-										organize.sidebarGroupItemKey(node.group.id),
-									)}
-									dragProps={organize.groupDragProps(node.group.id)}
-									emptyDropActive={organize.isEmptyGroupDropActive(
-										node.group.id,
-									)}
-									emptyDropProps={organize.emptyGroupDropProps(node.group.id)}
-									onToggleCollapsed={() =>
-										organize.setGroupCollapsed(
-											node.group.id,
-											!node.group.collapsed,
-										)
-									}
-									onRename={() =>
-										organize.setGroupDialog({
-											kind: "rename",
-											groupId: node.group.id,
-											name: node.group.name,
-										})
-									}
-									onDissolve={() => organize.dissolveGroup(node.group.id)}
-									onSetIconColor={(color) =>
-										organize.setGroupIconColor(node.group.id, color)
-									}
-								>
-									{node.group.projectKeys.map((key) => {
-										const folder = folders.find((entry) => entry.id === key);
-										if (folder === undefined) return null;
-										return (
-											<SidebarFolderRow
-												key={folder.id}
-												folder={folder}
-												origins={origins}
-												chatsByProject={chatsByProject}
-												sessionsByProject={sessionsByProject}
-												cloudChats={cloudChats}
-												activeEnvironmentId={activeEnvironmentId}
-												expanded={expanded}
-												nested
-												dropLine={organize.dropLineFor(folder.id)}
-												dragProps={organize.projectDragProps(
-													folder.id,
-													node.group.id,
-												)}
-												onToggleExpanded={onToggleExpanded}
-												onSelect={select}
-												onRemove={remove}
-												organize={organize}
-											/>
-										);
-									})}
-								</UserProjectGroup>
-							) : (
-								(() => {
-									const folder = folders.find((entry) => entry.id === node.key);
-									if (folder === undefined) return null;
-									return (
-										<SidebarFolderRow
-											key={folder.id}
-											folder={folder}
-											origins={origins}
-											chatsByProject={chatsByProject}
-											sessionsByProject={sessionsByProject}
-											cloudChats={cloudChats}
-											activeEnvironmentId={activeEnvironmentId}
-											expanded={expanded}
-											dropLine={organize.dropLineFor(folder.id)}
-											dragProps={organize.projectDragProps(folder.id, null)}
-											onToggleExpanded={onToggleExpanded}
-											onSelect={select}
-											onRemove={remove}
-											organize={organize}
+						{ungroupedCloudChats.map((summary) => (
+							<CloudChatRow key={summary.workspaceId} summary={summary} />
+						))}
+						{desktopCatalogEnabled ? (
+							<>
+								{catalogViewState === "loading" ? (
+									<li
+										className="flex items-center justify-center gap-2 px-3 py-4 text-[13px] text-muted-foreground"
+										aria-busy="true"
+									>
+										<Spinner className="size-3.5" />
+										{uiMessage("projects:projects_sidebar_loading_projects")}
+									</li>
+								) : null}
+								{catalogViewState === "unavailable" ? (
+									<li className="px-3 py-4 text-center text-[13px] text-muted-foreground">
+										<p role="alert">
+											{uiMessage(
+												"projects:projects_sidebar_this_computer_couldn_t_load_its_projects",
+											)}
+										</p>
+										<p className="mt-1 text-[12px]">
+											{catalogInitializationError}
+										</p>
+										<button
+											type="button"
+											className="mt-2 rounded-md border border-sidebar-border px-2.5 py-1 text-[12px] text-sidebar-foreground hover:bg-sidebar-accent"
+											onClick={() => {
+												void initializeEnvironmentCatalog().catch(
+													() => undefined,
+												);
+											}}
+										>
+											{uiMessage("common:retry")}
+										</button>
+									</li>
+								) : null}
+								{catalogViewState === "empty" ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
 										/>
-									);
-								})()
-							),
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const logical = logicalGroups.find(
+													(group) => group.key === key,
+												);
+												if (logical === undefined) return null;
+												return (
+													<SidebarLogicalRow
+														key={key}
+														group={logical}
+														folders={folders}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(key)}
+														dragProps={organize.projectDragProps(
+															key,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onToggleKey={onToggleKey}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const logical = logicalGroups.find(
+												(group) => group.key === node.key,
+											);
+											if (logical === undefined) return null;
+											return (
+												<SidebarLogicalRow
+													key={node.key}
+													group={logical}
+													folders={folders}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(node.key)}
+													dragProps={organize.projectDragProps(node.key, null)}
+													onToggleExpanded={onToggleExpanded}
+													onToggleKey={onToggleKey}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
+						) : (
+							<>
+								{folders.every((folder) => folder.kind === "scratch") &&
+								ungroupedCloudChats.length === 0 &&
+								!loading ? (
+									<li>
+										<CompactEmptyState
+											title={uiMessage(
+												"projects:projects_sidebar_no_projects_yet",
+											)}
+											description={uiMessage(
+												"projects:projects_sidebar_use_to_add_a_repository",
+											)}
+										/>
+									</li>
+								) : null}
+								{organize.nodes.map((node) =>
+									node.kind === "group" ? (
+										<UserProjectGroup
+											key={organize.sidebarGroupItemKey(node.group.id)}
+											group={node.group}
+											dropLine={organize.dropLineFor(
+												organize.sidebarGroupItemKey(node.group.id),
+											)}
+											dragProps={organize.groupDragProps(node.group.id)}
+											emptyDropActive={organize.isEmptyGroupDropActive(
+												node.group.id,
+											)}
+											emptyDropProps={organize.emptyGroupDropProps(
+												node.group.id,
+											)}
+											onToggleCollapsed={() =>
+												organize.setGroupCollapsed(
+													node.group.id,
+													!node.group.collapsed,
+												)
+											}
+											onRename={() =>
+												organize.setGroupDialog({
+													kind: "rename",
+													groupId: node.group.id,
+													name: node.group.name,
+												})
+											}
+											onDissolve={() => organize.dissolveGroup(node.group.id)}
+											onSetIconColor={(color) =>
+												organize.setGroupIconColor(node.group.id, color)
+											}
+										>
+											{node.group.projectKeys.map((key) => {
+												const folder = folders.find(
+													(entry) => entry.id === key,
+												);
+												if (folder === undefined) return null;
+												return (
+													<SidebarFolderRow
+														key={folder.id}
+														folder={folder}
+														origins={origins}
+														chatsByProject={chatsByProject}
+														sessionsByProject={sessionsByProject}
+														cloudChats={cloudChats}
+														activeEnvironmentId={activeEnvironmentId}
+														expanded={expanded}
+														nested
+														dropLine={organize.dropLineFor(folder.id)}
+														dragProps={organize.projectDragProps(
+															folder.id,
+															node.group.id,
+														)}
+														onToggleExpanded={onToggleExpanded}
+														onSelect={select}
+														onRemove={remove}
+														organize={organize}
+													/>
+												);
+											})}
+										</UserProjectGroup>
+									) : (
+										(() => {
+											const folder = folders.find(
+												(entry) => entry.id === node.key,
+											);
+											if (folder === undefined) return null;
+											return (
+												<SidebarFolderRow
+													key={folder.id}
+													folder={folder}
+													origins={origins}
+													chatsByProject={chatsByProject}
+													sessionsByProject={sessionsByProject}
+													cloudChats={cloudChats}
+													activeEnvironmentId={activeEnvironmentId}
+													expanded={expanded}
+													dropLine={organize.dropLineFor(folder.id)}
+													dragProps={organize.projectDragProps(folder.id, null)}
+													onToggleExpanded={onToggleExpanded}
+													onSelect={select}
+													onRemove={remove}
+													organize={organize}
+												/>
+											);
+										})()
+									),
+								)}
+							</>
 						)}
 					</>
 				)}
@@ -992,11 +993,8 @@ export function ProjectsSidebar() {
 	);
 }
 
-// Rows past this stay unmounted until asked for; each row subscribes to its
-// sessions' timelines, so a long history shouldn't all render up front.
 const THREAD_LIST_INITIAL_ROWS = 100;
 
-/** Experimental thread list sidebar body: every thread, newest first. */
 function ThreadListSection({
 	entries,
 	origins,
@@ -1008,7 +1006,7 @@ function ThreadListSection({
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const [showAll, setShowAll] = useState(false);
-	// Cloud rows open into their matching sidebar project, as in the tree.
+
 	const projectByRepository = useMemo(
 		() =>
 			new Map(
@@ -1465,17 +1463,12 @@ function SidebarFolderRow({
 	);
 }
 
-/**
- * Quick actions pinned at the top of the sidebar — the two things you reach
- * for constantly (start a chat, add a project) as plain rows instead of
- * hunting for the small + icons.
- */
 function SidebarActions() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 	const pluginsOpen = useUiStore(
 		(state) => state.view === "chat" && state.activeMainTab === "plugins",
 	);
-	// Plugins follow the selected workspace and require a signed-in account.
+
 	const { isSignedIn } = useAuth();
 
 	return (
@@ -1500,42 +1493,6 @@ function SidebarActions() {
 				/>
 			)}
 		</div>
-	);
-}
-
-function SidebarActionRow({
-	icon,
-	label,
-	shortcut,
-	active = false,
-	onClick,
-}: {
-	icon: IconSvgElement;
-	label: string;
-	shortcut?: string;
-	active?: boolean;
-	onClick: () => void;
-}) {
-	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-current={active ? "page" : undefined}
-			className={cn(
-				"flex min-h-6 w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-left text-[12px] transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-				active
-					? "bg-sidebar-accent text-sidebar-accent-foreground"
-					: "text-muted-foreground",
-			)}
-		>
-			<HugeiconsIcon icon={icon} className="size-4 shrink-0" />
-			<span className="min-w-0 flex-1 truncate">{label}</span>
-			{shortcut !== undefined && shortcut !== "" ? (
-				<kbd className="shrink-0 font-sans text-[12px] text-muted-foreground">
-					{shortcut}
-				</kbd>
-			) : null}
-		</button>
 	);
 }
 
@@ -1598,11 +1555,6 @@ function SidebarAgentCount() {
 	);
 }
 
-/**
- * The account's plan: a quiet Cloud label that opens billing, or an Upgrade
- * button that starts Cloud checkout. Profile and sign-out live in the
- * workspace switcher and General settings.
- */
 function SidebarPlan() {
 	const { message: uiMessage } = useUiMessages(["projects"]);
 	const { user } = useAuth();
@@ -1619,7 +1571,6 @@ function SidebarPlan() {
 				if (live) setEntitled(hasCloudEntitlement(result));
 			})
 			.catch(() => {
-				// Show Upgrade rather than nothing when the plan can't be read.
 				if (live) setEntitled(false);
 			});
 		return () => {
@@ -1670,7 +1621,6 @@ function SidebarPlan() {
 	);
 }
 
-/** Sign-in affordance while signed out; the plan once signed in. */
 function SidebarAccount() {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
@@ -1774,7 +1724,6 @@ function SidebarFooterIcon({
 	);
 }
 
-/** A remote chat row plus whether its computer is currently reachable. */
 type RemoteChatRow = {
 	readonly ref: LogicalChatRef;
 	readonly connected: boolean;
@@ -1788,9 +1737,7 @@ const remoteChatRows = (
 			.filter((member) => member.connected)
 			.map((member) => member.environmentId),
 	);
-	// Data-source split: everything NOT from the active environment's live
-	// stores renders as a catalog row. The remote BADGE is `ref.remote`,
-	// which is anchored to this physical desktop instead.
+
 	return group.chats
 		.filter((ref) => !ref.live)
 		.map((ref) => ({
@@ -1799,11 +1746,6 @@ const remoteChatRows = (
 		}));
 };
 
-/**
- * Connection problems no longer occupy sidebar blocks — one quiet line under
- * the "Computers" strip carries them, with the details in a tooltip and a
- * click-through to the connect dialog.
- */
 function CatalogConnectionNotice({
 	entries,
 }: {
@@ -1884,6 +1826,8 @@ function SidebarChatHoverCard({
 	providerId,
 	model,
 	status,
+	goal = null,
+	pullRequests = [],
 }: {
 	readonly title: string;
 	readonly repository: string;
@@ -1892,12 +1836,26 @@ function SidebarChatHoverCard({
 	readonly providerId?: ProviderId | null;
 	readonly model?: string | null;
 	readonly status: string;
+	readonly goal?: ThreadGoal | null;
+	readonly pullRequests?: ReadonlyArray<ChatPullRequest>;
 }) {
 	return (
-		<div className="min-w-48 max-w-72 space-y-1 px-1 py-0.5 text-[12px]">
+		<div className="w-72 space-y-1 px-1 py-0.5 text-[12px]">
 			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
 				{title || uiMessage("projects:projects_sidebar_new_chat")}
 			</div>
+			{goal !== null ? (
+				<div className="mb-1.5 flex items-start gap-2">
+					<GoalGlyph goal={goal} />
+					<div className="min-w-0 flex-1">
+						<div className="text-[11px] text-muted-foreground tabular-nums">
+							{uiMessage(GOAL_STATUS_MESSAGE[goal.status])} ·{" "}
+							{formatElapsed(goal.timeUsedSeconds * 1000)}
+						</div>
+						<p className="line-clamp-2 text-foreground/80">{goal.objective}</p>
+					</div>
+				</div>
+			) : null}
 			<div className="flex items-center gap-2 text-muted-foreground">
 				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
 				<span className="truncate">{repository}</span>
@@ -1918,10 +1876,60 @@ function SidebarChatHoverCard({
 					<span className="truncate">{model || providerId}</span>
 				</div>
 			) : null}
+			{pullRequests.length > 0 ? (
+				<div className="-mx-1 border-t border-border/50 pt-1">
+					<ChatPullRequestList
+						pullRequests={pullRequests}
+						limit={6}
+						density="compact"
+						interactive={false}
+					/>
+				</div>
+			) : null}
 			<div className="pt-0.5 text-[11px] text-muted-foreground/80">
 				{status}
 			</div>
 		</div>
+	);
+}
+
+/** The composer's goal mark, so a goal reads the same wherever it shows. */
+function GoalGlyph({ goal }: { readonly goal: ThreadGoal }) {
+	return (
+		<HugeiconsIcon
+			icon={DashboardSpeedIcon}
+			aria-label={uiMessage(GOAL_STATUS_MESSAGE[goal.status])}
+			className="size-3.5 shrink-0 text-muted-foreground"
+		/>
+	);
+}
+
+/** Layers + count when a chat has several linked PRs (a stack or chain). */
+function LinkedPullRequestsBadge({
+	pullRequests,
+}: {
+	readonly pullRequests: ReadonlyArray<ChatPullRequest>;
+}) {
+	const open = pullRequests.some((pr) => pr.state === "open");
+	const merged = pullRequests.every((pr) => pr.state === "merged");
+	return (
+		<span
+			className={cn(
+				"flex items-center gap-0.5 text-[10px] tabular-nums",
+				merged
+					? "text-purple-400"
+					: open
+						? "text-success"
+						: "text-muted-foreground",
+			)}
+		>
+			<HugeiconsIcon
+				icon={Layers01Icon}
+				className="size-3"
+				aria-hidden="true"
+			/>
+			{pullRequests.length}
+		</span>
 	);
 }
 
@@ -1962,11 +1970,6 @@ function SidebarProjectHoverCard({
 	);
 }
 
-/**
- * A logical project group with no folder on the active environment: a light
- * header (avatar ↔ chevron swap, same anatomy as the full `ProjectGroup`)
- * over `CatalogChatRow`s. Clicking a chat switches to its computer.
- */
 function LogicalCatalogGroup({
 	group,
 	isExpanded,
@@ -2081,13 +2084,6 @@ function LogicalCatalogGroup({
 	);
 }
 
-/**
- * A chat rendered from the environment catalog (any computer that is not the
- * ACTIVE environment), mirroring `ChatRow`'s anatomy — including the branch
- * icon and `+N −N` diff stats, fetched from the chat's own computer. The
- * muted computer icon marks rows on a different physical machine than this
- * desktop. Clicking switches the whole app to that chat's environment.
- */
 function CatalogChatRow({
 	chatRef,
 	connected,
@@ -2097,16 +2093,14 @@ function CatalogChatRow({
 	chatRef: LogicalChatRef;
 	connected: boolean;
 	repositoryName: string;
-	/** Same layouts as `ChatRow`, so remote and local rows line up. */
+
 	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
 
 	const { chat, environmentId, environmentLabel, remote, busy } = chatRef;
 	const isArchived = chat.archivedAt !== null;
-	// Sidebar discovery is cache-only and must never wake a remote environment.
-	// Runtime Git state is retained only after selecting the environment, so a
-	// catalog placeholder uses its monotonic metadata and relative activity.
+
 	const prInfo = null;
 	return (
 		<li>
@@ -2259,9 +2253,9 @@ function ProjectGroup({
 		readonly archivedAt: Date | null;
 		readonly status: SessionStatus;
 	}>;
-	/** Same-repo chats on other computers, interleaved into the chat list. */
+
 	remoteChats?: ReadonlyArray<RemoteChatRow>;
-	/** Durable cloud chats remain visible independently of sandbox state. */
+
 	cloudChats?: ReadonlyArray<CloudChatSummary>;
 	environmentId: EnvironmentId;
 	onSelect: () => void;
@@ -2323,8 +2317,6 @@ function ProjectGroup({
 		);
 	}, [chats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
-	// One merged timeline inside the group: local chats and same-repo chats on
-	// other computers interleave by recency instead of forming sections.
 	const chatRows = useMemo(() => {
 		const local = visibleChats.map((chat) => ({
 			kind: "local" as const,
@@ -2357,8 +2349,6 @@ function ProjectGroup({
 		);
 	}, [visibleChats, remoteChats, cloudChats, hiddenArchivedChatIds, uiMessage]);
 
-	// Surface the highest-priority attention hint on the collapsed project
-	// header when any session inside this project needs attention.
 	const liveSessions = useMemo(
 		() => projectSessions.filter((session) => session.archivedAt === null),
 		[projectSessions, uiMessage],
@@ -2413,8 +2403,7 @@ function ProjectGroup({
 		() => new Set(liveSessionIds),
 		[liveSessionIds, uiMessage],
 	);
-	// Pending permission prompts never become messages, so they bypass
-	// `headerMessageAttention`. Pull them straight from the permissions store.
+
 	const permissionRequests =
 		useEnvironmentPermissions().data?.requestsById ?? {};
 	const headerPermissionAttention = derivePermissionAttention(
@@ -2436,8 +2425,6 @@ function ProjectGroup({
 
 	return (
 		<li>
-			{/* Project header toggles expansion only. Explicit actions below select
-          the project when they need project context. */}
 			<Tooltip>
 				<TooltipTrigger
 					render={
@@ -2468,9 +2455,7 @@ function ProjectGroup({
 								</span>
 							</button>
 							<DropLine line={dropLine} />
-							{/* Single 20px slot holds avatar (idle) and chevron (hover). Both
-              live in the same grid cell so the row never reflows; opacity
-              fades between them. motion-reduce drops the transition. */}
+
 							<div className="pointer-events-none relative grid size-5 shrink-0 place-items-center">
 								<Avatar
 									className={cn(
@@ -2633,6 +2618,35 @@ function ProjectGroup({
 	);
 }
 
+/** Cloud marker for a cloud chat row, or the Slack mark when Slack started it. */
+function CloudChatIndicator({
+	slack,
+	label,
+	className,
+}: {
+	readonly slack: boolean;
+	readonly label: string;
+	readonly className?: string;
+}) {
+	return (
+		<span
+			className={cn(
+				"inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/60",
+				className,
+			)}
+			role="img"
+			aria-label={label}
+			title={slack ? label : undefined}
+		>
+			{slack ? (
+				<SlackIcon monochrome className="size-3" />
+			) : (
+				<DitherCloudIcon className="size-4" />
+			)}
+		</span>
+	);
+}
+
 function CloudChatRow({
 	summary,
 	projectId,
@@ -2641,9 +2655,9 @@ function CloudChatRow({
 }: {
 	readonly summary: CloudChatSummary;
 	readonly projectId?: FolderId;
-	/** Shown on `threadList` rows; defaults to the cloud repository name. */
+
 	readonly projectName?: string;
-	/** Same layouts as `ChatRow`, so cloud and local rows line up. */
+
 	readonly variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
@@ -2669,12 +2683,21 @@ function CloudChatRow({
 		runtime: timeline.runtime,
 		timeline: timeline.view,
 	});
-	const label = uiMessage("projects:projects_sidebar_cloud");
+	const loading = cloudChatShowsLoading(activity, shell.connection, summary);
+	const slack = summary.source === "slack";
+	const label = slack
+		? uiMessage("projects:projects_sidebar_started_from_slack")
+		: uiMessage("projects:projects_sidebar_cloud");
 	const archivePending =
 		summary.desiredState === "archived" && summary.state !== "failed";
-	const attentionState = deriveChatAttentionState(
+	const liveAttention = useChatAttention(
+		{ id: summary.chatId },
+		summary.workspaceId,
+		false,
+	);
+	const summaryAttention = deriveChatAttentionState(
 		timeline.messages,
-		cloudChatShowsWorking(activity),
+		cloudChatShowsWorking(activity, timeline.view.pendingCommands),
 		filterActionableQuestionInteractions(
 			summary.initialSessionId,
 			timeline.presentation.interactions.map((item) => item.interaction),
@@ -2682,6 +2705,11 @@ function CloudChatRow({
 		),
 		timeline.presentation.health,
 	);
+
+	const attentionState = mergeChatAttentionStates([
+		liveAttention.attentionState,
+		summaryAttention,
+	]);
 
 	const selected = selectedChatId === summary.chatId;
 	const open = () => {
@@ -2746,7 +2774,12 @@ function CloudChatRow({
 									title={summary.title}
 									attentionState={attentionState}
 									creationPending={false}
-									statusLabel={chatAttentionLabel(attentionState)}
+									loading={loading}
+									statusLabel={
+										loading && attentionState === "idle"
+											? uiMessage("common:loading")
+											: chatAttentionLabel(attentionState)
+									}
 									prInfo={null}
 									stats={null}
 									projectName={projectName ?? summary.repositoryDisplayName}
@@ -2755,13 +2788,11 @@ function CloudChatRow({
 									)}
 									time={formatRelative(new Date(chatRecency(summary)), true)}
 									remoteIndicator={
-										<span
-											className="mr-1 inline-flex shrink-0 text-muted-foreground/60"
-											role="img"
-											aria-label={label}
-										>
-											<DitherCloudIcon className="size-4" />
-										</span>
+										<CloudChatIndicator
+											slack={slack}
+											label={label}
+											className="mr-1"
+										/>
 									}
 									action={
 										<ChatArchiveButton
@@ -2782,6 +2813,8 @@ function CloudChatRow({
 												state={attentionState}
 												selected={selected}
 											/>
+										) : loading ? (
+											<Spinner className="size-3.5" />
 										) : (
 											<BranchIcon state="default" selected={selected} />
 										)}
@@ -2790,13 +2823,7 @@ function CloudChatRow({
 										{summary.title}
 									</span>
 									<div className="flex h-4 w-20 shrink-0 items-center justify-end gap-1">
-										<span
-											className="inline-flex shrink-0 text-muted-foreground/60"
-											role="img"
-											aria-label={label}
-										>
-											<DitherCloudIcon className="size-4" />
-										</span>
+										<CloudChatIndicator slack={slack} label={label} />
 										<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 											{formatRelative(new Date(chatRecency(summary)))}
 										</span>
@@ -3029,15 +3056,8 @@ function ProjectContextMenu({
  * don't need prop drilling.
  */
 export function createNewSession(projectId: FolderId): void {
-	// The landing lives on the chat tab. Return there before clearing the
-	// selection so creating a chat from Usage or Archives is immediately
-	// visible instead of leaving that takeover surface mounted.
 	useUiStore.getState().setActiveMainTab("chat");
-	// Select the project first (synchronous: `workspace.select` sets
-	// `selectedFolderId` before awaiting persistence), then clear the chat +
-	// session selection for it. `chats.select(null)` cascades into
-	// `sessions.select(null)`, so both the tab strip and the chat surface fall
-	// back to the empty landing for this project.
+
 	if (useWorkspaceStore.getState().selectedFolderId !== projectId) {
 		void useWorkspaceStore.getState().select(projectId);
 	}
@@ -3108,15 +3128,11 @@ function ChatRow({
 }: {
 	chat: Chat;
 	projectRoot: string;
-	/** Shown on `threadList` rows, which have no project header above them. */
+
 	projectName?: string;
-	/** Repository owner's GitHub avatar; `threadList` rows lead with it. */
+
 	projectAvatarUrl?: string | null;
-	/**
-	 * `tree` is the indented row under a project header. `threadList` is the
-	 * self-describing row used by the experimental flat list. Behavior
-	 * (select, unread, archive, menu, hover card) is shared; only layout differs.
-	 */
+
 	variant?: "tree" | "threadList";
 }) {
 	const { message: uiMessage } = useUiMessages(["common", "projects"]);
@@ -3125,7 +3141,11 @@ function ChatRow({
 	const selectedSessionId = useSessionsStore((s) => s.selectedSessionId);
 	const selectedChatId = useChatsStore((s) => s.selectedChatId);
 
-	const selectChat = useChatsStore((s) => s.select);
+	const selectOrdinaryChat = useChatsStore((s) => s.select);
+	const selectChat = (chatId: ChatId) => {
+		useMastersStore.getState().select(null);
+		return selectOrdinaryChat(chatId);
+	};
 	const renameChat = useChatsStore((s) => s.rename);
 	const unarchiveChat = useChatsStore((s) => s.unarchive);
 	const removeChat = useChatsStore((s) => s.remove);
@@ -3135,12 +3155,11 @@ function ChatRow({
 	const isRestoring = useArchivePreviewStore(
 		(s) => s.restoringByChat[chat.id] === true,
 	);
-	const creationPending = useChatsStore(
-		(s) => s.pendingCreationByChat[chat.id] !== undefined,
-	);
+	const creationPending = useChatsStore((s) => {
+		const creation = s.pendingCreationByChat[chat.id];
+		return creation !== undefined && chatCreationIsInProgress(creation.phase);
+	});
 
-	// Live rows always belong to the ACTIVE environment; the row is "remote"
-	// when that environment is not this physical desktop.
 	const activeEnvironmentId = useEnvironmentCatalogStore(
 		(s) => s.activeEnvironmentId,
 	);
@@ -3173,31 +3192,72 @@ function ChatRow({
 	const prInfo = gitView.data?.pr ?? null;
 	const diffStat = gitView.data?.diffStat ?? null;
 
-	// Merged across ANY non-archived tab in this chat, not just the selected one.
-	const { chatSessions, sessionIds, attentionState, permissionAttention } =
-		useChatAttention(chat, activeEnvironmentId, creationPending);
+	const {
+		chatSessions,
+		sessionIds,
+		attentionState,
+		permissionAttention,
+		busy,
+	} = useChatAttention(chat, activeEnvironmentId, creationPending);
 	const hoverSession =
 		chatSessions.find((session) => session.id === selectedSessionId) ??
 		chatSessions[0] ??
 		null;
 	const hoverStatus = chatAttentionLabel(attentionState, creationPending);
+	const goalRef = useMemo(
+		() =>
+			hoverSession === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						sessionId: hoverSession.id,
+					},
+		[activeEnvironmentId, hoverSession?.id],
+	);
+	const goal = useSessionGoalResource(goalRef, "cache-only").data?.goal ?? null;
+	const activeGoal = isGoalInProgress(goal) ? goal : null;
+	const stackBranch = gitView.data?.status?.branch ?? prInfo?.branch ?? null;
+	const stackRef = useMemo(
+		() =>
+			worktreePath === null
+				? null
+				: {
+						environmentId: EnvironmentId.make(activeEnvironmentId),
+						folderId: chat.projectId,
+						worktreeId: chat.worktreeId,
+						rootPath: worktreePath,
+					},
+		[activeEnvironmentId, chat.projectId, chat.worktreeId, worktreePath],
+	);
+	// Rows only read cached stacks; the hover card asks for this one chat's
+	// stack so long sidebars never fan out `gh stack` calls.
+	const stack = useGitStackStore((state) =>
+		stackBranch === null || stackRef === null
+			? null
+			: (state.entries[gitStackKey(stackRef, stackBranch)]?.result ?? null),
+	);
+	const discoverStack = (open: boolean) => {
+		if (!open || stackBranch === null || stackRef === null) return;
+		void readGitStack(stackRef, stackBranch).catch(() => undefined);
+	};
+	const pullRequests = useMemo(
+		() => chatPullRequests({ pr: prInfo, title: null, stack }),
+		[prInfo, stack],
+	);
 
-	// Highlight this row when its own chat is selected, OR when the active
-	// session (any tab inside this chat) lives in it. Covers the transient
-	// window where `selectedChatId` hasn't caught up to `selectedSessionId`.
 	const sessionBelongsToChat = useMemo(() => {
 		if (selectedSessionId === null) return false;
 		return sessionIds.includes(selectedSessionId);
 	}, [selectedSessionId, sessionIds, uiMessage]);
 	const isSelected = selectedChatId === chat.id || sessionBelongsToChat;
 	const isArchived = chat.archivedAt !== null;
-	// Unread = new activity the user hasn't seen. A pending permission prompt
-	// also counts: the agent is blocked on the user even though no new message
-	// landed to advance `lastMessageAt`. Never on the selected row.
-	const isUnread =
-		!isSelected &&
-		(isChatUnread(chat, selectedChatId) ||
-			permissionAttention === "permission");
+
+	const isUnread = chatRowIsUnread(
+		isSelected,
+		isChatUnread(chat, selectedChatId),
+		busy,
+		permissionAttention === "permission",
+	);
 
 	const branchState: BranchState = branchStateFor(prInfo, isArchived);
 	const stats = diffStatsFor(diffStat, prInfo);
@@ -3293,7 +3353,7 @@ function ChatRow({
 				</Suspense>
 			) : null}
 			<li>
-				<Tooltip>
+				<Tooltip onOpenChange={discoverStack}>
 					<TooltipTrigger
 						render={
 							<div
@@ -3306,7 +3366,7 @@ function ChatRow({
 									!isSelected &&
 										isArchived &&
 										"text-muted-foreground hover:bg-sidebar-accent/40",
-									// Read rows sit dim; unread rows brighten + bold so new activity pops.
+
 									!isSelected &&
 										!isArchived &&
 										!isUnread &&
@@ -3355,6 +3415,8 @@ function ChatRow({
 													state={attentionState}
 													selected={isSelected}
 												/>
+											) : activeGoal !== null ? (
+												<GoalGlyph goal={activeGoal} />
 											) : (
 												<BranchIcon state={branchState} selected={isSelected} />
 											)}
@@ -3363,8 +3425,11 @@ function ChatRow({
 											text={chat.title}
 											className="pointer-events-none min-w-0 flex-1 truncate"
 										/>
-										<div className="pointer-events-none relative flex h-4 w-16 shrink-0 items-center justify-end">
+										<div className="pointer-events-none relative flex h-4 min-w-16 shrink-0 items-center justify-end gap-1.5">
 											{remoteIndicator}
+											{pullRequests.length > 1 ? (
+												<LinkedPullRequestsBadge pullRequests={pullRequests} />
+											) : null}
 											<span className="tabular-nums text-[10px] text-muted-foreground transition-opacity duration-150 ease-out motion-reduce:transition-none group-hover:hidden">
 												{showDiff && stats !== null ? (
 													<>
@@ -3401,6 +3466,8 @@ function ChatRow({
 							providerId={hoverSession?.providerId}
 							model={hoverSession?.model}
 							status={hoverStatus}
+							goal={activeGoal}
+							pullRequests={pullRequests}
 						/>
 					</TooltipPopup>
 				</Tooltip>
@@ -3463,15 +3530,8 @@ function ChatRow({
 	);
 }
 
-/**
- * Body for `threadList` rows, anchored by the repository's GitHub logo.
- *   logo  — repo owner avatar (a dither avatar seeded by the project name when
- *           there is none); a small corner badge appears only while the
- *           agent works or needs you (status words live in the hover card)
- *   line 1 — title · time
- *   line 2 — project name, GitHub PR icon, number, and state · diff
- */
 function ThreadListRowBody({
+	loading = false,
 	title,
 	attentionState,
 	creationPending,
@@ -3486,6 +3546,7 @@ function ThreadListRowBody({
 }: {
 	title: string;
 	attentionState: ChatAttentionState;
+	loading?: boolean;
 	creationPending: boolean;
 	statusLabel: string;
 	prInfo: GitPrInfo | null;
@@ -3496,7 +3557,10 @@ function ThreadListRowBody({
 	remoteIndicator: ReactNode;
 	action: ReactNode;
 }) {
-	const working = creationPending || attentionState === "running";
+	const working =
+		creationPending ||
+		attentionState === "running" ||
+		(loading && attentionState === "idle");
 	const prState = prStateLabelFor(prInfo);
 
 	return (
@@ -3513,8 +3577,6 @@ function ThreadListRowBody({
 				{working || attentionState !== "idle" ? (
 					<span className="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-sidebar ring-1 ring-sidebar">
 						{working ? (
-							// A solid ring stays legible at badge size, where the
-							// dotted Spinner glyph washes out.
 							<span
 								aria-hidden="true"
 								className="size-2.5 animate-spin rounded-full border-[1.5px] border-foreground/25 border-t-foreground motion-reduce:animate-none"
@@ -3572,7 +3634,6 @@ function ThreadListRowBody({
 	);
 }
 
-/** Hover-revealed archive/unarchive action that sits on top of a chat row. */
 function ChatArchiveButton({
 	icon,
 	label,

@@ -3,7 +3,6 @@ import { Context, Effect, Layer, Option, Result, Stream } from "effect";
 
 import { HiddenAgentRunner, limitHeadTail } from "./hidden-agent-run.ts";
 
-/** Hard ceiling on the one-shot turn; on timeout we fall back to truncation. */
 const TITLE_TIMEOUT_MS = 25_000;
 export const MAX_GENERATED_TITLE_LENGTH = 60;
 
@@ -57,9 +56,6 @@ export const buildNamingPrompt = (
 export const limitNamingMessage = (text: string, limit = 6_000): string =>
 	limitHeadTail(text, limit);
 
-/* ──────────────────────────── pure helpers ──────────────────────────── */
-
-/** Cut at the last word boundary within `limit`, or hard-cut one long word. */
 const clampWords = (text: string, limit: number): string => {
 	if (text.length <= limit) return text;
 	const cut = text.slice(0, limit);
@@ -131,9 +127,7 @@ export const parseNamingReply = (
 				title: typeof value.title === "string" ? cleanTitle(value.title) : "",
 				branch: typeof value.branch === "string" ? value.branch.trim() : "",
 			};
-		} catch {
-			// Fall through to the plain-text reading below.
-		}
+		} catch {}
 	}
 	return { title: start === -1 ? cleanTitle(raw) : "", branch: "" };
 };
@@ -206,8 +200,6 @@ export const formatBranchName = (
 		}
 	}
 };
-
-/* ───────────────────────────── service ──────────────────────────────── */
 
 export interface GenerateNamesInput {
 	/** Project the chat belongs to (resolves provider auth + default cwd). */

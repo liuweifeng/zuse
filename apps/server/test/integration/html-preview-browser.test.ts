@@ -6,7 +6,6 @@ import {
 	htmlPreviewInstaller,
 } from "../../src/html-render/preview-browser.ts";
 
-// CI may override this with a provisioned Chromium path. No browser download in tests.
 const browser = new HtmlPreviewBrowser({
 	executablePath: process.env.ZUSE_TEST_CHROME ?? "/usr/bin/google-chrome",
 });

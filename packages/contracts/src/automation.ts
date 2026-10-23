@@ -103,7 +103,7 @@ export const ScheduleDeleteRpc = Rpc.make("schedule.delete", {
 	success: Schema.Void,
 	error: AutomationError,
 });
-// Webhook producers authenticate using the same workspace RPC transport. No anonymous listener.
+
 export const ScheduleTriggerRpc = Rpc.make("schedule.trigger", {
 	payload: Schema.Struct({
 		sessionId: SessionId,

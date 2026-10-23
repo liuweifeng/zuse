@@ -422,7 +422,7 @@ it("fails instead of hanging on an unsupported zip compression method", async ()
 		},
 		{ level: 0 },
 	);
-	// Rewrite the compression method (stored → 99) in the local and central headers.
+
 	const view = new DataView(archive.buffer);
 	for (let offset = 0; offset < archive.length - 4; offset++) {
 		const signature = view.getUint32(offset, true);
@@ -543,7 +543,7 @@ it("keeps helper executables runnable when extracting zip agents", async () => {
 		async () => new Response(archive),
 	);
 	expect(installed.command).toBe(join(root, "bin/agent"));
-	// Windows has no POSIX execute bits; there, extraction itself is the check.
+
 	if (process.platform !== "win32") {
 		expect((await stat(join(root, "bin/helper"))).mode & 0o100).toBe(0o100);
 		expect((await stat(join(root, "README.md"))).mode & 0o111).toBe(0);

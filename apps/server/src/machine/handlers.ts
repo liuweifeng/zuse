@@ -54,6 +54,10 @@ const withHost = <A>(
 const Offers = MemoizeRpcs.toLayerHandler("machines.offers", () =>
 	withControl((service) => service.offers()),
 );
+const LocalPlugins = MemoizeRpcs.toLayerHandler(
+	"plugins.local.request",
+	(input) => withCloudControl((service) => service.localPlugins(input)),
+);
 const Plugins = MemoizeRpcs.toLayerHandler("plugins.request", (input) =>
 	withCloudControl((service) => service.plugins(input)),
 );
@@ -110,6 +114,10 @@ const CloudAuthDisconnect = MemoizeRpcs.toLayerHandler(
 	"cloud.auth.disconnect",
 	({ providerId }) =>
 		withCloudControl((service) => service.disconnectCloudAuth(providerId)),
+);
+const CloudGithubObserve = MemoizeRpcs.toLayerHandler(
+	"cloud.github.observe",
+	(input) => withCloudControl((service) => service.observeGithub(input)),
 );
 const CloudGithubStatus = MemoizeRpcs.toLayerHandler(
 	"cloud.github.status",
@@ -493,7 +501,12 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 		Effect.gen(function* () {
 			const service = yield* MachineControlService;
 			return yield* service
-				.deviceBridge(input.workspaceId, input.action, input.targetDeviceId)
+				.deviceBridge(
+					input.workspaceId,
+					input.action,
+					input.targetDeviceId,
+					input.bindOnlyIfUnbound,
+				)
 				.pipe(
 					Effect.mapError(
 						(error) => new DeviceBridgeError({ reason: error.code }),
@@ -501,9 +514,23 @@ const CloudDeviceBridge = MemoizeRpcs.toLayerHandler(
 				);
 		}),
 );
+const BridgeDevices = MemoizeRpcs.toLayerHandler("deviceBridge.devices", () =>
+	Effect.gen(function* () {
+		const service = yield* MachineControlService;
+		return yield* service
+			.bridgeDevices()
+			.pipe(
+				Effect.mapError(
+					(error) => new DeviceBridgeError({ reason: error.code }),
+				),
+			);
+	}),
+);
 export const MachineHandlersLayer = Layer.mergeAll(
 	Plugins,
+	LocalPlugins,
 	CloudDeviceBridge,
+	BridgeDevices,
 	CloudAuthStatus,
 	CloudAuthProvision,
 	CloudAuthConfigure,
@@ -512,6 +539,7 @@ export const MachineHandlersLayer = Layer.mergeAll(
 	CloudAuthLoginCancel,
 	CloudAuthDisconnect,
 	CloudGithubStatus,
+	CloudGithubObserve,
 	CloudGithubInstall,
 	CloudGithubDisconnect,
 	CloudBillingSummaryHandler,

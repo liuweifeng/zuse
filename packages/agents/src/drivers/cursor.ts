@@ -152,8 +152,6 @@ const withTimeout = async <A>(
 	}
 };
 
-// Slug aliases are already canonicalized by ProviderService against the
-// resolved model catalog; only the `default` sentinel is mapped here.
 const modelSelection = (model: string | undefined): ModelSelection => {
 	const resolved = model ?? "composer-2.5";
 	return { id: resolved === "default" ? "composer-2.5" : resolved };
@@ -412,7 +410,6 @@ export const startCursorSession = (
 		const result = yield* Effect.result(
 			Effect.tryPromise({
 				try: async () => {
-					// First real Cursor use in this process loads the SDK; others never do.
 					const { Agent, getDefaultSdkStateRoot, JsonlLocalAgentStore } =
 						await loadCursorSdk();
 					const store = new JsonlLocalAgentStore(

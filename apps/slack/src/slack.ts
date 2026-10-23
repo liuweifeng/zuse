@@ -1,5 +1,3 @@
-// Slack signature verification, thread/file reads, and replies.
-
 const encoder = new TextEncoder();
 const SLACK_REQUEST_TIMEOUT_MS = 10_000;
 const SLACK_THREAD_MAX_MESSAGES = 500;
@@ -101,8 +99,7 @@ const slackClientMessageId = async (
 	const bytes = new Uint8Array(
 		await crypto.subtle.digest("SHA-256", encoder.encode(idempotencyKey)),
 	);
-	// Derive a stable UUID from the durable source event so retries use the
-	// exact same Slack duplicate-suppression identifier.
+
 	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80;
 	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
 	const hex = [...bytes.slice(0, 16)]
@@ -293,7 +290,6 @@ export const downloadSlackFile = async (input: {
 };
 
 export const readSlackThread = async (input: {
-	/** Use a token authorized to read this conversation; DMs use the bot token. */
 	readonly token: string;
 	readonly channel: string;
 	readonly threadTs: string;
@@ -365,7 +361,7 @@ export const readSlackThread = async (input: {
 				throw new Error("slack_thread_pagination_limit");
 			seenCursors.add(cursor);
 		}
-		// Bound durable context as well as attachment buffering. Retain newest data.
+
 		let textBudget = 60_000;
 		let fileBudget = 8;
 		for (let index = messages.length - 1; index >= 0; index--) {
@@ -387,4 +383,70 @@ export const readSlackThread = async (input: {
 		);
 	} while (cursor !== undefined);
 	return messages;
+};
+
+const slackRecord = (value: unknown): Record<string, unknown> | undefined =>
+	value && typeof value === "object"
+		? (value as Record<string, unknown>)
+		: undefined;
+const slackName = (...values: unknown[]): string | undefined => {
+	for (const value of values)
+		if (typeof value === "string" && value.trim().length > 0)
+			return value.trim().slice(0, 128);
+	return undefined;
+};
+/** Read methods take query parameters; failures resolve to `undefined`. */
+const slackRead = async (
+	token: string,
+	method: string,
+	params: Readonly<Record<string, string>>,
+): Promise<Record<string, unknown> | undefined> => {
+	try {
+		const url = new URL(`https://slack.com/api/${method}`);
+		for (const [key, value] of Object.entries(params))
+			url.searchParams.set(key, value);
+		const response = await fetch(url, {
+			headers: { authorization: `Bearer ${token}` },
+			signal: AbortSignal.timeout(SLACK_REQUEST_TIMEOUT_MS),
+		});
+		const body = slackRecord(await response.json());
+		return response.ok && body?.ok === true ? body : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * Best-effort display names for message attribution. Installs that predate
+ * the `users:read` / `channels:read` scopes simply omit the missing name.
+ */
+export const readSlackSourceNames = async (input: {
+	readonly botToken: string;
+	readonly userId: string;
+	readonly channel: string;
+}): Promise<{ readonly author?: string; readonly channel?: string }> => {
+	const [userPayload, channelPayload] = await Promise.all([
+		slackRead(input.botToken, "users.info", { user: input.userId }),
+		// Direct messages have no channel name worth showing.
+		input.channel.startsWith("D")
+			? undefined
+			: slackRead(input.botToken, "conversations.info", {
+					channel: input.channel,
+				}),
+	]);
+	const user = slackRecord(userPayload?.user);
+	const profile = slackRecord(user?.profile);
+	const author = slackName(
+		profile?.display_name,
+		profile?.real_name,
+		user?.real_name,
+		user?.name,
+	);
+	const conversation = slackRecord(channelPayload?.channel);
+	const channel =
+		conversation?.is_mpim === true ? undefined : slackName(conversation?.name);
+	return {
+		...(author === undefined ? {} : { author }),
+		...(channel === undefined ? {} : { channel }),
+	};
 };

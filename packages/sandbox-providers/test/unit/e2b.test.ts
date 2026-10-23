@@ -72,6 +72,62 @@ const createInput = {
 
 const originalFetch = globalThis.fetch;
 
+test.each([
+	"public-base",
+	"ioeu6w9tn6l30781rikc",
+])("creates public template %s with the BYOK key without an ownership-only lookup", async (templateId) => {
+	const http = makeHttp([
+		{
+			status: 201,
+			body: {
+				sandboxID: "sbx_public",
+				templateID: templateId,
+				clientID: "client",
+				envdVersion: "0.4.0",
+			},
+		},
+	]);
+	const base = makeAdapter(http.client);
+	if (!base.withCredentials) throw new Error("Missing credential rebinding");
+	const adapter = base.withCredentials({
+		apiKey: Redacted.make("other-team"),
+		templateId,
+	});
+	expect(adapter.validateTemplate).toBeUndefined();
+	await Effect.runPromise(adapter.create(createInput));
+	expect(http.calls).toHaveLength(1);
+	expect(http.calls[0]?.url).toBe("https://sandbox.test/sandboxes");
+	expect(JSON.parse(String(http.calls[0]?.init?.body)).templateID).toBe(
+		templateId,
+	);
+	expect(new Headers(http.calls[0]?.init?.headers).get("X-API-Key")).toBe(
+		"other-team",
+	);
+});
+
+test.each([
+	403, 404,
+])("allocation rejects inaccessible templates (%s) without transient retries", async (status) => {
+	const http = makeHttp([{ status }]);
+	await expect(
+		Effect.runPromise(makeAdapter(http.client).create(createInput)),
+	).rejects.toMatchObject({ code: "rejected" });
+	expect(http.calls).toHaveLength(1);
+});
+
+test("missing snapshot forks preserve not-found for recovery", async () => {
+	const http = makeHttp([{ status: 404 }]);
+	await expect(
+		Effect.runPromise(
+			makeAdapter(http.client).fork({
+				...createInput,
+				snapshotId: "missing-snapshot:default",
+			}),
+		),
+	).rejects.toMatchObject({ code: "not-found" });
+	expect(http.calls).toHaveLength(1);
+});
+
 const decodeConnectJsonBody = (body: BodyInit | null | undefined): unknown => {
 	if (!(body instanceof Uint8Array))
 		throw new Error("expected Connect envelope");
@@ -1035,7 +1091,7 @@ describe("E2B shared control connections", () => {
 				apiBaseUrl: "https://other.test",
 			}),
 		).not.toBe(base);
-		// Two adapters on a custom transport never see each other's tokens.
+
 		const a = makeHttp([detail("token-a"), { status: 200 }]);
 		const b = makeHttp([detail("token-b"), { status: 200 }]);
 		return Promise.all([

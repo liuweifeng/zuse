@@ -35,6 +35,11 @@
 			"import": "./src/secure-storage-master-key.ts",
 			"require": "./src/secure-storage-master-key.ts"
 		},
+		"./voice-upload": {
+			"types": "./src/voice/upload.ts",
+			"import": "./src/voice/upload.ts",
+			"require": "./src/voice/upload.ts"
+		},
 		"./package.json": "./package.json",
 		"./desktop-engine": {
 			"types": "./src/desktop-engine/index.ts",

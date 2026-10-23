@@ -95,10 +95,7 @@ export const GitLogRpc = Rpc.make("git.log", {
 export const GitStatusRpc = Rpc.make("git.status", {
 	payload: Schema.Struct({
 		folderId: FolderId,
-		/**
-		 * When set, run `git status` inside the worktree path so the branch +
-		 * dirty/ahead counts reflect the worktree, not the main checkout.
-		 */
+
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: GitStatusSummary,
@@ -168,6 +165,7 @@ export const GitWorkspaceChangesRpc = Rpc.make("git.workspaceChanges", {
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		visible: Schema.optional(Schema.Boolean),
+		localOnly: Schema.optional(Schema.Boolean),
 	}),
 	success: Schema.Struct({ revision: Schema.Number }),
 	error: GitErrors,
@@ -308,6 +306,8 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 	 */
 	autoMergeEnabled: Schema.Boolean,
 	prCapability: Schema.optional(GitPrCapability),
+	/** Safe GitHub API/transport explanation for the last failed observation. */
+	observationError: Schema.optional(Schema.String),
 	stale: Schema.optional(Schema.Boolean),
 	monitoringPaused: Schema.optional(Schema.Boolean),
 	headSha: Schema.optional(Schema.NullOr(Schema.String)),
@@ -321,11 +321,7 @@ export class GitPrInfo extends Schema.Class<GitPrInfo>("GitPrInfo")({
 export const GitPrStateRpc = Rpc.make("git.prState", {
 	payload: Schema.Struct({
 		folderId: FolderId,
-		/**
-		 * When set, resolves the GitHub repository from the worktree's path so the result
-		 * reflects the worktree's branch — each worktree has its own branch,
-		 * each branch has its own PR (or none).
-		 */
+
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 	}),
 	success: GitPrInfo,
@@ -434,6 +430,13 @@ export class GitHubStarError extends Schema.TaggedErrorClass<GitHubStarError>()(
 /** Stars Zuse with this computer's GitHub sign-in (`gh` or a token). */
 export const GitStarZuseRpc = Rpc.make("git.starZuse", {
 	payload: Schema.Void,
+	error: GitHubStarError,
+});
+
+/** Whether this computer's GitHub account has already starred Zuse. */
+export const GitZuseStarStatusRpc = Rpc.make("git.zuseStarStatus", {
+	payload: Schema.Void,
+	success: Schema.Boolean,
 	error: GitHubStarError,
 });
 
@@ -624,6 +627,62 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
 	deletions: Schema.Number,
 }) {}
 
+/** Checkout facts retained by clients; contains no paths or credentials. */
+export const GitHubTarget = Schema.Struct({
+	host: Schema.String.check(
+		Schema.isPattern(/^[a-zA-Z0-9.-]+$/u),
+		Schema.isMaxLength(253),
+	),
+	owner: Schema.String.check(
+		Schema.isPattern(/^[\w.-]+$/u),
+		Schema.isMaxLength(100),
+	),
+	repo: Schema.String.check(
+		Schema.isPattern(/^[\w.-]+$/u),
+		Schema.isMaxLength(100),
+	),
+	branch: Schema.NullOr(Schema.String.check(Schema.isMaxLength(1024))),
+	headOwner: Schema.optional(
+		Schema.String.check(
+			Schema.isPattern(/^[\w.-]+$/u),
+			Schema.isMaxLength(100),
+		),
+	),
+	headSha: Schema.optional(Schema.String.check(Schema.isMaxLength(128))),
+	number: Schema.optional(
+		Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0)),
+	),
+});
+export type GitHubTarget = typeof GitHubTarget.Type;
+export const GitHubObserveRequest = Schema.Struct({
+	target: GitHubTarget,
+	details: Schema.optional(Schema.Boolean),
+	force: Schema.optional(Schema.Boolean),
+});
+export type GitHubObserveRequest = typeof GitHubObserveRequest.Type;
+export const GitHubObservation = Schema.Struct({
+	pr: GitPrInfo,
+	details: Schema.NullOr(GitPrDetails),
+});
+export type GitHubObservation = typeof GitHubObservation.Type;
+export class GitHubObservationError extends Schema.TaggedErrorClass<GitHubObservationError>()(
+	"GitHubObservationError",
+	{ reason: Schema.String },
+) {}
+export const GitHubObserveRpc = Rpc.make("github.observe", {
+	payload: GitHubObserveRequest,
+	success: GitHubObservation,
+	error: GitHubObservationError,
+});
+export const GitHubContextRpc = Rpc.make("git.githubContext", {
+	payload: Schema.Struct({
+		folderId: FolderId,
+		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
+	}),
+	success: Schema.NullOr(GitHubTarget),
+	error: GitErrors,
+});
+
 /**
  * One coherent local projection for a checkout. Status, changed paths, and the
  * review summary are captured by one server request and share one projection
@@ -633,6 +692,7 @@ export class GitReviewSummary extends Schema.Class<GitReviewSummary>(
 export class GitWorkspaceSnapshot extends Schema.Class<GitWorkspaceSnapshot>(
 	"GitWorkspaceSnapshot",
 )({
+	githubTarget: Schema.optional(Schema.NullOr(GitHubTarget)),
 	status: GitStatusSummary,
 	changes: Schema.Array(GitChange),
 	reviewSummary: GitReviewSummary,
@@ -745,13 +805,7 @@ export const GitCommitRpc = Rpc.make("git.commit", {
 		folderId: FolderId,
 		worktreeId: Schema.optional(Schema.NullOr(WorktreeId)),
 		message: Schema.String,
-		/**
-		 * Explicit set of paths to commit. When provided (and non-empty), only
-		 * these paths are staged + committed (`git add -- <paths>` then
-		 * `git commit -m … -- <paths>`), so the Changes tab can let the user pick
-		 * which files go into the commit. Omitted/empty falls back to the legacy
-		 * "commit everything" behaviour (`git add -A`).
-		 */
+
 		paths: Schema.optional(Schema.Array(Schema.String)),
 	}),
 	success: Schema.Struct({ sha: Schema.String }),
@@ -897,10 +951,6 @@ export const GitMarkReadyRpc = Rpc.make("git.markReady", {
 	error: GitErrors,
 });
 
-// Initialize a git repository in a project folder that doesn't have one yet.
-// Surfaced from the Changes tab's "not a Git repository" empty state. Always
-// runs against the folder root (a worktree can't exist without a repo), so no
-// `worktreeId` here.
 export const GitInitRpc = Rpc.make("git.init", {
 	payload: Schema.Struct({
 		folderId: FolderId,
@@ -963,6 +1013,9 @@ export const GitStackAction = Schema.Literals([
 	"submit",
 ]);
 export type GitStackAction = typeof GitStackAction.Type;
+/** `git.stack` failure reason when the `gh stack` extension is absent. */
+export const GIT_STACK_UNAVAILABLE_REASON =
+	"GitHub CLI stack support is not installed (gh stack).";
 export class GitStackResult extends Schema.Class<GitStackResult>(
 	"GitStackResult",
 )({

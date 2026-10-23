@@ -162,10 +162,7 @@ const ConversationRuntimeLive = Layer.effect(
 		const titleGen = yield* TitleGenerator;
 		const configStore = yield* ConfigStoreService;
 		const modelCatalog = yield* ModelCatalogService;
-		// Captured once so the control-plane orchestration tools — which the
-		// Claude SDK invokes as plain async functions — can bridge back into
-		// these Effect methods via `Runtime.runPromise`. Same shape as the
-		// browser-bridge tool binding in ProviderService.
+
 		const runtime = yield* Effect.context<never>();
 		const apiActivity = yield* ApiActivityPublisher;
 		const chatColumns = yield* sql<{ readonly name: string }>`
@@ -180,11 +177,6 @@ const ConversationRuntimeLive = Layer.effect(
       `.pipe(Effect.orDie);
 		}
 
-		/**
-		 * Resolve the cwd a session should run in. NULL `worktreeId` falls
-		 * through to the project's main checkout (handled by `provider.start`
-		 * when `cwdOverride` is omitted). Missing rows also fall through.
-		 */
 		const cwdForWorktree = (
 			worktreeId: WorktreeId | null,
 		): Effect.Effect<string | undefined> =>
@@ -311,10 +303,6 @@ const ConversationRuntimeLive = Layer.effect(
 			deleteSession,
 			releaseInitialTurn,
 		} = sessionOperations;
-
-		// -------------------------------------------------------------------------
-		// Chats — sidebar containers. Each chat hosts ≥ 1 session as a tab.
-		// -------------------------------------------------------------------------
 
 		const chatOperations = makeChatOperations({
 			sql,
@@ -517,11 +505,6 @@ const ConversationRuntimeLive = Layer.effect(
 				);
 			});
 
-		/**
-		 * Worktrees are immutable past the first user message in any of the
-		 * chat's sessions. Mirrors `session.setWorktree`'s pre-message check
-		 * but lifted to the chat scope.
-		 */
 		const archiveOperations = yield* makeArchiveOperations({
 			sql,
 			currentTimestamp,
@@ -759,9 +742,7 @@ const ConversationRuntimeLive = Layer.effect(
 			sendMessageAndWait,
 		} satisfies MessageServiceShape;
 		const queueService = queueRuntime.service;
-		// Construct every command handler before a recovered job can call back
-		// into the conversation runtime. Subscribe before starting workers so a
-		// cancellation committed at startup cannot fall into a notification gap.
+
 		const jobWakeups = yield* PubSub.subscribe(sessionDomain.jobWakeups).pipe(
 			Effect.provideService(Scope.Scope, serviceScope),
 		);
@@ -780,7 +761,7 @@ const ConversationRuntimeLive = Layer.effect(
 			),
 			serviceScope,
 		);
-		// The production persistence layer already holds exclusive ownership.
+
 		yield* retireLegacyStartupRetries(sql);
 		yield* sessionDomain.jobs.reconcileAfterProcessLoss.pipe(Effect.orDie);
 		const checkpointService = yield* makeCheckpointRestore({
@@ -835,9 +816,7 @@ const ConversationRuntimeLive = Layer.effect(
 			executionPolicy.awaitReady.pipe(Effect.andThen(jobWorker.notify)),
 			serviceScope,
 		);
-		// Provider replay may wait for user input. Run all durable catch-up only
-		// after every service dependency exists, and keep it scoped to this layer
-		// without delaying RPC availability.
+
 		yield* Effect.forkIn(
 			Effect.all(
 				[

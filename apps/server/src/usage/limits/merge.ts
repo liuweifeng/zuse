@@ -35,7 +35,7 @@ export const mergeUsageLimits = (
 				result
 					.get(event.providerId)
 					?.windows.filter((w) => w.id.startsWith("weekly-scoped:")) ?? [];
-			// The event does not name the model. Only reconcile an unambiguous API bucket.
+
 			if (scoped.length !== 1 || !scoped[0]) continue;
 			event = {
 				...event,
@@ -87,8 +87,7 @@ export const mergeUsageLimits = (
 		const windows = base.windows.filter((item) => usageWindowKey(item) !== key);
 		const previous = base.windows.find((item) => usageWindowKey(item) === key);
 		windows.push({ ...event.window, id: previous?.id ?? event.window.id });
-		// A streamed window cannot confirm the freshness of the other cached
-		// windows or credits. Keep their original age until polling recovers.
+
 		const staleSnapshot =
 			snapshot?.unavailableReason &&
 			(snapshot.windows.length > 0 || snapshot.creditsRemaining !== null);

@@ -18,15 +18,22 @@ import type {
 	SessionId,
 } from "@zuse/contracts";
 import {
+	bundledResolvedModelCatalog,
 	findModelDescriptor,
 	isModelVisible,
 	type ModelOption,
 	PROVIDER_LABELS,
+	resolveModelSlug,
 	type SelectOptionDescriptor,
 	selectableCatalogProviderIds,
 } from "@zuse/contracts";
 import { useMessages as useUiMessages } from "@zuse/i18n/react";
-import { Search01Icon, StarIcon, Tick01Icon } from "@zuse/icons/solid-rounded";
+import {
+	FlashIcon,
+	Search01Icon,
+	StarIcon,
+	Tick01Icon,
+} from "@zuse/icons/solid-rounded";
 import { ChevronDown, Clock3 } from "lucide-react";
 import {
 	type KeyboardEvent as ReactKeyboardEvent,
@@ -42,12 +49,16 @@ import { overlaySurface } from "~/components/ui/overlay-surface";
 import { isModelPickerProviderVisible } from "~/lib/model-picker-availability";
 import { useSettingsStore } from "~/lib/settings-client-bus.ts";
 import { cn } from "~/lib/utils";
+import { useEnvironmentCatalogStore } from "~/store/environment-catalog";
 import { useModelCatalogStore } from "~/store/model-catalog";
 import { useProvidersStore } from "~/store/providers";
 import { useSessionsStore } from "~/store/sessions";
 import { ProviderIcon } from "./provider-icons";
 import { Popover, PopoverPrimitive, PopoverTrigger } from "./ui/popover";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
+
+export const MODEL_PICKER_SETTINGS_TRIGGER =
+	"h-7 w-64 max-w-[40vw] justify-between rounded-md border border-input bg-card px-2.5 text-xs hover:bg-muted";
 
 const _PROVIDER_LABEL = PROVIDER_LABELS;
 
@@ -59,11 +70,7 @@ interface ModelPickerEntry {
 	modelId: string;
 	label: string;
 	badgeLabel?: string;
-	/**
-	 * When set, render a small context-window pill on this row. We only show
-	 * a pill when the model's `contextWindow` descriptor defaults to `"1m"`
-	 * — otherwise the chip would clutter every legacy 200k row.
-	 */
+
 	contextWindowLabel?: string;
 }
 
@@ -72,7 +79,22 @@ type Scope = ProviderId | "all";
 export const compactModelLabel = (label: string): string =>
 	label.replace(/^gpt[-\s]*/i, "").trim();
 
-type ModelPickerProps = { cloudProviderIds?: ReadonlyArray<ProviderId> } & (
+const fallbackEnvironmentCatalog = bundledResolvedModelCatalog();
+
+type ModelPickerProps = {
+	cloudProviderIds?: ReadonlyArray<ProviderId>;
+	fastMode?: boolean;
+} & (
+	| {
+			mode: "configuration";
+			environmentId: EnvironmentId;
+			providerId: ProviderId;
+			currentModel: string;
+			onSelect: (providerId: ProviderId, modelId: string) => void;
+			composer?: boolean;
+			triggerClassName?: string;
+			onOpenChange?: (open: boolean) => void;
+	  }
 	| {
 			mode: "session";
 			environmentId: EnvironmentId;
@@ -98,18 +120,18 @@ type ModelPickerProps = { cloudProviderIds?: ReadonlyArray<ProviderId> } & (
 export function ModelPicker(props: ModelPickerProps) {
 	const { user } = useAuth();
 	const experimentalHarnessAllowed = canUseExperimentalHarness(user?.email);
-	const { message: uiMessage } = useUiMessages(["providers"]);
+	const { message: uiMessage } = useUiMessages(["providers", "chat"]);
 
 	const isDefault = props.mode === "default";
+	const isConfiguration = props.mode === "configuration";
 	const composer = props.composer === true;
 	const triggerDetail =
 		props.mode === "session" ? props.triggerDetail : undefined;
 	const optionsPanel =
 		props.mode === "session" ? props.optionsPanel : undefined;
 	const providerEnvironmentId =
-		props.mode === "session" ? props.environmentId : null;
+		props.mode !== "default" ? props.environmentId : null;
 
-	// Live values
 	const defaultProviderId = useSettingsStore((s) => s.defaultProviderId);
 	const defaultModelByProvider = useSettingsStore(
 		(s) => s.defaultModelByProvider,
@@ -144,16 +166,31 @@ export function ModelPicker(props: ModelPickerProps) {
 				]
 			: undefined,
 	);
+	// Configuration pickers (e.g. a Zot on another computer) read that
+	// environment's catalog; everything else uses the active one.
+	const activeEnvironment = useEnvironmentCatalogStore(
+		(s) => s.activeEnvironmentId,
+	);
+	const catalog = useModelCatalogStore((s) =>
+		providerEnvironmentId !== null
+			? (s.byEnvironment[providerEnvironmentId]?.catalog ??
+				(providerEnvironmentId === activeEnvironment
+					? s.catalog
+					: fallbackEnvironmentCatalog))
+			: s.catalog,
+	);
 	const providerId =
 		pendingSelection?.providerId ??
 		(isDefault ? defaultProviderId : props.providerId);
-	const currentModel =
+	const currentModel = resolveModelSlug(
+		catalog,
+		providerId,
 		pendingSelection?.model ??
-		(isDefault
-			? (defaultModelByProvider[providerId] ?? "default")
-			: props.currentModel);
+			(isDefault
+				? (defaultModelByProvider[providerId] ?? "default")
+				: props.currentModel),
+	);
 
-	// Setters
 	const selectSessionModel = useSessionsStore((s) => s.selectModel);
 	const setDefaultProviderAndModel = useSettingsStore(
 		(s) => s.setDefaultProviderAndModel,
@@ -172,17 +209,17 @@ export function ModelPicker(props: ModelPickerProps) {
 	const refresh = useProvidersStore((s) => s.refresh);
 	const refreshFor = useProvidersStore((s) => s.refreshFor);
 	const availability =
-		props.mode === "session"
+		providerEnvironmentId !== null
 			? (environmentAvailability?.availability ?? [])
 			: defaultAvailability;
 	const availabilityLoaded =
 		props.cloudProviderIds !== undefined
 			? true
-			: props.mode === "session"
+			: providerEnvironmentId !== null
 				? (environmentAvailability?.availabilityLoaded ?? false)
 				: defaultAvailabilityLoaded;
 	const availabilityLoading =
-		props.mode === "session"
+		providerEnvironmentId !== null
 			? (environmentAvailability?.loading ?? false)
 			: defaultAvailabilityLoading;
 	const refreshAvailability = useCallback(
@@ -192,8 +229,17 @@ export function ModelPicker(props: ModelPickerProps) {
 				: refreshFor(providerEnvironmentId),
 		[providerEnvironmentId, refresh, refreshFor],
 	);
-	const catalog = useModelCatalogStore((s) => s.catalog);
-	const ensureCatalog = useModelCatalogStore((s) => s.ensureLoaded);
+	const ensureLoaded = useModelCatalogStore((s) => s.ensureLoaded);
+	const ensureCatalog = useCallback(
+		(options?: { maxAgeMs?: number }) =>
+			ensureLoaded({
+				...options,
+				...(providerEnvironmentId !== null
+					? { environmentId: providerEnvironmentId }
+					: {}),
+			}),
+		[ensureLoaded, providerEnvironmentId],
+	);
 
 	useEffect(() => {
 		void ensureCatalog();
@@ -202,16 +248,11 @@ export function ModelPicker(props: ModelPickerProps) {
 	const [open, setOpen] = useState(false);
 	const [query, setQuery] = useState("");
 	const [scope, setScope] = useState<Scope>("all");
-	// Inline feedback for failed picks. The session-mode handlers
-	// (setSessionProvider / setSessionModel) used to fire-
-	// and-forget, so a failed provider startup just closed the popover with no
-	// clue why.
-	// We now await them and surface the reason here.
+
 	const [pickError, setPickError] = useState<string | null>(null);
 	const [picking, setPicking] = useState(false);
 	const popupRef = useRef<HTMLDivElement | null>(null);
 
-	// Forward open state to parent so ChatComposer can block Enter submit
 	const onOpenChange = props.onOpenChange;
 	useEffect(() => {
 		onOpenChange?.(open);
@@ -222,7 +263,6 @@ export function ModelPicker(props: ModelPickerProps) {
 			void loadCloudAuth(true).catch(() => undefined);
 	}, [open, props.cloudProviderIds !== undefined]);
 
-	// Reset transient state every time the popover opens.
 	useEffect(() => {
 		if (open) {
 			setQuery("");
@@ -241,15 +281,11 @@ export function ModelPicker(props: ModelPickerProps) {
 		): ReadonlyArray<Pick<ModelOption, "id" | "label" | "badgeLabel">> => {
 			const provider = catalog.providers[pid];
 			const selectedId = pid === providerId ? currentModel : null;
-			// Authoritative live inventories (Codex, Cursor, Kiro, OpenCode) mark
-			// curated models the account can't use as unavailable; keep the
-			// current selection visible so the user can see what they're on.
+
 			const available = (provider?.models ?? []).filter(
 				(m) => m.available || m.id === selectedId,
 			);
-			// OpenCode ids are `<provider>/<model>`. The provider manager lets the
-			// user hide connected providers / individual models from the picker;
-			// respect both here (missing entry ⇒ visible).
+
 			const visible =
 				pid === "opencode" || pid === "opencode2"
 					? available.filter((m) => {
@@ -276,7 +312,13 @@ export function ModelPicker(props: ModelPickerProps) {
 					label: m.label,
 					...(m.badgeLabel !== undefined ? { badgeLabel: m.badgeLabel } : {}),
 				})),
-				...(customModelIdsByProvider[pid] ?? [])
+				...Array.from(
+					new Set(
+						(customModelIdsByProvider[pid] ?? []).map((id) =>
+							resolveModelSlug(catalog, pid, id),
+						),
+					),
+				)
 					.filter((modelId) => !existingIds.has(modelId))
 					.map((modelId) => ({ id: modelId, label: modelId })),
 			];
@@ -305,11 +347,9 @@ export function ModelPicker(props: ModelPickerProps) {
 	const pickableProviders = useMemo<ReadonlyArray<ProviderId>>(() => {
 		return selectableCatalogProviderIds(catalog).filter((pid) => {
 			if (pid === "zuse" && !experimentalHarnessAllowed) return false;
-			// Settings must keep the selected provider's catalog editable even when
-			// its local runtime is signed out. Session pickers remain restricted to
-			// providers that can actually start a session.
+
 			if (
-				isDefault &&
+				(isDefault || isConfiguration) &&
 				pid === providerId &&
 				props.cloudProviderIds === undefined
 			)
@@ -320,12 +360,13 @@ export function ModelPicker(props: ModelPickerProps) {
 				availability: availabilityById.get(pid),
 				providerEnabled,
 				availabilityLoaded,
-				revealBeforeAvailabilityLoaded: isDefault,
+				revealBeforeAvailabilityLoaded: isDefault || isConfiguration,
 			});
 		});
 	}, [
 		catalog,
 		isDefault,
+		isConfiguration,
 		providerId,
 		providerEnabled,
 		availabilityById,
@@ -349,8 +390,7 @@ export function ModelPicker(props: ModelPickerProps) {
 				);
 				const selectedHidden = pid === providerId && m.id === currentModel;
 				if (!visible && !selectedHidden) continue;
-				// The resolved catalog folds live context-window facts into the
-				// descriptor, so one lookup covers curated and live models alike.
+
 				let contextWindowLabel: string | undefined;
 				{
 					const descriptor = findModelDescriptor(catalog, pid, m.id);
@@ -363,8 +403,7 @@ export function ModelPicker(props: ModelPickerProps) {
 						ctxDescriptor !== undefined
 							? ctxDescriptor.options.find((o) => o.id === ctxDefault)?.label
 							: undefined;
-					// Only surface a pill when the default is the larger window —
-					// 200k-by-default rows would be noise.
+
 					if (ctxDefault === "1m") {
 						contextWindowLabel = ctxLabel ?? "1M";
 					}
@@ -426,6 +465,11 @@ export function ModelPicker(props: ModelPickerProps) {
 
 	const handlePick = async (pid: ProviderId, modelId: string) => {
 		if (!pickableProviders.includes(pid)) return;
+		if (props.mode === "configuration") {
+			props.onSelect(pid, modelId);
+			setOpen(false);
+			return;
+		}
 		if (isDefault) {
 			setDefaultProviderAndModel(pid, modelId);
 			setOpen(false);
@@ -458,9 +502,19 @@ export function ModelPicker(props: ModelPickerProps) {
 	const currentLabel =
 		modelsForProvider(providerId).find((m) => m.id === currentModel)?.label ??
 		currentModel;
-	const triggerLabel = composer
-		? compactModelLabel(currentLabel)
-		: currentLabel;
+	const unavailable =
+		isConfiguration &&
+		!customModelIdsByProvider[providerId]?.includes(currentModel) &&
+		!catalog.providers[providerId]?.models.some(
+			(model) => model.id === currentModel && model.available,
+		);
+	const triggerLabel = unavailable
+		? uiMessage("providers:model_picker_unavailable_selection", {
+				model: currentLabel,
+			})
+		: composer
+			? compactModelLabel(currentLabel)
+			: currentLabel;
 
 	const showEmpty = flatMatches.length === 0 && modelGroups.length === 0;
 
@@ -476,8 +530,6 @@ export function ModelPicker(props: ModelPickerProps) {
 		return out;
 	}, [inGroupedView, modelGroups, flatMatches, uiMessage]);
 
-	// STABLE REFS — this is the fix so shortcuts actually work while the
-	// composer editor is focused and causing re-renders.
 	const shortcutTargetsRef = useRef(shortcutTargets);
 	const handlePickRef = useRef(handlePick);
 	useEffect(() => {
@@ -516,8 +568,9 @@ export function ModelPicker(props: ModelPickerProps) {
 		<PopoverTrigger
 			className={cn(
 				composer
-					? "flex h-7 w-40 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
+					? "flex h-7 max-w-[40vw] items-center gap-1.5 rounded-full bg-muted/65 px-2.5 text-[11px] font-medium text-foreground hover:bg-muted data-[popup-open]:bg-muted"
 					: "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-foreground hover:bg-muted/60 data-[popup-open]:bg-muted/60",
+				composer && open && "w-40",
 				props.triggerClassName,
 			)}
 			aria-label={uiMessage("providers:model_picker_change_model")}
@@ -532,7 +585,17 @@ export function ModelPicker(props: ModelPickerProps) {
 			}
 		>
 			<ProviderIcon providerId={providerId} className="size-3 shrink-0" />
-			<span className="min-w-0 flex-1 truncate text-left">{triggerLabel}</span>
+			<span className="flex min-w-0 flex-1 items-center gap-1">
+				<span className="truncate text-left">{triggerLabel}</span>
+				{props.fastMode ? (
+					<HugeiconsIcon
+						icon={FlashIcon}
+						className="size-3 shrink-0 text-amber-700 dark:text-amber-200"
+						role="img"
+						aria-label={uiMessage("chat:chat_composer_fast")}
+					/>
+				) : null}
+			</span>
 			{triggerDetail !== undefined ? (
 				<span className="shrink-0 capitalize text-muted-foreground">
 					{triggerDetail}
@@ -662,7 +725,11 @@ export function ModelPicker(props: ModelPickerProps) {
 															currentModelId={currentModel}
 															onSelect={handlePick}
 															defaultProviderId={defaultProviderId}
-															defaultModelByProvider={defaultModelByProvider}
+															defaultModelId={resolveModelSlug(
+																catalog,
+																m.providerId,
+																defaultModelByProvider[m.providerId] ?? "",
+															)}
 															onSetDefault={setDefaultProviderAndModel}
 															shortcut={shortcutFor(m.providerId, m.modelId)}
 														/>
@@ -700,7 +767,11 @@ export function ModelPicker(props: ModelPickerProps) {
 														currentModelId={currentModel}
 														onSelect={handlePick}
 														defaultProviderId={defaultProviderId}
-														defaultModelByProvider={defaultModelByProvider}
+														defaultModelId={resolveModelSlug(
+															catalog,
+															m.providerId,
+															defaultModelByProvider[m.providerId] ?? "",
+														)}
 														onSetDefault={setDefaultProviderAndModel}
 														shortcut={shortcutFor(m.providerId, m.modelId)}
 														showProvider={scope === "all"}
@@ -847,7 +918,7 @@ function ModelRow({
 	currentProviderId,
 	currentModelId,
 	defaultProviderId,
-	defaultModelByProvider,
+	defaultModelId,
 	onSelect,
 	onSetDefault,
 	dense = false,
@@ -858,7 +929,7 @@ function ModelRow({
 	currentProviderId: ProviderId;
 	currentModelId: string;
 	defaultProviderId: ProviderId;
-	defaultModelByProvider: Record<ProviderId, string>;
+	defaultModelId: string;
 	onSelect: (providerId: ProviderId, modelId: string) => void;
 	onSetDefault: (providerId: ProviderId, modelId: string) => void;
 	dense?: boolean;
@@ -870,8 +941,7 @@ function ModelRow({
 	const isActive =
 		entry.providerId === currentProviderId && entry.modelId === currentModelId;
 	const isDefault =
-		entry.providerId === defaultProviderId &&
-		defaultModelByProvider[entry.providerId] === entry.modelId;
+		entry.providerId === defaultProviderId && defaultModelId === entry.modelId;
 	const select = () => onSelect(entry.providerId, entry.modelId);
 	const onRowKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
 		if (event.key !== "Enter" && event.key !== " ") return;
@@ -908,8 +978,7 @@ function ModelRow({
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
 			)}
-			{/* Name + optional provider subtitle. Chips live outside this column so
-			    two-line recent rows don't pull 1M / credit badges off the row center. */}
+
 			<span className="flex min-w-0 flex-1 flex-col gap-0.5">
 				<span className="min-w-0 font-medium break-words leading-snug">
 					{entry.label}

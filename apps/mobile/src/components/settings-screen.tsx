@@ -8,11 +8,11 @@ import {
 	AppState,
 	Linking,
 	ScrollView,
-	Switch,
 	Text,
 	View,
 } from "react-native";
 import { ListRow, ListSection } from "~/components/ui/list";
+import { Switch } from "~/components/ui/switch";
 import { captureMobileAnalytics } from "~/lib/analytics";
 import { computerRows } from "~/lib/computers";
 import { returnToInbox } from "~/lib/connection-navigation";
@@ -20,6 +20,8 @@ import { visibleConnectionLabel } from "~/lib/display-names";
 import { successTap } from "~/lib/haptics";
 import { clearMediaCache, mediaCacheSize } from "~/lib/media-cache";
 import { clearDownloadedMobileData } from "~/lib/mobile-data";
+import { TRANSPARENT_HEADER } from "~/lib/native-header";
+import { useToolbarIcons } from "~/lib/toolbar-icons";
 import { registerCurrentDeviceForPush } from "~/notifications/push";
 import { downloadedCacheSize } from "~/offline/cache";
 import {
@@ -56,6 +58,7 @@ import {
 	environmentsLoadingAtom,
 	refreshEnvironments,
 } from "~/store/environments";
+import { localConnectivityAvailable } from "../../modules/local-connectivity";
 
 const formatBytes = (bytes: number | null): string => {
 	if (bytes === null) return "Calculating…";
@@ -78,6 +81,7 @@ export default function SettingsScreen({
 }: {
 	page: keyof typeof settingsTitles;
 }) {
+	const toolbarIcon = useToolbarIcons();
 	const setPage = (next: keyof typeof settingsTitles) => {
 		if (next === "home") router.back();
 		else router.push(`/settings/${next}`);
@@ -184,8 +188,6 @@ export default function SettingsScreen({
 		}
 	};
 
-	// Paired and manually added Macs are saved on this phone; account-linked
-	// computers come back from the account, so only saved ones can be removed.
 	const manageSavedComputer = (
 		key: string,
 		label: string,
@@ -247,7 +249,6 @@ export default function SettingsScreen({
 			const permission = await Notifications.requestPermissionsAsync();
 			setNotificationsEnabled(permission.granted);
 			if (permission.granted) {
-				// Permission controls the switch; token registration runs independently.
 				void registerCurrentDeviceForPush(account).catch(() => {
 					Alert.alert(
 						"Push setup needs attention",
@@ -312,12 +313,12 @@ export default function SettingsScreen({
 				options={{
 					title: settingsTitles[page],
 					headerBackVisible: page !== "home",
-					headerTransparent: true,
+					headerTransparent: TRANSPARENT_HEADER,
 				}}
 			/>
 			<Stack.Toolbar placement="right">
 				<Stack.Toolbar.Button
-					icon="xmark"
+					icon={toolbarIcon("xmark")}
 					separateBackground
 					onPress={() => router.dismissTo("/")}
 				/>
@@ -394,13 +395,23 @@ export default function SettingsScreen({
 						header="Connections"
 						footer="Pairs over your local network. No account needed."
 					>
-						<ListRow
-							analyticsId="connections.nearby.open"
-							symbol="qrcode.viewfinder"
-							title="Connect to a nearby Mac"
-							subtitle="Find it automatically over Wi-Fi"
-							onPress={() => router.push("/connect/nearby")}
-						/>
+						{localConnectivityAvailable ? (
+							<ListRow
+								analyticsId="connections.nearby.open"
+								symbol="qrcode.viewfinder"
+								title="Connect to a nearby Mac"
+								subtitle="Find it automatically over Wi-Fi"
+								onPress={() => router.push("/connect/nearby")}
+							/>
+						) : (
+							<ListRow
+								analyticsId="connections.scan.open"
+								symbol="qrcode.viewfinder"
+								title="Scan a QR code"
+								subtitle="From Remote access on your computer"
+								onPress={() => router.push("/connect/scan")}
+							/>
+						)}
 						<ListRow
 							analyticsId="connections.manual.open"
 							symbol="plus"
@@ -440,8 +451,6 @@ export default function SettingsScreen({
 									subtitle={subtitle}
 									chevron={canConnect || saved}
 									onPress={
-										// Saved computers always open their menu so an offline one
-										// can still be removed; Connect is offered when possible.
 										saved
 											? () =>
 													manageSavedComputer(

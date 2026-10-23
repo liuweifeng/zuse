@@ -86,7 +86,6 @@ export const handleDeviceCommandTool = async (
 			}
 			signal?.throwIfAborted();
 		} catch (cause) {
-			// Stop only this command; cancellation never authorizes or replays it.
 			await client
 				.request({ _tag: "cancel", id: action.input.id })
 				.catch(() => undefined);

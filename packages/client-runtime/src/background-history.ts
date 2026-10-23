@@ -13,6 +13,7 @@ export class BackgroundHistory {
 		string,
 		{
 			refs: number;
+			scope: string;
 			controller: AbortController;
 			run: (signal: AbortSignal) => Promise<boolean>;
 			priority: () => number;
@@ -42,12 +43,19 @@ export class BackgroundHistory {
 		key: string,
 		run: (signal: AbortSignal) => Promise<boolean>,
 		priority: () => number = () => 0,
+		scope?: string,
 	): () => void {
 		let job = this.jobs.get(key);
+		// Readers share work only while it belongs to the same resource lifetime.
+		if (job && scope !== undefined && job.scope !== scope) {
+			job.controller.abort();
+			job = undefined;
+		}
 		if (job) job.refs++;
 		else {
 			job = {
 				refs: 1,
+				scope: scope ?? "",
 				controller: new AbortController(),
 				run,
 				priority,
@@ -158,37 +166,51 @@ export function retainSessionHistory<Client>(options: {
 		ref,
 	);
 	const id = resourceKeyId(key);
-	let release: (() => void) | null = null;
+	let retained: { scope: string; release: () => void } | null = null;
 	let disposed = false;
+	const stop = () => {
+		const previous = retained;
+		retained = null;
+		previous?.release();
+	};
 	const check = () => {
+		if (disposed) return;
 		const view = bus.snapshot(key);
-		if (
-			disposed ||
-			(release !== null && scheduler.status(id) !== "idle") ||
-			view.origin === "cache" ||
-			view.data?.olderMessageSequence == null
-		)
+		// The timeline owns whether history exists and when it is safe to read.
+		// Legacy runtimes finish their synchronization barrier before paging.
+		const eligible =
+			view.data?.olderMessageSequence != null &&
+			(view.sync === "live" || view.connection === "dormant");
+		const scope = eligible
+			? JSON.stringify([view.generation, view.cursor?.epoch ?? null])
+			: null;
+		if (scope === null) {
+			stop();
 			return;
-		// Old runtimes must finish their original synchronization barrier first.
-		if (view.sync !== "live" && view.connection !== "dormant") return;
-		release?.();
-		release = scheduler.retain(
-			id,
-			async (signal) => {
-				const result = await options.load(signal);
-				if (!result.applied && result.hasMore)
-					throw new Error("History page unavailable");
-				if (!result.hasMore) options.onComplete?.();
-				return result.hasMore;
-			},
-			options.priority,
-		);
+		}
+		if (retained?.scope === scope && scheduler.status(id) !== "idle") return;
+		stop();
+		retained = {
+			scope,
+			release: scheduler.retain(
+				id,
+				async (signal) => {
+					const result = await options.load(signal);
+					if (!result.applied && result.hasMore)
+						throw new Error("History page unavailable");
+					if (!result.hasMore) options.onComplete?.();
+					return result.hasMore;
+				},
+				options.priority,
+				scope,
+			),
+		};
 	};
 	const unsubscribe = bus.subscribe(key, check);
 	check();
 	return () => {
 		disposed = true;
 		unsubscribe();
-		release?.();
+		stop();
 	};
 }

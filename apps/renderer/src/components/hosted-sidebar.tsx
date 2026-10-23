@@ -10,7 +10,6 @@ import { useEnvironmentShellResource } from "../lib/environment-shell-client-bus
 import {
 	connectHostedEnvironment,
 	hostedAccountId,
-	hostedConnectGrantEndpoint,
 	registerHostedClient,
 } from "../lib/hosted-connect.ts";
 import {
@@ -21,7 +20,7 @@ import {
 } from "../lib/hosted-laptop-preferences.ts";
 import { selectHostedCloudHome } from "../lib/hosted-workspace.ts";
 import { rendererAccountSnapshot } from "../lib/renderer-account.ts";
-import { registerApiEnvironment } from "../lib/rpc-client.ts";
+import { registerApiEnvironmentRoutes } from "../lib/rpc-client.ts";
 import { useEnvironmentCatalogStore } from "../store/environment-catalog.ts";
 import { Button } from "./ui/button.tsx";
 import { Switch } from "./ui/switch.tsx";
@@ -31,9 +30,7 @@ const readLaptopPreference = (): HostedLaptopPreference => {
 	let stored: string | null = null;
 	try {
 		stored = localStorage.getItem(preferenceKey());
-	} catch {
-		/* Storage can be unavailable. */
-	}
+	} catch {}
 	return resolveHostedLaptopPreference(window.location.pathname, stored);
 };
 
@@ -125,14 +122,14 @@ function LaptopChats({ environmentId }: { environmentId: string }) {
 			const grant = await connectHostedEnvironment(environmentId, {
 				lease: false,
 			});
-			return hostedConnectGrantEndpoint(grant);
+			return grant;
 		};
 		void registerHostedClient()
 			.then(endpoint)
 			.then(
 				(url) => {
 					if (!active) return;
-					registerApiEnvironment(environmentId, url, endpoint, account);
+					registerApiEnvironmentRoutes(environmentId, url, endpoint, account);
 					setReady(true);
 				},
 				() => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import {
 	type FolderId,
+	GIT_STACK_UNAVAILABLE_REASON,
 	GitBranchInfo,
 	GitChange,
 	type GitChangeKind,
@@ -15,9 +16,6 @@ import {
 	GitIssueSummary,
 	GitNotARepoError,
 	GitNotInstalledError,
-	GitPrCheckRun,
-	GitPrDetails,
-	GitPrFile,
 	GitPrInfo,
 	GitPrSummary,
 	GitResetRemotePreview,
@@ -30,14 +28,7 @@ import {
 	GitStalePreviewError,
 	GitStatusSummary,
 } from "@zuse/contracts";
-import {
-	type ActionsJob,
-	actionsJobsApiPath,
-	checkRunFromRollup,
-	collectActionsRunIds,
-	isFailedCheckRollup,
-	metadataForRollupEntry,
-} from "@zuse/git/check-runs";
+import { type ActionsJob, isFailedCheckRollup } from "@zuse/git/check-runs";
 import { GitService } from "@zuse/git/git-service";
 import {
 	DateTime,
@@ -57,11 +48,11 @@ import {
 } from "effect/unstable/process";
 import { parseRemoteUrl, resolveGitHubRepository } from "./git-remote.ts";
 import {
-	feedbackComments,
-	feedbackReviews,
-	parseFeedbackPages,
-	parseReviewThreads,
-} from "./pr-feedback.ts";
+	emptyDetails,
+	emptyPr,
+	infoFromPr,
+	readPrDetails,
+} from "./github-observations.ts";
 
 export { parseRemoteUrl } from "./git-remote.ts";
 
@@ -72,7 +63,7 @@ import {
 	GitHubRequestScope,
 	githubExecutionEnvironment,
 } from "./github-client.ts";
-import { type GitHubPr, GitHubPullRequests } from "./github-pull-requests.ts";
+import { GitHubPullRequests } from "./github-pull-requests.ts";
 import { RepositoryLocator } from "./repository-locator.ts";
 import {
 	buildCreateReviewCommentBody,
@@ -93,8 +84,6 @@ import {
 
 const NUL = "\0";
 
-// `git log --format=...` separator: NUL-delimited fields, newline-delimited
-// commits. Fields in this order — match `specs/0.01-MVP/features/git-history.md`.
 const LOG_FORMAT = "%H%x00%h%x00%s%x00%an%x00%aI%x00%P";
 
 const parseLogOutput = (out: string): ReadonlyArray<GitCommit> => {
@@ -128,10 +117,6 @@ const parseLogOutput = (out: string): ReadonlyArray<GitCommit> => {
 	return commits;
 };
 
-// `git status --porcelain=v2 --branch` header lines (per git-scm docs):
-//   # branch.head <name>           (or "(detached)")
-//   # branch.ab +<ahead> -<behind>
-// Other lines starting with [12u?!] are file entries.
 const parseStatusOutput = (out: string): GitStatusSummary => {
 	let branch: string | null = null;
 	let ahead = 0;
@@ -152,7 +137,6 @@ const parseStatusOutput = (out: string): GitStatusSummary => {
 					behind = Number.parseInt(p.slice(1), 10) || 0;
 			}
 		} else if (line.startsWith("#")) {
-			// other header line, skip
 		} else {
 			dirtyFiles += 1;
 		}
@@ -208,9 +192,6 @@ const parseBranchRows = (
 	return result;
 };
 
-// Map a single porcelain-v2 status code (per `git status --porcelain=v2`):
-//   '.' unmodified, 'M' modified, 'A' added, 'D' deleted, 'R' renamed,
-//   'C' copied, 'U' unmerged, 'T' type changed.
 const STATUS_CODE_TO_KIND: Record<string, GitChangeKind> = {
 	M: "modified",
 	A: "added",
@@ -226,29 +207,12 @@ const codeToKind = (code: string): GitChangeKind | null => {
 	return k ?? null;
 };
 
-/**
- * Parse `git status --porcelain=v2` file entries into our wire shape.
- * Header lines (`# branch.*`) are skipped; this function focuses on the
- * file-entry lines.
- *
- * Format reference (git-scm):
- *   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
- *   2 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <X><score> <path><tab><origPath>
- *   u <XY> ...                                                    (unmerged)
- *   ? <path>                                                      (untracked)
- *   ! <path>                                                      (ignored)
- *
- * The XY pair encodes (index, working-tree) state. If working-tree is
- * unchanged we report the index state (so a staged-only file still appears
- * as modified). `staged` is true whenever index ≠ '.'.
- */
 const parseChangesOutput = (out: string): ReadonlyArray<GitChange> => {
 	const changes: GitChange[] = [];
 	for (const line of out.split("\n")) {
 		if (line.length === 0) continue;
 		const tag = line[0];
 		if (tag === "1") {
-			// "1 XY sub mH mI mW hH hI path"
 			const parts = line.split(" ");
 			const xy = parts[1] ?? "..";
 			const x = xy[0] ?? ".";
@@ -261,7 +225,6 @@ const parseChangesOutput = (out: string): ReadonlyArray<GitChange> => {
 				GitChange.make({ path, oldPath: null, staged: x !== ".", kind }),
 			);
 		} else if (tag === "2") {
-			// "2 XY sub mH mI mW hH hI Xscore path<TAB>origPath"
 			const tabIdx = line.indexOf("\t");
 			const head = tabIdx === -1 ? line : line.slice(0, tabIdx);
 			const oldPath = tabIdx === -1 ? null : line.slice(tabIdx + 1);
@@ -404,96 +367,6 @@ const parseReviewStats = (out: string): ReadonlyMap<string, ReviewStat> => {
 	return stats;
 };
 
-// Accepts the common shapes that `git remote get-url` emits:
-//   git@github.com:owner/repo[.git]
-//   ssh://git@github.com/owner/repo[.git]
-//   https://github.com/owner/repo[.git]
-// Returns null for anything we can't confidently parse (file:// remotes,
-// custom transports, etc.) — the caller treats null as "no origin info".
-
-/**
- * Collapse `gh`'s `statusCheckRollup` into the wire's four-state aggregate.
- *
- * A check is "in flight" if its status is anything other than COMPLETED, and
- * its conclusion (when present) tells us how a completed run landed. External
- * status checks expose `state` instead and skip `status` entirely. A single
- * failure beats every other state; otherwise pending beats success; otherwise
- * if every entry passed it's success. Empty list means no checks defined.
- */
-const aggregateChecks = (
-	rollup: ReadonlyArray<{
-		status?: string;
-		state?: string;
-		conclusion?: string;
-	}>,
-): GitPrInfo["checks"] => {
-	if (rollup.length === 0) return "none";
-	let pending = false;
-	for (const entry of rollup) {
-		const conclusion = (entry.conclusion ?? "").toUpperCase();
-		const status = (entry.status ?? "").toUpperCase();
-		const state = (entry.state ?? "").toUpperCase();
-		if (isFailedCheckRollup(entry)) {
-			return "failure";
-		}
-		if (
-			status === "QUEUED" ||
-			status === "IN_PROGRESS" ||
-			status === "PENDING" ||
-			state === "PENDING" ||
-			(status !== "COMPLETED" && conclusion === "" && state === "")
-		) {
-			pending = true;
-		}
-	}
-	return pending ? "pending" : "success";
-};
-
-/**
- * Per-check tally over the same `statusCheckRollup` that feeds
- * {@link aggregateChecks}. Lets the top bar show "N checks running" without a
- * heavier `prDetails` fetch. Mirrors the classification rules above:
- *   failing  — conclusion/state landed on a non-success terminal state
- *   running  — queued / in-progress / pending (or a non-completed run with no
- *              conclusion or state yet)
- *   passing  — anything else (completed-success, neutral, skipped, …)
- */
-const countChecks = (
-	rollup: ReadonlyArray<{
-		status?: string;
-		state?: string;
-		conclusion?: string;
-	}>,
-): {
-	total: number;
-	running: number;
-	passing: number;
-	failing: number;
-} => {
-	let running = 0;
-	let passing = 0;
-	let failing = 0;
-	for (const entry of rollup) {
-		const conclusion = (entry.conclusion ?? "").toUpperCase();
-		const status = (entry.status ?? "").toUpperCase();
-		const state = (entry.state ?? "").toUpperCase();
-		if (isFailedCheckRollup(entry)) {
-			failing += 1;
-		} else if (
-			status === "QUEUED" ||
-			status === "IN_PROGRESS" ||
-			status === "PENDING" ||
-			state === "PENDING" ||
-			(status !== "COMPLETED" && conclusion === "" && state === "")
-		) {
-			running += 1;
-		} else {
-			passing += 1;
-		}
-	}
-	return { total: rollup.length, running, passing, failing };
-};
-
 export const GitServiceLive = Layer.effect(
 	GitService,
 	Effect.gen(function* () {
@@ -537,18 +410,8 @@ export const GitServiceLive = Layer.effect(
 
 		const resolvePath = repositories.root;
 
-		/**
-		 * Resolve cwd for a folder, swapping to a worktree's path when the
-		 * caller passes a `worktreeId` that belongs to the project. Used by
-		 * `status` so the top-bar branch + dirty/ahead counts follow the
-		 * active session's worktree instead of always showing the main checkout.
-		 */
 		const resolvePathForWorktree = repositories.resolve;
 
-		// Run `git ...` in `cwd`, collect stdout + stderr + exit code, and map
-		// failures to our domain errors. Exit-zero returns stdout. Non-zero with
-		// "not a git repository" → GitNotARepoError; spawn ENOENT → GitNotInstalled;
-		// anything else → GitCommandError carrying the trimmed stderr.
 		const collectText = (
 			s: Stream.Stream<
 				Uint8Array,
@@ -571,8 +434,6 @@ export const GitServiceLive = Layer.effect(
 		) =>
 			Effect.scoped(
 				Effect.gen(function* () {
-					// Background reads must not rewrite the index and wake our own
-					// checkout watcher. Required locks for mutations still apply.
 					const cmd = Command.make(
 						"git",
 						[
@@ -583,12 +444,25 @@ export const GitServiceLive = Layer.effect(
 						],
 						{
 							cwd,
-							env: yield* githubExecutionEnvironment.pipe(
-								Effect.mapError(
-									(error) =>
-										new GitCommandError({ folderId, reason: error.message }),
-								),
-							),
+							// Repository metadata never needs the native authentication helper.
+							// API reads carry their actor scope independently; network Git
+							// commands still require the scoped credential environment.
+							env:
+								args[0] === "rev-parse" ||
+								args[0] === "symbolic-ref" ||
+								args[0] === "config" ||
+								(args[0] === "remote" &&
+									(args.length === 1 || args[1] === "get-url"))
+									? undefined
+									: yield* githubExecutionEnvironment.pipe(
+											Effect.mapError(
+												(error) =>
+													new GitCommandError({
+														folderId,
+														reason: error.message,
+													}),
+											),
+										),
 							extendEnv: true,
 						},
 					);
@@ -673,10 +547,6 @@ export const GitServiceLive = Layer.effect(
 			worktreeId,
 		) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
-				// `--ignored=matching` reports only paths that match an ignore rule.
-				// `ls-files --ignored --directory` would also report an untracked
-				// parent whose contents all happen to be ignored (e.g. a folder that
-				// holds just `.env`), hiding files the user expects to see.
 				run(folderId, cwd, [
 					"status",
 					"--porcelain=v1",
@@ -773,6 +643,16 @@ export const GitServiceLive = Layer.effect(
 							: action === "view"
 								? 10_000
 								: 120_000,
+					).pipe(
+						Effect.mapError((error) =>
+							error._tag === "GitCommandError" &&
+							/unknown command "stack"/.test(error.reason)
+								? new GitCommandError({
+										folderId,
+										reason: GIT_STACK_UNAVAILABLE_REASON,
+									})
+								: error,
+						),
 					);
 					if (action !== "view")
 						return GitStackResult.make({ output, trunk: null, branches: [] });
@@ -921,9 +801,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// `git config user.name` exits non-zero (code 1) when the key is unset.
-		// We don't want that to read as a hard failure — an empty author name is
-		// a legitimate state — so a GitCommandError collapses to "".
 		const getUserName: GitService["Service"]["getUserName"] = (folderId) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
 				run(folderId, cwd, ["config", "user.name"]).pipe(
@@ -932,8 +809,6 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		// `git remote get-url origin` exits non-zero when no remote is set; we
-		// treat the resulting GitCommandError as "no origin" → null.
 		const origin: GitService["Service"]["origin"] = (folderId) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
 				run(folderId, cwd, ["remote", "get-url", "origin"]).pipe(
@@ -942,7 +817,6 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		// gh-stack owns local stack mutations; all API enrichment uses the shared client.
 		const ghRun = (
 			folderId: FolderId,
 			cwd: string,
@@ -1019,6 +893,36 @@ export const GitServiceLive = Layer.effect(
 					owner: parseRemoteUrl(url.trim())?.owner,
 				};
 			});
+		const githubContext: GitService["Service"]["githubContext"] = (
+			folderId,
+			worktreeId,
+		) =>
+			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
+				Effect.gen(function* () {
+					const repository = yield* githubRepository(folderId, cwd);
+					if (!repository) return null;
+					const branch = (yield* run(folderId, cwd, [
+						"symbolic-ref",
+						"--quiet",
+						"--short",
+						"HEAD",
+					]).pipe(Effect.catch(() => Effect.succeed("HEAD")))).trim();
+					const headSha =
+						(yield* run(folderId, cwd, ["rev-parse", "HEAD"]).pipe(
+							Effect.catch(() => Effect.succeed("")),
+						)).trim() || undefined;
+					const head =
+						branch === "HEAD" ? null : yield* githubHead(folderId, cwd, branch);
+					return {
+						host: repository.host,
+						owner: repository.owner,
+						repo: repository.repo,
+						branch: head?.branch ?? null,
+						headOwner: head?.owner,
+						headSha,
+					};
+				}),
+			);
 		const currentPr = (
 			folderId: FolderId,
 			cwd: string,
@@ -1049,67 +953,6 @@ export const GitServiceLive = Layer.effect(
 				);
 				return { repository, pr, branch };
 			});
-		const emptyPr = (
-			branch: string | null,
-			capability: GitPrInfo["prCapability"] = "available",
-		): GitPrInfo =>
-			GitPrInfo.make({
-				nodeId: null,
-				state: "none",
-				branch,
-				baseBranch: null,
-				additions: 0,
-				deletions: 0,
-				number: null,
-				url: null,
-				isDraft: false,
-				checks: "none",
-				mergeable: "unknown",
-				checksTotal: 0,
-				checksRunning: 0,
-				checksPassing: 0,
-				checksFailing: 0,
-				autoMergeEnabled: false,
-				prCapability: capability,
-				stale: capability !== "available",
-				// No PR means no checks to wait for; false would surface a
-				// misleading "Checks are incomplete" on every PR-less branch.
-				checksComplete: true,
-			});
-		const infoFromPr = (pr: GitHubPr): GitPrInfo => {
-			const counts = countChecks(pr.statusCheckRollup);
-			return GitPrInfo.make({
-				nodeId: pr.id,
-				state:
-					pr.state === "OPEN"
-						? "open"
-						: pr.state === "MERGED"
-							? "merged"
-							: "closed",
-				branch: pr.headRefName,
-				baseBranch: pr.baseRefName,
-				headSha: pr.headRefOid,
-				additions: pr.additions,
-				deletions: pr.deletions,
-				number: pr.number,
-				url: pr.url,
-				isDraft: pr.isDraft,
-				checks: aggregateChecks(pr.statusCheckRollup),
-				checkRuns: pr.statusCheckRollup.map(checkRunFromRollup),
-				mergeable: mapMergeable(pr.mergeable),
-				checksTotal: counts.total,
-				checksRunning: counts.running,
-				checksPassing: counts.passing,
-				checksFailing: counts.failing,
-				autoMergeEnabled: pr.autoMergeRequest != null,
-				prCapability: "available",
-				stale: false,
-				statusRevision: pr.statusRevision,
-				remarksRevision: pr.remarksRevision,
-				observedAt: new Date(pr.observedAt),
-				checksComplete: pr.checksComplete,
-			});
-		};
 		const prState: GitService["Service"]["prState"] = (
 			folderId,
 			worktreeId,
@@ -1183,6 +1026,7 @@ export const GitServiceLive = Layer.effect(
 								return GitPrInfo.make({
 									...value,
 									prCapability: failure.kind,
+									observationError: failure.message,
 									stale: true,
 									retryAt: failure.retryAt ? new Date(failure.retryAt) : null,
 								});
@@ -1196,38 +1040,6 @@ export const GitServiceLive = Layer.effect(
 					});
 				}),
 			);
-
-		const mapMergeable = (raw: string | undefined): GitPrInfo["mergeable"] => {
-			switch ((raw ?? "").toUpperCase()) {
-				case "MERGEABLE":
-				case "CLEAN":
-					return "clean";
-				case "CONFLICTING":
-					return "conflicting";
-				default:
-					return "unknown";
-			}
-		};
-
-		const emptyDetails: GitPrDetails = GitPrDetails.make({
-			state: "none",
-			number: null,
-			url: null,
-			isDraft: false,
-			checks: "none",
-			mergeable: "unknown",
-			additions: 0,
-			deletions: 0,
-			title: "",
-			body: "",
-			author: "",
-			baseBranch: null,
-			headBranch: null,
-			comments: [],
-			reviews: [],
-			files: [],
-			checkRuns: [],
-		});
 
 		const createReviewComment: GitService["Service"]["createReviewComment"] = (
 			folderId,
@@ -1291,19 +1103,36 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// Fixed target so this action can never star an arbitrary repository.
+		// Fixed target shared by the status read and star action.
+		const zuseRepository = {
+			host: "github.com",
+			owner: "swarajbachu",
+			repo: "zuse",
+			cwd: homedir(),
+		};
+		const zuseStarStatus: GitService["Service"]["zuseStarStatus"] = () =>
+			Effect.tryPromise({
+				try: async (signal) => {
+					const credential = await github.credential(zuseRepository, signal);
+					const result = await github.graphql<{
+						repository: { viewerHasStarred: boolean } | null;
+					}>(
+						credential,
+						"query($owner:String!,$name:String!) { repository(owner:$owner,name:$name) { viewerHasStarred } }",
+						{ owner: zuseRepository.owner, name: zuseRepository.repo },
+						signal,
+						false,
+					);
+					if (typeof result.repository?.viewerHasStarred !== "boolean")
+						throw new Error("GitHub star status is unavailable.");
+					return result.repository.viewerHasStarred;
+				},
+				catch: (error) => new GitHubStarError({ reason: String(error) }),
+			});
 		const starZuse: GitService["Service"]["starZuse"] = () =>
 			Effect.tryPromise({
 				try: async (signal) => {
-					const credential = await github.credential(
-						{
-							host: "github.com",
-							owner: "swarajbachu",
-							repo: "zuse",
-							cwd: homedir(),
-						},
-						signal,
-					);
+					const credential = await github.credential(zuseRepository, signal);
 					await github.rest(
 						credential,
 						"user/starred/swarajbachu/zuse",
@@ -1326,75 +1155,14 @@ export const GitServiceLive = Layer.effect(
 					if (!current) return emptyDetails;
 					const { repository, pr } = current;
 					return yield* githubEffect(folderId, async (signal) => {
-						const credential = await github.credential(repository, signal);
-						const [feedback, files, jobs] = await Promise.all([
-							pullRequests.feedback(repository, pr, signal),
-							pullRequests.files(repository, pr, signal),
-							Promise.all(
-								collectActionsRunIds(pr.statusCheckRollup).map(
-									async (runId) => {
-										try {
-											return [
-												runId,
-												await github.pages<ActionsJob>(
-													credential,
-													actionsJobsApiPath(
-														repository.owner,
-														repository.repo,
-														runId,
-													),
-													signal,
-													(value) => (value as { jobs: ActionsJob[] }).jobs,
-												),
-											] as const;
-										} catch (error) {
-											if (
-												error instanceof GitHubFailure &&
-												error.kind === "access"
-											)
-												return [runId, []] as const;
-											throw error;
-										}
-									},
-								),
-							),
-						]);
-						const threads = parseReviewThreads(
-							JSON.stringify(feedback.threads),
+						return readPrDetails(
+							github,
+							pullRequests,
+							repository,
+							pr,
+							current.branch,
+							signal,
 						);
-						const discussion =
-							parseFeedbackPages(JSON.stringify([feedback.comments])) ?? [];
-						const inline =
-							parseFeedbackPages(JSON.stringify([feedback.inline])) ?? [];
-						const reviews =
-							parseFeedbackPages(JSON.stringify([feedback.reviews])) ?? [];
-						const jobsByRunId = new Map<string, ReadonlyArray<ActionsJob>>(
-							jobs,
-						);
-						return GitPrDetails.make({
-							...infoFromPr(pr),
-							title: pr.title,
-							body: pr.body,
-							author: pr.author?.login ?? "",
-							authorAvatarUrl: pr.author?.avatarUrl ?? null,
-							headBranch: current.branch,
-							headSha: pr.headRefOid,
-							baseBranch: pr.baseRefName,
-							comments: [
-								...feedbackComments(discussion),
-								...feedbackComments(inline, threads),
-							],
-							reviews: feedbackReviews(reviews, threads, inline),
-							files: files.map((file) => GitPrFile.make(file)),
-							checkRuns: pr.statusCheckRollup.map((check) =>
-								GitPrCheckRun.make({
-									...checkRunFromRollup(check),
-									...metadataForRollupEntry(check, jobsByRunId),
-									appName: check.checkSuite?.app?.name ?? null,
-									appAvatarUrl: check.checkSuite?.app?.logoUrl ?? null,
-								}),
-							),
-						});
 					});
 				}),
 			);
@@ -1646,18 +1414,6 @@ export const GitServiceLive = Layer.effect(
 				]).pipe(Effect.map(parseChangesOutput)),
 			);
 
-		/**
-		 * Branch-review diff for a single path. The renderer feeds the
-		 * returned `patch` directly into `@pierre/diffs` `PatchDiff`. Modes:
-		 *   - worktree : tracked + modified (or modified + deleted)
-		 *   - deleted  : tracked but missing on disk
-		 *   - untracked: not in HEAD — synthesize a /dev/null→file diff so new
-		 *                files render the same as edits
-		 *   - binary   : git classifies the file as binary (no patch returned)
-		 *   - unchanged: clean vs the resolved review base (empty patch)
-		 * Patches over 2 MiB are sliced so the renderer never has to handle a
-		 * tens-of-megabytes diff string.
-		 */
 		const diff: GitService["Service"]["diff"] = (folderId, p, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
@@ -1676,8 +1432,6 @@ export const GitServiceLive = Layer.effect(
 						});
 					};
 
-					// Tracked vs untracked. `ls-files --error-unmatch` exits 1 when the
-					// path isn't in the index — we catch that as "untracked".
 					const trackedInIndex = yield* run(folderId, cwd, [
 						"ls-files",
 						"--error-unmatch",
@@ -1701,12 +1455,6 @@ export const GitServiceLive = Layer.effect(
 					const tracked = trackedInIndex || trackedAtBase;
 
 					if (!tracked) {
-						// Untracked: build a synthetic /dev/null → file diff so the
-						// renderer treats new files identically to modifications. Inspect
-						// metadata before reading: synthesizing a patch is bounded by the same
-						// 2 MiB payload limit, so reading a larger file can only waste memory and
-						// block the Git lane. Oversized and non-regular paths use the existing
-						// no-textual-diff mode shared with binary files.
 						const absolutePath = path.resolve(cwd, rel);
 						const info = yield* fs
 							.stat(absolutePath)
@@ -1748,9 +1496,7 @@ export const GitServiceLive = Layer.effect(
 							return finish("untracked", header);
 						}
 						const lines = content.split("\n");
-						// A trailing newline yields a final empty element — that line
-						// doesn't get a `+` marker; git emits "\ No newline at end of
-						// file" if it's missing, and nothing if present.
+
 						const hasTrailingNewline = content.endsWith("\n");
 						const bodyLines = hasTrailingNewline ? lines.slice(0, -1) : lines;
 						const newCount = bodyLines.length;
@@ -1770,7 +1516,6 @@ export const GitServiceLive = Layer.effect(
 						return finish("untracked", patch);
 					}
 
-					// Tracked. Use numstat to detect binary + unchanged cheaply.
 					if (baseSha.length === 0) return finish("unchanged", "");
 					const numstat = (yield* run(folderId, cwd, [
 						"diff",
@@ -1783,7 +1528,7 @@ export const GitServiceLive = Layer.effect(
 					if (numstat.length === 0) {
 						return finish("unchanged", "");
 					}
-					// Format: "<added>\t<deleted>\t<path>". Binary files report "-\t-".
+
 					const firstTab = numstat.indexOf("\t");
 					if (firstTab > 0 && numstat.startsWith("-\t-")) {
 						return finish("binary", "");
@@ -1798,9 +1543,6 @@ export const GitServiceLive = Layer.effect(
 						rel,
 					]);
 
-					// Deleted: tracked file missing from working tree. The patch still
-					// reads correctly; we just label the mode so the renderer can show
-					// "(deleted)" context.
 					const stillExists = yield* fs
 						.exists(path.resolve(cwd, rel))
 						.pipe(Effect.catch(() => Effect.succeed(false)));
@@ -1850,9 +1592,7 @@ export const GitServiceLive = Layer.effect(
 						if (change.oldPath !== null)
 							pendingByPath.set(change.oldPath, change);
 					}
-					// Binary numstat entries can also be caused by stale file stats.
-					// Status validates pending changes; a tree-to-tree diff validates
-					// committed changes without trusting working-tree timestamps.
+
 					const binaryNames = names.filter(
 						(entry) =>
 							stats.get(entry.path)?.binary && entry.kind !== "unmerged",
@@ -1888,8 +1628,7 @@ export const GitServiceLive = Layer.effect(
 							)
 							.map((entry) => entry.path),
 					);
-					// Unstaged scope needs to distinguish staged-only files. Quiet
-					// diffs verify those candidates without materializing patches.
+
 					const unstagedBinaryNames =
 						scope === "unstaged"
 							? binaryNames.filter((entry) => pendingByPath.has(entry.path))
@@ -1920,9 +1659,6 @@ export const GitServiceLive = Layer.effect(
 						}
 					}
 
-					// With index refresh disabled, --name-status can report stale
-					// file stats as modifications even when the contents match.
-					// Keep real zero-line changes, including modes and renames.
 					const files: GitReviewFile[] = names
 						.filter(
 							(entry) =>
@@ -2208,12 +1944,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Auto-stage everything tracked + untracked, then create a single commit
-		 * with the user's message. Mirrors what the user would do in a basic
-		 * "commit all" UI; matches the GitHub Desktop "Commit Tracked + Untracked"
-		 * default. Returns the new HEAD sha so the caller can refresh status.
-		 */
 		const commit: GitService["Service"]["commit"] = (
 			folderId,
 			message,
@@ -2223,9 +1953,6 @@ export const GitServiceLive = Layer.effect(
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
 					if (paths !== undefined && paths.length > 0) {
-						// Stage + commit only the chosen paths. `git add` handles new and
-						// deleted files; the pathspec on `commit` keeps any other staged
-						// changes out of this commit.
 						yield* run(folderId, cwd, ["add", "--", ...paths]);
 						yield* run(folderId, cwd, [
 							"commit",
@@ -2243,17 +1970,9 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Push the current branch to its upstream. Sets upstream on first push so
-		 * a freshly-created branch lands on origin without an extra step. The
-		 * combined stdout+stderr is returned so the renderer can surface it.
-		 */
 		const push: GitService["Service"]["push"] = (folderId, worktreeId) =>
 			Effect.flatMap(resolvePathForWorktree(folderId, worktreeId), (cwd) =>
 				Effect.gen(function* () {
-					// Fail deterministically before spawning a push when the checkout has no
-					// destination. Some Git/process combinations can otherwise report an
-					// empty successful result for this invalid operation.
 					yield* run(folderId, cwd, ["remote", "get-url", "origin"]);
 					const branch = (yield* run(folderId, cwd, [
 						"rev-parse",
@@ -2472,11 +2191,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Persist a resolved merge-conflict file: write the marker-free contents
-		 * the renderer's `UnresolvedFile` produced, then `git add` the path so it
-		 * leaves the unmerged state.
-		 */
 		const resolveConflict: GitService["Service"]["resolveConflict"] = (
 			folderId,
 			relPath,
@@ -2509,7 +2223,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/** Read fresh action state and bind merge/auto-merge to the checkout's head. */
 		const mergePr: GitService["Service"]["mergePr"] = (
 			folderId,
 			action,
@@ -2585,7 +2298,7 @@ export const GitServiceLive = Layer.effect(
 							});
 							pullRequests.invalidate();
 							let remoteBranchDeleted = true;
-							// Branch deletion follows confirmed immediate merge only, never an armed queue.
+
 							if (
 								merged &&
 								deleteBranch &&
@@ -2717,12 +2430,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Initialize a fresh git repo in a folder that has none — backs the
-		 * Changes tab's "not a Git repository" CTA. Defaults the initial branch to
-		 * `main` so it matches the rest of the app's expectations (commit composer,
-		 * push). Returns the branch name for the UI to confirm.
-		 */
 		const init: GitService["Service"]["init"] = (folderId) =>
 			Effect.flatMap(resolvePath(folderId), (cwd) =>
 				run(folderId, cwd, ["init", "-b", "main"]).pipe(
@@ -2730,13 +2437,6 @@ export const GitServiceLive = Layer.effect(
 				),
 			);
 
-		/**
-		 * Discard a single file's uncommitted changes. Untracked files are
-		 * deleted from disk (`git clean -f`); everything else is restored from
-		 * HEAD in both the index and the working tree (`git restore --staged
-		 * --worktree`). For renames the original path is restored too, so a
-		 * `foo → bar` move reverts the deletion of `foo` as well as `bar`.
-		 */
 		const revertFile: GitService["Service"]["revertFile"] = (
 			folderId,
 			path,
@@ -2774,11 +2474,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Discard every uncommitted change: hard-reset tracked files to HEAD,
-		 * then remove all untracked files and directories. Destructive and
-		 * unrecoverable — gated behind a confirm dialog in the renderer.
-		 */
 		const revertAll: GitService["Service"]["revertAll"] = (
 			folderId,
 			worktreeId,
@@ -2854,15 +2549,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		/**
-		 * Capture logs from every failing GitHub Actions run on the current PR
-		 * and drop them in `<worktree>/.zuse/failing-checks-<ts>.txt` so the
-		 * renderer can attach the file to the composer (`@.zuse/...txt`) and
-		 * ask the agent to fix it.
-		 *
-		 * Core checks identify failed jobs. Their logs are read directly from the
-		 * Actions API, with signed storage redirects fetched without credentials.
-		 */
 		const fixFailingChecks: GitService["Service"]["fixFailingChecks"] = (
 			folderId,
 			worktreeId,
@@ -2880,10 +2566,6 @@ export const GitServiceLive = Layer.effect(
 					const rollup = current.pr.statusCheckRollup;
 					const failing = rollup.filter(isFailedCheckRollup);
 
-					// Map each failing check to its workflow-run ID. gh emits two URL
-					// shapes: actions runs (`/actions/runs/<id>/job/<jobId>`) and
-					// external check URLs (no run id). Skip the latter — we can't
-					// pull logs for them.
 					const runIds = new Set<string>();
 					const failingNames: Array<string> = [];
 					for (const c of failing) {
@@ -2961,8 +2643,6 @@ export const GitServiceLive = Layer.effect(
 						),
 					);
 
-					// Filesystem-safe ISO-ish timestamp (drop sub-second precision +
-					// colons that break some shells).
 					const ts = (yield* DateTime.nowAsDate)
 						.toISOString()
 						.replace(/[:.]/g, "-")
@@ -2990,11 +2670,6 @@ export const GitServiceLive = Layer.effect(
 				}),
 			);
 
-		// One filesystem-backed invalidation source per checkout. The shared
-		// wrapper below fans it out to every retained consumer without multiplying
-		// filesystem watchers or reconciliation pollers.
-		// The watcher is forked before revision zero is offered: receiving the
-		// initial frame is the client's barrier that it may safely read a snapshot.
 		const workspaceChangesSource: GitService["Service"]["workspaceChanges"] = (
 			folderId,
 			worktreeId,
@@ -3006,11 +2681,21 @@ export const GitServiceLive = Layer.effect(
 					);
 					let revision = 0;
 					let watching = false;
+					// A checkout that cannot be resolved stays failed until it returns.
+					// Polling it would only replay the same snapshot error forever.
+					let missing = false;
+					let watched = false;
 					let quietTicks = 0;
 					const emitRevision = Effect.sync(() => {
 						quietTicks = 0;
 						revision += 1;
 						Queue.offerUnsafe(mailbox, { revision });
+					});
+					const markMissing = Effect.suspend(() => {
+						if (missing) return Effect.void;
+						missing = true;
+						// The initial frame already reports a checkout missing at subscribe.
+						return watched ? emitRevision : Effect.void;
 					});
 					const watchOnce = Effect.gen(function* () {
 						const cwd = yield* resolvePathForWorktree(folderId, worktreeId);
@@ -3031,6 +2716,11 @@ export const GitServiceLive = Layer.effect(
 							absoluteMetadataPath(commonDirectoryOutput),
 						].filter((value, index, values) => values.indexOf(value) === index);
 						watching = true;
+						watched = true;
+						if (missing) {
+							missing = false;
+							yield* emitRevision;
+						}
 						yield* Stream.mergeAll(
 							watchPaths.map((watchPath) => fs.watch(watchPath)),
 							{ concurrency: "unbounded" },
@@ -3045,28 +2735,26 @@ export const GitServiceLive = Layer.effect(
 						);
 					});
 
-					// Native watchers are an optimization. Checkout lookup, Git metadata
-					// discovery, and the watch itself can all fail while a folder is being
-					// created, initialized, moved, or restored. Retry that complete setup on
-					// a bounded cadence; a cleanly ended watcher
-					// sleeps too, so no failure mode can spin.
 					yield* Effect.forkScoped(
 						Effect.forever(
 							watchOnce.pipe(
+								Effect.catchTags({
+									GitFolderNotFoundError: () => markMissing,
+									GitNotARepoError: () => markMissing,
+								}),
 								Effect.catch(() => Effect.void),
 								Effect.andThen(Effect.sleep(Duration.seconds(5))),
 							),
 						),
 					);
-					// Native recursive events handle edits promptly. Reconcile quiet
-					// checkouts every 30s; keep 5s recovery when watching is unavailable.
+
 					yield* Effect.forkScoped(
 						Effect.forever(
 							Effect.sleep(Duration.seconds(5)).pipe(
 								Effect.andThen(
 									Effect.suspend(() => {
 										quietTicks += 1;
-										return !watching || quietTicks >= 6
+										return !missing && (!watching || quietTicks >= 6)
 											? emitRevision
 											: Effect.void;
 									}),
@@ -3074,13 +2762,11 @@ export const GitServiceLive = Layer.effect(
 							),
 						),
 					);
-					// Let the scoped watcher install before publishing the initial barrier.
+
 					yield* Effect.yieldNow;
 					Queue.offerUnsafe(mailbox, { revision });
 
 					return Stream.fromQueue(mailbox).pipe(
-						// A build can emit thousands of events. Retain only the latest
-						// pending invalidation and bound automatic snapshots to 1/s.
 						Stream.throttle({
 							cost: (entries) => entries.length,
 							units: 1,
@@ -3112,10 +2798,12 @@ export const GitServiceLive = Layer.effect(
 			workspaceSnapshot,
 			origin,
 			prState,
+			githubContext,
 			prDetails,
 			createReviewComment,
 			reviewIdentity,
 			starZuse,
+			zuseStarStatus,
 			listPrs,
 			listIssues,
 			issueMarkdown,

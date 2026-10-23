@@ -333,8 +333,6 @@ export const markChatRead = async (
 	options: WsProtocolOptions,
 	chatId: Chat["id"],
 ): Promise<void> => {
-	// Optimistically stamp last-read to now so the inbox unread styling clears
-	// immediately; reconcile with the server's canonical chat on success.
 	const now = new Date();
 	setConnectionBundles(
 		connKey,
@@ -345,9 +343,7 @@ export const markChatRead = async (
 			markChatReadRpc({ connection: options, chatId }),
 		);
 		setConnectionBundles(connKey, patchChat(currentBundles(connKey), chat));
-	} catch {
-		// Non-fatal: the optimistic stamp stands until the next hydrate.
-	}
+	} catch {}
 };
 
 export const setPermissionMode = async (
@@ -539,8 +535,6 @@ export const createSession = async (
 			}));
 		});
 		if (options.cloudWorkspaceId !== undefined && input.initialPrompt?.trim()) {
-			// Creation succeeded. Keep this session even if acceptance needs retry;
-			// its qualified outbox owns the initial prompt and terminal error state.
 			await Effect.runPromise(
 				sendMessage({
 					connection: options,
@@ -855,6 +849,13 @@ const patchChat = (
 				},
 	);
 
+/**
+ * Copies a decoded entity with updated fields while keeping its schema class,
+ * so offline snapshots can still encode it (a spread yields a plain object).
+ */
+const withFields = <T extends object>(entity: T, fields: Partial<T>): T =>
+	Object.assign(Object.create(Object.getPrototypeOf(entity)), entity, fields);
+
 const patchChatFields = (
 	bundles: readonly ProjectBundle[],
 	chatId: Chat["id"],
@@ -863,7 +864,7 @@ const patchChatFields = (
 	bundles.map((bundle) => ({
 		...bundle,
 		chats: bundle.chats.map((chat) =>
-			chat.id === chatId ? ({ ...chat, ...fields } as Chat) : chat,
+			chat.id === chatId ? withFields(chat, fields) : chat,
 		),
 	}));
 
@@ -937,9 +938,7 @@ const patchSessionFields = (
 	bundles.map((bundle) => ({
 		...bundle,
 		sessions: bundle.sessions.map((session) =>
-			session.id === sessionId
-				? ({ ...session, ...fields } as Session)
-				: session,
+			session.id === sessionId ? withFields(session, fields) : session,
 		),
 	}));
 

@@ -1,4 +1,5 @@
-import { Effect } from "effect";
+import { Chat } from "@zuse/contracts";
+import { Effect, Schema } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { appAtomRegistry } from "../../../src/store/registry";
 import {
@@ -48,8 +49,6 @@ vi.mock("~/offline/cache", () => ({
 	writeSessionsSnapshot: () => Effect.void,
 }));
 
-// The real messages store imports react-native (AppState), which vitest
-// cannot parse; sessions.ts only needs the base atom for its cross-write.
 vi.mock("~/store/messages", async () => {
 	const { Atom } = await import("effect/unstable/reactivity");
 	return {
@@ -149,6 +148,43 @@ describe("sessions atom actions", () => {
 		const bundles = appAtomRegistry.get(bundlesByConnectionAtom).conn ?? [];
 		const chat = bundles[0]?.chats[0] as { lastReadAt: Date };
 		expect(chat.lastReadAt.getTime()).toBeGreaterThanOrEqual(before);
+	});
+
+	it("keeps patched chats encodable for the offline snapshot", async () => {
+		const decoded = Schema.decodeUnknownSync(Chat)({
+			id: "chat-1",
+			projectId: "project-1",
+			worktreeId: null,
+			title: "Chat",
+			titleProvenance: "pending",
+			activeSessionId: "session-1",
+			originSessionId: null,
+			archivedAt: null,
+			lastUserMessageAt: "2026-07-01T00:00:00.000Z",
+			lastMessageAt: "2026-07-01T00:00:00.000Z",
+			lastReadAt: "2026-06-01T00:00:00.000Z",
+			createdAt: "2026-07-01T00:00:00.000Z",
+			updatedAt: "2026-07-01T00:00:00.000Z",
+		});
+		appAtomRegistry.set(runtimeBundlesByConnectionAtom, {
+			conn: [
+				{
+					project: {
+						id: "project-1",
+						name: "Project",
+						path: "/tmp/p",
+					} as never,
+					chats: [decoded],
+					sessions: [makeSession()],
+				},
+			],
+		});
+		rpc.markChatReadShouldFail = true;
+		await markChatRead("conn", options, "chat-1" as never);
+		const chat = appAtomRegistry.get(bundlesByConnectionAtom).conn?.[0]
+			?.chats[0];
+		expect(chat).toBeInstanceOf(Chat);
+		expect(() => Schema.encodeSync(Chat)(chat as Chat)).not.toThrow();
 	});
 
 	it("markChatRead adopts the canonical server chat on success", async () => {

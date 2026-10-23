@@ -24,7 +24,6 @@ export type CloudLaunchRequestResult =
 	| Readonly<{ ok: true; ref: CloudLaunchRef }>
 	| Readonly<{ ok: false; message: string }>;
 
-/** Mirrors the control plane's `invalid_git_ref` validation for branch names. */
 const CLOUD_BRANCH_NAME = /^[A-Za-z0-9._/-]+$/u;
 
 const invalidBranch = (branch: string): CloudLaunchRequestResult => ({

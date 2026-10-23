@@ -139,7 +139,7 @@ export const projectSessionInput = (
 						event.turnId,
 						event.inputOwner,
 					);
-					// A tool result may have arrived before its request or been imported out of order.
+
 					yield* sql`UPDATE session_inputs SET status='answered',awaiting_dismissal=0 WHERE session_id=${streamId} AND kind='plan' AND request_id=${content.itemId} AND EXISTS (SELECT 1 FROM messages WHERE session_id=${streamId} AND kind='tool_result' AND json_valid(content_json) AND json_extract(content_json,'$.itemId')=${content.itemId})`;
 				} else if (content._tag === "tool_result") {
 					yield* sql`UPDATE session_inputs SET status='answered',awaiting_dismissal=0,updated_sequence=MAX(updated_sequence,${sequence}) WHERE session_id=${streamId} AND kind='plan' AND request_id=${content.itemId}`;

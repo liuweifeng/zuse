@@ -6,7 +6,10 @@ import {
 } from "@zuse/contracts";
 import { Atom } from "effect/unstable/reactivity";
 
-import { connectionSessionKey } from "~/lib/session-key";
+import {
+	connectionSessionKey,
+	isConnectionSessionKey,
+} from "~/lib/session-key";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import {
@@ -46,7 +49,9 @@ const project = (
 ): void => {
 	appAtomRegistry.update(pendingBySessionAtom, (state) => {
 		const next = Object.fromEntries(
-			Object.entries(state).filter(([key]) => !key.startsWith(`${connKey}:`)),
+			Object.entries(state).filter(
+				([key]) => !isConnectionSessionKey(key, connKey),
+			),
 		);
 		const grouped = new Map<string, PermissionRequest[]>();
 		for (const request of requests) {
@@ -87,10 +92,7 @@ export const retainPermissionConnection = (
 	const unsubscribe = bus.subscribe(key, publish);
 	connections.set(connKey, { release: lease.release, unsubscribe });
 	publish();
-	return () => {
-		// Connection resources intentionally remain warm while the account is
-		// active; resetPermissionsRuntime owns their deterministic teardown.
-	};
+	return () => {};
 };
 
 export const resetPermissionsRuntime = async (): Promise<void> => {

@@ -1,9 +1,14 @@
-import { EnvironmentId, SessionId } from "@zuse/contracts";
+import {
+	EnvironmentId,
+	MAX_ATTACHMENT_BYTES,
+	SessionId,
+} from "@zuse/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	downloadAttachment,
 	resolveAttachmentUrl,
 	uploadAttachmentBytes,
+	validateAttachmentFile,
 } from "../../src/lib/attachments.ts";
 import { observeRendererAccount } from "../../src/lib/renderer-account.ts";
 
@@ -271,4 +276,19 @@ describe("workspace attachment previews", () => {
 			"data:image/png;base64,AQ==",
 		);
 	});
+});
+
+it("rejects oversized first-message files before creating a chat or reading bytes", () => {
+	const file = new File(["video"], "recording.mov", {
+		type: "video/quicktime",
+	});
+	Object.defineProperty(file, "size", {
+		value: MAX_ATTACHMENT_BYTES + 1,
+		configurable: true,
+	});
+	expect(() => validateAttachmentFile(file)).toThrow(
+		"recording.mov: File too large (max 100 MB)",
+	);
+	Object.defineProperty(file, "size", { value: MAX_ATTACHMENT_BYTES });
+	expect(() => validateAttachmentFile(file)).not.toThrow();
 });

@@ -17,13 +17,16 @@ export type WaitingCloudMessagePresentation = Readonly<{
  * The current durable slice has no mailbox-backed queue mutation yet. Keep a
  * second cloud prompt in the composer until the first mailbox send reaches a
  * terminal receipt; otherwise it would silently fall back to fragile live RPC.
+ * Include staged launch prompts: preparation can precede mailbox dispatch, but
+ * a later send must not overtake that already-visible intent.
  */
 export const cloudComposerSubmissionBlocked = (
 	pendingCommands: readonly PendingCommand[],
+	waitingMessages: readonly Message[] = [],
 ): boolean =>
+	waitingMessages.length > 0 ||
 	pendingCommands.some((command) => command.kind === "messages.send");
 
-/** The user-actionable reason a blocked send waits, if it has one. */
 const blockedCommandLabel = (command: PendingCommand): string | null => {
 	const presentation = cloudFailurePresentation({
 		category: command.category,
@@ -81,6 +84,22 @@ export const shouldQueueComposerMessage = (input: {
 	input.hasQueuedMessage ||
 	input.runtimeStarting ||
 	(!input.isCloudSession && (!input.timelineLive || input.platformOffline));
+
+/** Clear synchronously; restore the captured draft if delivery is rejected. */
+export const submitComposerDelivery = async (
+	deliver: () => Promise<boolean>,
+	clear: () => void,
+	restore: () => void,
+): Promise<boolean> => {
+	clear();
+	let accepted = false;
+	try {
+		accepted = await deliver();
+		return accepted;
+	} finally {
+		if (!accepted) restore();
+	}
+};
 
 /** Keep the recoverable draft intact until the mailbox (or live runtime) acks. */
 export const commitAcceptedComposerDelivery = async (

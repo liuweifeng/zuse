@@ -170,8 +170,7 @@ it("returns with missed context-link holes exactly once and freezes its full fal
 				}>`SELECT id,provider FROM session_provider_threads WHERE session_id=${sessionId}`;
 				const contexts = makeProviderContexts(sql);
 				yield* contexts.remember(sessionId, threads[0]!.id);
-				// Another provider consumed the link, despite its canonical message being
-				// below the original provider's last visible sequence.
+
 				yield* sql`UPDATE session_context_links SET first_turn_id='other-provider-turn' WHERE id='link'`;
 				yield* persist("other", "New other-provider response");
 				const resume = yield* contexts.returning(sessionId, "claude");

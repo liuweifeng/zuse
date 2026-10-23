@@ -2,6 +2,7 @@ import type { SessionRef } from "@zuse/client-runtime/resource-ref";
 import type { ComposerInput } from "@zuse/contracts";
 import { uploadAttachment } from "../lib/attachments.ts";
 import { saveContextText } from "../lib/context-handoff.ts";
+import { formatError } from "../lib/format-error.ts";
 import {
 	appendContextFileRef,
 	finalizeDraftAttachments,
@@ -29,6 +30,7 @@ export class StartupInputError extends Error {
 				: "Couldn't attach one of those files. Please try again.",
 			{ cause },
 		);
+		this.message += ` ${formatError(cause)}`;
 		this.name = "StartupInputError";
 		this.stage = stage;
 	}
@@ -61,7 +63,9 @@ export const finalizeStartupInput = async (
 	input: ComposerInput,
 	target: StartupInputTarget,
 	options: StartupInputOptions,
+	signal?: AbortSignal,
 ): Promise<ComposerInput> => {
+	signal?.throwIfAborted();
 	const { ref, uploadRoot } = target;
 	let finalInput = input;
 	if (options.issueMarkdown !== null) {
@@ -78,6 +82,7 @@ export const finalizeStartupInput = async (
 			finalInput,
 			options.pendingContextFiles,
 			async (pending) => {
+				signal?.throwIfAborted();
 				const saved = await saveContextText({
 					environmentId: ref.environmentId,
 					sessionId: ref.sessionId,
@@ -95,7 +100,10 @@ export const finalizeStartupInput = async (
 		finalInput = await finalizeDraftAttachments(
 			finalInput,
 			options.pendingAttachments,
-			(pending) => uploadAttachment(ref, pending.file, uploadRoot ?? undefined),
+			(pending) => {
+				signal?.throwIfAborted();
+				return uploadAttachment(ref, pending.file, uploadRoot ?? undefined);
+			},
 		);
 	} catch (cause) {
 		throw new StartupInputError("attachment", cause);
@@ -103,13 +111,6 @@ export const finalizeStartupInput = async (
 	return finalInput;
 };
 
-/**
- * The workspace a brand-new session runs in is registered by the environment
- * that owns it: locally that is done by `create()`, but a cloud sandbox
- * creates its chat and session rows while its runtime comes online. A write
- * that wins that race resolves no workspace root, which is a "not yet"
- * rather than a real failure.
- */
 const TARGET_NOT_READY_TAGS = new Set([
 	"SessionNotFoundError",
 	"ContextWriteError",
@@ -124,8 +125,19 @@ const startupTargetNotReady = (error: unknown): boolean => {
 	return typeof tag === "string" && TARGET_NOT_READY_TAGS.has(tag);
 };
 
-const delay = (ms: number): Promise<void> =>
-	new Promise((resolve) => setTimeout(resolve, ms));
+const delay = (ms: number, signal?: AbortSignal): Promise<void> =>
+	new Promise((resolve, reject) => {
+		signal?.throwIfAborted();
+		const aborted = () => {
+			clearTimeout(timer);
+			reject(signal?.reason);
+		};
+		const timer = setTimeout(() => {
+			signal?.removeEventListener("abort", aborted);
+			resolve();
+		}, ms);
+		signal?.addEventListener("abort", aborted, { once: true });
+	});
 
 /**
  * {@link finalizeStartupInput}, retried while the target session is still
@@ -137,18 +149,21 @@ export const finalizeStartupInputWhenReady = async (
 	input: ComposerInput,
 	target: StartupInputTarget,
 	options: StartupInputOptions,
-	retry: { readonly attempts: number; readonly delayMs: number } = {
-		attempts: 120,
-		delayMs: 1_000,
-	},
+	retry: {
+		readonly attempts?: number;
+		readonly delayMs?: number;
+		readonly signal?: AbortSignal;
+	} = {},
 ): Promise<ComposerInput> => {
 	for (let attempt = 1; ; attempt += 1) {
 		try {
-			return await finalizeStartupInput(input, target, options);
+			retry.signal?.throwIfAborted();
+			return await finalizeStartupInput(input, target, options, retry.signal);
 		} catch (cause) {
-			if (attempt >= retry.attempts || !startupTargetNotReady(cause))
+			retry.signal?.throwIfAborted();
+			if (attempt >= (retry.attempts ?? 120) || !startupTargetNotReady(cause))
 				throw cause;
-			await delay(retry.delayMs);
+			await delay(retry.delayMs ?? 1_000, retry.signal);
 		}
 	}
 };

@@ -27,7 +27,7 @@ export const prepareChatTab = async (
 		projectId === null
 			? Promise.resolve(settings.defaultRuntimeMode)
 			: resolveChatRuntimeMode(environmentId, projectId);
-	// Observe errors even when provider discovery fails or finds no usable provider.
+
 	void runtimeModePromise.catch(() => undefined);
 	await providersPromise;
 	const providerId = selectAuthenticatedProvider({
