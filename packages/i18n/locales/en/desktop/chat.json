@@ -853,5 +853,15 @@
 	"review_guide_regenerate": "Rewrite guide",
 	"review_guide_empty_body": "An agent groups the changes into short chapters in reading order and sets tests and generated files aside.",
 	"review_guide_ask_author": "Ask author",
-	"review_guide_unavailable_too_large": "This change is too large for an automatic guide."
+	"review_guide_unavailable_too_large": "This change is too large for an automatic guide.",
+	"image_gallery_unavailable": "Image unavailable",
+	"image_gallery_loading": "Loading image…",
+	"image_gallery_title": "Chat images",
+	"image_gallery_fit": "Fit image",
+	"image_gallery_zoom": "Zoom image",
+	"image_gallery_previous": "Previous image",
+	"image_gallery_next": "Next image",
+	"image_gallery_thumbnail": "View image {{index}}: {{name}}",
+	"image_gallery_view": "View image: {{name}}",
+	"image_gallery_image": "Image"
 }

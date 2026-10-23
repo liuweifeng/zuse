@@ -858,5 +858,15 @@
 	"review_guide_regenerate": "Réécrire le guide",
 	"review_guide_empty_body": "Un agent regroupe les changements en courts chapitres, dans l’ordre de lecture, et met de côté les tests et les fichiers générés.",
 	"review_guide_ask_author": "Demander à l’auteur",
-	"review_guide_unavailable_too_large": "Ce changement est trop volumineux pour un guide automatique."
+	"review_guide_unavailable_too_large": "Ce changement est trop volumineux pour un guide automatique.",
+	"image_gallery_unavailable": "Image indisponible",
+	"image_gallery_loading": "Chargement de l’image…",
+	"image_gallery_title": "Images de la conversation",
+	"image_gallery_fit": "Ajuster l’image",
+	"image_gallery_zoom": "Agrandir l’image",
+	"image_gallery_previous": "Image précédente",
+	"image_gallery_next": "Image suivante",
+	"image_gallery_thumbnail": "Afficher l’image {{index}} : {{name}}",
+	"image_gallery_view": "Afficher l’image : {{name}}",
+	"image_gallery_image": "Image"
 }

@@ -853,5 +853,15 @@
 	"review_guide_regenerate": "ガイドを作り直す",
 	"review_guide_empty_body": "エージェントが変更を読む順の短い章にまとめ、テストと生成ファイルは脇に置きます。",
 	"review_guide_ask_author": "作成者に質問",
-	"review_guide_unavailable_too_large": "この変更は大きすぎるため自動ガイドを作成できません。"
+	"review_guide_unavailable_too_large": "この変更は大きすぎるため自動ガイドを作成できません。",
+	"image_gallery_unavailable": "画像を表示できません",
+	"image_gallery_loading": "画像を読み込み中…",
+	"image_gallery_title": "チャットの画像",
+	"image_gallery_fit": "画像を全体表示",
+	"image_gallery_zoom": "画像を拡大",
+	"image_gallery_previous": "前の画像",
+	"image_gallery_next": "次の画像",
+	"image_gallery_thumbnail": "画像 {{index}} を表示：{{name}}",
+	"image_gallery_view": "画像を表示：{{name}}",
+	"image_gallery_image": "画像"
 }
