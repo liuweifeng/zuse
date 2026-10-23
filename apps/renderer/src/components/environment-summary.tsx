@@ -17,6 +17,7 @@ import {
 	Alert01Icon,
 	CheckListIcon,
 	ComputerPhoneSyncIcon,
+	ComputerTerminal01Icon,
 	GitCompareIcon,
 	GitMergeIcon,
 	GitPullRequestIcon,
@@ -183,10 +184,12 @@ export function EnvironmentSummary() {
 			uiMessage,
 		],
 	);
+	const backgroundTasks = useMemo(
+		() => runningBackgroundTasks(timeline.view),
+		[timeline.view],
+	);
 	const subagents = useMemo(() => {
-		const backgroundIds = new Set(
-			runningBackgroundTasks(timeline.view).map((task) => task.id),
-		);
+		const backgroundIds = new Set(backgroundTasks.map((task) => task.id));
 		return detachedSubagentGroups(
 			messages,
 			timeline.projection?.executionSteps,
@@ -195,7 +198,12 @@ export function EnvironmentSummary() {
 				group.parent.content._tag !== "tool_use" ||
 				!backgroundIds.has(group.parent.content.itemId),
 		);
-	}, [messages, timeline.view, timeline.projection?.executionSteps, uiMessage]);
+	}, [
+		messages,
+		backgroundTasks,
+		timeline.projection?.executionSteps,
+		uiMessage,
+	]);
 	const worktree = useWorktreesStore((s) => {
 		if (ctx.status !== "ready" || ctx.worktreeId === null) return null;
 		return (
@@ -575,12 +583,22 @@ export function EnvironmentSummary() {
 					</span>
 				</button>
 			) : null}
-			{timeline.ref !== null && session !== null ? (
-				<BackgroundTasks
-					view={timeline.view}
-					sessionRef={timeline.ref}
-					providerId={session.providerId}
-				/>
+			{timeline.ref !== null &&
+			session !== null &&
+			backgroundTasks.length > 0 ? (
+				<SummarySection
+					key={`${timeline.ref.environmentId}:${timeline.ref.sessionId}`}
+					icon={ComputerTerminal01Icon}
+					label={uiMessage("chat:background_tasks_title")}
+					meta={backgroundTasks.length}
+					defaultOpen={false}
+				>
+					<BackgroundTasks
+						view={timeline.view}
+						sessionRef={timeline.ref}
+						providerId={session.providerId}
+					/>
+				</SummarySection>
 			) : null}
 			{chatRef !== null && session !== null ? (
 				<AgentsSummary
