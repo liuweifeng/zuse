@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "在此工作区开始一个对话即可撰写导览。",
 	"review_guide_file_count_other": "{{count}} 个文件",
 	"review_guide_unavailable_disabled": "引导式审阅已在设置中关闭。",
-	"review_guide_regenerate": "重新撰写导览",
 	"review_guide_ask_author": "询问作者",
 	"review_guide_generate": "撰写导览",
 	"review_guide_write_anyway": "仍然撰写",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "查看图片 {{index}}：{{name}}",
 	"image_gallery_view": "查看图片：{{name}}",
 	"image_gallery_loading": "正在加载图片…",
-	"image_gallery_title": "聊天图片"
+	"image_gallery_title": "聊天图片",
+	"review_guide_chapters_appear": "章节写好后会显示在这里。",
+	"review_guide_try_again": "重试",
+	"review_guide_reading_changes": "正在读取改动…"
 }
