@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "PRを作成する",
 	"environment_summary_github_actions": "GitHub アクション",
 	"environment_summary_merge_conflicts": "マージ競合",
+	"environment_summary_branch_changes": "ブランチの変更",
 	"environment_summary_plan": "計画",
 	"environment_summary_stack": "スタック",
 	"environment_summary_manage_stack": "スタックを管理",

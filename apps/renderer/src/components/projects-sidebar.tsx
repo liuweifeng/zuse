@@ -1840,7 +1840,7 @@ function SidebarChatHoverCard({
 	readonly pullRequests?: ReadonlyArray<ChatPullRequest>;
 }) {
 	return (
-		<div className="w-72 space-y-1 px-1 py-0.5 text-[12px]">
+		<div className="w-72 min-w-0 max-w-full space-y-1 px-1 py-0.5 text-[12px]">
 			<div className="mb-1.5 truncate text-[13px] font-medium text-foreground">
 				{title || uiMessage("projects:projects_sidebar_new_chat")}
 			</div>
@@ -1857,23 +1857,23 @@ function SidebarChatHoverCard({
 				</div>
 			) : null}
 			<div className="flex items-center gap-2 text-muted-foreground">
-				<HugeiconsIcon icon={Folder01Icon} className="size-3.5" />
-				<span className="truncate">{repository}</span>
+				<HugeiconsIcon icon={Folder01Icon} className="size-3.5 shrink-0" />
+				<span className="min-w-0 flex-1 truncate">{repository}</span>
 			</div>
 			<div className="flex items-center gap-2 text-muted-foreground">
-				<HugeiconsIcon icon={ServerStack01Icon} className="size-3.5" />
-				<span className="truncate">{location}</span>
+				<HugeiconsIcon icon={ServerStack01Icon} className="size-3.5 shrink-0" />
+				<span className="min-w-0 flex-1 truncate">{location}</span>
 			</div>
 			{branch ? (
 				<div className="flex items-center gap-2 text-muted-foreground">
-					<HugeiconsIcon icon={GitBranchIcon} className="size-3.5" />
-					<span className="truncate">{branch}</span>
+					<HugeiconsIcon icon={GitBranchIcon} className="size-3.5 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">{branch}</span>
 				</div>
 			) : null}
 			{providerId !== null && providerId !== undefined ? (
 				<div className="flex items-center gap-2 text-muted-foreground">
-					<ProviderIcon providerId={providerId} className="size-3.5" />
-					<span className="truncate">{model || providerId}</span>
+					<ProviderIcon providerId={providerId} className="size-3.5 shrink-0" />
+					<span className="min-w-0 flex-1 truncate">{model || providerId}</span>
 				</div>
 			) : null}
 			{pullRequests.length > 0 ? (
@@ -3376,14 +3376,6 @@ function ChatRow({
 										isUnread &&
 										"font-semibold text-sidebar-foreground hover:bg-sidebar-accent/40",
 								)}
-								title={
-									onRemoteEnvironment
-										? uiMessage("projects:projects_sidebar_runs_on", {
-												title: String(chat.title),
-												environmentLabel: String(environmentLabel),
-											})
-										: chat.title
-								}
 							>
 								<button
 									type="button"
@@ -3607,23 +3599,27 @@ function ThreadListRowBody({
 				</div>
 				<div className="flex h-3.5 min-w-0 items-center gap-1 text-[11px] font-normal text-muted-foreground/60">
 					{projectName !== undefined ? (
-						<span className="min-w-0 truncate">{projectName}</span>
+						<span className="min-w-0 flex-1 truncate">{projectName}</span>
 					) : null}
 					{prInfo !== null && prState !== null ? (
-						<span className="ml-1 inline-flex min-w-0 shrink-[2] items-center gap-1">
-							<PrStateIcon pr={prInfo} className="size-3" />
-							{prInfo.number === null ? null : (
-								<span className="shrink-0 tabular-nums">#{prInfo.number}</span>
-							)}
+						<span className="ml-1 inline-grid min-w-min shrink-[999] grid-cols-[auto_minmax(0,1fr)] items-center gap-1">
+							<span className="inline-flex items-center gap-1">
+								<PrStateIcon pr={prInfo} className="size-3 shrink-0" />
+								{prInfo.number === null ? null : (
+									<span className="shrink-0 tabular-nums">
+										#{prInfo.number}
+									</span>
+								)}
+							</span>
 							<span className="min-w-0 truncate">{prState}</span>
 						</span>
 					) : null}
 					{stats !== null ? (
-						<span className="ml-auto shrink-0 pl-2 tabular-nums">
-							<span className="text-success/70">
+						<span className="ml-auto inline-flex min-w-0 shrink items-center gap-1 pl-2 tabular-nums">
+							<span className="min-w-0 truncate text-success/70">
 								+{formatCompactNumber(stats.additions)}
-							</span>{" "}
-							<span className="text-danger-text/70">
+							</span>
+							<span className="min-w-0 truncate text-danger-text/70">
 								−{formatCompactNumber(stats.deletions)}
 							</span>
 						</span>
