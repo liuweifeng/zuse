@@ -277,13 +277,6 @@ export function EnvironmentSummary() {
 
 	if (ctx.status !== "ready") return null;
 
-	const changedFileCount = gitView.data?.reviewSummary?.files.length ?? null;
-	const changesLabel =
-		changedFileCount === null
-			? "Changes"
-			: changedFileCount === 0
-				? "No changes"
-				: `${changedFileCount} change${changedFileCount === 1 ? "" : "s"}`;
 	const prLabel =
 		pr === null
 			? gitFailed
@@ -435,11 +428,7 @@ export function EnvironmentSummary() {
 					icon={GitCompareIcon}
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
-				<span
-					className={`min-w-0 flex-1 truncate ${changedFileCount === 0 ? "text-muted-foreground" : ""}`}
-				>
-					{changesLabel}
-				</span>
+				<span className="min-w-0 flex-1 truncate">Branch changes</span>
 				{diffStat !== null && diffStat.additions + diffStat.deletions > 0 ? (
 					<span className={`${summaryMetaClass} gap-1 font-mono`}>
 						<span className="text-[var(--accent-green)]">
