@@ -12,6 +12,9 @@ import {
 	MasterError,
 	type MasterOwnership,
 	type MasterSettings,
+	type ProviderId,
+	type RepositorySettings,
+	type RuntimeMode,
 	Session,
 	SessionId,
 	SessionNotFoundError,
@@ -30,12 +33,13 @@ import {
 	Stream,
 } from "effect";
 import { SqlClient } from "effect/unstable/sql";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	ApiLinkError,
 	ApiLinkService,
 } from "../../src/api/api-link-service.ts";
 import { AppPaths } from "../../src/app-paths.ts";
+import { ConfigStoreService } from "../../src/config-store/services/config-store-service.ts";
 import {
 	type ConversationOrchestrationDependencies,
 	makeConversationOrchestration,
@@ -63,6 +67,7 @@ import {
 	MasterToolRouterLive,
 } from "../../src/master/tool-router.ts";
 import { Migration0065Masters } from "../../src/persistence/migrations/0065_masters.ts";
+import { RepositorySettingsService } from "../../src/repository-settings/services/repository-settings-service.ts";
 import { WorkspaceService } from "../../src/workspace/services/workspace-service.ts";
 
 /** Fail loudly if a test crosses an unconfigured external integration. */
@@ -123,6 +128,7 @@ const cluster = () => {
 		crossEnvironment = true,
 	) => {
 		const directory = mkdtempSync(join(tmpdir(), "zuse-master-test-"));
+		const repositoryRuntimeModes = new Map<string, RuntimeMode>();
 		let catalogDefect = false;
 		const folders = new Map<string, Folder>();
 		const chats = new Map<string, Chat>();
@@ -149,7 +155,11 @@ const cluster = () => {
 		const makeSession = (
 			chat: Chat,
 			id = SessionId.make(crypto.randomUUID()),
-			selection = { providerId: settings.providerId, model: settings.model },
+			selection: {
+				readonly providerId: ProviderId;
+				readonly model: string;
+				readonly runtimeMode?: RuntimeMode;
+			} = { providerId: settings.providerId, model: settings.model },
 		) => {
 			const value = Session.make({
 				id,
@@ -162,7 +172,7 @@ const cluster = () => {
 				status: "idle",
 				archivedAt: null,
 				providerThread: null,
-				runtimeMode: "approval-required",
+				runtimeMode: selection.runtimeMode ?? "approval-required",
 				worktreeId: chat.worktreeId,
 				forkedFromSessionId: null,
 				forkedFromMessageId: null,
@@ -227,6 +237,31 @@ const cluster = () => {
 			}),
 			MasterToolRouterLive,
 			Layer.succeed(AppPaths, { userData: directory }),
+			Layer.succeed(
+				ConfigStoreService,
+				stub<typeof ConfigStoreService.Service>({
+					getSettings: () =>
+						Effect.succeed(
+							stub<
+								Effect.Success<
+									ReturnType<typeof ConfigStoreService.Service.getSettings>
+								>
+							>({ defaultRuntimeMode: "full-access" }),
+						),
+				}),
+			),
+			Layer.succeed(
+				RepositorySettingsService,
+				stub<typeof RepositorySettingsService.Service>({
+					get: (folderId) =>
+						Effect.succeed(
+							stub<RepositorySettings>({
+								defaultRuntimeMode:
+									repositoryRuntimeModes.get(folderId) ?? null,
+							}),
+						),
+				}),
+			),
 			Layer.succeed(ChatService, fakeChat),
 			Layer.succeed(
 				SessionService,
@@ -245,6 +280,14 @@ const cluster = () => {
 										(session) => session.projectId === folderId,
 									),
 								),
+					setRuntimeMode: (sessionId, runtimeMode) =>
+						Effect.sync(() => {
+							const session = required(sessions.get(sessionId));
+							sessions.set(
+								sessionId,
+								Session.make({ ...session, runtimeMode }),
+							);
+						}),
 					createSession: (input) =>
 						Effect.sync(() =>
 							makeSession(
@@ -460,6 +503,7 @@ const cluster = () => {
 			interrupts,
 			repository,
 			fakeChat,
+			repositoryRuntimeModes,
 		};
 	};
 	return {
@@ -598,6 +642,58 @@ describe("Master coordination across environment boundaries", () => {
 		expect(snapshot.coordinator?.id).toBe(master.activeSessionId);
 	});
 
+	it("runs the coordinator and its slaves with the user's permission defaults", async () => {
+		const home = await cluster().createHome("local");
+		home.repositoryRuntimeModes.set("repo", "auto-accept-edits");
+		const master = await Effect.runPromise(
+			home.service.create({
+				commandId: "create-modes",
+				settings,
+				repositories: [
+					{ environmentId: "local", folderId: "repo", name: "Repo" },
+				],
+			}),
+		);
+		// The private workspace has no repository override: the global default.
+		expect(
+			home.sessions.get(required(master.activeSessionId))?.runtimeMode,
+		).toBe("full-access");
+		await Effect.runPromise(
+			home.service.execute(master.id, "delegate-modes", {
+				_tag: "delegate",
+				environmentId: "local",
+				folderId: "repo",
+				task: "Fix search",
+				title: "Search",
+				providerId: "codex",
+				model: "test",
+			}),
+		);
+		const worker = required(
+			[...home.sessions.values()].find((session) =>
+				session.id.startsWith("master-session-"),
+			),
+		);
+		expect(worker.runtimeMode).toBe("auto-accept-edits");
+
+		// Coordinators saved before this asked on every step; the supervisor
+		// moves them to the current default.
+		const coordinator = required(
+			home.sessions.get(required(master.activeSessionId)),
+		);
+		home.sessions.set(
+			coordinator.id,
+			Session.make({ ...coordinator, runtimeMode: "approval-required" }),
+		);
+		await vi.waitFor(
+			() =>
+				expect(home.sessions.get(coordinator.id)?.runtimeMode).toBe(
+					"full-access",
+				),
+			{ timeout: 5_000, interval: 50 },
+		);
+	});
+
 	it("writes delegation-only coordinator instructions on creation and renewal", async () => {
 		const home = await cluster().createHome("local");
 		const master = await Effect.runPromise(
@@ -615,18 +711,20 @@ describe("Master coordination across environment boundaries", () => {
 				"utf8",
 			);
 		expect(instructions()).toContain(
-			"do not implement repository changes yourself, even for small tasks",
+			"Delegate all work to workers: implementation, research, investigation, triage, analysis and reviews",
 		);
-		expect(instructions()).toContain(
-			"Create a worker before implementation begins",
-		);
+		expect(instructions()).toContain("Create a worker before any work begins");
 		expect(instructions()).toContain("Ask before merging.");
+		// Packaged builds have no zuse CLI; coordination goes through MCP tools.
+		expect(instructions()).toContain("master_state and master_action tools");
+		expect(instructions()).not.toMatch(/zuse master (state|action)/);
+		expect(instructions()).toContain(
+			"don't use shell commands, file search, plugins or connected services to do a task",
+		);
 		await Effect.runPromise(
 			home.service.execute(master.id, "renew-role", { _tag: "renew" }),
 		);
-		expect(instructions()).toContain(
-			"Create a worker before implementation begins",
-		);
+		expect(instructions()).toContain("Create a worker before any work begins");
 		expect(home.sends.size).toBe(0);
 	});
 
