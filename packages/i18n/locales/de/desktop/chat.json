@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "Leitfäden werden von Claude- oder Codex-Chats geschrieben.",
 	"changes_review_moved_to": "Verschoben nach {{location}}",
 	"review_guide_overview": "Überblick",
-	"review_guide_regenerate": "Leitfaden neu schreiben",
 	"review_guide_empty_body": "Ein Agent fasst die Änderungen in kurze Kapitel in Lesereihenfolge zusammen und legt Tests und generierte Dateien beiseite.",
 	"review_guide_ask_author": "Autor fragen",
-	"review_guide_unavailable_too_large": "Diese Änderung ist zu groß für einen automatischen Leitfaden."
+	"review_guide_unavailable_too_large": "Diese Änderung ist zu groß für einen automatischen Leitfaden.",
+	"review_guide_reading_changes": "Änderungen werden gelesen…",
+	"review_guide_chapters_appear": "Kapitel erscheinen hier, sobald sie geschrieben sind.",
+	"review_guide_try_again": "Erneut versuchen"
 }

@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "Guides are written by Claude or Codex chats.",
 	"changes_review_moved_to": "Moved to {{location}}",
 	"review_guide_overview": "Overview",
-	"review_guide_regenerate": "Rewrite guide",
 	"review_guide_empty_body": "An agent groups the changes into short chapters in reading order and sets tests and generated files aside.",
 	"review_guide_ask_author": "Ask author",
-	"review_guide_unavailable_too_large": "This change is too large for an automatic guide."
+	"review_guide_unavailable_too_large": "This change is too large for an automatic guide.",
+	"review_guide_reading_changes": "Reading the changes…",
+	"review_guide_chapters_appear": "Chapters appear here as they're written.",
+	"review_guide_try_again": "Try again"
 }

@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "⟦Güüïïdëës ààrëë wrïïttëën by Clààüüdëë ôôr Côôdëëx chààts.⟧",
 	"changes_review_moved_to": "⟦Môôvëëd tôô {{location}}⟧",
 	"review_guide_overview": "⟦ÔÔvëërvïïëëw⟧",
-	"review_guide_regenerate": "⟦Rëëwrïïtëë güüïïdëë⟧",
 	"review_guide_empty_body": "⟦ÀÀn ààgëënt grôôüüps thëë chààngëës ïïntôô shôôrt chààptëërs ïïn rëëààdïïng ôôrdëër àànd sëëts tëësts àànd gëënëërààtëëd fïïlëës ààsïïdëë.⟧",
 	"review_guide_ask_author": "⟦ÀÀsk ààüüthôôr⟧",
-	"review_guide_unavailable_too_large": "⟦Thïïs chààngëë ïïs tôôôô lààrgëë fôôr ààn ààüütôômààtïïc güüïïdëë.⟧"
+	"review_guide_unavailable_too_large": "⟦Thïïs chààngëë ïïs tôôôô lààrgëë fôôr ààn ààüütôômààtïïc güüïïdëë.⟧",
+	"review_guide_reading_changes": "⟦Rëëààdïïng thëë chààngëës…⟧",
+	"review_guide_chapters_appear": "⟦Chààptëërs ààppëëààr hëërëë ààs thëëy'rëë wrïïttëën.⟧",
+	"review_guide_try_again": "⟦Try ààgààïïn⟧"
 }

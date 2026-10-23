@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "ガイドは Claude または Codex のチャットで作成されます。",
 	"changes_review_moved_to": "{{location}} に移動",
 	"review_guide_overview": "概要",
-	"review_guide_regenerate": "ガイドを作り直す",
 	"review_guide_empty_body": "エージェントが変更を読む順の短い章にまとめ、テストと生成ファイルは脇に置きます。",
 	"review_guide_ask_author": "作成者に質問",
-	"review_guide_unavailable_too_large": "この変更は大きすぎるため自動ガイドを作成できません。"
+	"review_guide_unavailable_too_large": "この変更は大きすぎるため自動ガイドを作成できません。",
+	"review_guide_reading_changes": "変更を読み込んでいます…",
+	"review_guide_chapters_appear": "章は書かれ次第ここに表示されます。",
+	"review_guide_try_again": "再試行"
 }

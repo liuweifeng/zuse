@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "导览由 Claude 或 Codex 对话撰写。",
 	"changes_review_moved_to": "已移至 {{location}}",
 	"review_guide_overview": "概览",
-	"review_guide_regenerate": "重新撰写导览",
 	"review_guide_empty_body": "智能体会按阅读顺序把变更整理成简短章节，并把测试和生成文件放到一边。",
 	"review_guide_ask_author": "询问作者",
-	"review_guide_unavailable_too_large": "此变更过大，无法自动生成导览。"
+	"review_guide_unavailable_too_large": "此变更过大，无法自动生成导览。",
+	"review_guide_reading_changes": "正在读取改动…",
+	"review_guide_chapters_appear": "章节写好后会显示在这里。",
+	"review_guide_try_again": "重试"
 }

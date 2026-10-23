@@ -855,8 +855,10 @@
 	"review_guide_unavailable_unsupported": "Les guides sont rédigés par des discussions Claude ou Codex.",
 	"changes_review_moved_to": "Déplacé vers {{location}}",
 	"review_guide_overview": "Vue d’ensemble",
-	"review_guide_regenerate": "Réécrire le guide",
 	"review_guide_empty_body": "Un agent regroupe les changements en courts chapitres, dans l’ordre de lecture, et met de côté les tests et les fichiers générés.",
 	"review_guide_ask_author": "Demander à l’auteur",
-	"review_guide_unavailable_too_large": "Ce changement est trop volumineux pour un guide automatique."
+	"review_guide_unavailable_too_large": "Ce changement est trop volumineux pour un guide automatique.",
+	"review_guide_reading_changes": "Lecture des modifications…",
+	"review_guide_chapters_appear": "Les chapitres apparaissent ici au fur et à mesure.",
+	"review_guide_try_again": "Réessayer"
 }

@@ -850,8 +850,10 @@
 	"review_guide_unavailable_unsupported": "가이드는 Claude 또는 Codex 채팅에서 작성됩니다.",
 	"changes_review_moved_to": "{{location}}(으)로 이동됨",
 	"review_guide_overview": "개요",
-	"review_guide_regenerate": "가이드 다시 작성",
 	"review_guide_empty_body": "에이전트가 변경 사항을 읽기 순서대로 짧은 장으로 묶고, 테스트와 생성 파일은 따로 둡니다.",
 	"review_guide_ask_author": "작성자에게 묻기",
-	"review_guide_unavailable_too_large": "이 변경 사항은 너무 커서 자동 가이드를 만들 수 없습니다."
+	"review_guide_unavailable_too_large": "이 변경 사항은 너무 커서 자동 가이드를 만들 수 없습니다.",
+	"review_guide_reading_changes": "변경 사항을 읽는 중…",
+	"review_guide_chapters_appear": "챕터가 작성되는 대로 여기에 표시됩니다.",
+	"review_guide_try_again": "다시 시도"
 }
