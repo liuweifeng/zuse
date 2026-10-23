@@ -297,7 +297,12 @@ export function GuideDocument<A>({
 		<div ref={scrollRef} className="h-full overflow-y-auto overscroll-contain">
 			<div className="mx-auto w-full max-w-[1240px] px-8 pb-32">
 				{guide !== null && (run !== null || pending !== null) ? (
-					<RunStatus run={run} onCancel={onCancel} className="h-9" />
+					<RunStatus
+						run={run}
+						first={false}
+						onCancel={onCancel}
+						className="h-9"
+					/>
 				) : guide !== null && lastError !== null ? (
 					<div className="flex h-9 items-center gap-3 text-xs">
 						<span className="min-w-0 truncate text-destructive">
@@ -528,46 +533,59 @@ function WriterLabel({
 /** What a run is doing right now, with a bar for how much is placed. */
 function RunStatus({
 	run,
+	first,
 	onCancel,
 	className,
 }: {
 	readonly run: ReviewGuideState["run"];
+	/** Writing the first guide, rather than updating one. */
+	readonly first: boolean;
 	readonly onCancel: () => void;
 	readonly className?: string;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
 	const reading = run === null || run.phase === "outlining";
 	const share = run === null || run.total === 0 ? 0 : run.assigned / run.total;
+	const progress =
+		run === null
+			? ""
+			: uiMessage("chat:review_guide_progress", {
+					assigned: run.assigned,
+					total: run.total,
+				});
+	const label = reading
+		? uiMessage("chat:review_guide_reading_changes")
+		: first
+			? progress
+			: run.forSha.length > 0
+				? uiMessage("chat:review_guide_updating_for", { sha: run.forSha })
+				: uiMessage("chat:review_guide_writing");
 	return (
-		<div className={cn("flex items-center gap-3 text-xs", className)}>
+		<div
+			className={cn(
+				"flex min-w-0 items-center gap-3 whitespace-nowrap text-xs",
+				className,
+			)}
+		>
 			<LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
-			<span className="text-foreground">
-				{reading
-					? uiMessage("chat:review_guide_reading_changes")
-					: run.forSha.length > 0
-						? uiMessage("chat:review_guide_updating_for", { sha: run.forSha })
-						: uiMessage("chat:review_guide_writing")}
-			</span>
+			<span className="shrink-0 text-foreground tabular-nums">{label}</span>
 			{reading ? null : (
-				<>
-					<span className="h-1 w-24 overflow-hidden rounded-full bg-muted">
-						<span
-							className="block h-full rounded-full bg-primary transition-[width] duration-300"
-							style={{ width: `${Math.round(share * 100)}%` }}
-						/>
-					</span>
-					<span className="text-muted-foreground tabular-nums">
-						{uiMessage("chat:review_guide_progress", {
-							assigned: run.assigned,
-							total: run.total,
-						})}
-					</span>
-				</>
+				<span className="h-1 min-w-12 max-w-40 flex-1 overflow-hidden rounded-full bg-muted">
+					<span
+						className="block h-full rounded-full bg-primary transition-[width] duration-300"
+						style={{ width: `${Math.round(share * 100)}%` }}
+					/>
+				</span>
+			)}
+			{reading || first ? null : (
+				<span className="shrink-0 text-muted-foreground tabular-nums">
+					{progress}
+				</span>
 			)}
 			<button
 				type="button"
 				onClick={onCancel}
-				className="ml-auto text-muted-foreground hover:text-foreground"
+				className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
 			>
 				{uiMessage("chat:review_guide_cancel")}
 			</button>
@@ -604,7 +622,7 @@ function WritingGuide({
 				) : null}
 			</div>
 			<div className="rounded-[10px] bg-card px-4 py-3 ring-1 ring-border/60">
-				<RunStatus run={run} onCancel={onCancel} />
+				<RunStatus run={run} first onCancel={onCancel} />
 				<ol className="mt-3 flex flex-col gap-1.5 border-border/50 border-t pt-3">
 					{chapters.length === 0 ? (
 						<li className="text-[12px] text-muted-foreground">
