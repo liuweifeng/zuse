@@ -3602,11 +3602,15 @@ function ThreadListRowBody({
 						<span className="min-w-0 flex-1 truncate">{projectName}</span>
 					) : null}
 					{prInfo !== null && prState !== null ? (
-						<span className="ml-1 inline-flex min-w-0 shrink-0 max-w-full items-center gap-1 overflow-hidden">
-							<PrStateIcon pr={prInfo} className="size-3" />
-							{prInfo.number === null ? null : (
-								<span className="shrink-0 tabular-nums">#{prInfo.number}</span>
-							)}
+						<span className="ml-1 inline-grid min-w-min shrink grid-cols-[auto_minmax(0,1fr)] items-center gap-1">
+							<span className="inline-flex items-center gap-1">
+								<PrStateIcon pr={prInfo} className="size-3 shrink-0" />
+								{prInfo.number === null ? null : (
+									<span className="shrink-0 tabular-nums">
+										#{prInfo.number}
+									</span>
+								)}
+							</span>
 							<span className="min-w-0 truncate">{prState}</span>
 						</span>
 					) : null}
