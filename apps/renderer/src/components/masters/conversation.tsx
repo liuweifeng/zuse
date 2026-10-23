@@ -33,14 +33,17 @@ export function MasterConversation({
 	session,
 	environmentId,
 	mascotState,
+	onResume,
 }: {
 	readonly snapshot: MasterSnapshot;
 	readonly session: Session;
 	readonly environmentId: string;
 	readonly mascotState: MascotState;
+	readonly onResume: () => void;
 }) {
 	const { message } = useMessages("projects");
 	const environment = EnvironmentId.make(environmentId);
+	const status = snapshot.master.status;
 	const timeline = useSessionTimelineResource({
 		environmentId: environment,
 		sessionId: session.id,
@@ -60,6 +63,18 @@ export function MasterConversation({
 				: null;
 	const composer = (
 		<Suspense fallback={<div className="h-28" aria-busy="true" />}>
+			{status === "paused" || status === "stopped" ? (
+				// The coordinator still replies, but its Zot actions are refused
+				// until the user resumes, so say so where the message is written.
+				<div className="flex items-center gap-2 px-3 pb-1.5 text-[11px] text-muted-foreground">
+					<p className="min-w-0 flex-1">
+						{message(`projects:masters_${status}_notice`)}
+					</p>
+					<Button size="xs" variant="ghost" onClick={onResume}>
+						{message("projects:masters_resume")}
+					</Button>
+				</div>
+			) : null}
 			{notice ? (
 				<p className="truncate px-3 pb-1.5 text-[11px] text-muted-foreground">
 					{notice}
