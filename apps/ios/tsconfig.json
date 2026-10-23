@@ -5,7 +5,7 @@
 		"allowImportingTsExtensions": true,
 		"module": "Preserve",
 		"moduleResolution": "Bundler",
-		"types": ["bun", "node"]
+		"types": ["bun-types", "node"]
 	},
 	"include": ["scripts/*.ts"]
 }
