@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "Créer des relations publiques",
 	"environment_summary_github_actions": "Actions GitHub",
 	"environment_summary_merge_conflicts": "Fusionner les conflits",
+	"environment_summary_branch_changes": "Modifications de la branche",
 	"environment_summary_plan": "Planifier",
 	"environment_summary_stack": "Pile",
 	"environment_summary_manage_stack": "Gérer la pile",

@@ -306,6 +306,7 @@
 	"environment_summary_create_pr": "⟦Crëëààtëë PR⟧",
 	"environment_summary_github_actions": "⟦GïïtHüüb ÀÀctïïôôns⟧",
 	"environment_summary_merge_conflicts": "⟦Mëërgëë côônflïïcts⟧",
+	"environment_summary_branch_changes": "⟦Bràànch chààngëës⟧",
 	"environment_summary_plan": "⟦Plààn⟧",
 	"environment_summary_stack": "⟦Stààck⟧",
 	"environment_summary_manage_stack": "⟦Màànààgëë stààck⟧",

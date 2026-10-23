@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "Erstellen Sie PR",
 	"environment_summary_github_actions": "GitHub-Aktionen",
 	"environment_summary_merge_conflicts": "Konflikte zusammenführen",
+	"environment_summary_branch_changes": "Branch-Änderungen",
 	"environment_summary_plan": "Planen",
 	"environment_summary_stack": "Stack",
 	"environment_summary_manage_stack": "Stack verwalten",

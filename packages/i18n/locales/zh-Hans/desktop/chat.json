@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "创建公关",
 	"environment_summary_github_actions": "GitHub 行动",
 	"environment_summary_merge_conflicts": "合并冲突",
+	"environment_summary_branch_changes": "分支更改",
 	"environment_summary_plan": "计划",
 	"environment_summary_stack": "堆栈",
 	"environment_summary_manage_stack": "管理堆栈",

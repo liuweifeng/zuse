@@ -428,7 +428,9 @@ export function EnvironmentSummary() {
 					icon={GitCompareIcon}
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
-				<span className="min-w-0 flex-1 truncate">Branch changes</span>
+				<span className="min-w-0 flex-1 truncate">
+					{uiMessage("chat:environment_summary_branch_changes")}
+				</span>
 				{diffStat !== null && diffStat.additions + diffStat.deletions > 0 ? (
 					<span className={`${summaryMetaClass} gap-1 font-mono`}>
 						<span className="text-[var(--accent-green)]">
