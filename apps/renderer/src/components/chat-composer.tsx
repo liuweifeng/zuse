@@ -4,7 +4,6 @@ import { useCloudMessageQueue } from "../lib/cloud-message-queue.ts";
 import { isCloudWorkspaceReady } from "../lib/cloud-workspace-lifecycle.ts";
 import { isHostedProduct } from "../lib/hosted-session.ts";
 import { GOAL_STATUS_MESSAGE } from "../lib/session-goal-presentation.ts";
-import { BackgroundTasks } from "./background-tasks.tsx";
 import { CloudDeviceSelector } from "./cloud-device-selector.tsx";
 import { ComposerAttachmentTray } from "./composer/composer-attachment-tray.tsx";
 import { ComposerVoiceButton } from "./composer/composer-voice-button.tsx";
@@ -1574,14 +1573,6 @@ export function ChatComposer({
 		<>
 			<NoConnectionTray />
 			{!isDraft ? <SessionSecretRequests sessionRef={timeline.ref} /> : null}
-			{!isDraft ? (
-				<BackgroundTasks
-					view={timeline.view}
-					sessionRef={timeline.ref}
-					providerId={session.providerId}
-					placement="composer"
-				/>
-			) : null}
 			{isDraft ? draftTray : null}
 			<ComposerAttachmentTray
 				draftKey={draftKey}

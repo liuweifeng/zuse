@@ -10,19 +10,17 @@ import { formatElapsed } from "../lib/delegation-display.ts";
 import { formatError } from "../lib/format-error.ts";
 import { stopBackgroundTask } from "../lib/session-actions.ts";
 import { useRelativeTimeTick } from "../lib/use-relative-time.ts";
-import { TrayPill, trayPillTextActionClass } from "./composer/tray-pill.tsx";
+import { trayPillTextActionClass } from "./composer/tray-pill.tsx";
 
-/** Shared task controls for the composer and environment summary. */
+/** Task controls displayed inside the environment summary. */
 export function BackgroundTasks({
 	view,
 	sessionRef,
 	providerId,
-	placement = "summary",
 }: {
 	readonly view: ResourceView<SessionTimelineProjection>;
 	readonly sessionRef: SessionRef;
 	readonly providerId: ProviderId;
-	readonly placement?: "summary" | "composer";
 }) {
 	const { message } = useMessages(["chat", "common"]);
 	const tasks = useMemo(() => runningBackgroundTasks(view), [view]);
@@ -34,7 +32,7 @@ export function BackgroundTasks({
 	return (
 		<section
 			aria-label={message("chat:background_tasks_title")}
-			className={placement === "composer" ? "contents" : "min-w-0 py-1"}
+			className="min-w-0 py-1"
 		>
 			{tasks.map((task) => {
 				const pending = view.pendingCommands.some(
@@ -110,24 +108,6 @@ export function BackgroundTasks({
 						{error}
 					</p>
 				) : null;
-				if (placement === "composer")
-					return (
-						<TrayPill
-							key={task.id}
-							flush
-							icon={indicator}
-							title={label}
-							subtitle={kindLabel}
-							actions={
-								<>
-									{timer}
-									{stop}
-								</>
-							}
-						>
-							{failure}
-						</TrayPill>
-					);
 				return (
 					<div key={task.id}>
 						<div className="flex h-7 min-w-0 items-center gap-2 px-3 text-xs text-muted-foreground">
