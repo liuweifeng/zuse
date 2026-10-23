@@ -3114,6 +3114,16 @@
 		"locations": [],
 		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
 	},
+	"chat:environment_summary_branch_changes": {
+		"source": "Branch changes",
+		"locations": [
+			{
+				"path": "apps/renderer/src/components/environment-summary.tsx",
+				"line": 432
+			}
+		],
+		"context": "chat interface. Preserve named placeholders and mapped rich-text tags. See internal-docs/localization.md for terminology."
+	},
 	"chat:environment_summary_plan": {
 		"source": "Plan",
 		"locations": [

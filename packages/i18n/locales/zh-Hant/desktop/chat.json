@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "創建公關",
 	"environment_summary_github_actions": "GitHub 行動",
 	"environment_summary_merge_conflicts": "合併衝突",
+	"environment_summary_branch_changes": "分支變更",
 	"environment_summary_plan": "計劃",
 	"environment_summary_stack": "堆疊",
 	"environment_summary_manage_stack": "管理堆疊",

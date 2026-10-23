@@ -305,6 +305,7 @@
 	"environment_summary_create_pr": "PR 작성",
 	"environment_summary_github_actions": "GitHub 작업",
 	"environment_summary_merge_conflicts": "병합 충돌",
+	"environment_summary_branch_changes": "브랜치 변경 사항",
 	"environment_summary_plan": "계획",
 	"environment_summary_stack": "스택",
 	"environment_summary_manage_stack": "스택 관리",
