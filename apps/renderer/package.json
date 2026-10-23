@@ -15,6 +15,7 @@
 		"test:startup-browser": "node test/integration/react-startup.browser.mjs",
 		"test:integration": "vp test run test/integration --passWithNoTests",
 		"test:cloud-repository-state-browser": "node test/integration/cloud-repository-state.browser.mjs",
+		"test:transcript-scroll-browser": "node test/integration/transcript-scroll.browser.mjs",
 		"test:timeline-cache-browser": "node test/integration/session-timeline-cache.browser.mjs",
 		"test:plugins-browser": "node test/integration/plugins.browser.mjs",
 		"test:cloud-setup-browser": "node test/integration/cloud-setup.browser.mjs",
@@ -22,6 +23,7 @@
 		"test:cloud-image-selection-browser": "node test/integration/cloud-image-selection.browser.mjs",
 		"test:secret-requests-browser": "node test/integration/session-secret-requests.browser.mjs",
 		"test:message-origin-browser": "node test/integration/message-origin.browser.mjs",
+		"test:workflow-results-browser": "node test/integration/workflow-results.browser.mjs",
 		"test:remote-device-access-browser": "node test/integration/remote-device-access.browser.mjs"
 	},
 	"dependencies": {
@@ -47,6 +49,7 @@
 		"@zuse/i18n": "workspace:*",
 		"@zuse/icons": "workspace:*",
 		"@zuse/utils": "*",
+		"acorn": "^8.19.0",
 		"class-variance-authority": "^0.7.1",
 		"clsx": "^2.1.1",
 		"d3-scale": "^4.0.2",
