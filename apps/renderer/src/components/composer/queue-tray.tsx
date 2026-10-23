@@ -22,6 +22,7 @@ import {
 } from "../../lib/queue-recovery.ts";
 import {
 	queuedMessageRunPending,
+	queuedMessageSavePending,
 	reorderSessionQueue,
 	resumeSessionQueue,
 } from "../../lib/session-actions.ts";
@@ -145,7 +146,8 @@ export function QueueTray({
 			) : null}
 			{items.map((item, index) => (
 				<Fragment key={item.id}>
-					{item.ready === false ? (
+					{item.ready === false &&
+					!queuedMessageSavePending(timeline.view, item.id) ? (
 						<StartupQueueStatus
 							sessionRef={ref}
 							queueId={item.id}

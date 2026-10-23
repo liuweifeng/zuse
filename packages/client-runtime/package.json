@@ -12,6 +12,7 @@
 		"./chat-sharing": "./src/chat-sharing.ts",
 		"./attachment-upload": "./src/attachment-upload.ts",
 		"./chat-recency": "./src/chat-recency.ts",
+		"./chat-runtime-mode": "./src/chat-runtime-mode.ts",
 		"./session-message-pager": "./src/session-message-pager.ts",
 		"./session-message-intent": "./src/session-message-intent.ts",
 		"./cloud-transcript": "./src/cloud-transcript.ts",

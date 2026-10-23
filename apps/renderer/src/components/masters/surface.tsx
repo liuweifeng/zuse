@@ -237,6 +237,8 @@ export function MastersSurface({ selection }: { selection: MasterSelection }) {
 							session={session}
 							environmentId={selection.environmentId}
 							mascotState={mascotState}
+							onResume={() => perform({ _tag: "control", status: "active" })}
+							busy={busy}
 						/>
 					) : needsSetup ? (
 						<div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-muted-foreground">

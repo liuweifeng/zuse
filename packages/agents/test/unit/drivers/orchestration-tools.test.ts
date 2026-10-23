@@ -312,4 +312,53 @@ describe("orchestration MCP tools", () => {
 		expect(result.isError).toBeUndefined();
 		expect(result.content[0]?.text).toContain("approval-gated");
 	});
+
+	test("master_action needs a stable command ID and passes it through", async () => {
+		const calls: Array<
+			[string | undefined, boolean | undefined, string | undefined]
+		> = [];
+		const deps = {
+			createWorktree: async () => ({ ok: false as const, error: "unused" }),
+			createThread: async () => ({ ok: false as const, error: "unused" }),
+			createSession: async () => ({ ok: false as const, error: "unused" }),
+			sendToThread: async () => ({ ok: false as const, error: "unused" }),
+			readThread: async () => ({ ok: false as const, error: "unused" }),
+			listThreads: async () => ({ ok: false as const, error: "unused" }),
+			listModels: async () => ({ ok: false as const, error: "unused" }),
+			whoami: async () => ({
+				sessionId: "s",
+				chatId: "c",
+				projectId: "p",
+				worktreeId: null,
+				providerId: "claude",
+				model: "m",
+				autonomyLevel: "approval-gated",
+			}),
+			emitUi: async () => ({ ok: true as const, messageId: "m" }),
+			master: async (
+				commandJson?: string,
+				readOnly?: boolean,
+				commandId?: string,
+			) => {
+				calls.push([commandJson, readOnly, commandId]);
+				return { ok: true };
+			},
+		};
+		const action = '{"_tag":"note"}';
+		const missing = await callOrchestrationTool(deps, "master_action", {
+			commandJson: action,
+		});
+		expect(missing.isError).toBe(true);
+		expect(calls).toEqual([]);
+
+		await callOrchestrationTool(deps, "master_action", {
+			commandJson: action,
+			commandId: "delegate-search",
+		});
+		await callOrchestrationTool(deps, "master_state", {});
+		expect(calls).toEqual([
+			[action, false, "delegate-search"],
+			[undefined, true, undefined],
+		]);
+	});
 });

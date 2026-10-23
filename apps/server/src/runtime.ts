@@ -781,6 +781,8 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	);
 
 	const MasterLayer = MasterServiceLive.pipe(
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(RepositorySettingsLayer),
 		Layer.provide(MasterMemoryDreamerLive.pipe(Layer.provide(ProviderLayer))),
 		Layer.provide(MasterPeersLive.pipe(Layer.provide(ApiLinkLayer))),
 		Layer.provide(MasterStoreLayer),

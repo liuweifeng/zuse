@@ -8,6 +8,7 @@ const state = vi.hoisted(() => ({
 	paused: true,
 	runtime: "idle",
 	ready: true,
+	pendingCommands: [] as Array<{ kind: string; targetId: string | null }>,
 }));
 
 vi.mock("../../src/lib/environment-entity-hooks.ts", () => ({
@@ -28,7 +29,7 @@ vi.mock("../../src/lib/session-timeline-hooks.ts", () => ({
 			},
 		},
 		runtime: state.runtime,
-		view: { pendingCommands: [], failedCommands: [] },
+		view: { pendingCommands: state.pendingCommands, failedCommands: [] },
 	}),
 }));
 vi.mock("../../src/lib/cloud-message-queue.ts", () => ({
@@ -72,6 +73,7 @@ describe("startup queue presentation", () => {
 		state.paused = true;
 		state.runtime = "idle";
 		state.ready = true;
+		state.pendingCommands = [];
 	});
 
 	it.each([
@@ -120,6 +122,20 @@ it("explains a first-message upload interrupted by a reload instead of silently 
 	expect(html).toContain("Files weren’t attached");
 	expect(html).toContain("Remove this message and attach the files again");
 	expect(html).not.toContain("Resume");
+});
+
+it("doesn't report lost files while a message queued during a turn is saving", () => {
+	state.phase = "running";
+	state.paused = false;
+	state.ready = false;
+	state.pendingCommands = [
+		{ kind: "messages.queue.add", targetId: "startup-queue" },
+	];
+	expect(render()).not.toContain("Files weren’t attached");
+	state.pendingCommands = [];
+	// Once the save is no longer in flight (for example after a reload),
+	// an unready message still asks for its files again.
+	expect(render()).toContain("Files weren’t attached");
 });
 
 describe("in-chat startup upload recovery", () => {

@@ -1,3 +1,4 @@
+import { effectiveChatRuntimeMode } from "@zuse/client-runtime/chat-runtime-mode";
 import {
 	EnvironmentId,
 	FolderId,
@@ -6,11 +7,7 @@ import {
 } from "@zuse/contracts";
 import { Effect } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import {
-	effectiveChatRuntimeMode,
-	resolveChatRuntimeMode,
-} from "../../src/lib/auto-worktree.ts";
+import { resolveChatRuntimeMode } from "../../src/lib/auto-worktree.ts";
 import { getActiveEnvironment } from "../../src/lib/rpc-client.ts";
 import {
 	resetSessionTimelineClientBusForTest,
