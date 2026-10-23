@@ -3602,7 +3602,7 @@ function ThreadListRowBody({
 						<span className="min-w-0 flex-1 truncate">{projectName}</span>
 					) : null}
 					{prInfo !== null && prState !== null ? (
-						<span className="ml-1 inline-grid min-w-min shrink grid-cols-[auto_minmax(0,1fr)] items-center gap-1">
+						<span className="ml-1 inline-grid min-w-min shrink-[999] grid-cols-[auto_minmax(0,1fr)] items-center gap-1">
 							<span className="inline-flex items-center gap-1">
 								<PrStateIcon pr={prInfo} className="size-3 shrink-0" />
 								{prInfo.number === null ? null : (
@@ -3615,11 +3615,11 @@ function ThreadListRowBody({
 						</span>
 					) : null}
 					{stats !== null ? (
-						<span className="ml-auto shrink-0 pl-2 tabular-nums">
-							<span className="text-success/70">
+						<span className="ml-auto inline-flex min-w-0 shrink items-center gap-1 pl-2 tabular-nums">
+							<span className="min-w-0 truncate text-success/70">
 								+{formatCompactNumber(stats.additions)}
-							</span>{" "}
-							<span className="text-danger-text/70">
+							</span>
+							<span className="min-w-0 truncate text-danger-text/70">
 								−{formatCompactNumber(stats.deletions)}
 							</span>
 						</span>
