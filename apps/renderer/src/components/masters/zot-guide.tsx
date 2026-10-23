@@ -79,14 +79,17 @@ export function ZotGuide({
 		: null;
 	// Open at mount means automatic (first use or resume); once shown, later
 	// opens (replay) no longer wait for the composer.
-	const settled = useRef(!open);
+	// State, not a ref: a render React discards must not mark the guide shown.
+	const [settled, setSettled] = useState(!open);
 	const visible = zotGuideVisible({
 		open,
-		waitForComposer: !settled.current && composerMounted,
+		waitForComposer: !settled && composerMounted,
 		draftKey,
 		bridgeDraftKey,
 	});
-	if (visible) settled.current = true;
+	useEffect(() => {
+		if (visible) setSettled(true);
+	}, [visible]);
 	const target = useGuideTarget(rootRef, visible ? step : null);
 	useDetailsLease(visible);
 	useFocusReturn(rootRef, visible, draftKey);
