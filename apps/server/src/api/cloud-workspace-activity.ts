@@ -38,6 +38,7 @@ const activityRequests: ReadonlySet<string> = new Set([
 	"git.fixFailingChecks",
 	"git.commit",
 	"git.push",
+	"reviewGuide.generate",
 	"git.pull",
 	"git.stash",
 	"git.stashPop",

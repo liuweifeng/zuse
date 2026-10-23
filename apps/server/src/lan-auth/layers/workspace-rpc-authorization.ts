@@ -136,7 +136,9 @@ register("file", false, [
 	"git.reviewPatches",
 	"git.reviewFileContents",
 	"git.reviewSummary",
+	"reviewGuide.stream",
 ]);
+register("file", true, ["reviewGuide.generate", "reviewGuide.cancel"]);
 register("file", true, [
 	"fs.writeFile",
 	"fs.createFile",

@@ -1273,5 +1273,9 @@
 	"snapshot_switch_scope": "現有工作區保留目前的登入。",
 	"snapshot_connect_to_switch": "請先在上方連結至少一個代理程式再切換。",
 	"snapshot_auth_applying": "正在儲存登入設定…",
-	"snapshot_sign_in_with": "登入方式"
+	"snapshot_sign_in_with": "登入方式",
+	"settings_page_review_guides": "引導式審閱",
+	"settings_page_review_guides_description": "在「變更」中於差異旁顯示由智慧體撰寫的變更導覽。",
+	"settings_page_review_guides_auto": "自動重新整理導覽",
+	"settings_page_review_guides_auto_description": "在每次完成回合、提交或推送後更新導覽。使用該對話自己的模型。"
 }

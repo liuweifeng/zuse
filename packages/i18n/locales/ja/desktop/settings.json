@@ -1273,5 +1273,9 @@
 	"snapshot_switch_scope": "既存のワークスペースは現在のログインを維持します。",
 	"snapshot_connect_to_switch": "切り替えるには、上で少なくとも 1 つのエージェントを接続してください。",
 	"snapshot_auth_applying": "サインイン設定を保存しています…",
-	"snapshot_sign_in_with": "サインイン方法"
+	"snapshot_sign_in_with": "サインイン方法",
+	"settings_page_review_guides": "ガイド付きレビュー",
+	"settings_page_review_guides_description": "変更タブの差分の横に、エージェントが書いた変更のツアーを表示します。",
+	"settings_page_review_guides_auto": "ガイドを自動で更新",
+	"settings_page_review_guides_auto_description": "各ターンの完了、コミット、プッシュのたびにガイドを更新します。チャット自身のモデルを使います。"
 }

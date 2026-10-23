@@ -45,6 +45,8 @@
 		"./session-timeline-driver": "./src/session-timeline-driver.ts",
 		"./session-timeline-cache": "./src/session-timeline-cache.ts",
 		"./timeline": "./src/timeline.ts",
+		"./review-outline": "./src/review-outline.ts",
+		"./review-guide-view": "./src/review-guide-view.ts",
 		"./supervisor": "./src/supervisor.ts",
 		"./terminal-resource": "./src/terminal-resource.ts",
 		"./terminal-resource-driver": "./src/terminal-resource-driver.ts",

@@ -318,6 +318,11 @@ import {
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
 } from "./repository-settings.ts";
+import {
+	ReviewGuideCancelRpc,
+	ReviewGuideGenerateRpc,
+	ReviewGuideStreamRpc,
+} from "./review-guide.ts";
 import { RpcAuthorization } from "./rpc-authorization.ts";
 import {
 	ChatArchiveJobsRpc,
@@ -799,6 +804,9 @@ export const MemoizeRpcs = RpcGroup.make(
 	WorktreeSetupStreamRpc,
 	WorktreeStartRunRpc,
 	WorktreeRemoveRpc,
+	ReviewGuideStreamRpc,
+	ReviewGuideGenerateRpc,
+	ReviewGuideCancelRpc,
 	RepositorySettingsGetRpc,
 	RepositorySettingsUpdateRpc,
 	SettingsGetRpc,

@@ -21,7 +21,10 @@ import type {
 	ProviderDriverEvent,
 	ProviderSessionHandle,
 } from "../kernel/driver.ts";
-import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	issueProviderMcpSession,
+	type SessionTools,
+} from "../kernel/provider-mcp-session.ts";
 import {
 	stopProviderProcess,
 	watchProviderProcess,
@@ -48,7 +51,6 @@ import {
 	startCompactEvent,
 	startCompactSnapshot,
 } from "./compact.ts";
-import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { applyPlanModePrefix } from "./planMode.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
@@ -137,7 +139,7 @@ export const startKiroSession = (
 	getRuntimeMode: GetRuntimeMode,
 	browserSend: BrowserSend,
 	browserMcpCommand: string,
-	orchestrationTools: OrchestrationSessionTools | null = null,
+	sessionTools: SessionTools | null = null,
 	resumeCursor: string | null = null,
 ): Effect.Effect<
 	KiroSessionHandle,
@@ -161,7 +163,8 @@ export const startKiroSession = (
 				requestPermission(sessionId, kind, options),
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
-			orchestrationTools,
+			sessionTools,
+			toolPolicy: input.toolPolicy,
 		});
 		const executionEnv = {
 			...input.executionEnv,

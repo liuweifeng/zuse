@@ -83,6 +83,7 @@ import { NdjsonLoggerLive } from "./persistence/ndjson-logger.ts";
 import { SqliteLive } from "./persistence/sqlite.ts";
 import { PokemonServiceLive } from "./pokemon/layers/pokemon-service.ts";
 import { AcpAgentServiceLive } from "./provider/acp/service.ts";
+import { HiddenAgentRunnerLive } from "./provider/hidden-agent-run.ts";
 import { BrowserBridgeServiceLive } from "./provider/layers/browser-bridge-service.ts";
 import { PermissionServiceLive } from "./provider/layers/permission-service.ts";
 import { ProviderServiceLive } from "./provider/layers/provider-service.ts";
@@ -100,6 +101,7 @@ import {
 import { TitleGeneratorLive } from "./provider/title-generator.ts";
 import { PtyServiceLive } from "./pty/layers/pty-service.ts";
 import { RepositorySettingsServiceLive } from "./repository-settings/layers/repository-settings-service.ts";
+import { ReviewGuideServiceLive } from "./review-guide/service.ts";
 import { SkillBridgeLive } from "./skill/layers/skill-bridge.ts";
 import { SkillDiscoveryServiceLive } from "./skill/layers/skill-discovery.ts";
 import { UsageLimitsPollerLive } from "./usage/limits/poller.ts";
@@ -629,8 +631,13 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 	// their first submitted turn succeeds, using the chat's OWN provider, so
 	// it reuses whatever auth that provider has — a Grok-only user is never
 	// forced onto Claude.
-	const TitleGeneratorLayer = TitleGeneratorLive.pipe(
+	// Hidden runs are throwaway provider sessions nobody sees: chat naming
+	// today, review guides next. One runner owns their start/close lifecycle.
+	const HiddenAgentRunnerLayer = HiddenAgentRunnerLive.pipe(
 		Layer.provide(ProviderLayer),
+	);
+	const TitleGeneratorLayer = TitleGeneratorLive.pipe(
+		Layer.provide(HiddenAgentRunnerLayer),
 	);
 
 	// Replay durable domain events before accepting transport traffic.
@@ -682,7 +689,17 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		deps.cloudWorkspaceRuntime === undefined
 			? Layer.empty
 			: PendingWorkspaceExecutionPolicy;
+	// Guided reviews write with the authoring chat's own provider through the
+	// hidden runner, and refresh after turns (via conversation reactors),
+	// commits, and pushes.
+	const ReviewGuideLayer = ReviewGuideServiceLive.pipe(
+		Layer.provide(HiddenAgentRunnerLayer),
+		Layer.provide(GitLayer),
+		Layer.provide(ConfigStoreLayer),
+		Layer.provide(MigratedSqlite),
+	);
 	const ConversationServicesLayer = ConversationServicesLive.pipe(
+		Layer.provide(ReviewGuideLayer),
 		Layer.provide(AutomationLayer),
 		Layer.provide(ExecutionPolicyLayer),
 		Layer.provide(ConversationState.layer),
@@ -838,6 +855,7 @@ export const makeMainLayer = (deps: MainLayerDeps) => {
 		SessionDomainLayer,
 		SessionQueriesLayer,
 		ConversationServicesLayer,
+		ReviewGuideLayer,
 		PermissionLayer,
 		AttachmentLayer,
 		BrowserBridgeLayer,

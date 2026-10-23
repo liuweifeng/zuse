@@ -1273,5 +1273,9 @@
 	"snapshot_switch_scope": "기존 워크스페이스는 현재 로그인을 유지합니다.",
 	"snapshot_connect_to_switch": "전환하려면 위에서 에이전트를 하나 이상 연결하세요.",
 	"snapshot_auth_applying": "로그인 설정을 저장하는 중…",
-	"snapshot_sign_in_with": "로그인 방식"
+	"snapshot_sign_in_with": "로그인 방식",
+	"settings_page_review_guides": "가이드 리뷰",
+	"settings_page_review_guides_description": "변경 사항 탭의 diff 옆에 에이전트가 작성한 변경 사항 투어를 표시합니다.",
+	"settings_page_review_guides_auto": "가이드 자동 새로고침",
+	"settings_page_review_guides_auto_description": "턴이 끝나거나 커밋, 푸시할 때마다 가이드를 업데이트합니다. 채팅의 모델을 사용합니다."
 }

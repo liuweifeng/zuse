@@ -216,16 +216,30 @@ export const parseUnifiedPatch = (patch: string): DiffLine[] => {
 	const lines: DiffLine[] = [];
 	let oldLine = 0;
 	let newLine = 0;
+	// Lines still owed to the current hunk. Inside a hunk a `+++` or `---`
+	// line is an added or removed source line, not a file header. Body lines
+	// always carry a prefix, so a `@@` header is recognized even when a
+	// malformed count claims more lines.
+	let oldRemaining = 0;
+	let newRemaining = 0;
 	for (const raw of patch.split(/\r\n|\r|\n/)) {
-		const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+		if (raw.startsWith("diff ")) {
+			oldRemaining = 0;
+			newRemaining = 0;
+		}
+		const inHunk = oldRemaining > 0 || newRemaining > 0;
+		const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(raw);
 		if (header !== null) {
 			oldLine = Number(header[1]);
-			newLine = Number(header[2]);
+			newLine = Number(header[3]);
+			oldRemaining = header[2] === undefined ? 1 : Number(header[2]);
+			newRemaining = header[4] === undefined ? 1 : Number(header[4]);
 			lines.push({ kind: "hunk", text: raw, oldLine: null, newLine: null });
-		} else if (raw.startsWith("+") && !raw.startsWith("+++")) {
+		} else if (raw.startsWith("+") && (inHunk || !raw.startsWith("+++"))) {
 			lines.push({ kind: "added", text: raw.slice(1), oldLine: null, newLine });
 			newLine += 1;
-		} else if (raw.startsWith("-") && !raw.startsWith("---")) {
+			newRemaining = Math.max(0, newRemaining - 1);
+		} else if (raw.startsWith("-") && (inHunk || !raw.startsWith("---"))) {
 			lines.push({
 				kind: "removed",
 				text: raw.slice(1),
@@ -233,11 +247,14 @@ export const parseUnifiedPatch = (patch: string): DiffLine[] => {
 				newLine: null,
 			});
 			oldLine += 1;
+			oldRemaining = Math.max(0, oldRemaining - 1);
 		} else if (!raw.startsWith("\\")) {
 			const text = raw.startsWith(" ") ? raw.slice(1) : raw;
 			lines.push({ kind: "context", text, oldLine, newLine });
 			oldLine += 1;
 			newLine += 1;
+			oldRemaining = Math.max(0, oldRemaining - 1);
+			newRemaining = Math.max(0, newRemaining - 1);
 		}
 	}
 	return lines;

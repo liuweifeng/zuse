@@ -272,7 +272,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 		input,
 		resumeCursor,
 		_runtimeMode,
-		orchestrationTools,
+		sessionTools,
 		_cursor,
 		admit,
 		residency,
@@ -280,7 +280,7 @@ const StubProviderLive = Layer.succeed(ProviderService, {
 		Effect.gen(function* () {
 			providerStartInputs.push(input);
 			providerStartCursors.push(resumeCursor ?? null);
-			providerStartOrchestrationTools.push(orchestrationTools);
+			providerStartOrchestrationTools.push(sessionTools?.orchestration);
 			if (input.sessionId !== undefined && input.initialTurnId !== undefined) {
 				providerTurnIds.set(input.sessionId, input.initialTurnId);
 			}

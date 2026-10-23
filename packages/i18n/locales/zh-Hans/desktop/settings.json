@@ -1273,5 +1273,9 @@
 	"snapshot_switch_scope": "现有工作区保留当前登录。",
 	"snapshot_connect_to_switch": "请先在上方连接至少一个智能体再切换。",
 	"snapshot_auth_applying": "正在保存登录设置…",
-	"snapshot_sign_in_with": "登录方式"
+	"snapshot_sign_in_with": "登录方式",
+	"settings_page_review_guides": "引导式审阅",
+	"settings_page_review_guides_description": "在“更改”中于差异旁显示由智能体撰写的变更导览。",
+	"settings_page_review_guides_auto": "自动刷新导览",
+	"settings_page_review_guides_auto_description": "在每次完成回合、提交或推送后更新导览。使用该对话自己的模型。"
 }

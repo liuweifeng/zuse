@@ -89,6 +89,7 @@ import { Migration0083NativeCheckpointHistory } from "./migrations/0083_native_c
 import { Migration0086Automation } from "./migrations/0086_automation.ts";
 import { Migration0087ScratchFolders } from "./migrations/0087_scratch_folders.ts";
 import { Migration0088ScratchFoldersRepair } from "./migrations/0088_scratch_folders_repair.ts";
+import { Migration0089ReviewGuides } from "./migrations/0089_review_guides.ts";
 
 /**
  * Runs every numbered migration on boot. `fromRecord` keys must match
@@ -254,6 +255,7 @@ const MigrationDefinitions = {
 	...MigrationDefinitionsThrough0086,
 	"0087_scratch_folders": Migration0087ScratchFolders,
 	"0088_scratch_folders_repair": Migration0088ScratchFoldersRepair,
+	"0089_review_guides": Migration0089ReviewGuides,
 } as const;
 
 /** Schema before projectless threads, retained for populated upgrade fixtures. */

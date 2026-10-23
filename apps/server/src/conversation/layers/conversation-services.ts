@@ -16,7 +16,15 @@ import { SessionDomain } from "@zuse/domain/engine/session-domain";
 import { SqlSessionQueries } from "@zuse/domain/queries/sql-session-queries";
 import { GitService } from "@zuse/git/git-service";
 import { WorktreeService } from "@zuse/git/worktree-service";
-import { DateTime, Effect, FileSystem, Layer, PubSub, Scope } from "effect";
+import {
+	DateTime,
+	Effect,
+	FileSystem,
+	Layer,
+	Option,
+	PubSub,
+	Scope,
+} from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { ApiActivityPublisher } from "../../api/activity-publisher.ts";
 import { CheckpointService } from "../../checkpoint/service.ts";
@@ -28,6 +36,7 @@ import { ProviderService } from "../../provider/services/provider-service.ts";
 import { TitleGenerator } from "../../provider/title-generator.ts";
 import { PtyService } from "../../pty/services/pty-service.ts";
 import { RepositorySettingsService } from "../../repository-settings/services/repository-settings-service.ts";
+import { ReviewGuideService } from "../../review-guide/service.ts";
 import { makeArchiveOperations } from "../core/archive-operations.ts";
 import { makeAutoNameOperations } from "../core/auto-name-operations.ts";
 import { makeChatOperations } from "../core/chat-operations.ts";
@@ -479,6 +488,35 @@ const ConversationRuntimeLive = Layer.effect(
 				);
 			});
 
+		// Only recent turns refresh a guide: catching up after a restart must
+		// not start a run for every workspace that ever finished a turn.
+		const REVIEW_GUIDE_REFRESH_WINDOW_MS = 10 * 60_000;
+		const reviewGuides = yield* Effect.serviceOption(ReviewGuideService);
+		const handleReviewGuide = (
+			input: Parameters<
+				Parameters<typeof makeConversationReactorRuntime>[0]["reviewGuide"]
+			>[0],
+		) =>
+			Effect.gen(function* () {
+				if (Option.isNone(reviewGuides)) return;
+				const settledAt = input.command.settledAt;
+				if (
+					settledAt === null ||
+					Date.now() - settledAt > REVIEW_GUIDE_REFRESH_WINDOW_MS
+				)
+					return;
+				const sessionId = SessionId.make(input.streamId);
+				const session = yield* lookupSession(sessionId).pipe(
+					Effect.orElseSucceed(() => null),
+				);
+				if (session === null || session.parentSessionId != null) return;
+				yield* reviewGuides.value.requestRefresh(
+					{ folderId: session.projectId, worktreeId: session.worktreeId },
+					"turn",
+					sessionId,
+				);
+			});
+
 		/**
 		 * Worktrees are immutable past the first user message in any of the
 		 * chat's sessions. Mirrors `session.setWorktree`'s pre-message check
@@ -518,6 +556,7 @@ const ConversationRuntimeLive = Layer.effect(
 			yield* makeConversationReactorRuntime(
 				{
 					autoName: handleAutoName,
+					reviewGuide: handleReviewGuide,
 					chatArchive: handleChatArchive,
 					chatDelete: handleChatDelete,
 				},

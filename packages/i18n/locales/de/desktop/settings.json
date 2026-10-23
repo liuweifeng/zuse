@@ -1273,5 +1273,9 @@
 	"snapshot_switch_scope": "Bestehende Workspaces behalten ihre aktuellen Anmeldungen.",
 	"snapshot_connect_to_switch": "Verbinden Sie oben mindestens einen Agenten, um umzustellen.",
 	"snapshot_auth_applying": "Anmeldeeinstellungen werden gespeichert…",
-	"snapshot_sign_in_with": "Anmelden mit"
+	"snapshot_sign_in_with": "Anmelden mit",
+	"settings_page_review_guides": "Geführte Reviews",
+	"settings_page_review_guides_description": "Zeigt in „Änderungen“ neben dem Diff eine von einem Agenten geschriebene Tour durch die Änderungen.",
+	"settings_page_review_guides_auto": "Leitfäden automatisch aktualisieren",
+	"settings_page_review_guides_auto_description": "Aktualisiert den Leitfaden nach jedem abgeschlossenen Zug, Commit oder Push. Nutzt das Modell des Chats."
 }

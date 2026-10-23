@@ -26,7 +26,10 @@ import type {
 	ProviderDriverEvent,
 	QuestionCallbackReleased,
 } from "../kernel/driver.ts";
-import { issueProviderMcpSession } from "../kernel/provider-mcp-session.ts";
+import {
+	issueProviderMcpSession,
+	type SessionTools,
+} from "../kernel/provider-mcp-session.ts";
 import {
 	stopProviderProcess,
 	watchProviderProcess,
@@ -72,7 +75,6 @@ import {
 	translateGrokExtensionMethod,
 	translateGrokExtensionUpdate,
 } from "./grok/protocol.ts";
-import type { OrchestrationSessionTools } from "./orchestration-tools.ts";
 import { pluginCliEnv } from "./plugin-tools.ts";
 
 const GROK_NATIVE_MCP_DISABLED_ENV = {
@@ -205,7 +207,7 @@ export const startGrokSession = (
 	getRuntimeMode: GetRuntimeMode,
 	browserSend: BrowserSend,
 	mcpProxyCommand: string,
-	orchestrationTools: OrchestrationSessionTools | null = null,
+	sessionTools: SessionTools | null = null,
 	resumeCursor: string | null = null,
 	providerEventCursor: string | null = null,
 ): Effect.Effect<
@@ -247,7 +249,8 @@ export const startGrokSession = (
 				requestPermission(sessionId, kind, options),
 			getRuntimeMode,
 			getPermissionMode: () => currentMode,
-			orchestrationTools,
+			sessionTools,
+			toolPolicy: input.toolPolicy,
 			interaction: {
 				askUserQuestion: (questions) => {
 					const itemId =

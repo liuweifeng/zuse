@@ -1277,5 +1277,9 @@
 	"snapshot_switch_scope": "Les espaces de travail existants conservent leurs connexions actuelles.",
 	"snapshot_connect_to_switch": "Connectez au moins un agent ci-dessus pour basculer.",
 	"snapshot_auth_applying": "Enregistrement des paramètres de connexion…",
-	"snapshot_sign_in_with": "Se connecter avec"
+	"snapshot_sign_in_with": "Se connecter avec",
+	"settings_page_review_guides": "Revues guidées",
+	"settings_page_review_guides_description": "Afficher, à côté du diff dans Modifications, une visite des changements rédigée par un agent.",
+	"settings_page_review_guides_auto": "Actualiser les guides automatiquement",
+	"settings_page_review_guides_auto_description": "Met à jour le guide après chaque tour terminé, commit ou push. Utilise le modèle de la discussion."
 }

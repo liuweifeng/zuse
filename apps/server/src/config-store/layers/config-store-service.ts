@@ -91,6 +91,8 @@ const freshSettings = (): SettingsFile =>
 		onboardingCompleted: false,
 		appearanceMode: "dark",
 		providerUpdateNotificationsEnabled: false,
+		reviewGuidesEnabled: true,
+		reviewGuidesAutoGenerate: true,
 		completionSoundEnabled: false,
 		completionSoundPreset: "chime",
 		providerEnabled: seedProviderEnabled(),
@@ -566,6 +568,8 @@ const coerceSettings = (raw: unknown): SettingsFile => {
 		appearanceMode,
 		providerUpdateNotificationsEnabled:
 			obj.providerUpdateNotificationsEnabled === true,
+		reviewGuidesEnabled: obj.reviewGuidesEnabled !== false,
+		reviewGuidesAutoGenerate: obj.reviewGuidesAutoGenerate !== false,
 		completionSoundEnabled,
 		completionSoundPreset,
 		providerBinaryPaths:
@@ -859,6 +863,12 @@ export const ConfigStoreServiceLive = Layer.effect(
 						patch.providerUpdateNotificationsEnabled ??
 						cur.providerUpdateNotificationsEnabled ??
 						false,
+					reviewGuidesEnabled:
+						patch.reviewGuidesEnabled ?? cur.reviewGuidesEnabled ?? true,
+					reviewGuidesAutoGenerate:
+						patch.reviewGuidesAutoGenerate ??
+						cur.reviewGuidesAutoGenerate ??
+						true,
 					completionSoundEnabled:
 						patch.completionSoundEnabled ?? cur.completionSoundEnabled,
 					completionSoundPreset:
@@ -1011,6 +1021,8 @@ export const ConfigStoreServiceLive = Layer.effect(
 						appearanceMode,
 						providerUpdateNotificationsEnabled:
 							cur.providerUpdateNotificationsEnabled ?? false,
+						reviewGuidesEnabled: cur.reviewGuidesEnabled ?? true,
+						reviewGuidesAutoGenerate: cur.reviewGuidesAutoGenerate ?? true,
 						completionSoundEnabled,
 						completionSoundPreset,
 						providerEnabled,
