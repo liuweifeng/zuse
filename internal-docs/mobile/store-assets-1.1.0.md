@@ -10,8 +10,8 @@ Verified against Apple documentation on 2026-10-24. All 30 delivery PNGs are ren
 - Xcode 27.1 and the iOS 27.1 simulator runtime are installed. iPad and Duo simulators were opened for native captures. Both Duo displays have portrait and landscape coverage.
 - Fixed the Uniwind asset-registry startup failure, bounded-sheet padding, iOS rotation policy, and horizontal safe-area handling. The final review screen is included in the captures.
 - Mobile validation: 520 tests across 108 files, both TypeScript projects, and applicable Biome checks passed.
-- Production build 17 was queued from source commit `a33fc7cba`, including review commit `01d03e501`. Build 16 is Apple VALID. This is not evidence of App Review approval or public release.
-- App Store Connect's public OpenAPI omitted Duo at this check; its live API explicitly supports `APP_IPHONE_DUO`. Upload state is verified separately from local image validation.
+- Production build 17 finished from source commit `a33fc7cba`, including review commit `01d03e501`; Apple reports build 17 VALID. This is not evidence of App Review approval or public release.
+- App Store Connect's public OpenAPI omitted Duo at this check; its live API explicitly supports `APP_IPHONE_DUO`. Eight iPad and ten Duo screenshots reached COMPLETE in the live API. Portrait cards lead each set; the Duo set includes both displays plus two inner-display landscape examples. Creative header/search masters are delivered in the pack.
 
 ## Render commands
 
@@ -93,7 +93,7 @@ Creative assets and device-led concept variants are additional marketing coverag
 
 - The separate local capture app uses the same production UI with a sample-data bootstrap. It is not the signed production app; fixture data and capture hooks are not shipped.
 - Native pose and rotation controls were used for the capture surfaces. The capture instance temporarily requested portrait for the final portrait composer; this does not prove production fold-state behavior on physical hardware.
-- A physical-device Duo smoke test and Apple review are separate release checks.
+- After restoring the production rotation policy in the capture instance, native rotation to landscape and conversation continuity through partially open and closed poses were verified. A physical-device Duo smoke test and Apple review remain separate release checks.
 
 ## Primary sources
 
