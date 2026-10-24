@@ -3,180 +3,180 @@
     "file": "duo-header.png",
     "width": 3840,
     "height": 1646,
-    "bytes": 7035025
+    "bytes": 4345780
   },
   {
     "file": "duo-inner-landscape-01-projects.png",
     "width": 2853,
     "height": 2007,
-    "bytes": 6111688
+    "bytes": 2177776
   },
   {
     "file": "duo-inner-landscape-02-conversation.png",
     "width": 2853,
     "height": 2007,
-    "bytes": 6233927
+    "bytes": 2302256
   },
   {
     "file": "duo-inner-landscape-03-start-work.png",
     "width": 2853,
     "height": 2007,
-    "bytes": 6129813
+    "bytes": 2178920
   },
   {
     "file": "duo-inner-landscape-04-review-changes.png",
     "width": 2853,
     "height": 2007,
-    "bytes": 6202274
+    "bytes": 2275393
   },
   {
     "file": "duo-inner-portrait-01-projects.png",
     "width": 2007,
     "height": 2853,
-    "bytes": 3140381
+    "bytes": 1290465
   },
   {
     "file": "duo-inner-portrait-02-conversation.png",
     "width": 2007,
     "height": 2853,
-    "bytes": 3339719
+    "bytes": 1539887
   },
   {
     "file": "duo-inner-portrait-03-start-work.png",
     "width": 2007,
     "height": 2853,
-    "bytes": 2984448
+    "bytes": 1075676
   },
   {
     "file": "duo-inner-portrait-04-review-changes.png",
     "width": 2007,
     "height": 2853,
-    "bytes": 3121773
+    "bytes": 1267350
   },
   {
     "file": "duo-outer-landscape-01-projects.png",
     "width": 2034,
     "height": 1398,
-    "bytes": 3327361
+    "bytes": 1249643
   },
   {
     "file": "duo-outer-landscape-02-conversation.png",
     "width": 2034,
     "height": 1398,
-    "bytes": 3400274
+    "bytes": 1350030
   },
   {
     "file": "duo-outer-landscape-03-start-work.png",
     "width": 2034,
     "height": 1398,
-    "bytes": 3276887
+    "bytes": 1171953
   },
   {
     "file": "duo-outer-landscape-04-review-changes.png",
     "width": 2034,
     "height": 1398,
-    "bytes": 3358607
+    "bytes": 1287638
   },
   {
     "file": "duo-outer-portrait-01-projects.png",
     "width": 1398,
     "height": 2034,
-    "bytes": 1935576
+    "bytes": 849715
   },
   {
     "file": "duo-outer-portrait-02-conversation.png",
     "width": 1398,
     "height": 2034,
-    "bytes": 2022121
+    "bytes": 976286
   },
   {
     "file": "duo-outer-portrait-03-start-work.png",
     "width": 1398,
     "height": 2034,
-    "bytes": 1810826
+    "bytes": 700731
   },
   {
     "file": "duo-outer-portrait-04-review-changes.png",
     "width": 1398,
     "height": 2034,
-    "bytes": 2040615
+    "bytes": 997172
   },
   {
     "file": "duo-search.png",
     "width": 3840,
     "height": 2560,
-    "bytes": 10027953
+    "bytes": 6043138
   },
   {
     "file": "duo-universal.png",
     "width": 5244,
     "height": 2950,
-    "bytes": 14752759
+    "bytes": 8870839
   },
   {
     "file": "ipad-header.png",
     "width": 3840,
     "height": 1646,
-    "bytes": 6573815
+    "bytes": 3940852
   },
   {
     "file": "ipad-landscape-01-projects.png",
     "width": 2752,
     "height": 2064,
-    "bytes": 5272690
+    "bytes": 1709850
   },
   {
     "file": "ipad-landscape-02-conversation.png",
     "width": 2752,
     "height": 2064,
-    "bytes": 5468027
+    "bytes": 1958825
   },
   {
     "file": "ipad-landscape-03-start-work.png",
     "width": 2752,
     "height": 2064,
-    "bytes": 5300490
+    "bytes": 1719523
   },
   {
     "file": "ipad-landscape-04-review-changes.png",
     "width": 2752,
     "height": 2064,
-    "bytes": 5411156
+    "bytes": 1863754
   },
   {
     "file": "ipad-portrait-01-projects.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 1622053
+    "bytes": 598993
   },
   {
     "file": "ipad-portrait-02-conversation.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2594762
+    "bytes": 1151654
   },
   {
     "file": "ipad-portrait-03-start-work.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2319815
+    "bytes": 854630
   },
   {
     "file": "ipad-portrait-04-review-changes.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2326468
+    "bytes": 839288
   },
   {
     "file": "ipad-search.png",
     "width": 3840,
     "height": 2560,
-    "bytes": 9061995
+    "bytes": 4886384
   },
   {
     "file": "ipad-universal.png",
     "width": 5244,
     "height": 2950,
-    "bytes": 13409861
+    "bytes": 7674591
   }
 ]

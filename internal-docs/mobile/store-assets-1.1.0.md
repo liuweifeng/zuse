@@ -5,7 +5,7 @@ Verified against Apple documentation on 2026-10-24. All 30 delivery PNGs are ren
 ## Current production state
 
 - Completed: 24 device-framed screenshot cards and six header/search/universal masters. `apps/mobile/store-assets/1.1.0/delivery/manifest.json` records exact dimensions and bytes; all 30 are opaque PNGs.
-- The iPad project portrait uses 98% of the canvas width, with an intentional bottom crop. Other iPad portraits keep the entire device visible while enlarging it and reducing headline space.
+- The iPad project portrait uses a 108% width close-up, cropped at the sides and bottom. Other iPad and both Duo portrait devices use up to 90% of the canvas height, with 10% of the device extending below the canvas. Landscape and creative devices also extend 10% below the canvas. Smaller headlines, removed accent rules, and subdued illustration backgrounds make the app more prominent.
 - Captures use the Expo app with isolated sample projects and official Apple device bezels. Generated illustration backgrounds are stored under `source/`. No private chats appear in the artwork.
 - Xcode 27.1 and the iOS 27.1 simulator runtime are installed. iPad and Duo simulators were opened for native captures. Both Duo displays have portrait and landscape coverage.
 - Fixed the Uniwind asset-registry startup failure, bounded-sheet padding, iOS rotation policy, and horizontal safe-area handling. The final review screen is included in the captures.

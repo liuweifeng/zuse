@@ -89,6 +89,13 @@ async function background(width, height, creative = false) {
 		),
 	)
 		.resize(width, height, { fit: "cover" })
+		.composite([
+			{
+				input: Buffer.from(
+					`<svg width="${width}" height="${height}"><rect width="100%" height="100%" fill="#f6f4ec" opacity="${creative ? 0.55 : 0.85}"/></svg>`,
+				),
+			},
+		])
 		.toBuffer();
 }
 async function type(
@@ -99,7 +106,7 @@ async function type(
 ) {
 	const margin = Math.round(width * 0.065);
 	const font = Math.round(
-		width * (landscape ? 0.052 : compact ? 0.058 : 0.068),
+		width * (landscape ? 0.046 : compact ? 0.058 : 0.068),
 	);
 	const top = Math.round(
 		height * (creative ? 0.15 : landscape ? 0.27 : compact ? 0.045 : 0.068),
@@ -111,7 +118,7 @@ async function type(
 	const overlays = [
 		{
 			input: Buffer.from(
-				`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><text x="${margin}" y="${Math.round(top - font * 0.35)}" font-family="Helvetica Neue, sans-serif" font-size="${Math.round(font * 0.23)}" font-weight="600" letter-spacing="5" fill="#454940">ZUSE · BUILD FROM ANYWHERE</text><rect x="${margin}" y="${Math.round(top + font * (lines.length + 1) * 1.08)}" width="${Math.round(font * 1.1)}" height="${Math.round(font * 0.12)}" rx="3" fill="#c5f277"/></svg>`,
+				`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><text x="${margin}" y="${Math.round(top - font * 0.35)}" font-family="Helvetica Neue, sans-serif" font-size="${Math.round(font * 0.23)}" font-weight="600" letter-spacing="5" fill="#454940">ZUSE · BUILD FROM ANYWHERE</text></svg>`,
 			),
 		},
 	];
@@ -127,7 +134,7 @@ async function type(
 			.png()
 			.toBuffer();
 		const meta = await sharp(input).metadata();
-		const maxWidth = Math.round(width * (landscape ? 0.35 : 0.87));
+		const maxWidth = Math.round(width * (landscape ? 0.28 : 0.87));
 		if (meta.width > maxWidth)
 			input = await sharp(input).resize({ width: maxWidth }).png().toBuffer();
 		overlays.push({
@@ -142,49 +149,56 @@ async function type(
 		.toBuffer();
 }
 
+async function cropPlacement(input, left, top, width, height) {
+	const meta = await sharp(input).metadata();
+	const x = Math.max(0, -left);
+	const y = Math.max(0, -top);
+	return {
+		input: await sharp(input)
+			.extract({
+				left: x,
+				top: y,
+				width: Math.min(meta.width - x, width - Math.max(0, left)),
+				height: Math.min(meta.height - y, height - Math.max(0, top)),
+			})
+			.png()
+			.toBuffer(),
+		left: Math.max(0, left),
+		top: Math.max(0, top),
+	};
+}
+
 async function card(surface, orientation, scene, lines) {
 	const portrait = orientation === "portrait";
 	const size = surfaces[surface].size;
 	const [width, height] = portrait ? size : [...size].reverse();
 	const framed = await device(surface, orientation, scene);
-	const enlargedIpad = surface === "ipad" && portrait;
-	const fit = {
-		width: Math.round(width * (enlargedIpad ? 0.98 : portrait ? 0.86 : 0.55)),
-		height: Math.round(
-			height *
-				(enlargedIpad
-					? scene === "01-projects"
-						? 1
-						: 0.79
-					: portrait
-						? 0.69
-						: 0.91),
-		),
-		fit: "inside",
-	};
-	let rendered = await sharp(framed).resize(fit).toBuffer();
+	const closeup = surface === "ipad" && portrait && scene === "01-projects";
+	const rendered = await sharp(framed)
+		.resize({
+			width: Math.round(width * (portrait ? 1.08 : 0.68)),
+			height: Math.round(height * (closeup ? 1.1 : portrait ? 0.9 : 0.95)),
+			fit: "inside",
+		})
+		.toBuffer();
 	const m = await sharp(rendered).metadata();
 	const left = portrait
 		? Math.round((width - m.width) / 2)
-		: Math.round(width * 0.43);
-	const top = portrait
-		? Math.round(height * (enlargedIpad ? 0.2 : 0.29))
-		: Math.round((height - m.height) / 2);
-	if (m.height + top > height) {
-		rendered = await sharp(rendered)
-			.extract({ left: 0, top: 0, width: m.width, height: height - top })
-			.png()
-			.toBuffer();
-	}
+		: Math.round(width * 0.36);
+	// Let the device continue below the canvas instead of shrinking it to fit.
+	const top = closeup
+		? Math.round(height * 0.17)
+		: Math.round(height - m.height * 0.9);
+	const placement = await cropPlacement(rendered, left, top, width, height);
 	await sharp(await background(width, height))
 		.composite([
 			{
 				input: await type(width, height, lines, {
 					landscape: !portrait,
-					compact: enlargedIpad,
+					compact: portrait,
 				}),
 			},
-			{ input: rendered, left, top },
+			placement,
 		])
 		.flatten({ background: "#f5f3ea" })
 		.removeAlpha()
@@ -195,8 +209,8 @@ async function creative(surface, kind, width, height) {
 	const raw = await device(surface, "portrait", "02-conversation");
 	const rendered = await sharp(raw)
 		.resize({
-			width: Math.round(width * 0.48),
-			height: Math.round(height * 0.91),
+			width: Math.round(width * 0.56),
+			height: Math.round(height * 1.1),
 			fit: "inside",
 		})
 		.toBuffer();
@@ -213,11 +227,13 @@ async function creative(surface, kind, width, height) {
 					creative: true,
 				}),
 			},
-			{
-				input: rendered,
-				left: Math.round(width * 0.69 - m.width / 2),
-				top: Math.round((height - m.height) / 2),
-			},
+			await cropPlacement(
+				rendered,
+				Math.round(width * 0.72 - m.width / 2),
+				Math.round(height - m.height * 0.9),
+				width,
+				height,
+			),
 		])
 		.flatten({ background: "#f5f3ea" })
 		.removeAlpha()
