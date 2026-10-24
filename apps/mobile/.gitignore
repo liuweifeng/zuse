@@ -4,5 +4,5 @@ dist/
 /android/
 
 # EAS custom build recipes are source files.
-!.eas/build/
+!.eas/build
 !.eas/build/**
