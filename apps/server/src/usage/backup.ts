@@ -9,6 +9,7 @@ import {
 	UsageHistoryRuntimeKey,
 	type UsageProfileSnapshot,
 } from "@zuse/contracts";
+import { validUsageHistoryRow } from "@zuse/utils/usage-history";
 import { Clock, Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import type { PricedUsage } from "tokenmaxer";
@@ -50,6 +51,9 @@ const Key = {
 	syncedAt: "synced_at",
 	cloudSyncedAt: "cloud_synced_at",
 	error: "last_error",
+	/** Account and key the cached `usage_history_remote` rows belong to. */
+	remoteAccount: "remote_account",
+	remoteSecret: "remote_secret",
 } as const;
 type StateKey = (typeof Key)[keyof typeof Key];
 
@@ -102,11 +106,17 @@ export const usageBackupState: Effect.Effect<
 	};
 });
 
-/** Other devices' rows for the profile, only while backup is on for this account. */
+/**
+ * Other devices' rows for the profile. Only returned while backup is on for
+ * the signed-in account and the cache was downloaded for that same account,
+ * so a failed download after an account switch never exposes old rows.
+ */
 export const remoteHistoryForProfile = Effect.gen(function* () {
 	const state = yield* readState;
-	const secret = state.get(Key.secret);
-	if (!secret || (yield* activeAccount(state)) === null) return null;
+	const secret = state.get(Key.remoteSecret);
+	const subject = yield* activeAccount(state);
+	if (!secret || subject === null || state.get(Key.remoteAccount) !== subject)
+		return null;
 	return { secret, rows: yield* readRemoteHistory };
 });
 
@@ -217,12 +227,18 @@ const uploadChangedHistory = <E, R>(
 		);
 		const legacy =
 			!fresh && state.get(Key.legacyUploaded) === "1" ? [] : yield* legacyRows;
+		const now = yield* Clock.currentTimeMillis;
+		const rows = [...legacy, ...changed].map(toUploadRow(secret));
 		const upload = uniqueByKey(
-			[...legacy, ...changed].map(toUploadRow(secret)),
+			rows.filter((row) => validUsageHistoryRow(row, now)),
 		);
+		if (upload.length < rows.length)
+			yield* Effect.logWarning(
+				`[usage] skipped ${rows.length - upload.length} history rows the backup API would reject`,
+			);
 		for (let index = 0; index < upload.length; index += USAGE_HISTORY_MAX_ROWS)
 			yield* send(upload.slice(index, index + USAGE_HISTORY_MAX_ROWS));
-		const newest = changed.at(-1)?.updated_at;
+		const newest = changed.at(-1)?.change_seq;
 		yield* writeState({
 			[Key.secret]: secret,
 			[Key.legacyUploaded]: "1",
@@ -269,8 +285,13 @@ const runSync = <E, R>(
 			for (const row of page.rows) remote.push(fromUploadRow(row));
 			cursor = page.nextCursor;
 		} while (cursor !== null);
+		// Rows and the account they belong to are replaced together.
 		yield* sql.withTransaction(
 			Effect.gen(function* () {
+				yield* writeState({
+					[Key.remoteAccount]: subject,
+					[Key.remoteSecret]: secret,
+				});
 				yield* sql`DELETE FROM usage_history_remote`;
 				yield* Effect.forEach(
 					remote,
@@ -284,7 +305,9 @@ const runSync = <E, R>(
 		const now = yield* Clock.currentTimeMillis;
 		yield* writeState({ [Key.syncedAt]: String(now), [Key.error]: null });
 
-		// Keep a published profile current, preserving the owner's opt-ins.
+		// Keep a published profile current, preserving the owner's opt-ins. The
+		// save is conditional on the revision read here, so an unpublish or
+		// privacy change made meanwhile wins and this refresh is dropped.
 		yield* ensureAccount;
 		const profileState = yield* control.getUsageProfile();
 		const profile = profileState.profile;
@@ -293,14 +316,23 @@ const runSync = <E, R>(
 			Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
 		);
 		yield* ensureAccount;
-		yield* control.publishUsageProfile({
-			handle: profile.handle,
-			displayName: profile.displayName,
-			github: profile.github,
-			...snapshot,
-			cost: profile.cost === null ? null : snapshot.cost,
-			hours: profile.hours === null ? null : snapshot.hours,
-		});
+		yield* control
+			.refreshUsageProfile(
+				{
+					handle: profile.handle,
+					displayName: profile.displayName,
+					github: profile.github,
+					...snapshot,
+					cost: profile.cost === null ? null : snapshot.cost,
+					hours: profile.hours === null ? null : snapshot.hours,
+				},
+				profile.updatedAt,
+			)
+			.pipe(
+				Effect.catch((error) =>
+					Effect.logInfo(`[usage] skipped profile refresh: ${error.code}`),
+				),
+			);
 	}).pipe(Effect.provideService(RequestWorkspace, "personal"));
 
 const describe = (cause: unknown) =>
@@ -358,6 +390,8 @@ export const setUsageBackup = <E, R>(
 			return yield* Effect.fail(new MachineControlError("not-allowed"));
 		const reset = {
 			[Key.secret]: null,
+			[Key.remoteAccount]: null,
+			[Key.remoteSecret]: null,
 			[Key.uploadedThrough]: null,
 			[Key.legacyUploaded]: null,
 			[Key.syncedAt]: null,
@@ -369,6 +403,7 @@ export const setUsageBackup = <E, R>(
 		if (input.enabled) {
 			yield* personal(control.setUsageHistorySettings(true));
 			yield* writeState({ ...reset, [Key.account]: subject });
+			yield* sql`DELETE FROM usage_history_remote`;
 			yield* syncUsageBackup({ force: true, buildSnapshot, loadPriced });
 		} else {
 			yield* input.deleteRemote

@@ -358,6 +358,11 @@ export interface MachineControlServiceShape {
 	readonly publishUsageProfile: (
 		input: UsageProfileInput,
 	) => Effect.Effect<UsageProfileState, MachineControlError>;
+	/** Republish only while the profile is still published at `updatedAt`. */
+	readonly refreshUsageProfile: (
+		input: UsageProfileInput,
+		updatedAt: number,
+	) => Effect.Effect<UsageProfileState, MachineControlError>;
 	readonly unpublishUsageProfile: () => Effect.Effect<
 		UsageProfileState,
 		MachineControlError
@@ -542,6 +547,7 @@ export const MachineControlServiceLive: Layer.Layer<
 			schema: Schema.Codec<A, I>,
 			method = "GET",
 			body?: unknown,
+			extraHeaders?: Readonly<Record<string, string>>,
 		): Effect.Effect<A, MachineControlError> =>
 			Effect.gen(function* () {
 				const workspaceScope = yield* RequestWorkspace;
@@ -572,6 +578,7 @@ export const MachineControlServiceLive: Layer.Layer<
 							fetch(`${apiUrl}${scopedPath}`, {
 								method,
 								headers: {
+									...extraHeaders,
 									[WORKSPACE_SCOPE_HEADER]: workspaceScope,
 									authorization: `Bearer ${token}`,
 									...(body === undefined
@@ -920,6 +927,10 @@ export const MachineControlServiceLive: Layer.Layer<
 			getUsageProfile: () => request(ApiPaths.usageProfile, UsageProfileState),
 			publishUsageProfile: (input) =>
 				request(ApiPaths.usageProfile, UsageProfileState, "PUT", input),
+			refreshUsageProfile: (input, updatedAt) =>
+				request(ApiPaths.usageProfile, UsageProfileState, "PUT", input, {
+					"if-match": String(updatedAt),
+				}),
 			unpublishUsageProfile: () =>
 				request(ApiPaths.usageProfile, UsageProfileState, "DELETE"),
 			usageHistoryKey: () => request(ApiPaths.usageHistoryKey, UsageHistoryKey),

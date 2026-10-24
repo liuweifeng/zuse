@@ -123,7 +123,6 @@ describe("usage profile activity", () => {
 						inputTokens: 1 + total - 15,
 					},
 				],
-				bySession: [{}, {}, {}],
 				records,
 			},
 			2024,
@@ -143,7 +142,7 @@ describe("usage profile activity", () => {
 		expect(result.hours?.reduce((sum, value) => sum + value, 0)).toBe(
 			total - 15,
 		);
-		expect(result.sessionCount).toBe(3);
+		expect(result.sessionCount).toBe(2);
 		expect(JSON.stringify(result)).not.toContain("private");
 		expect(validUsageProfileSnapshot(result, Date.parse("2024-03-03"))).toBe(
 			true,

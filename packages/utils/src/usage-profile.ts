@@ -99,7 +99,6 @@ export const usageProfileSnapshot = (
 		readonly bySource: ReadonlyArray<
 			UsageTokenCounts & { readonly key: string; readonly label: string }
 		>;
-		readonly bySession: ReadonlyArray<unknown>;
 		readonly records: ReadonlyArray<UsageProfileRecord>;
 	},
 	year: number,
@@ -144,7 +143,8 @@ export const usageProfileSnapshot = (
 	return {
 		year,
 		generatedAt: report.generatedAt.toISOString(),
-		sessionCount: report.bySession.length,
+		// Distinct real sessions; rows without a session id are not sessions.
+		sessionCount: sessions.size,
 		days: report.groups
 			.map((row) => ({ date: row.key, tokens: totalUsageTokens(row) }))
 			.sort((a, b) => a.date.localeCompare(b.date)),

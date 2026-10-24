@@ -82,16 +82,6 @@ const localKey = (record: UsageRecord) =>
 		record.sessionId ?? "",
 		projectOf(record),
 	);
-/** Key for comparing local records with backup rows hashed by `secret`. */
-export const hashedKey = (secret: string) => (record: UsageRecord) =>
-	join(
-		hourOf(record.startedAt),
-		record.sourceId,
-		record.model,
-		opaqueKey(secret, record.sessionId ?? ""),
-		opaqueKey(secret, projectOf(record)),
-	);
-
 /** Aggregates live records into hourly rows with raw session and project ids. */
 export const toHistoryRows = (
 	records: ReadonlyArray<UsageRecord>,
@@ -231,16 +221,30 @@ export const mergePersistedUsage = (
 	return { ...priced, records };
 };
 
-/** Adds backup rows from other devices, keyed by the account's hash secret. */
+/** Replaces session and project ids with the account's keyed hashes. */
+export const withHashedIds =
+	(secret: string) =>
+	(record: UsageRecord): UsageRecord => ({
+		...record,
+		sessionId: record.sessionId ? opaqueKey(secret, record.sessionId) : null,
+		projectPath: opaqueKey(secret, projectOf(record)) || null,
+		workspacePath: null,
+	});
+
+/**
+ * Adds backup rows from other devices. Local records are re-keyed to the same
+ * hashed ids first, so one session or project has one identity on both sides
+ * and is never counted twice.
+ */
 export const mergeRemoteHistory = (
 	records: ReadonlyArray<UsageRecord>,
 	rows: ReadonlyArray<HistoryRow>,
 	secret: string,
 ): UsageRecord[] =>
-	mergeLargest(records, rows, hashedKey(secret), (row) =>
+	mergeLargest(records.map(withHashedIds(secret)), rows, localKey, (row) =>
 		historyRecord(row, REMOTE_HISTORY, {
-			sessionId: row.session ? `remote:${row.session}` : null,
-			projectPath: row.project ? `remote:${row.project}` : null,
+			sessionId: row.session || null,
+			projectPath: row.project || null,
 		}),
 	);
 
@@ -261,31 +265,41 @@ export const persistPricedUsageOnce = <E, R>(
 		return true;
 	});
 
-/** Monotonic upsert; `updated_at` moves only when a row grows, for incremental backup. */
+/**
+ * Monotonic upsert. Rows that grow get the next `change_seq`, a database
+ * counter rather than wall-clock time, so incremental backup never skips a row
+ * when the system clock moves backward.
+ */
 export const persistUsageHistory = (priced: PricedUsage) =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient;
-		const now = Date.now();
 		const rows = toHistoryRows(priced.records);
 		yield* sql.withTransaction(
-			Effect.forEach(
-				rows,
-				(row) =>
-					sql`INSERT INTO usage_history(hour, source_id, model, session_id, project_path, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, cost_usd, record_count, first_at, last_at, updated_at) VALUES (${row.hour}, ${row.source_id}, ${row.model}, ${row.session}, ${row.project}, ${row.input_tokens}, ${row.output_tokens}, ${row.cache_read_tokens}, ${row.cache_creation_tokens}, ${row.reasoning_tokens}, ${row.cost_usd}, ${row.record_count}, ${row.first_at}, ${row.last_at}, ${now}) ON CONFLICT(hour, source_id, model, session_id, project_path) DO UPDATE SET input_tokens=MAX(input_tokens,excluded.input_tokens), output_tokens=MAX(output_tokens,excluded.output_tokens), cache_read_tokens=MAX(cache_read_tokens,excluded.cache_read_tokens), cache_creation_tokens=MAX(cache_creation_tokens,excluded.cache_creation_tokens), reasoning_tokens=MAX(reasoning_tokens,excluded.reasoning_tokens), cost_usd=CASE WHEN cost_usd IS NULL THEN excluded.cost_usd WHEN excluded.cost_usd IS NULL THEN cost_usd ELSE MAX(cost_usd,excluded.cost_usd) END, record_count=MAX(record_count,excluded.record_count), first_at=MIN(first_at,excluded.first_at), last_at=MAX(last_at,excluded.last_at), updated_at=excluded.updated_at WHERE excluded.input_tokens>input_tokens OR excluded.output_tokens>output_tokens OR excluded.cache_read_tokens>cache_read_tokens OR excluded.cache_creation_tokens>cache_creation_tokens OR excluded.reasoning_tokens>reasoning_tokens OR excluded.record_count>record_count OR excluded.first_at<first_at OR excluded.last_at>last_at OR (cost_usd IS NULL AND excluded.cost_usd IS NOT NULL) OR excluded.cost_usd>cost_usd`,
-				{ discard: true },
-			),
+			Effect.gen(function* () {
+				const [latest] = yield* sql<{
+					seq: number;
+				}>`SELECT COALESCE(MAX(change_seq), 0) AS seq FROM usage_history`;
+				const seq = (latest?.seq ?? 0) + 1;
+				yield* Effect.forEach(
+					rows,
+					(row) =>
+						sql`INSERT INTO usage_history(hour, source_id, model, session_id, project_path, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, cost_usd, record_count, first_at, last_at, change_seq) VALUES (${row.hour}, ${row.source_id}, ${row.model}, ${row.session}, ${row.project}, ${row.input_tokens}, ${row.output_tokens}, ${row.cache_read_tokens}, ${row.cache_creation_tokens}, ${row.reasoning_tokens}, ${row.cost_usd}, ${row.record_count}, ${row.first_at}, ${row.last_at}, ${seq}) ON CONFLICT(hour, source_id, model, session_id, project_path) DO UPDATE SET input_tokens=MAX(input_tokens,excluded.input_tokens), output_tokens=MAX(output_tokens,excluded.output_tokens), cache_read_tokens=MAX(cache_read_tokens,excluded.cache_read_tokens), cache_creation_tokens=MAX(cache_creation_tokens,excluded.cache_creation_tokens), reasoning_tokens=MAX(reasoning_tokens,excluded.reasoning_tokens), cost_usd=CASE WHEN cost_usd IS NULL THEN excluded.cost_usd WHEN excluded.cost_usd IS NULL THEN cost_usd ELSE MAX(cost_usd,excluded.cost_usd) END, record_count=MAX(record_count,excluded.record_count), first_at=MIN(first_at,excluded.first_at), last_at=MAX(last_at,excluded.last_at), change_seq=excluded.change_seq WHERE excluded.input_tokens>input_tokens OR excluded.output_tokens>output_tokens OR excluded.cache_read_tokens>cache_read_tokens OR excluded.cache_creation_tokens>cache_creation_tokens OR excluded.reasoning_tokens>reasoning_tokens OR excluded.record_count>record_count OR excluded.first_at<first_at OR excluded.last_at>last_at OR (cost_usd IS NULL AND excluded.cost_usd IS NOT NULL) OR excluded.cost_usd>cost_usd`,
+					{ discard: true },
+				);
+			}),
 		);
 	});
 
 const HISTORY_COLUMNS = (sql: SqlClient.SqlClient) =>
 	sql`hour, source_id, model, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, reasoning_tokens, cost_usd, record_count, first_at, last_at`;
 
-export const readUsageHistory = (sinceUpdatedAt = -1) =>
+/** Rows changed after `sinceSeq`, oldest change first. */
+export const readUsageHistory = (sinceSeq = -1) =>
 	Effect.gen(function* () {
 		const sql = yield* SqlClient.SqlClient;
 		return yield* sql<
-			HistoryRow & { updated_at: number }
-		>`SELECT ${HISTORY_COLUMNS(sql)}, session_id AS session, project_path AS project, updated_at FROM usage_history WHERE updated_at > ${sinceUpdatedAt} ORDER BY updated_at`;
+			HistoryRow & { change_seq: number }
+		>`SELECT ${HISTORY_COLUMNS(sql)}, session_id AS session, project_path AS project, change_seq FROM usage_history WHERE change_seq > ${sinceSeq} ORDER BY change_seq`;
 	});
 
 export const readRemoteHistory = Effect.gen(function* () {

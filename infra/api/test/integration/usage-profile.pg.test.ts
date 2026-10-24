@@ -73,8 +73,8 @@ test.skipIf(!url)(
 					store.saveUsageProfile({ ...record, accountId: "bob" }),
 				),
 			]);
-			expect(claimed.filter(Boolean)).toHaveLength(1);
-			const owner = claimed[0] ? "alice" : "bob";
+			expect(claimed.filter((result) => result === "saved")).toHaveLength(1);
+			const owner = claimed[0] === "saved" ? "alice" : "bob";
 			expect(
 				await runtime.runPromise(
 					store.saveUsageProfile({
@@ -83,7 +83,7 @@ test.skipIf(!url)(
 						profile: { ...record.profile, handle: "another-handle" },
 					}),
 				),
-			).toBe(false);
+			).toBe("handle_unavailable");
 			await runtime.runPromise(
 				store.saveUsageProfile({
 					...record,
@@ -118,7 +118,12 @@ test.skipIf(!url)(
 				await runtime.runPromise(
 					store.saveUsageProfile({ ...record, accountId: "third-account" }),
 				),
-			).toBe(false);
+			).toBe("handle_unavailable");
+			expect(
+				await runtime.runPromise(
+					store.saveUsageProfile(record, { expectedUpdatedAt: 20 }),
+				),
+			).toBe("changed");
 		} finally {
 			await runtime.dispose();
 			await pool.end();

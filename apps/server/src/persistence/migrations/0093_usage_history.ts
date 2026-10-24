@@ -14,10 +14,10 @@ export const Migration0093UsageHistory = Effect.gen(function* () {
     input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL, cache_read_tokens INTEGER NOT NULL,
     cache_creation_tokens INTEGER NOT NULL, reasoning_tokens INTEGER NOT NULL, cost_usd REAL,
     record_count INTEGER NOT NULL, first_at INTEGER NOT NULL, last_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL,
+    change_seq INTEGER NOT NULL,
     PRIMARY KEY(hour, source_id, model, session_id, project_path)
   )`;
-	yield* sql`CREATE INDEX usage_history_updated_at ON usage_history(updated_at)`;
+	yield* sql`CREATE INDEX usage_history_change_seq ON usage_history(change_seq)`;
 	yield* sql`CREATE TABLE usage_history_remote (
     hour TEXT NOT NULL, source_id TEXT NOT NULL, model TEXT NOT NULL,
     session TEXT NOT NULL, project TEXT NOT NULL,

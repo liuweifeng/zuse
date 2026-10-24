@@ -22,6 +22,7 @@ import { RuntimeCloudControl } from "../../src/machine/runtime-cloud-control.ts"
 import { Migration0036UsageCostDaily } from "../../src/persistence/migrations/0036_usage_cost_daily.ts";
 import { Migration0093UsageHistory } from "../../src/persistence/migrations/0093_usage_history.ts";
 import {
+	remoteHistoryForProfile,
 	setUsageBackup,
 	syncCloudUsageHistory,
 	syncUsageBackup,
@@ -30,7 +31,6 @@ import {
 } from "../../src/usage/backup.ts";
 import {
 	type HistoryRow,
-	hashedKey,
 	mergePersistedUsage,
 	mergeRemoteHistory,
 	opaqueKey,
@@ -170,14 +170,34 @@ describe("usage history merge", () => {
 		expect(tokens(merged)).toBe(14);
 		expect(
 			merged.find((entry) => entry.provenance === REMOTE_HISTORY)?.sessionId,
-		).toBe(`remote:${opaqueKey(SECRET, "other-device-session")}`);
+		).toBe(opaqueKey(SECRET, "other-device-session"));
 		const larger = mergeRemoteHistory(
 			local,
 			[{ ...remoteSame, input_tokens: 25 }],
 			SECRET,
 		);
 		expect(tokens(larger)).toBe(25);
-		expect(hashedKey(SECRET)(local[0] as never)).not.toContain("session-1");
+		expect(JSON.stringify(merged)).not.toMatch(/session-1|private/);
+	});
+
+	it("gives one session one identity across local and backed-up hours", () => {
+		const merged = mergeRemoteHistory(
+			[record("2026-01-01T11:05:00.000Z", 10)],
+			[
+				row({
+					session: opaqueKey(SECRET, "session-1"),
+					project: opaqueKey(SECRET, "/private/project"),
+				}),
+			],
+			SECRET,
+		);
+		expect(tokens(merged)).toBe(20);
+		expect(new Set(merged.map((entry) => entry.sessionId))).toEqual(
+			new Set([opaqueKey(SECRET, "session-1")]),
+		);
+		expect(new Set(merged.map((entry) => entry.projectPath))).toEqual(
+			new Set([opaqueKey(SECRET, "/private/project")]),
+		);
 	});
 });
 
@@ -202,6 +222,9 @@ describe("usage backup sync", () => {
 	let published: UsageProfileInput[];
 	let profile: UsageProfileState;
 	let failUpload: boolean;
+	let failPage: boolean;
+	let refreshed: { input: UsageProfileInput; updatedAt: number }[];
+	let failRefresh: boolean;
 	let deleted: number;
 	let priced: PricedUsage;
 	let accountEnabled: boolean;
@@ -240,6 +263,9 @@ describe("usage backup sync", () => {
 		remote = [];
 		published = [];
 		failUpload = false;
+		failPage = false;
+		refreshed = [];
+		failRefresh = false;
 		deleted = 0;
 		accountEnabled = false;
 		accountKey = SECRET;
@@ -272,14 +298,16 @@ describe("usage backup sync", () => {
 							return { accepted: rows.length };
 						}),
 			usageHistoryPage: (cursor: string | null) =>
-				Effect.succeed(
-					cursor === null
-						? {
-								rows: remote.slice(0, 1),
-								nextCursor: remote.length > 1 ? "1" : null,
-							}
-						: { rows: remote.slice(1), nextCursor: null },
-				),
+				failPage
+					? Effect.fail(new MachineControlError("provider-unavailable"))
+					: Effect.succeed(
+							cursor === null
+								? {
+										rows: remote.slice(0, 1),
+										nextCursor: remote.length > 1 ? "1" : null,
+									}
+								: { rows: remote.slice(1), nextCursor: null },
+						),
 			deleteUsageHistory: () =>
 				Effect.sync(() => {
 					deleted += 1;
@@ -287,6 +315,13 @@ describe("usage backup sync", () => {
 					return { accepted: 0 };
 				}),
 			getUsageProfile: () => Effect.succeed(profile),
+			refreshUsageProfile: (input: UsageProfileInput, updatedAt: number) =>
+				failRefresh
+					? Effect.fail(new MachineControlError("conflict"))
+					: Effect.sync(() => {
+							refreshed.push({ input, updatedAt });
+							return profile;
+						}),
 			publishUsageProfile: (input: UsageProfileInput) =>
 				Effect.sync(() => {
 					published.push(input);
@@ -343,7 +378,7 @@ describe("usage backup sync", () => {
 		rmSync(directory, { recursive: true, force: true });
 	});
 
-	it("persists monotonically and only advances updated_at when a row grows", async () => {
+	it("persists monotonically and only advances change_seq when a row grows", async () => {
 		await run(persistUsageHistory(priced));
 		const first = await run(readUsageHistory());
 		await run(
@@ -359,7 +394,7 @@ describe("usage backup sync", () => {
 				records: [record("2026-01-01T10:05:00.000Z", 30)],
 			}),
 		);
-		const grown = await run(readUsageHistory(first.at(-1)?.updated_at ?? 0));
+		const grown = await run(readUsageHistory(first.at(-1)?.change_seq ?? 0));
 		expect(grown).toHaveLength(1);
 		expect(grown[0]?.input_tokens).toBe(30);
 	});
@@ -448,14 +483,90 @@ describe("usage backup sync", () => {
 				github: "",
 				cost: null,
 				hours: Array.from({ length: 24 }, () => 0),
+				updatedAt: 7,
 			} as never,
 		};
 		await run(
 			setUsageBackup({ enabled: true }, buildSnapshot, async () => priced),
 		);
-		expect(published).toHaveLength(1);
-		expect(published[0]).toMatchObject({ handle: "sample-dev", cost: null });
-		expect(published[0]?.hours).toHaveLength(24);
+		expect(published).toEqual([]);
+		expect(refreshed).toHaveLength(1);
+		expect(refreshed[0]?.updatedAt).toBe(7);
+		expect(refreshed[0]?.input).toMatchObject({
+			handle: "sample-dev",
+			cost: null,
+		});
+		expect(refreshed[0]?.input.hours).toHaveLength(24);
+	});
+
+	it("drops a refresh the profile owner changed meanwhile without failing the sync", async () => {
+		profile = {
+			published: true,
+			profile: {
+				handle: "sample-dev",
+				displayName: "Sample",
+				github: "",
+				cost: null,
+				hours: null,
+				updatedAt: 7,
+			} as never,
+		};
+		failRefresh = true;
+		const state = await run(
+			setUsageBackup({ enabled: true }, buildSnapshot, async () => priced),
+		);
+		expect(state.lastError).toBeNull();
+	});
+
+	it("never shows one account's cached rows to another account", async () => {
+		remote = [
+			{
+				hour: "2026-01-02T09:00:00.000Z",
+				sourceId: "codex",
+				model: "model-b",
+				session: "",
+				project: "",
+				inputTokens: 7,
+				outputTokens: 0,
+				cacheReadTokens: 0,
+				cacheCreationTokens: 0,
+				reasoningTokens: 0,
+				costUsd: null,
+				recordCount: 1,
+				firstAt: Date.parse("2026-01-02T09:10:00.000Z"),
+				lastAt: Date.parse("2026-01-02T09:10:00.000Z"),
+			},
+		];
+		await run(
+			setUsageBackup({ enabled: true }, buildSnapshot, async () => priced),
+		);
+		expect((await run(remoteHistoryForProfile))?.rows).toHaveLength(1);
+
+		subject = "bob";
+		failPage = true;
+		await run(
+			setUsageBackup({ enabled: true }, buildSnapshot, async () => priced),
+		);
+		expect(await run(remoteHistoryForProfile)).toBeNull();
+	});
+
+	it("skips rows the backup API would reject and keeps backing up the rest", async () => {
+		priced = {
+			...priced,
+			records: [
+				...priced.records,
+				record("2019-06-01T10:05:00.000Z", 9, { fingerprintParts: ["old"] }),
+			],
+		};
+		await run(
+			setUsageBackup({ enabled: true }, buildSnapshot, async () => priced),
+		);
+		expect(uploads.flat()).toHaveLength(2);
+		expect(uploads.flat().some((entry) => entry.hour.startsWith("2019"))).toBe(
+			false,
+		);
+		await sync(true);
+		expect(uploads).toHaveLength(1);
 	});
 
 	it("stops when the account changes and records sync failures", async () => {

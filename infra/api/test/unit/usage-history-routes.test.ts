@@ -73,8 +73,16 @@ describe("usage history backup", () => {
 			() => "ok",
 			(error) => error.code ?? String(error),
 		);
-	const upload = (rows: ReadonlyArray<UsageHistoryRow>, account = "alice") =>
-		getJson(call("PUT", account, "/v1/usage-history", { rows }));
+	/** Account uploads require backup on, as a real device enables it first. */
+	const upload = async (
+		rows: ReadonlyArray<UsageHistoryRow>,
+		account = "alice",
+	) => {
+		await getJson(
+			call("PUT", account, "/v1/usage-history/settings", { enabled: true }),
+		);
+		return getJson(call("PUT", account, "/v1/usage-history", { rows }));
+	};
 	const page = (account = "alice", cursor?: string) =>
 		getJson(
 			call(
@@ -422,6 +430,24 @@ describe("usage history backup", () => {
 		await setBackup(true);
 		expect(await remove()).toEqual({ accepted: 1 });
 		expect(await settings()).toEqual({ enabled: false });
+	});
+
+	it("refuses account uploads while backup is off, even after it was on", async () => {
+		expect(
+			await errorCode(
+				call("PUT", "alice", "/v1/usage-history", { rows: [makeRow(0)] }),
+			),
+		).toBe("usage_history_backup_disabled");
+		await upload([makeRow(0)]);
+		await setBackup(false);
+		expect(
+			await errorCode(
+				call("PUT", "alice", "/v1/usage-history", {
+					rows: [makeRow(1)],
+				}),
+			),
+		).toBe("usage_history_backup_disabled");
+		expect((await page()).rows).toEqual([makeRow(0)]);
 	});
 
 	it("account deletion resets the backup switch", async () => {

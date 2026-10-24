@@ -45,12 +45,14 @@ describe("public usage profiles", () => {
 		account: string | null = "alice",
 		body?: unknown,
 		path = "/v1/usage-profile",
+		extraHeaders: Record<string, string> = {},
 	) =>
 		runtime.runPromise(
 			routeUsageProfileRequest(
 				new Request(`https://api.test${path}`, {
 					method,
 					headers: {
+						...extraHeaders,
 						...(account
 							? { authorization: `Bearer test-token:${account}` }
 							: {}),
@@ -123,6 +125,39 @@ describe("public usage profiles", () => {
 			/private|accountId|records|byProject/,
 		);
 		expect(response?.headers.get("cache-control")).toBe("no-store");
+	});
+	it("saves an If-Match refresh only while the profile is unchanged and published", async () => {
+		await call("PUT", "alice", input);
+		const revision = async () => {
+			const response = await call();
+			if (!response) throw new Error("profile route did not match");
+			return (await response.json()).profile.updatedAt as number;
+		};
+		const refresh = (updatedAt: number | string, body = input) =>
+			call("PUT", "alice", body, undefined, { "if-match": String(updatedAt) });
+
+		const current = await revision();
+		expect(
+			await errorCode(refresh(current - 1, { ...input, displayName: "Stale" })),
+		).toBe("usage_profile_changed");
+		expect(await (await publicGet())?.json()).toMatchObject({
+			displayName: input.displayName,
+		});
+
+		await refresh(current, { ...input, displayName: "Refreshed" });
+		expect(await (await publicGet())?.json()).toMatchObject({
+			displayName: "Refreshed",
+		});
+
+		const afterRefresh = await revision();
+		await call("DELETE");
+		expect(await errorCode(refresh(afterRefresh))).toBe(
+			"usage_profile_changed",
+		);
+		expect(await errorCode(publicGet())).toBe("usage_profile_not_found");
+		expect(await errorCode(refresh("not-a-revision"))).toBe(
+			"invalid_usage_profile_revision",
+		);
 	});
 	it("updates the same URL, unpublishes immediately, and keeps the handle reserved", async () => {
 		await call("PUT", "alice", input);

@@ -6,7 +6,7 @@ import {
 import { validUsageProfileSnapshot } from "@zuse/utils/usage-profile";
 import { Clock, Effect, Schema } from "effect";
 import { requireWorkos } from "./auth.ts";
-import { badRequest, conflict, notFound } from "./errors.ts";
+import { ApiError, badRequest, conflict, notFound } from "./errors.ts";
 import { decodeBody, json } from "./http.ts";
 import { ApiStore } from "./store.ts";
 
@@ -42,6 +42,15 @@ export const routeUsageProfileRequest = Effect.fn("routeUsageProfileRequest")(
 			const now = yield* Clock.currentTimeMillis;
 			if (!input.displayName.trim() || !validUsageProfileSnapshot(input, now))
 				return yield* badRequest("invalid_usage_profile");
+			// `If-Match: <updatedAt>` makes the save conditional on that revision.
+			const ifMatch = request.headers.get("if-match");
+			const expectedUpdatedAt =
+				ifMatch === null ? undefined : Number(ifMatch.replaceAll('"', ""));
+			if (
+				expectedUpdatedAt !== undefined &&
+				!Number.isSafeInteger(expectedUpdatedAt)
+			)
+				return yield* badRequest("invalid_usage_profile_revision");
 			const current = yield* store.getUsageProfile(accountId);
 			const profile = {
 				...input,
@@ -49,12 +58,17 @@ export const routeUsageProfileRequest = Effect.fn("routeUsageProfileRequest")(
 				publishedAt: current?.profile.publishedAt ?? now,
 				updatedAt: now,
 			};
-			const saved = yield* store.saveUsageProfile({
-				accountId,
-				profile,
-				published: true,
-			});
-			if (!saved) return yield* conflict("usage_profile_handle_unavailable");
+			const saved = yield* store.saveUsageProfile(
+				{ accountId, profile, published: true },
+				{ expectedUpdatedAt },
+			);
+			if (saved === "changed")
+				return yield* new ApiError({
+					code: "usage_profile_changed",
+					status: 412,
+				});
+			if (saved === "handle_unavailable")
+				return yield* conflict("usage_profile_handle_unavailable");
 		} else if (request.method !== "GET" && request.method !== "DELETE") {
 			return yield* notFound("usage_profile_not_found");
 		}

@@ -5,6 +5,7 @@ import {
 	UsageHistorySettings,
 	UsageHistoryUpload,
 } from "@zuse/contracts";
+import { validUsageHistoryRow } from "@zuse/utils/usage-history";
 import { Clock, Effect } from "effect";
 import { requireWorkos } from "./auth.ts";
 import { randomHex } from "./crypto.ts";
@@ -12,10 +13,6 @@ import { ApiError, badRequest, conflict, notFound } from "./errors.ts";
 import { decodeBody, json } from "./http.ts";
 import { ApiStore, usageHistoryRowKey } from "./store.ts";
 
-const HOUR_MS = 60 * 60 * 1_000;
-const MAX_ROW_SPAN_MS = 7 * 24 * HOUR_MS;
-const MAX_FUTURE_MS = 2 * HOUR_MS;
-const MIN_HOUR_MS = Date.UTC(2020, 0, 1);
 /** A full upload of max-size rows is ~700 KiB; leave headroom for formatting. */
 const MAX_UPLOAD_BYTES = 1.5 * 1024 * 1024;
 export const USAGE_HISTORY_MAX_ACCOUNT_ROWS = 1_000_000;
@@ -28,21 +25,6 @@ const privateJson = (body: unknown, status = 200) => {
 	return response;
 };
 
-const validRow = (row: UsageHistoryRow, now: number): boolean => {
-	const hour = Date.parse(row.hour);
-	return (
-		Number.isFinite(hour) &&
-		new Date(hour).toISOString() === row.hour &&
-		hour >= MIN_HOUR_MS &&
-		hour <= now + MAX_FUTURE_MS &&
-		row.recordCount >= 1 &&
-		row.firstAt >= hour &&
-		row.firstAt < hour + HOUR_MS &&
-		row.firstAt <= row.lastAt &&
-		row.lastAt <= row.firstAt + MAX_ROW_SPAN_MS
-	);
-};
-
 /** Every row must be valid and unique within the batch; one bad row rejects all. */
 const validUpload = (
 	rows: ReadonlyArray<UsageHistoryRow>,
@@ -50,7 +32,7 @@ const validUpload = (
 ): boolean => {
 	const keys = new Set<string>();
 	for (const row of rows) {
-		if (!validRow(row, now)) return false;
+		if (!validUsageHistoryRow(row, now)) return false;
 		const key = usageHistoryRowKey(row);
 		if (keys.has(key)) return false;
 		keys.add(key);
@@ -157,9 +139,11 @@ export const routeUsageHistoryRequest = Effect.fn("routeUsageHistoryRequest")(
 					),
 				);
 			}
+			// Checked inside the write, so a device that read "on" earlier
+			// cannot recreate history after another device turns backup off.
 			case "PUT":
 				return yield* putUsageHistory(request, accountId, {
-					requireBackupEnabled: false,
+					requireBackupEnabled: true,
 				});
 			case "DELETE":
 				return privateJson({

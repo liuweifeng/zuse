@@ -184,9 +184,15 @@ export interface ApiStoreApi {
 	readonly findPublicUsageProfile: (
 		handle: string,
 	) => Effect.Effect<PublicUsageProfile | null>;
+	/**
+	 * Publish `record`. With `expectedUpdatedAt`, only replace a profile that is
+	 * still published at that revision, so background refreshes never undo a
+	 * newer unpublish or privacy choice.
+	 */
 	readonly saveUsageProfile: (
 		record: UsageProfileRecord,
-	) => Effect.Effect<boolean>;
+		options?: { readonly expectedUpdatedAt?: number },
+	) => Effect.Effect<"saved" | "handle_unavailable" | "changed">;
 	readonly unpublishUsageProfile: (accountId: string) => Effect.Effect<void>;
 	/** Return the account's usage history key, storing `candidate` if none exists. */
 	readonly getOrCreateUsageHistoryKey: (
@@ -389,9 +395,15 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 							)?.profile ?? null,
 					),
 				),
-			saveUsageProfile: (record) =>
+			saveUsageProfile: (record, options) =>
 				Ref.modify(usageProfiles, (profiles) => {
 					const existing = profiles.get(record.accountId);
+					if (
+						options?.expectedUpdatedAt !== undefined &&
+						(!existing?.published ||
+							existing.profile.updatedAt !== options.expectedUpdatedAt)
+					)
+						return ["changed" as const, profiles];
 					if (
 						(existing && existing.profile.handle !== record.profile.handle) ||
 						[...profiles.values()].some(
@@ -400,7 +412,7 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 								other.profile.handle === record.profile.handle,
 						)
 					)
-						return [false, profiles];
+						return ["handle_unavailable" as const, profiles];
 					const next = new Map(profiles);
 					next.set(record.accountId, {
 						...record,
@@ -410,7 +422,7 @@ export const ApiStoreMemory: Layer.Layer<ApiStore> = Layer.effect(
 								existing?.profile.publishedAt ?? record.profile.publishedAt,
 						},
 					});
-					return [true, next];
+					return ["saved" as const, next];
 				}),
 			unpublishUsageProfile: (accountId) =>
 				Ref.update(usageProfiles, (profiles) => {
@@ -962,19 +974,29 @@ export const ApiStorePg: Layer.Layer<ApiStore, never, SqlClient.SqlClient> =
 							Effect.map((rows) => rows[0]?.payload ?? null),
 						),
 					),
-				saveUsageProfile: (record) =>
+				saveUsageProfile: (record, options) =>
 					orDie(
 						sql.withTransaction(
 							Effect.gen(function* () {
 								yield* sql`SELECT pg_advisory_xact_lock(hashtextextended(${record.accountId}, 812))`;
 								const current = yield* sql<{
 									handle: string;
-								}>`SELECT handle FROM api_usage_profiles WHERE account_id=${record.accountId}`;
+									published: boolean;
+									updated_at: string | null;
+								}>`SELECT handle, published, payload->>'updatedAt' AS updated_at FROM api_usage_profiles WHERE account_id=${record.accountId}`;
+								if (
+									options?.expectedUpdatedAt !== undefined &&
+									(!current[0]?.published ||
+										Number(current[0].updated_at) !== options.expectedUpdatedAt)
+								)
+									return "changed" as const;
 								if (current[0] && current[0].handle !== record.profile.handle)
-									return false;
+									return "handle_unavailable" as const;
 								const rows =
 									yield* sql`INSERT INTO api_usage_profiles(account_id,handle,published,payload) VALUES(${record.accountId},${record.profile.handle},${record.published},${JSON.stringify(record.profile)}::jsonb) ON CONFLICT(handle) DO UPDATE SET published=excluded.published,payload=jsonb_set(excluded.payload,'{publishedAt}',api_usage_profiles.payload->'publishedAt') WHERE api_usage_profiles.account_id=excluded.account_id RETURNING account_id`;
-								return rows.length === 1;
+								return rows.length === 1
+									? ("saved" as const)
+									: ("handle_unavailable" as const);
 							}),
 						),
 					),

@@ -225,7 +225,10 @@ function ProfileForm({ environmentId }: { environmentId: EnvironmentId }) {
 						className="h-7 border-0 bg-transparent px-1 text-xs shadow-none"
 						id={`${fieldId}-handle`}
 						value={handle}
-						onChange={(event) => setHandle(event.target.value.toLowerCase())}
+						onChange={(event) => {
+							setHandle(event.target.value.toLowerCase());
+							setError(null);
+						}}
 						minLength={3}
 						maxLength={32}
 						pattern="[a-z0-9][a-z0-9-]{1,30}[a-z0-9]"
@@ -443,7 +446,7 @@ function ProfileForm({ environmentId }: { environmentId: EnvironmentId }) {
 				<Button
 					type="submit"
 					className="h-7"
-					disabled={busy || !state || !snapshot}
+					disabled={busy || !state || !snapshot || displayName.trim() === ""}
 				>
 					{message(
 						busy
