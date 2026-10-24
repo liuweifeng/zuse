@@ -3,7 +3,7 @@ import { Platform } from "react-native";
 import { SafeAreaView } from "react-native-screens/experimental";
 
 import { useSplitExpanded } from "~/components/root-navigator";
-import { useReadableContentStyle } from "~/lib/form-factor";
+import { useIsWideLayout, useReadableContentStyle } from "~/lib/form-factor";
 import { SHEET_PRESENTATION, TRANSPARENT_HEADER } from "~/lib/native-header";
 import { colors } from "~/theme";
 
@@ -17,6 +17,7 @@ export default function MainLayout() {
 	// Sheets have their own bounded width; window-derived padding squeezes them on iPad.
 	const sheetContent = { backgroundColor: sheetBackground };
 	const expanded = useSplitExpanded();
+	const wideLayout = useIsWideLayout();
 	const baseScreenOptions: NativeStackNavigationOptions = {
 		headerLargeTitle: true,
 		headerTransparent: TRANSPARENT_HEADER,
@@ -216,7 +217,11 @@ export default function MainLayout() {
 				options={{
 					title: "Review changes",
 					headerLargeTitle: false,
-					presentation: SHEET_PRESENTATION,
+					// Diffs need width; iPad form sheets are too small to read code in.
+					presentation:
+						Platform.OS === "ios" && wideLayout
+							? "pageSheet"
+							: SHEET_PRESENTATION,
 					sheetAllowedDetents: [0.72, 1],
 					sheetInitialDetentIndex: 0,
 					sheetGrabberVisible: true,
