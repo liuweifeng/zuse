@@ -377,8 +377,16 @@ payment events, concurrent checkout deliveries and retries after a funding or
 activation failure cannot grant the balance or create the initial subscription
 twice. The receipt is intentionally for initial activation only: after canceling,
 use normal subscription checkout to resubscribe with the remaining credit.
-An existing matching subscription is preserved; conflicting or ambiguous live
-subscriptions require reconciliation. Refunded, disputed and unpaid purchases
+An existing matching active or trialing subscription is preserved; incomplete,
+unpaid, paused, past-due, conflicting or ambiguous subscriptions require
+reconciliation without completing the activation receipt. Normal subscription
+checkout and prepaid activation share a transaction-scoped lock on the account's
+Stripe customer row. Both paths expire older open subscription checkouts for
+the offer before inspecting subscriptions, including checkouts identified by
+price when older metadata is absent. A checkout completing during expiry is
+retrieved canonically and its subscription is adopted instead of creating a
+second one. If expiry cannot be confirmed, creation stops for reconciliation.
+Ended entitlements retain their billing provider while paid access remains. Refunded, disputed and unpaid purchases
 never trigger activation. Refund/dispute handling continues to reverse invoice
 credit through the existing receipts. Subscription events flow through normal
 entitlement reconciliation; redirects never grant access.

@@ -1303,7 +1303,10 @@ describe("@zuse/api", () => {
 		}
 	});
 
-	test("new subscriptions use Stripe while existing Polar subscriptions retain their portal and block duplicate checkout", async () => {
+	test.each([
+		"active",
+		"ended",
+	] as const)("new subscriptions use Stripe while %s paid-through subscriptions retain their billing provider", async (subscriptionStatus) => {
 		const stripeBalance = vi.fn(() =>
 			Effect.succeed({
 				available: true,
@@ -1333,7 +1336,7 @@ describe("@zuse/api", () => {
 				Effect.succeed({
 					accountId: "user_b",
 					providerSubscriptionId: "polar-sub",
-					status: "active",
+					status: subscriptionStatus,
 					offerId: CLOUD_WORKSPACE_OFFER_ID,
 					periodStart: Date.now() - 60_000,
 					paidThrough: Date.now() + 86_400_000,
@@ -1408,7 +1411,7 @@ describe("@zuse/api", () => {
 						authorization: "Bearer test-token:user_b",
 						"content-type": "application/json",
 					},
-					body: JSON.stringify({ amountCents: 2500 }),
+					body: JSON.stringify({ amountCents: 20000, activatePro: true }),
 				}),
 			);
 			expect(credits.status).toBe(503);

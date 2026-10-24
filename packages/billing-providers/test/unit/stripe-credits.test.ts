@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import Stripe from "stripe";
 import { describe, expect, test, vi } from "vitest";
+import { BillingProviderError } from "../../src/index.ts";
 import {
 	makeStripeCreditClient,
 	makeStripeCredits,
@@ -53,6 +54,10 @@ const fixture = () => {
 		}),
 	};
 	const store = {
+		withSubscriptionLock: async <A>(
+			_account: string,
+			operation: () => Promise<A>,
+		) => operation(),
 		getCustomer: async () => linked,
 		claimDelivery: async (
 			key: string,
@@ -215,6 +220,22 @@ describe("prepaid invoice balance", () => {
 		await expect(
 			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
 		).rejects.toMatchObject({ code: "provider-unavailable" });
+		await Effect.runPromise(
+			f.credits.process(event("checkout.session.completed")),
+		);
+		expect(f.activateSubscription).toHaveBeenCalledTimes(2);
+		expect(f.getBalance()).toBe(-20000);
+		expect(f.remote.size).toBe(1);
+	});
+	test("inactive subscription reconciliation never permanently completes the activation receipt", async () => {
+		const f = fixture();
+		f.setPurchase({ amountCents: 20000, quantity: 200, activatePro: true });
+		f.activateSubscription.mockRejectedValueOnce(
+			new BillingProviderError({ code: "reconciliation-required" }),
+		);
+		await expect(
+			Effect.runPromise(f.credits.process(event("checkout.session.completed"))),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
 		await Effect.runPromise(
 			f.credits.process(event("checkout.session.completed")),
 		);
@@ -570,12 +591,37 @@ describe("Stripe SDK credit transport", () => {
 		expect(params.get("payment_behavior")).toBe("error_if_incomplete");
 		expect(params.get("automatic_tax[enabled]")).toBe("false");
 	});
+	test.each([
+		"incomplete",
+		"unpaid",
+		"paused",
+		"past_due",
+	])("SDK refuses to acknowledge activation for an existing %s subscription", async (status) => {
+		const f = sdkFixture();
+		f.setSubscriptions([
+			{
+				status,
+				metadata: { account_id: "account" },
+				items: { data: [{ price: { id: "price_base" } }] },
+			},
+		]);
+		const purchase = await f.client.purchase({ sessionId: "cs_1" });
+		if (!purchase || !f.client.activateSubscription)
+			throw new Error("Missing activation fixture");
+		await expect(
+			f.client.activateSubscription(purchase, "prepaid:activate:cus_1"),
+		).rejects.toMatchObject({ code: "reconciliation-required" });
+		expect(
+			f.requests.some((r) => r.path === "/v1/subscriptions" && r.body),
+		).toBe(false);
+	});
 	test("SDK preserves an existing subscription and rejects conflicting ownership", async () => {
 		const f = sdkFixture();
 		const purchase = await f.client.purchase({ sessionId: "cs_1" });
 		if (!purchase || !f.client.activateSubscription)
 			throw new Error("Missing purchase or activation");
 		const subscription = {
+			id: "sub_existing",
 			status: "active",
 			metadata: { account_id: "account" },
 			items: { data: [{ price: { id: "price_base" } }] },

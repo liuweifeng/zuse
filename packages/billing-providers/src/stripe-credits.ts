@@ -8,7 +8,10 @@ import type Stripe from "stripe";
 import { BillingProviderError } from "./index.ts";
 import type { StripeBillingStore } from "./stripe.ts";
 import { deliverStripeOperation } from "./stripe-delivery.ts";
-import { stripeSubscriptionItems } from "./stripe-subscription.ts";
+import {
+	stripeSubscriptionItems,
+	stripeSubscriptionsAfterCheckoutExpiry,
+} from "./stripe-subscription.ts";
 
 const PURPOSE = "zuse_prepaid_v1";
 export interface StripeCreditPurchase {
@@ -164,11 +167,15 @@ export const makeStripeCreditClient = (
 					throw new Error("prepaid_activation_disabled");
 				// Do not save the top-up card or replace an existing subscription.
 				let existing = false;
-				for await (const subscription of sdk.subscriptions.list({
-					customer: purchase.customerId,
-					status: "all",
-					limit: 100,
-				})) {
+				for (const subscription of await stripeSubscriptionsAfterCheckoutExpiry(
+					sdk,
+					{
+						customerId: purchase.customerId,
+						accountId: purchase.accountId,
+						offerId: CLOUD_WORKSPACE_OFFER_ID,
+						basePriceId: activation.basePriceId,
+					},
+				)) {
 					if (
 						subscription.status === "canceled" ||
 						subscription.status === "incomplete_expired"
@@ -182,6 +189,11 @@ export const makeStripeCreditClient = (
 						)
 					)
 						throw new Error("conflicting_prepaid_subscription");
+					if (
+						subscription.status !== "active" &&
+						subscription.status !== "trialing"
+					)
+						throw new BillingProviderError({ code: "reconciliation-required" });
 					existing = true;
 				}
 				if (existing) return;
@@ -224,7 +236,7 @@ export const makeStripeCredits = (input: {
 	readonly client: StripeCreditClient;
 	readonly store: Pick<
 		StripeBillingStore,
-		"claimDelivery" | "finishDelivery" | "getCustomer"
+		"claimDelivery" | "finishDelivery" | "getCustomer" | "withSubscriptionLock"
 	>;
 	readonly customer: (
 		accountId: string,
@@ -441,7 +453,10 @@ export const makeStripeCredits = (input: {
 								customerId: purchase.customerId,
 								offerId: CLOUD_WORKSPACE_OFFER_ID,
 							},
-							() => activate(purchase, key),
+							() =>
+								store.withSubscriptionLock(purchase.accountId, () =>
+									activate(purchase, key),
+								),
 						);
 					}
 					if (dispute && purchase.paid) {
