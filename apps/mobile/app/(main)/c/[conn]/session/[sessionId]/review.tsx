@@ -43,7 +43,6 @@ import {
 import { connectionSessionKey } from "~/lib/session-key";
 import { promptText } from "~/lib/text-prompt";
 import { useToolbarIcons } from "~/lib/toolbar-icons";
-import { basename } from "~/lib/workspace-path";
 import {
 	applyGitResetRemote,
 	commitGitChanges,
@@ -474,7 +473,7 @@ export default function WorkspaceReviewScreen() {
 						</Text>
 						{scope === "branch" && baseBranch !== null ? (
 							<Text
-								className="shrink-0 font-sans text-[15px] text-muted-foreground"
+								className="max-w-[40%] shrink font-sans text-[15px] text-muted-foreground"
 								numberOfLines={1}
 							>
 								→ {baseBranch}
@@ -613,7 +612,7 @@ export default function WorkspaceReviewScreen() {
 								.map((file) => (
 									<GitAction
 										key={file.path}
-										label={`Resolve ${basename(file.path)}`}
+										label={`Resolve ${file.path}`}
 										tone="danger"
 										disabled={mutation !== null}
 										onPress={() =>

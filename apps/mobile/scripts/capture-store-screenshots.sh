@@ -27,6 +27,7 @@ JS
   xcrun simctl install "$device_id" "$app_path"
   name="ipad"
   [[ "$family" == 'iPhone Duo' ]] && name="iphone-duo"
-  maestro --device "$device_id" test -e "SCREENSHOT_PATH=store-screenshots/${name}-onboarding" test/store/launch.yml
+  maestro --device "$device_id" test test/store/launch.yml
+  xcrun simctl io "$device_id" screenshot "store-screenshots/${name}-onboarding.png"
   xcrun simctl shutdown "$device_id"
 done
