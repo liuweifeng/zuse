@@ -1,0 +1,38 @@
+[
+  {
+    "file": "ipad-header.png",
+    "width": 3840,
+    "height": 1646,
+    "bytes": 6471299
+  },
+  {
+    "file": "ipad-portrait-01-projects.png",
+    "width": 2064,
+    "height": 2752,
+    "bytes": 2795161
+  },
+  {
+    "file": "ipad-portrait-02-conversation.png",
+    "width": 2064,
+    "height": 2752,
+    "bytes": 2904360
+  },
+  {
+    "file": "ipad-portrait-03-start-work.png",
+    "width": 2064,
+    "height": 2752,
+    "bytes": 2824435
+  },
+  {
+    "file": "ipad-search.png",
+    "width": 3840,
+    "height": 2560,
+    "bytes": 8867192
+  },
+  {
+    "file": "ipad-universal.png",
+    "width": 5244,
+    "height": 2950,
+    "bytes": 13181561
+  }
+]
