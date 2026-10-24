@@ -44,6 +44,18 @@ export default function MainLayout() {
 	};
 	const stack = (
 		<Stack
+			screenLayout={
+				Platform.OS === "ios"
+					? ({ children }) => (
+							<SafeAreaView
+								edges={{ left: true, right: true }}
+								style={{ flex: 1 }}
+							>
+								{children}
+							</SafeAreaView>
+						)
+					: undefined
+			}
 			screenOptions={({ navigation, route }) => {
 				const routes: readonly { key: string; name: string }[] =
 					navigation.getState().routes;
@@ -251,12 +263,6 @@ export default function MainLayout() {
 			/>
 		</Stack>
 	);
-	if (Platform.OS !== "ios") return stack;
-	// On iOS 26 the split view's sidebar floats over this column and is reported
-	// as a horizontal safe-area inset, which native headers honor but content does not.
-	return (
-		<SafeAreaView edges={{ left: true, right: true }} style={{ flex: 1 }}>
-			{stack}
-		</SafeAreaView>
-	);
+	// Apply native safe areas inside each screen, where its rail and sheet insets live.
+	return stack;
 }

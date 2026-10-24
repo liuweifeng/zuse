@@ -45,7 +45,7 @@ function ConnectivityRuntimeBridge() {
 	useEffect(() => {
 		void width;
 		void height;
-		// Large screens keep the system's rotation; phone-sized screens pin portrait.
+		// iOS follows system rotation; compact Android screens keep portrait.
 		const lock = shouldLockPortrait(Dimensions.get("screen"))
 			? ScreenOrientation.lockAsync(
 					pathname.endsWith("/terminal")
