@@ -1,14 +1,17 @@
 # Mobile 1.1.0 store asset production checklist
 
-Verified against Apple documentation on 2026-10-24. Production is in progress: six delivery PNGs are currently rendered and validated; the full 30-image pack is not complete.
+Verified against Apple documentation on 2026-10-24. All 30 delivery PNGs are rendered and validated, using 24 simulator captures and six creative compositions.
 
 ## Current production state
 
-- Created: three iPad portrait feature cards (projects, conversation, start work), plus the iPad header, search, and universal creative masters. Files are in `apps/mobile/store-assets/1.1.0/delivery`; `manifest.json` records exact dimensions and bytes. All six are opaque PNGs.
-- Captures use the running Expo app with isolated sample projects and official Apple device bezels. Generated illustration backgrounds are stored under `source/`.
-- Xcode 27.1 is installed. Its license and first-launch setup require local administrator authentication. The iOS 27.1 simulator runtime download has started. Duo pose validation and the remaining captures depend on that setup.
-- Fixed the Uniwind asset-registry startup failure by upgrading to 1.13.0. Also removed window-derived readable padding from bounded sheets and modals; that sheet fix still needs its final simulator recapture.
-- The release has not been submitted for review or published.
+- Completed: 24 device-framed screenshot cards and six header/search/universal masters. `apps/mobile/store-assets/1.1.0/delivery/manifest.json` records exact dimensions and bytes; all 30 are opaque PNGs.
+- The iPad project portrait uses 98% of the canvas width, with an intentional bottom crop. Other iPad portraits keep the entire device visible while enlarging it and reducing headline space.
+- Captures use the Expo app with isolated sample projects and official Apple device bezels. Generated illustration backgrounds are stored under `source/`. No private chats appear in the artwork.
+- Xcode 27.1 and the iOS 27.1 simulator runtime are installed. iPad and Duo simulators were opened for native captures. Both Duo displays have portrait and landscape coverage.
+- Fixed the Uniwind asset-registry startup failure, bounded-sheet padding, iOS rotation policy, and horizontal safe-area handling. The final review screen is included in the captures.
+- Mobile validation: 520 tests across 108 files, both TypeScript projects, and applicable Biome checks passed.
+- Production build 17 was queued from source commit `a33fc7cba`, including review commit `01d03e501`. Build 16 is Apple VALID. This is not evidence of App Review approval or public release.
+- App Store Connect's public OpenAPI omitted Duo at this check; its live API explicitly supports `APP_IPHONE_DUO`. Upload state is verified separately from local image validation.
 
 ## Render commands
 
@@ -72,9 +75,9 @@ Creative assets and device-led concept variants are additional marketing coverag
 | 25 | `ipad-header.png` | 3840 × 1646 | 21:9 header; iPad with a real split-view app capture. |
 | 26 | `ipad-search.png` | 3840 × 2560 | 3:2 search; iPad with a real split-view app capture. |
 | 27 | `ipad-universal.png` | 5244 × 2950 | 16:9 universal header/search; iPad with a real split-view app capture. |
-| 28 | `duo-header.png` | 3840 × 1646 | 21:9 header; iPhone Duo with matching outer/inner app captures. |
-| 29 | `duo-search.png` | 3840 × 2560 | 3:2 search; iPhone Duo with matching outer/inner app captures. |
-| 30 | `duo-universal.png` | 5244 × 2950 | 16:9 universal header/search; iPhone Duo with matching outer/inner app captures. |
+| 28 | `duo-header.png` | 3840 × 1646 | 21:9 header; iPhone Duo inner display with a real conversation capture. |
+| 29 | `duo-search.png` | 3840 × 2560 | 3:2 search; iPhone Duo inner display with a real conversation capture. |
+| 30 | `duo-universal.png` | 5244 × 2950 | 16:9 universal header/search; iPhone Duo inner display with a real conversation capture. |
 
 ## Composition and delivery
 
@@ -86,12 +89,11 @@ Creative assets and device-led concept variants are additional marketing coverag
 - The existing `apps/mobile/assets/icon.png` is 1024 × 1024 and is already present. An icon redesign is not part of this image request.
 - Optional in-app event artwork is outside this release pack unless an actual event is being created: landscape card 1920 × 1080 to 3840 × 2160, portrait detail 1080 × 1920 to 2160 × 3840. App-preview videos are also separate, optional deliverables.
 
-## Current production state
+## Capture verification limits
 
-- Illustration drafts exist at `apps/mobile/store-assets/1.1.0/ipad-momentum.png` and `iphone-duo-building.png`.
-- Full four-scene capture sets, matching device-framed cards, landscape variants, and the six creative masters remain to be produced.
-- The current cloud capture smoke test covers onboarding launch only. It does not satisfy the four feature scenes in this checklist.
-- Keep the release in draft until the expanded pack is complete and reviewed.
+- The separate local capture app uses the same production UI with a sample-data bootstrap. It is not the signed production app; fixture data and capture hooks are not shipped.
+- Native pose and rotation controls were used for the capture surfaces. The capture instance temporarily requested portrait for the final portrait composer; this does not prove production fold-state behavior on physical hardware.
+- A physical-device Duo smoke test and Apple review are separate release checks.
 
 ## Primary sources
 

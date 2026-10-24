@@ -95,11 +95,15 @@ async function type(
 	width,
 	height,
 	lines,
-	{ landscape = false, creative = false } = {},
+	{ landscape = false, creative = false, compact = false } = {},
 ) {
 	const margin = Math.round(width * 0.065);
-	const font = Math.round(width * (landscape ? 0.052 : 0.068));
-	const top = Math.round(height * (creative ? 0.15 : landscape ? 0.27 : 0.068));
+	const font = Math.round(
+		width * (landscape ? 0.052 : compact ? 0.058 : 0.068),
+	);
+	const top = Math.round(
+		height * (creative ? 0.15 : landscape ? 0.27 : compact ? 0.045 : 0.068),
+	);
 	if (landscape)
 		lines = lines.flatMap((line) =>
 			line.length > 17 ? line.split(" ") : [line],
@@ -143,22 +147,43 @@ async function card(surface, orientation, scene, lines) {
 	const size = surfaces[surface].size;
 	const [width, height] = portrait ? size : [...size].reverse();
 	const framed = await device(surface, orientation, scene);
+	const enlargedIpad = surface === "ipad" && portrait;
 	const fit = {
-		width: Math.round(width * (portrait ? 0.86 : 0.55)),
-		height: Math.round(height * (portrait ? 0.69 : 0.91)),
+		width: Math.round(width * (enlargedIpad ? 0.98 : portrait ? 0.86 : 0.55)),
+		height: Math.round(
+			height *
+				(enlargedIpad
+					? scene === "01-projects"
+						? 1
+						: 0.79
+					: portrait
+						? 0.69
+						: 0.91),
+		),
 		fit: "inside",
 	};
-	const rendered = await sharp(framed).resize(fit).toBuffer();
+	let rendered = await sharp(framed).resize(fit).toBuffer();
 	const m = await sharp(rendered).metadata();
 	const left = portrait
 		? Math.round((width - m.width) / 2)
 		: Math.round(width * 0.43);
 	const top = portrait
-		? Math.round(height * 0.29)
+		? Math.round(height * (enlargedIpad ? 0.2 : 0.29))
 		: Math.round((height - m.height) / 2);
+	if (m.height + top > height) {
+		rendered = await sharp(rendered)
+			.extract({ left: 0, top: 0, width: m.width, height: height - top })
+			.png()
+			.toBuffer();
+	}
 	await sharp(await background(width, height))
 		.composite([
-			{ input: await type(width, height, lines, { landscape: !portrait }) },
+			{
+				input: await type(width, height, lines, {
+					landscape: !portrait,
+					compact: enlargedIpad,
+				}),
+			},
 			{ input: rendered, left, top },
 		])
 		.flatten({ background: "#f5f3ea" })

@@ -1,38 +1,182 @@
 [
   {
+    "file": "duo-header.png",
+    "width": 3840,
+    "height": 1646,
+    "bytes": 7035025
+  },
+  {
+    "file": "duo-inner-landscape-01-projects.png",
+    "width": 2853,
+    "height": 2007,
+    "bytes": 6111688
+  },
+  {
+    "file": "duo-inner-landscape-02-conversation.png",
+    "width": 2853,
+    "height": 2007,
+    "bytes": 6233927
+  },
+  {
+    "file": "duo-inner-landscape-03-start-work.png",
+    "width": 2853,
+    "height": 2007,
+    "bytes": 6129813
+  },
+  {
+    "file": "duo-inner-landscape-04-review-changes.png",
+    "width": 2853,
+    "height": 2007,
+    "bytes": 6202274
+  },
+  {
+    "file": "duo-inner-portrait-01-projects.png",
+    "width": 2007,
+    "height": 2853,
+    "bytes": 3140381
+  },
+  {
+    "file": "duo-inner-portrait-02-conversation.png",
+    "width": 2007,
+    "height": 2853,
+    "bytes": 3339719
+  },
+  {
+    "file": "duo-inner-portrait-03-start-work.png",
+    "width": 2007,
+    "height": 2853,
+    "bytes": 2984448
+  },
+  {
+    "file": "duo-inner-portrait-04-review-changes.png",
+    "width": 2007,
+    "height": 2853,
+    "bytes": 3121773
+  },
+  {
+    "file": "duo-outer-landscape-01-projects.png",
+    "width": 2034,
+    "height": 1398,
+    "bytes": 3327361
+  },
+  {
+    "file": "duo-outer-landscape-02-conversation.png",
+    "width": 2034,
+    "height": 1398,
+    "bytes": 3400274
+  },
+  {
+    "file": "duo-outer-landscape-03-start-work.png",
+    "width": 2034,
+    "height": 1398,
+    "bytes": 3276887
+  },
+  {
+    "file": "duo-outer-landscape-04-review-changes.png",
+    "width": 2034,
+    "height": 1398,
+    "bytes": 3358607
+  },
+  {
+    "file": "duo-outer-portrait-01-projects.png",
+    "width": 1398,
+    "height": 2034,
+    "bytes": 1935576
+  },
+  {
+    "file": "duo-outer-portrait-02-conversation.png",
+    "width": 1398,
+    "height": 2034,
+    "bytes": 2022121
+  },
+  {
+    "file": "duo-outer-portrait-03-start-work.png",
+    "width": 1398,
+    "height": 2034,
+    "bytes": 1810826
+  },
+  {
+    "file": "duo-outer-portrait-04-review-changes.png",
+    "width": 1398,
+    "height": 2034,
+    "bytes": 2040615
+  },
+  {
+    "file": "duo-search.png",
+    "width": 3840,
+    "height": 2560,
+    "bytes": 10027953
+  },
+  {
+    "file": "duo-universal.png",
+    "width": 5244,
+    "height": 2950,
+    "bytes": 14752759
+  },
+  {
     "file": "ipad-header.png",
     "width": 3840,
     "height": 1646,
-    "bytes": 6471299
+    "bytes": 6573815
+  },
+  {
+    "file": "ipad-landscape-01-projects.png",
+    "width": 2752,
+    "height": 2064,
+    "bytes": 5272690
+  },
+  {
+    "file": "ipad-landscape-02-conversation.png",
+    "width": 2752,
+    "height": 2064,
+    "bytes": 5468027
+  },
+  {
+    "file": "ipad-landscape-03-start-work.png",
+    "width": 2752,
+    "height": 2064,
+    "bytes": 5300490
+  },
+  {
+    "file": "ipad-landscape-04-review-changes.png",
+    "width": 2752,
+    "height": 2064,
+    "bytes": 5411156
   },
   {
     "file": "ipad-portrait-01-projects.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2795161
+    "bytes": 1622053
   },
   {
     "file": "ipad-portrait-02-conversation.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2904360
+    "bytes": 2594762
   },
   {
     "file": "ipad-portrait-03-start-work.png",
     "width": 2064,
     "height": 2752,
-    "bytes": 2824435
+    "bytes": 2319815
+  },
+  {
+    "file": "ipad-portrait-04-review-changes.png",
+    "width": 2064,
+    "height": 2752,
+    "bytes": 2326468
   },
   {
     "file": "ipad-search.png",
     "width": 3840,
     "height": 2560,
-    "bytes": 8867192
+    "bytes": 9061995
   },
   {
     "file": "ipad-universal.png",
     "width": 5244,
     "height": 2950,
-    "bytes": 13181561
+    "bytes": 13409861
   }
 ]
