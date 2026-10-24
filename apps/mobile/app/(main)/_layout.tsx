@@ -14,6 +14,8 @@ export default function MainLayout() {
 	// iOS form sheets show system glass through a clear background.
 	const sheetBackground = Platform.OS === "ios" ? "transparent" : colors.bg;
 	const fullBleedContent = { backgroundColor: colors.bg };
+	// Sheets have their own bounded width; window-derived padding squeezes them on iPad.
+	const sheetContent = { backgroundColor: sheetBackground };
 	const expanded = useSplitExpanded();
 	const baseScreenOptions: NativeStackNavigationOptions = {
 		headerLargeTitle: true,
@@ -113,6 +115,7 @@ export default function MainLayout() {
 				options={{
 					title: "Plan",
 					presentation: "modal",
+					contentStyle: fullBleedContent,
 					headerLargeTitle: false,
 				}}
 			/>
@@ -179,10 +182,7 @@ export default function MainLayout() {
 					sheetAllowedDetents: [0.42, 0.92],
 					sheetInitialDetentIndex: 0,
 					sheetGrabberVisible: true,
-					contentStyle: {
-						...readableContent,
-						backgroundColor: sheetBackground,
-					},
+					contentStyle: sheetContent,
 				}}
 			/>
 			<Stack.Screen
@@ -220,10 +220,7 @@ export default function MainLayout() {
 					sheetAllowedDetents: [0.72, 1],
 					sheetInitialDetentIndex: 0,
 					sheetGrabberVisible: true,
-					contentStyle: {
-						...readableContent,
-						backgroundColor: sheetBackground,
-					},
+					contentStyle: sheetContent,
 				}}
 			/>
 			<Stack.Screen
@@ -240,6 +237,7 @@ export default function MainLayout() {
 					title: "Tool details",
 					headerLargeTitle: false,
 					presentation: "modal",
+					contentStyle: fullBleedContent,
 				}}
 			/>
 			<Stack.Screen
