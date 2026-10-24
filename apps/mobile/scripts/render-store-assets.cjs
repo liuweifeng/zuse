@@ -151,6 +151,8 @@ async function type(
 
 async function cropPlacement(input, left, top, width, height) {
 	const meta = await sharp(input).metadata();
+	if (left < 0 || left + meta.width > width)
+		throw new Error("Device extends beyond the horizontal canvas bounds");
 	const x = Math.max(0, -left);
 	const y = Math.max(0, -top);
 	return {
@@ -173,11 +175,10 @@ async function card(surface, orientation, scene, lines) {
 	const size = surfaces[surface].size;
 	const [width, height] = portrait ? size : [...size].reverse();
 	const framed = await device(surface, orientation, scene);
-	const closeup = surface === "ipad" && portrait && scene === "01-projects";
 	const rendered = await sharp(framed)
 		.resize({
-			width: Math.round(width * (portrait ? 1.08 : 0.68)),
-			height: Math.round(height * (closeup ? 1.1 : portrait ? 0.9 : 0.95)),
+			width: Math.round(width * (portrait ? 0.96 : 0.6)),
+			height: Math.round(height * (portrait ? 0.98 : 0.95)),
 			fit: "inside",
 		})
 		.toBuffer();
@@ -186,9 +187,7 @@ async function card(surface, orientation, scene, lines) {
 		? Math.round((width - m.width) / 2)
 		: Math.round(width * 0.36);
 	// Let the device continue below the canvas instead of shrinking it to fit.
-	const top = closeup
-		? Math.round(height * 0.17)
-		: Math.round(height - m.height * 0.9);
+	const top = Math.round(height - m.height * 0.9);
 	const placement = await cropPlacement(rendered, left, top, width, height);
 	await sharp(await background(width, height))
 		.composite([
@@ -209,7 +208,7 @@ async function creative(surface, kind, width, height) {
 	const raw = await device(surface, "portrait", "02-conversation");
 	const rendered = await sharp(raw)
 		.resize({
-			width: Math.round(width * 0.56),
+			width: Math.round(width * 0.5),
 			height: Math.round(height * 1.1),
 			fit: "inside",
 		})
@@ -229,7 +228,7 @@ async function creative(surface, kind, width, height) {
 			},
 			await cropPlacement(
 				rendered,
-				Math.round(width * 0.72 - m.width / 2),
+				Math.round(width * 0.7 - m.width / 2),
 				Math.round(height - m.height * 0.9),
 				width,
 				height,
