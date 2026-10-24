@@ -61,7 +61,7 @@ function ConnectivityRuntimeBridge() {
 export default function RootLayout() {
 	const { theme } = useUniwind();
 	const isDark = theme === "dark";
-	const [fontsLoaded] = useFonts({
+	const [fontsLoaded, fontError] = useFonts({
 		GeistMono_400Regular,
 	});
 	const incomingUrl = Linking.useURL();
@@ -79,6 +79,10 @@ export default function RootLayout() {
 			});
 		}
 	}, [incomingUrl]);
+
+	if (fontError) {
+		throw fontError;
+	}
 
 	if (!fontsLoaded) {
 		return <View className="flex-1 bg-background" />;
