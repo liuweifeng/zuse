@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "このワークスペースでチャットを始めるとガイドを作成できます。",
 	"review_guide_file_count_other": "{{count}} ファイル",
 	"review_guide_unavailable_disabled": "ガイド付きレビューは設定でオフになっています。",
-	"review_guide_regenerate": "ガイドを作り直す",
 	"review_guide_ask_author": "作成者に質問",
 	"review_guide_generate": "ガイドを作成",
 	"review_guide_write_anyway": "それでも作成",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "画像 {{index}} を表示：{{name}}",
 	"image_gallery_view": "画像を表示：{{name}}",
 	"image_gallery_loading": "画像を読み込み中…",
-	"image_gallery_title": "チャットの画像"
+	"image_gallery_title": "チャットの画像",
+	"review_guide_chapters_appear": "章は書かれ次第ここに表示されます。",
+	"review_guide_try_again": "再試行",
+	"review_guide_reading_changes": "変更を読み込んでいます…"
 }

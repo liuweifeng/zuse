@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "Starte einen Chat in diesem Arbeitsbereich, um einen Leitfaden zu schreiben.",
 	"review_guide_file_count_other": "{{count}} Dateien",
 	"review_guide_unavailable_disabled": "Geführte Reviews sind in den Einstellungen deaktiviert.",
-	"review_guide_regenerate": "Leitfaden neu schreiben",
 	"review_guide_ask_author": "Autor fragen",
 	"review_guide_generate": "Leitfaden schreiben",
 	"review_guide_write_anyway": "Trotzdem schreiben",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "Bild {{index}} ansehen: {{name}}",
 	"image_gallery_view": "Bild ansehen: {{name}}",
 	"image_gallery_loading": "Bild wird geladen…",
-	"image_gallery_title": "Chatbilder"
+	"image_gallery_title": "Chatbilder",
+	"review_guide_chapters_appear": "Kapitel erscheinen hier, sobald sie geschrieben sind.",
+	"review_guide_try_again": "Erneut versuchen",
+	"review_guide_reading_changes": "Änderungen werden gelesen…"
 }

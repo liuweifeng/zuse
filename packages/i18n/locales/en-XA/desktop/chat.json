@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "⟦Stààrt àà chààt ïïn thïïs wôôrkspààcëë tôô wrïïtëë àà güüïïdëë.⟧",
 	"review_guide_file_count_other": "⟦{{count}} fïïlëës⟧",
 	"review_guide_unavailable_disabled": "⟦Güüïïdëëd rëëvïïëëws ààrëë ôôff ïïn Sëëttïïngs.⟧",
-	"review_guide_regenerate": "⟦Rëëwrïïtëë güüïïdëë⟧",
 	"review_guide_ask_author": "⟦ÀÀsk ààüüthôôr⟧",
 	"review_guide_generate": "⟦Wrïïtëë güüïïdëë⟧",
 	"review_guide_write_anyway": "⟦Wrïïtëë àànywàày⟧",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "⟦Vïïëëw ïïmààgëë {{index}}: {{name}}⟧",
 	"image_gallery_view": "⟦Vïïëëw ïïmààgëë: {{name}}⟧",
 	"image_gallery_loading": "⟦Lôôààdïïng ïïmààgëë…⟧",
-	"image_gallery_title": "⟦Chààt ïïmààgëës⟧"
+	"image_gallery_title": "⟦Chààt ïïmààgëës⟧",
+	"review_guide_chapters_appear": "⟦Chààptëërs ààppëëààr hëërëë ààs thëëy'rëë wrïïttëën.⟧",
+	"review_guide_try_again": "⟦Try ààgààïïn⟧",
+	"review_guide_reading_changes": "⟦Rëëààdïïng thëë chààngëës…⟧"
 }

@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "在此工作區開始一個對話即可撰寫導覽。",
 	"review_guide_file_count_other": "{{count}} 個檔案",
 	"review_guide_unavailable_disabled": "引導式審閱已在設定中關閉。",
-	"review_guide_regenerate": "重新撰寫導覽",
 	"review_guide_ask_author": "詢問作者",
 	"review_guide_generate": "撰寫導覽",
 	"review_guide_write_anyway": "仍然撰寫",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "檢視圖片 {{index}}：{{name}}",
 	"image_gallery_view": "檢視圖片：{{name}}",
 	"image_gallery_loading": "正在載入圖片…",
-	"image_gallery_title": "聊天圖片"
+	"image_gallery_title": "聊天圖片",
+	"review_guide_chapters_appear": "章節寫好後會顯示在這裡。",
+	"review_guide_try_again": "重試",
+	"review_guide_reading_changes": "正在讀取變更…"
 }

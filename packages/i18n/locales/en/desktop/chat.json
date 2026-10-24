@@ -863,7 +863,6 @@
 	"review_guide_unavailable_no_session": "Start a chat in this workspace to write a guide.",
 	"review_guide_file_count_other": "{{count}} files",
 	"review_guide_unavailable_disabled": "Guided reviews are off in Settings.",
-	"review_guide_regenerate": "Rewrite guide",
 	"review_guide_ask_author": "Ask author",
 	"review_guide_generate": "Write guide",
 	"review_guide_write_anyway": "Write anyway",
@@ -877,5 +876,8 @@
 	"image_gallery_thumbnail": "View image {{index}}: {{name}}",
 	"image_gallery_view": "View image: {{name}}",
 	"image_gallery_loading": "Loading image…",
-	"image_gallery_title": "Chat images"
+	"image_gallery_title": "Chat images",
+	"review_guide_chapters_appear": "Chapters appear here as they're written.",
+	"review_guide_try_again": "Try again",
+	"review_guide_reading_changes": "Reading the changes…"
 }

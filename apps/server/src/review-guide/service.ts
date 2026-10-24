@@ -269,6 +269,23 @@ export const ReviewGuideServiceLive = Layer.effect(
 				// turned off since they were queued.
 				if (options.automatic && current.reviewGuidesAutoGenerate === false)
 					return;
+				// Someone pressed Write: show the run at once. Reading the change can
+				// take a few seconds, and the reader should see it has started.
+				if (!options.automatic) {
+					const previous = runs.get(key);
+					runs.set(
+						key,
+						new ReviewGuideRun({
+							forSha: previous?.forSha ?? "",
+							phase: "outlining",
+							overview: previous?.overview ?? null,
+							chapters: [],
+							assigned: 0,
+							total: 0,
+						}),
+					);
+					yield* note(key, { lastError: null });
+				}
 				const writer = yield* findWriter(ref, options.originSessionId);
 				if (writer === null)
 					return yield* failure(

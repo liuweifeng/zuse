@@ -868,7 +868,6 @@
 	"review_guide_unavailable_no_session": "Démarrez une discussion dans cet espace de travail pour rédiger un guide.",
 	"review_guide_file_count_other": "{{count}} fichiers",
 	"review_guide_unavailable_disabled": "Les revues guidées sont désactivées dans les réglages.",
-	"review_guide_regenerate": "Réécrire le guide",
 	"review_guide_ask_author": "Demander à l’auteur",
 	"review_guide_generate": "Rédiger le guide",
 	"review_guide_write_anyway": "Rédiger quand même",
@@ -882,5 +881,8 @@
 	"image_gallery_thumbnail": "Afficher l’image {{index}} : {{name}}",
 	"image_gallery_view": "Afficher l’image : {{name}}",
 	"image_gallery_loading": "Chargement de l’image…",
-	"image_gallery_title": "Images de la conversation"
+	"image_gallery_title": "Images de la conversation",
+	"review_guide_chapters_appear": "Les chapitres apparaissent ici au fur et à mesure.",
+	"review_guide_try_again": "Réessayer",
+	"review_guide_reading_changes": "Lecture des modifications…"
 }

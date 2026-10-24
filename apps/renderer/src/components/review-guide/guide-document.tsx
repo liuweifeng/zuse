@@ -259,52 +259,70 @@ export function GuideDocument<A>({
 		state?.unavailable === "no-changes" && heading.fileCount > 0
 			? null
 			: (state?.unavailable ?? null);
-	const status =
-		run !== null
-			? guide === null
-				? uiMessage("chat:review_guide_writing")
-				: uiMessage("chat:review_guide_updating_for", { sha: run.forSha })
-			: null;
+	// Write was pressed and the server hasn't answered yet: show it as started
+	// at once instead of leaving the button looking dead.
+	const [pending, setPending] = useState<{
+		readonly lastError: string | null;
+	} | null>(null);
+	const lastError = state?.lastError ?? null;
+	useEffect(() => {
+		if (pending === null) return;
+		if (run !== null || lastError !== pending.lastError) setPending(null);
+	}, [lastError, pending, run]);
+	useEffect(() => {
+		if (pending === null) return;
+		const timer = setTimeout(() => setPending(null), 15_000);
+		return () => clearTimeout(timer);
+	}, [pending]);
+	const write = useCallback(
+		(force: boolean) => {
+			setPending({ lastError });
+			onGenerate(force);
+		},
+		[lastError, onGenerate],
+	);
+	const writer =
+		guide !== null
+			? { providerId: guide.providerId, model: guide.model }
+			: (state?.writer ?? null);
+	// The first guide has nothing to show until its overview (or, in Guide,
+	// its first chapter) arrives; until then the run gets the whole page.
+	const writingFirst =
+		guide === null &&
+		(pending !== null ||
+			(run !== null &&
+				(mode === "overview" ? overview === null : reading.length === 0)));
 
 	return (
 		<div ref={scrollRef} className="h-full overflow-y-auto overscroll-contain">
 			<div className="mx-auto w-full max-w-[1240px] px-8 pb-32">
-				{status !== null || state?.lastError ? (
-					<div className="flex h-9 items-center gap-2 text-xs">
-						{status !== null ? (
-							<>
-								<LoaderCircle className="size-3 animate-spin text-muted-foreground" />
-								<span className="text-muted-foreground">{status}</span>
-								<span className="text-muted-foreground/60 tabular-nums">
-									{uiMessage("chat:review_guide_progress", {
-										assigned: run?.assigned ?? 0,
-										total: run?.total ?? 0,
-									})}
-								</span>
-								<button
-									type="button"
-									onClick={onCancel}
-									className="ml-auto text-muted-foreground hover:text-foreground"
-								>
-									{uiMessage("chat:review_guide_cancel")}
-								</button>
-							</>
-						) : (
-							<>
-								<span className="text-destructive">{state?.lastError}</span>
-								<button
-									type="button"
-									onClick={() => onGenerate(true)}
-									className="ml-auto text-muted-foreground hover:text-foreground"
-								>
-									{uiMessage("chat:review_guide_regenerate")}
-								</button>
-							</>
-						)}
+				{guide !== null && (run !== null || pending !== null) ? (
+					<RunStatus
+						run={run}
+						first={false}
+						onCancel={onCancel}
+						className="h-9"
+					/>
+				) : guide !== null && lastError !== null ? (
+					<div className="flex h-9 items-center gap-3 text-xs">
+						<span className="min-w-0 truncate text-destructive">
+							{lastError}
+						</span>
+						<button
+							type="button"
+							onClick={() => write(true)}
+							className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+						>
+							{uiMessage("chat:review_guide_try_again")}
+						</button>
 					</div>
 				) : null}
 
-				{guide === null && run === null ? (
+				{writingFirst ? (
+					<WritingGuide run={run} writer={writer} onCancel={onCancel} />
+				) : null}
+
+				{guide === null && run === null && pending === null ? (
 					<EmptyGuide
 						state={state}
 						unavailableText={
@@ -312,11 +330,14 @@ export function GuideDocument<A>({
 								? null
 								: uiMessage(UNAVAILABLE_KEYS[unavailable])
 						}
-						onGenerate={onGenerate}
+						lastError={lastError}
+						onGenerate={write}
 					/>
 				) : null}
 
-				{mode === "overview" && (guide !== null || run !== null) ? (
+				{mode === "overview" &&
+				!writingFirst &&
+				(guide !== null || run !== null) ? (
 					<>
 						<header className="pt-6">
 							<h1 className="font-semibold text-[24px] text-foreground leading-8 tracking-[-0.02em]">
@@ -377,7 +398,7 @@ export function GuideDocument<A>({
 					</>
 				) : null}
 
-				{mode === "guide"
+				{mode === "guide" && !writingFirst
 					? reading.map((chapter, index) => (
 							<ChapterSection
 								key={chapter.id}
@@ -493,13 +514,148 @@ function InThisGuide({
 	);
 }
 
+/** Which agent writes the guide, as a quiet caption. */
+function WriterLabel({
+	providerId,
+	model,
+}: {
+	readonly providerId: ProviderId;
+	readonly model: string;
+}) {
+	return (
+		<span className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+			<ProviderIcon providerId={providerId} className="size-3" />
+			<span className="font-mono">{model}</span>
+		</span>
+	);
+}
+
+/** What a run is doing right now, with a bar for how much is placed. */
+function RunStatus({
+	run,
+	first,
+	onCancel,
+	className,
+}: {
+	readonly run: ReviewGuideState["run"];
+	/** Writing the first guide, rather than updating one. */
+	readonly first: boolean;
+	readonly onCancel: () => void;
+	readonly className?: string;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+	const reading = run === null || run.phase === "outlining";
+	const share = run === null || run.total === 0 ? 0 : run.assigned / run.total;
+	const progress =
+		run === null
+			? ""
+			: uiMessage("chat:review_guide_progress", {
+					assigned: run.assigned,
+					total: run.total,
+				});
+	const label = reading
+		? uiMessage("chat:review_guide_reading_changes")
+		: first
+			? progress
+			: run.forSha.length > 0
+				? uiMessage("chat:review_guide_updating_for", { sha: run.forSha })
+				: uiMessage("chat:review_guide_writing");
+	return (
+		<div
+			className={cn(
+				"flex min-w-0 items-center gap-3 whitespace-nowrap text-xs",
+				className,
+			)}
+		>
+			<LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
+			<span className="shrink-0 text-foreground tabular-nums">{label}</span>
+			{reading ? null : (
+				<span className="h-1 min-w-12 max-w-40 flex-1 overflow-hidden rounded-full bg-muted">
+					<span
+						className="block h-full rounded-full bg-primary transition-[width] duration-300"
+						style={{ width: `${Math.round(share * 100)}%` }}
+					/>
+				</span>
+			)}
+			{reading || first ? null : (
+				<span className="shrink-0 text-muted-foreground tabular-nums">
+					{progress}
+				</span>
+			)}
+			<button
+				type="button"
+				onClick={onCancel}
+				className="ml-auto shrink-0 text-muted-foreground hover:text-foreground"
+			>
+				{uiMessage("chat:review_guide_cancel")}
+			</button>
+		</div>
+	);
+}
+
+/**
+ * The first guide being written: what the agent is doing, and its chapters
+ * as they arrive, until there is an overview to show.
+ */
+function WritingGuide({
+	run,
+	writer,
+	onCancel,
+}: {
+	readonly run: ReviewGuideState["run"];
+	readonly writer: {
+		readonly providerId: ProviderId;
+		readonly model: string;
+	} | null;
+	readonly onCancel: () => void;
+}) {
+	const { message: uiMessage } = useUiMessages(["chat"]);
+	const chapters = run?.chapters ?? [];
+	return (
+		<div className="mx-auto flex max-w-md flex-col gap-5 pt-24">
+			<div className="flex flex-col items-center gap-2 text-center">
+				<p className="font-medium text-[15px] text-foreground">
+					{uiMessage("chat:review_guide_writing")}
+				</p>
+				{writer !== null ? (
+					<WriterLabel providerId={writer.providerId} model={writer.model} />
+				) : null}
+			</div>
+			<div className="rounded-[10px] bg-card px-4 py-3 ring-1 ring-border/60">
+				<RunStatus run={run} first onCancel={onCancel} />
+				<ol className="mt-3 flex flex-col gap-1.5 border-border/50 border-t pt-3">
+					{chapters.length === 0 ? (
+						<li className="text-[12px] text-muted-foreground">
+							{uiMessage("chat:review_guide_chapters_appear")}
+						</li>
+					) : (
+						chapters.map((chapter, index) => (
+							<li
+								key={chapter.id}
+								className="animate-in fade-in slide-in-from-bottom-1 flex items-baseline gap-2.5 text-[13px] duration-300"
+							>
+								<span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+									{twoDigits(index + 1)}
+								</span>
+								<span className="text-foreground">{chapter.title}</span>
+							</li>
+						))
+					)}
+				</ol>
+			</div>
+		</div>
+	);
+}
+
 function EmptyGuide({
 	state,
 	unavailableText,
+	lastError,
 	onGenerate,
 }: {
 	readonly state: ReviewGuideState | null;
 	readonly unavailableText: string | null;
+	readonly lastError: string | null;
 	readonly onGenerate: (force: boolean) => void;
 }) {
 	const { message: uiMessage } = useUiMessages(["chat"]);
@@ -513,17 +669,25 @@ function EmptyGuide({
 			<p className="text-[13px] text-muted-foreground leading-[22px]">
 				{blocked ? unavailableText : uiMessage("chat:review_guide_empty_body")}
 			</p>
+			{lastError !== null && !blocked ? (
+				<p className="mt-1 rounded-md bg-destructive/8 px-3 py-2 text-[12px] text-destructive leading-5">
+					{lastError}
+				</p>
+			) : null}
 			{blocked || state === null ? null : (
-				<div className="flex flex-col items-center gap-2 pt-3">
+				<div className="flex flex-col items-center gap-2.5 pt-3">
 					<Button variant="outline" onClick={() => onGenerate(tooLarge)}>
 						{tooLarge
 							? uiMessage("chat:review_guide_write_anyway")
-							: uiMessage("chat:review_guide_generate")}
+							: lastError !== null
+								? uiMessage("chat:review_guide_try_again")
+								: uiMessage("chat:review_guide_generate")}
 					</Button>
 					{state.writer !== null ? (
-						<span className="font-mono text-[11px] text-muted-foreground">
-							{state.writer.model}
-						</span>
+						<WriterLabel
+							providerId={state.writer.providerId}
+							model={state.writer.model}
+						/>
 					) : null}
 				</div>
 			)}
