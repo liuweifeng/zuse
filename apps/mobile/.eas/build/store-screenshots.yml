@@ -1,0 +1,13 @@
+build:
+  name: Capture iPad and iPhone Duo store screenshots
+  steps:
+    - eas/build
+    - eas/install_maestro
+    - run:
+        name: Verify app launch and capture supported displays
+        command: bash scripts/capture-store-screenshots.sh
+    - eas/upload_artifact:
+        name: Upload device screenshots
+        inputs:
+          type: build-artifact
+          path: store-screenshots/*

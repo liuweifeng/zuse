@@ -105,7 +105,9 @@ describe("mobile UI contracts", () => {
 			"onSelect: () => setCloudSandbox(provider.providerId)",
 		);
 		expect(newChat).not.toContain("/new-cloud-chat");
-		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(false);
+		expect(existsSync(`${process.cwd()}/app/(main)/new-cloud-chat.tsx`)).toBe(
+			false,
+		);
 	});
 	test("lets people remove a saved computer from Settings", () => {
 		const settings = readFileSync(
