@@ -17,7 +17,8 @@
 		"test:integration": "vitest run test/integration --passWithNoTests",
 		"android": "expo run:android",
 		"android:local": "APP_VARIANT=development EXPO_PUBLIC_APP_SCHEME=zuse-dev expo run:android --variant debug",
-		"gen:file-icons": "node scripts/gen-file-icons.mjs"
+		"gen:file-icons": "node scripts/gen-file-icons.mjs",
+		"eas-build-on-success": "if [ \"$EAS_BUILD_PROFILE\" = \"store-screenshots\" ]; then bash scripts/capture-store-screenshots.sh; fi"
 	},
 	"expo": {
 		"install": {

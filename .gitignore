@@ -52,7 +52,3 @@ apps/renderer/hugeicons-migration-report-*.html
 .pstack/
 
 dist-cloud/
-
-# EAS custom build recipes must be included in uploaded project archives.
-!apps/mobile/.eas/build
-!apps/mobile/.eas/build/**
