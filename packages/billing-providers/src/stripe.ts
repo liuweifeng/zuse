@@ -8,6 +8,7 @@ import {
 	type StripeCreditClient,
 } from "./stripe-credits.ts";
 import { deliverStripeOperation } from "./stripe-delivery.ts";
+import { stripeSubscriptionItems } from "./stripe-subscription.ts";
 
 export interface StripeBillingConfig {
 	readonly secretKey: Redacted.Redacted<string>;
@@ -402,14 +403,28 @@ export const makeStripeBillingProvider = (
 		});
 	const credits = makeStripeCredits({
 		priceId: config.prepaidCreditPriceId,
-		client: deps.creditClient ?? makeStripeCreditClient(sdk),
+		client:
+			deps.creditClient ??
+			makeStripeCreditClient(sdk, {
+				basePriceId: config.offerPrices["cloud-workspace-standard-v1"],
+				overagePriceId:
+					config.cloudBillingMode === "subscription-only"
+						? undefined
+						: config.cloudOveragePriceId,
+				automaticTaxEnabled: config.automaticTaxEnabled ?? true,
+			}),
 		store: deps.store,
 		customer,
 	});
 	return {
 		prepaidBalance: credits.balance,
 		prepaidCheckout: (input) =>
-			credits.checkout(input.accountId, input.amountCents, input.successUrl),
+			credits.checkout(
+				input.accountId,
+				input.amountCents,
+				input.successUrl,
+				input.activatePro,
+			),
 		providerId: "stripe",
 		recoverCustomers: () =>
 			Effect.gen(function* () {
@@ -454,14 +469,13 @@ export const makeStripeBillingProvider = (
 							"{CHECKOUT_ID}",
 							"{CHECKOUT_SESSION_ID}",
 						),
-						line_items: [
-							{ price, quantity: 1 },
-							...(input.offerId === "cloud-workspace-standard-v1" &&
-							config.cloudBillingMode !== "subscription-only" &&
-							config.cloudOveragePriceId
-								? [{ price: config.cloudOveragePriceId }]
-								: []),
-						],
+						line_items: stripeSubscriptionItems(
+							price,
+							input.offerId === "cloud-workspace-standard-v1" &&
+								config.cloudBillingMode !== "subscription-only"
+								? config.cloudOveragePriceId
+								: undefined,
+						),
 						metadata,
 						subscription_data: { metadata },
 						automatic_tax: { enabled: config.automaticTaxEnabled ?? true },

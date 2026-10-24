@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Activate Pro with a single $200 prepaid payment, with the balance covering subscription and cloud usage invoices.
 - Start chats without a project in isolated folders under `~/.zuse/threads`, with computer selection, a dedicated sidebar section, and a keyboard shortcut.
 - Use Stripe for new cloud subscriptions while preserving existing Polar subscriptions, with verified usage charging after the included allowance and enforcement of spending caps.
 - Enable organization beta access for selected users and their teams, with automatic access for approved creators' members and optional access for existing teams.

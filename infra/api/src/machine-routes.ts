@@ -1148,6 +1148,9 @@ export const routeMachineRequest = (
 				.prepaidCheckout({
 					accountId: workspace.ownerId,
 					amountCents: body.amountCents,
+					...(body.activatePro === undefined
+						? {}
+						: { activatePro: body.activatePro }),
 					successUrl: new URL(ApiPaths.billingPrepaidComplete, api.apiIssuer)
 						.href,
 				})

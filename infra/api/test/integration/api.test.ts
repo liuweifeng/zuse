@@ -1022,12 +1022,16 @@ describe("@zuse/api", () => {
 				available: true,
 				creditCents: 7500,
 			});
-			const buy = (amountCents: number) =>
+			const buy = (amountCents: number, activatePro?: boolean) =>
 				billingApi.fetch(
 					new Request(`${API_ISSUER}${ApiPaths.billingPrepaidCheckout}`, {
 						method: "POST",
 						headers,
-						body: JSON.stringify({ amountCents, accountId: "user_b" }),
+						body: JSON.stringify({
+							amountCents,
+							activatePro,
+							accountId: "user_b",
+						}),
 					}),
 				);
 			expect((await buy(2501)).status).toBe(400);
@@ -1036,6 +1040,13 @@ describe("@zuse/api", () => {
 			expect(purchases).toHaveBeenCalledWith({
 				accountId: "user_a",
 				amountCents: 2500,
+				successUrl: `${API_ISSUER}${ApiPaths.billingPrepaidComplete}`,
+			});
+			expect((await buy(20000, true)).status).toBe(200);
+			expect(purchases).toHaveBeenLastCalledWith({
+				accountId: "user_a",
+				amountCents: 20000,
+				activatePro: true,
 				successUrl: `${API_ISSUER}${ApiPaths.billingPrepaidComplete}`,
 			});
 			const webhook = await billingApi.fetch(
