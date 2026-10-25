@@ -6,8 +6,12 @@ import { connectionErrorMessage } from "./connection-error-message";
 export const CONNECTION_NOTICE_DELAY_MS = 1_200;
 /** Once shown, a notice stays long enough to read instead of flickering. */
 export const CONNECTION_NOTICE_MIN_VISIBLE_MS = 600;
-/** Failed attempts before the copy asks the user to check the computer. */
-const PERSISTENT_FAILURE_ATTEMPTS = 3;
+/**
+ * Failed attempts before the copy asks the user to check the computer. With
+ * the 1s, 2s, 4s, 8s backoff this is roughly 15 seconds of failures, so a
+ * brief blip never reads as the computer being unreachable.
+ */
+const PERSISTENT_FAILURE_ATTEMPTS = 5;
 
 export type ConnectionNotice = {
 	/** `progress` waits out the grace period; `problem` needs the user now. */

@@ -30,7 +30,7 @@ describe("connection notice", () => {
 	it("reserves reconnecting for failed attempts", () => {
 		expect(
 			connectionNotice(
-				snapshot({ status: "reconnecting", attempt: 1, error: "closed" }),
+				snapshot({ status: "reconnecting", attempt: 4, error: "closed" }),
 				"Studio",
 			),
 		).toMatchObject({ title: "Reconnecting to Studio…", canRetry: false });
@@ -39,7 +39,7 @@ describe("connection notice", () => {
 	it("offers retry once failures persist", () => {
 		expect(
 			connectionNotice(
-				snapshot({ status: "reconnecting", attempt: 3, error: "closed" }),
+				snapshot({ status: "reconnecting", attempt: 5, error: "closed" }),
 				"Studio",
 			),
 		).toMatchObject({
