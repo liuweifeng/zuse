@@ -510,7 +510,7 @@
 	"connect_link_card_set_up_one_of_the_connections_above_first": "请先设置上方的一种连接方式。",
 	"connect_link_card_create_link": "创建链接",
 	"connect_link_card_open_this_link_in_a_browser_paste_it_into_add_computer_or_scan_the_qr": "在浏览器中打开此链接、将其粘贴到“添加电脑”中，或扫描二维码。选择要使用的连接方式。",
-	"connect_link_card_connect_through": "连接通过",
+	"connect_link_card_connect_through": "连接方式",
 	"connect_link_card_connect_link": "连接链接",
 	"connect_link_card_finding_browser_address": "查找浏览器地址…",
 	"connect_link_card_copy_link": "复制链接",
