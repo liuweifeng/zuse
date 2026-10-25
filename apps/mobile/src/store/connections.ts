@@ -98,6 +98,10 @@ export const hydrateConnections = async (): Promise<void> => {
 	}
 };
 
+/**
+ * Save a computer after validating RPC access, or retain an already-approved
+ * nearby identity so its credential survives a failed initial connection.
+ */
 export const addConnection = async ({
 	host,
 	port,
@@ -257,9 +261,8 @@ export const updateConnectionLabel = async (
 };
 
 /**
- * Re-describe an already-paired environment and adopt its human label if the
- * server now reports a nicer one (e.g. after the Phase 1 machine-naming
- * change lands on desktop). No-op when the label is unchanged.
+ * Refresh a saved computer's label, identity, and capabilities from its live
+ * descriptor. Failed reads leave saved metadata intact; unchanged data is a no-op.
  */
 export const refreshConnectionLabel = async (
 	key: string,
@@ -382,6 +385,7 @@ const redeemPairingCodeIfNeeded = async ({
 	});
 };
 
+/** Read the live descriptor, preserving connection failures when access is required. */
 const describeEnvironment = async (
 	options: WsProtocolOptions,
 	required = false,
