@@ -42,6 +42,7 @@ const makeHarness = (input?: {
 		next: Options,
 	) => boolean;
 	requiresNetwork?: (options: Options) => boolean;
+	now?: () => number;
 }) => {
 	let online = input?.online ?? true;
 	let nextId = 0;
@@ -53,6 +54,7 @@ const makeHarness = (input?: {
 		keyOf: (options) => options.key,
 		isOnline: () => online,
 		requiresNetwork: input?.requiresNetwork,
+		now: input?.now,
 		maxAutomaticAttempts: input?.maxAutomaticAttempts,
 		prepareOptions: input?.prepareOptions,
 		validateClient: input?.validateClient,
@@ -660,4 +662,95 @@ test("late validation cannot install a superseded client or clear its replacemen
 	expect(harness.disposed).toEqual([1]);
 	await harness.supervisor.dispose();
 	expect(harness.disposed).toEqual([1, 2]);
+});
+
+describe("session health", () => {
+	test("replaces a lost stable session at once without counting a failure", async () => {
+		let now = 0;
+		const harness = makeHarness({ now: () => now });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		now = 25_000;
+
+		expect(entry.reportFailure(new Error("socket closed"), 1)).toBe(true);
+		expect(harness.scheduled).toHaveLength(0);
+		await waitUntil(() => entry.snapshot().generation === 2);
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			attempt: 0,
+			error: null,
+		});
+	});
+
+	test("keeps backing off when sessions drop right after connecting", async () => {
+		const harness = makeHarness({ now: () => 0 });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		entry.reportFailure(new Error("dropped"), 1);
+		harness.scheduled[0]?.fn();
+		await waitUntil(() => entry.snapshot().generation === 2);
+		entry.reportFailure(new Error("dropped again"), 2);
+
+		expect(harness.scheduled.map(({ delayMs }) => delayMs)).toEqual([
+			1_000, 2_000,
+		]);
+		expect(entry.snapshot()).toMatchObject({
+			status: "reconnecting",
+			attempt: 2,
+		});
+	});
+
+	test("keeps a session that answers the health probe", async () => {
+		const harness = makeHarness({ validateClient: async () => undefined });
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+
+		await expect(entry.checkHealth(3_000)).resolves.toBe("healthy");
+		expect(entry.snapshot()).toMatchObject({
+			status: "connected",
+			generation: 1,
+		});
+		expect(harness.disposed).toEqual([]);
+	});
+
+	test("replaces a session that stops answering", async () => {
+		const harness = makeHarness({
+			validateClient: (client) =>
+				client.id === 1 && probing
+					? new Promise<void>(() => undefined)
+					: Promise.resolve(),
+		});
+		let probing = false;
+		const entry = harness.supervisor.get({ key: "remote" });
+		await runClient(entry.getClient());
+		probing = true;
+
+		const health = entry.checkHealth(3_000);
+		await waitUntil(() => harness.scheduled.length === 1);
+		expect(harness.scheduled[0]?.delayMs).toBe(3_000);
+		harness.scheduled[0]?.fn();
+
+		await expect(health).resolves.toBe("replaced");
+		await waitUntil(() => entry.snapshot().generation === 2);
+		expect(harness.disposed).toEqual([1]);
+		expect(entry.snapshot()).toMatchObject({ status: "connected", attempt: 0 });
+	});
+
+	test("skips the remaining backoff when the app resumes", async () => {
+		let fail = true;
+		const harness = makeHarness({
+			createClient: async () => {
+				if (fail) throw new Error("network down");
+				return { client: { id: 1 }, dispose: async () => undefined };
+			},
+		});
+		const entry = harness.supervisor.get({ key: "remote" });
+		await expect(runClient(entry.getClient())).rejects.toThrow("network down");
+		fail = false;
+
+		await expect(entry.checkHealth(3_000)).resolves.toBe("pending");
+		expect(harness.scheduled[0]?.cancelled).toBe(true);
+		await waitUntil(() => entry.snapshot().status === "connected");
+	});
 });

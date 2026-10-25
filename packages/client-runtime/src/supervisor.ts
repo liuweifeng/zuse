@@ -19,6 +19,9 @@ export type ConnectionSnapshot = {
 	readonly error: string | null;
 };
 
+/** Result of probing a supervised connection after the app resumes. */
+export type ConnectionHealth = "healthy" | "replaced" | "pending";
+
 export class ClientConnectionError extends Data.TaggedError(
 	"ClientConnectionError",
 )<{
@@ -43,6 +46,11 @@ export type ConnectionSupervisorEntry<Client> = {
 		operation: (client: Client) => Promise<A>,
 	) => Promise<A>;
 	readonly retryNow: () => void;
+	/**
+	 * Probe a live session and replace it immediately when it no longer
+	 * answers. A connection waiting out its backoff retries right away.
+	 */
+	readonly checkHealth: (timeoutMs: number) => Promise<ConnectionHealth>;
 	readonly remove: () => Promise<void>;
 	readonly snapshot: () => ConnectionSnapshot;
 	readonly subscribe: (
@@ -59,6 +67,7 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	) => Promise<ClientSession<Client>>;
 	readonly validateClient?: (client: Client) => Promise<void>;
 	readonly isOnline: () => boolean;
+	readonly now?: () => number;
 	/**
 	 * Whether this connection's transport crosses the network. In-process
 	 * transports (an Electron IPC bridge) ignore platform offline edges.
@@ -85,6 +94,12 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 
 const INITIAL_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 16_000;
+/**
+ * A session that stayed up this long is healthy: losing it reconnects at once
+ * without counting as a failure. Shorter sessions keep their backoff so a
+ * socket that drops right after connecting cannot spin at the retry floor.
+ */
+const STABLE_CONNECTION_MS = 20_000;
 
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -123,6 +138,18 @@ export const createConnectionSupervisor = <Options, Client>(
 		for (const entry of entries.values()) entry.setOnline(online);
 	};
 
+	const checkHealth = (
+		timeoutMs: number,
+	): Promise<
+		readonly { readonly options: Options; readonly health: ConnectionHealth }[]
+	> =>
+		Promise.all(
+			[...entries.values()].map(async (entry) => ({
+				options: entry.currentOptions(),
+				health: await entry.checkHealth(timeoutMs),
+			})),
+		);
+
 	const snapshots = (): readonly ConnectionSnapshot[] =>
 		[...entries.values()].map((entry) => entry.snapshot());
 
@@ -132,7 +159,7 @@ export const createConnectionSupervisor = <Options, Client>(
 	const remove = (options: Options): Promise<void> =>
 		entries.get(deps.keyOf(options))?.remove() ?? Promise.resolve();
 
-	return { get, setOnline, snapshots, dispose, remove };
+	return { get, setOnline, checkHealth, snapshots, dispose, remove };
 };
 
 class SupervisorEntryImpl<Options, Client>
@@ -151,6 +178,9 @@ class SupervisorEntryImpl<Options, Client>
 	>();
 	private epoch = 0;
 	private removed = false;
+	private connectedAt: number | null = null;
+	/** Failures before the current session; kept until the session proves stable. */
+	private carriedAttempts = 0;
 	private state: ConnectionSnapshot;
 
 	constructor(
@@ -189,6 +219,10 @@ class SupervisorEntryImpl<Options, Client>
 
 	snapshot(): ConnectionSnapshot {
 		return this.state;
+	}
+
+	currentOptions(): Options {
+		return this.options;
 	}
 
 	subscribe(listener: (snapshot: ConnectionSnapshot) => void): () => void {
@@ -235,9 +269,48 @@ class SupervisorEntryImpl<Options, Client>
 			return false;
 		}
 		this.diagnostic("failure.reported", { reason: messageOf(cause) });
+		const stable = this.isStable();
 		this.invalidateClient();
-		this.markFailure(cause);
+		if (stable) this.reconnectLostSession("failure.stable_session_lost");
+		else this.markFailure(cause, this.carriedAttempts);
 		return true;
+	}
+
+	async checkHealth(timeoutMs: number): Promise<ConnectionHealth> {
+		if (this.removed) return "pending";
+		const client = this.client;
+		if (client === null || this.state.status !== "connected") {
+			// A foreground edge is fresh evidence; skip the remaining backoff.
+			if (this.state.status === "reconnecting" && this.retryCancel !== null) {
+				this.diagnostic("health.retry_backoff");
+				this.retryNow();
+			}
+			return "pending";
+		}
+		const probe = this.deps.validateClient;
+		if (probe === undefined) return "healthy";
+		const epoch = this.epoch;
+		let cancelTimeout: () => void = () => undefined;
+		try {
+			await Promise.race([
+				probe(client),
+				new Promise<never>((_, reject) => {
+					cancelTimeout = this.deps.schedule(timeoutMs, () =>
+						reject(new Error(`health check timed out after ${timeoutMs}ms`)),
+					);
+				}),
+			]);
+			return "healthy";
+		} catch (cause) {
+			if (this.removed || epoch !== this.epoch || this.client !== client)
+				return this.state.status === "connected" ? "healthy" : "pending";
+			this.diagnostic("health.failed", { reason: messageOf(cause) });
+			this.invalidateClient();
+			this.reconnectLostSession("health.replace");
+			return "replaced";
+		} finally {
+			cancelTimeout();
+		}
 	}
 
 	dispatchCommand<A>(
@@ -353,6 +426,8 @@ class SupervisorEntryImpl<Options, Client>
 				throw new Error("connection superseded");
 			if (this.inFlight === pending) this.inFlight = null;
 			this.client = client;
+			this.connectedAt = this.now();
+			this.carriedAttempts = this.state.attempt;
 			const reconnect = this.state.generation > 0;
 			this.emit({
 				status: "connected",
@@ -402,7 +477,34 @@ class SupervisorEntryImpl<Options, Client>
 		}
 	}
 
-	private markFailure(cause: unknown): void {
+	private now(): number {
+		return this.deps.now?.() ?? Date.now();
+	}
+
+	private isStable(): boolean {
+		return (
+			this.connectedAt !== null &&
+			this.now() - this.connectedAt >= STABLE_CONNECTION_MS
+		);
+	}
+
+	/** Replace a session that was healthy; this is not a failed attempt. */
+	private reconnectLostSession(event: string): void {
+		this.carriedAttempts = 0;
+		this.clearRetry();
+		this.diagnostic(event);
+		if (!this.isOnline()) {
+			this.emit({ status: "offline", error: null });
+			return;
+		}
+		this.emit({ status: "reconnecting", attempt: 0, error: null });
+		void this.ensureClient().catch(() => undefined);
+	}
+
+	private markFailure(
+		cause: unknown,
+		previousAttempts = this.state.attempt,
+	): void {
 		if (!this.isOnline()) {
 			this.emit({ status: "offline", error: null });
 			return;
@@ -412,7 +514,7 @@ class SupervisorEntryImpl<Options, Client>
 			this.emit({ status: "blockedAuth", error: messageOf(cause) });
 			return;
 		}
-		const attempt = this.state.attempt + 1;
+		const attempt = previousAttempts + 1;
 		if (attempt >= this.maxAutomaticAttempts()) {
 			this.emit({ status: "error", attempt, error: messageOf(cause) });
 			this.diagnostic("retry.exhausted", {
@@ -439,6 +541,7 @@ class SupervisorEntryImpl<Options, Client>
 
 	private invalidateClient(): void {
 		this.epoch += 1;
+		this.connectedAt = null;
 		this.attemptController?.abort();
 		this.attemptController = null;
 		this.inFlight = null;

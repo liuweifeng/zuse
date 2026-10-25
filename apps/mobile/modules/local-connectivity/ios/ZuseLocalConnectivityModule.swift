@@ -242,8 +242,10 @@ public final class ZuseLocalConnectivityModule: Module {
       self.startDiscovery()
     }
 
+    // Live proxies outlast short trips to another app. If iOS reclaims them
+    // while suspended, the resume health check reopens that one route.
     OnAppEntersBackground {
-      self.stopDiscovery()
+      self.stopDiscovery(cancelProxies: false)
     }
 
     OnDestroy {

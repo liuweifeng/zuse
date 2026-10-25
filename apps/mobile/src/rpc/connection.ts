@@ -5,6 +5,7 @@ import {
 } from "@zuse/client-runtime/connection-routes";
 import type { EnvironmentWakeIntent } from "@zuse/client-runtime/environment-runtime";
 import {
+	type ConnectionHealth,
 	type ConnectionSnapshot,
 	type ConnectionSupervisorEntry,
 	createConnectionSupervisor,
@@ -175,7 +176,9 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 				descriptor.capabilities,
 			);
 		},
-		isOnline: () => currentOnline,
+		// Sockets are probed on resume instead of closed in the background, so
+		// mobile has no platform offline edge; failures drive recovery.
+		isOnline: () => true,
 		shouldReconnectOnOptionsChange: (previous, next) =>
 			previous.host !== next.host ||
 			previous.port !== next.port ||
@@ -194,10 +197,6 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		isIgnorableFailure: isIntentionalConnectionInterruption,
 	},
 );
-
-let currentOnline = true;
-
-export const isConnectionOnline = (): boolean => currentOnline;
 
 const connectionEntry = (
 	options: WsProtocolOptions,
@@ -263,11 +262,18 @@ export const subscribeConnection = (
 	listener: (snapshot: ConnectionSnapshot) => void,
 ): (() => void) => connectionEntry(options).subscribe(listener);
 
-export const setConnectionOnline = (online: boolean): void => {
-	logConnectionDiagnostic("runtime.online_set", { online });
-	currentOnline = online;
-	supervisor.setOnline(online);
-};
+/**
+ * Probe every supervised connection after the app returns to the foreground.
+ * Healthy sockets are kept; silent dead ones are replaced without a backoff.
+ */
+export const checkConnectionsHealth = (
+	timeoutMs: number,
+): Promise<
+	readonly {
+		readonly options: WsProtocolOptions;
+		readonly health: ConnectionHealth;
+	}[]
+> => supervisor.checkHealth(timeoutMs);
 
 export const getConnectionSnapshot = (
 	options: WsProtocolOptions,

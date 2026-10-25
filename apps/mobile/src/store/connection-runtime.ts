@@ -5,17 +5,14 @@ import { setConnectionSnapshot } from "~/lib/connection-snapshot-state";
 import { cloudRuntimeReady } from "~/rpc/cloud-runtime";
 import {
 	type ConnectionSnapshot,
+	checkConnectionsHealth,
 	getConnectionSnapshot,
 	retryConnectionNow,
-	setConnectionOnline,
 	subscribeConnection,
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { recoverLocalRoute } from "./local-route-recovery";
-import {
-	retryMobileClientBusConnections,
-	setMobileClientBusOnline,
-} from "./mobile-client-bus";
+import { retryMobileClientBusConnections } from "./mobile-client-bus";
 import { appAtomRegistry } from "./registry";
 
 export const snapshotsByConnectionAtom = Atom.make<
@@ -27,26 +24,38 @@ export const connectionSnapshotAtom = Atom.family((connKey: string) =>
 	Atom.make((get) => get(snapshotsByConnectionAtom)[connKey]),
 );
 
+/** Probe deadline after resume; a dead socket usually fails much sooner. */
+const RESUME_HEALTH_TIMEOUT_MS = 3_000;
+
 let appStateInstalled = false;
 
-const installAppStateOnlineBridge = () => {
+const isLocalProxyRoute = (options: WsProtocolOptions): boolean =>
+	options.host === "127.0.0.1" && options.serverKeyPin !== undefined;
+
+/**
+ * Sockets stay open in the background. On resume each connection is probed:
+ * live sockets carry on untouched, and only dead ones are replaced. Local
+ * Bonjour proxies may not survive suspension, so those reopen their route.
+ */
+const resumeConnections = async (): Promise<void> => {
+	const results = await checkConnectionsHealth(RESUME_HEALTH_TIMEOUT_MS);
+	for (const { options, health } of results) {
+		if (health === "healthy" || options.key === undefined) continue;
+		if (isLocalProxyRoute(options)) recoverLocalRoute(options.key);
+		if (health === "replaced") retryMobileClientBusConnections(options.key);
+	}
+};
+
+const installAppStateResumeBridge = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
-	let wasBackgrounded = AppState.currentState === "background";
-	if (wasBackgrounded) {
-		setConnectionOnline(false);
-		setMobileClientBusOnline(false);
-	}
+	let backgrounded = AppState.currentState === "background";
 	AppState.addEventListener("change", (next) => {
 		if (next === "background") {
-			wasBackgrounded = true;
-			setConnectionOnline(false);
-			setMobileClientBusOnline(false);
-		} else if (next === "active" && wasBackgrounded) {
-			wasBackgrounded = false;
-			setConnectionOnline(true);
-			setMobileClientBusOnline(true);
-			retryMobileClientBusConnections();
+			backgrounded = true;
+		} else if (next === "active" && backgrounded) {
+			backgrounded = false;
+			void resumeConnections();
 		}
 	});
 };
@@ -66,7 +75,7 @@ export const watchConnection = (
 		!cloudRuntimeReady(options.cloudWorkspaceId)
 	)
 		return () => undefined;
-	installAppStateOnlineBridge();
+	installAppStateResumeBridge();
 	patchSnapshot(connKey, getConnectionSnapshot(options));
 	return subscribeConnection(options, (snapshot) => {
 		patchSnapshot(connKey, snapshot);
