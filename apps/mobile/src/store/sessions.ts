@@ -157,7 +157,8 @@ type SnapshotStreamSupervisorOptions = {
 /**
  * The server may end a summary stream on a healthy socket (a projection reset
  * or a restarted subscription). Resubscribe on that same socket with a capped
- * backoff; only a failed stream says anything about the connection.
+ * backoff. Failures also report transport health, but must resubscribe when
+ * the supervisor keeps a healthy socket.
  */
 const SNAPSHOT_STREAM_RESUBSCRIBE = Schedule.exponential("500 millis").pipe(
 	Schedule.modifyDelay(({ duration }) =>
@@ -168,7 +169,7 @@ const SNAPSHOT_STREAM_RESUBSCRIBE = Schedule.exponential("500 millis").pipe(
 	Schedule.jittered,
 );
 
-const superviseSnapshotStream = <E, R>(
+export const superviseSnapshotStream = <E, R>(
 	program: Effect.Effect<void, E, R>,
 	options: SnapshotStreamSupervisorOptions,
 ): Effect.Effect<void, never, R> =>
@@ -182,10 +183,6 @@ const superviseSnapshotStream = <E, R>(
 				});
 			}),
 		),
-		Effect.repeat({
-			schedule: SNAPSHOT_STREAM_RESUBSCRIBE,
-			while: () => options.isReady(),
-		}),
 		Effect.catch((cause) =>
 			Effect.sync(() => {
 				if (!options.isReady()) {
@@ -199,6 +196,10 @@ const superviseSnapshotStream = <E, R>(
 				);
 			}),
 		),
+		Effect.repeat({
+			schedule: SNAPSHOT_STREAM_RESUBSCRIBE,
+			while: () => options.isReady(),
+		}),
 		Effect.ensuring(
 			Effect.sync(() => {
 				if (!options.isReady()) {
@@ -663,6 +664,7 @@ const hydrateSessionsOnce = async (
 										change.chats,
 									),
 								);
+								setConnectionError(connKey, null);
 								chatReady = true;
 								markReady();
 							} else {
@@ -710,6 +712,7 @@ const hydrateSessionsOnce = async (
 										patchConnectionStatuses(state, connKey, change.sessions),
 									);
 								});
+								setConnectionError(connKey, null);
 								sessionsReady = true;
 								markReady();
 								void persistConnectionBundles(connKey);

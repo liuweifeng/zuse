@@ -219,7 +219,7 @@ class SupervisorEntryImpl<Options, Client>
 	private connectedAt: number | null = null;
 	/** Failures before the current session; kept until the session proves stable. */
 	private carriedAttempts = 0;
-	private confirmingFailure = false;
+	private confirmingFailureEpoch: number | null = null;
 	private state: ConnectionSnapshot;
 
 	constructor(
@@ -390,9 +390,9 @@ class SupervisorEntryImpl<Options, Client>
 
 	/** One probe at a time decides whether reported failures are real. */
 	private async confirmFailure(cause: unknown, client: Client): Promise<void> {
-		if (this.confirmingFailure) return;
-		this.confirmingFailure = true;
 		const epoch = this.epoch;
+		if (this.confirmingFailureEpoch === epoch) return;
+		this.confirmingFailureEpoch = epoch;
 		try {
 			const failure = await this.probe(client, FAILURE_PROBE_TIMEOUT_MS);
 			if (this.removed || epoch !== this.epoch || this.client !== client)
@@ -403,7 +403,8 @@ class SupervisorEntryImpl<Options, Client>
 			}
 			this.replaceAfterFailure(failure);
 		} finally {
-			this.confirmingFailure = false;
+			if (this.confirmingFailureEpoch === epoch)
+				this.confirmingFailureEpoch = null;
 		}
 	}
 

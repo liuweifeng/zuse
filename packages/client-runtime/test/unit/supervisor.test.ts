@@ -829,3 +829,40 @@ describe("probe-confirmed failures", () => {
 		expect(harness.scheduled).toHaveLength(0);
 	});
 });
+
+test("old probes cannot suppress failures or clear probes on a replacement session", async () => {
+	const oldProbe = deferred<void>();
+	const newProbe = deferred<void>();
+	let probing = false;
+	let newProbeCalls = 0;
+	const harness = makeHarness({
+		confirmFailuresWithProbe: true,
+		validateClient: (client) => {
+			if (!probing) return Promise.resolve();
+			if (client.id === 1) return oldProbe.promise;
+			if (client.id === 2) {
+				newProbeCalls += 1;
+				return newProbe.promise;
+			}
+			return Promise.resolve();
+		},
+	});
+	const entry = harness.supervisor.get({ key: "remote" });
+	await runClient(entry.getClient());
+	probing = true;
+	entry.reportFailure(new Error("old failure"));
+	probing = false;
+	entry.replaceSession();
+	await waitUntil(() => entry.snapshot().generation === 2);
+	probing = true;
+	newProbeCalls = 0;
+	entry.reportFailure(new Error("replacement failed"));
+	expect(newProbeCalls).toBe(1);
+	oldProbe.resolve(undefined);
+	await new Promise<void>((resolve) => setTimeout(resolve, 0));
+	entry.reportFailure(new Error("same replacement failed again"));
+	expect(newProbeCalls).toBe(1);
+	newProbe.reject(new Error("replacement socket closed"));
+	await waitUntil(() => harness.disposed.includes(2));
+	expect(entry.snapshot().status).toBe("reconnecting");
+});

@@ -18,7 +18,9 @@ changes must preserve.
   (`connect.describe`, 5 second deadline) and only a failed probe replaces it.
   A dead socket fails the probe immediately; a stale error from an earlier
   socket is ignored. Retried commands still replace at once so they never stay
-  parked on a healthy socket.
+  parked on a healthy socket. Failure probes are deduplicated per session
+  epoch, so an older session's pending probe cannot suppress a replacement
+  session's failure or clear its active probe.
 - **Definitive failures skip the probe.** An expired account grant
   (`credential-expired`) replaces the session immediately, which mints a new
   grant.
@@ -26,7 +28,10 @@ changes must preserve.
   least 20 seconds reconnects without backoff and without counting a failure.
   Shorter sessions keep their backoff so a flapping route cannot spin.
 - **Streams the server ends are resubscribed on the same socket** with a
-  capped backoff. Only a failed stream says anything about the transport.
+  capped backoff. Failed subscriptions also resubscribe after reporting the
+  failure for a health probe. A successful probe keeps the socket and the
+  subscription still recovers; a fresh snapshot clears its connection error.
+  A failure before the first snapshot rejects readiness without retrying.
 
 ## App lifecycle
 
