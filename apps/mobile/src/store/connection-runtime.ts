@@ -7,8 +7,10 @@ import {
 	type ConnectionSnapshot,
 	checkConnectionsHealth,
 	getConnectionSnapshot,
+	replaceConnectionSessions,
 	retryConnectionNow,
 	subscribeConnection,
+	supervisedConnectionOptions,
 } from "~/rpc/connection";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import { recoverLocalRoute } from "./local-route-recovery";
@@ -24,8 +26,13 @@ export const connectionSnapshotAtom = Atom.family((connKey: string) =>
 	Atom.make((get) => get(snapshotsByConnectionAtom)[connKey]),
 );
 
-/** Probe deadline after resume; a dead socket usually fails much sooner. */
-const RESUME_HEALTH_TIMEOUT_MS = 3_000;
+/**
+ * After this long in the background a suspended app has often lost its
+ * sockets without a close event, so sessions are replaced instead of probed.
+ */
+const LONG_BACKGROUND_MS = 10_000;
+/** Probe deadline after a short background; a radio can take a moment. */
+const RESUME_HEALTH_TIMEOUT_MS = 8_000;
 
 let appStateInstalled = false;
 
@@ -33,11 +40,25 @@ const isLocalProxyRoute = (options: WsProtocolOptions): boolean =>
 	options.host === "127.0.0.1" && options.serverKeyPin !== undefined;
 
 /**
- * Sockets stay open in the background. On resume each connection is probed:
- * live sockets carry on untouched, and only dead ones are replaced. Local
- * Bonjour proxies may not survive suspension, so those reopen their route.
+ * Sockets stay open in the background. A short trip away probes each
+ * session and only replaces dead ones; a long one replaces them at once.
+ * Local Bonjour proxies may not survive suspension, so those reopen their
+ * route, which reconnects through the fresh proxy in one step.
  */
-const resumeConnections = async (): Promise<void> => {
+const resumeConnections = async (backgroundMs: number): Promise<void> => {
+	if (backgroundMs >= LONG_BACKGROUND_MS) {
+		for (const options of supervisedConnectionOptions()) {
+			if (options.key !== undefined && isLocalProxyRoute(options))
+				recoverLocalRoute(options.key);
+		}
+		for (const options of replaceConnectionSessions(
+			(candidate) => !isLocalProxyRoute(candidate),
+		)) {
+			if (options.key !== undefined)
+				retryMobileClientBusConnections(options.key);
+		}
+		return;
+	}
 	const results = await checkConnectionsHealth(RESUME_HEALTH_TIMEOUT_MS);
 	for (const { options, health } of results) {
 		if (health === "healthy" || options.key === undefined) continue;
@@ -49,13 +70,15 @@ const resumeConnections = async (): Promise<void> => {
 const installAppStateResumeBridge = () => {
 	if (appStateInstalled) return;
 	appStateInstalled = true;
-	let backgrounded = AppState.currentState === "background";
+	let backgroundedAt: number | null =
+		AppState.currentState === "background" ? Date.now() : null;
 	AppState.addEventListener("change", (next) => {
 		if (next === "background") {
-			backgrounded = true;
-		} else if (next === "active" && backgrounded) {
-			backgrounded = false;
-			void resumeConnections();
+			backgroundedAt ??= Date.now();
+		} else if (next === "active" && backgroundedAt !== null) {
+			const backgroundMs = Date.now() - backgroundedAt;
+			backgroundedAt = null;
+			void resumeConnections(backgroundMs);
 		}
 	});
 };
@@ -86,12 +109,7 @@ export const retryConnection = (
 	connKey: string,
 	options: WsProtocolOptions,
 ): void => {
-	if (
-		options.host === "127.0.0.1" &&
-		options.serverKeyPin !== undefined &&
-		recoverLocalRoute(connKey)
-	)
-		return;
+	if (isLocalProxyRoute(options) && recoverLocalRoute(connKey)) return;
 	retryConnectionNow(options);
 	retryMobileClientBusConnections(connKey);
 };

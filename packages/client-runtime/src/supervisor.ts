@@ -51,6 +51,12 @@ export type ConnectionSupervisorEntry<Client> = {
 	 * answers. A connection waiting out its backoff retries right away.
 	 */
 	readonly checkHealth: (timeoutMs: number) => Promise<ConnectionHealth>;
+	/**
+	 * Replace the live session without counting a failure, or skip the
+	 * remaining backoff. Used after a long background, where mobile systems
+	 * often kill sockets without a close event.
+	 */
+	readonly replaceSession: () => void;
 	readonly remove: () => Promise<void>;
 	readonly snapshot: () => ConnectionSnapshot;
 	readonly subscribe: (
@@ -89,6 +95,12 @@ export type ConnectionSupervisorDeps<Options, Client> = {
 	 * self-hosted computers keep retrying until they come back.
 	 */
 	readonly maxAutomaticAttempts?: number | ((options: Options) => number);
+	/**
+	 * Probe the live session before acting on a reported failure. A stale
+	 * error from an earlier socket, or one failed stream, then cannot tear
+	 * down a healthy connection. A dead socket fails the probe immediately.
+	 */
+	readonly confirmFailuresWithProbe?: boolean;
 	readonly onDiagnostic?: (diagnostic: ConnectionDiagnostic) => void;
 };
 
@@ -100,6 +112,8 @@ const MAX_BACKOFF_MS = 16_000;
  * socket that drops right after connecting cannot spin at the retry floor.
  */
 const STABLE_CONNECTION_MS = 20_000;
+/** Deadline for confirming a reported failure on the live session. */
+const FAILURE_PROBE_TIMEOUT_MS = 5_000;
 
 const messageOf = (cause: unknown): string =>
 	cause instanceof Error ? cause.message : String(cause);
@@ -159,7 +173,31 @@ export const createConnectionSupervisor = <Options, Client>(
 	const remove = (options: Options): Promise<void> =>
 		entries.get(deps.keyOf(options))?.remove() ?? Promise.resolve();
 
-	return { get, setOnline, checkHealth, snapshots, dispose, remove };
+	/** Options of every supervised connection. */
+	const optionsList = (): readonly Options[] =>
+		[...entries.values()].map((entry) => entry.currentOptions());
+
+	/** Replace the live sessions that match; returns their options. */
+	const replaceSessions = (
+		filter: (options: Options) => boolean = () => true,
+	): readonly Options[] =>
+		[...entries.values()].flatMap((entry) => {
+			const options = entry.currentOptions();
+			if (!filter(options)) return [];
+			entry.replaceSession();
+			return [options];
+		});
+
+	return {
+		get,
+		setOnline,
+		checkHealth,
+		optionsList,
+		replaceSessions,
+		snapshots,
+		dispose,
+		remove,
+	};
 };
 
 class SupervisorEntryImpl<Options, Client>
@@ -181,6 +219,7 @@ class SupervisorEntryImpl<Options, Client>
 	private connectedAt: number | null = null;
 	/** Failures before the current session; kept until the session proves stable. */
 	private carriedAttempts = 0;
+	private confirmingFailure = false;
 	private state: ConnectionSnapshot;
 
 	constructor(
@@ -240,6 +279,18 @@ class SupervisorEntryImpl<Options, Client>
 	}
 
 	reportFailure(cause: unknown, expectedGeneration?: number): boolean {
+		return this.handleFailure(
+			cause,
+			expectedGeneration,
+			this.deps.confirmFailuresWithProbe === true,
+		);
+	}
+
+	private handleFailure(
+		cause: unknown,
+		expectedGeneration: number | undefined,
+		confirmWithProbe: boolean,
+	): boolean {
 		if (this.removed) return false;
 		if (this.deps.isIgnorableFailure?.(cause) === true) {
 			this.diagnostic("failure.ignored", {
@@ -269,11 +320,28 @@ class SupervisorEntryImpl<Options, Client>
 			return false;
 		}
 		this.diagnostic("failure.reported", { reason: messageOf(cause) });
-		const stable = this.isStable();
-		this.invalidateClient();
-		if (stable) this.reconnectLostSession("failure.stable_session_lost");
-		else this.markFailure(cause, this.carriedAttempts);
+		const client = this.client;
+		if (
+			confirmWithProbe &&
+			this.deps.validateClient !== undefined &&
+			client !== null
+		) {
+			void this.confirmFailure(cause, client);
+			return true;
+		}
+		this.replaceAfterFailure(cause);
 		return true;
+	}
+
+	replaceSession(): void {
+		if (this.removed) return;
+		if (this.client !== null && this.state.status === "connected") {
+			this.invalidateClient();
+			this.reconnectLostSession("session.replace");
+			return;
+		}
+		if (this.state.status === "reconnecting" && this.retryCancel !== null)
+			this.retryNow();
 	}
 
 	async checkHealth(timeoutMs: number): Promise<ConnectionHealth> {
@@ -287,30 +355,64 @@ class SupervisorEntryImpl<Options, Client>
 			}
 			return "pending";
 		}
-		const probe = this.deps.validateClient;
-		if (probe === undefined) return "healthy";
 		const epoch = this.epoch;
+		const failure = await this.probe(client, timeoutMs);
+		if (failure === null) return "healthy";
+		if (this.removed || epoch !== this.epoch || this.client !== client)
+			return this.state.status === "connected" ? "healthy" : "pending";
+		this.diagnostic("health.failed", { reason: messageOf(failure) });
+		this.invalidateClient();
+		this.reconnectLostSession("health.replace");
+		return "replaced";
+	}
+
+	/** Resolve null when the session answers, or the failure when it does not. */
+	private async probe(client: Client, timeoutMs: number): Promise<unknown> {
+		const validate = this.deps.validateClient;
+		if (validate === undefined) return null;
 		let cancelTimeout: () => void = () => undefined;
 		try {
 			await Promise.race([
-				probe(client),
+				validate(client),
 				new Promise<never>((_, reject) => {
 					cancelTimeout = this.deps.schedule(timeoutMs, () =>
 						reject(new Error(`health check timed out after ${timeoutMs}ms`)),
 					);
 				}),
 			]);
-			return "healthy";
+			return null;
 		} catch (cause) {
-			if (this.removed || epoch !== this.epoch || this.client !== client)
-				return this.state.status === "connected" ? "healthy" : "pending";
-			this.diagnostic("health.failed", { reason: messageOf(cause) });
-			this.invalidateClient();
-			this.reconnectLostSession("health.replace");
-			return "replaced";
+			return cause;
 		} finally {
 			cancelTimeout();
 		}
+	}
+
+	/** One probe at a time decides whether reported failures are real. */
+	private async confirmFailure(cause: unknown, client: Client): Promise<void> {
+		if (this.confirmingFailure) return;
+		this.confirmingFailure = true;
+		const epoch = this.epoch;
+		try {
+			const failure = await this.probe(client, FAILURE_PROBE_TIMEOUT_MS);
+			if (this.removed || epoch !== this.epoch || this.client !== client)
+				return;
+			if (failure === null) {
+				this.diagnostic("failure.unconfirmed", { reason: messageOf(cause) });
+				return;
+			}
+			this.replaceAfterFailure(failure);
+		} finally {
+			this.confirmingFailure = false;
+		}
+	}
+
+	private replaceAfterFailure(cause: unknown): void {
+		this.diagnostic("failure.replace", { reason: messageOf(cause) });
+		const stable = this.isStable();
+		this.invalidateClient();
+		if (stable) this.reconnectLostSession("failure.stable_session_lost");
+		else this.markFailure(cause, this.carriedAttempts);
 	}
 
 	dispatchCommand<A>(
@@ -324,7 +426,9 @@ class SupervisorEntryImpl<Options, Client>
 				try {
 					return await operation(await this.ensureClient());
 				} catch (cause) {
-					if (shouldRetry(cause)) this.reportFailure(cause);
+					// A retried command waits for the next session, so its failure
+					// replaces the socket without a probe that could leave it parked.
+					if (shouldRetry(cause)) this.handleFailure(cause, undefined, false);
 					throw cause;
 				}
 			},

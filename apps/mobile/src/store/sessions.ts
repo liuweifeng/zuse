@@ -9,7 +9,7 @@ import type {
 	SessionStatus,
 	WorktreeId,
 } from "@zuse/contracts";
-import { Effect, Fiber, Stream } from "effect";
+import { Duration, Effect, Fiber, Schedule, Stream } from "effect";
 import { Atom } from "effect/unstable/reactivity";
 import { connectionErrorMessage } from "~/lib/connection-error-message";
 import { createConnectionRefreshCoordinator } from "~/lib/connection-refresh-coordinator";
@@ -29,8 +29,8 @@ import {
 	getConnectionClient,
 	getConnectionSnapshot,
 	reportConnectionFailure,
-	retryConnectionNow,
 } from "~/rpc/connection";
+import { logConnectionDiagnostic } from "~/rpc/connection-diagnostics";
 import type { WsProtocolOptions } from "~/rpc/ws-protocol";
 import {
 	archiveCloudWorkspace,
@@ -154,6 +154,20 @@ type SnapshotStreamSupervisorOptions = {
 	readonly missingSnapshotMessage: string;
 };
 
+/**
+ * The server may end a summary stream on a healthy socket (a projection reset
+ * or a restarted subscription). Resubscribe on that same socket with a capped
+ * backoff; only a failed stream says anything about the connection.
+ */
+const SNAPSHOT_STREAM_RESUBSCRIBE = Schedule.exponential("500 millis").pipe(
+	Schedule.modifyDelay(({ duration }) =>
+		Effect.succeed(
+			Duration.millis(Math.min(Duration.toMillis(duration), 30_000)),
+		),
+	),
+	Schedule.jittered,
+);
+
 const superviseSnapshotStream = <E, R>(
 	program: Effect.Effect<void, E, R>,
 	options: SnapshotStreamSupervisorOptions,
@@ -162,11 +176,16 @@ const superviseSnapshotStream = <E, R>(
 		Effect.tap(() =>
 			Effect.sync(() => {
 				if (!options.isReady()) return;
-				const cause = new Error(options.completedMessage);
-				retryConnectionNow(options.connectionOptions);
-				setConnectionError(options.connectionKey, cause.message);
+				logConnectionDiagnostic("stream.resubscribe", {
+					key: options.connectionKey,
+					reason: options.completedMessage,
+				});
 			}),
 		),
+		Effect.repeat({
+			schedule: SNAPSHOT_STREAM_RESUBSCRIBE,
+			while: () => options.isReady(),
+		}),
 		Effect.catch((cause) =>
 			Effect.sync(() => {
 				if (!options.isReady()) {

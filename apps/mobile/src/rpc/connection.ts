@@ -1,4 +1,7 @@
-import { makeRpcClientSession } from "@zuse/client-runtime/connection";
+import {
+	isRpcCredentialExpired,
+	makeRpcClientSession,
+} from "@zuse/client-runtime/connection";
 import {
 	grantRouteEndpoints,
 	raceConnectionRoutes,
@@ -14,6 +17,8 @@ import { MemoizeRpcs, WIRE_PROTOCOL_VERSION } from "@zuse/contracts";
 import { Effect, Layer } from "effect";
 import type { RpcClient, RpcGroup } from "effect/unstable/rpc";
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
+import { captureMobileAnalytics } from "../lib/analytics";
+import { createConnectionTelemetry } from "../lib/connection-telemetry";
 import { verifyPinnedLocalServer } from "../lib/nearby-pairing";
 import { connectEnvironment } from "./api-client";
 import {
@@ -76,6 +81,7 @@ const makeClientSession = async (
 	const protocolLayer = wsClientProtocolLayer(options, {
 		openTimeout: "25 seconds",
 		makeWebSocket: makeMobileWebSocket,
+		supervised: true,
 		protocols: options.cloudProtocols,
 	}).pipe(Layer.orDie);
 	const session = await makeRpcClientSession(
@@ -162,6 +168,8 @@ const prepareOptions = async (
 	};
 };
 
+const recordConnectionTelemetry = createConnectionTelemetry();
+
 const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 	{
 		keyOf: runtimeKey,
@@ -192,7 +200,16 @@ const supervisor = createConnectionSupervisor<WsProtocolOptions, MemoizeClient>(
 		},
 		onDiagnostic: ({ event, key, details }) => {
 			logConnectionDiagnostic(`supervisor.${event}`, { key, ...details });
+			const telemetry = recordConnectionTelemetry(
+				`supervisor.${event}`,
+				key,
+				details,
+				supervisor.optionsList().find((options) => runtimeKey(options) === key),
+			);
+			if (telemetry !== null)
+				captureMobileAnalytics(telemetry.name, telemetry.properties);
 		},
+		confirmFailuresWithProbe: true,
 		isRetryableCommandError: isRetryableClientError,
 		isIgnorableFailure: isIntentionalConnectionInterruption,
 	},
@@ -240,7 +257,10 @@ export const reportConnectionFailure = (
 		key: runtimeKey(options),
 		reason: cause instanceof Error ? cause.message : String(cause),
 	});
-	connectionEntry(options).reportFailure(cause);
+	// Expiry is definitive; replace at once instead of probing a socket whose
+	// requests will keep failing with the same stale grant.
+	if (isRpcCredentialExpired(cause)) connectionEntry(options).replaceSession();
+	else connectionEntry(options).reportFailure(cause);
 };
 
 export const retryConnectionNow = (options: WsProtocolOptions): void => {
@@ -274,6 +294,19 @@ export const checkConnectionsHealth = (
 		readonly health: ConnectionHealth;
 	}[]
 > => supervisor.checkHealth(timeoutMs);
+
+/**
+ * Replace supervised sessions after a long background: suspended apps often
+ * lose sockets without a close event, so probing would only wait out a dead
+ * socket. Returns the options of the replaced connections.
+ */
+export const replaceConnectionSessions = (
+	filter: (options: WsProtocolOptions) => boolean,
+): readonly WsProtocolOptions[] => supervisor.replaceSessions(filter);
+
+/** Options of every supervised connection. */
+export const supervisedConnectionOptions = (): readonly WsProtocolOptions[] =>
+	supervisor.optionsList();
 
 export const getConnectionSnapshot = (
 	options: WsProtocolOptions,
