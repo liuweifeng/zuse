@@ -90,5 +90,5 @@
 	"hosted_archive_chat": "归档 {{title}}",
 	"hosted_restore_chat": "恢复 {{title}}",
 	"hosted_sign_in_failed": "无法登录。请检查网络连接，然后重试。",
-	"cloud_image_leave_warning": "云端镜像还有未完成的构建更改。要离开设置吗？你可以稍后回到云工作区设置继续构建。"
+	"cloud_image_leave_warning": "云端镜像还有尚未构建的更改。要离开设置吗？你可以稍后回到云工作区设置继续构建。"
 }

@@ -30,7 +30,7 @@
 	"quitTitle": "退出 Zuse（测试版）？",
 	"quitAnyway": "仍要退出",
 	"quitWhenIdle": "空闲时退出",
-	"quitDetail": "现在退出会中断正在运行的智能体。你可以仍要退出，或让 Zuse 在任务完成后自动退出。",
+	"quitDetail": "现在退出会中断正在运行的智能体。你仍可以立即退出，或让 Zuse 在任务完成后自动退出。",
 	"runningAgents": "{{count}} 个智能体正在运行。",
 	"runningAgents_one": "{{count}} 个智能体正在运行。",
 	"runningAgents_other": "{{count}} 个智能体正在运行。"

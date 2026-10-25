@@ -97,7 +97,7 @@
 	"cloud_machines_pane_loading_cloud_machine": "正在加载云主机",
 	"cloud_machines_pane_persistent_cloud_machine": "常驻云主机",
 	"cloud_machines_pane_a_private_always_on_development_computer_managed_by_zuse": "由 Zuse 管理的私有、始终在线的开发电脑。",
-	"cloud_machines_pane_checkout": "检出",
+	"cloud_machines_pane_checkout": "结账",
 	"cloud_machines_pane_reopen": "重新打开",
 	"cloud_machines_pane_backups_and_network": "备份和网络",
 	"cloud_machines_pane_automatic_backups_included_public_inbound_traffic_is_blocked": "含自动备份。公共入站流量已被拦截。",

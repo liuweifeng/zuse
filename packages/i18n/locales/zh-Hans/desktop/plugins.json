@@ -103,7 +103,7 @@
 	"plugins_api_key_placeholder": "此账户的密钥",
 	"plugins_remove_server": "移除服务器",
 	"plugins_remove_server_title": "移除 {{name}}？",
-	"plugins_remove_server_description": "这会断开所有账号，并从此工作区移除该服务器。智能体将立即失去访问权限。",
+	"plugins_remove_server_description": "这会断开所有账户，并从此工作区移除该服务器。智能体将立即失去访问权限。",
 	"plugins_remove_server_done": "已移除 {{name}}",
 	"plugins_remove_server_failed": "无法移除 {{name}}。请重试。",
 	"plugins_manage_admins_only": "只有组织管理员可以更改此工作区的插件。",
