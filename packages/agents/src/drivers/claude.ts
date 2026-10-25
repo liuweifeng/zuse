@@ -1174,6 +1174,11 @@ const translateMessage = (
 					itemId: backgroundTaskItemId,
 					output: msg.summary,
 					isError: msg.status !== "completed",
+					// Older CLIs may report statuses outside the typed union.
+					backgroundOutcome:
+						msg.status === "completed" || msg.status === "stopped"
+							? msg.status
+							: "failed",
 				},
 			];
 		}

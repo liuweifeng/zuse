@@ -386,11 +386,20 @@ const ToolUseEvent = Schema.TaggedStruct("ToolUse", {
 	),
 });
 
+/** How a background process ended; `stopped` covers user and parent stops. */
+export const BackgroundTaskOutcome = Schema.Literals([
+	"completed",
+	"failed",
+	"stopped",
+]);
+export type BackgroundTaskOutcome = typeof BackgroundTaskOutcome.Type;
+
 const ToolResultEvent = Schema.TaggedStruct("ToolResult", {
 	itemId: AgentItemId,
 	output: Schema.Unknown,
 	isError: Schema.Boolean,
 	parentItemId: Schema.optional(AgentItemId),
+	backgroundOutcome: Schema.optional(BackgroundTaskOutcome),
 });
 
 const PermissionRequestEvent = Schema.TaggedStruct("PermissionRequest", {
