@@ -35,6 +35,7 @@ export const makeStripeBillingStorePg = (
 		withSubscriptionLock: (accountId, operation) =>
 			run(
 				Effect.gen(function* () {
+					yield* sql`SET LOCAL lock_timeout = '15s'`;
 					const rows =
 						yield* sql`SELECT account_id FROM api_stripe_customers WHERE account_id=${accountId} FOR UPDATE`;
 					if (rows.length !== 1)

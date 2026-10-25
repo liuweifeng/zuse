@@ -173,6 +173,43 @@ it.skipIf(!connectionString)(
 				await stripe.withSubscriptionLock("account", async () => "released"),
 			).toBe("released");
 
+			// A contending request must fail before starting any remote operation.
+			await db.query("BEGIN");
+			await db.query(
+				"SELECT account_id FROM api_stripe_customers WHERE account_id='account' FOR UPDATE",
+			);
+			let operationStarted = false;
+			const waiting = stripe
+				.withSubscriptionLock("account", async () => {
+					operationStarted = true;
+				})
+				.then(
+					() => "unexpected-success",
+					(error: unknown) => error,
+				);
+			let timer: ReturnType<typeof setTimeout> | undefined;
+			let outcome: unknown;
+			try {
+				outcome = await Promise.race([
+					waiting,
+					new Promise<string>((resolve) => {
+						timer = setTimeout(() => resolve("unbounded-lock-wait"), 18_000);
+					}),
+				]);
+			} finally {
+				clearTimeout(timer);
+				await db.query("ROLLBACK");
+				await waiting;
+			}
+			expect(outcome).toMatchObject({
+				_tag: "SqlError",
+				reason: { cause: { code: "55P03" } },
+			});
+			expect(operationStarted).toBe(false);
+			expect(
+				await stripe.withSubscriptionLock("account", async () => "retried"),
+			).toBe("retried");
+
 			await stripe.reserveCustomer("scan-account");
 			await db.query(
 				"UPDATE api_stripe_customers SET created_at=created_at-86400000 WHERE account_id='scan-account'",

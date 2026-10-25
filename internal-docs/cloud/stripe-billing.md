@@ -381,8 +381,10 @@ An existing matching active or trialing subscription is preserved; incomplete,
 unpaid, paused, past-due, conflicting or ambiguous subscriptions require
 reconciliation without completing the activation receipt. Normal subscription
 checkout and prepaid activation share a transaction-scoped lock on the account's
-Stripe customer row. Both paths expire older open subscription checkouts for
-the offer before inspecting subscriptions, including checkouts identified by
+Stripe customer row. Waiting for that lock times out after 15 seconds, before
+the protected operation starts; checkout returns a retryable provider error and
+webhook delivery releases its lease for retry. Both paths expire older open
+subscription checkouts for the offer before inspecting subscriptions, including checkouts identified by
 price when older metadata is absent. A checkout completing during expiry is
 retrieved canonically and its subscription is adopted instead of creating a
 second one. If expiry cannot be confirmed, creation stops for reconciliation.
