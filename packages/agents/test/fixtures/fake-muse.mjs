@@ -9,6 +9,7 @@ const output = (message) =>
 let cursor = 0;
 let sessionId = "native-muse-session";
 let turnId;
+let running = false;
 let approval;
 let gapEvents = [];
 const event = (method, params) =>
@@ -21,7 +22,8 @@ const event = (method, params) =>
 			...params,
 		},
 	});
-const finish = (terminal = "completed") =>
+const finish = (terminal = "completed") => {
+	running = false;
 	event("turn/completed", {
 		turnId,
 		terminal,
@@ -32,6 +34,7 @@ const finish = (terminal = "completed") =>
 			reasoningTokens: 0,
 		},
 	});
+};
 const item = {
 	itemId: "message",
 	kind: "agentMessage",
@@ -134,12 +137,14 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			break;
 		case "session/compact":
 			turnId = params.commandId;
+			running = true;
 			reply({ commandId: params.commandId, status: "accepted" });
 			event("turn/started", { turnId });
 			finish();
 			break;
 		case "turn/start": {
 			turnId = params.commandId;
+			running = true;
 			reply({ turnId, commandId: params.commandId, status: "accepted" });
 			event("turn/started", { turnId });
 			const text = params.displayText;
@@ -263,7 +268,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 			break;
 		case "turn/interrupt":
 			reply({ commandId: params.commandId, status: "accepted", turnId });
-			finish("cancelled");
+			if (running) finish("cancelled");
 			break;
 		default:
 			reply({});

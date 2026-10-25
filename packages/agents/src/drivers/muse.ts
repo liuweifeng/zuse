@@ -569,6 +569,7 @@ export const startMuseSession = (
 						const reasoningEffort = allowedEfforts.find(
 							(value) => value === effort,
 						);
+						const workspaceRoot = await museWorkspaceRoot(cwd);
 						if (interrupted || closed) {
 							if (!closed) emit({ _tag: "Interrupted" });
 							return;
@@ -592,11 +593,16 @@ export const startMuseSession = (
 							turn = await live.sendUserTurn({
 								input: inputParts,
 								displayText: text,
-								workspaceRoots: [await museWorkspaceRoot(cwd)],
+								workspaceRoots: [workspaceRoot],
 								...(reasoningEffort ? { reasoningEffort } : {}),
 							});
 						}
 						active = turn;
+						if (interrupted && !closed && !failed)
+							await connection.command("turn/interrupt", {
+								sessionId: live.sessionId,
+								turnId: turn.turnId,
+							});
 						instructions = undefined;
 						const outcome = await turn.completed;
 						await recovery;
@@ -636,10 +642,10 @@ export const startMuseSession = (
 			interrupt: () =>
 				attempt(async () => {
 					interrupted = true;
-					if (active || sending)
+					if (active)
 						await connection.command("turn/interrupt", {
 							sessionId: live.sessionId,
-							...(active ? { turnId: active.turnId } : {}),
+							turnId: active.turnId,
 						});
 				}).pipe(Effect.catch((error) => Effect.sync(() => fail(error)))),
 			close: () => Effect.promise(close),

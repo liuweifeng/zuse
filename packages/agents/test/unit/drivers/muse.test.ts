@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Session } from "@muse-code/sdk";
 import {
 	type AgentEvent,
 	AgentItemId,
@@ -14,6 +15,7 @@ import {
 import { Effect, Fiber, Stream } from "effect";
 import { afterEach, expect, it, vi } from "vitest";
 import { startMuseSession } from "../../../src/drivers/muse.ts";
+import * as museClient from "../../../src/drivers/muse-client.ts";
 import {
 	loadMuseInventory,
 	museEnvironment,
@@ -28,6 +30,7 @@ const binary = fileURLToPath(
 const cleanups: Array<() => Promise<unknown>> = [];
 afterEach(async () => {
 	vi.unstubAllEnvs();
+	vi.restoreAllMocks();
 	for (const close of cleanups.splice(0).reverse()) await close();
 });
 const directory = async () => {
@@ -321,4 +324,75 @@ it("renders recovered final text before completing a turn after a delivery gap",
 	);
 	expect(reply).toBeGreaterThanOrEqual(0);
 	expect(reply).toBeLessThan(events.findIndex((e) => e._tag === "Completed"));
+});
+
+it("does not submit a turn when Stop arrives during workspace resolution", async () => {
+	const cwd = await directory();
+	const { handle, events } = await start(cwd);
+	let release = () => {};
+	const barrier = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const resolveRoot = vi
+		.spyOn(museClient, "museWorkspaceRoot")
+		.mockImplementationOnce(async () => {
+			await barrier;
+			return cwd;
+		});
+	const sending = Effect.runPromise(handle.send("hello"));
+	try {
+		await waitFor(() => resolveRoot.mock.calls.length === 1);
+		await Effect.runPromise(handle.interrupt());
+	} finally {
+		release();
+	}
+	await sending;
+	await waitFor(() =>
+		events.some((e) => e._tag === "Interrupted" || e._tag === "Completed"),
+	);
+	expect(
+		(await commands(cwd)).filter((c) => c.method === "turn/start"),
+	).toEqual([]);
+	expect(events.filter((e) => e._tag === "Interrupted")).toHaveLength(1);
+	expect(events.some((e) => e._tag === "Completed" || e._tag === "Error")).toBe(
+		false,
+	);
+});
+it("carries Stop through turn creation and interrupts the returned turn ID", async () => {
+	const cwd = await directory();
+	const { handle, events } = await start(cwd);
+	let release = () => {};
+	const barrier = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const submit = Session.prototype.sendUserTurn;
+	const creating = vi
+		.spyOn(Session.prototype, "sendUserTurn")
+		.mockImplementationOnce(async function (this: Session, options) {
+			await barrier;
+			return submit.call(this, options);
+		});
+	const sending = Effect.runPromise(handle.send("hello"));
+	try {
+		await waitFor(() => creating.mock.calls.length === 1);
+		await Effect.runPromise(handle.interrupt());
+	} finally {
+		release();
+	}
+	await sending;
+	await waitFor(() =>
+		events.some((e) => e._tag === "Interrupted" || e._tag === "Completed"),
+	);
+	const calls = await commands(cwd);
+	const started = calls.find((c) => c.method === "turn/start");
+	expect(calls).toContainEqual(
+		expect.objectContaining({
+			method: "turn/interrupt",
+			params: expect.objectContaining({ turnId: started.params.commandId }),
+		}),
+	);
+	expect(events.filter((e) => e._tag === "Interrupted")).toHaveLength(1);
+	expect(events.some((e) => e._tag === "Completed" || e._tag === "Error")).toBe(
+		false,
+	);
 });
