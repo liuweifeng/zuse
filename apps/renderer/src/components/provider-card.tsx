@@ -3,6 +3,7 @@ import { providerDisplayName } from "~/lib/provider-labels";
 import { CopyButton } from "./copy-button.tsx";
 import { ProviderAccountsControls } from "./provider-accounts.tsx";
 import "@zuse/i18n/english/providers";
+import "@zuse/i18n/english/settings";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { AgentAvailability, ProviderId } from "@zuse/contracts";
 import { RichMessage, useMessages as useUiMessages } from "@zuse/i18n/react";
@@ -833,7 +834,7 @@ function CodeRow({ label, command }: { label: string; command: string }) {
 }
 
 function ProviderBinaryPath({ providerId }: { providerId: "pi" | "muse" }) {
-	const { message: uiMessage } = useUiMessages(["providers"]);
+	const { message: uiMessage } = useUiMessages(["providers", "settings"]);
 	const inputId = useId();
 	const saved = useSettingsStore(
 		(s) => s.providerBinaryPaths?.[providerId] ?? "",
@@ -845,7 +846,7 @@ function ProviderBinaryPath({ providerId }: { providerId: "pi" | "muse" }) {
 		<label htmlFor={inputId} className="flex flex-col gap-1.5">
 			<span className="text-[11px] font-medium text-muted-foreground">
 				{providerId === "muse"
-					? "Muse Code binary path"
+					? uiMessage("settings:acp_agents_executable")
 					: uiMessage("providers:pi_binary_path")}
 			</span>
 			<Input
@@ -853,12 +854,12 @@ function ProviderBinaryPath({ providerId }: { providerId: "pi" | "muse" }) {
 				className="h-7 rounded-md bg-muted/50 px-2 text-xs"
 				aria-label={
 					providerId === "muse"
-						? "Muse Code binary path"
+						? uiMessage("settings:acp_agents_executable")
 						: uiMessage("providers:pi_binary_path")
 				}
 				placeholder={
 					providerId === "muse"
-						? "/absolute/path/to/muse"
+						? undefined
 						: uiMessage("providers:pi_binary_placeholder")
 				}
 				value={value}
@@ -866,9 +867,7 @@ function ProviderBinaryPath({ providerId }: { providerId: "pi" | "muse" }) {
 				onBlur={() => save(providerId, value)}
 			/>
 			<span className="text-[11px] text-muted-foreground">
-				{providerId === "muse"
-					? "Leave empty to find muse on PATH."
-					: uiMessage("providers:pi_binary_help")}
+				{uiMessage("providers:pi_binary_help")}
 			</span>
 		</label>
 	);
