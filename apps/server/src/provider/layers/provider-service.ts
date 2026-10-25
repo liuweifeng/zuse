@@ -6,6 +6,7 @@ import { startGenericAcpSession } from "@zuse/agents/drivers/generic-acp";
 import { startGrokSession } from "@zuse/agents/drivers/grok";
 import { HtmlTools } from "@zuse/agents/drivers/html-tools";
 import { startKiroSession } from "@zuse/agents/drivers/kiro";
+import { startMuseSession } from "@zuse/agents/drivers/muse";
 import { startOpencodeSession } from "@zuse/agents/drivers/opencode";
 import { startOpencode2Session } from "@zuse/agents/drivers/opencode2";
 import { startPiSession } from "@zuse/agents/drivers/pi";
@@ -742,7 +743,9 @@ export const ProviderServiceLive = Layer.effect(
 							: null;
 					let managedMcp: McpGatewayHttpServer | undefined;
 					if (
-						["cursor", "opencode", "opencode2", "pi"].includes(input.providerId)
+						["cursor", "opencode", "opencode2", "pi", "muse"].includes(
+							input.providerId,
+						)
 					) {
 						managedPlugins = yield* Effect.tryPromise({
 							try: async (signal) => {
@@ -926,6 +929,31 @@ export const ProviderServiceLive = Layer.effect(
 									geminiMcpCommand,
 									sessionTools,
 									resumeCursor,
+								).pipe(
+									Effect.provideService(AttachmentService, attachmentService),
+								);
+							} else if (input.providerId === "muse") {
+								const binary = yield* resolveCliPath("muse", binaryPaths).pipe(
+									Effect.provideService(
+										CommandExecutor.ChildProcessSpawner,
+										executor,
+									),
+								);
+								if (!binary)
+									return yield* new AgentSessionStartError({
+										providerId: "muse",
+										reason:
+											"Muse Code CLI not found. Install Muse Code and run muse login on this computer.",
+									});
+								providerHandle = yield* startMuseSession(
+									driverInput,
+									cwd,
+									binary,
+									sessionId,
+									requestPermission,
+									runtimeModeGetter,
+									resumeCursor,
+									managedMcp,
 								).pipe(
 									Effect.provideService(AttachmentService, attachmentService),
 								);

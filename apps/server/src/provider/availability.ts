@@ -56,6 +56,14 @@ export const MIN_GROK_CLI_VERSION: CliVersion = {
 
 const PROBES: ReadonlyArray<ProviderProbe> = [
 	{
+		...PROVIDER_CLI_REGISTRY.muse,
+		minVersion: { major: 1, minor: 4, patch: 6, raw: "1.4.6" },
+		upgradeCommand: null,
+		npmPackage: null,
+		homebrewFormula: null,
+		nativeUpdate: null,
+	},
+	{
 		...PROVIDER_CLI_REGISTRY.pi,
 		minVersion: null,
 		upgradeCommand:
@@ -1002,6 +1010,11 @@ const probeAccount = (
 			return Effect.succeed({ authStatus: "unknown" } satisfies AccountInfo);
 		case "kiro":
 			return probeKiroAccount;
+		case "muse":
+			return Effect.succeed({
+				authStatus: "unknown",
+				authLabel: "Managed by Muse Code",
+			});
 		case "pi":
 			return Effect.succeed({
 				cliLoggedIn: false,

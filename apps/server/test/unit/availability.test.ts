@@ -76,6 +76,7 @@ describe("supported provider CLIs", () => {
 			["gemini", "gemini"],
 			["opencode", "opencode"],
 			["opencode2", "opencode2"],
+			["muse", "muse"],
 			["pi", "pi"],
 			["kiro", "kiro-cli"],
 		]);
