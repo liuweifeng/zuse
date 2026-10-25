@@ -2,7 +2,7 @@
 
 Install Muse Code 1.4.6 or newer on the computer hosting the Zuse server, then run `muse login` there. Enable Muse Code in provider settings. If `muse` is outside PATH, set its absolute binary path in the same settings panel.
 
-The driver uses the pinned `@muse-code/sdk` and Muse Session Protocol. Models and reasoning tiers come from the host's `model/list`; there are no speculative bundled model IDs. Discovery does not establish authentication: a cached catalog can be available while logged out. Authentication failures surface when sending a turn.
+The driver uses the pinned `@muse-code/sdk` and Muse Session Protocol. Models come from the host's `model/list`; there are no speculative bundled model IDs. Reasoning tiers use the host's variants when supplied, with `low`, `medium`, `high`, `xhigh`, and `max` as the fallback when variants are missing or unknown. Discovery does not establish authentication: a cached catalog can be available while logged out. Authentication failures surface when sending a turn.
 
 Sessions retain the native session ID and resume it directly. A missing session is an error rather than an implicit replacement. Each turn supplies the current checkout as its workspace root. The driver supports streamed text and reasoning, tool results, native questions, image attachments, usage, interruption, `/compact`, and the session MCP gateway. Workflow and other item kinds use generic tool presentation. Native plan mode is not advertised.
 
