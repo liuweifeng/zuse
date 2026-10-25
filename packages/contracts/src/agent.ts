@@ -23,6 +23,7 @@ export const BuiltinProviderId = Schema.Literals([
 	"opencode2",
 	"kiro",
 	"pi",
+	"muse",
 	"zuse",
 ]);
 export type BuiltinProviderId = typeof BuiltinProviderId.Type;
@@ -515,6 +516,7 @@ export const ProviderResumeStrategy = Schema.Literals([
 	"opencode2-session-id",
 	"kiro-session-id",
 	"pi-session-file",
+	"muse-session-id",
 	"zuse-execution-id",
 ]);
 export type ProviderResumeStrategy = typeof ProviderResumeStrategy.Type;

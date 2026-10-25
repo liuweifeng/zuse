@@ -69,6 +69,8 @@ export function ProviderIcon({
 					<path d={zuseMark.path} transform={zuseMark.transform} />
 				</svg>
 			);
+		case "muse":
+			return <Bot className={sized} {...props} />;
 		case "pi":
 			return (
 				<svg

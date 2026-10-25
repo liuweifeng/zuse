@@ -43,6 +43,7 @@ import { useProviderModels } from "~/store/model-catalog";
 import { useProviderUpdate } from "~/store/providers";
 
 const LOGIN_HINT: Partial<Record<ProviderId, string>> = {
+	muse: "muse login",
 	claude: "claude /login",
 	codex: "codex login",
 	grok: "grok login",
@@ -311,9 +312,10 @@ function ProviderConfiguration({
 	}
 	return (
 		<>
+			{providerId === "muse" && <ProviderBinaryPath providerId="muse" />}
 			{providerId === "pi" && (
 				<div className="flex flex-col gap-1.5">
-					<PiBinaryPath />
+					<ProviderBinaryPath providerId="pi" />
 					<p className="text-[11px] text-muted-foreground">
 						<RichMessage
 							id="providers:pi_setup_hint"
@@ -342,7 +344,7 @@ function ProviderConfiguration({
 					</p>
 				</div>
 			)}
-			{providerId !== "pi" && (
+			{providerId !== "pi" && providerId !== "muse" && (
 				<div className="flex flex-col gap-1.5">
 					{providerId !== "cursor" && (
 						<span className="text-[11px] font-medium text-muted-foreground">
@@ -830,29 +832,43 @@ function CodeRow({ label, command }: { label: string; command: string }) {
 	);
 }
 
-function PiBinaryPath() {
+function ProviderBinaryPath({ providerId }: { providerId: "pi" | "muse" }) {
 	const { message: uiMessage } = useUiMessages(["providers"]);
 	const inputId = useId();
-	const saved = useSettingsStore((s) => s.providerBinaryPaths?.pi ?? "");
+	const saved = useSettingsStore(
+		(s) => s.providerBinaryPaths?.[providerId] ?? "",
+	);
 	const save = useSettingsStore((s) => s.setProviderBinaryPath);
 	const [value, setValue] = useState(saved);
 	useEffect(() => setValue(saved), [saved]);
 	return (
 		<label htmlFor={inputId} className="flex flex-col gap-1.5">
 			<span className="text-[11px] font-medium text-muted-foreground">
-				{uiMessage("providers:pi_binary_path")}
+				{providerId === "muse"
+					? "Muse Code binary path"
+					: uiMessage("providers:pi_binary_path")}
 			</span>
 			<Input
 				id={inputId}
 				className="h-7 rounded-md bg-muted/50 px-2 text-xs"
-				aria-label={uiMessage("providers:pi_binary_path")}
-				placeholder={uiMessage("providers:pi_binary_placeholder")}
+				aria-label={
+					providerId === "muse"
+						? "Muse Code binary path"
+						: uiMessage("providers:pi_binary_path")
+				}
+				placeholder={
+					providerId === "muse"
+						? "/absolute/path/to/muse"
+						: uiMessage("providers:pi_binary_placeholder")
+				}
 				value={value}
 				onChange={(event) => setValue(event.target.value)}
-				onBlur={() => save("pi", value)}
+				onBlur={() => save(providerId, value)}
 			/>
 			<span className="text-[11px] text-muted-foreground">
-				{uiMessage("providers:pi_binary_help")}
+				{providerId === "muse"
+					? "Leave empty to find muse on PATH."
+					: uiMessage("providers:pi_binary_help")}
 			</span>
 		</label>
 	);
